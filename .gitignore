@@ -1,0 +1,26 @@
+# v0 sandbox internal files
+__v0_runtime_loader.js
+__v0_devtools.tsx
+__v0_jsx-dev-runtime.ts
+.snowflake/
+.v0-trash/
+.vercel/
+
+# Environment variables
+.env*.local
+
+# Common ignores
+node_modules
+.next/
+.DS_Store
+*.tsbuildinfo
+
+# Local tooling/debug artifacts
+.codex-build*
+.codex-goods-build-failed
+.next-dev.log
+.next-dev-error.log
+diag-files.png
+
+# Local Claude Code settings
+.claude/settings.local.json
