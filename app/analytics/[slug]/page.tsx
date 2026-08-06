@@ -46,6 +46,11 @@ import { ExpectedExpensesView } from "@/components/analytics/expected-expenses-v
 import { StoreReconciliationBotView } from "@/components/analytics/store-reconciliation-bot-view"
 import { LoyaltyCardView } from "@/components/analytics/loyalty-card-view"
 import { DebtLimitsView } from "@/components/analytics/debt-limits-view"
+import { QuestionnaireView } from "@/components/analytics/questionnaire-view"
+import { SurveyPlanView } from "@/components/analytics/survey-plan-view"
+import { TelegramBotPagesView } from "@/components/analytics/telegram-bot-pages-view"
+import { RefusalTypesView } from "@/components/analytics/refusal-types-view"
+import { ShiftsView } from "@/components/analytics/shifts-view"
 import {
   getAnalyticsReport,
   getAnalyticsResource,
@@ -261,6 +266,26 @@ export default async function AnalyticsPage({ params }: PageProps) {
 
   if (report.slug === "debt-limits") {
     return <DebtLimitsView />
+  }
+
+  if (report.slug === "surveys") {
+    return <QuestionnaireView />
+  }
+
+  if (report.slug === "survey-plans") {
+    return <SurveyPlanView />
+  }
+
+  if (report.slug === "telegram-pages") {
+    return <TelegramBotPagesView />
+  }
+
+  if (report.slug === "refusal-types") {
+    return <RefusalTypesView />
+  }
+
+  if (report.slug === "shifts") {
+    return <ShiftsView />
   }
 
   return <AnalyticsReportView report={report} />

@@ -201,14 +201,14 @@ export function EquipmentEfficiencyView() {
             <span className="font-medium text-blue-600">{filters.organization === selectOptions.organization[0] ? "Во всей организации" : filters.organization}</span>
           </div>
           <button onClick={downloadExcel} className="flex items-center gap-2 rounded-md bg-emerald-400 px-5 py-3 font-semibold text-white">
-            <BarChart3 className="h-5 w-5" /> Скачать Excel
+            <BarChart3 className="h-5 w-5" /> Скачать
           </button>
         </div>
 
         <div className="grid border md:grid-cols-4">
           <div className="space-y-3 border-r p-4">
             <div><p className="text-slate-500">ОКВ / ОКВ с оборудованием</p><b>4 294 / 18 (0,419 %) <span className="text-blue-600">22</span></b></div>
-            <div><p className="text-slate-500">АКВ / АКВ с оборудованием</p><b>{mode === "created" ? "2" : "1"} / 0 (0 %) <span className="text-blue-600">0</span></b></div>
+            <div><p className="text-slate-500">АКВ / АКВ с оборудованием</p><b>0 / 0 (0 %) <span className="text-blue-600">0</span></b></div>
           </div>
           <div className="space-y-3 border-r p-4">
             <div><p className="text-slate-500">Средний чек одного оборудования</p><b>0 SUM</b></div>
@@ -219,7 +219,7 @@ export function EquipmentEfficiencyView() {
             <div><p className="text-slate-500">Больше 3 000 000 SUM</p><b>0 шт. (0%) <span className="text-blue-600">0</span></b></div>
           </div>
           <div className="space-y-3 p-4 text-right">
-            <div><p className="text-slate-500">Фактическая продажа</p><b>{mode === "created" ? "806,35" : "17,6"} SUM</b></div>
+            <div><p className="text-slate-500">Фактическая продажа</p><b>0 SUM</b></div>
             <div><p className="text-slate-500">С оборудованием</p><b>0 SUM (0 %)</b></div>
           </div>
         </div>

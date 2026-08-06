@@ -25,8 +25,8 @@ const columns = [
       ["Маркетинговые акции", "/analytics/marketing-campaigns"],
       ["Бонусы клиентов", "/analytics/client-bonuses"],
       ["Рассылка", "/analytics/mailing"],
-      ["Опросник", "/analytics/questionnaire"],
-      ["План опроса", "/analytics/survey-plan"],
+      ["Опросник", "/analytics/surveys"],
+      ["План опроса", "/analytics/survey-plans"],
     ],
   },
   {

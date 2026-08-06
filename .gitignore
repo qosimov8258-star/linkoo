@@ -24,3 +24,7 @@ diag-files.png
 
 # Local Claude Code settings
 .claude/settings.local.json
+
+# Ad-hoc reference screenshots pasted into public/ during development
+/public/image.png
+/public/image copy*.png
