@@ -1,6 +1,7 @@
 "use client"
 
 import { useMemo, useState } from "react"
+import { useRouter } from "next/navigation"
 import {
   CalendarDays,
   ChevronLeft,
@@ -73,12 +74,13 @@ function WeekendModal({ onClose, selected, setSelected }: { onClose: () => void;
 }
 
 function AgentDrawer({ name, onClose }: { name: string; onClose: () => void }) {
+  const router = useRouter()
   return (
     <aside className="fixed bottom-0 right-0 top-16 z-[900] flex w-[52vw] min-w-[720px] flex-col bg-slate-50 shadow-2xl">
       <header className="flex items-center gap-4 border-b bg-white px-6 py-4">
         <span className="flex h-10 w-10 items-center justify-center rounded-full bg-slate-500 text-white"><UserRound /></span>
         <strong>{name}</strong>
-        <button type="button" className="ml-auto text-sky-500">Посмотреть на карте</button>
+        <button type="button" onClick={() => router.push("/tracking")} className="ml-auto text-sky-500">Посмотреть на карте</button>
         <button type="button" onClick={onClose}><X /></button>
       </header>
       <div className="grid grid-cols-2 border-b bg-white px-7 py-4">

@@ -1,6 +1,26 @@
+"use client"
+
 import Link from "next/link"
+import { useState } from "react"
+
+type Field = { key: "username" | "email" | "role" | "phone"; label: string; editable: boolean }
+
+const fields: Field[] = [
+  { key: "username", label: "Имя пользователя", editable: true },
+  { key: "email", label: "Электронная почта", editable: true },
+  { key: "role", label: "Роль", editable: false },
+  { key: "phone", label: "Телефон", editable: true },
+]
 
 export default function SettingsProfilePage() {
+  const [values, setValues] = useState<Record<Field["key"], string>>({
+    username: "admin",
+    email: "admin@linko.local",
+    role: "Администратор",
+    phone: "+998 90 123 45 67",
+  })
+  const [editing, setEditing] = useState(false)
+
   return (
     <main className="min-h-[calc(100vh-4rem)] bg-slate-100 px-4 py-6 sm:px-6 lg:px-8">
       <div className="mx-auto max-w-[1320px]">
@@ -23,15 +43,18 @@ export default function SettingsProfilePage() {
 
         <section className="rounded-3xl bg-white p-8 shadow-sm">
           <div className="grid gap-6 lg:grid-cols-2">
-            {[
-              { label: "Имя пользователя", value: "admin" },
-              { label: "Электронная почта", value: "admin@linko.local" },
-              { label: "Роль", value: "Администратор" },
-              { label: "Телефон", value: "+998 90 123 45 67" },
-            ].map((field) => (
-              <div key={field.label} className="rounded-3xl border border-slate-200 bg-slate-50 p-6">
+            {fields.map((field) => (
+              <div key={field.key} className="rounded-3xl border border-slate-200 bg-slate-50 p-6">
                 <p className="text-sm font-semibold text-slate-500">{field.label}</p>
-                <p className="mt-2 text-lg font-medium text-slate-900">{field.value}</p>
+                {editing && field.editable ? (
+                  <input
+                    value={values[field.key]}
+                    onChange={(event) => setValues((current) => ({ ...current, [field.key]: event.target.value }))}
+                    className="mt-2 block w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-lg font-medium text-slate-900 outline-none focus:border-brand-blue"
+                  />
+                ) : (
+                  <p className="mt-2 text-lg font-medium text-slate-900">{values[field.key]}</p>
+                )}
               </div>
             ))}
           </div>
@@ -41,8 +64,11 @@ export default function SettingsProfilePage() {
               <h2 className="text-xl font-bold text-slate-900">Управление профилем</h2>
               <p className="mt-1 text-sm text-slate-600">Настройки аккаунта и параметры входа.</p>
             </div>
-            <button className="rounded-full bg-brand-blue px-5 py-3 text-sm font-semibold text-white transition-colors hover:bg-brand-blue-dark">
-              Редактировать профиль
+            <button
+              onClick={() => setEditing((value) => !value)}
+              className="rounded-full bg-brand-blue px-5 py-3 text-sm font-semibold text-white transition-colors hover:bg-brand-blue-dark"
+            >
+              {editing ? "Сохранить" : "Редактировать профиль"}
             </button>
           </div>
         </section>

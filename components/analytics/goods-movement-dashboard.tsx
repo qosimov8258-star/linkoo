@@ -84,8 +84,13 @@ export function GoodsMovementView() {
   const [tab, setTab] = useState<Tab>("movement")
   const [query, setQuery] = useState("")
   const [filterOpen, setFilterOpen] = useState(false)
+  const [page, setPage] = useState(1)
+  const pageSize = 25
   const config = configs[tab]
   const rows = useMemo(() => config.rows.filter((row) => Object.values(row).join(" ").toLowerCase().includes(query.toLowerCase())), [config, query])
+  const pageCount = Math.max(1, Math.ceil(rows.length / pageSize))
+  const safePage = Math.min(page, pageCount)
+  const shown = rows.slice((safePage - 1) * pageSize, safePage * pageSize)
 
   if (tab === "movement") {
     return <MaterialReportView />
@@ -105,19 +110,19 @@ export function GoodsMovementView() {
 
   return <div className="relative space-y-6 pb-8">
     <div className="grid grid-cols-5 overflow-hidden rounded-sm bg-white shadow">
-      {tabs.map((item) => <button key={item.id} onClick={() => { setTab(item.id); setQuery("") }} className={`h-16 border-b-4 text-[17px] transition ${tab === item.id ? "border-[#526fe4] text-[#526fe4]" : "border-transparent text-slate-900 hover:bg-slate-50"}`}>{item.label}</button>)}
+      {tabs.map((item) => <button key={item.id} onClick={() => { setTab(item.id); setQuery(""); setPage(1) }} className={`h-16 border-b-4 text-[17px] transition ${tab === item.id ? "border-[#526fe4] text-[#526fe4]" : "border-transparent text-slate-900 hover:bg-slate-50"}`}>{item.label}</button>)}
     </div>
 
     <section className="overflow-hidden rounded-sm bg-white shadow">
       <div className="flex h-16 items-center gap-8 px-2">
         <button onClick={() => setFilterOpen((value) => !value)} className="flex items-center gap-1 text-[#526fe4]"><Filter className="h-4 w-4" />Показать фильтр⌄</button>
-        <label className="relative ml-72 w-96 max-w-[30vw]"><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Поиск" className="w-full border-b border-slate-300 px-1 py-2 outline-none focus:border-[#526fe4]"/><Search className="absolute right-1 top-2 h-6 w-6 text-slate-300" /></label>
-        <div className="ml-auto flex items-center gap-5 text-slate-500"><span>25⌄</span><span>1 - {Math.min(25, rows.length)} из {rows.length}</span><button aria-label="Назад"><ChevronLeft /></button><button aria-label="Вперед"><ChevronRight /></button><button onClick={downloadExcel} title="Скачать Excel"><Download className="h-6 w-6 text-slate-600" /></button></div>
+        <label className="relative ml-72 w-96 max-w-[30vw]"><input value={query} onChange={(event) => { setQuery(event.target.value); setPage(1) }} placeholder="Поиск" className="w-full border-b border-slate-300 px-1 py-2 outline-none focus:border-[#526fe4]"/><Search className="absolute right-1 top-2 h-6 w-6 text-slate-300" /></label>
+        <div className="ml-auto flex items-center gap-5 text-slate-500"><span>25⌄</span><span>{rows.length ? (safePage - 1) * pageSize + 1 : 0} - {Math.min(safePage * pageSize, rows.length)} из {rows.length}</span><button onClick={() => setPage((value) => Math.max(1, value - 1))} disabled={safePage <= 1} aria-label="Назад" className="disabled:opacity-30"><ChevronLeft /></button><button onClick={() => setPage((value) => Math.min(pageCount, value + 1))} disabled={safePage >= pageCount} aria-label="Вперед" className="disabled:opacity-30"><ChevronRight /></button><button onClick={downloadExcel} title="Скачать Excel"><Download className="h-6 w-6 text-slate-600" /></button></div>
       </div>
       <div className="overflow-x-auto">
         <table className="w-full min-w-[1100px] border-collapse text-left text-[16px]">
           <thead className="bg-[#626b7e] text-white"><tr>{config.headers.map(([key, title]) => <th key={key} className="h-16 px-9 font-semibold">{title}</th>)}</tr></thead>
-          <tbody>{rows.map((row, index) => <tr key={`${tab}-${index}`} className="h-[62px] border-b border-dashed border-slate-200 even:bg-[#f2f6f9]">{config.headers.map(([key]) => <td key={key} className="px-9">{key === "product" ? <span className="flex items-center gap-2">{row.dir === "up" ? <ArrowUp className="h-4 w-4 text-red-400" /> : <ArrowDown className="h-4 w-4 text-green-500" />}{String(row[key])}</span> : key === "type" && /\d/.test(String(row[key])) ? <span>{String(row[key]).replace(/(\d+)/, "")} <b className="font-normal text-sky-500">{String(row[key]).match(/\d+/)?.[0]}</b></span> : String(row[key] ?? "")}</td>)}</tr>)}</tbody>
+          <tbody>{shown.map((row, index) => <tr key={`${tab}-${index}`} className="h-[62px] border-b border-dashed border-slate-200 even:bg-[#f2f6f9]">{config.headers.map(([key]) => <td key={key} className="px-9">{key === "product" ? <span className="flex items-center gap-2">{row.dir === "up" ? <ArrowUp className="h-4 w-4 text-red-400" /> : <ArrowDown className="h-4 w-4 text-green-500" />}{String(row[key])}</span> : key === "type" && /\d/.test(String(row[key])) ? <span>{String(row[key]).replace(/(\d+)/, "")} <b className="font-normal text-sky-500">{String(row[key]).match(/\d+/)?.[0]}</b></span> : String(row[key] ?? "")}</td>)}</tr>)}</tbody>
         </table>
         {!rows.length && <div className="p-16 text-center text-slate-400">По вашему запросу ничего не найдено</div>}
       </div>

@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { ChangeEvent, useMemo, useRef, useState } from "react"
 import { ChevronDown, ChevronLeft, ChevronRight, Filter, PlusCircle, Search, Star, Upload, X } from "lucide-react"
 
 type Revaluation = {
@@ -247,6 +247,23 @@ function AddRevaluationModal({ onClose }: { onClose: () => void }) {
   const [currency, setCurrency] = useState("")
   const [comment, setComment] = useState("")
   const [items, setItems] = useState<{ id: number; product: string; price: string }[]>([{ id: 1, product: "", price: "" }])
+  const importInputRef = useRef<HTMLInputElement>(null)
+
+  const importFromExcel = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    event.target.value = ""
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = () => {
+      const lines = String(reader.result ?? "").split(/\r?\n/).filter(Boolean)
+      const parsed = lines
+        .map((line) => line.split(/[;,\t]/).map((cell) => cell.trim()))
+        .filter(([product]) => product && !/^(товар|наименование|product)$/i.test(product))
+        .map(([product, price], index) => ({ id: Date.now() + index, product, price: price || "" }))
+      if (parsed.length) setItems((current) => [...current.filter((item) => item.product || item.price), ...parsed, { id: Date.now() + parsed.length, product: "", price: "" }])
+    }
+    reader.readAsText(file)
+  }
 
   const updateItem = (id: number, patch: Partial<{ product: string; price: string }>) => {
     setItems((current) => {
@@ -291,7 +308,8 @@ function AddRevaluationModal({ onClose }: { onClose: () => void }) {
         <div className="px-9 py-8">
           <div className="mb-4 flex items-center justify-between">
             <h3 className="font-medium text-[#586174]">Список товаров</h3>
-            <button className="text-sm font-medium text-[#4f70e7]"><Upload className="mr-1 inline h-4 w-4" />импортировать с excel</button>
+            <input ref={importInputRef} type="file" accept=".csv,.xls,.xlsx" onChange={importFromExcel} className="hidden" />
+            <button type="button" onClick={() => importInputRef.current?.click()} className="text-sm font-medium text-[#4f70e7]"><Upload className="mr-1 inline h-4 w-4" />импортировать с excel</button>
           </div>
           <div className="rounded bg-[#f2f5f8]">
             <div className="grid grid-cols-[1fr_240px_60px] items-center gap-6 px-4 py-3 text-sm font-medium text-[#586174]">

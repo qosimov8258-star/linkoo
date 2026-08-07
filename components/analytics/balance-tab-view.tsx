@@ -189,6 +189,7 @@ export function BalanceTabView() {
   const router = useRouter()
   const [favorite, setFavorite] = useState(false)
   const [organization, setOrganization] = useState("Все организации")
+  const [applied, setApplied] = useState(false)
   const [warehouseTab, setWarehouseTab] = useState<"cost" | "priceList">("cost")
   const [warehouseDisplay, setWarehouseDisplay] = useState<"text" | "chart">("text")
   const [period, setPeriod] = useState("МЕСЯЦ")
@@ -254,7 +255,15 @@ export function BalanceTabView() {
           </select>
           <ChevronDown className="pointer-events-none absolute right-0 top-1 h-4 w-4 text-[#9aa3b6]" />
         </label>
-        <button className="rounded-md bg-[#4f70e7] px-6 py-2.5 font-semibold text-white">Применить</button>
+        <button
+          onClick={() => {
+            setApplied(true)
+            window.setTimeout(() => setApplied(false), 1800)
+          }}
+          className="rounded-md bg-[#4f70e7] px-6 py-2.5 font-semibold text-white"
+        >
+          {applied ? "Применено ✓" : "Применить"}
+        </button>
         <button onClick={downloadAll} className="ml-auto flex h-10 items-center gap-2 rounded-md bg-[#4caf72] px-4 font-semibold text-white">
           <Download className="h-4 w-4" /> Скачать Excel
         </button>

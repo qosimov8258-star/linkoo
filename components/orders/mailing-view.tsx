@@ -62,7 +62,9 @@ export function MailingView() {
   const [composerOpen, setComposerOpen] = useState(false)
   const [photoPreview, setPhotoPreview] = useState<string>()
   const [notice, setNotice] = useState("")
+  const [page, setPage] = useState(1)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const pageSize = 25
 
   const visibleMailings = useMemo(() => {
     const term = query.trim().toLowerCase()
@@ -73,6 +75,10 @@ export function MailingView() {
         .includes(term)
     })
   }, [mailings, query])
+
+  const pageCount = Math.max(1, Math.ceil(visibleMailings.length / pageSize))
+  const safePage = Math.min(page, pageCount)
+  const pagedMailings = visibleMailings.slice((safePage - 1) * pageSize, safePage * pageSize)
 
   const selectedMailing = mailings.find((mailing) => mailing.id === selectedId)
 
@@ -103,6 +109,7 @@ export function MailingView() {
     }
     setMailings((current) => [mailing, ...current])
     setSelectedId(id)
+    setPage(1)
     setComposerOpen(false)
     setPhotoPreview(undefined)
     setNotice("Рассылка сохранена как черновик")
@@ -143,7 +150,7 @@ export function MailingView() {
             <span className="sr-only">Поиск</span>
             <input
               value={query}
-              onChange={(event) => setQuery(event.target.value)}
+              onChange={(event) => { setQuery(event.target.value); setPage(1) }}
               placeholder="Поиск"
               className="w-full border-b border-[#d8dfe9] py-2 pr-9 text-[16px] outline-none placeholder:text-[#b3bac7] focus:border-[#4f6ee8]"
             />
@@ -151,9 +158,9 @@ export function MailingView() {
           </label>
           <div className="flex items-center gap-5 text-[#525e70]">
             <span>25⌄</span>
-            <span>1 - {Math.min(25, visibleMailings.length)} из {visibleMailings.length}</span>
-            <button type="button" aria-label="Предыдущая страница" className="rounded-full text-[#8f9399] hover:text-[#4f6ee8]"><ChevronLeft /></button>
-            <button type="button" aria-label="Следующая страница" className="rounded-full text-[#8f9399] hover:text-[#4f6ee8]"><ChevronRight /></button>
+            <span>{visibleMailings.length ? (safePage - 1) * pageSize + 1 : 0} - {Math.min(safePage * pageSize, visibleMailings.length)} из {visibleMailings.length}</span>
+            <button type="button" onClick={() => setPage((value) => Math.max(1, value - 1))} disabled={safePage <= 1} aria-label="Предыдущая страница" className="rounded-full text-[#8f9399] hover:text-[#4f6ee8] disabled:opacity-30"><ChevronLeft /></button>
+            <button type="button" onClick={() => setPage((value) => Math.min(pageCount, value + 1))} disabled={safePage >= pageCount} aria-label="Следующая страница" className="rounded-full text-[#8f9399] hover:text-[#4f6ee8] disabled:opacity-30"><ChevronRight /></button>
           </div>
         </div>
 
@@ -168,7 +175,7 @@ export function MailingView() {
               </tr>
             </thead>
             <tbody>
-              {visibleMailings.slice(0, 25).map((mailing) => (
+              {pagedMailings.map((mailing) => (
                 <tr
                   key={mailing.id}
                   onClick={() => setSelectedId(selectedId === mailing.id ? null : mailing.id)}

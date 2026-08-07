@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react"
 import Image from "next/image"
+import { useRouter } from "next/navigation"
 import {
   BarChart,
   ChevronDown,
@@ -197,6 +198,23 @@ export function DebtLimitsView() {
     setFavoriteItems((current) => current.filter((_, itemIndex) => itemIndex !== index))
   }
 
+  const deleteClient = (id: number) => {
+    setRows((current) => current.filter((row) => row.id !== id))
+    setSelected(null)
+  }
+
+  const addPayment = (id: number, amount: number, currency: Currency) => {
+    const applyPayment = (row: ClientRow) => {
+      const existing = row.balance.find((line) => line.currency === currency)
+      const balance = existing
+        ? row.balance.map((line) => (line.currency === currency ? { ...line, value: line.value + amount } : line))
+        : [...row.balance, { value: amount, currency }]
+      return { ...row, balance }
+    }
+    setRows((current) => current.map((row) => (row.id === id ? applyPayment(row) : row)))
+    setSelected((current) => (current && current.id === id ? applyPayment(current) : current))
+  }
+
   const downloadAll = () => {
     const header = ["Название", "Тел. номер", "Тип", "Зона", "Ответственный агент", "Ответственный доставщик", "Ответственный инкассатор", "Тип лимита долга", "Лимит"]
     const body = filtered.map((row) => [
@@ -356,7 +374,7 @@ export function DebtLimitsView() {
         </table>
       </section>
 
-      {selected && <ClientDrawer client={selected} tab={drawerTab} setTab={setDrawerTab} onClose={() => setSelected(null)} onSaveLimit={saveClientLimit} />}
+      {selected && <ClientDrawer client={selected} tab={drawerTab} setTab={setDrawerTab} onClose={() => setSelected(null)} onSaveLimit={saveClientLimit} onDelete={deleteClient} onAddPayment={addPayment} />}
 
       {importOpen && (
         <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/40" onClick={() => setImportOpen(false)}>
@@ -451,16 +469,25 @@ function ClientDrawer({
   setTab,
   onClose,
   onSaveLimit,
+  onDelete,
+  onAddPayment,
 }: {
   client: ClientRow
   tab: "activity" | "tasks" | "client" | "reports" | "refusals"
   setTab: (value: "activity" | "tasks" | "client" | "reports" | "refusals") => void
   onClose: () => void
   onSaveLimit: (id: number, unlimited: boolean, limit: number, currency: Currency) => void
+  onDelete: (id: number) => void
+  onAddPayment: (id: number, amount: number, currency: Currency) => void
 }) {
+  const router = useRouter()
   const [unlimited, setUnlimited] = useState(client.debtLimitType === "unlimited")
   const [limit, setLimit] = useState(String(client.debtLimit ?? ""))
   const [currency, setCurrency] = useState<Currency>(client.debtLimitCurrency ?? "SUM")
+  const [paymentOpen, setPaymentOpen] = useState(false)
+  const [paymentAmount, setPaymentAmount] = useState("")
+  const [paymentCurrency, setPaymentCurrency] = useState<Currency>("SUM")
+  const hasPhone = client.phone && client.phone !== "-"
 
   return (
     <div className="fixed inset-0 z-[100] flex justify-end">
@@ -469,8 +496,8 @@ function ClientDrawer({
         <header className="flex items-center gap-3 border-b px-6 py-5">
           <span className={`h-3 w-3 rounded-full ${colorBarClass[client.colorBar] || "bg-[#9aa3b6]"}`} />
           <h2 className="flex-1 text-lg font-bold uppercase tracking-wide">{client.name}</h2>
-          <button aria-label="Редактировать" className="text-[#586174] hover:text-[#17233b]"><Pencil className="h-5 w-5" /></button>
-          <button aria-label="Удалить" className="text-[#e5484d] hover:text-[#c53238]"><Trash2 className="h-5 w-5" /></button>
+          <button type="button" onClick={() => setTab("client")} aria-label="Редактировать" className="text-[#586174] hover:text-[#17233b]"><Pencil className="h-5 w-5" /></button>
+          <button type="button" onClick={() => onDelete(client.id)} aria-label="Удалить" className="text-[#e5484d] hover:text-[#c53238]"><Trash2 className="h-5 w-5" /></button>
           <button aria-label="Закрыть" onClick={onClose}><X className="h-6 w-6 text-slate-500" /></button>
         </header>
 
@@ -518,11 +545,51 @@ function ClientDrawer({
             </div>
 
             <div className="flex flex-wrap gap-3">
-              <button className="flex items-center gap-2 rounded-md bg-[#6fcf97] px-5 py-2.5 font-semibold text-white"><Phone className="h-4 w-4" /> Позвонить</button>
-              <button className="flex items-center gap-2 rounded-md bg-[#4f70e7] px-5 py-2.5 font-semibold text-white"><ShoppingCart className="h-4 w-4" /> Заказать</button>
-              <button className="flex items-center gap-2 rounded-md bg-[#e5484d] px-5 py-2.5 font-semibold text-white"><XCircle className="h-4 w-4" /> Отказ</button>
-              <button className="flex items-center gap-2 rounded-md bg-[#3aa76d] px-5 py-2.5 font-semibold text-white"><Wallet className="h-4 w-4" /> Добавить оплату</button>
+              <button
+                type="button"
+                disabled={!hasPhone}
+                onClick={() => hasPhone && (window.location.href = `tel:${client.phone}`)}
+                className="flex items-center gap-2 rounded-md bg-[#6fcf97] px-5 py-2.5 font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                <Phone className="h-4 w-4" /> Позвонить
+              </button>
+              <button type="button" onClick={() => router.push("/analytics/sales")} className="flex items-center gap-2 rounded-md bg-[#4f70e7] px-5 py-2.5 font-semibold text-white"><ShoppingCart className="h-4 w-4" /> Заказать</button>
+              <button type="button" onClick={() => setTab("refusals")} className="flex items-center gap-2 rounded-md bg-[#e5484d] px-5 py-2.5 font-semibold text-white"><XCircle className="h-4 w-4" /> Отказ</button>
+              <button type="button" onClick={() => setPaymentOpen(true)} className="flex items-center gap-2 rounded-md bg-[#3aa76d] px-5 py-2.5 font-semibold text-white"><Wallet className="h-4 w-4" /> Добавить оплату</button>
             </div>
+
+            {paymentOpen && (
+              <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/45 p-4">
+                <form
+                  onSubmit={(event) => {
+                    event.preventDefault()
+                    const amount = Number(paymentAmount)
+                    if (amount > 0) onAddPayment(client.id, amount, paymentCurrency)
+                    setPaymentAmount("")
+                    setPaymentOpen(false)
+                  }}
+                  className="w-full max-w-sm rounded-md bg-white p-6 shadow-xl"
+                >
+                  <div className="mb-5 flex items-center justify-between">
+                    <h3 className="text-lg font-bold">Добавить оплату</h3>
+                    <button type="button" onClick={() => setPaymentOpen(false)} aria-label="Закрыть"><X className="h-5 w-5" /></button>
+                  </div>
+                  <label className="mb-4 block border-b border-[#dbe0e8] pb-2 text-[13px] font-medium text-[#586174]">
+                    Сумма
+                    <input autoFocus type="number" min="0" value={paymentAmount} onChange={(event) => setPaymentAmount(event.target.value)} className="mt-1 block w-full bg-transparent text-[16px] font-semibold text-[#17233b] outline-none" />
+                  </label>
+                  <label className="mb-5 block border-b border-[#dbe0e8] pb-2 text-[13px] font-medium text-[#586174]">
+                    Валюта
+                    <select value={paymentCurrency} onChange={(event) => setPaymentCurrency(event.target.value as Currency)} className="mt-1 block w-full bg-transparent text-[16px] font-semibold text-[#17233b] outline-none">
+                      <option value="SUM">SUM</option>
+                      <option value="USD">USD</option>
+                      <option value="Euro">Euro</option>
+                    </select>
+                  </label>
+                  <button type="submit" className="w-full rounded-md bg-[#3aa76d] py-3 font-semibold text-white">Добавить</button>
+                </form>
+              </div>
+            )}
 
             <div>
               <h3 className="mb-3 text-lg font-bold">Агенты магазина</h3>

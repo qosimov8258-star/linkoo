@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
 import { ChevronDown, Download, Star } from "lucide-react"
+import { downloadExcelTable } from "@/lib/excel-export"
 
 const tabs = ["ВИДЖЕТЫ", "KPI", "БАЛАНС", "ОХВАТ", "ФИЛИАЛ", "P&L", "ДОЛГ КЛИЕНТОВ", "ПРОДАЖА", "ГИБКИЙ ДАШБОРД"] as const
 const tabHref: Partial<Record<(typeof tabs)[number], string>> = {
@@ -293,7 +294,22 @@ export function BranchTabView() {
               <button onClick={() => setWarehouseMetric("qty")} className={`px-5 py-2.5 text-[13px] font-bold uppercase tracking-wide ${warehouseMetric === "qty" ? "bg-[#3aca6a] text-white" : "border border-[#3aca6a] text-[#3aca6a]"}`}>Кол-во</button>
               <button onClick={() => setWarehouseMetric("sum")} className={`px-5 py-2.5 text-[13px] font-bold uppercase tracking-wide ${warehouseMetric === "sum" ? "bg-[#3aca6a] text-white" : "border border-[#3aca6a] text-[#3aca6a]"}`}>Сумма</button>
             </div>
-            <button aria-label="Скачать" className="text-[#586174] hover:text-[#17233b]"><Download className="h-5 w-5" /></button>
+            <button
+              type="button"
+              aria-label="Скачать"
+              onClick={() =>
+                downloadExcelTable("branch-warehouse-balance.xls", [
+                  ["Склад", "Баланс на начало", "Баланс на конец", "Разница"],
+                  ...sortedWarehouses.map((row) => {
+                    const balance = money(warehouseTab === "cost" ? row.balance : row.balance * 1.18)
+                    return [row.name, `${balance} SUM`, `${balance} SUM`, "(0 %) 0 SUM"]
+                  }),
+                ])
+              }
+              className="text-[#586174] hover:text-[#17233b]"
+            >
+              <Download className="h-5 w-5" />
+            </button>
           </div>
         </div>
       </section>

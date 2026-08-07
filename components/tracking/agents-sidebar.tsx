@@ -51,6 +51,10 @@ export function AgentsSidebar() {
   const [query, setQuery] = useState("")
   const [date, setDate] = useState(() => new Date())
   const [selectedAgentId, setSelectedAgentId] = useState<number | null>(null)
+  const [routeFilterOpen, setRouteFilterOpen] = useState(false)
+  const [routeOrder, setRouteOrder] = useState<"default" | "optimized">("default")
+  const defaultRouteClients = ["ИП Каркабаев", "ЧЛ Кылышбай", "Частное Лицо", "Doston market", "Ashraf Hakimi", "Usman Dembele", "Markus Vitinha"]
+  const routeClients = routeOrder === "optimized" ? [...defaultRouteClients].sort((a, b) => a.localeCompare(b, "ru")) : defaultRouteClients
 
   const dateLabel = useMemo(() => {
     const months = [
@@ -84,7 +88,6 @@ export function AgentsSidebar() {
   }
 
   const selectedAgent = agents.find((agent) => agent.id === selectedAgentId)
-  const routeClients = ["ИП Каркабаев", "ЧЛ Кылышбай", "Частное Лицо", "Doston market", "Ashraf Hakimi", "Usman Dembele", "Markus Vitinha"]
 
   if (selectedAgent) {
     return (
@@ -94,7 +97,17 @@ export function AgentsSidebar() {
           <ChevronLeft className="h-5 w-5 text-slate-500" />
           <strong className="uppercase text-slate-700">{selectedAgent.name}</strong>
           <ChevronRight className="h-5 w-5 text-slate-500" />
-          <button type="button" className="ml-auto text-[#536fe1]">Показать фильтр⌄</button>
+          <div className="relative ml-auto">
+            <button type="button" onClick={() => setRouteFilterOpen((value) => !value)} className="text-[#536fe1]">Показать фильтр⌄</button>
+            {routeFilterOpen && (
+              <div className="absolute right-0 top-full z-20 mt-2 w-56 border border-slate-200 bg-white p-4 shadow-xl">
+                <label className="flex items-center gap-2 text-sm text-slate-600">
+                  <input type="checkbox" checked={routeOrder === "optimized"} onChange={() => setRouteOrder((current) => (current === "optimized" ? "default" : "optimized"))} />
+                  Оптимизированный порядок (А-Я)
+                </label>
+              </div>
+            )}
+          </div>
           <button type="button" onClick={() => setSelectedAgentId(null)} aria-label="Закрыть"><X className="h-7 w-7" /></button>
         </header>
         <div className="grid grid-cols-2 border-b bg-white px-7 py-4">
@@ -110,7 +123,7 @@ export function AgentsSidebar() {
           <button type="button" onClick={() => shiftDate(-1)} className="rounded bg-[#20abc8] px-4 py-2 font-bold text-white">‹</button>
           <b className="text-[#20abc8]">28 июля 2026</b>
           <button type="button" onClick={() => shiftDate(1)} className="rounded bg-[#20abc8] px-4 py-2 font-bold text-white">›</button>
-          <button type="button" className="ml-auto rounded bg-[#536fe1] px-5 py-3 font-bold text-white">Оптимизировать маршрут</button>
+          <button type="button" onClick={() => setRouteOrder("optimized")} className="ml-auto rounded bg-[#536fe1] px-5 py-3 font-bold text-white">{routeOrder === "optimized" ? "Маршрут оптимизирован ✓" : "Оптимизировать маршрут"}</button>
           <ScanLine className="text-slate-500" /><Pencil className="rounded bg-slate-300 p-1 text-white" />
         </div>
         <div className="relative mt-5 flex-1 overflow-y-auto px-10 pb-8 pl-32">

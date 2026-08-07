@@ -180,6 +180,8 @@ export function MaterialReportView() {
   const [organization, setOrganization] = useState("Все организации")
   const [movement, setMovement] = useState("Все движения")
   const [stockFilter, setStockFilter] = useState("Все остатки")
+  const [priceList, setPriceList] = useState("Основной прайс-лист")
+  const [priceListOpen, setPriceListOpen] = useState(false)
   const [showOther, setShowOther] = useState(false)
   const [grouping, setGrouping] = useState("По продукту")
   const [display, setDisplay] = useState("Количество")
@@ -345,9 +347,20 @@ export function MaterialReportView() {
             {([["quantity", "КОЛ-ВО"], ["cost", "СЕБЕСТОИМОСТЬ"], ["price", "ПРАЙС ЛИСТ"]] as const).map(([key, label]) => <button key={key} onClick={() => setMode(key)} className={`h-10 border px-5 ${mode === key ? "border-[#4f70e7] bg-[#4f70e7] text-white shadow" : "border-[#d8dde5] bg-white text-black"} first:rounded-l-md last:rounded-r-md`}>{label}</button>)}
           </div>
           {mode === "price" && (
-            <button type="button" className="flex items-center gap-1 self-center font-bold text-[#15223a]">
-              Прайс лист <ChevronDown className="h-4 w-4 text-[#788294]" />
-            </button>
+            <div className="relative self-center">
+              <button type="button" onClick={() => setPriceListOpen((value) => !value)} className="flex items-center gap-1 font-bold text-[#15223a]">
+                {priceList} <ChevronDown className={`h-4 w-4 text-[#788294] transition-transform ${priceListOpen ? "rotate-180" : ""}`} />
+              </button>
+              {priceListOpen && (
+                <div className="absolute left-0 top-full z-20 w-64 border border-[#e1e5eb] bg-white py-1 shadow-xl">
+                  {["Основной прайс-лист", "Прайс-лист для сети", "Прайс-лист опт"].map((item) => (
+                    <button key={item} type="button" onClick={() => { setPriceList(item); setPriceListOpen(false) }} className="block w-full px-3 py-2 text-left text-sm hover:bg-slate-50">
+                      {item}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
           )}
           <label className="relative min-w-[250px] flex-1"><span className="font-semibold">Поиск</span><input value={search} onChange={(event) => { setSearch(event.target.value); setPage(1) }} className="mt-1 h-10 w-full border-b border-[#ccd3dc] bg-transparent pr-9 outline-none" /><Search className="absolute bottom-2 right-1 h-5 w-5 text-[#788294]" /></label>
           <label className="text-xs">Группировка<select value={grouping} onChange={(event) => { setGrouping(event.target.value); setPage(1) }} className="mt-1 block h-10 min-w-[250px] border-b border-[#ccd3dc] bg-white text-base font-semibold"><option>По продукту</option><option>По типу товара</option><option>По бренду</option></select></label>

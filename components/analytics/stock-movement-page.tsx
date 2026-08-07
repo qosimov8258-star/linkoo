@@ -93,6 +93,7 @@ function includesQuery(values: string[], query: string) {
 
 export function StockMovementPage() {
   const [tab, setTab] = useState<TabId>("movement")
+  const [favorite, setFavorite] = useState(false)
   const [query, setQuery] = useState("")
   const [filterOpen, setFilterOpen] = useState(false)
   const [warehouse, setWarehouse] = useState("")
@@ -123,8 +124,10 @@ export function StockMovementPage() {
   return (
     <main className="min-h-[calc(100vh-64px)] bg-[#f2f5f8] pb-10 text-[#17233b]">
       <header className="flex min-h-[76px] items-center border-b border-slate-200 bg-[#f1f4f7] px-9">
-        <span className="mr-3 text-3xl text-[#5e6879]">★</span>
-        <button className="text-[26px] font-semibold text-[#4f72e5]">Избранные</button>
+        <button type="button" onClick={() => setFavorite((value) => !value)} className="flex items-center">
+          <span className={`mr-3 text-3xl ${favorite ? "text-amber-400" : "text-[#5e6879]"}`}>★</span>
+          <span className="text-[26px] font-semibold text-[#4f72e5]">Избранные</span>
+        </button>
         <span className="mx-4 h-8 w-px bg-[#5d6572]" />
         <h1 className="text-[25px] font-semibold text-[#596273]">План приемок и передач</h1>
       </header>

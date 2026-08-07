@@ -1,6 +1,7 @@
 "use client"
 
 import { FormEvent, useMemo, useState } from "react"
+import { useRouter } from "next/navigation"
 import { Check, Link2, Search, Trash2, X } from "lucide-react"
 
 type DuplicateGroup = {
@@ -47,7 +48,34 @@ const sidebar = [
   ["Разное", "Прайс-листы", "Тип отказа", "Филиалы", "Оборудования", "Организация", "Объединение", "Ограничение времени", "Закрытия дня/месяца", "Интеграция", "Уведомления"],
 ]
 
+const sidebarLinks: Record<string, string> = {
+  "Персонал:Сотрудники": "/analytics/employees",
+  "Персонал:Смены": "/analytics/shifts",
+  "Персонал:Должности": "/analytics/positions",
+  "Персонал:Права доступа": "/analytics/access-rights",
+  "Финансы:Кассы": "/analytics/cashboxes",
+  "Финансы:Категории приходов": "/analytics/income-categories",
+  "Финансы:Категории расходов": "/analytics/expense-categories",
+  "Продукты:Типы продуктов": "/analytics/product-types",
+  "Продукты:Измерения": "/analytics/units-of-measure",
+  "Продукты:Бренд": "/analytics/brands",
+  "Клиенты:Типы клиентов": "/clients/client-types",
+  "Клиенты:Атрибуты": "/clients/attributes",
+  "Клиенты:Значение атрибута": "/clients/attribute-values",
+  "Поставщики:Категории поставщиков": "/analytics/supplier-categories",
+  "Склад:Склады": "/analytics/warehouses",
+  "Разное:Прайс-листы": "/analytics/price-lists",
+  "Разное:Тип отказа": "/analytics/refusal-types",
+  "Разное:Объединение": "/analytics/duplicate-analysis",
+  "Разное:Филиалы": "/analytics/branches",
+  "Разное:Организация": "/analytics/organization",
+  "Разное:Ограничение времени": "/analytics/time-restrictions",
+  "Разное:Интеграция": "/settings/integrations",
+  "Разное:Уведомления": "/settings/notifications",
+}
+
 export function DuplicateAnalysisView() {
+  const router = useRouter()
   const [mode, setMode] = useState<"inn" | "phone">("inn")
   const [query, setQuery] = useState("")
   const [groups, setGroups] = useState(initialGroups)
@@ -57,6 +85,15 @@ export function DuplicateAnalysisView() {
   const [message, setMessage] = useState("")
   const [activeGroupId, setActiveGroupId] = useState<number | null>(null)
   const [clientPickerOpen, setClientPickerOpen] = useState(true)
+  const [addKey, setAddKey] = useState("")
+
+  const availableToAdd = useMemo(
+    () =>
+      groups
+        .flatMap((group) => group.clients.map((client, index) => ({ key: `${group.id}:${index}`, client })))
+        .filter(({ key }) => !selected.includes(key)),
+    [groups, selected],
+  )
 
   const survivorOptions = [
     "Markus Vitinha (№4594) (4594) (Arslan)",
@@ -129,18 +166,22 @@ export function DuplicateAnalysisView() {
             <section key={title} className="mb-8">
               <h2 className="mb-2 text-[16px] font-bold">{title}</h2>
               <ul className="space-y-2 pl-8 text-[15px]">
-                {items.map((item) => (
-                  <li key={`${title}-${item}`}>
-                    <button
-                      type="button"
-                      className={`text-left leading-5 transition-colors hover:text-brand-blue ${
-                        item === "Объединение" ? "text-brand-blue" : ""
-                      }`}
-                    >
-                      {item}
-                    </button>
-                  </li>
-                ))}
+                {items.map((item) => {
+                  const href = sidebarLinks[`${title}:${item}`]
+                  return (
+                    <li key={`${title}-${item}`}>
+                      <button
+                        type="button"
+                        onClick={() => href && router.push(href)}
+                        className={`text-left leading-5 transition-colors hover:text-brand-blue ${
+                          item === "Объединение" ? "text-brand-blue" : ""
+                        }`}
+                      >
+                        {item}
+                      </button>
+                    </li>
+                  )
+                })}
               </ul>
             </section>
           ))}
@@ -268,15 +309,25 @@ export function DuplicateAnalysisView() {
                 <div className="mb-10 flex items-end gap-4">
                   <label className="min-w-0 flex-1">
                     <span className="mb-2 block text-sm">Клиент</span>
-                    <select className="w-full border-b border-slate-300 bg-white py-2 outline-none">
-                      {selected.map((key) => {
-                        const [id, index] = key.split(":").map(Number)
-                        const client = groups.find((group) => group.id === id)?.clients[index] ?? key
-                        return <option key={key}>{client}</option>
-                      })}
+                    <select value={addKey} onChange={(event) => setAddKey(event.target.value)} className="w-full border-b border-slate-300 bg-white py-2 outline-none">
+                      <option value="">Выберите клиента</option>
+                      {availableToAdd.map(({ key, client }) => (
+                        <option key={key} value={key}>{client}</option>
+                      ))}
                     </select>
                   </label>
-                  <button type="button" className="px-5 py-2 font-medium text-brand-blue">ДОБАВИТЬ</button>
+                  <button
+                    type="button"
+                    disabled={!addKey}
+                    onClick={() => {
+                      if (!addKey) return
+                      setSelected((current) => [...current, addKey])
+                      setAddKey("")
+                    }}
+                    className="px-5 py-2 font-medium text-brand-blue disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    ДОБАВИТЬ
+                  </button>
                 </div>
                 <div className="grid grid-cols-[1fr_155px_1fr_42px] gap-4 px-2 text-sm font-semibold">
                   <span>Наименование</span><span>Телефон</span><span>Адрес</span><span />

@@ -112,6 +112,14 @@ export function StoreReconciliationBotView() {
     setRows((current) => current.filter((row) => row.id !== id))
   }
 
+  const duplicateRow = (row: ClientRow) => {
+    setRows((current) => {
+      const index = current.findIndex((item) => item.id === row.id)
+      const copy: ClientRow = { ...row, id: Math.max(0, ...current.map((item) => item.id)) + 1, client: `${row.client} (копия)`, connected: false }
+      return [...current.slice(0, index + 1), copy, ...current.slice(index + 1)]
+    })
+  }
+
   const startEdit = (row: ClientRow) => {
     setEditTarget(row)
     setEditName(row.client)
@@ -248,7 +256,7 @@ export function StoreReconciliationBotView() {
                       <button aria-label="Редактировать" onClick={() => startEdit(row)} className="text-[#586174] hover:text-[#17233b]"><Pencil className="h-4 w-4" /></button>
                       <button aria-label="Телеграм" title="Телеграм" onClick={() => setConnectTarget(row)} className="text-[#4f70e7] hover:text-[#3a5bd0]"><Send className="h-4 w-4" /></button>
                       <button aria-label="Удалить" onClick={() => removeRow(row.id)} className="text-[#e5484d] hover:text-[#c53238]"><MinusCircle className="h-4 w-4" /></button>
-                      <button aria-label="Добавить" className="text-[#3aa76d] hover:text-[#2c8f5a]"><PlusCircle className="h-4 w-4" /></button>
+                      <button aria-label="Добавить" title="Дублировать" onClick={() => duplicateRow(row)} className="text-[#3aa76d] hover:text-[#2c8f5a]"><PlusCircle className="h-4 w-4" /></button>
                     </div>
                   </td>
                   <td className="border border-[#e1e5eb] px-4 py-3.5">

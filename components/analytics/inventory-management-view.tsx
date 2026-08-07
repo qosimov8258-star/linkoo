@@ -2,6 +2,7 @@
 
 import { Fragment, useMemo, useState } from "react"
 import Image from "next/image"
+import { downloadExcelTable } from "@/lib/excel-export"
 import {
   ArrowLeftRight,
   CheckCircle2,
@@ -268,7 +269,7 @@ export function InventoryManagementView() {
             ))}
           </section>
           <section className="flex flex-wrap items-center gap-5 px-6 py-4 md:px-9">
-            <span className="flex items-center gap-2 text-[#4f70e7]">Фильтр: 1 элемента <Pencil className="h-4 w-4" /> <button aria-label="Сбросить фильтр"><X className="h-5 w-5 rounded-full border-2 border-[#9aa3b6] p-0.5 text-[#9aa3b6]" /></button></span>
+            <span className="flex items-center gap-2 text-[#4f70e7]">Фильтр: 1 элемента <Pencil className="h-4 w-4" /> <button type="button" onClick={() => setSearch("")} aria-label="Сбросить фильтр"><X className="h-5 w-5 rounded-full border-2 border-[#9aa3b6] p-0.5 text-[#9aa3b6]" /></button></span>
             <label className="relative min-w-[220px] flex-1 border-b border-[#dbe0e8] pb-1.5">
               <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Поиск" className="w-full bg-transparent pr-7 text-[15px] outline-none placeholder:text-[#9aa3b6]" />
               <Search className="pointer-events-none absolute right-0 top-0.5 h-5 w-5 text-[#9aa3b6]" />
@@ -386,7 +387,18 @@ export function InventoryManagementView() {
                           <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
                             <h3 className="text-xl font-semibold">№ {item.id}</h3>
                             <div className="flex items-center gap-3">
-                              <button className="flex items-center gap-2 rounded-md bg-[#4f70e7] px-4 py-2 font-semibold text-white"><Eye className="h-4 w-4" /> Просмотреть</button>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  downloadExcelTable(`inventory-${item.id}.xls`, [
+                                    ["Склад", "Тип", "Состояние", "Клиент", "Серийный номер", "Инвентарный номер", "Дата прикрепления", "Дата создания", "Ответственный", "Одобрено"],
+                                    [item.warehouse, item.inventoryType, item.condition, item.client || "—", item.serialNumber || "—", item.inventoryCode || "—", item.attachDate, item.createdDate, item.responsible, item.approved ? "Да" : "Нет"],
+                                  ])
+                                }
+                                className="flex items-center gap-2 rounded-md bg-[#4f70e7] px-4 py-2 font-semibold text-white"
+                              >
+                                <Eye className="h-4 w-4" /> Просмотреть
+                              </button>
                               <button onClick={() => setTransferItem(item)} className="flex items-center gap-2 rounded-md bg-[#4f70e7] px-4 py-2 font-semibold text-white"><ArrowLeftRight className="h-4 w-4" /> Передача / Изъятие</button>
                               <button onClick={() => setEditItem(item)} className="flex items-center gap-2 rounded-md bg-[#4f70e7] px-4 py-2 font-semibold text-white"><Pencil className="h-4 w-4" /> Изменить</button>
                               <button aria-label={item.approved ? "Одобрено" : "Не одобрено"} onClick={() => toggleApproved(item.id)}>
@@ -733,7 +745,13 @@ function ImportModal({ onClose }: { onClose: () => void }) {
             </select>
             <ChevronDown className="pointer-events-none absolute right-0 top-7 h-4 w-4 text-[#9aa3b6]" />
           </label>
-          <button className="block w-full text-center font-semibold text-[#4f70e7]">1. Скачать шаблон</button>
+          <button
+            type="button"
+            onClick={() => downloadExcelTable("inventory-import-template.xls", [["Серийный номер", "Клиент", "Тип инвентаря", "Инвентарный номер", "Склад", "Состояние", "Ответственный"]])}
+            className="block w-full text-center font-semibold text-[#4f70e7]"
+          >
+            1. Скачать шаблон
+          </button>
           <label className="flex h-40 cursor-pointer flex-col items-center justify-center gap-2 rounded border-2 border-dashed border-[#dbe0e8] text-center text-sm text-[#586174]">
             <input type="file" accept=".xlsx,.xls" className="hidden" />
             <span className="text-2xl">📄</span>

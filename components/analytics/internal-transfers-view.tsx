@@ -1,6 +1,6 @@
 "use client"
 
-import { Fragment, useMemo, useState } from "react"
+import { ChangeEvent, Fragment, useMemo, useRef, useState } from "react"
 import {
   ChevronDown,
   ChevronLeft,
@@ -454,12 +454,34 @@ function TransferFormModal({
   const [driver, setDriver] = useState(transfer?.driver ?? "")
   const [items, setItems] = useState<Item[]>(transfer?.items.length ? transfer.items : [])
   const [touched, setTouched] = useState(false)
+  const importInputRef = useRef<HTMLInputElement>(null)
 
   const totalQuantity = items.reduce((sum, item) => sum + item.quantity, 0)
   const totalSum = items.reduce((sum, item) => sum + item.quantity * item.price, 0)
 
   const addFromList = () => {
     setItems((current) => [...current, { id: (current.at(-1)?.id ?? 0) + 1, product: "", quantity: 0, weight: 0, price: 0 }])
+  }
+  const importFromExcel = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    event.target.value = ""
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = () => {
+      const lines = String(reader.result ?? "").split(/\r?\n/).filter(Boolean)
+      const parsed = lines
+        .map((line) => line.split(/[;,\t]/).map((cell) => cell.trim()))
+        .filter(([product]) => product && !/^(наименование|товар|product)$/i.test(product))
+        .map(([product, quantity, price], index) => ({
+          id: Date.now() + index,
+          product,
+          quantity: Number(quantity) || 0,
+          weight: 0,
+          price: Number(price) || 0,
+        }))
+      if (parsed.length) setItems((current) => [...current, ...parsed])
+    }
+    reader.readAsText(file)
   }
   const updateItem = (id: number, patch: Partial<Item>) => {
     setItems((current) => current.map((item) => (item.id === id ? { ...item, ...patch } : item)))
@@ -560,7 +582,8 @@ function TransferFormModal({
             <h3 className="font-medium text-[#586174]">Список товаров</h3>
             <div className="flex items-center gap-6">
               <button onClick={addFromList} className="text-sm font-semibold uppercase tracking-wide text-[#586174]">Добавить из списка</button>
-              <button className="flex items-center gap-2 rounded-md bg-[#69cd87] px-4 py-2 text-sm font-semibold text-white"><Upload className="h-4 w-4" /> Импортировать с Excel</button>
+              <input ref={importInputRef} type="file" accept=".csv,.xls,.xlsx" onChange={importFromExcel} className="hidden" />
+              <button type="button" onClick={() => importInputRef.current?.click()} className="flex items-center gap-2 rounded-md bg-[#69cd87] px-4 py-2 text-sm font-semibold text-white"><Upload className="h-4 w-4" /> Импортировать с Excel</button>
             </div>
           </div>
           <div className="rounded bg-[#f2f5f8]">

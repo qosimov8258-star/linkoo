@@ -174,7 +174,7 @@ function ClientsFilterModal({ onClose }: { onClose: () => void }) {
           </div>
         </div>
         <footer className="flex justify-end gap-6 border-t px-16 py-3">
-          <button type="button" className="rounded-md bg-[#ff6262] px-6 py-3 font-bold text-white">ОЧИСТИТЬ</button>
+          <button type="button" onClick={() => setDays([])} className="rounded-md bg-[#ff6262] px-6 py-3 font-bold text-white">ОЧИСТИТЬ</button>
           <button type="button" onClick={onClose} className="rounded-md bg-[#6bce87] px-6 py-3 font-bold text-white">ПРИМЕНИТЬ</button>
         </footer>
       </section>
@@ -184,14 +184,15 @@ function ClientsFilterModal({ onClose }: { onClose: () => void }) {
 
 function ZoneModal({ onClose }: { onClose: () => void }) {
   const [mode, setMode] = useState<"draw" | "select">("select")
+  const [name, setName] = useState("")
   return (
     <div className="absolute inset-0 z-[700] flex items-start justify-center bg-slate-950/25 pt-16" onMouseDown={onClose}>
       <section onMouseDown={(event) => event.stopPropagation()} className="w-[690px] bg-white p-9 shadow-2xl">
         <div className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-5">
-          <input placeholder="Наименование зоны" className="h-11 border-b border-slate-200 text-base font-semibold outline-none" />
+          <input value={name} onChange={(event) => setName(event.target.value)} placeholder="Наименование зоны" className="h-11 border-b border-slate-200 text-base font-semibold outline-none" />
           <button type="button" onClick={() => setMode("draw")} className={`rounded-md p-3 ${mode === "draw" ? "bg-slate-100" : ""}`}><Route /></button>
           <button type="button" onClick={() => setMode("select")} className={`rounded-md p-3 ${mode === "select" ? "bg-slate-100" : ""}`}><MapPinned /></button>
-          <button type="button" className="p-3"><Trash2 /></button>
+          <button type="button" aria-label="Очистить зону" onClick={() => { setName(""); setMode("select") }} className="p-3"><Trash2 /></button>
         </div>
         <button type="button" onClick={onClose} className="absolute ml-[595px] mt-[-48px]"><X /></button>
         <div className="mt-6 grid grid-cols-2 gap-6">

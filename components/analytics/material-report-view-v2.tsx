@@ -141,15 +141,37 @@ const formatNumber = (value: number, fraction = false) =>
     maximumFractionDigits: fraction ? 2 : 1,
   }).format(value)
 
-function SelectLine({ label }: { label: string }) {
+function SelectLine({ label, options = ["Все"] }: { label: string; options?: string[] }) {
+  const [open, setOpen] = useState(false)
+  const [value, setValue] = useState(options[0])
   return (
-    <button
-      type="button"
-      className="flex h-12 w-full items-end justify-between border-b border-slate-300 pb-2 text-left text-[16px] font-medium"
-    >
-      <span>{label}</span>
-      <ChevronDown className="h-4 w-4 text-slate-400" />
-    </button>
+    <div className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((current) => !current)}
+        className="flex h-12 w-full items-end justify-between border-b border-slate-300 pb-2 text-left text-[16px] font-medium"
+      >
+        <span>{label}{value !== options[0] ? `: ${value}` : ""}</span>
+        <ChevronDown className={`h-4 w-4 text-slate-400 transition-transform ${open ? "rotate-180" : ""}`} />
+      </button>
+      {open && (
+        <div className="absolute left-0 right-0 top-full z-20 max-h-48 overflow-y-auto border border-slate-200 bg-white py-1 shadow-xl">
+          {options.map((option) => (
+            <button
+              key={option}
+              type="button"
+              onClick={() => {
+                setValue(option)
+                setOpen(false)
+              }}
+              className="block w-full px-3 py-2 text-left text-sm hover:bg-slate-50"
+            >
+              {option}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -213,7 +235,7 @@ export function MaterialReportViewV2() {
             >
               <Filter className="h-5 w-5" /> Фильтр
             </button>
-            <button className="font-medium text-[#4e70dd]">Во всей организации</button>
+            <button type="button" onClick={() => setFilterOpen(true)} className="font-medium text-[#4e70dd]">Во всей организации</button>
           </div>
           <button
             type="button"
@@ -348,13 +370,13 @@ export function MaterialReportViewV2() {
                 <span className="block text-xs font-medium">Диапазон дат</span>
                 <span className="mt-2 block">01 июля 2026 - 31 июля 2026</span>
               </div>
-              <SelectLine label="Филиалы" />
-              <SelectLine label="Организация" />
-              <SelectLine label="Склад" />
-              <SelectLine label="Тип продукта" />
-              <SelectLine label="Бренд" />
-              <SelectLine label="Движение за период" />
-              <SelectLine label="Остаток за период" />
+              <SelectLine label="Филиалы" options={["Все филиалы", "777", "878", "Andijon", "AURUM samarqand"]} />
+              <SelectLine label="Организация" options={["Все организации", "Linko", "Time3 Distribution"]} />
+              <SelectLine label="Склад" options={["Все склады", "Andijon skladi", "05,08,2025(1)", "Chinobod sklad"]} />
+              <SelectLine label="Тип продукта" options={["Все типы", "Напитки", "Снеки", "Бытовая химия"]} />
+              <SelectLine label="Бренд" options={["Все бренды", "coca-cola", "lipton", "sprayt"]} />
+              <SelectLine label="Движение за период" options={["Все", "Приход", "Расход"]} />
+              <SelectLine label="Остаток за период" options={["Все", "Положительный", "Отрицательный", "Нулевой"]} />
             </div>
             <label className="mt-6 flex items-center gap-2 text-[16px] font-medium">
               <input type="checkbox" className="h-5 w-5" /> Показать прочие

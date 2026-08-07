@@ -42,6 +42,8 @@ export function InventoryPage() {
   const [addOpen, setAddOpen] = useState(false)
   const [warehouse, setWarehouse] = useState("Все склады")
   const [status, setStatus] = useState<Status | "Все статусы">("Все статусы")
+  const [editRow, setEditRow] = useState<Inventory | null>(null)
+  const [editComment, setEditComment] = useState("")
 
   const filtered = useMemo(() => rows.filter((row) => {
     const matchesQuery = `${row.id} ${row.warehouse} ${row.author} ${row.comment} ${row.status}`.toLowerCase().includes(query.toLowerCase())
@@ -56,6 +58,16 @@ export function InventoryPage() {
     const html = `<html><meta charset="utf-8"><table><tr><th>№</th><th>Склад</th><th>Создал</th><th>Дата создания</th><th>Комментарий</th><th>Статус</th><th>Сумма</th></tr>${body}</table></html>`
     const url = URL.createObjectURL(new Blob([html], { type: "application/vnd.ms-excel;charset=utf-8" }))
     const link = document.createElement("a"); link.href = url; link.download = "inventory.xls"; link.click(); URL.revokeObjectURL(url)
+  }
+
+  function cancelInventory(id: number) {
+    setRows((current) => current.map((row) => (row.id === id ? { ...row, status: "Отменен" } : row)))
+  }
+
+  function saveComment() {
+    if (!editRow) return
+    setRows((current) => current.map((row) => (row.id === editRow.id ? { ...row, comment: editComment } : row)))
+    setEditRow(null)
   }
 
   function addInventory() {
@@ -95,7 +107,7 @@ export function InventoryPage() {
             <td className="px-9 py-5"><span className={`mr-2 inline-block h-2.5 w-2.5 rounded-full ${statusColor[row.status]}`}/>{row.status}</td><td className="px-9 py-5">{row.amount}</td>
           </tr>
           {selected === row.id && <tr><td colSpan={7} className="bg-[#f2f5f8] p-4"><div className="rounded bg-white shadow-lg">
-            <div className="flex items-center border-b px-9 py-5"><strong className="text-xl">{row.author}</strong><div className="ml-auto flex gap-5"><button><Pencil className="text-slate-400"/></button><button onClick={downloadExcel} className="flex items-center gap-2 rounded bg-[#67cc87] px-5 py-2 text-white"><Download size={18}/>Скачать Excel</button><button className="flex items-center gap-2 rounded bg-[#fa8077] px-5 py-2 text-white"><MinusCircle size={18}/>Отменить</button><button onClick={() => { setRows((r) => r.filter((x) => x.id !== row.id)); setSelected(null) }}><Trash2 className="text-slate-500"/></button></div></div>
+            <div className="flex items-center border-b px-9 py-5"><strong className="text-xl">{row.author}</strong><div className="ml-auto flex gap-5"><button onClick={() => { setEditRow(row); setEditComment(row.comment) }} aria-label="Изменить"><Pencil className="text-slate-400"/></button><button onClick={downloadExcel} className="flex items-center gap-2 rounded bg-[#67cc87] px-5 py-2 text-white"><Download size={18}/>Скачать Excel</button><button disabled={row.status === "Отменен"} onClick={() => cancelInventory(row.id)} className="flex items-center gap-2 rounded bg-[#fa8077] px-5 py-2 text-white disabled:cursor-not-allowed disabled:opacity-40"><MinusCircle size={18}/>Отменить</button><button onClick={() => { setRows((r) => r.filter((x) => x.id !== row.id)); setSelected(null) }} aria-label="Удалить"><Trash2 className="text-slate-500"/></button></div></div>
             <div className="grid grid-cols-[420px_1fr]">
               <dl className="grid grid-cols-2 gap-y-3 border-r p-9 text-slate-600"><dt>Тип:</dt><dd className="text-right font-semibold">По факту проведения</dd><dt>Склад:</dt><dd className="text-right font-semibold">{row.warehouse}</dd><dt>Статус:</dt><dd className="text-right font-semibold">{row.status}</dd><dt>Дата создания:</dt><dd className="text-right font-semibold">{row.date}</dd><dt>Время:</dt><dd className="text-right font-semibold">На начало дня</dd><dt>Комментарий:</dt><dd className="text-right font-semibold">{row.comment}</dd></dl>
               <div className="p-9"><div className="grid grid-cols-6 border-b pb-4 font-semibold"><span>Наименование</span><span>Серия</span><span>Баланс (до)</span><span>Баланс (после)</span><span>Разница</span><span>Сумма SUM</span></div><div className="grid grid-cols-6 border-b py-5"><span>sndwch</span><span>-</span><span>4 sht</span><span>1 sht</span><span>-3 sht</span><span>{row.amount}</span></div><div className="mt-5 text-right font-semibold">Итого: <span className="ml-16">{row.amount}</span></div></div>
@@ -106,5 +118,7 @@ export function InventoryPage() {
     </div>
 
     {addOpen && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45"><div className="w-[620px] rounded bg-white p-8 shadow-2xl"><div className="mb-8 flex justify-between text-xl font-semibold">ДОБАВИТЬ ИНВЕНТАРИЗАЦИЮ<button onClick={() => setAddOpen(false)}><X/></button></div><label className="block">Склад<select value={warehouse} onChange={(e) => setWarehouse(e.target.value)} className="mt-2 w-full border-b py-3"><option>Все склады</option>{warehouses.map((w) => <option key={w}>{w}</option>)}</select></label><label className="mt-6 block">Комментарий<input className="mt-2 w-full border-b py-3" placeholder="Комментарий"/></label><div className="mt-10 text-right"><button onClick={addInventory} className="rounded bg-[#67cc87] px-7 py-3 font-semibold text-white">СОХРАНИТЬ</button></div></div></div>}
+
+    {editRow && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45"><div className="w-[620px] rounded bg-white p-8 shadow-2xl"><div className="mb-8 flex justify-between text-xl font-semibold">ИЗМЕНИТЬ ИНВЕНТАРИЗАЦИЮ №{editRow.id}<button onClick={() => setEditRow(null)}><X/></button></div><label className="block">Комментарий<input autoFocus value={editComment} onChange={(e) => setEditComment(e.target.value)} className="mt-2 w-full border-b py-3" placeholder="Комментарий"/></label><div className="mt-10 text-right"><button onClick={saveComment} className="rounded bg-[#67cc87] px-7 py-3 font-semibold text-white">СОХРАНИТЬ</button></div></div></div>}
   </div>
 }

@@ -59,6 +59,8 @@ export function SalesTabView() {
   const [period, setPeriod] = useState<(typeof periods)[number]>("МЕСЯЦ")
   const [metric, setMetric] = useState<(typeof metrics)[number]>("ПРОДАЖИ")
   const [filterActive, setFilterActive] = useState(true)
+  const [filterLabel, setFilterLabel] = useState("Все филиалы")
+  const [filterEditOpen, setFilterEditOpen] = useState(false)
   const [salesRange, setSalesRange] = useState<(typeof salesRanges)[number]>("ПО ДНЯМ")
   const [sortState, setSortState] = useState<Record<BreakdownKey, string | null>>({ type: null, territory: null, user: null, product: null })
 
@@ -111,10 +113,25 @@ export function SalesTabView() {
           </button>
         ))}
         {filterActive && (
-          <div className="ml-auto flex items-center gap-2 rounded-md bg-[#f6f9fc] px-4 py-2 text-[#586174]">
-            Фильтр: 1 элемента
-            <button aria-label="Изменить фильтр"><Pencil className="h-4 w-4 text-[#9aa3b6] hover:text-[#4f70e7]" /></button>
-            <button aria-label="Очистить фильтр" onClick={() => setFilterActive(false)}><X className="h-5 w-5 rounded-full border border-[#9aa3b6] p-0.5 text-[#9aa3b6] hover:text-[#e5484d]" /></button>
+          <div className="relative ml-auto flex items-center gap-2 rounded-md bg-[#f6f9fc] px-4 py-2 text-[#586174]">
+            Фильтр: {filterLabel}
+            <button type="button" onClick={() => setFilterEditOpen((value) => !value)} aria-label="Изменить фильтр"><Pencil className="h-4 w-4 text-[#9aa3b6] hover:text-[#4f70e7]" /></button>
+            <button type="button" aria-label="Очистить фильтр" onClick={() => setFilterActive(false)}><X className="h-5 w-5 rounded-full border border-[#9aa3b6] p-0.5 text-[#9aa3b6] hover:text-[#e5484d]" /></button>
+            {filterEditOpen && (
+              <div className="absolute right-0 top-full z-20 mt-2 w-64 border border-[#e1e5eb] bg-white p-4 shadow-xl">
+                <label className="block text-xs font-medium text-[#586174]">
+                  Филиал
+                  <select value={filterLabel} onChange={(event) => setFilterLabel(event.target.value)} className="mt-1 block w-full border-b border-[#dbe0e8] bg-white py-2 text-sm outline-none">
+                    <option>Все филиалы</option>
+                    <option>777</option>
+                    <option>878</option>
+                    <option>Andijon</option>
+                    <option>AURUM samarqand</option>
+                  </select>
+                </label>
+                <button type="button" onClick={() => setFilterEditOpen(false)} className="mt-4 w-full rounded bg-[#5470e8] py-2 text-sm font-semibold text-white">Применить</button>
+              </div>
+            )}
           </div>
         )}
       </section>

@@ -16,14 +16,27 @@ const rows = [
   ["spark123", "-1 шт", "-", "08 мая 2026, 16:13", "Andijon skladi", "Заказ 1572"],
 ]
 
+const filterColumns: Record<string, number> = { "Товар": 0, "Склад": 4, "Тип": 5 }
+
 export function GoodsMovementView() {
   const [tab, setTab] = useState<(typeof tabs)[number]>("Движение товаров")
   const [query, setQuery] = useState("")
   const [filterOpen, setFilterOpen] = useState(false)
+  const [openCategory, setOpenCategory] = useState<string | null>(null)
+  const [categoryFilters, setCategoryFilters] = useState<Record<string, string>>({})
 
   const filtered = useMemo(
-    () => rows.filter((row) => row.join(" ").toLowerCase().includes(query.toLowerCase())),
-    [query],
+    () =>
+      rows
+        .filter((row) => row.join(" ").toLowerCase().includes(query.toLowerCase()))
+        .filter((row) =>
+          Object.entries(categoryFilters).every(([category, value]) => {
+            if (!value) return true
+            const columnIndex = filterColumns[category]
+            return columnIndex === undefined || row[columnIndex] === value
+          }),
+        ),
+    [query, categoryFilters],
   )
 
   const download = () => {
@@ -62,7 +75,29 @@ export function GoodsMovementView() {
         {filterOpen && (
           <div className="absolute left-0 top-14 z-20 w-[390px] max-w-[95vw] bg-white p-6 shadow-xl">
             <div className="mb-10 flex justify-between text-xl text-[#566074]"><span>Фильтр</span><button onClick={() => setFilterOpen(false)}>⊗</button></div>
-            {["Тип продукта", "Тип", "Товар", "Склад", "Статус"].map((label) => <button key={label} className="flex w-full justify-between border-b py-4 font-medium"><span>{label}</span><span>▾</span></button>)}
+            {["Тип продукта", "Тип", "Товар", "Склад", "Статус"].map((label) => {
+              const columnIndex = filterColumns[label]
+              const options = columnIndex === undefined ? [] : Array.from(new Set(rows.map((row) => row[columnIndex])))
+              return (
+                <div key={label} className="border-b">
+                  <button type="button" onClick={() => setOpenCategory((current) => (current === label ? null : label))} className="flex w-full justify-between py-4 font-medium">
+                    <span>{categoryFilters[label] ? `${label}: ${categoryFilters[label]}` : label}</span>
+                    <span>{openCategory === label ? "▴" : "▾"}</span>
+                  </button>
+                  {openCategory === label && (
+                    <div className="max-h-40 overflow-y-auto pb-3">
+                      <button type="button" onClick={() => setCategoryFilters((current) => ({ ...current, [label]: "" }))} className="block w-full py-1.5 text-left text-sm text-slate-500 hover:text-[#5574e7]">Все</button>
+                      {options.length === 0 && <p className="py-1.5 text-sm text-slate-400">Нет вариантов</p>}
+                      {options.map((option) => (
+                        <button key={option} type="button" onClick={() => setCategoryFilters((current) => ({ ...current, [label]: option }))} className="block w-full py-1.5 text-left text-sm hover:text-[#5574e7]">
+                          {option}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
             <label className="mt-5 block text-xs">Период</label><input defaultValue="01 июля 2026 - 31 июля 2026" className="w-full border-b py-2" />
             <button onClick={() => setFilterOpen(false)} className="mt-6 rounded bg-[#626c80] px-5 py-3 text-white">ПРИМЕНИТЬ</button>
           </div>
