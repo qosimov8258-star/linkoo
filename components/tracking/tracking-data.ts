@@ -1,3 +1,5 @@
+export type AgentCategory = "walk" | "tags" | "delivery" | "finance"
+
 export type Agent = {
   id: number
   name: string
@@ -9,6 +11,8 @@ export type Agent = {
   position?: [number, number]
   /** time chips shown on the map pill */
   chips?: string[]
+  /** which sidebar category tabs (beyond the default "all agents" tab) this agent shows up under */
+  categories: AgentCategory[]
 }
 
 export type MapClient = {
@@ -76,6 +80,24 @@ const agentColors = ["#f2b705", "#ff4d3d", "#8e24aa", "#ef4136", "#ff5722", "#71
 // показывает это как есть, вместо того чтобы скрывать запись.
 const CORRUPTED_TIMESTAMP_INDEX = 9
 
+const categoriesByIndex: Record<number, AgentCategory[]> = {
+  0: ["tags", "delivery", "finance"],
+  4: ["delivery"],
+  8: ["delivery"],
+  9: ["delivery"],
+  10: ["delivery"],
+  14: ["delivery"],
+  15: ["delivery"],
+  16: ["delivery"],
+  17: ["delivery"],
+  18: ["delivery"],
+  19: ["delivery"],
+  20: ["tags"],
+  23: ["delivery"],
+  27: ["delivery"],
+  32: ["tags", "finance"],
+}
+
 export const agents: Agent[] = agentRows.map(([name, timestamp, ratio, battery], index) => ({
   id: index + 1,
   name,
@@ -85,6 +107,7 @@ export const agents: Agent[] = agentRows.map(([name, timestamp, ratio, battery],
   color: agentColors[index % agentColors.length],
   position: markerPositions[index],
   chips: index === CORRUPTED_TIMESTAMP_INDEX ? ["INVALID DATE"] : timestamp ? [timestamp.split(", ").at(-1) ?? ""] : [],
+  categories: categoriesByIndex[index] ?? [],
 }))
 
 export const mapAgents = agents.filter((a) => a.position)

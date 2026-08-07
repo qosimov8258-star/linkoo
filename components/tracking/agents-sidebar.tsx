@@ -18,9 +18,9 @@ import {
   ScanLine,
   X,
 } from "lucide-react"
-import { agents } from "./tracking-data"
+import { agents, type AgentCategory } from "./tracking-data"
 
-const tabs = [
+const tabs: { id: "agents" | AgentCategory; icon: typeof Users }[] = [
   { id: "agents", icon: Users },
   { id: "walk", icon: Accessibility },
   { id: "tags", icon: Tag },
@@ -47,7 +47,7 @@ function Battery({ level }: { level: number }) {
 }
 
 export function AgentsSidebar() {
-  const [activeTab, setActiveTab] = useState("agents")
+  const [activeTab, setActiveTab] = useState<"agents" | AgentCategory>("agents")
   const [query, setQuery] = useState("")
   const [date, setDate] = useState(() => new Date())
   const [selectedAgentId, setSelectedAgentId] = useState<number | null>(null)
@@ -75,8 +75,11 @@ export function AgentsSidebar() {
   }, [date])
 
   const filtered = useMemo(
-    () => agents.filter((a) => a.name.toLowerCase().includes(query.toLowerCase())),
-    [query],
+    () =>
+      agents
+        .filter((a) => (activeTab === "agents" ? true : a.categories.includes(activeTab)))
+        .filter((a) => a.name.toLowerCase().includes(query.toLowerCase())),
+    [query, activeTab],
   )
 
   function shiftDate(days: number) {
@@ -207,31 +210,48 @@ export function AgentsSidebar() {
       </div>
 
       {/* Offline agents */}
-      <div className="flex items-center justify-between px-4 py-3">
-        <span className="text-base font-bold text-slate-700">Офлайн агенты</span>
-        <span className="text-base font-bold text-slate-700">{filtered.length}</span>
-      </div>
+      {filtered.length > 0 ? (
+        <>
+          <div className="flex items-center justify-between px-4 py-3">
+            <span className="text-base font-bold text-slate-700">Офлайн агенты</span>
+            <span className="text-base font-bold text-slate-700">{filtered.length}</span>
+          </div>
 
-      <div className="flex-1 overflow-y-auto">
-        {filtered.map((agent) => (
-          <button
-            key={agent.id}
-            onClick={() => setSelectedAgentId(agent.id)}
-            className="flex w-full items-center gap-3 border-t border-slate-100 px-4 py-3 text-left transition-colors hover:bg-slate-50"
-          >
-            <span
-              className="h-2.5 w-2.5 shrink-0 rounded-full"
-              style={{ background: agent.color }}
-            />
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-[15px] font-semibold text-slate-700">{agent.name}</p>
-              <p className="truncate text-sm text-slate-400">{agent.timestamp}</p>
-            </div>
-            <span className="shrink-0 text-sm font-medium text-slate-500">{agent.ratio}</span>
-            <Battery level={agent.battery} />
-          </button>
-        ))}
-      </div>
+          <div className="flex-1 overflow-y-auto">
+            {filtered.map((agent) => (
+              <button
+                key={agent.id}
+                onClick={() => setSelectedAgentId(agent.id)}
+                className="flex w-full items-center gap-3 border-t border-slate-100 px-4 py-3 text-left transition-colors hover:bg-slate-50"
+              >
+                <span
+                  className="h-2.5 w-2.5 shrink-0 rounded-full"
+                  style={{ background: agent.color }}
+                />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-[15px] font-semibold text-slate-700">{agent.name}</p>
+                  <p className="truncate text-sm text-slate-400">{agent.timestamp}</p>
+                </div>
+                <span className="shrink-0 text-sm font-medium text-slate-500">{agent.ratio}</span>
+                <Battery level={agent.battery} />
+              </button>
+            ))}
+          </div>
+        </>
+      ) : (
+        <div className="flex flex-col items-center px-4 py-2">
+          <Image
+            src="/robot-mascot.png"
+            alt="Робот-помощник"
+            width={120}
+            height={120}
+            className="h-28 w-28 object-contain"
+          />
+          <p className="mt-1 text-center text-sm font-medium text-slate-400">
+            Офлайн агенты не найдены...
+          </p>
+        </div>
+      )}
     </aside>
   )
 }

@@ -51,6 +51,16 @@ import { SurveyPlanView } from "@/components/analytics/survey-plan-view"
 import { TelegramBotPagesView } from "@/components/analytics/telegram-bot-pages-view"
 import { RefusalTypesView } from "@/components/analytics/refusal-types-view"
 import { ShiftsView } from "@/components/analytics/shifts-view"
+import { BranchesView } from "@/components/analytics/branches-view"
+import { EmployeesView } from "@/components/analytics/employees-view"
+import { PositionsView } from "@/components/analytics/positions-view"
+import { AccessRightsView } from "@/components/analytics/access-rights-view"
+import { BranchKpiPlansView } from "@/components/analytics/branch-kpi-plans-view"
+import { ActivityView } from "@/components/analytics/activity-view"
+import { TasksView } from "@/components/analytics/tasks-view"
+import { TimeRestrictionsView } from "@/components/analytics/time-restrictions-view"
+import { KnowledgeBaseView } from "@/components/analytics/knowledge-base-view"
+import { ProductRestrictionsView } from "@/components/analytics/product-restrictions-view"
 import {
   getAnalyticsReport,
   getAnalyticsResource,
@@ -170,7 +180,7 @@ export default async function AnalyticsPage({ params }: PageProps) {
   if (report.slug === "coverage-analysis") {
     return <CoverageAnalysisView />
   }
-  if (report.slug === "attendance") {
+  if (report.slug === "attendance" || report.slug === "work-attendance") {
     return <AttendanceView />
   }
   if (report.slug === "duplicate-analysis") {
@@ -286,6 +296,46 @@ export default async function AnalyticsPage({ params }: PageProps) {
 
   if (report.slug === "shifts") {
     return <ShiftsView />
+  }
+
+  if (report.slug === "branches") {
+    return <BranchesView />
+  }
+
+  if (report.slug === "employees") {
+    return <EmployeesView />
+  }
+
+  if (report.slug === "positions") {
+    return <PositionsView />
+  }
+
+  if (report.slug === "access-rights") {
+    return <AccessRightsView />
+  }
+
+  if (report.slug === "branch-kpi-plans") {
+    return <BranchKpiPlansView />
+  }
+
+  if (report.slug === "activity") {
+    return <ActivityView />
+  }
+
+  if (report.slug === "tasks") {
+    return <TasksView />
+  }
+
+  if (report.slug === "time-restrictions") {
+    return <TimeRestrictionsView />
+  }
+
+  if (report.slug === "knowledge-base") {
+    return <KnowledgeBaseView />
+  }
+
+  if (report.slug === "product-restrictions") {
+    return <ProductRestrictionsView />
   }
 
   return <AnalyticsReportView report={report} />

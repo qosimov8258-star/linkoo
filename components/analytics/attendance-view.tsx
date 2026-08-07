@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
 import {
   CalendarDays,
@@ -26,6 +26,11 @@ const agents = [
 ]
 const branches = ["777", "878", "agent", "Andijon", "AURUM samarqand", "baby still"]
 const week = ["вс", "пн", "вт", "ср", "чт", "пт", "сб"]
+
+function sundaysInMonth(year: number, month: number) {
+  const daysInMonth = new Date(year, month + 1, 0).getDate()
+  return Array.from({ length: daysInMonth }, (_, index) => index + 1).filter((day) => new Date(year, month, day).getDay() === 0)
+}
 
 function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
   return (
@@ -55,14 +60,16 @@ function WorkingTimeModal({ onClose }: { onClose: () => void }) {
   )
 }
 
-function WeekendModal({ onClose, selected, setSelected }: { onClose: () => void; selected: number[]; setSelected: (days: number[]) => void }) {
+function WeekendModal({ onClose, selected, setSelected, year, month }: { onClose: () => void; selected: number[]; setSelected: (days: number[]) => void; year: number; month: number }) {
+  const daysInMonth = new Date(year, month + 1, 0).getDate()
+  const sundays = useMemo(() => sundaysInMonth(year, month), [year, month])
   return (
     <Modal title="ДОБАВИТЬ ВЫХОДНЫЕ ДНИ" onClose={onClose}>
       <div className="px-9 py-7">
         <div className="mb-3 grid grid-cols-7 bg-slate-100 py-3 text-center">{["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"].map((day) => <b key={day}>{day}</b>)}</div>
         <div className="grid grid-cols-7 gap-2 text-center">
-          {Array.from({ length: 31 }, (_, index) => index + 1).map((day) => {
-            const sunday = [5, 12, 19, 26].includes(day)
+          {Array.from({ length: daysInMonth }, (_, index) => index + 1).map((day) => {
+            const sunday = sundays.includes(day)
             const active = selected.includes(day) || sunday
             return <button key={day} type="button" onClick={() => setSelected(active ? selected.filter((item) => item !== day) : [...selected, day])} className={`h-14 rounded ${active ? "bg-sky-500 text-white" : "hover:bg-slate-100"}`}>{day}</button>
           })}
@@ -75,6 +82,18 @@ function WeekendModal({ onClose, selected, setSelected }: { onClose: () => void;
 
 function AgentDrawer({ name, onClose }: { name: string; onClose: () => void }) {
   const router = useRouter()
+  const [visitDate, setVisitDate] = useState(() => new Date())
+  const visitDateLabel = useMemo(() => {
+    const months = ["января", "февраля", "марта", "апреля", "мая", "июня", "июля", "августа", "сентября", "октября", "ноября", "декабря"]
+    return `${visitDate.getDate()} ${months[visitDate.getMonth()]} ${visitDate.getFullYear()}`
+  }, [visitDate])
+  function shiftVisitDate(offset: number) {
+    setVisitDate((current) => {
+      const next = new Date(current)
+      next.setDate(next.getDate() + offset)
+      return next
+    })
+  }
   return (
     <aside className="fixed bottom-0 right-0 top-16 z-[900] flex w-[52vw] min-w-[720px] flex-col bg-slate-50 shadow-2xl">
       <header className="flex items-center gap-4 border-b bg-white px-6 py-4">
@@ -92,7 +111,11 @@ function AgentDrawer({ name, onClose }: { name: string; onClose: () => void }) {
         <div className="rounded bg-[#ff5d63] py-3"><b className="text-2xl">0</b> Отказы</div>
         <div className="rounded bg-[#13a0f4] py-3"><b className="text-2xl">0</b> Надо посетить</div>
       </div>
-      <div className="mx-7 flex items-center gap-3 rounded bg-[#20abc8] px-4 py-2 font-bold text-white"><ChevronLeft />18 июля 2026<ChevronRight /></div>
+      <div className="mx-7 flex items-center gap-3 rounded bg-[#20abc8] px-4 py-2 font-bold text-white">
+        <button type="button" onClick={() => shiftVisitDate(-1)} aria-label="Предыдущий день"><ChevronLeft /></button>
+        {visitDateLabel}
+        <button type="button" onClick={() => shiftVisitDate(1)} aria-label="Следующий день"><ChevronRight /></button>
+      </div>
       <div className="m-7 flex flex-1 flex-col items-center justify-center border bg-white">
         <div className="text-7xl">🤖</div><p className="mt-5 text-slate-500">Для выбранного агента в эту дату не найдено планов</p>
       </div>
@@ -101,14 +124,19 @@ function AgentDrawer({ name, onClose }: { name: string; onClose: () => void }) {
 }
 
 export function AttendanceView() {
+  const today = useMemo(() => new Date(), [])
   const [query, setQuery] = useState("")
-  const [year, setYear] = useState(2026)
-  const [month, setMonth] = useState(6)
+  const [year, setYear] = useState(today.getFullYear())
+  const [month, setMonth] = useState(today.getMonth())
   const [filterOpen, setFilterOpen] = useState(false)
   const [branch, setBranch] = useState("")
   const [workingOpen, setWorkingOpen] = useState(false)
   const [weekendOpen, setWeekendOpen] = useState(false)
-  const [weekends, setWeekends] = useState<number[]>([5, 12, 19, 26])
+  const [weekends, setWeekends] = useState<number[]>(() => sundaysInMonth(today.getFullYear(), today.getMonth()))
+
+  useEffect(() => {
+    setWeekends(sundaysInMonth(year, month))
+  }, [year, month])
   const [selectedRows, setSelectedRows] = useState<string[]>([])
   const [selectedAgent, setSelectedAgent] = useState<string | null>(null)
   const [editMode, setEditMode] = useState(false)
@@ -157,7 +185,7 @@ export function AttendanceView() {
         </div>
       </section>
       {workingOpen && <WorkingTimeModal onClose={() => setWorkingOpen(false)} />}
-      {weekendOpen && <WeekendModal onClose={() => setWeekendOpen(false)} selected={weekends} setSelected={setWeekends} />}
+      {weekendOpen && <WeekendModal onClose={() => setWeekendOpen(false)} selected={weekends} setSelected={setWeekends} year={year} month={month} />}
       {selectedAgent && <AgentDrawer name={selectedAgent} onClose={() => setSelectedAgent(null)} />}
       {notice && <div className="fixed bottom-6 left-1/2 z-[1200] -translate-x-1/2 rounded bg-slate-800 px-6 py-3 text-white shadow-xl">{notice}</div>}
     </main>

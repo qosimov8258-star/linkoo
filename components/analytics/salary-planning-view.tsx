@@ -2,7 +2,9 @@
 
 import Image from "next/image"
 import { ChangeEvent, FormEvent, useMemo, useRef, useState } from "react"
-import { Copy, Download, EyeOff, Pencil, PlusCircle, RefreshCw, Star, X } from "lucide-react"
+import { ChevronLeft, ChevronRight, Copy, Download, ListChecks, Pencil, PlusCircle, RefreshCw, Star, X } from "lucide-react"
+
+const months = ["Январь", "Февраль", "Март", "Апрель", "Май", "Июнь", "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"]
 
 type SalaryRow = {
   id: number
@@ -95,17 +97,26 @@ export function SalaryPlanningView() {
       <section className="bg-white shadow">
         <div className="grid grid-cols-3">{["Не зачислено", "Зачислено", "Все"].map((item) => <button key={item} type="button" onClick={() => { setTab(item); setPage(1) }} className={`py-4 ${tab === item ? "border-b-4 border-[#5470e8]" : ""}`}>{item}</button>)}</div>
         <div className="flex flex-wrap items-end gap-5 border-t px-2 py-2">
-          <label className="text-xs">Месяц<select value={month} onChange={(event) => setMonth(Number(event.target.value))} className="block border-0 border-b py-2"><option value={6}>Июль</option><option value={7}>Август</option><option value={8}>Сентябрь</option></select></label>
-          <label className="text-xs">Год<select value={year} onChange={(event) => setYear(Number(event.target.value))} className="block border-0 border-b py-2">{[2025, 2026, 2027].map((item) => <option key={item}>{item}</option>)}</select></label>
+          <label className="text-xs font-medium text-slate-500">
+            Месяц
+            <div className="mt-1 flex items-center gap-2 border-b py-1 pr-1">
+              <select value={month} onChange={(event) => setMonth(Number(event.target.value))} className="bg-white text-base font-semibold text-slate-800 outline-none">
+                {months.map((item, index) => <option key={item} value={index}>{item}</option>)}
+              </select>
+              <button type="button" aria-label="Очистить месяц" onClick={() => setMonth(today.getMonth())} className="text-slate-400 hover:text-slate-600"><X className="h-4 w-4" /></button>
+            </div>
+          </label>
+          <label className="text-xs font-medium text-slate-500">Год<select value={year} onChange={(event) => setYear(Number(event.target.value))} className="mt-1 block border-0 border-b py-2 text-base font-semibold text-slate-800">{[2025, 2026, 2027].map((item) => <option key={item}>{item}</option>)}</select></label>
           <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Поиск" className="ml-auto w-80 border-0 border-b px-0 py-2" />
           <select value={pageSize} onChange={(event) => setPageSize(Number(event.target.value))}><option>10</option><option>25</option><option>50</option></select>
           <span>{filtered.length ? `${(page - 1) * pageSize + 1} - ${Math.min(page * pageSize, filtered.length)} из ${filtered.length}` : "0 из 0"}</span>
-          <button type="button" disabled={page === 1} onClick={() => setPage((value) => value - 1)}>◀</button><button type="button" disabled={page === pages} onClick={() => setPage((value) => value + 1)}>▶</button>
-          <EyeOff className="text-slate-500" />
+          <button type="button" aria-label="Назад" disabled={page === 1} onClick={() => setPage((value) => value - 1)} className="rounded-full border-2 p-1 disabled:opacity-30"><ChevronLeft className="h-4 w-4" /></button>
+          <button type="button" aria-label="Вперед" disabled={page === pages} onClick={() => setPage((value) => value + 1)} className="rounded-full border-2 p-1 disabled:opacity-30"><ChevronRight className="h-4 w-4" /></button>
+          <ListChecks className="text-slate-500" />
           <button type="button" disabled={!selected.length} onClick={() => setCredited(true)} className="rounded bg-[#6ccd8b] px-5 py-2 font-bold text-white disabled:opacity-50">Зачислить</button>
           <button type="button" disabled={!selected.length} onClick={() => setCredited(false)} className="rounded bg-[#ff786e] px-5 py-2 font-bold text-white disabled:opacity-50">Отменить зачисление</button>
           <button type="button" disabled={!selected.length} onClick={() => setPlansOpen(true)} className="rounded bg-[#5470e8] px-5 py-2 font-bold text-white disabled:opacity-50"><Pencil className="mr-2 inline h-4 w-4" />Изменить планы</button>
-          <button type="button" onClick={() => { if (selected.length) setRows((current) => [...current, ...current.filter((row) => selected.includes(row.id)).map((row, index) => ({ ...row, id: Date.now() + index, employee: `${row.employee} — копия` }))]); setMessage("Выбранные строки скопированы") }}><Copy /></button>
+          <button type="button" aria-label="Копировать выбранные" onClick={() => { if (selected.length) setRows((current) => [...current, ...current.filter((row) => selected.includes(row.id)).map((row, index) => ({ ...row, id: Date.now() + index, employee: `${row.employee} — копия` }))]); setMessage("Выбранные строки скопированы") }}><Copy /></button>
         </div>
         {message && <div className="flex justify-between bg-blue-50 px-5 py-2 text-blue-700">{message}<button type="button" onClick={() => setMessage("")}>×</button></div>}
         <div className="overflow-x-auto"><table className="w-full min-w-[900px]"><thead className="bg-slate-600 text-white"><tr><th className="px-6 py-5"><input type="checkbox" checked={shown.length > 0 && shown.every((row) => selected.includes(row.id))} onChange={(event) => setSelected(event.target.checked ? shown.map((row) => row.id) : [])} /></th><th className="px-5 py-5 text-left">Сотрудник</th><th className="px-5 py-5 text-right">Зарплата</th><th className="px-5 py-5 text-right">Сумма бонусов</th><th className="px-5 py-5 text-right">Итоговая зарплата</th><th className="px-5 py-5 text-right">KPI</th></tr></thead><tbody>{shown.map((row) => <tr key={row.id} className="border-b"><td className="px-6 py-4"><input type="checkbox" checked={selected.includes(row.id)} onChange={() => toggleSelected(row.id)} /></td><td className="px-5 py-4">{row.employee}</td><td className="px-5 py-4 text-right">{row.salary.toLocaleString("ru-RU")}</td><td className="px-5 py-4 text-right">{row.bonus.toLocaleString("ru-RU")}</td><td className="px-5 py-4 text-right">{(row.salary + row.bonus).toLocaleString("ru-RU")}</td><td className="px-5 py-4 text-right">{row.kpi}%</td></tr>)}</tbody></table></div>
