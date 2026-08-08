@@ -61,6 +61,13 @@ import { TasksView } from "@/components/analytics/tasks-view"
 import { TimeRestrictionsView } from "@/components/analytics/time-restrictions-view"
 import { KnowledgeBaseView } from "@/components/analytics/knowledge-base-view"
 import { ProductRestrictionsView } from "@/components/analytics/product-restrictions-view"
+import { SupplierIncomingsView } from "@/components/analytics/supplier-incomings-view"
+import { SupplierReturnsView } from "@/components/analytics/supplier-returns-view"
+import { SupplierCategoriesView } from "@/components/analytics/supplier-categories-view"
+import { SuppliersView } from "@/components/analytics/suppliers-view"
+import { PriceFormationView } from "@/components/analytics/price-formation-view"
+import { WriteOffsView } from "@/components/analytics/write-offs-view"
+import { WarehousesView } from "@/components/analytics/warehouses-view"
 import {
   getAnalyticsReport,
   getAnalyticsResource,
@@ -336,6 +343,34 @@ export default async function AnalyticsPage({ params }: PageProps) {
 
   if (report.slug === "product-restrictions") {
     return <ProductRestrictionsView />
+  }
+
+  if (report.slug === "supplier-incomings") {
+    return <SupplierIncomingsView />
+  }
+
+  if (report.slug === "supplier-returns") {
+    return <SupplierReturnsView />
+  }
+
+  if (report.slug === "supplier-categories") {
+    return <SupplierCategoriesView />
+  }
+
+  if (report.slug === "suppliers") {
+    return <SuppliersView />
+  }
+
+  if (report.slug === "price-formation") {
+    return <PriceFormationView />
+  }
+
+  if (report.slug === "write-offs") {
+    return <WriteOffsView />
+  }
+
+  if (report.slug === "warehouses") {
+    return <WarehousesView />
   }
 
   return <AnalyticsReportView report={report} />
