@@ -18,6 +18,7 @@ import { AbcAnalysisView } from "@/components/analytics/abc-analysis-view"
 import { SalesByAgentsView } from "@/components/analytics/sales-by-agents-view"
 import { SalesByProductsView } from "@/components/analytics/sales-by-products-view"
 import { ClientSalesPaymentsView } from "@/components/analytics/client-sales-payments-view"
+import { ClientDebtsView } from "@/components/analytics/client-debts-view"
 import { ClientDynamicsView } from "@/components/analytics/client-dynamics-view"
 import { CoverageAnalysisView } from "@/components/analytics/coverage-analysis-view"
 import { AttendanceView } from "@/components/analytics/attendance-view"
@@ -30,6 +31,12 @@ import { MaterialReportView } from "@/components/analytics/material-report-view"
 import { GoodsMovementView } from "@/components/analytics/goods-movement-dashboard"
 import { ReportBuilderView } from "@/components/analytics/report-builder-view"
 import { CustomerPaymentsView } from "@/components/analytics/customer-payments-view"
+import { SupplierPaymentsView } from "@/components/analytics/supplier-payments-view"
+import { ExpectedPaymentsView } from "@/components/analytics/expected-payments-view"
+import { SupplierDebtsView } from "@/components/analytics/supplier-debts-view"
+import { ContractsView } from "@/components/analytics/contracts-view"
+import { CashbackWithdrawalRequestsView } from "@/components/analytics/cashback-withdrawal-requests-view"
+import { CurrenciesView } from "@/components/analytics/currencies-view"
 import { VansellBalanceView } from "@/components/analytics/vansell-balance-view"
 import { ReorderLevelView } from "@/components/analytics/reorder-level-view"
 import { RepricingView } from "@/components/analytics/repricing-view"
@@ -68,6 +75,20 @@ import { SuppliersView } from "@/components/analytics/suppliers-view"
 import { PriceFormationView } from "@/components/analytics/price-formation-view"
 import { WriteOffsView } from "@/components/analytics/write-offs-view"
 import { WarehousesView } from "@/components/analytics/warehouses-view"
+import { ProductsView } from "@/components/analytics/products-view"
+import { RawMaterialsView } from "@/components/analytics/raw-materials-view"
+import { PriceListsView } from "@/components/analytics/price-lists-view"
+import { ProductTypesView } from "@/components/analytics/product-types-view"
+import { UnitsOfMeasureView } from "@/components/analytics/units-of-measure-view"
+import { BrandsView } from "@/components/analytics/brands-view"
+import { CostOfGoodsView } from "@/components/analytics/cost-of-goods-view"
+import { OrganizationView } from "@/components/analytics/organization-view"
+import { CashboxesView } from "@/components/analytics/cashboxes-view"
+import { IncomeCategoriesView } from "@/components/analytics/income-categories-view"
+import { ExpenseCategoriesView } from "@/components/analytics/expense-categories-view"
+import { AccountDebtsView } from "@/components/analytics/account-debts-view"
+import { ManagementBalanceView } from "@/components/analytics/management-balance-view"
+import { CashManagementView } from "@/components/analytics/cash-management-view"
 import {
   getAnalyticsReport,
   getAnalyticsResource,
@@ -178,6 +199,10 @@ export default async function AnalyticsPage({ params }: PageProps) {
   if (report.slug === "client-sales-payments") {
     return <ClientSalesPaymentsView />
   }
+
+  if (report.slug === "order-debts") {
+    return <ClientDebtsView />
+  }
   if (report.slug === "client-dynamics") {
     return <ClientDynamicsView />
   }
@@ -219,6 +244,30 @@ export default async function AnalyticsPage({ params }: PageProps) {
 
   if (report.slug === "customer-payments") {
     return <CustomerPaymentsView />
+  }
+
+  if (report.slug === "supplier-payments") {
+    return <SupplierPaymentsView />
+  }
+
+  if (report.slug === "expected-payments") {
+    return <ExpectedPaymentsView />
+  }
+
+  if (report.slug === "supplier-debts") {
+    return <SupplierDebtsView />
+  }
+
+  if (report.slug === "contracts") {
+    return <ContractsView />
+  }
+
+  if (report.slug === "cashback-withdrawal-requests") {
+    return <CashbackWithdrawalRequestsView />
+  }
+
+  if (report.slug === "currencies") {
+    return <CurrenciesView />
   }
 
   if (report.slug === "vansell-balance") {
@@ -273,7 +322,7 @@ export default async function AnalyticsPage({ params }: PageProps) {
     return <ExpectedExpensesView />
   }
 
-  if (report.slug === "store-reconciliation-bot") {
+  if (report.slug === "store-reconciliation-bot" || report.slug === "account-reconciliation") {
     return <StoreReconciliationBotView />
   }
 
@@ -371,6 +420,62 @@ export default async function AnalyticsPage({ params }: PageProps) {
 
   if (report.slug === "warehouses") {
     return <WarehousesView />
+  }
+
+  if (report.slug === "products") {
+    return <ProductsView />
+  }
+
+  if (report.slug === "raw-materials") {
+    return <RawMaterialsView />
+  }
+
+  if (report.slug === "price-lists") {
+    return <PriceListsView />
+  }
+
+  if (report.slug === "product-types") {
+    return <ProductTypesView />
+  }
+
+  if (report.slug === "units-of-measure") {
+    return <UnitsOfMeasureView />
+  }
+
+  if (report.slug === "brands") {
+    return <BrandsView />
+  }
+
+  if (report.slug === "cost-of-goods") {
+    return <CostOfGoodsView />
+  }
+
+  if (report.slug === "organization") {
+    return <OrganizationView />
+  }
+
+  if (report.slug === "cashboxes") {
+    return <CashboxesView />
+  }
+
+  if (report.slug === "income-categories") {
+    return <IncomeCategoriesView />
+  }
+
+  if (report.slug === "expense-categories") {
+    return <ExpenseCategoriesView />
+  }
+
+  if (report.slug === "account-debts") {
+    return <AccountDebtsView />
+  }
+
+  if (report.slug === "management-balance") {
+    return <ManagementBalanceView />
+  }
+
+  if (report.slug === "cash-management") {
+    return <CashManagementView />
   }
 
   return <AnalyticsReportView report={report} />

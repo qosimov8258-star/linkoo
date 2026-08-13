@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import {
   ChevronDown,
   Clock,
@@ -19,68 +19,7 @@ import {
   Wallet,
 } from "lucide-react"
 
-type PaymentRow = {
-  id: number
-  client: string
-  clientCode?: string
-  createdBy: string
-  paidAt: string
-  acceptedAt: string
-  agent: string
-  organization: string
-  amount: number
-  currency: "SUM" | "USD"
-  amountSumEquivalent?: number
-  cashAmount: number
-  kassa: string
-  accepted: boolean
-  comment: string
-  icon: "cash" | "card"
-}
-
-const initialRows: PaymentRow[] = [
-  { id: 2328, client: "Usman Dembele", createdBy: "Admin Ritm", paidAt: "18 июля 2026, 12:38", acceptedAt: "18 июля 2026, 12:38", agent: "Admin Ritm", organization: "05,08,2025", amount: 1000, currency: "USD", amountSumEquivalent: 12050000, cashAmount: 0, kassa: "xorazm Usd", accepted: true, comment: "Не указано", icon: "cash" },
-  { id: 2303, client: "Частное Лицо", createdBy: "Admin Ritm", paidAt: "01 мая 2026, 16:42", acceptedAt: "", agent: "Samandar Abdurahmonov", organization: "05,08,2025", amount: 100000, currency: "SUM", cashAmount: 100000, kassa: "", accepted: false, comment: "Не указано", icon: "card" },
-  { id: 2299, client: "ИП Каркабаев", createdBy: "Admin Ritm", paidAt: "22 апр. 2026, 23:27", acceptedAt: "", agent: "Samandar Abdurahmonov", organization: "05,08,2025", amount: 30000, currency: "SUM", cashAmount: 30000, kassa: "", accepted: false, comment: "Не указано", icon: "cash" },
-  { id: 2297, client: "Частное Лицо", createdBy: "Admin Ritm", paidAt: "22 апр. 2026, 23:16", acceptedAt: "22 апр. 2026, 23:16", agent: "Samandar Abdurahmonov", organization: "05,08,2025", amount: 70000, currency: "SUM", cashAmount: 70000, kassa: "naqd", accepted: true, comment: "Не указано", icon: "cash" },
-  { id: 2295, client: "Частное Лицо", createdBy: "Admin Ritm", paidAt: "22 апр. 2026, 23:12", acceptedAt: "", agent: "Samandar Abdurahmonov", organization: "05,08,2025", amount: 150000, currency: "SUM", cashAmount: 150000, kassa: "", accepted: false, comment: "Не указано", icon: "cash" },
-  { id: 2292, client: "test 20007", createdBy: "Admin Ritm", paidAt: "14 апр. 2026, 14:36", acceptedAt: "14 апр. 2026, 14:37", agent: "Тп 1 Исмоилов Гани", organization: "Ichimliklar", amount: 1000, currency: "SUM", cashAmount: 1000, kassa: "naqd", accepted: true, comment: "Не указано", icon: "card" },
-  { id: 2291, client: "Pepsi Market", createdBy: "Admin Ritm", paidAt: "14 апр. 2026, 14:34", acceptedAt: "05 июля 2026, 18:44", agent: "Тп 1 Исмоилов Гани", organization: "Ichimliklar", amount: 500000, currency: "SUM", cashAmount: 500000, kassa: "naqd", accepted: true, comment: "Не указано", icon: "cash" },
-  { id: 2289, client: "Asu market", createdBy: "Admin Ritm", paidAt: "30 мар. 2026, 13:00", acceptedAt: "30 мар. 2026, 13:00", agent: "Temur Raupov", organization: "Lalaku", amount: 600000, currency: "SUM", cashAmount: 600000, kassa: "naqd", accepted: true, comment: "Не указано", icon: "cash" },
-  { id: 2288, client: "Asu market", createdBy: "Admin Ritm", paidAt: "30 мар. 2026, 12:58", acceptedAt: "30 мар. 2026, 12:58", agent: "Ares are", organization: "Lalaku", amount: 6000000, currency: "SUM", cashAmount: 6000000, kassa: "naqd", accepted: true, comment: "Не указано", icon: "cash" },
-  { id: 2287, client: "Бахт маркет", clientCode: "1235685", createdBy: "Admin Ritm", paidAt: "30 мар. 2026, 12:58", acceptedAt: "30 мар. 2026, 12:58", agent: "Admin Ritm", organization: "Lalaku", amount: 66, currency: "SUM", cashAmount: 66, kassa: "naqd", accepted: true, comment: "Не указано", icon: "cash" },
-  { id: 2286, client: "Ritm ritm", createdBy: "Admin Ritm", paidAt: "30 мар. 2026, 12:58", acceptedAt: "30 мар. 2026, 12:58", agent: "Admin Ritm", organization: "Ichimliklar", amount: 150000, currency: "SUM", cashAmount: 150000, kassa: "naqd", accepted: true, comment: "Не указано", icon: "cash" },
-  { id: 2285, client: "new klient707", createdBy: "Admin Ritm", paidAt: "30 мар. 2026, 12:58", acceptedAt: "30 мар. 2026, 12:58", agent: "Admin Ritm", organization: "energetik", amount: 1303651800, currency: "SUM", cashAmount: 1303651800, kassa: "naqd", accepted: true, comment: "Не указано", icon: "cash" },
-  { id: 2284, client: "new klient707", createdBy: "Admin Ritm", paidAt: "29 мар. 2026, 15:57", acceptedAt: "29 мар. 2026, 15:57", agent: "Admin Ritm", organization: "energetik", amount: 1000000, currency: "SUM", cashAmount: 1000000, kassa: "naqd", accepted: true, comment: "Не указано", icon: "cash" },
-  { id: 2244, client: "Asu market", createdBy: "Admin Ritm", paidAt: "30 янв. 2026, 11:02", acceptedAt: "30 янв. 2026, 11:02", agent: "Temur Raupov", organization: "baby still", amount: 37, currency: "USD", amountSumEquivalent: 446621.45, cashAmount: 0, kassa: "xorazm Usd", accepted: true, comment: "Не указано", icon: "cash" },
-  { id: 2242, client: "Asu market", createdBy: "Admin Ritm", paidAt: "29 янв. 2026, 18:56", acceptedAt: "29 янв. 2026, 18:56", agent: "Temur Raupov", organization: "878", amount: 5000, currency: "SUM", cashAmount: 5000, kassa: "naqd", accepted: true, comment: "Не указано", icon: "cash" },
-  { id: 2243, client: "Asu market", createdBy: "Admin Ritm", paidAt: "29 янв. 2026, 18:56", acceptedAt: "29 янв. 2026, 18:56", agent: "Temur Raupov", organization: "878", amount: 6940.74, currency: "SUM", cashAmount: 6940.74, kassa: "payme", accepted: true, comment: "Не указано", icon: "cash" },
-  { id: 2240, client: "Asu market", createdBy: "Admin Ritm", paidAt: "28 янв. 2026, 23:25", acceptedAt: "28 янв. 2026, 23:25", agent: "Admin Ritm", organization: "05,08,2025", amount: 50000, currency: "SUM", cashAmount: 50000, kassa: "naqd", accepted: true, comment: "Не указано", icon: "card" },
-  { id: 2241, client: "Arslan", createdBy: "Admin Ritm", paidAt: "28 янв. 2026, 23:25", acceptedAt: "28 янв. 2026, 23:25", agent: "Admin Ritm", organization: "energetik", amount: 10000, currency: "SUM", cashAmount: 10000, kassa: "naqd", accepted: true, comment: "Не указано", icon: "cash" },
-  { id: 2237, client: "Bohodir Axmedov", createdBy: "Admin Ritm", paidAt: "27 янв. 2026, 22:02", acceptedAt: "27 янв. 2026, 22:02", agent: "Не указано", organization: "Lalaku", amount: 12000, currency: "SUM", cashAmount: 12000, kassa: "naqd", accepted: true, comment: "Не указано", icon: "card" },
-  { id: 2236, client: "Bohodir Axmedov", createdBy: "Admin Ritm", paidAt: "27 янв. 2026, 21:56", acceptedAt: "27 янв. 2026, 21:56", agent: "Не указано", organization: "Lalaku", amount: 11940, currency: "SUM", cashAmount: 11940, kassa: "naqd", accepted: true, comment: "test", icon: "card" },
-  { id: 2176, client: "Asu market", createdBy: "Admin Ritm", paidAt: "20 янв. 2026, 10:32", acceptedAt: "20 янв. 2026, 10:32", agent: "Temur Raupov", organization: "Konditerka", amount: 3980000, currency: "SUM", cashAmount: 3980000, kassa: "naqd", accepted: true, comment: "Не указано", icon: "card" },
-  { id: 2165, client: "Asu market", createdBy: "Admin Ritm", paidAt: "16 янв. 2026, 11:24", acceptedAt: "16 янв. 2026, 11:24", agent: "Temur Raupov", organization: "05,08,2025", amount: 9050000, currency: "SUM", cashAmount: 9050000, kassa: "naqd", accepted: true, comment: "Не указано", icon: "card" },
-  { id: 2163, client: "Asu market", clientCode: "1234567891011", createdBy: "Admin Ritm", paidAt: "15 янв. 2026, 17:10", acceptedAt: "15 янв. 2026, 17:10", agent: "Temur Raupov", organization: "05,08,2025", amount: 100, currency: "SUM", cashAmount: 100, kassa: "kassa", accepted: true, comment: "Не указано", icon: "card" },
-  { id: 2152, client: "Asu market", createdBy: "Admin Ritm", paidAt: "15 янв. 2026, 15:17", acceptedAt: "15 янв. 2026, 15:17", agent: "Temur Raupov", organization: "energetik", amount: 111111, currency: "SUM", cashAmount: 111111, kassa: "payme", accepted: true, comment: "Не указано", icon: "cash" },
-  { id: 2153, client: "Asu market", createdBy: "Admin Ritm", paidAt: "15 янв. 2026, 15:17", acceptedAt: "15 янв. 2026, 15:17", agent: "Temur Raupov", organization: "Lalaku", amount: 111111, currency: "SUM", cashAmount: 111111, kassa: "payme", accepted: true, comment: "Не указано", icon: "cash" },
-  { id: 4, client: "Pepsi Market", createdBy: "Admin Ritm", paidAt: "23 сент. 2024, 14:12", acceptedAt: "23 сент. 2024, 14:12", agent: "Тп 1 Исмоилов Гани", organization: "Ichimliklar", amount: 12000, currency: "SUM", cashAmount: 12000, kassa: "SUM", accepted: true, comment: "Не указано", icon: "card" },
-  { id: 6, client: "Pepsi Market", createdBy: "Admin Ritm", paidAt: "26 сент. 2024, 12:52", acceptedAt: "26 сент. 2024, 12:52", agent: "Тп 1 Исмоилов Гани", organization: "Ichimliklar", amount: 0.009, currency: "USD", amountSumEquivalent: 100, cashAmount: 100, kassa: "SUM", accepted: true, comment: "Не указано", icon: "cash" },
-  { id: 7, client: "Pepsi Market", createdBy: "Admin Ritm", paidAt: "26 сент. 2024, 12:53", acceptedAt: "26 сент. 2024, 12:53", agent: "Тп 1 Исмоилов Гани", organization: "Ichimliklar", amount: 0.009, currency: "USD", amountSumEquivalent: 100, cashAmount: 100, kassa: "SUM", accepted: true, comment: "Не указано", icon: "cash" },
-  { id: 8, client: "Pepsi Market", createdBy: "Admin Ritm", paidAt: "26 сент. 2024, 12:53", acceptedAt: "26 сент. 2024, 12:53", agent: "Тп 1 Исмоилов Гани", organization: "Ichimliklar", amount: 100, currency: "SUM", cashAmount: 100, kassa: "SUM", accepted: true, comment: "Не указано", icon: "card" },
-  { id: 10, client: "Pepsi Market", createdBy: "Admin Ritm", paidAt: "26 сент. 2024, 12:56", acceptedAt: "26 сент. 2024, 12:56", agent: "Тп 1 Исмоилов Гани", organization: "Ichimliklar", amount: 0.009, currency: "USD", amountSumEquivalent: 100, cashAmount: 100, kassa: "SUM", accepted: true, comment: "Не указано", icon: "cash" },
-  { id: 169, client: "Pepsi Market", createdBy: "Admin Ritm", paidAt: "26 сент. 2024, 15:40", acceptedAt: "26 сент. 2024, 15:40", agent: "Тп 1 Исмоилов Гани", organization: "Ichimliklar", amount: 0.089, currency: "USD", amountSumEquivalent: 1000, cashAmount: 1000, kassa: "SUM", accepted: true, comment: "Не указано", icon: "cash" },
-  { id: 15, client: "Pepsi Market", createdBy: "Тп 1 Алиса", paidAt: "08 окт. 2024, 12:55", acceptedAt: "08 окт. 2024, 13:02", agent: "Тп 1 Исмоилов Гани", organization: "Ichimliklar", amount: 50000, currency: "SUM", cashAmount: 50000, kassa: "SUM", accepted: true, comment: "Ichimliklardan", icon: "cash" },
-  { id: 17, client: "Pepsi Market", createdBy: "Тп 1 Алиса", paidAt: "08 окт. 2024, 12:56", acceptedAt: "08 окт. 2024, 13:03", agent: "Тп 1 Исмоилов Гани", organization: "Electronika", amount: 20000, currency: "SUM", cashAmount: 20000, kassa: "SUM", accepted: true, comment: "Не указано", icon: "cash" },
-  { id: 27, client: "Anvar Market", createdBy: "Тп 1 Алиса", paidAt: "18 окт. 2024, 11:49", acceptedAt: "29 дек. 2024, 10:39", agent: "xodim2 1", organization: "Electronika", amount: 100, currency: "SUM", cashAmount: 100, kassa: "SUM", accepted: true, comment: "Не указано", icon: "cash" },
-  { id: 127, client: "Pepsi Market", createdBy: "Admin Ritm", paidAt: "12 нояб. 2024, 15:12", acceptedAt: "12 нояб. 2024, 15:12", agent: "Тп 1 Исмоилов Гани", organization: "Ichimliklar", amount: 1.08, currency: "USD", amountSumEquivalent: 12096, cashAmount: 0, kassa: "USD", accepted: true, comment: "Не указано", icon: "cash" },
-  { id: 408, client: "Pepsi Market", createdBy: "Admin Ritm", paidAt: "28 янв. 2025, 11:46", acceptedAt: "28 янв. 2025, 11:46", agent: "Тп 1 Исмоилов Гани", organization: "Pampers", amount: 0.76, currency: "SUM", cashAmount: 0.76, kassa: "payme", accepted: true, comment: "Не указано", icon: "card" },
-  { id: 759, client: "Xorazm to'qqizinchi kilent", createdBy: "Admin Ritm", paidAt: "29 апр. 2025, 14:49", acceptedAt: "22 авг. 2025, 14:33", agent: "agent TIMUR 007", organization: "avto organizatsiya 2", amount: 1, currency: "USD", amountSumEquivalent: 12970, cashAmount: 0, kassa: "xorazm Usd", accepted: true, comment: "Не указано", icon: "cash" },
-  { id: 1647, client: "ASU", clientCode: "123456789", createdBy: "Admin Ritm", paidAt: "22 нояб. 2025, 17:30", acceptedAt: "22 нояб. 2025, 17:30", agent: "Шохрух Туляганов", organization: "05,08,2025", amount: 1, currency: "SUM", cashAmount: 1, kassa: "naqd", accepted: true, comment: "Не указано", icon: "card" },
-  { id: 1648, client: "Ritm 2", createdBy: "Admin Ritm", paidAt: "22 нояб. 2025, 17:32", acceptedAt: "22 нояб. 2025, 17:32", agent: "Шохрух Туляганов", organization: "878", amount: 1, currency: "SUM", cashAmount: 1, kassa: "naqd", accepted: true, comment: "Не указано", icon: "cash" },
-]
-
-const TOTAL_RECORDS = 367
+import type { PaymentRow } from "./customer-payments-data"
 
 const number = (value: number, fraction = 0) => new Intl.NumberFormat("ru-RU", { minimumFractionDigits: fraction, maximumFractionDigits: 3 }).format(value)
 
@@ -107,7 +46,9 @@ function PaymentIcon({ type }: { type: "cash" | "card" }) {
 
 export function CustomerPaymentsView() {
   const [favorite, setFavorite] = useState(false)
-  const [rows, setRows] = useState(initialRows)
+  const [rows, setRows] = useState<PaymentRow[]>([])
+  const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState("")
   const [tab, setTab] = useState<"pending" | "accepted" | "all">("all")
   const [search, setSearch] = useState("")
   const [filterOpen, setFilterOpen] = useState(false)
@@ -121,6 +62,30 @@ export function CustomerPaymentsView() {
   const [editingComment, setEditingComment] = useState("")
   const [sortKey, setSortKey] = useState<keyof PaymentRow | null>(null)
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc")
+
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    fetch("/api/customer-payments")
+      .then(async (response) => {
+        if (!response.ok) throw new Error("Не удалось загрузить оплаты")
+        return (await response.json()) as PaymentRow[]
+      })
+      .then((data) => {
+        if (cancelled) return
+        setRows(data)
+        setLoadError("")
+      })
+      .catch(() => {
+        if (!cancelled) setLoadError("Не удалось загрузить оплаты с сервера")
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const toggleSort = (key: keyof PaymentRow) => {
     if (sortKey === key) setSortDir((current) => (current === "asc" ? "desc" : "asc"))
@@ -167,41 +132,52 @@ export function CustomerPaymentsView() {
   const safePage = Math.min(page, maxPage)
   const visible = sorted.slice((safePage - 1) * pageSize, safePage * pageSize)
 
-  const isDefaultFilters = !search.trim() && organizationFilter === "Все организации" && agentFilter === "Все агенты" && kassaFilter === "Все кассы"
-  const TOTAL_PENDING = 3
-  const TOTAL_ACCEPTED = 364
-  const totalLabel = isDefaultFilters ? (tab === "pending" ? TOTAL_PENDING : tab === "accepted" ? TOTAL_ACCEPTED : TOTAL_RECORDS) : filtered.length
-
-  // Итоговая шапка отражает всю базу (367 платежей), а не только видимую выборку строк.
-  // Непринятые (3 платежа) полностью учтены в моке, поэтому их сумма реальная;
-  // Принятые = Все − Непринятые, Все — фиксированная сумма по всей базе.
-  const ALL_TOTALS = { sum: 16716206353.44, usd: 6508530.272, eur: 3431.107 }
   const pendingRows = rows.filter((row) => !row.accepted)
-  const PENDING_TOTALS = pendingRows.reduce(
-    (acc, row) => (row.currency === "SUM" ? { ...acc, sum: acc.sum + row.amount } : { ...acc, usd: acc.usd + row.amount }),
-    { sum: 0, usd: 0, eur: 0 },
-  )
-  const ACCEPTED_TOTALS = { sum: ALL_TOTALS.sum - PENDING_TOTALS.sum, usd: ALL_TOTALS.usd - PENDING_TOTALS.usd, eur: ALL_TOTALS.eur - PENDING_TOTALS.eur }
-  const SUMMARY_TOTALS = tab === "pending" ? PENDING_TOTALS : tab === "accepted" ? ACCEPTED_TOTALS : ALL_TOTALS
+  const acceptedRows = rows.filter((row) => row.accepted)
+  const isDefaultFilters = !search.trim() && organizationFilter === "Все организации" && agentFilter === "Все агенты" && kassaFilter === "Все кассы"
+  const totalLabel = isDefaultFilters ? (tab === "pending" ? pendingRows.length : tab === "accepted" ? acceptedRows.length : rows.length) : filtered.length
 
-  const acceptToCashbox = () => {
+  // Сводная шапка отражает реальные данные из базы (не только видимую выборку строк).
+  function sumTotals(source: PaymentRow[]) {
+    return source.reduce(
+      (acc, row) => (row.currency === "SUM" ? { ...acc, sum: acc.sum + row.amount } : { ...acc, usd: acc.usd + row.amount }),
+      { sum: 0, usd: 0, eur: 0 },
+    )
+  }
+  const SUMMARY_TOTALS = sumTotals(tab === "pending" ? pendingRows : tab === "accepted" ? acceptedRows : rows)
+
+  const acceptToCashbox = async () => {
+    const now = new Date()
+    const label = now.toLocaleString("ru-RU", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })
+    const idsToAccept = rows.filter((row) => !row.accepted && filtered.some((f) => f.id === row.id)).map((row) => row.id)
+    if (!idsToAccept.length) return
+
     setRows((current) =>
-      current.map((row) => {
-        const isVisiblePending = !row.accepted && filtered.some((f) => f.id === row.id)
-        if (!isVisiblePending) return row
-        const now = new Date()
-        const label = now.toLocaleString("ru-RU", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })
-        return { ...row, accepted: true, acceptedAt: label, kassa: "naqd" }
-      }),
+      current.map((row) => (idsToAccept.includes(row.id) ? { ...row, accepted: true, acceptedAt: label, kassa: "naqd" } : row)),
+    )
+    await Promise.all(
+      idsToAccept.map((id) =>
+        fetch(`/api/customer-payments/${id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ accepted: true, acceptedAt: label, kassa: "naqd" }),
+        }),
+      ),
     )
   }
 
-  const revertRow = (id: number) => {
+  const revertRow = async (id: number) => {
     setRows((current) => current.map((row) => (row.id === id ? { ...row, accepted: false, acceptedAt: "", kassa: "" } : row)))
+    await fetch(`/api/customer-payments/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ accepted: false, acceptedAt: "", kassa: "" }),
+    })
   }
 
-  const deleteRow = (id: number) => {
+  const deleteRow = async (id: number) => {
     setRows((current) => current.filter((row) => row.id !== id))
+    await fetch(`/api/customer-payments/${id}`, { method: "DELETE" })
   }
 
   const startEdit = (row: PaymentRow) => {
@@ -209,9 +185,15 @@ export function CustomerPaymentsView() {
     setEditingComment(row.comment)
   }
 
-  const saveEdit = (id: number) => {
-    setRows((current) => current.map((row) => (row.id === id ? { ...row, comment: editingComment || "Не указано" } : row)))
+  const saveEdit = async (id: number) => {
+    const comment = editingComment || "Не указано"
+    setRows((current) => current.map((row) => (row.id === id ? { ...row, comment } : row)))
     setEditingId(null)
+    await fetch(`/api/customer-payments/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ comment }),
+    })
   }
 
   const downloadExcel = () => {
@@ -367,7 +349,11 @@ export function CustomerPaymentsView() {
             </tr>
           </thead>
           <tbody>
-            {visible.map((row, index) => (
+            {loading ? (
+              <tr><td colSpan={11} className="px-4 py-16 text-center text-[#9aa3b6]">Загрузка оплат...</td></tr>
+            ) : loadError ? (
+              <tr><td colSpan={11} className="px-4 py-16 text-center text-red-600">{loadError}</td></tr>
+            ) : visible.map((row, index) => (
               <tr key={row.id} className={`group relative border-b border-dashed border-slate-200 ${index % 2 ? "bg-[#f6f9fc]" : "bg-white"}`}>
                 <td className="px-4 py-4 align-top">{row.id}</td>
                 <td className="px-4 py-4 align-top">
@@ -427,7 +413,7 @@ export function CustomerPaymentsView() {
                 </td>
               </tr>
             ))}
-            {visible.length === 0 && (
+            {!loading && !loadError && visible.length === 0 && (
               <tr><td colSpan={11} className="px-4 py-16 text-center text-[#9aa3b6]">Ничего не найдено по заданным фильтрам</td></tr>
             )}
           </tbody>

@@ -22,11 +22,14 @@ import {
 
 import { AccountDropdown } from "./account-dropdown"
 import { AnalyticsMenu } from "./analytics-menu"
+import { BrandMenu, type CustomServer, type WorkspaceId } from "./brand-menu"
 import { ClientsMenu } from "./clients-menu"
 import { FinanceMenu } from "./finance-menu"
+import { NotificationsMenu } from "./notifications-menu"
 import { PersonnelMenu } from "./personnel-menu"
 import { ProductionMenu } from "./production-menu"
 import { SalesMenu } from "./sales-menu"
+import { SettingsMenu } from "./settings-menu"
 import { WarehouseMenu } from "./warehouse-menu"
 
 type MenuProps = {
@@ -102,7 +105,19 @@ export function TopNav() {
   const [accountOpen, setAccountOpen] = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
   const [branch, setBranch] = useState("Все филиалы")
+  const [brandMenuOpen, setBrandMenuOpen] = useState(false)
+  const [workspace, setWorkspace] = useState<string>("distribution" satisfies WorkspaceId)
+  const [customServers, setCustomServers] = useState<CustomServer[]>([])
+  const [createServerOpen, setCreateServerOpen] = useState(false)
+  const [newServerName, setNewServerName] = useState("")
+  const [notificationsOpen, setNotificationsOpen] = useState(false)
+  const [notificationsBadge, setNotificationsBadge] = useState(1)
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [displayName, setDisplayName] = useState("admin")
   const accountRef = useRef<HTMLDivElement>(null)
+  const brandRef = useRef<HTMLDivElement>(null)
+  const notificationsRef = useRef<HTMLDivElement>(null)
+  const settingsRef = useRef<HTMLDivElement>(null)
   const navRef = useRef<HTMLElement>(null)
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -115,6 +130,15 @@ export function TopNav() {
       if (accountOpen && accountRef.current && !accountRef.current.contains(target)) {
         setAccountOpen(false)
       }
+      if (brandMenuOpen && brandRef.current && !brandRef.current.contains(target)) {
+        setBrandMenuOpen(false)
+      }
+      if (notificationsOpen && notificationsRef.current && !notificationsRef.current.contains(target)) {
+        setNotificationsOpen(false)
+      }
+      if (settingsOpen && settingsRef.current && !settingsRef.current.contains(target)) {
+        setSettingsOpen(false)
+      }
       if (openMenu && navRef.current && !navRef.current.contains(target)) {
         setOpenMenu(null)
       }
@@ -124,6 +148,9 @@ export function TopNav() {
       if (event.key === "Escape") {
         setOpenMenu(null)
         setAccountOpen(false)
+        setBrandMenuOpen(false)
+        setNotificationsOpen(false)
+        setSettingsOpen(false)
         setMobileOpen(false)
       }
     }
@@ -134,13 +161,26 @@ export function TopNav() {
       document.removeEventListener("mousedown", handlePointerDown)
       document.removeEventListener("keydown", handleKeyDown)
     }
-  }, [accountOpen, openMenu])
+  }, [accountOpen, brandMenuOpen, notificationsOpen, settingsOpen, openMenu])
 
   useEffect(() => {
     return () => {
       if (closeTimer.current) clearTimeout(closeTimer.current)
     }
   }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    fetch("/api/auth/me")
+      .then((response) => (response.ok ? response.json() : null))
+      .then((data: { displayName?: string } | null) => {
+        if (!cancelled && data?.displayName) setDisplayName(data.displayName)
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [pathname])
 
   function cancelClose() {
     if (closeTimer.current) {
@@ -160,23 +200,50 @@ export function TopNav() {
     router.push(href)
   }
 
+  if (pathname === "/login") return null
+
   return (
     <header className="relative z-40 bg-[#2d2a84] text-white shadow-[0_6px_14px_rgba(30,41,90,0.24)]">
       <div className="flex h-16 items-center gap-3 px-4 xl:px-6">
-        <button
-          type="button"
-          onClick={() => navigate("/")}
-          className="mr-auto flex shrink-0 items-center rounded-md focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-white xl:mr-3"
-          aria-label="Linko bosh sahifasi"
-        >
-          <span className="flex flex-col text-left leading-none">
-            <span className="text-2xl font-bold tracking-tight">
-              l<span className="text-brand-sky">i</span>nko
-              <span className="ml-1 text-sm font-normal opacity-80">▾</span>
+        <div ref={brandRef} className="relative mr-auto shrink-0 xl:mr-3">
+          <button
+            type="button"
+            onClick={() => setBrandMenuOpen((current) => !current)}
+            aria-haspopup="menu"
+            aria-expanded={brandMenuOpen}
+            className="flex shrink-0 items-center rounded-md focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-white"
+            aria-label="Linko menyusi"
+          >
+            <span className="flex flex-col text-left leading-none">
+              <span className="text-2xl font-bold tracking-tight">
+                l<span className="text-brand-sky">i</span>nko
+                <span className="ml-1 text-sm font-normal opacity-80">▾</span>
+              </span>
+              <span className="text-[11px] font-light tracking-wide opacity-80">
+                {workspace === "distribution" ? "Дистрибуция" : workspace === "store" ? "Магазин" : workspace === "edo" ? "ЭДО & ЭДИ" : customServers.find((server) => server.id === workspace)?.name ?? "Дистрибуция"}
+              </span>
             </span>
-            <span className="text-[11px] font-light tracking-wide opacity-80">Дистрибуция</span>
-          </span>
-        </button>
+          </button>
+
+          {brandMenuOpen && (
+            <BrandMenu
+              selected={workspace}
+              customServers={customServers}
+              onSelect={(id) => {
+                setWorkspace(id)
+                setBrandMenuOpen(false)
+              }}
+              onSelectServer={(id) => {
+                setWorkspace(id)
+                setBrandMenuOpen(false)
+              }}
+              onCreateServer={() => {
+                setBrandMenuOpen(false)
+                setCreateServerOpen(true)
+              }}
+            />
+          )}
+        </div>
 
         <nav ref={navRef} className="hidden h-full min-w-0 flex-1 items-stretch justify-center xl:flex">
           {navItems.map(({ label, icon: Icon }, index) => {
@@ -223,25 +290,42 @@ export function TopNav() {
         </nav>
 
         <div ref={accountRef} className="relative hidden shrink-0 items-center gap-2 xl:flex">
-          <button
-            type="button"
-            onClick={() => navigate("/notifications")}
-            className="relative rounded-full p-2 transition-colors hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-white"
-            aria-label="Уведомления"
-          >
-            <Bell className="h-5 w-5" />
-            <span className="absolute right-0 top-0 flex h-4 min-w-4 items-center justify-center rounded-full bg-brand-red px-1 text-[10px] font-bold">
-              1
-            </span>
-          </button>
-          <button
-            type="button"
-            onClick={() => navigate("/settings")}
-            className="rounded-full p-2 transition-colors hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-white"
-            aria-label="Настройки"
-          >
-            <Settings className="h-5 w-5" />
-          </button>
+          <div ref={notificationsRef} className="relative">
+            <button
+              type="button"
+              onClick={() => {
+                setNotificationsOpen((current) => !current)
+                setNotificationsBadge(0)
+              }}
+              aria-haspopup="menu"
+              aria-expanded={notificationsOpen}
+              className="relative rounded-full p-2 transition-colors hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-white"
+              aria-label="Уведомления"
+            >
+              <Bell className="h-5 w-5" />
+              {notificationsBadge > 0 && (
+                <span className="absolute right-0 top-0 flex h-4 min-w-4 items-center justify-center rounded-full bg-brand-red px-1 text-[10px] font-bold">
+                  {notificationsBadge}
+                </span>
+              )}
+            </button>
+            {notificationsOpen && (
+              <NotificationsMenu onClose={() => setNotificationsOpen(false)} />
+            )}
+          </div>
+          <div ref={settingsRef} className="relative">
+            <button
+              type="button"
+              onClick={() => setSettingsOpen((current) => !current)}
+              aria-haspopup="menu"
+              aria-expanded={settingsOpen}
+              className="rounded-full p-2 transition-colors hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-white"
+              aria-label="Настройки"
+            >
+              <Settings className="h-5 w-5" />
+            </button>
+            {settingsOpen && <SettingsMenu onClose={() => setSettingsOpen(false)} />}
+          </div>
           <button
             type="button"
             onClick={() => setAccountOpen((current) => !current)}
@@ -251,7 +335,7 @@ export function TopNav() {
           >
             <User className="h-7 w-7 rounded-full border border-white/40 p-0.5" />
             <span className="hidden flex-col leading-tight 2xl:flex">
-              <span className="text-sm font-bold">admin</span>
+              <span className="text-sm font-bold">{displayName}</span>
               <span className="max-w-28 truncate text-xs opacity-80">{branch}</span>
             </span>
             {accountOpen ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
@@ -267,7 +351,10 @@ export function TopNav() {
               onSignOut={() => {
                 setBranch("Все филиалы")
                 setAccountOpen(false)
-                router.push("/")
+                fetch("/api/auth/logout", { method: "POST" }).finally(() => {
+                  router.push("/login")
+                  router.refresh()
+                })
               }}
               onAddAccount={() => navigate("/settings")}
             />
@@ -326,6 +413,54 @@ export function TopNav() {
             </button>
           </div>
         </nav>
+      )}
+
+      {createServerOpen && (
+        <div
+          className="fixed inset-0 z-[200] flex items-center justify-center bg-black/40 p-4"
+          onClick={() => setCreateServerOpen(false)}
+        >
+          <div
+            onClick={(event) => event.stopPropagation()}
+            className="w-[440px] max-w-[92vw] rounded-md bg-white p-7 text-foreground shadow-2xl"
+          >
+            <h2 className="mb-4 text-lg font-bold text-slate-800">Создать сервер</h2>
+            <label className="mb-6 block border-b border-slate-200 pb-2 text-[13px] font-medium text-slate-500">
+              Название сервера
+              <input
+                autoFocus
+                value={newServerName}
+                onChange={(event) => setNewServerName(event.target.value)}
+                placeholder="Например, Мой филиал"
+                className="mt-1 block w-full bg-transparent text-[16px] font-semibold text-slate-800 outline-none placeholder:font-normal placeholder:text-slate-400"
+              />
+            </label>
+            <div className="flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setCreateServerOpen(false)}
+                className="rounded-md border border-slate-200 px-5 py-2.5 font-semibold text-slate-600"
+              >
+                Отмена
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const name = newServerName.trim()
+                  if (!name) return
+                  const id = `server-${Date.now()}`
+                  setCustomServers((current) => [...current, { id, name }])
+                  setWorkspace(id)
+                  setNewServerName("")
+                  setCreateServerOpen(false)
+                }}
+                className="rounded-md bg-[#4f70e7] px-5 py-2.5 font-semibold text-white"
+              >
+                Создать
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </header>
   )

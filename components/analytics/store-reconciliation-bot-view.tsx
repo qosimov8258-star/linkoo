@@ -27,8 +27,8 @@ const zero: Money = { euro: 0, sum: 0, usd: 0 }
 
 const clients: ClientRow[] = [
   { id: 1, client: "HANGUK", connected: false, daysAfterPayment: 0, daysAfterOrder: 0, amount: { ...zero }, sumCash: 0, sumTransfer: 0, usdCash: 0, usdTransfer: 0, euroCash: 0, euroTransfer: 0, orders: 0 },
-  { id: 2, client: "Javohir qoratosh", connected: false, debtTerm: "10 мая 2026", daysAfterPayment: 237, daysAfterOrder: 0, amount: { ...zero }, sumCash: 0, sumTransfer: 0, usdCash: 0, usdTransfer: 0, euroCash: 0, euroTransfer: 0, orders: 0 },
-  { id: 3, client: "klient 1", connected: false, daysAfterPayment: 0, daysAfterOrder: 88, amount: { euro: 0, sum: -169000, usd: 0 }, sumCash: 0, sumTransfer: -169000, usdCash: 0, usdTransfer: 0, euroCash: 0, euroTransfer: 0, orders: 2, altAmountSum: -109000, altSumTransfer: -109000 },
+  { id: 2, client: "Javohir qoratosh", connected: false, debtTerm: "10 мая 2026", daysAfterPayment: 245, daysAfterOrder: 0, amount: { ...zero }, sumCash: 0, sumTransfer: 0, usdCash: 0, usdTransfer: 0, euroCash: 0, euroTransfer: 0, orders: 0 },
+  { id: 3, client: "klient 1", connected: false, daysAfterPayment: 0, daysAfterOrder: 96, amount: { euro: 0, sum: -169000, usd: 0 }, sumCash: 0, sumTransfer: -169000, usdCash: 0, usdTransfer: 0, euroCash: 0, euroTransfer: 0, orders: 2, altAmountSum: -109000, altSumTransfer: -109000 },
   { id: 4, client: "Makro 037", connected: false, daysAfterPayment: 0, daysAfterOrder: 0, amount: { ...zero }, sumCash: 0, sumTransfer: 0, usdCash: 0, usdTransfer: 0, euroCash: 0, euroTransfer: 0, orders: 0 },
   { id: 5, client: "Makro 035", connected: false, daysAfterPayment: 0, daysAfterOrder: 0, amount: { ...zero }, sumCash: 0, sumTransfer: 0, usdCash: 0, usdTransfer: 0, euroCash: 0, euroTransfer: 0, orders: 0 },
   { id: 6, client: "Makro 034", connected: false, daysAfterPayment: 0, daysAfterOrder: 0, amount: { ...zero }, sumCash: 0, sumTransfer: 0, usdCash: 0, usdTransfer: 0, euroCash: 0, euroTransfer: 0, orders: 0 },
@@ -58,9 +58,9 @@ const favoriteItemsInitial = ["Клиенты", "Заказы", "Виджеты"
 
 const TOTALS_BY_MODE = {
   created: {
-    cash: { euro: -10504880.396, sum: -45902844862.894, usd: 7002492.151 },
+    cash: { euro: -10504880.396, sum: -45902845862.894, usd: 7002492.151 },
     transfer: { euro: -1200000, sum: 13936520883.76, usd: 77289.152 },
-    total: { euro: -11704880.396, sum: -31966323979.134, usd: 7079781.302 },
+    total: { euro: -11704880.396, sum: -31966324979.134, usd: 7079781.302 },
   },
   realized: {
     cash: { euro: -10504880.396, sum: -45703175322.894, usd: 7002490.981 },

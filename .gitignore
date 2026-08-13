@@ -9,6 +9,10 @@ __v0_jsx-dev-runtime.ts
 # Environment variables
 .env*.local
 
+# Local SQLite database
+/data/*.db
+/data/*.db-journal
+
 # Common ignores
 node_modules
 .next/

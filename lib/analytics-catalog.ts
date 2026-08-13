@@ -761,6 +761,34 @@ const toolReports: AnalyticsReport[] = [
     description: "Запросы на выплаты по кэшбэку и их обработка.",
     group: "tools",
   },
+  {
+    slug: "subscriptions",
+    label: "Подписки",
+    href: "/analytics/subscriptions",
+    description: "Управление тарифами и подписками аккаунта.",
+    group: "tools",
+  },
+  {
+    slug: "transport",
+    label: "Транспорт",
+    href: "/analytics/transport",
+    description: "Учёт транспортных средств компании.",
+    group: "tools",
+  },
+  {
+    slug: "sessions",
+    label: "Сессия",
+    href: "/analytics/sessions",
+    description: "Активные сессии и устройства аккаунта.",
+    group: "tools",
+  },
+  {
+    slug: "currencies",
+    label: "Валюты",
+    href: "/analytics/currencies",
+    description: "Настройка валют и курсов обмена.",
+    group: "tools",
+  },
 ]
 
 export const analyticsMenuGroups: AnalyticsMenuGroup[] = [

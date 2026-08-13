@@ -270,13 +270,13 @@ export function ClientDebtsView() {
         </div>
         <div>
           <p className="text-[#586174]">С {p1} дней - До {p2}</p>
-          <p className="font-semibold text-[#e0952e]">17,6 USD</p>
-          <p className="mt-2 font-semibold"><span className="text-[#4f70e7]">0</span> / <span className="text-[#4f70e7]">1</span> Заказов обработано</p>
+          <p className="mt-2 font-semibold"><span className="text-[#4f70e7]">0</span> / <span className="text-[#4f70e7]">0</span> Заказов обработано</p>
         </div>
         <div>
           <p className="text-[#586174]">С {p2} дней - До {p3}</p>
           <p className="font-semibold text-[#e5484d]">99 000 SUM</p>
-          <p className="mt-2 font-semibold"><span className="text-[#4f70e7]">0</span> / <span className="text-[#4f70e7]">2</span> Заказов обработано</p>
+          <p className="font-semibold text-[#e0952e]">17,6 USD</p>
+          <p className="mt-2 font-semibold"><span className="text-[#4f70e7]">0</span> / <span className="text-[#4f70e7]">3</span> Заказов обработано</p>
         </div>
         <div>
           <p className="text-[#586174]">Больше {p3} дней</p>

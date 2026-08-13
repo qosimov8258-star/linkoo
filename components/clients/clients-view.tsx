@@ -22,7 +22,7 @@ import {
   Download,
   CheckCircle2,
 } from "lucide-react"
-import { clients as allClients, clientTabs, type Client } from "./clients-data"
+import { clientTabs, type Client } from "./clients-data"
 
 const pageSizes = [10, 25, 50, 100]
 
@@ -135,7 +135,9 @@ function downloadCsv(rows: Client[]) {
 
 export function ClientsView() {
   const router = useRouter()
-  const [clients, setClients] = useState<Client[]>(() => allClients.map((client) => ({ ...client })))
+  const [clients, setClients] = useState<Client[]>([])
+  const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState("")
   const [activeTab, setActiveTab] = useState<Client["tab"]>("all")
   const [query, setQuery] = useState("")
   const [pageSize, setPageSize] = useState(25)
@@ -162,6 +164,30 @@ export function ClientsView() {
   useEffect(() => {
     return () => {
       if (refreshTimer.current) clearTimeout(refreshTimer.current)
+    }
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    fetch("/api/clients")
+      .then(async (response) => {
+        if (!response.ok) throw new Error("Не удалось загрузить клиентов")
+        return (await response.json()) as Client[]
+      })
+      .then((data) => {
+        if (cancelled) return
+        setClients(data)
+        setLoadError("")
+      })
+      .catch(() => {
+        if (!cancelled) setLoadError("Не удалось загрузить клиентов с сервера")
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+    return () => {
+      cancelled = true
     }
   }, [])
 
@@ -256,7 +282,9 @@ export function ClientsView() {
     setFormError("")
   }
 
-  function saveClient(event: FormEvent<HTMLFormElement>) {
+  const [saving, setSaving] = useState(false)
+
+  async function saveClient(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const name = form.name.trim()
     const phone = form.phone.trim()
@@ -287,21 +315,38 @@ export function ClientsView() {
       tab: form.tab,
     }
 
-    if (modalMode === "add") {
-      const id = clients.reduce((largest, client) => Math.max(largest, client.id), 0) + 1
-      setClients((current) => [...current, { id, ...values }])
-      setSelected([id])
-      setActiveTab("all")
-      setPage(1)
-      setNotice({ tone: "success", message: `Клиент «${name}» добавлен` })
-    } else if (editingId !== null) {
-      setClients((current) =>
-        current.map((client) => (client.id === editingId ? { ...client, ...values } : client)),
-      )
-      setNotice({ tone: "success", message: `Клиент «${name}» обновлён` })
+    setSaving(true)
+    try {
+      if (modalMode === "add") {
+        const response = await fetch("/api/clients", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(values),
+        })
+        if (!response.ok) throw new Error("create failed")
+        const created = (await response.json()) as Client
+        setClients((current) => [created, ...current])
+        setSelected([created.id])
+        setActiveTab("all")
+        setPage(1)
+        setNotice({ tone: "success", message: `Клиент «${name}» добавлен` })
+      } else if (editingId !== null) {
+        const response = await fetch(`/api/clients/${editingId}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(values),
+        })
+        if (!response.ok) throw new Error("update failed")
+        const updated = (await response.json()) as Client
+        setClients((current) => current.map((client) => (client.id === editingId ? updated : client)))
+        setNotice({ tone: "success", message: `Клиент «${name}» обновлён` })
+      }
+      setModalMode(null)
+    } catch {
+      setFormError("Не удалось сохранить клиента, попробуйте ещё раз")
+    } finally {
+      setSaving(false)
     }
-
-    setModalMode(null)
   }
 
   function chooseFile(file: File | undefined, subject: string) {
@@ -787,7 +832,19 @@ export function ClientsView() {
               </tr>
             </thead>
             <tbody>
-              {pageRows.length === 0 ? (
+              {loading ? (
+                <tr>
+                  <td colSpan={10} className="px-4 py-16 text-center text-slate-500">
+                    Загрузка клиентов...
+                  </td>
+                </tr>
+              ) : loadError ? (
+                <tr>
+                  <td colSpan={10} className="px-4 py-16 text-center text-red-600">
+                    {loadError}
+                  </td>
+                </tr>
+              ) : pageRows.length === 0 ? (
                 <tr>
                   <td colSpan={10} className="px-4 py-16 text-center text-slate-500">
                     По вашему запросу ничего не найдено
@@ -816,6 +873,7 @@ export function ClientsView() {
           mode={modalMode}
           form={form}
           error={formError}
+          saving={saving}
           onTextChange={updateFormField}
           onTabChange={(tab) => {
             setForm((current) => ({ ...current, tab }))
@@ -860,6 +918,7 @@ function ClientModal({
   mode,
   form,
   error,
+  saving,
   onTextChange,
   onTabChange,
   onClose,
@@ -868,6 +927,7 @@ function ClientModal({
   mode: Exclude<ModalMode, null>
   form: ClientForm
   error: string
+  saving: boolean
   onTextChange: (field: ClientTextField, value: string) => void
   onTabChange: (tab: Client["tab"]) => void
   onClose: () => void
@@ -985,15 +1045,17 @@ function ClientModal({
             <button
               type="button"
               onClick={onClose}
-              className="rounded-md border border-slate-200 px-5 py-2.5 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50"
+              disabled={saving}
+              className="rounded-md border border-slate-200 px-5 py-2.5 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50 disabled:opacity-60"
             >
               Отмена
             </button>
             <button
               type="submit"
-              className="rounded-md bg-brand-green px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-brand-green-dark"
+              disabled={saving}
+              className="rounded-md bg-brand-green px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-brand-green-dark disabled:cursor-wait disabled:opacity-60"
             >
-              {mode === "add" ? "Добавить" : "Сохранить"}
+              {saving ? "Сохранение..." : mode === "add" ? "Добавить" : "Сохранить"}
             </button>
           </div>
         </form>
