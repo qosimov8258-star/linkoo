@@ -12,271 +12,13 @@ import {
   Upload,
   X,
 } from "lucide-react"
-import { ChangeEvent, Fragment, FormEvent, useMemo, useRef, useState } from "react"
+import { ChangeEvent, Fragment, FormEvent, useEffect, useMemo, useRef, useState } from "react"
 
 import { downloadExcelTable } from "@/lib/excel-export"
+import { defaultPriceLists, type PriceListEntry, type Product } from "./products-data"
 
-type Supply = { id: number; date: string; qty: number; inStock: number; cost: number; avgCost: string }
-type PriceListEntry = { name: string; cash: number; nonCash: number }
-type Product = {
-  id: number
-  name: string
-  barcode: string
-  cost: number
-  priceMin: number
-  priceMax: number
-  updatedDate: string
-  type: string
-  brand: string
-  unit: string
-  organization: string
-  canSell: boolean
-  defaultCost: number
-  supplies: Supply[]
-  priceListPrices: PriceListEntry[]
-}
-
-const priceListNames = ["donalik", "o'rtacha narx", "optom narxlar", "ООО ПРОФШ", "123123123", "TestPriceList"]
-const productTypes = ["Масла", "Напитки", "Снеки", "Бытовая химия", "Молочные продукты"]
-const brands = ["EAGLE", "Coca-Cola", "PepsiCo", "Generic", "Nestle"]
-const units = ["шт", "л", "кг"]
-const organizations = ["ТестоваяОрганизация", "Linko Distribution"]
+const priceListNames = defaultPriceLists().map((entry) => entry.name)
 const currencies = ["SUM", "USD"]
-
-function emptyPrices(): PriceListEntry[] {
-  return priceListNames.map((name) => ({ name, cash: 0, nonCash: 0 }))
-}
-
-const knownRows: Product[] = [
-  {
-    id: 1,
-    name: "Arslan 111111",
-    barcode: "28812949090720",
-    cost: 1202,
-    priceMin: 0,
-    priceMax: 15000,
-    updatedDate: "13 июня 2026",
-    type: "Напитки",
-    brand: "Generic",
-    unit: "шт",
-    organization: "ТестоваяОрганизация",
-    canSell: true,
-    defaultCost: 1202,
-    supplies: [{ id: 4001, date: "13 июня 2026", qty: 20, inStock: 12, cost: 24040, avgCost: "Принято" }],
-    priceListPrices: emptyPrices(),
-  },
-  {
-    id: 2,
-    name: "seriya test",
-    barcode: "Не установлен",
-    cost: 11500,
-    priceMin: 0,
-    priceMax: 146580000,
-    updatedDate: "26 мая 2026",
-    type: "Снеки",
-    brand: "Generic",
-    unit: "шт",
-    organization: "ТестоваяОрганизация",
-    canSell: true,
-    defaultCost: 11500,
-    supplies: [{ id: 4102, date: "26 мая 2026", qty: 3, inStock: 1, cost: 34500, avgCost: "Принято" }],
-    priceListPrices: emptyPrices(),
-  },
-  {
-    id: 3,
-    name: "Масло трансмиссионное EAGLE PEGASUS MULTI ATF 1л (EO00710)",
-    barcode: "Не установлен",
-    cost: 1,
-    priceMin: 2540,
-    priceMax: 4110,
-    updatedDate: "Не установлена",
-    type: "Масла",
-    brand: "EAGLE",
-    unit: "л",
-    organization: "ТестоваяОрганизация",
-    canSell: true,
-    defaultCost: 1,
-    supplies: [{ id: 4206, date: "", qty: 1, inStock: 0, cost: 0, avgCost: "Не принято" }],
-    priceListPrices: emptyPrices(),
-  },
-  {
-    id: 4,
-    name: "Масло моторное EAGLE Gasoline Semi-SYNTHETIC SAE 10W-40 API SL 200л (EO00690)",
-    barcode: "Не установлен",
-    cost: 1,
-    priceMin: 294290,
-    priceMax: 475620,
-    updatedDate: "Не установлена",
-    type: "Масла",
-    brand: "EAGLE",
-    unit: "л",
-    organization: "ТестоваяОрганизация",
-    canSell: true,
-    defaultCost: 1,
-    supplies: [{ id: 4207, date: "", qty: 1, inStock: 0, cost: 0, avgCost: "Не принято" }],
-    priceListPrices: emptyPrices(),
-  },
-  {
-    id: 5,
-    name: "Масло моторное EAGLE Gasoline Semi-SYNTHETIC SAE 10W-40 API SL 4л (EO00620)",
-    barcode: "Не установлен",
-    cost: 1,
-    priceMin: 6860,
-    priceMax: 11090,
-    updatedDate: "Не установлена",
-    type: "Масла",
-    brand: "EAGLE",
-    unit: "л",
-    organization: "ТестоваяОрганизация",
-    canSell: true,
-    defaultCost: 1,
-    supplies: [{ id: 4208, date: "", qty: 1, inStock: 0, cost: 0, avgCost: "Не принято" }],
-    priceListPrices: emptyPrices(),
-  },
-  {
-    id: 6,
-    name: "Масло моторное EAGLE Gasoline Semi-SYNTHETIC SAE 10W-40 API SL 1л (EO00610)",
-    barcode: "Не установлен",
-    cost: 1,
-    priceMin: 1970,
-    priceMax: 10000,
-    updatedDate: "27 февр. 2026",
-    type: "Масла",
-    brand: "EAGLE",
-    unit: "л",
-    organization: "ТестоваяОрганизация",
-    canSell: true,
-    defaultCost: 1,
-    supplies: [{ id: 4209, date: "27 февр. 2026", qty: 5, inStock: 2, cost: 5, avgCost: "Принято" }],
-    priceListPrices: emptyPrices(),
-  },
-  {
-    id: 7,
-    name: "Масло моторное EAGLE PREMIUM Gasoline 100% SYNTHETIC SAE 5W-40 API SP 200л (EO00590)",
-    barcode: "Не установлен",
-    cost: 1,
-    priceMin: 342150,
-    priceMax: 552960,
-    updatedDate: "Не установлена",
-    type: "Масла",
-    brand: "EAGLE",
-    unit: "л",
-    organization: "ТестоваяОрганизация",
-    canSell: true,
-    defaultCost: 1,
-    supplies: [{ id: 4210, date: "", qty: 1, inStock: 0, cost: 0, avgCost: "Не принято" }],
-    priceListPrices: emptyPrices(),
-  },
-  {
-    id: 8,
-    name: "Масло моторное EAGLE PREMIUM Gasoline 100% SYNTHETIC SAE 5W-40 API SP 4л (EO00520)",
-    barcode: "Не установлен",
-    cost: 1,
-    priceMin: 7970,
-    priceMax: 12880,
-    updatedDate: "Не установлена",
-    type: "Масла",
-    brand: "EAGLE",
-    unit: "л",
-    organization: "ТестоваяОрганизация",
-    canSell: true,
-    defaultCost: 1,
-    supplies: [{ id: 4211, date: "", qty: 1, inStock: 0, cost: 0, avgCost: "Не принято" }],
-    priceListPrices: emptyPrices(),
-  },
-  {
-    id: 9,
-    name: "Масло моторное EAGLE PREMIUM Gasoline 100% SYNTHETIC SAE 5W-40 API SP 1л (EO00510)",
-    barcode: "Не установлен",
-    cost: 1,
-    priceMin: 2250,
-    priceMax: 3650,
-    updatedDate: "Не установлена",
-    type: "Масла",
-    brand: "EAGLE",
-    unit: "л",
-    organization: "ТестоваяОрганизация",
-    canSell: true,
-    defaultCost: 1,
-    supplies: [{ id: 4212, date: "", qty: 1, inStock: 0, cost: 0, avgCost: "Не принято" }],
-    priceListPrices: emptyPrices(),
-  },
-  {
-    id: 10,
-    name: "Масло моторное EAGLE PREMIUM Gasoline 100% SYNTHETIC SAE 5W-30 API SP ILSAC GF-6A 200л (EO00490)",
-    barcode: "Не установлен",
-    cost: 1,
-    priceMin: 328580,
-    priceMax: 531030,
-    updatedDate: "Не установлена",
-    type: "Масла",
-    brand: "EAGLE",
-    unit: "л",
-    organization: "ТестоваяОрганизация",
-    canSell: true,
-    defaultCost: 1,
-    supplies: [{ id: 4213, date: "", qty: 1, inStock: 0, cost: 0, avgCost: "Не принято" }],
-    priceListPrices: emptyPrices(),
-  },
-]
-
-const oilBases = [
-  "Масло моторное EAGLE PREMIUM Gasoline 100% SYNTHETIC SAE 5W-30 API SP ILSAC GF-6A",
-  "Масло моторное EAGLE PREMIUM Gasoline 100% SYNTHETIC SAE 0W-20 API SP",
-  "Масло трансмиссионное EAGLE PEGASUS MULTI ATF",
-  "Масло гидравлическое EAGLE HYDRO HLP 46",
-  "Антифриз EAGLE COOLANT G12+",
-  "Смазка EAGLE GREASE EP2",
-]
-const oilSizes = ["200л", "20л", "5л", "4л", "1л"]
-const genericNames = ["coca-cola 1.5l", "lipton ice tea 0.5l", "sprayt 1l", "energetik 0.5l", "baby still 1.5l", "g'ilof", "Lalaku"]
-
-function generateRows(): Product[] {
-  const rows: Product[] = [...knownRows]
-  let code = 470
-
-  for (let id = 11; id <= 805; id += 1) {
-    const useOil = id % 5 !== 0
-    const cost = useOil ? 1 : 500 + (id * 37) % 20000
-    const priceMin = 1000 + (id * 173) % 300000
-    const priceMax = priceMin + 500 + (id * 97) % 250000
-    const updatedDate = id % 6 === 0 ? "Не установлена" : `${String(1 + (id % 28)).padStart(2, "0")} ${["янв.", "февр.", "марта", "апр.", "мая", "июня"][id % 6]} 2026`
-    const type = useOil ? "Масла" : productTypes[id % productTypes.length]
-    const brand = useOil ? "EAGLE" : brands[id % brands.length]
-
-    let name: string
-    let barcode = "Не установлен"
-    if (useOil) {
-      const base = oilBases[id % oilBases.length]
-      const size = oilSizes[id % oilSizes.length]
-      code += 5
-      name = `${base} ${size} (EO00${code})`
-    } else {
-      name = `${genericNames[id % genericNames.length]} #${id}`
-      barcode = String(28800000000000 + id * 137)
-    }
-
-    rows.push({
-      id,
-      name,
-      barcode,
-      cost,
-      priceMin,
-      priceMax,
-      updatedDate,
-      type,
-      brand,
-      unit: units[id % units.length],
-      organization: organizations[id % organizations.length],
-      canSell: id % 17 !== 0,
-      defaultCost: cost,
-      supplies: [{ id: 5000 + id, date: updatedDate === "Не установлена" ? "" : updatedDate, qty: 1 + (id % 20), inStock: id % 15, cost: cost * (1 + (id % 3)), avgCost: id % 6 === 0 ? "Не принято" : "Принято" }],
-      priceListPrices: emptyPrices(),
-    })
-  }
-
-  return rows
-}
 
 function formatMoney(value: number) {
   return `${value.toLocaleString("ru-RU")} SUM`
@@ -284,8 +26,15 @@ function formatMoney(value: number) {
 
 type AddStage = "pick" | "currency" | "amount" | null
 
+function toProductInput(product: Product): Omit<Product, "id" | "createdDate"> {
+  const { id: _id, createdDate: _createdDate, ...rest } = product
+  return rest
+}
+
 export function PriceFormationView({ embedded = false }: { embedded?: boolean }) {
-  const [rows, setRows] = useState<Product[]>(generateRows)
+  const [rows, setRows] = useState<Product[]>([])
+  const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState("")
   const [query, setQuery] = useState("")
   const [page, setPage] = useState(1)
   const [favorite, setFavorite] = useState(false)
@@ -316,6 +65,35 @@ export function PriceFormationView({ embedded = false }: { embedded?: boolean })
   const importInputRef = useRef<HTMLInputElement>(null)
 
   const pageSize = 25
+
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    fetch("/api/products")
+      .then(async (response) => {
+        if (!response.ok) throw new Error("Не удалось загрузить продукты")
+        return (await response.json()) as Product[]
+      })
+      .then((data) => {
+        if (cancelled) return
+        setRows(data.filter((product) => !product.deleted))
+        setLoadError("")
+      })
+      .catch(() => {
+        if (!cancelled) setLoadError("Не удалось загрузить продукты с сервера")
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const productTypes = useMemo(() => Array.from(new Set(rows.map((row) => row.type))).filter(Boolean), [rows])
+  const units = useMemo(() => Array.from(new Set(rows.map((row) => row.unit))).filter(Boolean), [rows])
+  const organizations = useMemo(() => Array.from(new Set(rows.map((row) => row.organization))).filter(Boolean), [rows])
+  const brands = useMemo(() => Array.from(new Set(rows.map((row) => row.brand))).filter(Boolean), [rows])
 
   const filtered = useMemo(() => {
     return rows.filter((row) => {
@@ -350,23 +128,47 @@ export function PriceFormationView({ embedded = false }: { embedded?: boolean })
     setEditingPrices(false)
   }
 
+  async function patchProduct(id: number, patch: Partial<Product>): Promise<Product | null> {
+    const current = rows.find((row) => row.id === id)
+    if (!current) return null
+    const merged: Product = { ...current, ...patch }
+    try {
+      const response = await fetch(`/api/products/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(toProductInput(merged)),
+      })
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}))
+        window.alert(data.error || "Не удалось сохранить товар")
+        return null
+      }
+      const saved = (await response.json()) as Product
+      setRows((curr) => curr.map((row) => (row.id === id ? saved : row)))
+      return saved
+    } catch {
+      window.alert("Сервер недоступен, попробуйте ещё раз")
+      return null
+    }
+  }
+
   function startEditDefaultCost() {
     if (!expanded) return
-    setDefaultCostDraft(String(expanded.defaultCost))
+    setDefaultCostDraft(String(expanded.cost))
     setEditingDefaultCost(true)
   }
 
-  function saveDefaultCost(event: FormEvent) {
+  async function saveDefaultCost(event: FormEvent) {
     event.preventDefault()
     if (!expanded) return
     const value = Number(defaultCostDraft) || 0
-    setRows((current) => current.map((row) => (row.id === expanded.id ? { ...row, defaultCost: value, cost: value } : row)))
+    await patchProduct(expanded.id, { cost: value })
     setEditingDefaultCost(false)
   }
 
   function startEditPrices() {
     if (!expanded) return
-    setPriceDraft(expanded.priceListPrices.map((entry) => ({ ...entry })))
+    setPriceDraft(expanded.priceLists.map((entry) => ({ ...entry })))
     setEditingPrices(true)
   }
 
@@ -374,30 +176,23 @@ export function PriceFormationView({ embedded = false }: { embedded?: boolean })
     setPriceDraft((current) => current.map((entry) => (entry.name === name ? { ...entry, ...patch } : entry)))
   }
 
-  function savePrices(event: FormEvent) {
+  async function savePrices(event: FormEvent) {
     event.preventDefault()
     if (!expanded) return
     const values = priceDraft.filter((entry) => entry.cash > 0).map((entry) => entry.cash)
-    setRows((current) =>
-      current.map((row) =>
-        row.id === expanded.id
-          ? {
-              ...row,
-              priceListPrices: priceDraft,
-              priceMin: values.length ? Math.min(...values) : row.priceMin,
-              priceMax: values.length ? Math.max(...values) : row.priceMax,
-              updatedDate: new Date().toLocaleDateString("ru-RU", { day: "2-digit", month: "long", year: "numeric" }),
-            }
-          : row,
-      ),
-    )
+    await patchProduct(expanded.id, {
+      priceLists: priceDraft,
+      priceMin: values.length ? Math.min(...values) : expanded.priceMin,
+      priceMax: values.length ? Math.max(...values) : expanded.priceMax,
+      priceUpdatedDate: new Date().toLocaleDateString("ru-RU", { day: "2-digit", month: "long", year: "numeric" }),
+    })
     setEditingPrices(false)
   }
 
   function downloadList() {
     downloadExcelTable("formirovanie-tsen", [
       ["Название", "Штрих-код товара", "Себестоимость", "Цена(мин)", "Цена(макс)", "Дата обновления"],
-      ...filtered.map((row) => [row.name, row.barcode, row.cost, row.priceMin, row.priceMax, row.updatedDate]),
+      ...filtered.map((row) => [row.name, row.barcode, row.cost, row.priceMin, row.priceMax, row.priceUpdatedDate]),
     ])
   }
 
@@ -440,48 +235,45 @@ export function PriceFormationView({ embedded = false }: { embedded?: boolean })
     const file = event.target.files?.[0]
     if (!file) return
     const reader = new FileReader()
-    reader.onload = () => {
+    reader.onload = async () => {
       const text = String(reader.result ?? "")
       const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean)
-      setRows((current) => {
-        const next = [...current]
-        for (const line of lines) {
-          const [barcode, priceRaw] = line.split(/\t|,|;/).map((cell) => cell.trim())
-          const price = Number(priceRaw)
-          if (!barcode || !price) continue
-          const index = next.findIndex((row) => row.barcode === barcode)
-          if (index === -1) continue
-          const updatedPrices = next[index].priceListPrices.map((entry) => (entry.name === selectedPriceList ? { ...entry, cash: price } : entry))
-          const values = updatedPrices.filter((entry) => entry.cash > 0).map((entry) => entry.cash)
-          next[index] = { ...next[index], priceListPrices: updatedPrices, priceMin: values.length ? Math.min(...values) : next[index].priceMin, priceMax: values.length ? Math.max(...values) : next[index].priceMax }
-        }
-        return next
-      })
+      for (const line of lines) {
+        const [barcode, priceRaw] = line.split(/\t|,|;/).map((cell) => cell.trim())
+        const price = Number(priceRaw)
+        if (!barcode || !price) continue
+        const target = rows.find((row) => row.barcode === barcode)
+        if (!target) continue
+        const updatedPrices = target.priceLists.map((entry) => (entry.name === selectedPriceList ? { ...entry, cash: price } : entry))
+        const values = updatedPrices.filter((entry) => entry.cash > 0).map((entry) => entry.cash)
+        await patchProduct(target.id, {
+          priceLists: updatedPrices,
+          priceMin: values.length ? Math.min(...values) : target.priceMin,
+          priceMax: values.length ? Math.max(...values) : target.priceMax,
+          priceUpdatedDate: new Date().toLocaleDateString("ru-RU", { day: "2-digit", month: "long", year: "numeric" }),
+        })
+      }
       event.target.value = ""
       setAddStage(null)
     }
     reader.readAsText(file)
   }
 
-  function saveNewPrice(event: FormEvent) {
+  async function saveNewPrice(event: FormEvent) {
     event.preventDefault()
     if (selectedProductId === null) return
+    const target = rows.find((row) => row.id === selectedProductId)
+    if (!target) return
     const cash = Number(cashAmount) || 0
     const nonCash = separateTransferPrice ? Number(nonCashAmount) || 0 : cash
-    setRows((current) =>
-      current.map((row) => {
-        if (row.id !== selectedProductId) return row
-        const updatedPrices = row.priceListPrices.map((entry) => (entry.name === selectedPriceList ? { ...entry, cash, nonCash } : entry))
-        const values = updatedPrices.filter((entry) => entry.cash > 0).map((entry) => entry.cash)
-        return {
-          ...row,
-          priceListPrices: updatedPrices,
-          priceMin: values.length ? Math.min(...values) : row.priceMin,
-          priceMax: values.length ? Math.max(...values) : row.priceMax,
-          updatedDate: new Date().toLocaleDateString("ru-RU", { day: "2-digit", month: "long", year: "numeric" }),
-        }
-      }),
-    )
+    const updatedPrices = target.priceLists.map((entry) => (entry.name === selectedPriceList ? { ...entry, cash, nonCash } : entry))
+    const values = updatedPrices.filter((entry) => entry.cash > 0).map((entry) => entry.cash)
+    await patchProduct(target.id, {
+      priceLists: updatedPrices,
+      priceMin: values.length ? Math.min(...values) : target.priceMin,
+      priceMax: values.length ? Math.max(...values) : target.priceMax,
+      priceUpdatedDate: new Date().toLocaleDateString("ru-RU", { day: "2-digit", month: "long", year: "numeric" }),
+    })
     setAddStage(null)
   }
 
@@ -598,7 +390,11 @@ export function PriceFormationView({ embedded = false }: { embedded?: boolean })
             </tr>
           </thead>
           <tbody>
-            {visible.map((row) => (
+            {loading ? (
+              <tr><td colSpan={6} className="px-9 py-10 text-center text-slate-400">Загрузка продуктов...</td></tr>
+            ) : loadError ? (
+              <tr><td colSpan={6} className="px-9 py-10 text-center text-red-600">{loadError}</td></tr>
+            ) : visible.map((row) => (
               <Fragment key={row.id}>
                 <tr onClick={() => toggleExpand(row)} className="cursor-pointer border-b border-dashed border-slate-300 hover:bg-slate-50">
                   <td className="px-9 py-4 text-[#4f70e7]">{row.name}</td>
@@ -606,7 +402,7 @@ export function PriceFormationView({ embedded = false }: { embedded?: boolean })
                   <td className="px-5 py-4">{formatMoney(row.cost)}</td>
                   <td className="px-5 py-4">{formatMoney(row.priceMin)}</td>
                   <td className="px-5 py-4">{formatMoney(row.priceMax)}</td>
-                  <td className="px-5 py-4">{row.updatedDate}</td>
+                  <td className="px-5 py-4">{row.priceUpdatedDate}</td>
                 </tr>
 
                 {expandedId === row.id && expanded && (
@@ -622,7 +418,7 @@ export function PriceFormationView({ embedded = false }: { embedded?: boolean })
 
                         <div className="grid gap-8 lg:grid-cols-2">
                           <div>
-                            <p className="mb-3 font-medium text-slate-800">Поставки</p>
+                            <p className="mb-3 font-medium text-slate-800">Себестоимость</p>
                             {editingDefaultCost ? (
                               <form onSubmit={saveDefaultCost} className="mb-3 flex items-center justify-between border-b border-slate-200 pb-2">
                                 <span className="text-slate-600">Себестоимость по умолчанию:</span>
@@ -635,42 +431,18 @@ export function PriceFormationView({ embedded = false }: { embedded?: boolean })
                               <div className="mb-3 flex items-center justify-between border-b border-slate-200 pb-2">
                                 <span className="text-slate-600">Себестоимость по умолчанию:</span>
                                 <span className="flex items-center gap-2 font-medium">
-                                  {formatMoney(expanded.defaultCost)}
+                                  {formatMoney(expanded.cost)}
                                   <button type="button" onClick={startEditDefaultCost} aria-label="Изменить себестоимость" className="text-slate-400 hover:text-[#4f70e7]">
                                     <Pencil className="h-4 w-4" />
                                   </button>
                                 </span>
                               </div>
                             )}
-
-                            <table className="w-full text-left text-sm">
-                              <thead>
-                                <tr className="text-slate-500">
-                                  <th className="py-2 pr-4">№</th>
-                                  <th className="py-2 pr-4">Дата</th>
-                                  <th className="py-2 pr-4">Кол-во</th>
-                                  <th className="py-2 pr-4">На складе</th>
-                                  <th className="py-2 pr-4">Себест.</th>
-                                  <th className="py-2 pr-4">Усред. Себ.</th>
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {expanded.supplies.map((supply) => (
-                                  <tr key={supply.id} className="border-t border-slate-100">
-                                    <td className="py-2 pr-4 text-[#4f70e7]">{supply.id}</td>
-                                    <td className="py-2 pr-4">{supply.date || "—"}</td>
-                                    <td className="py-2 pr-4">{supply.qty}</td>
-                                    <td className="py-2 pr-4">{supply.inStock}</td>
-                                    <td className="py-2 pr-4">{formatMoney(supply.cost)}</td>
-                                    <td className="py-2 pr-4">{supply.avgCost}</td>
-                                  </tr>
-                                ))}
-                              </tbody>
-                            </table>
+                            <p className="text-sm text-slate-500">История поставок появится после подключения приёмок товара.</p>
 
                             <div className="mt-4 flex justify-between border-t border-slate-200 pt-3 font-semibold">
                               <span>Текущая себестоимость:</span>
-                              <span>{formatMoney(expanded.defaultCost)}</span>
+                              <span>{formatMoney(expanded.cost)}</span>
                             </div>
                           </div>
 
@@ -679,7 +451,7 @@ export function PriceFormationView({ embedded = false }: { embedded?: boolean })
                               <p className="font-medium text-slate-800">
                                 Цены на товар{" "}
                                 <span className="text-slate-400">
-                                  ({expanded.priceListPrices.some((entry) => entry.cash || entry.nonCash) ? "Установлены" : "Не установлены"})
+                                  ({expanded.priceLists.some((entry) => entry.cash || entry.nonCash) ? "Установлены" : "Не установлены"})
                                 </span>
                               </p>
                               {!editingPrices && (
@@ -728,7 +500,7 @@ export function PriceFormationView({ embedded = false }: { embedded?: boolean })
                                   </tr>
                                 </thead>
                                 <tbody>
-                                  {expanded.priceListPrices.map((entry) => (
+                                  {expanded.priceLists.map((entry) => (
                                     <tr key={entry.name} className="border-t border-slate-100">
                                       <td className="py-2 pr-4">{entry.name}</td>
                                       <td className="py-2 pr-4">{entry.cash}</td>
@@ -749,7 +521,7 @@ export function PriceFormationView({ embedded = false }: { embedded?: boolean })
           </tbody>
         </table>
 
-        {visible.length === 0 && (
+        {!loading && !loadError && visible.length === 0 && (
           <div className="flex min-h-[240px] flex-col items-center justify-center gap-3 py-10">
             <p className="text-lg text-slate-400">По вашему запросу ничего не найдено</p>
           </div>
