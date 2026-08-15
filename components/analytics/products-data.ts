@@ -1,4 +1,4 @@
-export type PriceListEntry = { name: string; cash: number; nonCash: number; min: number; max: number }
+export type PriceListEntry = { name: string; cash: number; nonCash: number; min: number; max: number; currency?: string; nonCashCurrency?: string }
 export type ProductTab = "sellable" | "inventory" | "delisted" | "all" | "deleted"
 
 export type Product = {
@@ -24,6 +24,14 @@ export type Product = {
   manualDiscount: boolean
   hideFromAgent: boolean
   trackSeries: boolean
+  showInBot: boolean
+  markedProduct: boolean
+  limitPrice: boolean
+  group: string
+  ikpu: string
+  invoiceUnitCode: string
+  vat: string
+  salePoints: string
   subcategory: string
   brand: string
   minStock: string
@@ -43,6 +51,8 @@ export type Product = {
 
 export const productOrganizations = ["05,08,2025", "DostonFood", "Lalaku", "energetik", "NEW ORG", "Salohiddin Texnika", "HANGUK", "Coca Cola", "robototexnika", "baby still"]
 export const productUnits = ["шт", "Dona", "dona", "Qop", "gramm", "коробка", "блок", "Блок", "Коробка"]
+export const productVatOptions = ["Без НДС", "0%", "12%", "15%"]
+export const productCurrencies = ["SUM", "USD", "EUR"]
 
 const monthNames = ["янв.", "февр.", "мар.", "апр.", "мая", "июня", "июля", "авг.", "сент.", "окт.", "нояб.", "дек."]
 export function formatProductDate(date: Date) {
@@ -64,7 +74,10 @@ export function defaultPriceLists(): PriceListEntry[] {
 }
 
 function baseFlags() {
-  return { onlyMml: false, perfectStore: false, groupOnly: false, trackExpiry: false, manualDiscount: false, hideFromAgent: false, trackSeries: false }
+  return {
+    onlyMml: false, perfectStore: false, groupOnly: false, trackExpiry: false, manualDiscount: false, hideFromAgent: false, trackSeries: false,
+    showInBot: true, markedProduct: false, limitPrice: false, group: "", ikpu: "", invoiceUnitCode: "", vat: "Без НДС", salePoints: "0",
+  }
 }
 
 function priceFields() {

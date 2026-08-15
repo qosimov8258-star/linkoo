@@ -27,6 +27,14 @@ type Row = {
   manual_discount: number
   hide_from_agent: number
   track_series: number
+  show_in_bot: number
+  marked_product: number
+  limit_price: number
+  product_group: string
+  ikpu: string
+  invoice_unit_code: string
+  vat: string
+  sale_points: string
   subcategory: string
   brand: string
   min_stock: string
@@ -74,6 +82,14 @@ function rowToProduct(row: Row): Product {
     manualDiscount: row.manual_discount === 1,
     hideFromAgent: row.hide_from_agent === 1,
     trackSeries: row.track_series === 1,
+    showInBot: row.show_in_bot === 1,
+    markedProduct: row.marked_product === 1,
+    limitPrice: row.limit_price === 1,
+    group: row.product_group,
+    ikpu: row.ikpu,
+    invoiceUnitCode: row.invoice_unit_code,
+    vat: row.vat,
+    salePoints: row.sale_points,
     subcategory: row.subcategory,
     brand: row.brand,
     minStock: row.min_stock,
@@ -122,6 +138,8 @@ export function parseProductInput(body: unknown): ProductInput | null {
         nonCash: num(entry.nonCash),
         min: num(entry.min),
         max: num(entry.max),
+        currency: str(entry.currency, "SUM"),
+        nonCashCurrency: str(entry.nonCashCurrency, "SUM"),
       }))
   }
 
@@ -146,6 +164,14 @@ export function parseProductInput(body: unknown): ProductInput | null {
     manualDiscount: bool(value.manualDiscount),
     hideFromAgent: bool(value.hideFromAgent),
     trackSeries: bool(value.trackSeries),
+    showInBot: value.showInBot !== false,
+    markedProduct: bool(value.markedProduct),
+    limitPrice: bool(value.limitPrice),
+    group: str(value.group),
+    ikpu: str(value.ikpu),
+    invoiceUnitCode: str(value.invoiceUnitCode),
+    vat: str(value.vat, "Без НДС"),
+    salePoints: str(value.salePoints, "0"),
     subcategory: str(value.subcategory),
     brand: str(value.brand, "No brand"),
     minStock: str(value.minStock, "0 шт."),
@@ -198,6 +224,14 @@ function toParams(input: ProductInput) {
     manualDiscount: input.manualDiscount ? 1 : 0,
     hideFromAgent: input.hideFromAgent ? 1 : 0,
     trackSeries: input.trackSeries ? 1 : 0,
+    showInBot: input.showInBot ? 1 : 0,
+    markedProduct: input.markedProduct ? 1 : 0,
+    limitPrice: input.limitPrice ? 1 : 0,
+    group: input.group,
+    ikpu: input.ikpu,
+    invoiceUnitCode: input.invoiceUnitCode,
+    vat: input.vat,
+    salePoints: input.salePoints,
     subcategory: input.subcategory,
     brand: input.brand,
     minStock: input.minStock,
@@ -223,12 +257,14 @@ export function createProduct(input: ProductInput): Product {
       `INSERT INTO products (
         name, full_name, barcode, article, type, organization, unit, sub_unit, created_date, order_number,
         has_photo, can_sell, is_inventory, deleted, only_mml, perfect_store, group_only, track_expiry,
-        manual_discount, hide_from_agent, track_series, subcategory, brand, min_stock, description, supplier,
+        manual_discount, hide_from_agent, track_series, show_in_bot, marked_product, limit_price, product_group,
+        ikpu, invoice_unit_code, vat, sale_points, subcategory, brand, min_stock, description, supplier,
         integration_code, volume, weight, net_weight, color, price_lists, cost, price_min, price_max, price_updated_date
       ) VALUES (
         @name, @fullName, @barcode, @article, @type, @organization, @unit, @subUnit, @createdDate, @orderNumber,
         @hasPhoto, @canSell, @isInventory, @deleted, @onlyMml, @perfectStore, @groupOnly, @trackExpiry,
-        @manualDiscount, @hideFromAgent, @trackSeries, @subcategory, @brand, @minStock, @description, @supplier,
+        @manualDiscount, @hideFromAgent, @trackSeries, @showInBot, @markedProduct, @limitPrice, @group,
+        @ikpu, @invoiceUnitCode, @vat, @salePoints, @subcategory, @brand, @minStock, @description, @supplier,
         @integrationCode, @volume, @weight, @netWeight, @color, @priceLists, @cost, @priceMin, @priceMax, @priceUpdatedDate
       )`,
     )
@@ -246,6 +282,8 @@ export function updateProduct(id: number, input: ProductInput): Product | null {
       has_photo = @hasPhoto, can_sell = @canSell, is_inventory = @isInventory, deleted = @deleted,
       only_mml = @onlyMml, perfect_store = @perfectStore, group_only = @groupOnly, track_expiry = @trackExpiry,
       manual_discount = @manualDiscount, hide_from_agent = @hideFromAgent, track_series = @trackSeries,
+      show_in_bot = @showInBot, marked_product = @markedProduct, limit_price = @limitPrice, product_group = @group,
+      ikpu = @ikpu, invoice_unit_code = @invoiceUnitCode, vat = @vat, sale_points = @salePoints,
       subcategory = @subcategory, brand = @brand, min_stock = @minStock, description = @description,
       supplier = @supplier, integration_code = @integrationCode, volume = @volume, weight = @weight,
       net_weight = @netWeight, color = @color, price_lists = @priceLists, cost = @cost, price_min = @priceMin,

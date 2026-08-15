@@ -243,6 +243,14 @@ function createConnection(): Database.Database {
       manual_discount INTEGER NOT NULL DEFAULT 0,
       hide_from_agent INTEGER NOT NULL DEFAULT 0,
       track_series INTEGER NOT NULL DEFAULT 0,
+      show_in_bot INTEGER NOT NULL DEFAULT 1,
+      marked_product INTEGER NOT NULL DEFAULT 0,
+      limit_price INTEGER NOT NULL DEFAULT 0,
+      product_group TEXT NOT NULL DEFAULT '',
+      ikpu TEXT NOT NULL DEFAULT '',
+      invoice_unit_code TEXT NOT NULL DEFAULT '',
+      vat TEXT NOT NULL DEFAULT 'Без НДС',
+      sale_points TEXT NOT NULL DEFAULT '0',
       subcategory TEXT NOT NULL DEFAULT '',
       brand TEXT NOT NULL DEFAULT 'No brand',
       min_stock TEXT NOT NULL DEFAULT '0 шт.',
@@ -434,6 +442,17 @@ function createConnection(): Database.Database {
   // supplier_id by matching the existing text against suppliers.name.
   ensureColumn(db, "raw_materials", "supplier_id", "INTEGER REFERENCES suppliers(id) ON DELETE SET NULL")
 
+  // Additive migration for dev databases created before the product modal
+  // gained bot visibility, marking, min/max price limiting, and IKPU/VAT fields.
+  ensureColumn(db, "products", "show_in_bot", "INTEGER NOT NULL DEFAULT 1")
+  ensureColumn(db, "products", "marked_product", "INTEGER NOT NULL DEFAULT 0")
+  ensureColumn(db, "products", "limit_price", "INTEGER NOT NULL DEFAULT 0")
+  ensureColumn(db, "products", "product_group", "TEXT NOT NULL DEFAULT ''")
+  ensureColumn(db, "products", "ikpu", "TEXT NOT NULL DEFAULT ''")
+  ensureColumn(db, "products", "invoice_unit_code", "TEXT NOT NULL DEFAULT ''")
+  ensureColumn(db, "products", "vat", "TEXT NOT NULL DEFAULT 'Без НДС'")
+  ensureColumn(db, "products", "sale_points", "TEXT NOT NULL DEFAULT '0'")
+
   seedIfEmpty(db)
   return db
 }
@@ -473,6 +492,9 @@ function seedIfEmpty(db: Database.Database) {
       ).run(ADMIN_USERNAME, "admin", hash, salt)
     }
   }
+
+  // Business data was intentionally cleared; never auto-reseed it on restart.
+  return
 
   const clientCount = (db.prepare("SELECT COUNT(*) AS count FROM clients").get() as { count: number }).count
   if (clientCount === 0) {
@@ -742,12 +764,14 @@ function seedIfEmpty(db: Database.Database) {
       INSERT INTO products (
         name, full_name, barcode, article, type, organization, unit, sub_unit, created_date, order_number,
         has_photo, can_sell, is_inventory, deleted, only_mml, perfect_store, group_only, track_expiry,
-        manual_discount, hide_from_agent, track_series, subcategory, brand, min_stock, description, supplier,
+        manual_discount, hide_from_agent, track_series, show_in_bot, marked_product, limit_price, product_group,
+        ikpu, invoice_unit_code, vat, sale_points, subcategory, brand, min_stock, description, supplier,
         integration_code, volume, weight, net_weight, color, price_lists, cost, price_min, price_max, price_updated_date
       ) VALUES (
         @name, @fullName, @barcode, @article, @type, @organization, @unit, @subUnit, @createdDate, @orderNumber,
         @hasPhoto, @canSell, @isInventory, @deleted, @onlyMml, @perfectStore, @groupOnly, @trackExpiry,
-        @manualDiscount, @hideFromAgent, @trackSeries, @subcategory, @brand, @minStock, @description, @supplier,
+        @manualDiscount, @hideFromAgent, @trackSeries, @showInBot, @markedProduct, @limitPrice, @group,
+        @ikpu, @invoiceUnitCode, @vat, @salePoints, @subcategory, @brand, @minStock, @description, @supplier,
         @integrationCode, @volume, @weight, @netWeight, @color, @priceLists, @cost, @priceMin, @priceMax, @priceUpdatedDate
       )
     `)
@@ -775,6 +799,14 @@ function seedIfEmpty(db: Database.Database) {
           manualDiscount: product.manualDiscount ? 1 : 0,
           hideFromAgent: product.hideFromAgent ? 1 : 0,
           trackSeries: product.trackSeries ? 1 : 0,
+          showInBot: product.showInBot ? 1 : 0,
+          markedProduct: product.markedProduct ? 1 : 0,
+          limitPrice: product.limitPrice ? 1 : 0,
+          group: product.group,
+          ikpu: product.ikpu,
+          invoiceUnitCode: product.invoiceUnitCode,
+          vat: product.vat,
+          salePoints: product.salePoints,
           subcategory: product.subcategory,
           brand: product.brand,
           minStock: product.minStock,
