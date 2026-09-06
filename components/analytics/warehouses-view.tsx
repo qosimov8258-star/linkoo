@@ -1,84 +1,17 @@
 "use client"
 
-import { ChevronLeft, ChevronRight, Pencil, Search, Trash2, X } from "lucide-react"
-import { FormEvent, useMemo, useState } from "react"
+import { ChevronLeft, ChevronRight, FileText, Pencil, Search, Trash2, X } from "lucide-react"
+import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react"
 
-type Warehouse = {
-  id: number
-  name: string
-  address: string
-  branch: string
-  manager: string
-  createdDate: string
-  online: boolean
-  active: boolean
-}
+import { downloadExcelTable } from "@/lib/excel-export"
+import { mapHeaderColumns, readExcelRows } from "@/lib/excel-import"
+import { warehouseBranchPool as branchPool, warehouseManagerPool as managers, type Warehouse } from "./warehouses-data"
 
-const managers = ["Admin Ritm", "Админ 1", "A Rustam", "Asad Asadov", "Samandar Abdurahmonov", "Temur Raupov"]
-const branchPool = ["Buxoro", "samarqand", "mozdini", "Ташкент", "Bobomotors", "korea kosmetika", "toshkent", "Surxandaryo", "Andijon skladi", "Farg'ona"]
-const addressPool = ["Adana", "Toshkent", "Тест Магазин 01", "Tashkent", "RITM", "Andijon skladi", "Surxandaryo", "Namangan", "Buxoro shahri"]
-
-const monthNames = ["янв.", "февр.", "мар.", "апр.", "мая", "июня", "июля", "авг.", "сент.", "окт.", "нояб.", "дек."]
-function fmt(date: Date) {
-  return `${String(date.getDate()).padStart(2, "0")} ${monthNames[date.getMonth()]} ${date.getFullYear()}`
-}
-
-const knownActive: Omit<Warehouse, "active">[] = [
-  { id: 59, name: "05,08,2025(1)", address: "Adana", branch: "Buxoro", manager: "Admin Ritm", createdDate: "05 авг. 2025", online: false },
-  { id: 60, name: "05,08,2025(2)", address: "Adana", branch: "samarqand", manager: "Admin Ritm", createdDate: "05 авг. 2025", online: false },
-  { id: 7, name: "11111", address: "11222", branch: "Mirzo Ulugbek1", manager: "Admin Ritm", createdDate: "23 сент. 2024", online: true },
-  { id: 64, name: "123 test", address: "Toshkent", branch: "mozdini", manager: "Asad Asadov", createdDate: "13 сент. 2025", online: false },
-  { id: 72, name: "250607250607", address: "Тест Магазин 01", branch: "Buxoro", manager: "Admin Ritm", createdDate: "30 сент. 2025", online: false },
-  { id: 22, name: "878", address: "Tashkent", branch: "Ташкент", manager: "Админ 1", createdDate: "12 июня 2025", online: true },
-  { id: 99, name: "All", address: "RITM", branch: "Bobomotors", manager: "Admin Ritm", createdDate: "30 янв. 2026", online: false },
-  { id: 13, name: "Andijon skladi", address: "Andijon skladi", branch: "korea kosmetika", manager: "A Rustam", createdDate: "28 дек. 2024", online: true },
-  { id: 8, name: "ANGOR", address: "Surxandaryo", branch: "toshkent", manager: "Admin Ritm", createdDate: "04 окт. 2024", online: false },
-  { id: 24, name: "anjan marajni", address: "Tashkent", branch: "Ташкент", manager: "Админ 1", createdDate: "12 июня 2025", online: true },
-]
-
-const ACTIVE_TOTAL = 105
-
-function buildWarehouses(): Warehouse[] {
-  const rows: Warehouse[] = knownActive.map((row) => ({ ...row, active: true }))
-  const knownIds = new Set(knownActive.map((row) => row.id))
-  const baseline = new Date(2025, 7, 5)
-  const namePool = ["baby still (сирия)", "sklad 11", "Яндекс Лавка", "ПРОФРЕШ", "Suhrob sklad", "основной", "Asosiy ombor", "Xomashyo", "Tayyor mahsulotlar", "Zaxira sklad"]
-
-  let id = 1
-  while (rows.length < ACTIVE_TOTAL) {
-    if (!knownIds.has(id)) {
-      const date = new Date(baseline)
-      date.setDate(date.getDate() - id * 3)
-      rows.push({
-        id,
-        name: `${namePool[id % namePool.length]}${id % 4 === 0 ? ` ${id}` : ""}`,
-        address: addressPool[id % addressPool.length],
-        branch: branchPool[id % branchPool.length],
-        manager: managers[id % managers.length],
-        createdDate: fmt(date),
-        online: id % 3 === 0,
-        active: true,
-      })
-    }
-    id += 1
-  }
-
-  const inactiveNames = ["Закрытый склад Юг", "Старый филиал", "Тест удалён", "Демо склад", "Резерв 2024", "Списан 2023", "Временный склад", "Архив Ташкент", "Архив Бухара", "Неактуальный", "Пробный склад", "Старая точка"]
-  for (let index = 0; index < inactiveNames.length; index += 1) {
-    const date = new Date(2024, index % 12, 10 + index)
-    rows.push({
-      id: 200 + index,
-      name: inactiveNames[index],
-      address: addressPool[index % addressPool.length],
-      branch: branchPool[index % branchPool.length],
-      manager: managers[index % managers.length],
-      createdDate: fmt(date),
-      online: false,
-      active: false,
-    })
-  }
-
-  return rows
+const IMPORT_HEADER_ALIASES: Record<string, string> = {
+  "наименование": "name", "название": "name", "name": "name",
+  "адрес": "address", "address": "address",
+  "филиал": "branch", "branch": "branch",
+  "зав склад": "manager", "заведующий": "manager", "manager": "manager",
 }
 
 function emptyDraft() {
@@ -86,13 +19,45 @@ function emptyDraft() {
 }
 
 export function WarehousesView({ embedded = false }: { embedded?: boolean }) {
-  const [rows, setRows] = useState<Warehouse[]>(buildWarehouses)
+  const [rows, setRows] = useState<Warehouse[]>([])
+  const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState("")
   const [tab, setTab] = useState<"active" | "inactive">("active")
   const [query, setQuery] = useState("")
   const [page, setPage] = useState(1)
   const [editing, setEditing] = useState<Warehouse | "new" | null>(null)
   const [draft, setDraft] = useState(emptyDraft)
+  const [formError, setFormError] = useState("")
+  const [saving, setSaving] = useState(false)
+  const [importOpen, setImportOpen] = useState(false)
+  const [importFile, setImportFile] = useState<File | null>(null)
+  const [importSaving, setImportSaving] = useState(false)
+  const importInputRef = useRef<HTMLInputElement>(null)
   const pageSize = 25
+
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    fetch("/api/warehouses")
+      .then(async (response) => {
+        if (!response.ok) throw new Error("failed")
+        return (await response.json()) as Warehouse[]
+      })
+      .then((data) => {
+        if (cancelled) return
+        setRows(data)
+        setLoadError("")
+      })
+      .catch(() => {
+        if (!cancelled) setLoadError("Не удалось загрузить склады с сервера")
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const scoped = useMemo(() => rows.filter((row) => row.active === (tab === "active")), [rows, tab])
   const filtered = useMemo(
@@ -119,21 +84,127 @@ export function WarehousesView({ embedded = false }: { embedded?: boolean }) {
     setEditing(row)
   }
 
-  function remove(id: number) {
+  async function remove(id: number) {
     if (!window.confirm("Удалить склад?")) return
-    setRows((current) => current.filter((row) => row.id !== id))
+    try {
+      const response = await fetch(`/api/warehouses/${id}`, { method: "DELETE" })
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}))
+        window.alert(data.error || "Не удалось удалить склад")
+        return
+      }
+      setRows((current) => current.filter((row) => row.id !== id))
+    } catch {
+      window.alert("Сервер недоступен, попробуйте ещё раз")
+    }
   }
 
-  function save(event: FormEvent) {
+  async function save(event: FormEvent) {
     event.preventDefault()
     if (!draft.name.trim() || !draft.address.trim()) return
-    if (editing !== "new" && editing) {
-      setRows((current) => current.map((row) => (row.id === editing.id ? { ...row, ...draft, name: draft.name.trim(), address: draft.address.trim() } : row)))
-    } else {
-      const id = Math.max(0, ...rows.map((row) => row.id)) + 1
-      setRows((current) => [{ id, name: draft.name.trim(), address: draft.address.trim(), branch: draft.branch, manager: draft.manager, createdDate: fmt(new Date()), online: draft.online, active: true }, ...current])
+    setSaving(true)
+    setFormError("")
+    try {
+      const isEdit = editing !== "new" && editing !== null
+      const id = isEdit ? (editing as Warehouse).id : null
+      const response = await fetch(isEdit ? `/api/warehouses/${id}` : "/api/warehouses", {
+        method: isEdit ? "PUT" : "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: draft.name.trim(),
+          address: draft.address.trim(),
+          branch: draft.branch,
+          manager: draft.manager,
+          online: draft.online,
+          active: true,
+        }),
+      })
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}))
+        setFormError(data.error || "Не удалось сохранить склад")
+        return
+      }
+      const saved = (await response.json()) as Warehouse
+      setRows((current) => (isEdit ? current.map((row) => (row.id === id ? saved : row)) : [saved, ...current]))
+      setEditing(null)
+    } catch {
+      setFormError("Сервер недоступен, попробуйте ещё раз")
+    } finally {
+      setSaving(false)
     }
-    setEditing(null)
+  }
+
+  function downloadTemplate() {
+    downloadExcelTable("warehouses-template", [["Наименование", "Адрес", "Филиал", "Зав. склад"]])
+  }
+
+  function pickImportFile(event: ChangeEvent<HTMLInputElement>) {
+    setImportFile(event.target.files?.[0] ?? null)
+  }
+
+  async function saveImport() {
+    if (!importFile) return
+    setImportSaving(true)
+    try {
+      const rowsRaw = await readExcelRows(importFile)
+      if (!rowsRaw.length) {
+        window.alert("Не удалось найти данные для импорта в выбранном файле")
+        return
+      }
+      const fieldByIndex = mapHeaderColumns(rowsRaw[0], IMPORT_HEADER_ALIASES)
+      const hasHeader = Array.from(fieldByIndex.values()).includes("name")
+      const dataRows = hasHeader ? rowsRaw.slice(1) : rowsRaw
+
+      const parsed: { name: string; address: string; branch: string; manager: string }[] = []
+      for (const row of dataRows) {
+        const record: Record<string, string> = {}
+        if (hasHeader) {
+          row.forEach((cell, index) => {
+            const field = fieldByIndex.get(index)
+            if (field) record[field] = cell
+          })
+        } else {
+          record.name = row[0] ?? ""
+          record.address = row[1] ?? ""
+          record.branch = row[2] ?? ""
+          record.manager = row[3] ?? ""
+        }
+        if (!record.name) continue
+        parsed.push({
+          name: record.name.trim(),
+          address: record.address || "Не указан",
+          branch: record.branch || branchPool[0],
+          manager: record.manager || managers[0],
+        })
+      }
+
+      if (!parsed.length) {
+        window.alert("Не удалось найти данные для импорта в выбранном файле")
+        return
+      }
+
+      const created: Warehouse[] = []
+      let failed = 0
+      for (const item of parsed) {
+        try {
+          const response = await fetch("/api/warehouses", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name: item.name, address: item.address, branch: item.branch, manager: item.manager, online: true, active: true }),
+          })
+          if (response.ok) created.push((await response.json()) as Warehouse)
+          else failed += 1
+        } catch {
+          failed += 1
+        }
+      }
+      if (created.length) setRows((current) => [...created, ...current])
+      if (failed) window.alert(`Импортировано ${created.length} из ${parsed.length}. Не удалось сохранить: ${failed}`)
+    } finally {
+      setImportSaving(false)
+      setImportOpen(false)
+      setImportFile(null)
+    }
   }
 
   return (
@@ -158,6 +229,9 @@ export function WarehousesView({ embedded = false }: { embedded?: boolean }) {
       <div className="flex flex-wrap items-center gap-4 px-5 py-4">
         <button type="button" onClick={openCreate} className="text-[15px] text-[#4f70e7] hover:underline">
           + добавить склад
+        </button>
+        <button type="button" onClick={() => setImportOpen(true)} className="inline-flex items-center gap-1 text-[15px] text-[#4f70e7] hover:underline">
+          <FileText className="h-4 w-4" /> Импорт с Excel
         </button>
         <label className="relative ml-4 w-72">
           <input value={query} onChange={(event) => { setQuery(event.target.value); setPage(1) }} placeholder="Поиск" className="w-full border-b border-slate-300 py-2 pr-10 outline-none focus:border-[#4f70e7]" />
@@ -189,7 +263,11 @@ export function WarehousesView({ embedded = false }: { embedded?: boolean }) {
           </tr>
         </thead>
         <tbody>
-          {visible.map((row) => (
+          {loading ? (
+            <tr><td colSpan={8} className="px-9 py-10 text-center text-slate-400">Загрузка складов...</td></tr>
+          ) : loadError ? (
+            <tr><td colSpan={8} className="px-9 py-10 text-center text-red-600">{loadError}</td></tr>
+          ) : visible.map((row) => (
             <tr key={row.id} className="group border-b border-dashed border-slate-300 hover:bg-slate-50">
               <td className="px-9 py-4">{row.id}</td>
               <td className="px-5 py-4 text-[#4f70e7]">{row.name}</td>
@@ -212,7 +290,7 @@ export function WarehousesView({ embedded = false }: { embedded?: boolean }) {
               </td>
             </tr>
           ))}
-          {visible.length === 0 && (
+          {!loading && !loadError && visible.length === 0 && (
             <tr>
               <td colSpan={8} className="px-9 py-10 text-center text-slate-400">
                 Ничего не найдено
@@ -256,13 +334,46 @@ export function WarehousesView({ embedded = false }: { embedded?: boolean }) {
                 <input type="checkbox" checked={draft.online} onChange={(event) => setDraft((value) => ({ ...value, online: event.target.checked }))} className="h-5 w-5" />
                 Вэнсел подключен
               </label>
+              {formError && <p className="text-sm font-medium text-rose-600">{formError}</p>}
             </div>
             <footer className="flex justify-end border-t p-5">
-              <button type="submit" className="rounded bg-[#6ccd8b] px-6 py-3 font-semibold text-white hover:brightness-95">
-                Сохранить
+              <button type="submit" disabled={saving} className="rounded bg-[#6ccd8b] px-6 py-3 font-semibold text-white hover:brightness-95 disabled:opacity-60">
+                {saving ? "Сохранение..." : "Сохранить"}
               </button>
             </footer>
           </form>
+        </div>
+      )}
+
+      {importOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
+          <div className="w-full max-w-md rounded bg-white">
+            <header className="flex items-center justify-between border-b p-6">
+              <b className="uppercase">Импорт с Excel</b>
+              <button type="button" onClick={() => { setImportOpen(false); setImportFile(null) }} aria-label="Закрыть">
+                <X className="h-5 w-5" />
+              </button>
+            </header>
+            <div className="p-8">
+              <button type="button" onClick={downloadTemplate} className="mb-4 font-semibold text-[#4f70e7] hover:underline">
+                1. Скачать шаблон
+              </button>
+              <input ref={importInputRef} type="file" accept=".csv,.xls,.xlsx" onChange={pickImportFile} className="hidden" />
+              <button
+                type="button"
+                onClick={() => importInputRef.current?.click()}
+                className="flex w-full flex-col items-center justify-center gap-3 rounded border-2 border-dashed border-slate-300 py-10 text-slate-500 hover:border-[#4f70e7] hover:text-[#4f70e7]"
+              >
+                <FileText className="h-8 w-8" />
+                {importFile ? importFile.name : "Добавьте файл Excel или нажмите для выбора"}
+              </button>
+            </div>
+            <footer className="flex justify-end border-t p-5">
+              <button type="button" disabled={!importFile || importSaving} onClick={saveImport} className="rounded bg-[#6ccd8b] px-5 py-3 font-semibold text-white hover:brightness-95 disabled:opacity-40">
+                {importSaving ? "Импорт..." : "Сохранить"}
+              </button>
+            </footer>
+          </div>
         </div>
       )}
     </main>

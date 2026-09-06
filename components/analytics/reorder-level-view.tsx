@@ -1,7 +1,9 @@
 "use client"
 
-import { useMemo, useState } from "react"
-import { ChevronDown, Download, Filter, Search, Star, X } from "lucide-react"
+import { useEffect, useMemo, useState } from "react"
+import { ChevronDown, Download, Filter, Search, X } from "lucide-react"
+import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
+import type { Product } from "@/components/analytics/products-data"
 
 type UnitType = "Количество" | "Объем" | "Вес" | "Блок"
 
@@ -11,6 +13,14 @@ type ProductRow = {
   weightPerUnit: number
   type: string
   brand: string
+  // NOTE (real-data gap): recommending a reorder quantity needs both live
+  // on-hand stock and a sales-velocity figure. Neither exists yet for this
+  // report — there is no per-product on-hand ledger anywhere in the schema
+  // (see stock-level-view.tsx), and aggregating "units sold" from orders
+  // here would duplicate the sales-report work another agent owns
+  // (abc-analysis / sales-by-products views) using the same order data. So
+  // these five fields are honestly 0 for every row rather than fabricated —
+  // only the real product identity fields below are wired.
   sold: number
   available: number
   stockDaysValue: number
@@ -20,19 +30,38 @@ type ProductRow = {
   organization: string
 }
 
-const rows: ProductRow[] = [
-  { id: 1, product: "sndwch", weightPerUnit: 0, type: "oziq ovqat", brand: "No brand", sold: 40, available: 1232601, stockDaysValue: 92445, recommended6: 80, recommended30: 400, warehouse: "Tayyor mahsulotlar", organization: "Linko" },
-  { id: 2, product: "Cola 0.35", weightPerUnit: 0, type: "напитки", brand: "Coca Cola", sold: 1, available: 31, stockDaysValue: 31, recommended6: 6, recommended30: 30, warehouse: "Asosiy ombor", organization: "Linko" },
-  { id: 3, product: "Чистая линия", weightPerUnit: 0, type: '02, "OLIVIA" ТВЕРДОЕ МЫЛО', brand: "No brand", sold: 1, available: 496, stockDaysValue: 496, recommended6: 6, recommended30: 30, warehouse: "Asosiy ombor", organization: "Linko" },
-]
+function parseWeight(value: string): number {
+  const parsed = Number.parseFloat(value.replace(",", "."))
+  return Number.isFinite(parsed) ? parsed : 0
+}
+
+function productToRow(product: Product): ProductRow {
+  return {
+    id: product.id,
+    product: product.name,
+    weightPerUnit: parseWeight(product.netWeight) || parseWeight(product.weight),
+    type: product.type || "Не указано",
+    brand: product.brand || "No brand",
+    sold: 0,
+    available: 0,
+    stockDaysValue: 0,
+    recommended6: 0,
+    recommended30: 0,
+    // No real per-product warehouse link exists; the warehouse filter below
+    // stays in the UI but has nothing real to filter on yet.
+    warehouse: "Не указано",
+    organization: product.organization || "Не указано",
+  }
+}
 
 type SortKey = "weightPerUnit" | "sold" | "salesShare" | "available" | "avgDailySales" | "stockDays" | "recommended6" | "recommended30"
 type SortDir = "asc" | "desc"
 
 const number = (value: number, fraction = 0, maxFraction = 3) => new Intl.NumberFormat("ru-RU", { minimumFractionDigits: fraction, maximumFractionDigits: maxFraction }).format(value)
 
-const totalSold = rows.reduce((sum, row) => sum + row.sold, 0)
-const salesShare = (row: ProductRow) => (totalSold ? (row.sold / totalSold) * 100 : 0)
+// `sold` is currently always 0 for every row (see the real-data-gap note
+// above), so the sales-share percentage is always 0 too.
+const salesShare = (_row: ProductRow) => 0
 const stockDays = (row: ProductRow) => row.stockDaysValue
 const avgDailySales = (row: ProductRow) => (row.stockDaysValue ? row.available / row.stockDaysValue : 0)
 
@@ -63,7 +92,8 @@ function SortableHeader({ label, sortKey, active, onSort, className = "" }: { la
 }
 
 export function ReorderLevelView() {
-  const [favorite, setFavorite] = useState(false)
+  const [rows, setRows] = useState<ProductRow[]>([])
+  const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState("")
   const [filterOpen, setFilterOpen] = useState(false)
   const [unitOpen, setUnitOpen] = useState(false)
@@ -76,6 +106,22 @@ export function ReorderLevelView() {
   const [sortDir, setSortDir] = useState<SortDir>("asc")
   const [dateFrom] = useState("01 Июня 2026")
   const [dateTo] = useState("31 Авг. 2026")
+
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    fetch("/api/products")
+      .then(async (response) => (response.ok ? ((await response.json()) as Product[]) : []))
+      .then((products) => {
+        if (!cancelled) setRows(products.filter((product) => !product.deleted).map(productToRow))
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const warehouses = ["Все склады", ...new Set(rows.map((row) => row.warehouse))]
   const organizations = ["Все организации", ...new Set(rows.map((row) => row.organization))]
@@ -155,11 +201,10 @@ export function ReorderLevelView() {
   return (
     <main className="min-h-screen bg-white text-[#17233b]">
       <header className="flex min-h-[76px] items-center border-b border-[#d8dee7] bg-[#f2f5f8] px-6 md:px-9">
-        <button onClick={() => setFavorite((value) => !value)} className="flex items-center gap-3">
-          <Star className={`h-7 w-7 ${favorite ? "fill-[#4f70e7] text-[#4f70e7]" : "fill-[#596376] text-[#596376]"}`} />
-          <span className="text-2xl font-bold text-[#4f70e7]">Избранные</span><span className="text-3xl font-light text-[#586174]">|</span>
+        <div className="flex items-center gap-3">
+          <FavoritesButton className="flex items-center gap-2 text-2xl font-bold text-[#4f70e7]" /><span className="text-3xl font-light text-[#586174]">|</span>
           <span className="text-2xl font-bold text-[#586174]">Рекомендованный запас</span>
-        </button>
+        </div>
       </header>
 
       <section className="flex flex-wrap items-center gap-5 px-6 py-4 md:px-9">
@@ -241,7 +286,7 @@ export function ReorderLevelView() {
               )
             })}
             {sorted.length === 0 && (
-              <tr><td colSpan={11} className="border-t border-[#e1e5eb] px-4 py-16 text-center text-[#9aa3b6]">Ничего не найдено</td></tr>
+              <tr><td colSpan={11} className="border-t border-[#e1e5eb] px-4 py-16 text-center text-[#9aa3b6]">{loading ? "Загрузка..." : "Ничего не найдено"}</td></tr>
             )}
           </tbody>
         </table>

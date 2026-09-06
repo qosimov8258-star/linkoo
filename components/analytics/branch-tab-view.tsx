@@ -2,8 +2,9 @@
 
 import { useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
-import { ChevronDown, Download, Star } from "lucide-react"
+import { ChevronDown, Download } from "lucide-react"
 import { downloadExcelTable } from "@/lib/excel-export"
+import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
 
 const tabs = ["ВИДЖЕТЫ", "KPI", "БАЛАНС", "ОХВАТ", "ФИЛИАЛ", "P&L", "ДОЛГ КЛИЕНТОВ", "ПРОДАЖА", "ГИБКИЙ ДАШБОРД"] as const
 const tabHref: Partial<Record<(typeof tabs)[number], string>> = {
@@ -21,54 +22,17 @@ const tabHref: Partial<Record<(typeof tabs)[number], string>> = {
 type Money = { sum: number; usd: number }
 type Branch = { id: number; name: string; opening: Money }
 
-const zero: Money = { sum: 0, usd: 0 }
+const branches: Branch[] = []
 
-const branches: Branch[] = [
-  { id: 1, name: "Samarqand", opening: { sum: 515572, usd: 0 } },
-  { id: 2, name: "Buxoro", opening: { sum: -1282800, usd: 9231 } },
-  { id: 3, name: "Mirzo Ulugbek1", opening: { sum: -1200, usd: 0 } },
-  { id: 4, name: "Samarqand filial", opening: { ...zero } },
-  { id: 5, name: "Namangan", opening: { sum: 12000, usd: 0 } },
-  { id: 6, name: "Farg'ona", opening: { ...zero } },
-  { id: 7, name: "Xorazm", opening: { sum: 902000, usd: -62992 } },
-  { id: 8, name: "Andijon", opening: { sum: 202230800, usd: 0 } },
-  { id: 9, name: "Jizzax shahri", opening: { sum: -300120000, usd: 0 } },
-  { id: 10, name: "Geoinnovatsiya markazi", opening: { ...zero } },
-  { id: 11, name: "candycold", opening: { ...zero } },
-  { id: 12, name: "tosh98", opening: { ...zero } },
-  { id: 13, name: "Salohiddin Farg'ona Filial", opening: { sum: -5000, usd: 0 } },
-  { id: 14, name: "Shakhrisabz", opening: { ...zero } },
-  { id: 15, name: "Shayxontoxur", opening: { sum: -1300000, usd: 0 } },
-  { id: 16, name: "Chinobod", opening: { sum: 260000, usd: 0 } },
-  { id: 17, name: "Shayxontoxur 2", opening: { ...zero } },
-  { id: 18, name: "Shayxontoxur 1", opening: { ...zero } },
-  { id: 19, name: "novza", opening: { sum: -916370, usd: 0 } },
-  { id: 20, name: "choshtepa", opening: { sum: -421630, usd: 0 } },
-  { id: 21, name: "Филиал Чиланзар", opening: { sum: -45000, usd: 0 } },
-  { id: 22, name: "Филиал Юнусабад", opening: { ...zero } },
-  { id: 23, name: "toshkent filial", opening: { ...zero } },
-  { id: 24, name: "samarqand filial", opening: { ...zero } },
-  { id: 25, name: "Maftuna MCHJ", opening: { ...zero } },
-]
-
-const FIXED_TOTALS = { sum: -100636628, usd: -53761 }
+const FIXED_TOTALS = { sum: 0, usd: 0 }
 const groups = ["Баланс на начало периода", "Передача на склад", "Возврат передачи", "Оплата", "Прочие приходы", "Прочие расходы", "Баланс на конец"] as const
 
 type WarehouseRow = { id: number; name: string; balance: number; sharePercent: number }
-const warehouses: WarehouseRow[] = [
-  { id: 1, name: "Suhrob sklad", balance: 238653107.79, sharePercent: 28.5 },
-  { id: 2, name: "new (vansell)", balance: 10420879627.4, sharePercent: 23.3 },
-  { id: 3, name: "ГП", balance: 11111100000, sharePercent: 18.9 },
-  { id: 4, name: "Temurbek", balance: 370000000, sharePercent: 11.1 },
-  { id: 5, name: "Lit Energu", balance: 240350000, sharePercent: 3.5 },
-  { id: 6, name: "Said Qosimov", balance: 76148736.401, sharePercent: 3.2 },
-  { id: 7, name: "bog'ishamol45", balance: 5000000, sharePercent: 3.0 },
-  { id: 8, name: "baby still (сырье)", balance: 102597, sharePercent: 3.1 },
-]
-const WAREHOUSE_TOTAL = 342011626001
+const warehouses: WarehouseRow[] = []
+const WAREHOUSE_TOTAL = 0
 const DONUT_COLORS = ["#3b82f6", "#22c55e", "#ef4444", "#8b5cf6", "#f59e0b", "#06b6d4", "#ec4899", "#84cc16"]
 
-const money = (value: number) => new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 3 }).format(value)
+const money = (value: number) => new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 2 }).format(value)
 
 function AmountCell({ value }: { value: number }) {
   if (value === 0) return <span>0</span>
@@ -85,7 +49,6 @@ function toInputDate(date: Date) {
 
 export function BranchTabView() {
   const router = useRouter()
-  const [favorite, setFavorite] = useState(false)
   const [chartMode, setChartMode] = useState<"type" | "brand">("type")
   const [sortKey, setSortKey] = useState<"opening" | "closing" | null>(null)
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc")
@@ -135,11 +98,10 @@ export function BranchTabView() {
   return (
     <main className="min-h-screen bg-white text-[#17233b]">
       <header className="flex flex-wrap items-center gap-4 border-b border-[#d8dee7] bg-[#f2f5f8] px-6 py-4 md:px-9">
-        <button onClick={() => setFavorite((value) => !value)} className="flex items-center gap-3">
-          <Star className={`h-6 w-6 ${favorite ? "fill-[#4f70e7] text-[#4f70e7]" : "fill-[#596376] text-[#596376]"}`} />
-          <span className="text-xl font-bold text-[#4f70e7]">Избранные</span><span className="text-2xl font-light text-[#586174]">|</span>
+        <div className="flex items-center gap-3">
+          <FavoritesButton className="flex items-center gap-2 text-xl font-bold text-[#4f70e7]" /><span className="text-2xl font-light text-[#586174]">|</span>
           <span className="text-xl font-bold text-[#586174]">Виджеты</span>
-        </button>
+        </div>
         <nav className="ml-auto flex flex-wrap gap-2">
           {tabs.map((tab) => (
             <button
@@ -241,7 +203,7 @@ export function BranchTabView() {
             ))}
           </tbody>
         </table>
-        <div className="flex justify-center py-3"><span className="text-[#586174]">Показано 7 из 25 филиалов</span></div>
+        <div className="flex justify-center py-3"><span className="text-[#586174]">Показано {Math.min(sortedBranches.length, 7)} из {sortedBranches.length} филиалов</span></div>
       </section>
 
       <section className="mx-6 mb-10 rounded-md bg-white p-6 shadow-sm md:mx-9">

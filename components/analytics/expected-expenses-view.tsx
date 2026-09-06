@@ -2,6 +2,7 @@
 
 import { Fragment, useMemo, useState } from "react"
 import { ChevronDown, Search } from "lucide-react"
+import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
 
 type Status = "pending" | "confirmed" | "paid" | "cancelled"
 type ExpenseRow = {
@@ -16,25 +17,7 @@ type ExpenseRow = {
   comment?: string
 }
 
-const rows: ExpenseRow[] = [
-  { id: 1, supplier: "universal postavshik", date: "28 февр. 2025", debt: -27331482295, stock: 2400000000, amount: 2000000, currency: "SUM", status: "confirmed" },
-  { id: 2, supplier: "universal postavshik", date: "28 февр. 2025", debt: -27331482295, stock: 2400000000, amount: 1000000, currency: "SUM", status: "confirmed" },
-  { id: 3, supplier: "Инвенторизация", date: "28 февр. 2025", debt: 100000000, stock: 0, amount: 9000200000, currency: "SUM", status: "confirmed" },
-  { id: 4, supplier: "Xoramskaya postavshik", date: "07 мар. 2025", debt: 0, stock: 0, amount: 2000000, currency: "USD", status: "cancelled" },
-  { id: 5, supplier: "andijanskiy postavchik", date: "07 мар. 2025", debt: -410035000, stock: 0, amount: 500000, currency: "SUM", status: "confirmed" },
-  { id: 6, supplier: "Robot postavchik", date: "07 мар. 2025", debt: -5056000, stock: 0, amount: 2000000, currency: "SUM", status: "confirmed" },
-  { id: 7, supplier: "Xoramskaya postavshik", date: "07 мар. 2025", debt: -1301502000, stock: 0, amount: 2000000, currency: "SUM", status: "confirmed" },
-  { id: 8, supplier: "andijanskiy postavchik", date: "07 мар. 2025", debt: -410035000, stock: 0, amount: 1000000, currency: "SUM", status: "confirmed" },
-  { id: 9, supplier: "universal postavshik", date: "25 апр. 2025", debt: -27331482295, stock: 2400000000, amount: 100000, currency: "SUM", status: "confirmed" },
-  { id: 10, supplier: "Demo", date: "25 апр. 2025", debt: -136594000, stock: 100000, amount: 1000000, currency: "SUM", status: "paid" },
-  { id: 11, supplier: "zapas", date: "02 мая 2025", debt: -56194000, stock: 5600000, amount: 5000000, currency: "SUM", status: "confirmed" },
-  { id: 12, supplier: "zapas", date: "02 мая 2025", debt: 0, stock: 0, amount: 9000000000, currency: "USD", status: "cancelled", comment: "7777" },
-  { id: 13, supplier: "Инвенторизация", date: "12 сент. 2025", debt: 100000000, stock: 0, amount: 3100000, currency: "SUM", status: "cancelled" },
-  { id: 14, supplier: "Kotta aka", date: "15 янв. 2026", debt: -8955504900, stock: 0, amount: 100000, currency: "SUM", status: "pending" },
-  { id: 15, supplier: "tillochi", date: "31 мар. 2026", debt: -47519602, stock: 0, amount: 10000001, currency: "SUM", status: "confirmed" },
-  { id: 16, supplier: "Kotta aka", date: "31 мар. 2026", debt: -8955504900, stock: 0, amount: 1000000000, currency: "SUM", status: "pending" },
-  { id: 17, supplier: "Инвенторизация", date: "02 мая 2026", debt: 0, stock: 0, amount: 110, currency: "Euro", status: "confirmed" },
-]
+const rows: ExpenseRow[] = []
 
 const statusLabel: Record<Status, string> = {
   pending: "В ожидании",
@@ -49,10 +32,9 @@ const statusColor: Record<Status, string> = {
   cancelled: "text-[#e5484d]",
 }
 
-const number = (value: number) => new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 3 }).format(value)
+const number = (value: number) => new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 2 }).format(value)
 
 export function ExpectedExpensesView() {
-  const [favorite, setFavorite] = useState(false)
   const [tab, setTab] = useState<"pending" | "confirmed" | "paid" | "all">("all")
   const [search, setSearch] = useState("")
   const [pageSize, setPageSize] = useState(25)
@@ -78,11 +60,10 @@ export function ExpectedExpensesView() {
   return (
     <main className="min-h-screen bg-white text-[#17233b]">
       <header className="flex min-h-[76px] items-center border-b border-[#d8dee7] bg-[#f2f5f8] px-6 md:px-9">
-        <button onClick={() => setFavorite((value) => !value)} className="flex items-center gap-3">
-          <span className={`text-2xl ${favorite ? "text-[#4f70e7]" : "text-[#596376]"}`}>★</span>
-          <span className="text-2xl font-bold text-[#4f70e7]">Избранные</span><span className="text-3xl font-light text-[#586174]">|</span>
+        <div className="flex items-center gap-3">
+          <FavoritesButton className="flex items-center gap-2 text-2xl font-bold text-[#4f70e7]" /><span className="text-3xl font-light text-[#586174]">|</span>
           <span className="text-2xl font-bold text-[#586174]">Ожидаемые расходы</span>
-        </button>
+        </div>
       </header>
 
       <section className="grid grid-cols-1 border-b border-[#e1e5eb] bg-white text-center sm:grid-cols-4">

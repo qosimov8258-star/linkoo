@@ -1,14 +1,16 @@
 "use client"
 
 import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react"
-import { ChevronDown, ChevronLeft, ChevronRight, Filter, PlusCircle, Search, Star, Upload, X } from "lucide-react"
+import { ChevronDown, ChevronLeft, ChevronRight, Filter, PlusCircle, Search, Upload, X } from "lucide-react"
+
+import { readExcelRows } from "@/lib/excel-import"
+import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
 
 import { repricingCurrencies as currencies, type Repricing } from "./repricing-data"
 import type { PriceList } from "./price-lists-data"
 import type { Product } from "./products-data"
 
 const number = (value: number) => new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 2 }).format(value)
-const favoriteItems = ["Клиенты", "Заказы", "Виджеты", "Заказы", "Ограничение продуктов", "Продукты"]
 
 export function RepricingView() {
   const [rows, setRows] = useState<Repricing[]>([])
@@ -17,8 +19,6 @@ export function RepricingView() {
   const [priceLists, setPriceLists] = useState<PriceList[]>([])
   const [products, setProducts] = useState<Product[]>([])
 
-  const [favorite, setFavorite] = useState(false)
-  const [favoritesOpen, setFavoritesOpen] = useState(false)
   const [search, setSearch] = useState("")
   const [filterOpen, setFilterOpen] = useState(false)
   const [priceListFilter, setPriceListFilter] = useState("Все")
@@ -86,11 +86,11 @@ export function RepricingView() {
   return (
     <main className="min-h-screen bg-white text-[#17233b]">
       <header className="flex flex-wrap items-center justify-between gap-4 border-b border-[#e1e5eb] px-6 py-5 md:px-9">
-        <button onClick={() => setFavoritesOpen(true)} className="flex items-center gap-3">
-          <Star className={`h-7 w-7 ${favorite ? "fill-[#4f70e7] text-[#4f70e7]" : "fill-[#596376] text-[#596376]"}`} />
-          <span className="text-2xl font-bold text-[#4f70e7]">Избранные</span><span className="text-3xl font-light text-[#586174]">|</span>
+        <div className="flex items-center gap-3">
+          <FavoritesButton className="flex items-center gap-3 text-2xl font-bold text-[#4f70e7]" />
+          <span className="text-3xl font-light text-[#586174]">|</span>
           <span className="text-2xl font-bold text-[#586174]">Переоценка</span>
-        </button>
+        </div>
         <div className="flex gap-4">
           <button onClick={() => setLinkedModalOpen(true)} className="flex h-11 items-center gap-2 rounded-md bg-[#69cd87] px-5 font-semibold text-white">
             <PlusCircle className="h-5 w-5" /> Переоценку связанных
@@ -195,28 +195,6 @@ export function RepricingView() {
         </table>
       </section>
 
-      {favoritesOpen && (
-        <div className="fixed inset-0 z-[100] flex">
-          <button aria-label="Закрыть" onClick={() => setFavoritesOpen(false)} className="flex-1 bg-black/40" />
-          <aside className="w-[420px] max-w-[90vw] bg-white shadow-2xl">
-            <header className="flex items-center justify-between border-b px-8 py-6">
-              <h2 className="text-2xl font-semibold">Избранные</h2>
-              <button aria-label="Закрыть" onClick={() => setFavoritesOpen(false)}><X className="h-6 w-6 text-slate-600" /></button>
-            </header>
-            {favoriteItems.map((item, index) => (
-              <button
-                key={`${item}-${index}`}
-                type="button"
-                onClick={() => { setFavorite(true); setFavoritesOpen(false) }}
-                className="flex w-full items-center justify-between border-b px-8 py-5 text-left text-lg"
-              >
-                {item} <ChevronRight className="h-5 w-5 text-slate-400" />
-              </button>
-            ))}
-          </aside>
-        </div>
-      )}
-
       {linkedModalOpen && <LinkedRevaluationModal priceLists={priceLists} onClose={() => setLinkedModalOpen(false)} />}
       {addModalOpen && (
         <AddRevaluationModal
@@ -232,6 +210,24 @@ export function RepricingView() {
 
 function LinkedRevaluationModal({ priceLists, onClose }: { priceLists: PriceList[]; onClose: () => void }) {
   const [priceListId, setPriceListId] = useState(priceLists[0]?.id ?? 0)
+  const [saving, setSaving] = useState(false)
+
+  async function save() {
+    setSaving(true)
+    try {
+      const priceListName = priceLists.find((item) => item.id === priceListId)?.name ?? ""
+      await fetch("/api/linked-repricings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ priceListId, priceListName }),
+      })
+    } catch {
+      // ignore network failures, still close like the rest of the app does
+    }
+    setSaving(false)
+    onClose()
+  }
+
   return (
     <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/40" onClick={onClose}>
       <div onClick={(event) => event.stopPropagation()} className="w-[600px] max-w-[92vw] rounded-md bg-white shadow-2xl">
@@ -249,7 +245,9 @@ function LinkedRevaluationModal({ priceLists, onClose }: { priceLists: PriceList
           </label>
         </div>
         <footer className="flex justify-start border-t px-8 py-5">
-          <button onClick={onClose} className="rounded-sm bg-[#69cd87] px-6 py-2.5 font-bold uppercase tracking-wide text-white">Сохранить</button>
+          <button disabled={saving} onClick={() => void save()} className="rounded-sm bg-[#69cd87] px-6 py-2.5 font-bold uppercase tracking-wide text-white disabled:opacity-60">
+            {saving ? "Сохранение..." : "Сохранить"}
+          </button>
         </footer>
       </div>
     </div>
@@ -280,19 +278,16 @@ function AddRevaluationModal({
     const file = event.target.files?.[0]
     event.target.value = ""
     if (!file) return
-    const reader = new FileReader()
-    reader.onload = () => {
-      const lines = String(reader.result ?? "").split(/\r?\n/).filter(Boolean)
-      const parsed = lines
-        .map((line) => line.split(/[;,\t]/).map((cell) => cell.trim()))
+    void (async () => {
+      const rows = await readExcelRows(file)
+      const parsed = rows
         .filter(([productName]) => productName && !/^(товар|наименование|product)$/i.test(productName))
         .map(([productName, price], index) => {
           const match = products.find((product) => product.name === productName)
           return { id: Date.now() + index, productId: match ? match.id : null, price: price || "" }
         })
       if (parsed.length) setItems((current) => [...current.filter((item) => item.productId || item.price), ...parsed, { id: Date.now() + parsed.length, productId: null, price: "" }])
-    }
-    reader.readAsText(file)
+    })()
   }
 
   const updateItem = (id: number, patch: Partial<NewItem>) => {

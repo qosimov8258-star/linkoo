@@ -14,14 +14,14 @@ import {
   Reply,
   AlignJustify,
   Search,
-  Star,
   Trash2,
   Wallet,
 } from "lucide-react"
+import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
 
 import type { PaymentRow } from "./customer-payments-data"
 
-const number = (value: number, fraction = 0) => new Intl.NumberFormat("ru-RU", { minimumFractionDigits: fraction, maximumFractionDigits: 3 }).format(value)
+const number = (value: number, fraction = 0) => new Intl.NumberFormat("ru-RU", { minimumFractionDigits: fraction, maximumFractionDigits: fraction }).format(value)
 
 const RU_MONTHS: Record<string, number> = {
   "янв.": 0, "февр.": 1, "мар.": 2, "апр.": 3, "мая": 4, "июня": 5,
@@ -45,7 +45,6 @@ function PaymentIcon({ type }: { type: "cash" | "card" }) {
 }
 
 export function CustomerPaymentsView() {
-  const [favorite, setFavorite] = useState(false)
   const [rows, setRows] = useState<PaymentRow[]>([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState("")
@@ -223,11 +222,10 @@ export function CustomerPaymentsView() {
   return (
     <main className="min-h-screen bg-[#f1f4f8] text-[#17233b]">
       <header className="flex min-h-[76px] items-center justify-between border-b border-[#d8dee7] bg-[#f2f5f8] px-6 md:px-9">
-        <button onClick={() => setFavorite((value) => !value)} className="flex items-center gap-3">
-          <Star className={`h-7 w-7 ${favorite ? "fill-[#4f70e7] text-[#4f70e7]" : "fill-[#596376] text-[#596376]"}`} />
-          <span className="text-2xl font-bold text-[#4f70e7]">Избранные</span><span className="text-3xl font-light text-[#586174]">|</span>
+        <div className="flex items-center gap-3">
+          <FavoritesButton className="flex items-center gap-2 text-2xl font-bold text-[#4f70e7]" /><span className="text-3xl font-light text-[#586174]">|</span>
           <span className="text-2xl font-bold text-[#586174]">Оплаты от клиентов</span>
-        </button>
+        </div>
         <button onClick={downloadExcel} className="flex h-11 items-center gap-2 rounded-md bg-[#69cd87] px-5 font-semibold text-white">
           <Download className="h-5 w-5" /> Скачать Excel
         </button>

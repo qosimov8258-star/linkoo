@@ -1,10 +1,16 @@
 "use client"
 
 import Link from "next/link"
-import { useState } from "react"
 import { ChevronRight, Lightbulb, X } from "lucide-react"
 
-type SettingsLink = { label: string; href: string }
+import { useLanguage } from "@/lib/i18n/language-context"
+import type { LanguageCode } from "@/lib/i18n/types"
+
+// href is omitted for items that don't have a real page anywhere in the
+// app yet — they render as plain (non-clickable) text instead of a dead
+// link, so the menu can show the full intended structure without ever
+// producing a 404.
+type SettingsLink = { label: string; href?: string }
 type SettingsSection = { title: string; items: SettingsLink[] }
 
 const sections: SettingsSection[] = [
@@ -34,51 +40,105 @@ const sections: SettingsSection[] = [
     items: [
       { label: "Типы продуктов", href: "/analytics/product-types" },
       { label: "Измерения", href: "/analytics/units-of-measure" },
+      { label: "Бренд", href: "/analytics/brands" },
+      { label: "Атрибуты" },
+      { label: "Значение атрибута" },
+      { label: "Продукты конкурентов" },
+    ],
+  },
+  {
+    title: "Клиенты",
+    items: [
+      { label: "Типы клиентов", href: "/clients/client-types" },
+      { label: "Атрибуты", href: "/clients/attributes" },
+      { label: "Значение атрибута", href: "/clients/attribute-values" },
+      { label: "Категория магазина" },
+    ],
+  },
+  {
+    title: "Конструкторы",
+    items: [
+      { label: "Конструктор документов" },
+      { label: "Дашборды", href: "/analytics/dashboard-settings" },
+      { label: "Настройка EXCEL заказов" },
+    ],
+  },
+  {
+    title: "Поставщики",
+    items: [{ label: "Категории поставщиков", href: "/analytics/supplier-categories" }],
+  },
+  {
+    title: "Склад",
+    items: [
+      { label: "Склады", href: "/analytics/warehouses" },
+      { label: "Настройка чека" },
+      { label: "Тип ячейки" },
+      { label: "Ячейки" },
+    ],
+  },
+  {
+    title: "Разное",
+    items: [
+      { label: "Прайс-листы", href: "/analytics/price-lists" },
+      { label: "Тип отказа", href: "/analytics/refusal-types" },
+      { label: "Филиалы", href: "/analytics/branches" },
+      { label: "Оборудования" },
+      { label: "Организация", href: "/analytics/organization" },
+      { label: "Объединение", href: "/analytics/duplicate-analysis" },
+      { label: "Ограничение времени", href: "/analytics/time-restrictions" },
+      { label: "Закрытия дня/месяца" },
+      { label: "Интеграция", href: "/settings/integrations" },
+      { label: "Уведомления", href: "/settings/notifications" },
     ],
   },
 ]
 
-const languages = ["RU", "UZ", "TK", "EN"] as const
+const languages: { code: LanguageCode; label: string }[] = [
+  { code: "ru", label: "RU" },
+  { code: "uz", label: "UZ" },
+  { code: "tk", label: "TK" },
+  { code: "en", label: "EN" },
+]
 
 interface SettingsMenuProps {
   onClose: () => void
 }
 
 export function SettingsMenu({ onClose }: SettingsMenuProps) {
-  const [language, setLanguage] = useState<(typeof languages)[number]>("RU")
+  const { language, setLanguage, t } = useLanguage()
 
   return (
     <div className="absolute right-0 top-full z-50 w-[340px] max-w-[92vw] overflow-hidden rounded-b-md bg-white text-foreground shadow-2xl">
       <div className="flex items-start justify-between px-6 py-5">
         <div>
-          <h2 className="text-lg font-bold text-slate-900">Настройки</h2>
-          <p className="mt-1 text-[13px] text-slate-500">Версия: 7.1.58 (API: 147)</p>
+          <h2 className="text-lg font-bold text-slate-900">{t("Настройки")}</h2>
+          <p className="mt-1 text-[13px] text-slate-500">{t("Версия")}: 7.1.58 (API: 147)</p>
         </div>
-        <button type="button" onClick={onClose} aria-label="Закрыть" className="text-slate-500 hover:text-slate-900">
+        <button type="button" onClick={onClose} aria-label={t("Закрыть")} className="text-slate-500 hover:text-slate-900">
           <X className="h-6 w-6" />
         </button>
       </div>
 
       <div className="border-t border-slate-100 px-6 py-5 text-center">
         <a href="tel:+998785555525" className="text-[15px] font-semibold text-brand-blue hover:underline">
-          Онлайн техподдержка
+          {t("Онлайн техподдержка")}
         </a>
         <p className="mt-1 text-lg font-bold text-slate-900">+998 78 555-55-25</p>
       </div>
 
       <div className="flex gap-2 border-t border-slate-100 px-6 py-4">
-        {languages.map((lang) => (
+        {languages.map(({ code, label }) => (
           <button
-            key={lang}
+            key={code}
             type="button"
-            onClick={() => setLanguage(lang)}
+            onClick={() => setLanguage(code)}
             className={`flex-1 rounded-md border px-3 py-2 text-sm font-semibold transition-colors ${
-              language === lang
+              language === code
                 ? "border-emerald-500 bg-emerald-500 text-white"
                 : "border-slate-200 text-slate-700 hover:bg-slate-50"
             }`}
           >
-            {lang}
+            {label}
           </button>
         ))}
       </div>
@@ -90,7 +150,7 @@ export function SettingsMenu({ onClose }: SettingsMenuProps) {
           className="flex items-center gap-3 rounded-md bg-gradient-to-r from-[#5c6df3] to-[#7b6cf6] px-4 py-3 font-semibold text-white transition-opacity hover:opacity-90"
         >
           <Lightbulb className="h-5 w-5 shrink-0 text-amber-300" />
-          <span className="flex-1">База знаний</span>
+          <span className="flex-1">{t("База знаний")}</span>
           <ChevronRight className="h-5 w-5 shrink-0" />
         </Link>
       </div>
@@ -98,19 +158,30 @@ export function SettingsMenu({ onClose }: SettingsMenuProps) {
       <div className="max-h-[420px] overflow-y-auto border-t border-slate-100 px-6 py-4">
         {sections.map((section, index) => (
           <div key={section.title} className={index > 0 ? "mt-5" : ""}>
-            <h3 className="text-[15px] font-bold text-slate-900">{section.title}</h3>
+            <h3 className="text-[15px] font-bold text-slate-900">{t(section.title)}</h3>
             <ul className="mt-2">
-              {section.items.map((item) => (
-                <li key={item.label}>
-                  <Link
-                    href={item.href}
-                    onClick={onClose}
-                    className="block py-2 text-[15px] text-slate-600 transition-colors hover:text-brand-blue"
-                  >
-                    {item.label}
-                  </Link>
-                </li>
-              ))}
+              {section.items.map((item) =>
+                item.href ? (
+                  <li key={item.label}>
+                    <Link
+                      href={item.href}
+                      onClick={onClose}
+                      className="block py-2 text-[15px] text-slate-600 transition-colors hover:text-brand-blue"
+                    >
+                      {t(item.label)}
+                    </Link>
+                  </li>
+                ) : (
+                  <li key={item.label}>
+                    <span
+                      className="block cursor-not-allowed py-2 text-[15px] text-slate-400"
+                      title={t("Скоро будет доступно")}
+                    >
+                      {t(item.label)}
+                    </span>
+                  </li>
+                ),
+              )}
             </ul>
           </div>
         ))}

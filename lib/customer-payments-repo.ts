@@ -50,39 +50,39 @@ export type PaymentPatch = Partial<{
   comment: string
 }>
 
-export function listCustomerPayments(): PaymentRow[] {
+export async function listCustomerPayments(): Promise<PaymentRow[]> {
   const db = getDb()
-  const rows = db.prepare("SELECT * FROM customer_payments ORDER BY id DESC").all() as Row[]
+  const rows = (await db.prepare("SELECT * FROM customer_payments ORDER BY id DESC").all()) as Row[]
   return rows.map(rowToPayment)
 }
 
-export function getCustomerPayment(id: number): PaymentRow | null {
+export async function getCustomerPayment(id: number): Promise<PaymentRow | null> {
   const db = getDb()
-  const row = db.prepare("SELECT * FROM customer_payments WHERE id = ?").get(id) as Row | undefined
+  const row = (await db.prepare("SELECT * FROM customer_payments WHERE id = ?").get(id)) as Row | undefined
   return row ? rowToPayment(row) : null
 }
 
-export function updateCustomerPayment(id: number, patch: PaymentPatch): PaymentRow | null {
-  const existing = getCustomerPayment(id)
+export async function updateCustomerPayment(id: number, patch: PaymentPatch): Promise<PaymentRow | null> {
+  const existing = (await getCustomerPayment(id))
   if (!existing) return null
 
   const merged = { ...existing, ...patch }
   const db = getDb()
-  db.prepare(
-    `UPDATE customer_payments SET accepted = @accepted, accepted_at = @acceptedAt, kassa = @kassa,
+  await db.prepare(
+        `UPDATE customer_payments SET accepted = @accepted, accepted_at = @acceptedAt, kassa = @kassa,
        comment = @comment, updated_at = datetime('now') WHERE id = @id`,
-  ).run({
-    id,
-    accepted: merged.accepted ? 1 : 0,
-    acceptedAt: merged.acceptedAt,
-    kassa: merged.kassa,
-    comment: merged.comment,
-  })
-  return getCustomerPayment(id)
+      ).run({
+        id,
+        accepted: merged.accepted ? 1 : 0,
+        acceptedAt: merged.acceptedAt,
+        kassa: merged.kassa,
+        comment: merged.comment,
+      })
+  return (await getCustomerPayment(id))
 }
 
-export function deleteCustomerPayment(id: number): boolean {
+export async function deleteCustomerPayment(id: number): Promise<boolean> {
   const db = getDb()
-  const result = db.prepare("DELETE FROM customer_payments WHERE id = ?").run(id)
+  const result = (await db.prepare("DELETE FROM customer_payments WHERE id = ?").run(id))
   return result.changes > 0
 }

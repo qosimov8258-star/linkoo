@@ -6,6 +6,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Coins,
+  FileText,
   MoreVertical,
   Pencil,
   Plus,
@@ -15,9 +16,20 @@ import {
   Wallet,
   X,
 } from "lucide-react"
-import { FormEvent, useEffect, useMemo, useState } from "react"
+import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react"
 
-import { branches, cashboxCurrencies as currencies, cashiers, knownCashboxes, paymentTypes, type Cashbox } from "./cashboxes-data"
+import { downloadExcelTable } from "@/lib/excel-export"
+import { mapHeaderColumns, readExcelRows } from "@/lib/excel-import"
+import { branches, cashboxCurrencies as currencies, cashiers, paymentTypes, type Cashbox } from "./cashboxes-data"
+import { useLanguage } from "@/lib/i18n/language-context"
+
+const IMPORT_HEADER_ALIASES: Record<string, string> = {
+  "наименование": "name", "название": "name", "name": "name",
+  "валюта": "currency", "currency": "currency",
+  "кассир": "cashier", "cashier": "cashier",
+  "филиал": "branch", "branch": "branch",
+  "тип оплаты": "paymentType", "payment type": "paymentType",
+}
 
 type LedgerEntry = {
   id: number
@@ -43,47 +55,14 @@ type PendingRequest = {
 }
 
 const monthNames = ["янв.", "февр.", "мар.", "апр.", "мая", "июня", "июля", "авг.", "сент.", "окт.", "нояб.", "дек."]
-function fmtDate(date: Date) {
-  return `${String(date.getDate()).padStart(2, "0")} ${monthNames[date.getMonth()]} ${date.getFullYear()}`
+function fmtDate(date: Date, t: (text: string) => string = (text) => text) {
+  return `${String(date.getDate()).padStart(2, "0")} ${t(monthNames[date.getMonth()])} ${date.getFullYear()}`
 }
-function fmtDateTime(date: Date) {
-  return `${fmtDate(date)}, ${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`
+function fmtDateTime(date: Date, t: (text: string) => string = (text) => text) {
+  return `${fmtDate(date, t)}, ${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`
 }
 function fmtSum(value: number, currency = "SUM") {
   return `${value.toLocaleString("ru-RU", { maximumFractionDigits: 2 })} ${currency}`
-}
-
-const knownLedger: LedgerEntry[] = [
-  { id: 629, cashboxName: "Salohiddin Kassa Tashkent", description: "Снято со счета клиента", category: "keshbek", clientName: "", branch: "777", organization: "05,08,2025", comment: "", date: new Date(2026, 7, 4, 18, 42), amount: -35000 },
-  { id: 628, cashboxName: "xorazm Usd", description: "Приход на счет клиента", category: "Клиент", clientName: "Usman Dembele", branch: "buxoro", organization: "05,08,2025", comment: "", date: new Date(2026, 6, 18, 12, 38), amount: 12050 },
-  { id: 627, cashboxName: "naqd", description: "Принято денег с Admin Ritm", category: "", clientName: "", branch: "Ташкент", organization: "Ichimliklar", comment: "", date: new Date(2026, 6, 5, 18, 44), amount: 500000 },
-  { id: 626, cashboxName: "naqd", description: "Выдача денег для Кэшбека", category: "keshbek", clientName: "Частное Лицо", branch: "777", organization: "05,08,2025", comment: "312", date: new Date(2026, 3, 22, 15, 20), amount: -20000 },
-  { id: 624, cashboxName: "naqd", description: "Принято денег с Admin Ritm", category: "", clientName: "", branch: "Samarqand", organization: "05,08,2025", comment: "", date: new Date(2026, 3, 22, 23, 16), amount: 70000 },
-  { id: 621, cashboxName: "naqd", description: "Принято денег с Admin Ritm", category: "", clientName: "", branch: "Ташкент", organization: "Ichimliklar", comment: "", date: new Date(2026, 3, 14, 14, 37), amount: 1000 },
-]
-
-const descriptionPool = ["Принято денег с Admin Ritm", "Приход на счет клиента", "Выдача денег для Кэшбека", "Оплата поставщику", "Инкассация", "Перевод между кассами"]
-const LEDGER_TOTAL = 548
-
-function buildLedger(): LedgerEntry[] {
-  const entries = [...knownLedger]
-  const baseline = new Date(2026, 3, 14, 14, 37)
-  let id = 620
-  let step = 0
-  while (entries.length < LEDGER_TOTAL) {
-    step += 1
-    id -= 1
-    const date = new Date(baseline)
-    date.setMinutes(date.getMinutes() - step * 53)
-    const cashbox = knownCashboxes[step % knownCashboxes.length]
-    const amount = (id % 3 === 0 ? -1 : 1) * (((id * 173) % 90000) + 1000)
-    entries.push({
-      id, cashboxName: cashbox.name, description: descriptionPool[step % descriptionPool.length], category: step % 4 === 0 ? "keshbek" : "",
-      clientName: step % 5 === 0 ? "Частное Лицо" : "", branch: branches[step % branches.length], organization: step % 3 === 0 ? "Ichimliklar" : "05,08,2025",
-      comment: "", date, amount,
-    })
-  }
-  return entries
 }
 
 function emptyCashboxDraft() {
@@ -91,14 +70,12 @@ function emptyCashboxDraft() {
 }
 
 export function CashboxesView({ embedded = false }: { embedded?: boolean }) {
+  const { t } = useLanguage()
   const [cashboxes, setCashboxes] = useState<Cashbox[]>([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState("")
-  const [ledger, setLedger] = useState<LedgerEntry[]>(buildLedger)
-  const [pending, setPending] = useState<PendingRequest[]>([
-    { id: 1, createdBy: "Admin Ritm", cashboxName: "naqd", branch: "Ташкент", organization: "05,08,2025", amount: 100000, date: new Date(2026, 7, 1) },
-    { id: 2, createdBy: "Admin Ritm", cashboxName: "Не указано", branch: "Ташкент", organization: "05,08,2025", amount: 180000, date: new Date(2026, 7, 1) },
-  ])
+  const [ledger, setLedger] = useState<LedgerEntry[]>([])
+  const [pending, setPending] = useState<PendingRequest[]>([])
   const [managing, setManaging] = useState(false)
 
   const [query, setQuery] = useState("")
@@ -108,6 +85,10 @@ export function CashboxesView({ embedded = false }: { embedded?: boolean }) {
   const [draft, setDraft] = useState(emptyCashboxDraft)
   const [formError, setFormError] = useState("")
   const [saving, setSaving] = useState(false)
+  const [importOpen, setImportOpen] = useState(false)
+  const [importFile, setImportFile] = useState<File | null>(null)
+  const [importSaving, setImportSaving] = useState(false)
+  const importInputRef = useRef<HTMLInputElement>(null)
   const pageSize = 25
 
   useEffect(() => {
@@ -124,7 +105,7 @@ export function CashboxesView({ embedded = false }: { embedded?: boolean }) {
         setLoadError("")
       })
       .catch(() => {
-        if (!cancelled) setLoadError("Не удалось загрузить кассы с сервера")
+        if (!cancelled) setLoadError(t("Не удалось загрузить кассы с сервера"))
       })
       .finally(() => {
         if (!cancelled) setLoading(false)
@@ -191,17 +172,17 @@ export function CashboxesView({ embedded = false }: { embedded?: boolean }) {
     setModalOpen(true)
   }
   async function removeCashbox(id: number) {
-    if (!window.confirm("Удалить кассу?")) return
+    if (!window.confirm(t("Удалить кассу?"))) return
     try {
       const response = await fetch(`/api/cashboxes/${id}`, { method: "DELETE" })
       if (!response.ok) {
         const data = await response.json().catch(() => ({}))
-        window.alert(data.error || "Не удалось удалить кассу")
+        window.alert(data.error || t("Не удалось удалить кассу"))
         return
       }
       setCashboxes((current) => current.filter((box) => box.id !== id))
     } catch {
-      window.alert("Сервер недоступен, попробуйте ещё раз")
+      window.alert(t("Сервер недоступен, попробуйте ещё раз"))
     }
   }
   async function saveCashbox(event: FormEvent) {
@@ -230,16 +211,91 @@ export function CashboxesView({ embedded = false }: { embedded?: boolean }) {
       })
       if (!response.ok) {
         const data = await response.json().catch(() => ({}))
-        setFormError(data.error || "Не удалось сохранить кассу")
+        setFormError(data.error || t("Не удалось сохранить кассу"))
         return
       }
       const saved = (await response.json()) as Cashbox
       setCashboxes((current) => (isEdit ? current.map((box) => (box.id === editingId ? saved : box)) : [saved, ...current]))
       setModalOpen(false)
     } catch {
-      setFormError("Сервер недоступен, попробуйте ещё раз")
+      setFormError(t("Сервер недоступен, попробуйте ещё раз"))
     } finally {
       setSaving(false)
+    }
+  }
+
+  function downloadTemplate() {
+    downloadExcelTable("cashboxes-template", [[t("Наименование"), t("Валюта"), t("Кассир"), t("Филиал"), t("Тип оплаты")]])
+  }
+
+  function pickImportFile(event: ChangeEvent<HTMLInputElement>) {
+    setImportFile(event.target.files?.[0] ?? null)
+  }
+
+  async function saveImport() {
+    if (!importFile) return
+    setImportSaving(true)
+    try {
+      const rows = await readExcelRows(importFile)
+      if (!rows.length) {
+        window.alert(t("Не удалось найти данные для импорта в выбранном файле"))
+        return
+      }
+      const fieldByIndex = mapHeaderColumns(rows[0], IMPORT_HEADER_ALIASES)
+      const hasHeader = Array.from(fieldByIndex.values()).includes("name")
+      const dataRows = hasHeader ? rows.slice(1) : rows
+
+      const parsed: { name: string; currency: string; cashier: string; branch: string; paymentType: string }[] = []
+      for (const row of dataRows) {
+        const record: Record<string, string> = {}
+        if (hasHeader) {
+          row.forEach((cell, index) => {
+            const field = fieldByIndex.get(index)
+            if (field) record[field] = cell
+          })
+        } else {
+          record.name = row[0] ?? ""
+          record.currency = row[1] ?? ""
+          record.cashier = row[2] ?? ""
+          record.branch = row[3] ?? ""
+          record.paymentType = row[4] ?? ""
+        }
+        if (!record.name || /^(наименование|название|name)$/i.test(record.name)) continue
+        parsed.push({
+          name: record.name,
+          currency: currencies.includes(record.currency) ? record.currency : currencies[0],
+          cashier: cashiers.includes(record.cashier) ? record.cashier : cashiers[0],
+          branch: branches.includes(record.branch) ? record.branch : "",
+          paymentType: paymentTypes.includes(record.paymentType) ? record.paymentType : paymentTypes[0],
+        })
+      }
+
+      if (!parsed.length) {
+        window.alert(t("Не удалось найти данные для импорта в выбранном файле"))
+        return
+      }
+
+      const created: Cashbox[] = []
+      let failed = 0
+      for (const item of parsed) {
+        try {
+          const response = await fetch("/api/cashboxes", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name: item.name, currency: item.currency, cashier: item.cashier, branch: item.branch, paymentType: item.paymentType, vansell: false, orderNumber: 1 }),
+          })
+          if (response.ok) created.push((await response.json()) as Cashbox)
+          else failed += 1
+        } catch {
+          failed += 1
+        }
+      }
+      if (created.length) setCashboxes((current) => [...created, ...current])
+      if (failed) window.alert(`${t("Импортировано")} ${created.length} ${t("из")} ${parsed.length}. ${t("Не удалось сохранить")}: ${failed}`)
+    } finally {
+      setImportSaving(false)
+      setImportOpen(false)
+      setImportFile(null)
     }
   }
 
@@ -256,7 +312,7 @@ export function CashboxesView({ embedded = false }: { embedded?: boolean }) {
     setEditingEntryId(null)
   }
   function removeEntry(id: number) {
-    if (!window.confirm("Удалить запись?")) return
+    if (!window.confirm(t("Удалить запись?"))) return
     setLedger((current) => current.filter((entry) => entry.id !== id))
     setLedgerMenuId(null)
   }
@@ -264,7 +320,7 @@ export function CashboxesView({ embedded = false }: { embedded?: boolean }) {
     setLedgerMenuId(null)
     const win = window.open("", "_blank", "width=420,height=560")
     if (!win) return
-    win.document.write(`<pre style="font-family:sans-serif;padding:24px">Касса: ${entry.cashboxName}\nОписание: ${entry.description}\nФилиал: ${entry.branch}\nОрганизация: ${entry.organization}\nДата: ${fmtDateTime(entry.date)}\nСумма: ${fmtSum(entry.amount)}</pre>`)
+    win.document.write(`<pre style="font-family:sans-serif;padding:24px">${t("Касса")}: ${entry.cashboxName}\n${t("Описание")}: ${entry.description}\n${t("Филиал")}: ${entry.branch}\n${t("Организация")}: ${entry.organization}\n${t("Дата")}: ${fmtDateTime(entry.date, t)}\n${t("Сумма")}: ${fmtSum(entry.amount)}</pre>`)
     win.document.close()
     win.focus()
     win.print()
@@ -279,8 +335,8 @@ export function CashboxesView({ embedded = false }: { embedded?: boolean }) {
     if (!from || !to || from === to || !amount) return
     const now = new Date()
     setLedger((current) => [
-      { id: Math.max(0, ...current.map((entry) => entry.id)) + 2, cashboxName: to, description: `Перевод из ${from}`, category: "Перевод", clientName: "", branch: "-", organization: "-", comment: "", date: now, amount },
-      { id: Math.max(0, ...current.map((entry) => entry.id)) + 1, cashboxName: from, description: `Перевод в ${to}`, category: "Перевод", clientName: "", branch: "-", organization: "-", comment: "", date: now, amount: -amount },
+      { id: Math.max(0, ...current.map((entry) => entry.id)) + 2, cashboxName: to, description: `${t("Перевод из")} ${from}`, category: t("Перевод"), clientName: "", branch: "-", organization: "-", comment: "", date: now, amount },
+      { id: Math.max(0, ...current.map((entry) => entry.id)) + 1, cashboxName: from, description: `${t("Перевод в")} ${to}`, category: t("Перевод"), clientName: "", branch: "-", organization: "-", comment: "", date: now, amount: -amount },
       ...current,
     ])
     setTransferOpen(false)
@@ -300,7 +356,7 @@ export function CashboxesView({ embedded = false }: { embedded?: boolean }) {
 
   function acceptRequest(request: PendingRequest) {
     setLedger((current) => [
-      { id: Math.max(0, ...current.map((entry) => entry.id)) + 1, cashboxName: request.cashboxName, description: `Принято денег с ${request.createdBy}`, category: "", clientName: "", branch: request.branch, organization: request.organization, comment: "", date: new Date(), amount: request.amount },
+      { id: Math.max(0, ...current.map((entry) => entry.id)) + 1, cashboxName: request.cashboxName, description: `${t("Принято денег с")} ${request.createdBy}`, category: "", clientName: "", branch: request.branch, organization: request.organization, comment: "", date: new Date(), amount: request.amount },
       ...current,
     ])
     setPending((current) => current.filter((item) => item.id !== request.id))
@@ -312,19 +368,19 @@ export function CashboxesView({ embedded = false }: { embedded?: boolean }) {
     return (
       <main className={embedded ? "min-w-0 flex-1" : "min-h-[calc(100vh-4rem)] bg-[#f1f4f8] px-9 py-5"}>
         <header className="mb-5 flex flex-wrap items-center justify-between gap-3">
-          <h1 className="text-2xl font-bold text-slate-600">Управление кассами</h1>
+          <h1 className="text-2xl font-bold text-slate-600">{t("Управление кассами")}</h1>
           <div className="flex flex-wrap items-center gap-3">
             <button type="button" onClick={() => setAcceptOpen(true)} className="rounded border border-[#4f70e7] px-4 py-2.5 font-semibold text-[#4f70e7] hover:bg-blue-50">
-              Принять наличные{pending.length > 0 ? ` (${pending.length})` : ""}
+              {t("Принять наличные")}{pending.length > 0 ? ` (${pending.length})` : ""}
             </button>
             <button type="button" onClick={() => setTransferOpen(true)} className="inline-flex items-center gap-2 rounded border border-[#4f70e7] px-4 py-2.5 font-semibold text-[#4f70e7] hover:bg-blue-50">
-              <ArrowLeftRight className="h-4 w-4" /> Перевод
+              <ArrowLeftRight className="h-4 w-4" /> {t("Перевод")}
             </button>
             <button type="button" onClick={() => setRequestOpen(true)} className="rounded bg-[#6ccd8b] px-4 py-2.5 font-semibold text-white hover:brightness-95">
-              Запрос средств
+              {t("Запрос средств")}
             </button>
             <button type="button" onClick={() => setManaging(false)} className="rounded bg-[#4f70e7] px-4 py-2.5 font-semibold text-white hover:brightness-95">
-              К кассам
+              {t("К кассам")}
             </button>
           </div>
         </header>
@@ -347,20 +403,20 @@ export function CashboxesView({ embedded = false }: { embedded?: boolean }) {
         <section className="overflow-hidden rounded bg-white shadow">
           <div className="flex flex-wrap items-center gap-4 px-5 py-3">
             <button type="button" onClick={() => setLedgerFilterOpen((value) => !value)} className="inline-flex items-center gap-1 text-[#4f70e7] hover:underline">
-              Показать фильтр <ChevronDown className={`h-4 w-4 transition-transform ${ledgerFilterOpen ? "rotate-180" : ""}`} />
+              {t("Показать фильтр")} <ChevronDown className={`h-4 w-4 transition-transform ${ledgerFilterOpen ? "rotate-180" : ""}`} />
             </button>
             <label className="relative w-64">
-              <input value={ledgerQuery} onChange={(event) => { setLedgerQuery(event.target.value); setLedgerPage(1) }} placeholder="Поиск" className="w-full border-b border-slate-300 py-2 pr-10 outline-none focus:border-[#4f70e7]" />
+              <input value={ledgerQuery} onChange={(event) => { setLedgerQuery(event.target.value); setLedgerPage(1) }} placeholder={t("Поиск")} className="w-full border-b border-slate-300 py-2 pr-10 outline-none focus:border-[#4f70e7]" />
               <Search className="absolute right-2 top-2 h-5 w-5 text-slate-300" />
             </label>
             <span className="ml-auto text-slate-500">25</span>
             <span className="text-slate-500">
-              {ledgerFiltered.length ? (ledgerSafePage - 1) * ledgerPageSize + 1 : 0} - {Math.min(ledgerSafePage * ledgerPageSize, ledgerFiltered.length)} из {ledgerFiltered.length}
+              {ledgerFiltered.length ? (ledgerSafePage - 1) * ledgerPageSize + 1 : 0} - {Math.min(ledgerSafePage * ledgerPageSize, ledgerFiltered.length)} {t("из")} {ledgerFiltered.length}
             </span>
-            <button type="button" onClick={() => setLedgerPage((value) => Math.max(1, value - 1))} disabled={ledgerSafePage <= 1} aria-label="Назад" className="disabled:opacity-30">
+            <button type="button" onClick={() => setLedgerPage((value) => Math.max(1, value - 1))} disabled={ledgerSafePage <= 1} aria-label={t("Назад")} className="disabled:opacity-30">
               <ChevronLeft className="h-5 w-5 text-slate-400" />
             </button>
-            <button type="button" onClick={() => setLedgerPage((value) => Math.min(ledgerPageCount, value + 1))} disabled={ledgerSafePage >= ledgerPageCount} aria-label="Вперед" className="disabled:opacity-30">
+            <button type="button" onClick={() => setLedgerPage((value) => Math.min(ledgerPageCount, value + 1))} disabled={ledgerSafePage >= ledgerPageCount} aria-label={t("Вперед")} className="disabled:opacity-30">
               <ChevronRight className="h-5 w-5 text-slate-400" />
             </button>
           </div>
@@ -368,9 +424,9 @@ export function CashboxesView({ embedded = false }: { embedded?: boolean }) {
           {ledgerFilterOpen && (
             <div className="flex flex-wrap items-center gap-4 border-b border-slate-100 bg-slate-50 px-5 py-3">
               <label className="text-sm text-slate-600">
-                Касса:{" "}
+                {t("Касса")}:{" "}
                 <select value={ledgerCashboxFilter} onChange={(event) => { setLedgerCashboxFilter(event.target.value); setLedgerPage(1) }} className="ml-1 rounded border border-slate-300 px-2 py-1">
-                  <option value="all">Все</option>
+                  <option value="all">{t("Все")}</option>
                   {cashboxes.map((box) => <option key={box.id} value={box.name}>{box.name}</option>)}
                 </select>
               </label>
@@ -381,9 +437,9 @@ export function CashboxesView({ embedded = false }: { embedded?: boolean }) {
             <thead className="bg-[#626b7e] text-white">
               <tr>
                 <th className="px-9 py-5">№</th>
-                <th className="px-5 py-5">Детали</th>
-                <th className="px-5 py-5">Указанная дата</th>
-                <th className="px-5 py-5 text-right">Сумма</th>
+                <th className="px-5 py-5">{t("Детали")}</th>
+                <th className="px-5 py-5">{t("Указанная дата")}</th>
+                <th className="px-5 py-5 text-right">{t("Сумма")}</th>
                 <th className="w-12" />
               </tr>
             </thead>
@@ -392,35 +448,35 @@ export function CashboxesView({ embedded = false }: { embedded?: boolean }) {
                 <tr key={entry.id} className="border-b border-dashed border-slate-300 hover:bg-slate-50">
                   <td className="px-9 py-4 align-top">{entry.id}</td>
                   <td className="px-5 py-4 align-top text-sm">
-                    <p>Касса: <span className="text-[#4f70e7]">{entry.cashboxName}</span></p>
+                    <p>{t("Касса")}: <span className="text-[#4f70e7]">{entry.cashboxName}</span></p>
                     <p>
-                      Описание: {entry.description}
+                      {t("Описание")}: {entry.description}
                       {entry.clientName && <> <span className="text-[#4f70e7]">{entry.clientName}</span></>}
-                      {entry.category && <>, Категория: <span className="text-[#4f70e7]">{entry.category}</span></>}
+                      {entry.category && <>, {t("Категория")}: <span className="text-[#4f70e7]">{entry.category}</span></>}
                     </p>
                     <p>
-                      Филиал: {entry.branch}, Организация: {entry.organization}
-                      {entry.comment && <>, Комментарий: {entry.comment}</>}
+                      {t("Филиал")}: {entry.branch}, {t("Организация")}: {entry.organization}
+                      {entry.comment && <>, {t("Комментарий")}: {entry.comment}</>}
                     </p>
                   </td>
-                  <td className="px-5 py-4 align-top whitespace-nowrap">{fmtDateTime(entry.date)}</td>
+                  <td className="px-5 py-4 align-top whitespace-nowrap">{fmtDateTime(entry.date, t)}</td>
                   <td className={`px-5 py-4 align-top text-right font-medium whitespace-nowrap ${entry.amount < 0 ? "text-rose-500" : "text-emerald-600"}`}>
                     {entry.amount > 0 ? "+" : ""}{fmtSum(entry.amount, cashboxes.find((box) => box.name === entry.cashboxName)?.currency ?? "SUM")}
                   </td>
                   <td className="relative px-3 py-4 align-top text-right">
-                    <button type="button" onClick={() => setLedgerMenuId((current) => (current === entry.id ? null : entry.id))} aria-label="Ещё" className="text-slate-500 hover:text-slate-800">
+                    <button type="button" onClick={() => setLedgerMenuId((current) => (current === entry.id ? null : entry.id))} aria-label={t("Ещё")} className="text-slate-500 hover:text-slate-800">
                       <MoreVertical className="h-5 w-5" />
                     </button>
                     {ledgerMenuId === entry.id && (
                       <div className="absolute right-3 top-12 z-30 w-40 rounded border border-slate-200 bg-white py-1 text-left shadow-xl">
                         <button type="button" onClick={() => openEditEntry(entry)} className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm hover:bg-slate-50">
-                          <Pencil className="h-4 w-4" /> Изменить
+                          <Pencil className="h-4 w-4" /> {t("Изменить")}
                         </button>
                         <button type="button" onClick={() => printEntry(entry)} className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm hover:bg-slate-50">
-                          <Printer className="h-4 w-4" /> Печать
+                          <Printer className="h-4 w-4" /> {t("Печать")}
                         </button>
                         <button type="button" onClick={() => removeEntry(entry.id)} className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm text-rose-500 hover:bg-slate-50">
-                          <Trash2 className="h-4 w-4" /> Удалить
+                          <Trash2 className="h-4 w-4" /> {t("Удалить")}
                         </button>
                       </div>
                     )}
@@ -429,7 +485,7 @@ export function CashboxesView({ embedded = false }: { embedded?: boolean }) {
               ))}
               {ledgerVisible.length === 0 && (
                 <tr>
-                  <td colSpan={5} className="px-9 py-10 text-center text-slate-400">Ничего не найдено</td>
+                  <td colSpan={5} className="px-9 py-10 text-center text-slate-400">{t("Ничего не найдено")}</td>
                 </tr>
               )}
             </tbody>
@@ -440,21 +496,21 @@ export function CashboxesView({ embedded = false }: { embedded?: boolean }) {
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
             <form onSubmit={saveEntry} className="w-full max-w-md rounded bg-white">
               <header className="flex items-center justify-between border-b p-6">
-                <b className="uppercase">Изменить запись</b>
-                <button type="button" onClick={() => setEditingEntryId(null)} aria-label="Закрыть"><X className="h-5 w-5" /></button>
+                <b className="uppercase">{t("Изменить запись")}</b>
+                <button type="button" onClick={() => setEditingEntryId(null)} aria-label={t("Закрыть")}><X className="h-5 w-5" /></button>
               </header>
               <div className="space-y-5 p-8">
                 <label className="block border-b border-slate-200 pb-2 font-medium">
-                  Описание
+                  {t("Описание")}
                   <input autoFocus value={entryDraft.description} onChange={(event) => setEntryDraft((value) => ({ ...value, description: event.target.value }))} className="mt-2 block w-full outline-none" />
                 </label>
                 <label className="block border-b border-slate-200 pb-2 font-medium">
-                  Сумма
+                  {t("Сумма")}
                   <input type="number" value={entryDraft.amount} onChange={(event) => setEntryDraft((value) => ({ ...value, amount: event.target.value }))} className="mt-2 block w-full outline-none" />
                 </label>
               </div>
               <footer className="flex justify-end border-t p-5">
-                <button type="submit" className="rounded bg-[#6ccd8b] px-6 py-3 font-semibold text-white hover:brightness-95">Сохранить</button>
+                <button type="submit" className="rounded bg-[#6ccd8b] px-6 py-3 font-semibold text-white hover:brightness-95">{t("Сохранить")}</button>
               </footer>
             </form>
           </div>
@@ -464,29 +520,29 @@ export function CashboxesView({ embedded = false }: { embedded?: boolean }) {
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
             <form onSubmit={submitTransfer} className="w-full max-w-md rounded bg-white">
               <header className="flex items-center justify-between border-b p-6">
-                <b className="uppercase">Перевод между кассами</b>
-                <button type="button" onClick={() => setTransferOpen(false)} aria-label="Закрыть"><X className="h-5 w-5" /></button>
+                <b className="uppercase">{t("Перевод между кассами")}</b>
+                <button type="button" onClick={() => setTransferOpen(false)} aria-label={t("Закрыть")}><X className="h-5 w-5" /></button>
               </header>
               <div className="space-y-5 p-8">
                 <label className="block border-b border-slate-200 pb-2 font-medium">
-                  Из кассы <span className="text-red-500">*</span>
+                  {t("Из кассы")} <span className="text-red-500">*</span>
                   <select name="from" required className="mt-2 block w-full bg-white outline-none">
                     {cashboxes.map((box) => <option key={box.id} value={box.name}>{box.name}</option>)}
                   </select>
                 </label>
                 <label className="block border-b border-slate-200 pb-2 font-medium">
-                  В кассу <span className="text-red-500">*</span>
+                  {t("В кассу")} <span className="text-red-500">*</span>
                   <select name="to" required className="mt-2 block w-full bg-white outline-none">
                     {cashboxes.map((box) => <option key={box.id} value={box.name}>{box.name}</option>)}
                   </select>
                 </label>
                 <label className="block border-b border-slate-200 pb-2 font-medium">
-                  Сумма <span className="text-red-500">*</span>
+                  {t("Сумма")} <span className="text-red-500">*</span>
                   <input name="amount" type="number" required className="mt-2 block w-full outline-none" />
                 </label>
               </div>
               <footer className="flex justify-end border-t p-5">
-                <button type="submit" className="rounded bg-[#6ccd8b] px-6 py-3 font-semibold text-white hover:brightness-95">Перевести</button>
+                <button type="submit" className="rounded bg-[#6ccd8b] px-6 py-3 font-semibold text-white hover:brightness-95">{t("Перевести")}</button>
               </footer>
             </form>
           </div>
@@ -496,33 +552,33 @@ export function CashboxesView({ embedded = false }: { embedded?: boolean }) {
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
             <form onSubmit={submitRequest} className="w-full max-w-md rounded bg-white">
               <header className="flex items-center justify-between border-b p-6">
-                <b className="uppercase">Запрос средств</b>
-                <button type="button" onClick={() => setRequestOpen(false)} aria-label="Закрыть"><X className="h-5 w-5" /></button>
+                <b className="uppercase">{t("Запрос средств")}</b>
+                <button type="button" onClick={() => setRequestOpen(false)} aria-label={t("Закрыть")}><X className="h-5 w-5" /></button>
               </header>
               <div className="space-y-5 p-8">
                 <label className="block border-b border-slate-200 pb-2 font-medium">
-                  Касса <span className="text-red-500">*</span>
+                  {t("Касса")} <span className="text-red-500">*</span>
                   <select name="cashboxName" required className="mt-2 block w-full bg-white outline-none">
                     {cashboxes.map((box) => <option key={box.id} value={box.name}>{box.name}</option>)}
                   </select>
                 </label>
                 <label className="block border-b border-slate-200 pb-2 font-medium">
-                  Филиал
+                  {t("Филиал")}
                   <select name="branch" className="mt-2 block w-full bg-white outline-none">
-                    {branches.map((branch) => <option key={branch} value={branch}>{branch}</option>)}
+                    {branches.map((branch) => <option key={branch} value={branch}>{t(branch)}</option>)}
                   </select>
                 </label>
                 <label className="block border-b border-slate-200 pb-2 font-medium">
-                  Организация
+                  {t("Организация")}
                   <input name="organization" defaultValue="05,08,2025" className="mt-2 block w-full outline-none" />
                 </label>
                 <label className="block border-b border-slate-200 pb-2 font-medium">
-                  Сумма <span className="text-red-500">*</span>
+                  {t("Сумма")} <span className="text-red-500">*</span>
                   <input name="amount" type="number" required className="mt-2 block w-full outline-none" />
                 </label>
               </div>
               <footer className="flex justify-end border-t p-5">
-                <button type="submit" className="rounded bg-[#6ccd8b] px-6 py-3 font-semibold text-white hover:brightness-95">Отправить</button>
+                <button type="submit" className="rounded bg-[#6ccd8b] px-6 py-3 font-semibold text-white hover:brightness-95">{t("Отправить")}</button>
               </footer>
             </form>
           </div>
@@ -532,18 +588,18 @@ export function CashboxesView({ embedded = false }: { embedded?: boolean }) {
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
             <div className="flex max-h-[85vh] w-full max-w-3xl flex-col rounded bg-white">
               <header className="flex items-center justify-between border-b p-6">
-                <b className="uppercase">Принять наличные</b>
-                <button type="button" onClick={() => setAcceptOpen(false)} aria-label="Закрыть"><X className="h-5 w-5" /></button>
+                <b className="uppercase">{t("Принять наличные")}</b>
+                <button type="button" onClick={() => setAcceptOpen(false)} aria-label={t("Закрыть")}><X className="h-5 w-5" /></button>
               </header>
               <div className="flex-1 overflow-y-auto p-6">
                 <table className="w-full text-left text-sm">
                   <thead>
                     <tr className="text-slate-500">
-                      <th className="py-2 pr-4">Создал</th>
-                      <th className="py-2 pr-4">Касса</th>
-                      <th className="py-2 pr-4">Филиал</th>
-                      <th className="py-2 pr-4">Организация</th>
-                      <th className="py-2 pr-4">Сумма</th>
+                      <th className="py-2 pr-4">{t("Создал")}</th>
+                      <th className="py-2 pr-4">{t("Касса")}</th>
+                      <th className="py-2 pr-4">{t("Филиал")}</th>
+                      <th className="py-2 pr-4">{t("Организация")}</th>
+                      <th className="py-2 pr-4">{t("Сумма")}</th>
                       <th className="py-2" />
                     </tr>
                   </thead>
@@ -557,18 +613,18 @@ export function CashboxesView({ embedded = false }: { embedded?: boolean }) {
                         <td className="py-3 pr-4 text-[#4f70e7]">{fmtSum(request.amount)}</td>
                         <td className="py-3">
                           <button type="button" onClick={() => acceptRequest(request)} className="inline-flex items-center gap-2 rounded bg-[#6ccd8b] px-4 py-2 text-xs font-semibold text-white hover:brightness-95">
-                            <Coins className="h-4 w-4" /> Принять
+                            <Coins className="h-4 w-4" /> {t("Принять")}
                           </button>
                         </td>
                       </tr>
                     ))}
                     {pending.length === 0 && (
-                      <tr><td colSpan={6} className="py-8 text-center text-slate-400">Нет запросов на приём</td></tr>
+                      <tr><td colSpan={6} className="py-8 text-center text-slate-400">{t("Нет запросов на приём")}</td></tr>
                     )}
                   </tbody>
                 </table>
                 {pending.length > 0 && (
-                  <p className="mt-4 text-sm">Общая сумма: <span className="font-semibold text-[#4f70e7]">{fmtSum(pendingTotal)}</span></p>
+                  <p className="mt-4 text-sm">{t("Общая сумма")}: <span className="font-semibold text-[#4f70e7]">{fmtSum(pendingTotal)}</span></p>
                 )}
               </div>
             </div>
@@ -583,24 +639,27 @@ export function CashboxesView({ embedded = false }: { embedded?: boolean }) {
       <section className="overflow-hidden rounded bg-white shadow">
         <div className="flex flex-wrap items-center gap-4 px-5 py-4">
           <button type="button" onClick={openCreate} className="inline-flex items-center gap-2 rounded bg-[#4f70e7] px-4 py-2.5 font-semibold text-white hover:brightness-95">
-            <Plus className="h-4 w-4" /> Добавить кассу
+            <Plus className="h-4 w-4" /> {t("Добавить кассу")}
+          </button>
+          <button type="button" onClick={() => setImportOpen(true)} className="inline-flex items-center gap-2 rounded bg-[#4f70e7] px-4 py-2.5 font-semibold text-white hover:brightness-95">
+            <FileText className="h-4 w-4" /> {t("Импорт с Excel")}
           </button>
           <label className="relative w-64">
-            <input value={query} onChange={(event) => { setQuery(event.target.value); setPage(1) }} placeholder="Поиск" className="w-full border-b border-slate-300 py-2 pr-10 outline-none focus:border-[#4f70e7]" />
+            <input value={query} onChange={(event) => { setQuery(event.target.value); setPage(1) }} placeholder={t("Поиск")} className="w-full border-b border-slate-300 py-2 pr-10 outline-none focus:border-[#4f70e7]" />
             <Search className="absolute right-2 top-2 h-5 w-5 text-slate-300" />
           </label>
           <span className="text-slate-500">25</span>
           <span className="text-slate-500">
-            {filtered.length ? (safePage - 1) * pageSize + 1 : 0} - {Math.min(safePage * pageSize, filtered.length)} из {filtered.length}
+            {filtered.length ? (safePage - 1) * pageSize + 1 : 0} - {Math.min(safePage * pageSize, filtered.length)} {t("из")} {filtered.length}
           </span>
-          <button type="button" onClick={() => setPage((value) => Math.max(1, value - 1))} disabled={safePage <= 1} aria-label="Назад" className="disabled:opacity-30">
+          <button type="button" onClick={() => setPage((value) => Math.max(1, value - 1))} disabled={safePage <= 1} aria-label={t("Назад")} className="disabled:opacity-30">
             <ChevronLeft className="h-5 w-5 text-slate-400" />
           </button>
-          <button type="button" onClick={() => setPage((value) => Math.min(pageCount, value + 1))} disabled={safePage >= pageCount} aria-label="Вперед" className="disabled:opacity-30">
+          <button type="button" onClick={() => setPage((value) => Math.min(pageCount, value + 1))} disabled={safePage >= pageCount} aria-label={t("Вперед")} className="disabled:opacity-30">
             <ChevronRight className="h-5 w-5 text-slate-400" />
           </button>
           <button type="button" onClick={() => setManaging(true)} className="ml-auto inline-flex items-center gap-2 rounded bg-[#6ccd8b] px-4 py-2.5 font-semibold text-white hover:brightness-95">
-            <ArrowLeftRight className="h-4 w-4" /> Управлять кассами
+            <ArrowLeftRight className="h-4 w-4" /> {t("Управлять кассами")}
           </button>
         </div>
 
@@ -608,18 +667,18 @@ export function CashboxesView({ embedded = false }: { embedded?: boolean }) {
           <thead className="bg-[#626b7e] text-white">
             <tr>
               <th className="px-9 py-5">Id</th>
-              <th className="px-5 py-5">Наименование</th>
-              <th className="px-5 py-5">Валюта</th>
-              <th className="px-5 py-5">Кассир</th>
-              <th className="px-5 py-5">Тип</th>
-              <th className="px-5 py-5">Вэнсел</th>
-              <th className="px-5 py-5">Порядковый номер</th>
+              <th className="px-5 py-5">{t("Наименование")}</th>
+              <th className="px-5 py-5">{t("Валюта")}</th>
+              <th className="px-5 py-5">{t("Кассир")}</th>
+              <th className="px-5 py-5">{t("Тип")}</th>
+              <th className="px-5 py-5">{t("Вэнсел")}</th>
+              <th className="px-5 py-5">{t("Порядковый номер")}</th>
               <th className="w-12" />
             </tr>
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={8} className="px-9 py-10 text-center text-slate-400">Загрузка касс...</td></tr>
+              <tr><td colSpan={8} className="px-9 py-10 text-center text-slate-400">{t("Загрузка касс...")}</td></tr>
             ) : loadError ? (
               <tr><td colSpan={8} className="px-9 py-10 text-center text-red-600">{loadError}</td></tr>
             ) : visible.map((box) => (
@@ -627,21 +686,21 @@ export function CashboxesView({ embedded = false }: { embedded?: boolean }) {
                 <td className="px-9 py-4">{box.id}</td>
                 <td className="px-5 py-4 text-[#4f70e7]">{box.name}</td>
                 <td className="px-5 py-4">{box.currency}</td>
-                <td className="px-5 py-4">{box.cashier}</td>
-                <td className="px-5 py-4">{box.paymentType}</td>
+                <td className="px-5 py-4">{t(box.cashier)}</td>
+                <td className="px-5 py-4">{t(box.paymentType)}</td>
                 <td className="px-5 py-4"><span className={`inline-block h-3 w-3 rounded-full ${box.vansell ? "bg-emerald-500" : "bg-rose-500"}`} /></td>
                 <td className="px-5 py-4">{box.orderNumber}</td>
                 <td className="relative px-3 py-4 text-right">
                   <div className="hidden items-center justify-end gap-3 text-slate-500 group-hover:flex">
-                    <button type="button" onClick={() => openEdit(box)} aria-label="Изменить"><Pencil className="h-5 w-5" /></button>
-                    <button type="button" onClick={() => removeCashbox(box.id)} aria-label="Удалить"><Trash2 className="h-5 w-5" /></button>
+                    <button type="button" onClick={() => openEdit(box)} aria-label={t("Изменить")}><Pencil className="h-5 w-5" /></button>
+                    <button type="button" onClick={() => removeCashbox(box.id)} aria-label={t("Удалить")}><Trash2 className="h-5 w-5" /></button>
                   </div>
                 </td>
               </tr>
             ))}
             {!loading && !loadError && visible.length === 0 && (
               <tr>
-                <td colSpan={8} className="px-9 py-10 text-center text-slate-400">Ничего не найдено</td>
+                <td colSpan={8} className="px-9 py-10 text-center text-slate-400">{t("Ничего не найдено")}</td>
               </tr>
             )}
           </tbody>
@@ -652,57 +711,89 @@ export function CashboxesView({ embedded = false }: { embedded?: boolean }) {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
           <form onSubmit={saveCashbox} className="w-full max-w-lg rounded bg-white">
             <header className="flex items-center justify-between border-b p-6">
-              <b className="uppercase">{editingId !== null ? "Изменить кассу" : "Добавить кассу"}</b>
-              <button type="button" onClick={() => setModalOpen(false)} aria-label="Закрыть"><X className="h-5 w-5" /></button>
+              <b className="uppercase">{editingId !== null ? t("Изменить кассу") : t("Добавить кассу")}</b>
+              <button type="button" onClick={() => setModalOpen(false)} aria-label={t("Закрыть")}><X className="h-5 w-5" /></button>
             </header>
             <div className="space-y-5 p-8">
               <label className="block border-b border-slate-200 pb-2 font-medium">
-                Наименование <span className="text-red-500">*</span>
+                {t("Наименование")} <span className="text-red-500">*</span>
                 <input autoFocus value={draft.name} onChange={(event) => setDraft((value) => ({ ...value, name: event.target.value }))} className="mt-2 block w-full outline-none" />
               </label>
               <label className="block border-b border-slate-200 pb-2 font-medium">
-                Валюта <span className="text-red-500">*</span>
+                {t("Валюта")} <span className="text-red-500">*</span>
                 <select value={draft.currency} onChange={(event) => setDraft((value) => ({ ...value, currency: event.target.value }))} className="mt-2 block w-full bg-white outline-none">
                   {currencies.map((currency) => <option key={currency} value={currency}>{currency}</option>)}
                 </select>
               </label>
               <label className="block border-b border-slate-200 pb-2 font-medium">
-                Кассир <span className="text-red-500">*</span>
+                {t("Кассир")} <span className="text-red-500">*</span>
                 <select value={draft.cashier} onChange={(event) => setDraft((value) => ({ ...value, cashier: event.target.value }))} className="mt-2 block w-full bg-white outline-none">
-                  <option value="" disabled>Выберите кассира</option>
-                  {cashiers.map((cashier) => <option key={cashier} value={cashier}>{cashier}</option>)}
+                  <option value="" disabled>{t("Выберите кассира")}</option>
+                  {cashiers.map((cashier) => <option key={cashier} value={cashier}>{t(cashier)}</option>)}
                 </select>
               </label>
               <label className="block border-b border-slate-200 pb-2 font-medium">
-                Филиал
+                {t("Филиал")}
                 <select value={draft.branch} onChange={(event) => setDraft((value) => ({ ...value, branch: event.target.value }))} className="mt-2 block w-full bg-white outline-none">
-                  <option value="">Не указано</option>
-                  {branches.map((branch) => <option key={branch} value={branch}>{branch}</option>)}
+                  <option value="">{t("Не указано")}</option>
+                  {branches.map((branch) => <option key={branch} value={branch}>{t(branch)}</option>)}
                 </select>
               </label>
               <label className="block border-b border-slate-200 pb-2 font-medium">
-                Тип оплаты <span className="text-red-500">*</span>
+                {t("Тип оплаты")} <span className="text-red-500">*</span>
                 <select value={draft.paymentType} onChange={(event) => setDraft((value) => ({ ...value, paymentType: event.target.value }))} className="mt-2 block w-full bg-white outline-none">
-                  <option value="" disabled>Выберите тип</option>
-                  {paymentTypes.map((type) => <option key={type} value={type}>{type}</option>)}
+                  <option value="" disabled>{t("Выберите тип")}</option>
+                  {paymentTypes.map((type) => <option key={type} value={type}>{t(type)}</option>)}
                 </select>
               </label>
               <label className="flex items-center gap-2">
                 <input type="checkbox" checked={draft.vansell} onChange={(event) => setDraft((value) => ({ ...value, vansell: event.target.checked }))} className="h-4 w-4 accent-[#4f70e7]" />
-                Вэнсел
+                {t("Вэнсел")}
               </label>
               <label className="block border-b border-slate-200 pb-2 font-medium">
-                Порядковый номер <span className="text-red-500">*</span>
+                {t("Порядковый номер")} <span className="text-red-500">*</span>
                 <input type="number" value={draft.orderNumber} onChange={(event) => setDraft((value) => ({ ...value, orderNumber: event.target.value }))} className="mt-2 block w-full outline-none" />
               </label>
               {formError && <p className="text-sm font-medium text-rose-600">{formError}</p>}
             </div>
             <footer className="flex justify-end border-t p-5">
               <button type="submit" disabled={saving} className="rounded bg-[#6ccd8b] px-6 py-3 font-semibold text-white hover:brightness-95 disabled:opacity-60">
-                {saving ? "Сохранение..." : "Сохранить"}
+                {saving ? t("Сохранение...") : t("Сохранить")}
               </button>
             </footer>
           </form>
+        </div>
+      )}
+
+      {importOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
+          <div className="w-full max-w-md rounded bg-white">
+            <header className="flex items-center justify-between border-b p-6">
+              <b className="uppercase">{t("Импорт с Excel")}</b>
+              <button type="button" onClick={() => { setImportOpen(false); setImportFile(null) }} aria-label={t("Закрыть")}>
+                <X className="h-5 w-5" />
+              </button>
+            </header>
+            <div className="p-8">
+              <button type="button" onClick={downloadTemplate} className="mb-4 font-semibold text-[#4f70e7] hover:underline">
+                {t("1. Скачать шаблон")}
+              </button>
+              <input ref={importInputRef} type="file" accept=".csv,.xls,.xlsx" onChange={pickImportFile} className="hidden" />
+              <button
+                type="button"
+                onClick={() => importInputRef.current?.click()}
+                className="flex w-full flex-col items-center justify-center gap-3 rounded border-2 border-dashed border-slate-300 py-10 text-slate-500 hover:border-[#4f70e7] hover:text-[#4f70e7]"
+              >
+                <FileText className="h-8 w-8" />
+                {importFile ? importFile.name : t("Добавьте файл Excel или нажмите для выбора")}
+              </button>
+            </div>
+            <footer className="flex justify-end border-t p-5">
+              <button type="button" disabled={!importFile || importSaving} onClick={saveImport} className="rounded bg-[#6ccd8b] px-5 py-3 font-semibold text-white hover:brightness-95 disabled:opacity-40">
+                {importSaving ? t("Импорт...") : t("Сохранить")}
+              </button>
+            </footer>
+          </div>
         </div>
       )}
     </main>

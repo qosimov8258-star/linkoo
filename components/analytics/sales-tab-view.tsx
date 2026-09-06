@@ -4,6 +4,7 @@ import { useState } from "react"
 import Image from "next/image"
 import { useRouter } from "next/navigation"
 import { ChevronDown, Pencil, Star, X } from "lucide-react"
+import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
 
 const tabs = ["ВИДЖЕТЫ", "KPI", "БАЛАНС", "ОХВАТ", "ФИЛИАЛ", "P&L", "ДОЛГ КЛИЕНТОВ", "ПРОДАЖА", "ГИБКИЙ ДАШБОРД"] as const
 const tabHref: Partial<Record<(typeof tabs)[number], string>> = {
@@ -27,7 +28,7 @@ const breakdownSections: { key: BreakdownKey; title: string; totalOkb: number }[
   { key: "type", title: "Продажи по типу клиента", totalOkb: 0 },
   { key: "territory", title: "Продажи по территории", totalOkb: 0 },
   { key: "user", title: "Продажи по пользователям", totalOkb: 0 },
-  { key: "product", title: "Продажи по типу продукта", totalOkb: 4283 },
+  { key: "product", title: "Продажи по типу продукта", totalOkb: 0 },
 ]
 
 function EmptyBlock({ label }: { label: string }) {
@@ -55,7 +56,6 @@ function SortableTh({ label, sortKey, active, onSort }: { label: string; sortKey
 
 export function SalesTabView() {
   const router = useRouter()
-  const [favorite, setFavorite] = useState(false)
   const [period, setPeriod] = useState<(typeof periods)[number]>("МЕСЯЦ")
   const [metric, setMetric] = useState<(typeof metrics)[number]>("ПРОДАЖИ")
   const [filterActive, setFilterActive] = useState(true)
@@ -71,11 +71,11 @@ export function SalesTabView() {
   return (
     <main className="min-h-screen bg-white text-[#17233b]">
       <header className="flex flex-wrap items-center gap-4 border-b border-[#d8dee7] bg-[#f2f5f8] px-6 py-4 md:px-9">
-        <button onClick={() => setFavorite((value) => !value)} className="flex items-center gap-3">
-          <Star className={`h-6 w-6 ${favorite ? "fill-[#4f70e7] text-[#4f70e7]" : "fill-[#596376] text-[#596376]"}`} />
-          <span className="text-xl font-bold text-[#4f70e7]">Избранные</span><span className="text-2xl font-light text-[#586174]">|</span>
+        <div className="flex items-center gap-3">
+          <FavoritesButton className="flex items-center gap-3 text-xl font-bold text-[#4f70e7]" />
+          <span className="text-2xl font-light text-[#586174]">|</span>
           <span className="text-xl font-bold text-[#586174]">Виджеты</span>
-        </button>
+        </div>
         <nav className="ml-auto flex flex-wrap gap-2">
           {tabs.map((tab) => (
             <button

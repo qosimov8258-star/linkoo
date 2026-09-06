@@ -1,8 +1,17 @@
 "use client"
 
-import { FormEvent, useMemo, useState } from "react"
-import { ChevronLeft, ChevronRight, Download, Filter, Pencil, PlusCircle, Search, Trash2, X } from "lucide-react"
+import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react"
+import { ChevronLeft, ChevronRight, Download, FileText, Filter, Pencil, PlusCircle, Search, Trash2, X } from "lucide-react"
 import { downloadExcelTable } from "@/lib/excel-export"
+import { mapHeaderColumns, readExcelRows } from "@/lib/excel-import"
+import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
+
+const IMPORT_HEADER_ALIASES: Record<string, string> = {
+  "название": "name", "наименование": "name", "name": "name",
+  "организация": "organization",
+  "тип магазина": "storeType",
+  "комментарий": "comment",
+}
 
 type Survey = {
   id: number
@@ -17,29 +26,7 @@ type Survey = {
 const organizations = ["Linko", "Time3 Distribution", "energetik"]
 const storeTypes = ["Не указано", "horeca", "market", "market100", "market101"]
 
-const initial: Survey[] = [
-  { id: 20, name: "distr", createdAt: "07 янв. 2026, 13:07", active: true, organization: "Linko", storeType: "market", comment: "Опрос по дистрибуции товаров в новых точках." },
-  { id: 13, name: "oprosnik taski", createdAt: "30 сент. 2025, 16:09", active: true, organization: "Time3 Distribution", storeType: "Не указано", comment: "" },
-  { id: 3, name: "so'rovnoma 1", createdAt: "08 февр. 2025, 23:06", active: true, organization: "energetik", storeType: "Не указано", comment: "gorilla, fanta, kabi energetiklarimiz uchun so'rovnoma otkazommiza" },
-  { id: 19, name: "narxlar royxat", createdAt: "04 янв. 2026, 17:09", active: true, organization: "Linko", storeType: "market100", comment: "Нархлар рўйхатини текшириш учун сўровнома." },
-  { id: 18, name: "ebferbfhjbf1", createdAt: "29 дек. 2025, 14:13", active: true, organization: "Time3 Distribution", storeType: "Не указано", comment: "" },
-  { id: 15, name: "salom GG", createdAt: "10 дек. 2025, 10:51", active: true, organization: "Linko", storeType: "market101", comment: "Тестовый опросник." },
-  { id: 12, name: "филиал so'rovnomasi", createdAt: "14 авг. 2025, 10:20", active: true, organization: "Linko", storeType: "market", comment: "Опрос по работе филиалов." },
-  { id: 11, name: "test yangi", createdAt: "02 июл. 2025, 09:15", active: true, organization: "energetik", storeType: "horeca", comment: "" },
-  { id: 10, name: "mijozlar fikri", createdAt: "18 июн. 2025, 12:40", active: true, organization: "Time3 Distribution", storeType: "market", comment: "Мижозлар фикрини ўрганиш учун сўровнома." },
-  { id: 9, name: "Клиент | Обратная связь", createdAt: "27 мая 2025, 16:05", active: true, organization: "Linko", storeType: "Не указано", comment: "Форма обратной связи для клиентов после доставки." },
-  { id: 7, name: "qayta test", createdAt: "11 мар. 2025, 10:02", active: true, organization: "Time3 Distribution", storeType: "market100", comment: "" },
-  { id: 6, name: "demo oprosnik", createdAt: "20 февр. 2025, 14:55", active: true, organization: "energetik", storeType: "Не указано", comment: "Демо версия опросника для обучения агентов." },
-  { id: 5, name: "Агент | Функции", createdAt: "29 апр. 2025, 14:41", active: true, organization: "Linko", storeType: "market", comment: "Опрос о функциональности мобильного приложения агента." },
-  { id: 4, name: "sdas", createdAt: "25 апр. 2025, 15:30", active: true, organization: "Time3 Distribution", storeType: "Не указано", comment: "" },
-  { id: 1, name: "тест опрос", createdAt: "12 нояб. 2024, 11:48", active: true, organization: "Linko", storeType: "market", comment: "Первый тестовый опрос в системе." },
-  { id: 21, name: "наблюдатель", createdAt: "30 янв. 2026, 17:25", active: false, organization: "Linko", storeType: "Не указано", comment: "Опрос отключён после завершения периода наблюдения." },
-  { id: 17, name: "Sorovnoma", createdAt: "21 дек. 2025, 23:52", active: false, organization: "Time3 Distribution", storeType: "market", comment: "" },
-  { id: 16, name: "oprosnik11", createdAt: "19 дек. 2025, 12:26", active: false, organization: "energetik", storeType: "Не указано", comment: "" },
-  { id: 14, name: "test_dilmurod_opros", createdAt: "20 нояб. 2025, 12:33", active: false, organization: "Linko", storeType: "horeca", comment: "Тестовый опрос, отключён по завершении проверки." },
-  { id: 8, name: "ll", createdAt: "16 сент. 2025, 11:30", active: false, organization: "Time3 Distribution", storeType: "Не указано", comment: "" },
-  { id: 2, name: ";kl;", createdAt: "08 февр. 2025, 23:03", active: false, organization: "Linko", storeType: "Не указано", comment: "" },
-]
+const initial: Survey[] = []
 
 type Tab = "active" | "inactive" | "all"
 
@@ -53,6 +40,23 @@ function now() {
 
 export function QuestionnaireView() {
   const [surveys, setSurveys] = useState(initial)
+  useEffect(() => {
+    let cancelled = false
+    fetch("/api/surveys")
+      .then(async (response) => {
+        if (!response.ok) throw new Error("failed")
+        return (await response.json()) as Survey[]
+      })
+      .then((data) => {
+        if (!cancelled) setSurveys(data)
+      })
+      .catch(() => {
+        if (!cancelled) window.alert("Не удалось загрузить опросники с сервера")
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
   const [tab, setTab] = useState<Tab>("active")
   const [query, setQuery] = useState("")
   const [filterOpen, setFilterOpen] = useState(false)
@@ -60,7 +64,10 @@ export function QuestionnaireView() {
   const [selected, setSelected] = useState<number | null>(null)
   const [editing, setEditing] = useState<number | "new" | null>(null)
   const [draft, setDraft] = useState(emptyDraft)
-  const [favorite, setFavorite] = useState(false)
+  const [importOpen, setImportOpen] = useState(false)
+  const [importFile, setImportFile] = useState<File | null>(null)
+  const [importSaving, setImportSaving] = useState(false)
+  const importInputRef = useRef<HTMLInputElement>(null)
 
   const filtered = useMemo(() => {
     return surveys
@@ -90,21 +97,131 @@ export function QuestionnaireView() {
     setEditing(survey.id)
   }
 
-  function remove(id: number) {
-    setSurveys((list) => list.filter((survey) => survey.id !== id))
-    setSelected((current) => (current === id ? null : current))
+  async function remove(id: number) {
+    try {
+      const response = await fetch(`/api/surveys/${id}`, { method: "DELETE" })
+      if (!response.ok) {
+        window.alert("Не удалось удалить опросник")
+        return
+      }
+      setSurveys((list) => list.filter((survey) => survey.id !== id))
+      setSelected((current) => (current === id ? null : current))
+    } catch {
+      window.alert("Сервер недоступен, попробуйте ещё раз")
+    }
   }
 
-  function save(event: FormEvent) {
+  async function save(event: FormEvent) {
     event.preventDefault()
     if (!draft.name.trim()) return
-    if (editing === "new") {
-      const id = Math.max(0, ...surveys.map((survey) => survey.id)) + 1
-      setSurveys((list) => [{ id, ...draft, name: draft.name.trim(), createdAt: now() }, ...list])
-    } else if (editing !== null) {
-      setSurveys((list) => list.map((survey) => (survey.id === editing ? { ...survey, ...draft, name: draft.name.trim() } : survey)))
+    const payload = { ...draft, name: draft.name.trim() }
+    try {
+      if (editing === "new") {
+        const response = await fetch("/api/surveys", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        })
+        if (!response.ok) {
+          const data = await response.json().catch(() => ({}))
+          window.alert(data.error || "Не удалось создать опросник")
+          return
+        }
+        const saved = (await response.json()) as Survey
+        setSurveys((list) => [saved, ...list])
+      } else if (editing !== null) {
+        const response = await fetch(`/api/surveys/${editing}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        })
+        if (!response.ok) {
+          const data = await response.json().catch(() => ({}))
+          window.alert(data.error || "Не удалось сохранить опросник")
+          return
+        }
+        const saved = (await response.json()) as Survey
+        setSurveys((list) => list.map((survey) => (survey.id === saved.id ? saved : survey)))
+      }
+      setEditing(null)
+    } catch {
+      window.alert("Сервер недоступен, попробуйте ещё раз")
     }
-    setEditing(null)
+  }
+
+  function downloadTemplate() {
+    downloadExcelTable("questionnaires-template", [["Название", "Организация", "Тип магазина", "Комментарий"]])
+  }
+
+  function pickImportFile(event: ChangeEvent<HTMLInputElement>) {
+    setImportFile(event.target.files?.[0] ?? null)
+  }
+
+  async function saveImport() {
+    if (!importFile) return
+    setImportSaving(true)
+    try {
+      const rows = await readExcelRows(importFile)
+      if (!rows.length) {
+        window.alert("Не удалось найти данные для импорта в выбранном файле")
+        return
+      }
+      const fieldByIndex = mapHeaderColumns(rows[0], IMPORT_HEADER_ALIASES)
+      const hasHeader = Array.from(fieldByIndex.values()).includes("name")
+      const dataRows = hasHeader ? rows.slice(1) : rows
+
+      const parsed: Omit<Survey, "id">[] = []
+      for (const row of dataRows) {
+        const record: Record<string, string> = {}
+        if (hasHeader) {
+          row.forEach((cell, index) => {
+            const field = fieldByIndex.get(index)
+            if (field) record[field] = cell
+          })
+        } else {
+          record.name = row[0] ?? ""
+          record.organization = row[1] ?? ""
+          record.storeType = row[2] ?? ""
+          record.comment = row[3] ?? ""
+        }
+        if (!record.name) continue
+        parsed.push({
+          name: record.name.trim(),
+          createdAt: now(),
+          active: true,
+          organization: record.organization || organizations[0],
+          storeType: record.storeType || storeTypes[0],
+          comment: record.comment || "",
+        })
+      }
+
+      if (!parsed.length) {
+        window.alert("Не удалось найти данные для импорта в выбранном файле")
+        return
+      }
+
+      const created: Survey[] = []
+      let failed = 0
+      for (const item of parsed) {
+        try {
+          const response = await fetch("/api/surveys", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(item),
+          })
+          if (response.ok) created.push((await response.json()) as Survey)
+          else failed += 1
+        } catch {
+          failed += 1
+        }
+      }
+      if (created.length) setSurveys((current) => [...created, ...current])
+      if (failed) window.alert(`Импортировано ${created.length} из ${parsed.length}. Не удалось сохранить: ${failed}`)
+    } finally {
+      setImportSaving(false)
+      setImportOpen(false)
+      setImportFile(null)
+    }
   }
 
   function downloadSurvey(survey: Survey) {
@@ -124,15 +241,18 @@ export function QuestionnaireView() {
     <main className="min-h-[calc(100vh-4rem)] bg-[#f1f4f8] px-9 py-5">
       <header className="mb-5 flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-bold text-slate-600">
-          <button type="button" onClick={() => setFavorite((value) => !value)} className="text-[#4f70e7]">
-            {favorite ? "★ Избранные" : "☆ Избранные"}
-          </button>{" "}
+          <FavoritesButton className="inline-flex items-center gap-2 text-[#4f70e7]" />{" "}
           <span className="mx-2 text-slate-400">|</span> Опросник
         </h1>
-        <button type="button" onClick={openCreate} className="rounded bg-[#6ccd8b] px-5 py-3 font-semibold text-white hover:brightness-95">
-          <PlusCircle className="mr-2 inline h-5 w-5" />
-          Добавить
-        </button>
+        <div className="flex items-center gap-3">
+          <button type="button" onClick={() => setImportOpen(true)} className="inline-flex items-center gap-2 rounded bg-[#4f70e7] px-5 py-3 font-semibold text-white hover:brightness-95">
+            <FileText className="h-4 w-4" /> Импорт с Excel
+          </button>
+          <button type="button" onClick={openCreate} className="rounded bg-[#6ccd8b] px-5 py-3 font-semibold text-white hover:brightness-95">
+            <PlusCircle className="mr-2 inline h-5 w-5" />
+            Добавить
+          </button>
+        </div>
       </header>
 
       <section className="overflow-hidden rounded bg-white shadow">
@@ -301,6 +421,38 @@ export function QuestionnaireView() {
               </button>
             </footer>
           </form>
+        </div>
+      )}
+
+      {importOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
+          <div className="w-full max-w-md rounded bg-white">
+            <header className="flex items-center justify-between border-b p-6">
+              <b className="uppercase">Импорт с Excel</b>
+              <button type="button" onClick={() => { setImportOpen(false); setImportFile(null) }} aria-label="Закрыть">
+                <X className="h-5 w-5" />
+              </button>
+            </header>
+            <div className="p-8">
+              <button type="button" onClick={downloadTemplate} className="mb-4 font-semibold text-[#4f70e7] hover:underline">
+                1. Скачать шаблон
+              </button>
+              <input ref={importInputRef} type="file" accept=".csv,.xls,.xlsx" onChange={pickImportFile} className="hidden" />
+              <button
+                type="button"
+                onClick={() => importInputRef.current?.click()}
+                className="flex w-full flex-col items-center justify-center gap-3 rounded border-2 border-dashed border-slate-300 py-10 text-slate-500 hover:border-[#4f70e7] hover:text-[#4f70e7]"
+              >
+                <FileText className="h-8 w-8" />
+                {importFile ? importFile.name : "Добавьте файл Excel или нажмите для выбора"}
+              </button>
+            </div>
+            <footer className="flex justify-end border-t p-5">
+              <button type="button" disabled={!importFile || importSaving} onClick={saveImport} className="rounded bg-[#6ccd8b] px-5 py-3 font-semibold text-white hover:brightness-95 disabled:opacity-40">
+                {importSaving ? "Импорт..." : "Сохранить"}
+              </button>
+            </footer>
+          </div>
         </div>
       )}
     </main>

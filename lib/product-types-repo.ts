@@ -25,51 +25,40 @@ function rowToProductType(row: Row): ProductType {
 
 export type ProductTypeInput = { name: string; organization: string; parentId: number | null; showInBot: boolean }
 
-export function parseProductTypeInput(body: unknown): ProductTypeInput | null {
-  if (!body || typeof body !== "object") return null
-  const value = body as Record<string, unknown>
-  const name = typeof value.name === "string" ? value.name.trim() : ""
-  const organization = typeof value.organization === "string" ? value.organization.trim() : ""
-  if (!name || !organization) return null
-  const parentIdRaw = value.parentId
-  const parentId = typeof parentIdRaw === "number" && Number.isFinite(parentIdRaw) ? parentIdRaw : null
-  return { name, organization, parentId, showInBot: value.showInBot === true }
-}
-
-export function listProductTypes(): ProductType[] {
+export async function listProductTypes(): Promise<ProductType[]> {
   const db = getDb()
-  const rows = db.prepare("SELECT * FROM product_types ORDER BY id DESC").all() as Row[]
+  const rows = (await db.prepare("SELECT * FROM product_types ORDER BY id DESC").all()) as Row[]
   return rows.map(rowToProductType)
 }
 
-export function getProductType(id: number): ProductType | null {
+export async function getProductType(id: number): Promise<ProductType | null> {
   const db = getDb()
-  const row = db.prepare("SELECT * FROM product_types WHERE id = ?").get(id) as Row | undefined
+  const row = (await db.prepare("SELECT * FROM product_types WHERE id = ?").get(id)) as Row | undefined
   return row ? rowToProductType(row) : null
 }
 
-export function createProductType(input: ProductTypeInput): ProductType {
+export async function createProductType(input: ProductTypeInput): Promise<ProductType> {
   const db = getDb()
-  const result = db
-    .prepare("INSERT INTO product_types (name, organization, parent_id, show_in_bot) VALUES (@name, @organization, @parentId, @showInBot)")
-    .run({ name: input.name, organization: input.organization, parentId: input.parentId, showInBot: input.showInBot ? 1 : 0 })
-  return getProductType(Number(result.lastInsertRowid))!
+  const result = (await db
+      .prepare("INSERT INTO product_types (name, organization, parent_id, show_in_bot) VALUES (@name, @organization, @parentId, @showInBot)")
+      .run({ name: input.name, organization: input.organization, parentId: input.parentId, showInBot: input.showInBot ? 1 : 0 }))
+  return (await getProductType(Number(result.lastInsertRowid)))!
 }
 
-export function updateProductType(id: number, input: ProductTypeInput): ProductType | null {
-  if (!getProductType(id)) return null
+export async function updateProductType(id: number, input: ProductTypeInput): Promise<ProductType | null> {
+  if (!(await getProductType(id))) return null
   const db = getDb()
-  db.prepare(
-    `UPDATE product_types SET name = @name, organization = @organization, parent_id = @parentId,
+  await db.prepare(
+        `UPDATE product_types SET name = @name, organization = @organization, parent_id = @parentId,
        show_in_bot = @showInBot, updated_at = datetime('now') WHERE id = @id`,
-  ).run({ id, name: input.name, organization: input.organization, parentId: input.parentId, showInBot: input.showInBot ? 1 : 0 })
-  return getProductType(id)
+      ).run({ id, name: input.name, organization: input.organization, parentId: input.parentId, showInBot: input.showInBot ? 1 : 0 })
+  return (await getProductType(id))
 }
 
 // Matches the original UI behaviour: deleting a product type also removes any
 // direct children pointing at it as their parent (one level, not recursive).
-export function deleteProductType(id: number): boolean {
+export async function deleteProductType(id: number): Promise<boolean> {
   const db = getDb()
-  const result = db.prepare("DELETE FROM product_types WHERE id = ? OR parent_id = ?").run(id, id)
+  const result = (await db.prepare("DELETE FROM product_types WHERE id = ? OR parent_id = ?").run(id, id))
   return result.changes > 0
 }

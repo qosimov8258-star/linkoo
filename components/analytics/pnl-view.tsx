@@ -2,7 +2,8 @@
 
 import { useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
-import { Calendar, ChevronDown, ChevronsUpDown, Download, Star } from "lucide-react"
+import { Calendar, ChevronDown, ChevronsUpDown, Download } from "lucide-react"
+import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
 
 const tabs = ["ВИДЖЕТЫ", "KPI", "БАЛАНС", "ОХВАТ", "ФИЛИАЛ", "P&L", "ДОЛГ КЛИЕНТОВ", "ПРОДАЖА", "ГИБКИЙ ДАШБОРД"] as const
 const tabHref: Partial<Record<(typeof tabs)[number], string>> = {
@@ -31,25 +32,9 @@ const metricKeyByTab: Record<(typeof metricTabs)[number], MetricKey> = {
 
 type PnlRow = { id: number; name: string; realization: number; returns: number; grossProfit: number }
 
-const typeRows: PnlRow[] = [
-  { id: 1, name: "Продукты питания", realization: 512300000, returns: 8750000, grossProfit: 92214000 },
-  { id: 2, name: "Напитки", realization: 245600000, returns: 3200000, grossProfit: 60632000 },
-  { id: 3, name: "Табачные изделия", realization: 210000000, returns: 1800000, grossProfit: 25004000 },
-  { id: 4, name: "Кондитерские изделия", realization: 156800000, returns: 4300000, grossProfit: 38025000 },
-  { id: 5, name: "Молочные продукты", realization: 98200000, returns: 2150000, grossProfit: 19212000 },
-  { id: 6, name: "Бытовая химия", realization: 87400000, returns: 1100000, grossProfit: 21678000 },
-  { id: 7, name: "Замороженные продукты", realization: 45600000, returns: 900000, grossProfit: 8925000 },
-  { id: 8, name: "Мыло и гигиена", realization: 34900000, returns: 620000, grossProfit: 9528600 },
-]
+const typeRows: PnlRow[] = []
 
-const brandRows: PnlRow[] = [
-  { id: 1, name: "No brand", realization: 245000000, returns: 5400000, grossProfit: 43140000 },
-  { id: 2, name: "Coca Cola", realization: 128400000, returns: 1900000, grossProfit: 31692500 },
-  { id: 3, name: "Nestle", realization: 94500000, returns: 1650000, grossProfit: 18617700 },
-  { id: 4, name: "Pepsi", returns: 1200000, realization: 76300000, grossProfit: 15020000 },
-  { id: 5, name: "Lays", realization: 52100000, returns: 980000, grossProfit: 10228400 },
-  { id: 6, name: "OLIVIA", realization: 34900000, returns: 620000, grossProfit: 9528600 },
-]
+const brandRows: PnlRow[] = []
 
 const number = (value: number, fraction = 0) => new Intl.NumberFormat("ru-RU", { minimumFractionDigits: fraction, maximumFractionDigits: fraction }).format(value)
 
@@ -92,7 +77,6 @@ function SortableHeader({ label, metricKey, active, onSort }: { label: string; m
 
 export function PnLView() {
   const router = useRouter()
-  const [favorite, setFavorite] = useState(false)
 
   const today = useMemo(() => new Date(), [])
   const prevPeriodEnd = useMemo(() => { const d = new Date(today); d.setMonth(d.getMonth() - 1); return d }, [today])
@@ -175,11 +159,10 @@ export function PnLView() {
   return (
     <main className="min-h-screen bg-[#f1f4f8] text-[#17233b]">
       <header className="flex flex-wrap items-center gap-4 border-b border-[#d8dee7] bg-[#f2f5f8] px-6 py-4 md:px-9">
-        <button onClick={() => setFavorite((value) => !value)} className="flex items-center gap-3">
-          <Star className={`h-6 w-6 ${favorite ? "fill-[#4f70e7] text-[#4f70e7]" : "fill-[#596376] text-[#596376]"}`} />
-          <span className="text-xl font-bold text-[#4f70e7]">Избранные</span><span className="text-2xl font-light text-[#586174]">|</span>
+        <div className="flex items-center gap-3">
+          <FavoritesButton className="flex items-center gap-2 text-xl font-bold text-[#4f70e7]" /><span className="text-2xl font-light text-[#586174]">|</span>
           <span className="text-xl font-bold text-[#586174]">Виджеты</span>
-        </button>
+        </div>
         <nav className="ml-auto flex flex-wrap gap-2">
           {tabs.map((tab) => (
             <button
@@ -220,8 +203,8 @@ export function PnLView() {
           </div>
           <Field label="Филиалы" value={branch} setValue={setBranch} options={["Все филиалы", "Самарканд", "Бухоро", "Ташкент", "Наманган", "Фарғона"]} />
           <Field label="Зона" value={zone} setValue={setZone} options={["Все зоны", "Розничный", "Рабочий", "Не рабочий зона"]} />
-          <Field label="Супервайзер" value={supervisor} setValue={setSupervisor} options={["Все супервайзеры", "Азизхон Супервайзер"]} />
-          <Field label="Агент" value={agent} setValue={setAgent} options={["Все агенты", "Admin Ritm", "Temur Raupov", "Samandar Abdurahmonov"]} />
+          <Field label="Супервайзер" value={supervisor} setValue={setSupervisor} options={["Все супервайзеры"]} />
+          <Field label="Агент" value={agent} setValue={setAgent} options={["Все агенты"]} />
           <Field label="Тип товара" value={productType} setValue={setProductType} options={["Все типы товара", ...typeRows.map((row) => row.name)]} />
           <Field label="Товар" value={product} setValue={setProduct} options={["Все товары", ...brandRows.map((row) => row.name)]} />
         </div>

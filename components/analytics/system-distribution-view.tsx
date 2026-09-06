@@ -1,13 +1,12 @@
 "use client"
 
 import { FormEvent, useEffect, useMemo, useState } from "react"
-import { ChevronRight, Download, PlusCircle, Star, X } from "lucide-react"
+import { Download, PlusCircle } from "lucide-react"
 import { downloadExcelTable } from "@/lib/excel-export"
+import { DashboardDialog } from "./dashboard-dialog"
+import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
 
-const data: (string | number)[][] = [
-  ["Admin Ritm", "Admin Ritm", 2517, 1, 0, 104, 1, 0, 1, 0, 1, 0, 1, 100, 0],
-  ["Samandar Abdurahmonov", "Азизхон Супервайзер", 7, 1, 14, 0, 1, 0, 1, 0, 1, 0, 1, 100, 0],
-]
+const data: (string | number)[][] = []
 
 function inputDate(date: Date) {
   const year = date.getFullYear()
@@ -39,13 +38,11 @@ export function SystemDistributionView() {
   const [from, setFrom] = useState(monthStart)
   const [to, setTo] = useState(today)
   const [position, setPosition] = useState("Все должности")
-  const [favorite, setFavorite] = useState(false)
   const [inDashboard, setInDashboard] = useState(false)
   const [dashboardOpen, setDashboardOpen] = useState(false)
-  const [favoritesOpen, setFavoritesOpen] = useState(false)
   const [visibility, setVisibility] = useState("all")
   const [dashboard, setDashboard] = useState("Основной дашборд")
-  const overlayOpen = dashboardOpen || favoritesOpen
+  const overlayOpen = dashboardOpen
 
   useEffect(() => {
     if (!overlayOpen) return
@@ -53,7 +50,6 @@ export function SystemDistributionView() {
     function closeOnEscape(event: KeyboardEvent) {
       if (event.key === "Escape") {
         setDashboardOpen(false)
-        setFavoritesOpen(false)
       }
     }
 
@@ -70,21 +66,13 @@ export function SystemDistributionView() {
     event.preventDefault()
   }
 
-  const totals = ["Итого", "", 2524, 2, "0,1", 104, 2, 0, 2, 0, 2, 0, 2, 100, 0]
+  const totals = ["Итого", "", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 
   return (
     <main className="min-h-[calc(100vh-4rem)] bg-slate-100">
       <header className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-300 px-5 py-4 sm:px-10">
         <div className="flex items-center gap-3 text-xl font-bold sm:text-2xl">
-          <button
-            type="button"
-            onClick={() => setFavoritesOpen(true)}
-            aria-pressed={favorite}
-            className="flex items-center gap-2 text-[#5470e8]"
-          >
-            <Star className={`h-6 w-6 ${favorite ? "fill-amber-400 text-amber-400" : "fill-slate-600 text-slate-600"}`} />
-            Избранные
-          </button>
+          <FavoritesButton className="flex items-center gap-2 text-[#5470e8]" />
           <span className="text-slate-500">|</span>
           <h1 className="text-slate-600">Системная дистрибуция</h1>
         </div>
@@ -173,95 +161,22 @@ export function SystemDistributionView() {
         <button
           type="button"
           aria-label="Окнони yopish"
-          onClick={() => {
-            setDashboardOpen(false)
-            setFavoritesOpen(false)
-          }}
+          onClick={() => setDashboardOpen(false)}
           className="fixed inset-0 z-[90] cursor-default bg-black/55"
         />
       )}
 
       {dashboardOpen && (
-        <section
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="distribution-dashboard-title"
-          className="fixed left-1/2 top-1/2 z-[100] flex h-[min(646px,calc(100vh-32px))] w-[min(750px,calc(100vw-32px))] -translate-x-1/2 -translate-y-1/2 flex-col bg-white shadow-2xl"
-        >
-          <header className="flex items-center justify-between border-b border-slate-200 px-9 py-7">
-            <h2 id="distribution-dashboard-title" className="text-lg font-bold uppercase text-slate-900">Добавить в дашборд</h2>
-            <button type="button" onClick={() => setDashboardOpen(false)} aria-label="Закрыть" className="rounded p-1 text-slate-500 hover:bg-slate-100">
-              <X className="h-7 w-7" />
-            </button>
-          </header>
-          <div className="flex-1 px-16 py-10">
-            <fieldset className="space-y-5">
-              <legend className="sr-only">Кому показывать виджет</legend>
-              {[
-                ["all", "Все"],
-                ["employees", "Выбранным сотрудникам"],
-                ["access", "Выбранным доступам"],
-              ].map(([value, label]) => (
-                <label key={value} className="flex cursor-pointer items-center gap-5 text-lg text-slate-900">
-                  <input type="radio" name="distribution-visibility" value={value} checked={visibility === value} onChange={() => setVisibility(value)} className="h-6 w-6 accent-slate-500" />
-                  {label}
-                </label>
-              ))}
-            </fieldset>
-            <label className="mt-12 block border-b border-slate-200 pb-2 text-base font-bold text-slate-900">
-              Дашборд
-              <select value={dashboard} onChange={(event) => setDashboard(event.target.value)} className="mt-2 block w-full border-0 bg-white py-2 text-base font-normal outline-none">
-                <option>Основной дашборд</option>
-                <option>Продажи</option>
-                <option>Контроль агентов</option>
-              </select>
-            </label>
-          </div>
-          <footer className="flex justify-end border-t border-slate-200 px-9 py-6">
-            <button
-              type="button"
-              onClick={() => {
-                setInDashboard(true)
-                setDashboardOpen(false)
-              }}
-              className="font-semibold uppercase text-sky-500 hover:text-sky-600"
-            >
-              Сохранить
-            </button>
-          </footer>
-        </section>
-      )}
-
-      {favoritesOpen && (
-        <aside
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="distribution-favorites-title"
-          className="fixed bottom-0 left-0 top-0 z-[100] w-[min(418px,calc(100vw-28px))] border-r-[10px] border-sky-500 bg-white shadow-2xl animate-in slide-in-from-left-full duration-200"
-        >
-          <header className="flex items-center justify-between border-b border-slate-200 px-9 py-7">
-            <h2 id="distribution-favorites-title" className="text-xl font-medium text-slate-900">Избранные</h2>
-            <button type="button" onClick={() => setFavoritesOpen(false)} aria-label="Закрыть" className="rounded p-1 hover:bg-slate-100">
-              <X className="h-7 w-7" />
-            </button>
-          </header>
-          <nav aria-label="Избранные разделы">
-            {["Клиенты", "Заказы", "Виджеты", "Заказы", "Ограничение продуктов", "Продукты"].map((item, index) => (
-              <button
-                key={`${item}-${index}`}
-                type="button"
-                onClick={() => {
-                  setFavorite(true)
-                  setFavoritesOpen(false)
-                }}
-                className="flex w-full items-center justify-between border-b border-slate-200 px-6 py-3.5 text-left text-[17px] font-medium text-slate-900 hover:bg-slate-50"
-              >
-                {item}
-                <ChevronRight className="h-5 w-5 text-slate-500" />
-              </button>
-            ))}
-          </nav>
-        </aside>
+        <DashboardDialog
+          reportSlug="system-distribution"
+          reportLabel="Распределение по системе"
+          visibility={visibility}
+          setVisibility={setVisibility}
+          dashboard={dashboard}
+          setDashboard={setDashboard}
+          onClose={() => setDashboardOpen(false)}
+          onSave={() => setInDashboard(true)}
+        />
       )}
     </main>
   )

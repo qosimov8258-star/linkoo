@@ -1,9 +1,18 @@
 "use client"
 
-import { ImagePlus, Pencil, Trash2, X } from "lucide-react"
+import { FileText, ImagePlus, Pencil, Trash2, X } from "lucide-react"
 import { ChangeEvent, Fragment, FormEvent, useEffect, useRef, useState } from "react"
 
+import { downloadExcelTable } from "@/lib/excel-export"
+import { mapHeaderColumns, readExcelRows } from "@/lib/excel-import"
 import { productTypeOrganizations as organizations, type ProductType } from "./product-types-data"
+
+const IMPORT_HEADER_ALIASES: Record<string, string> = {
+  "наименование категории": "name", "название": "name", "наименование": "name", "name": "name",
+  "организация": "organization", "organization": "organization",
+  "показывать в боте": "showInBot",
+  "родительская категория": "parentName",
+}
 
 function emptyDraft() {
   return { parentId: "", name: "", organization: organizations[0], order: "", showInBot: false, photoName: "" }
@@ -18,6 +27,10 @@ export function ProductTypesView({ embedded = false }: { embedded?: boolean }) {
   const [formError, setFormError] = useState("")
   const [saving, setSaving] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const [importOpen, setImportOpen] = useState(false)
+  const [importFile, setImportFile] = useState<File | null>(null)
+  const [importSaving, setImportSaving] = useState(false)
+  const importInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -118,6 +131,82 @@ export function ProductTypesView({ embedded = false }: { embedded?: boolean }) {
     }
   }
 
+  function downloadTemplate() {
+    downloadExcelTable("product-types-template", [["Наименование категории", "Организация", "Показывать в боте", "Родительская категория"]])
+  }
+
+  function pickImportFile(event: ChangeEvent<HTMLInputElement>) {
+    setImportFile(event.target.files?.[0] ?? null)
+  }
+
+  async function saveImport() {
+    if (!importFile) return
+    setImportSaving(true)
+    try {
+      const rows = await readExcelRows(importFile)
+      if (!rows.length) {
+        window.alert("Не удалось найти данные для импорта в выбранном файле")
+        return
+      }
+      const fieldByIndex = mapHeaderColumns(rows[0], IMPORT_HEADER_ALIASES)
+      const hasHeader = Array.from(fieldByIndex.values()).includes("name")
+      const dataRows = hasHeader ? rows.slice(1) : rows
+
+      const parsed: { name: string; organization: string; showInBot: boolean; parentId: number | null }[] = []
+      for (const row of dataRows) {
+        const record: Record<string, string> = {}
+        if (hasHeader) {
+          row.forEach((cell, index) => {
+            const field = fieldByIndex.get(index)
+            if (field) record[field] = cell
+          })
+        } else {
+          record.name = row[0] ?? ""
+          record.organization = row[1] ?? ""
+          record.showInBot = row[2] ?? ""
+          record.parentName = row[3] ?? ""
+        }
+        if (!record.name) continue
+        const parent = record.parentName
+          ? topLevel.find((type) => type.name.trim().toLowerCase() === record.parentName.trim().toLowerCase())
+          : undefined
+        parsed.push({
+          name: record.name.trim(),
+          organization: record.organization || organizations[0],
+          showInBot: /^(да|yes|true|1)$/i.test((record.showInBot || "").trim()),
+          parentId: parent ? parent.id : null,
+        })
+      }
+
+      if (!parsed.length) {
+        window.alert("Не удалось найти данные для импорта в выбранном файле")
+        return
+      }
+
+      const created: ProductType[] = []
+      let failed = 0
+      for (const item of parsed) {
+        try {
+          const response = await fetch("/api/product-types", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(item),
+          })
+          if (response.ok) created.push((await response.json()) as ProductType)
+          else failed += 1
+        } catch {
+          failed += 1
+        }
+      }
+      if (created.length) setTypes((current) => [...current, ...created])
+      if (failed) window.alert(`Импортировано ${created.length} из ${parsed.length}. Не удалось сохранить: ${failed}`)
+    } finally {
+      setImportSaving(false)
+      setImportOpen(false)
+      setImportFile(null)
+    }
+  }
+
   function renderRow(type: ProductType, isChild: boolean) {
     return (
       <tr key={type.id} className="group border-b border-dashed border-slate-300 hover:bg-slate-50">
@@ -141,9 +230,14 @@ export function ProductTypesView({ embedded = false }: { embedded?: boolean }) {
 
   return (
     <main className={embedded ? "min-w-0 flex-1" : "min-h-[calc(100vh-4rem)] bg-white px-9 py-5"}>
-      <button type="button" onClick={openCreate} className="mb-4 text-[16px] text-[#4f70e7] hover:underline">
-        + добавить тип продукта
-      </button>
+      <div className="mb-4 flex flex-wrap items-center gap-5">
+        <button type="button" onClick={openCreate} className="text-[16px] text-[#4f70e7] hover:underline">
+          + добавить тип продукта
+        </button>
+        <button type="button" onClick={() => setImportOpen(true)} className="inline-flex items-center gap-2 text-[16px] text-[#4f70e7] hover:underline">
+          <FileText className="h-4 w-4" /> Импорт с Excel
+        </button>
+      </div>
 
       <table className="w-full text-left">
         <thead className="bg-[#626b7e] text-white">
@@ -243,6 +337,38 @@ export function ProductTypesView({ embedded = false }: { embedded?: boolean }) {
               </button>
             </footer>
           </form>
+        </div>
+      )}
+
+      {importOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
+          <div className="w-full max-w-md rounded bg-white">
+            <header className="flex items-center justify-between border-b p-6">
+              <b className="uppercase">Импорт с Excel</b>
+              <button type="button" onClick={() => { setImportOpen(false); setImportFile(null) }} aria-label="Закрыть">
+                <X className="h-5 w-5" />
+              </button>
+            </header>
+            <div className="p-8">
+              <button type="button" onClick={downloadTemplate} className="mb-4 font-semibold text-[#4f70e7] hover:underline">
+                1. Скачать шаблон
+              </button>
+              <input ref={importInputRef} type="file" accept=".csv,.xls,.xlsx" onChange={pickImportFile} className="hidden" />
+              <button
+                type="button"
+                onClick={() => importInputRef.current?.click()}
+                className="flex w-full flex-col items-center justify-center gap-3 rounded border-2 border-dashed border-slate-300 py-10 text-slate-500 hover:border-[#4f70e7] hover:text-[#4f70e7]"
+              >
+                <FileText className="h-8 w-8" />
+                {importFile ? importFile.name : "Добавьте файл Excel или нажмите для выбора"}
+              </button>
+            </div>
+            <footer className="flex justify-end border-t p-5">
+              <button type="button" disabled={!importFile || importSaving} onClick={saveImport} className="rounded bg-[#6ccd8b] px-5 py-3 font-semibold text-white hover:brightness-95 disabled:opacity-40">
+                {importSaving ? "Импорт..." : "Сохранить"}
+              </button>
+            </footer>
+          </div>
         </div>
       )}
     </main>

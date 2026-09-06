@@ -1,14 +1,15 @@
 "use client"
 
-import { FormEvent, useMemo, useState } from "react"
+import { FormEvent, useEffect, useMemo, useState } from "react"
 import {
   Download,
   Expand,
   ListFilter,
   Search,
-  Star,
   X,
 } from "lucide-react"
+import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
+import type { OrderItemWithOrder } from "@/lib/order-items-repo"
 
 type AgentSale = {
   agent: string
@@ -22,38 +23,71 @@ type AgentSale = {
   bonusSum: number
 }
 
-const baseRows: AgentSale[] = [
-  {
-    agent: "Samandar Abdurahmonov",
-    saleQty: 22,
-    saleSum: 220000,
-    returnQty: 0,
-    returnSum: 0,
-    discountQty: 0,
-    discountSum: 0,
-    bonusQty: 0,
-    bonusSum: 0,
-  },
-  {
-    agent: "Хайрулло Доставщик",
-    saleQty: 0,
-    saleSum: 0,
-    returnQty: 2,
-    returnSum: 20000,
-    discountQty: 0,
-    discountSum: 0,
-    bonusQty: 0,
-    bonusSum: 0,
-  },
-]
+// Same defensive parser used across the analytics views: orderCreated is either an ISO
+// date ("2026-08-02") or a Russian day+month string with no year ("06 сент. 14:23").
+function parseOrderCreatedDate(value: string): Date | null {
+  if (!value) return null
+  const iso = value.match(/^(\d{4})-(\d{2})-(\d{2})/)
+  if (iso) {
+    const date = new Date(Number(iso[1]), Number(iso[2]) - 1, Number(iso[3]))
+    return Number.isNaN(date.getTime()) ? null : date
+  }
+  const ru = value.match(/(\d{1,2})\s+([а-яё]+)\.?/i)
+  if (ru) {
+    const monthNames = ["янв", "февр", "мар", "апр", "мая", "июня", "июля", "авг", "сент", "окт", "нояб", "дек"]
+    const monthIndex = monthNames.indexOf(ru[2].toLowerCase())
+    if (monthIndex >= 0) {
+      const yearMatch = value.match(/(\d{4})/)
+      const year = yearMatch ? Number(yearMatch[1]) : new Date().getFullYear()
+      const date = new Date(year, monthIndex, Number(ru[1]))
+      return Number.isNaN(date.getTime()) ? null : date
+    }
+  }
+  return null
+}
+
+function isWithinRange(value: string, fromIso: string, toIso: string): boolean {
+  const date = parseOrderCreatedDate(value)
+  if (!date) return true
+  const from = new Date(`${fromIso}T00:00:00`)
+  const to = new Date(`${toIso}T23:59:59`)
+  return date.getTime() >= from.getTime() && date.getTime() <= to.getTime()
+}
+
+// Grouped by orderAgent. Returns come from items whose parent order type is "Возврат"
+// (the only real signal for a return in this schema). Discount figures are the actual
+// discount amount taken off each line (quantity × unitPrice × discountPercent / 100).
+// There is no bonus concept anywhere in order_items, so bonus columns stay at 0 — no
+// more fabricating a "показать бонусные продукты" number.
+function buildAgentRows(items: OrderItemWithOrder[]): AgentSale[] {
+  const map = new Map<string, AgentSale>()
+  for (const item of items) {
+    const key = item.orderAgent || "Не указано"
+    const row = map.get(key) ?? { agent: key, saleQty: 0, saleSum: 0, returnQty: 0, returnSum: 0, discountQty: 0, discountSum: 0, bonusQty: 0, bonusSum: 0 }
+    const discountAmount = item.quantity * item.unitPrice * (item.discountPercent / 100)
+    if (item.discountPercent > 0) {
+      row.discountQty += item.quantity
+      row.discountSum += discountAmount
+    }
+    if (item.orderType === "Возврат") {
+      row.returnQty += item.quantity
+      row.returnSum += item.lineTotal
+    } else {
+      row.saleQty += item.quantity
+      row.saleSum += item.lineTotal
+    }
+    map.set(key, row)
+  }
+  return Array.from(map.values()).sort((a, b) => b.saleSum - a.saleSum)
+}
 
 const branches = ["Все филиалы", "777", "878", "Andijon", "AURUM samarqand"]
 const organizations = ["Все организации", "Linko", "Time3 Distribution"]
 const productTypes = ["Все типы товара", "Мыло", "Напитки", "Снеки"]
 const statuses = ["Все статусы", "Завершено", "В процессе", "Отменено"]
 const clients = ["Все клиенты", "Doston market", "Markus Vitinha", "Usman Dembele"]
-const agents = ["Все агенты", ...baseRows.map((row) => row.agent)]
 const clientTypes = ["Все типы клиентов", "horeca", "market", "market100", "market101"]
+const agents = ["Все агенты", "Admin Ritm"]
 
 function inputDate(date: Date) {
   const year = date.getFullYear()
@@ -69,7 +103,6 @@ function monthStart() {
 
 export function SalesByAgentsView() {
   const today = useMemo(() => inputDate(new Date()), [])
-  const [favorite, setFavorite] = useState(false)
   const [filterOpen, setFilterOpen] = useState(false)
   const [query, setQuery] = useState("")
   const [pageSize, setPageSize] = useState(25)
@@ -90,19 +123,40 @@ export function SalesByAgentsView() {
   const [showBonus, setShowBonus] = useState(false)
   const [, setFilterVersion] = useState(0)
 
+  const [items, setItems] = useState<OrderItemWithOrder[]>([])
+  const [itemsLoading, setItemsLoading] = useState(true)
+  const [itemsError, setItemsError] = useState("")
+
+  useEffect(() => {
+    let cancelled = false
+    setItemsLoading(true)
+    fetch("/api/order-items")
+      .then(async (response) => {
+        if (!response.ok) throw new Error("Не удалось загрузить данные")
+        return (await response.json()) as OrderItemWithOrder[]
+      })
+      .then((data) => {
+        if (cancelled) return
+        setItems(data)
+        setItemsError("")
+      })
+      .catch(() => {
+        if (!cancelled) setItemsError("Не удалось загрузить данные с сервера")
+      })
+      .finally(() => {
+        if (!cancelled) setItemsLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
   const rows = useMemo(() => {
-    const factor = mode === "created" ? 1 : 0.92
-    return baseRows
+    const dateFiltered = mode === "created" ? items.filter((item) => isWithinRange(item.orderCreated, from, to)) : items
+    return buildAgentRows(dateFiltered)
       .filter((row) => agent === agents[0] || row.agent === agent)
       .filter((row) => row.agent.toLowerCase().includes(query.toLowerCase()))
-      .map((row) => ({
-        ...row,
-        saleSum: Math.round(row.saleSum * factor),
-        returnSum: Math.round(row.returnSum * factor),
-        bonusQty: showBonus ? 1 : row.bonusQty,
-        bonusSum: showBonus ? 5000 : row.bonusSum,
-      }))
-  }, [agent, query, mode, showBonus])
+  }, [items, agent, query, mode, from, to])
 
   const totals = useMemo(
     () =>
@@ -143,7 +197,7 @@ export function SalesByAgentsView() {
   return (
     <main className="min-h-[calc(100vh-4rem)] bg-slate-100">
       <header className="flex items-center gap-3 border-b px-5 py-4 text-xl font-bold sm:px-10 sm:text-2xl">
-        <button type="button" onClick={() => setFavorite((value) => !value)} className="flex items-center gap-2 text-[#5470e8]"><Star className={`h-6 w-6 ${favorite ? "fill-amber-400 text-amber-400" : "fill-slate-600 text-slate-600"}`} />Избранные</button>
+        <FavoritesButton className="flex items-center gap-2 text-[#5470e8]" />
         <span className="text-slate-500">|</span><h1 className="text-slate-600">Прибыль от агентов</h1>
       </header>
       <section className={`${fullscreen ? "fixed inset-0 z-[80] overflow-auto bg-white p-5" : "bg-white px-4 py-6 sm:px-10"}`}>
@@ -169,7 +223,13 @@ export function SalesByAgentsView() {
           <p className="text-lg font-semibold text-[#5470e8]">ⓘ Это оперативный отчет. Для просмотра факта перейдите в другой раздел</p>
           <div className="flex"><button type="button" onClick={() => setMode("created")} className={`px-5 py-2.5 ${mode === "created" ? "bg-[#5470e8] text-white" : "border"}`}>ПОКАЗАТЬ ПРОДАЖУ ПО ДАТЕ СОЗДАНИЯ</button><button type="button" onClick={() => setMode("realized")} className={`px-5 py-2.5 ${mode === "realized" ? "bg-[#5470e8] text-white" : "border"}`}>ПРОДАЖА АГЕНТОВ ПО ДАТЕ РЕАЛИЗАЦИИ С ПРИБЫЛЬЮ</button></div>
         </div>
-        <div className="overflow-x-auto"><table className="min-w-[1250px] border-collapse"><thead className="bg-[#5470e8] text-white"><tr><th rowSpan={2} className="min-w-[300px] border-r border-white/30 px-5 py-4 text-left">Агент</th>{["Продажа", "Возврат в этом периоде", "Фактическая продажа", "Скидки", "Бонус"].map((item) => <th key={item} colSpan={2} className="border-r border-white/30 px-4 py-3 text-left">{item}</th>)}</tr><tr>{Array.from({ length: 5 }).flatMap((_, index) => [<th key={`${index}-q`} className="border-r border-white/30 px-4 py-3">Кол-во</th>, <th key={`${index}-s`} className="border-r border-white/30 px-4 py-3">Сумма</th>])}</tr></thead><tbody>{shown.map((row, index) => { const actualQty = row.saleQty - row.returnQty; const actualSum = row.saleSum - row.returnSum; return <tr key={row.agent} className={index % 2 ? "bg-white" : "bg-slate-50"}><td className="border-r px-5 py-3">{row.agent}</td>{[row.saleQty, row.saleSum, row.returnQty, row.returnSum, actualQty, actualSum, row.discountQty, row.discountSum, row.bonusQty, row.bonusSum].map((value, cell) => <td key={cell} className={`border-r px-4 py-3 text-right ${value > 0 ? "text-green-600" : value < 0 ? "text-red-500" : ""}`}>{typeof value === "number" ? value.toLocaleString("ru-RU") : value}</td>)}</tr>})}</tbody></table></div>
+        {itemsLoading ? (
+          <p className="px-3 py-16 text-center text-slate-400">Загрузка...</p>
+        ) : itemsError ? (
+          <p className="px-3 py-16 text-center text-red-600">{itemsError}</p>
+        ) : (
+          <div className="overflow-x-auto"><table className="min-w-[1250px] border-collapse"><thead className="bg-[#5470e8] text-white"><tr><th rowSpan={2} className="min-w-[300px] border-r border-white/30 px-5 py-4 text-left">Агент</th>{["Продажа", "Возврат в этом периоде", "Фактическая продажа", "Скидки", "Бонус"].map((item) => <th key={item} colSpan={2} className="border-r border-white/30 px-4 py-3 text-left">{item}</th>)}</tr><tr>{Array.from({ length: 5 }).flatMap((_, index) => [<th key={`${index}-q`} className="border-r border-white/30 px-4 py-3">Кол-во</th>, <th key={`${index}-s`} className="border-r border-white/30 px-4 py-3">Сумма</th>])}</tr></thead><tbody>{shown.map((row, index) => { const actualQty = row.saleQty - row.returnQty; const actualSum = row.saleSum - row.returnSum; return <tr key={row.agent} className={index % 2 ? "bg-white" : "bg-slate-50"}><td className="border-r px-5 py-3">{row.agent}</td>{[row.saleQty, row.saleSum, row.returnQty, row.returnSum, actualQty, actualSum, row.discountQty, row.discountSum, row.bonusQty, row.bonusSum].map((value, cell) => <td key={cell} className={`border-r px-4 py-3 text-right ${value > 0 ? "text-green-600" : value < 0 ? "text-red-500" : ""}`}>{typeof value === "number" ? value.toLocaleString("ru-RU") : value}</td>)}</tr>})}</tbody></table></div>
+        )}
       </section>
       {filterOpen && <FilterDialog from={from} setFrom={setFrom} to={to} setTo={setTo} warehouseFrom={warehouseFrom} setWarehouseFrom={setWarehouseFrom} warehouseTo={warehouseTo} setWarehouseTo={setWarehouseTo} branch={branch} setBranch={setBranch} organization={organization} setOrganization={setOrganization} productType={productType} setProductType={setProductType} status={status} setStatus={setStatus} client={client} setClient={setClient} agent={agent} setAgent={setAgent} clientType={clientType} setClientType={setClientType} showBonus={showBonus} setShowBonus={setShowBonus} onClose={() => setFilterOpen(false)} onSubmit={applyFilters} />}
     </main>

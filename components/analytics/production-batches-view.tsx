@@ -1,7 +1,16 @@
 "use client"
 
-import { FormEvent, useMemo, useState } from "react"
-import { ChevronDown, ChevronLeft, ChevronRight, Download, Plus, Search, Star, X } from "lucide-react"
+import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react"
+import { ChevronDown, ChevronLeft, ChevronRight, Download, FileText, Plus, Search, X } from "lucide-react"
+
+import { downloadExcelTable } from "@/lib/excel-export"
+import { mapHeaderColumns, readExcelRows } from "@/lib/excel-import"
+import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
+
+const IMPORT_HEADER_ALIASES: Record<string, string> = {
+  "дата партии": "batchDate", "дата": "batchDate", "date": "batchDate",
+  "этап производства": "stage", "этап": "stage", "stage": "stage",
+}
 
 type BatchStatus = "В процессе" | "Завершен" | "Отменен"
 type Batch = {
@@ -26,40 +35,7 @@ const stages = [
   "УПК",
   "Агент | Функции0000000",
 ]
-const dates = [
-  "25 апр. 2026",
-  "14 апр. 2026",
-  "02 апр. 2026",
-  "09 февр. 2026",
-  "28 янв. 2026",
-  "17 янв. 2026",
-  "16 янв. 2026",
-  "15 янв. 2026",
-  "14 янв. 2026",
-  "13 янв. 2026",
-  "12 янв. 2026",
-  "05 янв. 2026",
-  "19 дек. 2025",
-  "13 дек. 2025",
-  "10 дек. 2025",
-  "27 нояб. 2025",
-]
-
-const initialBatches: Batch[] = Array.from({ length: 112 }, (_, index) => {
-  const id = 113 - index
-  const date = dates[Math.min(index, dates.length - 1)]
-  const time = `${String(8 + ((index * 3) % 12)).padStart(2, "0")}:${String((13 + index * 7) % 60).padStart(2, "0")}`
-  const status: BatchStatus = id === 100 || id === 94 || id === 89 ? "Завершен" : id === 98 ? "Отменен" : "В процессе"
-  return {
-    id,
-    startedAt: `${date}, ${time}`,
-    completedAt: status === "Завершен" ? `${date}, ${String((Number(time.slice(0, 2)) + 1) % 24).padStart(2, "0")}:${time.slice(3)}` : "",
-    batchDate: date,
-    stage: stages[index % stages.length],
-    user: "Admin Ritm",
-    status,
-  }
-})
+const initialBatches: Batch[] = []
 
 function downloadExcel(rows: Batch[]) {
   const escape = (value: string) => value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;")
@@ -75,7 +51,6 @@ function downloadExcel(rows: Batch[]) {
 }
 
 export function ProductionBatchesView() {
-  const [favorite, setFavorite] = useState(false)
   const [batches, setBatches] = useState(initialBatches)
   const [tab, setTab] = useState<"process" | "completed" | "all">("all")
   const [query, setQuery] = useState("")
@@ -87,6 +62,28 @@ export function ProductionBatchesView() {
   const [addOpen, setAddOpen] = useState(false)
   const [newStage, setNewStage] = useState(stages[0])
   const [newDate, setNewDate] = useState("2026-07-28")
+  const [importOpen, setImportOpen] = useState(false)
+  const [importFile, setImportFile] = useState<File | null>(null)
+  const [importSaving, setImportSaving] = useState(false)
+  const importInputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    fetch("/api/production-batches")
+      .then(async (response) => {
+        if (!response.ok) throw new Error("Не удалось загрузить партии")
+        return (await response.json()) as Batch[]
+      })
+      .then((data) => {
+        if (!cancelled) setBatches(data)
+      })
+      .catch(() => {
+        if (!cancelled) window.alert("Не удалось загрузить партии с сервера")
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const filtered = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase("ru")
@@ -110,35 +107,137 @@ export function ProductionBatchesView() {
     setPage(1)
   }
 
-  function addBatch(event: FormEvent) {
+  async function addBatch(event: FormEvent) {
     event.preventDefault()
     const formatted = new Intl.DateTimeFormat("ru-RU", { day: "2-digit", month: "short", year: "numeric" }).format(new Date(`${newDate}T12:00:00`)).replace(" г.", "")
-    setBatches((current) => [{
-      id: Math.max(...current.map((batch) => batch.id)) + 1,
+    const input = {
       startedAt: `${formatted}, 12:00`,
       completedAt: "",
       batchDate: formatted,
       stage: newStage,
       user: "Admin Ritm",
       status: "В процессе",
-    }, ...current])
-    setAddOpen(false)
-    setTab("all")
-    setPage(1)
+    }
+    try {
+      const response = await fetch("/api/production-batches", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
+      })
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}))
+        window.alert(data.error || "Не удалось создать партию")
+        return
+      }
+      const saved = (await response.json()) as Batch
+      setBatches((current) => [saved, ...current])
+      setAddOpen(false)
+      setTab("all")
+      setPage(1)
+    } catch {
+      window.alert("Сервер недоступен, попробуйте ещё раз")
+    }
+  }
+
+  function downloadTemplate() {
+    downloadExcelTable("production-batches-template", [["Дата партии", "Этап производства"]])
+  }
+
+  function pickImportFile(event: ChangeEvent<HTMLInputElement>) {
+    setImportFile(event.target.files?.[0] ?? null)
+  }
+
+  async function saveImport() {
+    if (!importFile) return
+    setImportSaving(true)
+    try {
+      const rows = await readExcelRows(importFile)
+      if (!rows.length) {
+        window.alert("Не удалось найти данные для импорта в выбранном файле")
+        return
+      }
+      const fieldByIndex = mapHeaderColumns(rows[0], IMPORT_HEADER_ALIASES)
+      const hasHeader = Array.from(fieldByIndex.values()).includes("batchDate")
+      const dataRows = hasHeader ? rows.slice(1) : rows
+
+      const parsed: { batchDate: string; stage: string }[] = []
+      for (const row of dataRows) {
+        const record: Record<string, string> = {}
+        if (hasHeader) {
+          row.forEach((cell, index) => {
+            const field = fieldByIndex.get(index)
+            if (field) record[field] = cell
+          })
+        } else {
+          record.batchDate = row[0] ?? ""
+          record.stage = row[1] ?? ""
+        }
+        if (!record.batchDate) continue
+        parsed.push({ batchDate: record.batchDate, stage: record.stage || stages[0] })
+      }
+
+      if (!parsed.length) {
+        window.alert("Не удалось найти данные для импорта в выбранном файле")
+        return
+      }
+
+      const inputs = parsed.map((item) => {
+        const parsedDate = new Date(`${item.batchDate}T12:00:00`)
+        const formatted = Number.isNaN(parsedDate.getTime())
+          ? item.batchDate
+          : new Intl.DateTimeFormat("ru-RU", { day: "2-digit", month: "short", year: "numeric" }).format(parsedDate).replace(" г.", "")
+        return {
+          startedAt: `${formatted}, 12:00`,
+          completedAt: "",
+          batchDate: formatted,
+          stage: item.stage,
+          user: "Admin Ritm",
+          status: "В процессе" as BatchStatus,
+        }
+      })
+
+      const created: Batch[] = []
+      let failed = 0
+      for (const input of inputs) {
+        try {
+          const response = await fetch("/api/production-batches", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(input),
+          })
+          if (response.ok) created.push((await response.json()) as Batch)
+          else failed += 1
+        } catch {
+          failed += 1
+        }
+      }
+      if (created.length) setBatches((current) => [...created, ...current])
+      if (failed) window.alert(`Импортировано ${created.length} из ${inputs.length}. Не удалось сохранить: ${failed}`)
+      setTab("all")
+      setPage(1)
+    } finally {
+      setImportSaving(false)
+      setImportOpen(false)
+      setImportFile(null)
+    }
   }
 
   return (
     <main className="min-h-[calc(100vh-4rem)] bg-slate-100 text-slate-800">
       <header className="flex items-center justify-between px-8 py-4">
-        <button onClick={() => setFavorite((value) => !value)} className="flex items-center gap-3">
-          <Star className={`h-7 w-7 ${favorite ? "fill-amber-400 text-amber-400" : "fill-slate-600 text-slate-600"}`} />
-          <span className="text-2xl font-semibold text-blue-600">Избранные</span>
+        <div className="flex items-center gap-3">
+          <FavoritesButton className="flex items-center gap-2 text-2xl font-semibold text-blue-600" />
           <span className="text-2xl text-slate-500">|</span>
           <span className="text-2xl font-semibold text-slate-600">Партии</span>
-        </button>
-        <button onClick={() => setAddOpen(true)} aria-label="Добавить партию" className="rounded-md bg-blue-600 p-3 text-white shadow">
-          <Plus className="h-7 w-7" />
-        </button>
+        </div>
+        <div className="flex items-center gap-3">
+          <button onClick={() => setImportOpen(true)} aria-label="Импорт с Excel" className="rounded-md bg-blue-600 p-3 text-white shadow">
+            <FileText className="h-7 w-7" />
+          </button>
+          <button onClick={() => setAddOpen(true)} aria-label="Добавить партию" className="rounded-md bg-blue-600 p-3 text-white shadow">
+            <Plus className="h-7 w-7" />
+          </button>
+        </div>
       </header>
 
       <section className="mx-8 mb-6 overflow-hidden rounded-sm bg-white shadow">
@@ -227,6 +326,38 @@ export function ProductionBatchesView() {
             </div>
             <div className="flex justify-end border-t p-5"><button type="submit" className="rounded-md bg-emerald-400 px-7 py-3 font-semibold text-white">СОХРАНИТЬ</button></div>
           </form>
+        </div>
+      )}
+
+      {importOpen && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/45 p-4">
+          <div className="w-full max-w-md rounded bg-white">
+            <header className="flex items-center justify-between border-b p-6">
+              <b className="uppercase">Импорт с Excel</b>
+              <button type="button" onClick={() => { setImportOpen(false); setImportFile(null) }} aria-label="Закрыть">
+                <X className="h-5 w-5" />
+              </button>
+            </header>
+            <div className="p-8">
+              <button type="button" onClick={downloadTemplate} className="mb-4 font-semibold text-[#4f70e7] hover:underline">
+                1. Скачать шаблон
+              </button>
+              <input ref={importInputRef} type="file" accept=".csv,.xls,.xlsx" onChange={pickImportFile} className="hidden" />
+              <button
+                type="button"
+                onClick={() => importInputRef.current?.click()}
+                className="flex w-full flex-col items-center justify-center gap-3 rounded border-2 border-dashed border-slate-300 py-10 text-slate-500 hover:border-blue-600 hover:text-blue-600"
+              >
+                <FileText className="h-8 w-8" />
+                {importFile ? importFile.name : "Добавьте файл Excel или нажмите для выбора"}
+              </button>
+            </div>
+            <footer className="flex justify-end border-t p-5">
+              <button type="button" disabled={!importFile || importSaving} onClick={saveImport} className="rounded-md bg-emerald-400 px-5 py-3 font-semibold text-white hover:brightness-95 disabled:opacity-40">
+                {importSaving ? "Импорт..." : "Сохранить"}
+              </button>
+            </footer>
+          </div>
         </div>
       )}
     </main>

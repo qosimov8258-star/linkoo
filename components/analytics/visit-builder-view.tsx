@@ -9,11 +9,12 @@ import {
   Info,
   Pencil,
   Search,
-  Star,
   Trash2,
   Users,
   X,
 } from "lucide-react"
+import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
+import { useLanguage } from "@/lib/i18n/language-context"
 
 const columns = [
   "План визитов",
@@ -87,16 +88,6 @@ const salesFilters = [
   "Группа портфель", "Группа ассортимент", "Группа продукт", "Группа марк", "Магазин ИНН",
 ]
 
-const users = [
-  "05,08,2025 (1)",
-  "Otaw Original3 Mardonov",
-  "shohrux Avazhonov",
-  "xodim1 1",
-  "Suxrob Akramxodjaev",
-  "Zaynillo Sadullayev",
-  "Admin Ritm",
-  "Samandar Abdurahmonov",
-]
 const statuses = ["В процессе", "Выполнено", "Невыполнено"]
 const zones = ["Andijon shaharchasi", "Arslan", "Arslan", "chilonzor", "chilonzor", "Chilonzor zonasi 2"]
 
@@ -106,24 +97,7 @@ type SavedReport = {
   model: string
 }
 
-const initialReports: SavedReport[] = [
-  { id: 31, name: "Склад списание по дням", model: "Списание продукты" },
-  { id: 28, name: "Посещение ТТ по ТП", model: "Задачи" },
-  { id: 30, name: "Склад приход по дням", model: "Продукты поставок по дате поставки" },
-  { id: 32, name: "4-fev info", model: "Заказ и возврат по дате реализации" },
-  { id: 34, name: "конструктор по визитов", model: "Визит" },
-  { id: 33, name: "test otchot", model: "Заказ и возврат по дате реализации" },
-  { id: 36, name: "отчет ОКБ", model: "Продукты заказов по дате создания" },
-  { id: 37, name: "skidka", model: "Продукты заказов по дате создания" },
-  { id: 39, name: "Тип продукта рейтинг 1", model: "Заказ и возврат по дате реализации" },
-  { id: 40, name: "Test Uchun", model: "Продукты заказов по дате реализации со склада" },
-  { id: 41, name: "названия продукта", model: "Заказ и возврат по дате реализации" },
-  { id: 42, name: "отчеты по агентам", model: "Заказ и возврат по дате реализации" },
-  { id: 43, name: "1234", model: "Заказ и возврат по дате реализации" },
-  { id: 35, name: "vizitni foiz bo’yicha otchoti bajarilgani", model: "Визит" },
-  { id: 44, name: "123 c", model: "Заказ и возврат по дате реализации" },
-  { id: 45, name: "agent qarzlar", model: "Взаиморасчеты с клиентами по дате реализации" },
-]
+const initialReports: SavedReport[] = []
 
 function inputDate(date: Date) {
   const year = date.getFullYear()
@@ -147,12 +121,12 @@ function downloadFile(filename: string, content: string, type: string) {
 }
 
 export function VisitBuilderView({ variant = "visits" }: { variant?: "visits" | "sales" }) {
+  const { t } = useLanguage()
   const isSales = variant === "sales"
   const availableColumns = isSales ? salesColumns : columns
   const availableGroupings = isSales ? salesGroupings : groupings
   const today = useMemo(() => inputDate(new Date()), [])
   const [activeTab, setActiveTab] = useState(isSales ? "РЕАЛИЗАЦИЯ" : "ВИЗИТ")
-  const [favorite, setFavorite] = useState(false)
   const [settingsVisible, setSettingsVisible] = useState(true)
   const [selectedColumns, setSelectedColumns] = useState<string[]>(isSales ? ["АКБ заказа", "Сумма заказов"] : ["План визитов", "Посещено"])
   const [verticalGroups, setVerticalGroups] = useState<string[]>(isSales ? ["Дата по дням"] : ["Пользователь"])
@@ -173,6 +147,22 @@ export function VisitBuilderView({ variant = "visits" }: { variant?: "visits" | 
   const [reportQuery, setReportQuery] = useState("")
   const [editingReportId, setEditingReportId] = useState<number | null>(null)
   const [message, setMessage] = useState("")
+  const [users, setUsers] = useState<string[]>([])
+
+  useEffect(() => {
+    let cancelled = false
+    fetch("/api/employees")
+      .then((response) => (response.ok ? (response.json() as Promise<{ name: string }[]>) : Promise.reject()))
+      .then((data) => {
+        if (!cancelled) setUsers(data.map((employee) => employee.name).filter(Boolean).sort((a, b) => a.localeCompare(b, "ru")))
+      })
+      .catch(() => {
+        if (!cancelled) setUsers([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   useEffect(() => {
     window.localStorage.setItem(isSales ? "sales-builder-reports" : "visit-builder-reports", JSON.stringify(savedReports))
@@ -204,14 +194,14 @@ export function VisitBuilderView({ variant = "visits" }: { variant?: "visits" | 
     const next = [...savedReports, savedReport]
     setSavedReports(next)
     window.localStorage.setItem(isSales ? "sales-builder-reports" : "visit-builder-reports", JSON.stringify(next))
-    setMessage("Настройки отчета сохранены")
+    setMessage(t("Настройки отчета сохранены"))
   }
 
   function downloadReport() {
-    const header = [...verticalGroups, ...horizontalGroups, ...selectedColumns]
+    const header = [...verticalGroups, ...horizontalGroups, ...selectedColumns].map((item) => t(item))
     const row = [
-      ...verticalGroups.map(() => user || "Все пользователи"),
-      ...horizontalGroups.map(() => zone || "Все зоны"),
+      ...verticalGroups.map(() => user || t("Все пользователи")),
+      ...horizontalGroups.map(() => zone || t("Все зоны")),
       ...selectedColumns.map((_, index) => String(index === 0 ? 104 : 0)),
     ]
     downloadFile(isSales ? "sales-builder.csv" : "visit-builder.csv", `\uFEFF${header.join(";")}\n${row.join(";")}`, "text/csv;charset=utf-8")
@@ -233,7 +223,7 @@ export function VisitBuilderView({ variant = "visits" }: { variant?: "visits" | 
     setVerticalGroups(["Пользователь"])
     setReportReady(false)
     setReportsOpen(false)
-    setMessage(`Отчет «${report.name}» загружен`)
+    setMessage(`${t("Отчет «")}${report.name}${t("» загружен")}`)
   }
 
   function renameReport(id: number, name: string) {
@@ -244,29 +234,26 @@ export function VisitBuilderView({ variant = "visits" }: { variant?: "visits" | 
 
   function deleteReport(id: number) {
     setSavedReports((current) => current.filter((report) => report.id !== id))
-    setMessage("Отчет удален")
+    setMessage(t("Отчет удален"))
   }
 
   async function shareReport(report: SavedReport) {
     await navigator.clipboard?.writeText(`${report.name} — ${report.model}`)
-    setMessage(`Ссылка на «${report.name}» скопирована`)
+    setMessage(`${t("Ссылка на «")}${report.name}${t("» скопирована")}`)
   }
 
   return (
     <main className="min-h-[calc(100vh-4rem)] bg-slate-100 px-4 pb-10">
       <header className="flex flex-wrap items-center justify-between gap-4 py-4 sm:px-5">
         <div className="flex items-center gap-3 text-xl font-bold sm:text-2xl">
-          <button type="button" onClick={() => setFavorite((value) => !value)} className="flex items-center gap-2 text-[#5470e8]">
-            <Star className={`h-6 w-6 ${favorite ? "fill-amber-400 text-amber-400" : "fill-slate-600 text-slate-600"}`} />
-            Избранные
-          </button>
+          <FavoritesButton className="flex items-center gap-2 text-[#5470e8]" />
           <span className="text-slate-500">|</span>
-          <h1 className="text-slate-600">{isSales ? "Отчет по продажам" : "Конструктор"}</h1>
+          <h1 className="text-slate-600">{t(isSales ? "Отчет по продажам" : "Конструктор")}</h1>
         </div>
         <div className="flex overflow-hidden rounded-md shadow">
           {(isSales ? ["ЗАКАЗ И ВОЗВРАТ ПО ДАТЕ РЕАЛИЗАЦИИ", "ЗАКАЗ И ВОЗВРАТ ПО ДАТЕ СОЗДАНИЯ"] : ["ВИЗИТ", "ЗАДАЧИ", "ОТКАЗЫ"]).map((tab) => (
             <button key={tab} type="button" onClick={() => { setActiveTab(tab); setReportReady(false) }} className={`border-r border-slate-200 px-6 py-2.5 ${activeTab === tab ? "bg-green-500 text-white" : "bg-white hover:bg-slate-50"}`}>
-              {tab}
+              {t(tab)}
             </button>
           ))}
         </div>
@@ -275,13 +262,13 @@ export function VisitBuilderView({ variant = "visits" }: { variant?: "visits" | 
       <section className="bg-white shadow">
         <div className="flex flex-wrap items-center gap-4 border-b border-slate-200 px-5 py-4">
           <button type="button" onClick={saveReport} className="inline-flex items-center gap-2 rounded-md bg-[#5470e8] px-5 py-3 font-semibold text-white">
-            <Bookmark className="h-5 w-5 fill-white" /> Сохранить
+            <Bookmark className="h-5 w-5 fill-white" /> {t("Сохранить")}
           </button>
           <button type="button" onClick={() => setReportsOpen(true)} className="inline-flex items-center gap-2 rounded-md bg-[#ff806b] px-5 py-3 font-semibold text-white">
-            <FileBox className="h-5 w-5 fill-white" /> Отчеты
+            <FileBox className="h-5 w-5 fill-white" /> {t("Отчеты")}
           </button>
           <button type="button" onClick={downloadReport} className="inline-flex items-center gap-2 rounded-md bg-[#4db7af] px-5 py-3 font-semibold text-white">
-            <Download className="h-5 w-5" /> Скачать
+            <Download className="h-5 w-5" /> {t("Скачать")}
           </button>
           <div className="ml-auto flex flex-wrap items-center gap-5">
             <label className="flex items-center gap-2 text-sm font-semibold text-[#5470e8]">
@@ -290,17 +277,17 @@ export function VisitBuilderView({ variant = "visits" }: { variant?: "visits" | 
               <input type="date" value={to} min={from} onChange={(event) => setTo(event.target.value)} className="border-0 bg-transparent" />
             </label>
             <button type="button" onClick={() => setSettingsVisible((value) => !value)} className="rounded-md bg-[#5470e8] px-7 py-3 font-medium text-white shadow">
-              {settingsVisible ? "СКРЫТЬ НАСТРОЙКИ ▲" : "ПОКАЗАТЬ НАСТРОЙКИ ▼"}
+              {t(settingsVisible ? "СКРЫТЬ НАСТРОЙКИ ▲" : "ПОКАЗАТЬ НАСТРОЙКИ ▼")}
             </button>
-            <button type="button" disabled={invalid} onClick={() => { setReportReady(true); setMessage("Отчет успешно сформирован") }} className="rounded-md bg-green-500 px-7 py-3 font-medium text-white shadow disabled:opacity-50">
-              СФОРМИРОВАТЬ ОТЧЕТ
+            <button type="button" disabled={invalid} onClick={() => { setReportReady(true); setMessage(t("Отчет успешно сформирован")) }} className="rounded-md bg-green-500 px-7 py-3 font-medium text-white shadow disabled:opacity-50">
+              {t("СФОРМИРОВАТЬ ОТЧЕТ")}
             </button>
           </div>
         </div>
 
         {message && (
           <div className="flex items-center justify-between border-b border-blue-100 bg-blue-50 px-5 py-2 text-sm text-blue-700">
-            {message}<button type="button" onClick={() => setMessage("")} aria-label="Закрыть сообщение">×</button>
+            {message}<button type="button" onClick={() => setMessage("")} aria-label={t("Закрыть сообщение")}>×</button>
           </div>
         )}
 
@@ -310,10 +297,10 @@ export function VisitBuilderView({ variant = "visits" }: { variant?: "visits" | 
             <OptionColumn title="Вертикальная группировка" placeholder="Поиск вертикальных группировки..." query={verticalQuery} onQuery={setVerticalQuery} items={shownVertical} selected={verticalGroups} onToggle={(item) => toggle(item, setVerticalGroups)} />
             <OptionColumn title="Горизонтальная группировка" placeholder="Поиск горизонтальных группировки..." query={horizontalQuery} onQuery={setHorizontalQuery} items={shownHorizontal} selected={horizontalGroups} onToggle={(item) => toggle(item, setHorizontalGroups)} />
             <div className="p-6">
-              <h2 className="text-xl font-bold">Фильтр</h2>
+              <h2 className="text-xl font-bold">{t("Фильтр")}</h2>
               <label className="mt-3 flex items-center gap-3 font-semibold">
                 <input type="checkbox" checked={showTotals} onChange={(event) => setShowTotals(event.target.checked)} className="h-5 w-5 accent-slate-500" />
-                Показать итоги
+                {t("Показать итоги")}
               </label>
               {isSales ? salesFilters.map((label) => <FilterSelect key={label} label={label} value="" onChange={() => undefined} options={["Все", "Выбрано"]} />) : <>
                 <FilterSelect label="Пользователь" value={user} onChange={setUser} options={users} />
@@ -323,13 +310,13 @@ export function VisitBuilderView({ variant = "visits" }: { variant?: "visits" | 
               {extraFilters.map((filter, index) => (
                 <div key={index} className="mt-4 flex items-center gap-2">
                   <select value={filter} onChange={(event) => setExtraFilters((current) => current.map((item, itemIndex) => itemIndex === index ? event.target.value : item))} className="w-full border-b border-slate-300 bg-white py-2">
-                    <option value="">Индивидуальный фильтр</option><option>Магазин</option><option>Код магазина</option><option>Дата выполнения</option>
+                    <option value="">{t("Индивидуальный фильтр")}</option><option value="Магазин">{t("Магазин")}</option><option value="Код магазина">{t("Код магазина")}</option><option value="Дата выполнения">{t("Дата выполнения")}</option>
                   </select>
-                  <button type="button" onClick={() => setExtraFilters((current) => current.filter((_, itemIndex) => itemIndex !== index))} aria-label="Удалить фильтр"><span className="text-xl">×</span></button>
+                  <button type="button" onClick={() => setExtraFilters((current) => current.filter((_, itemIndex) => itemIndex !== index))} aria-label={t("Удалить фильтр")}><span className="text-xl">×</span></button>
                 </div>
               ))}
               <button type="button" onClick={() => setExtraFilters((current) => [...current, ""])} className="mt-5 w-full rounded-md bg-[#5470e8] px-4 py-3 font-medium text-white">
-                ДОБАВИТЬ ИНДИВИДУАЛЬНЫЙ ФИЛЬТР
+                {t("ДОБАВИТЬ ИНДИВИДУАЛЬНЫЙ ФИЛЬТР")}
               </button>
             </div>
           </div>
@@ -337,12 +324,12 @@ export function VisitBuilderView({ variant = "visits" }: { variant?: "visits" | 
 
         {reportReady && (
           <div className="overflow-x-auto p-6">
-            <h2 className="mb-4 text-xl font-bold">Сформированный отчет · {activeTab}</h2>
+            <h2 className="mb-4 text-xl font-bold">{t("Сформированный отчет")} · {t(activeTab)}</h2>
             <table className="w-full min-w-[720px] border-collapse">
-              <thead><tr className="bg-navy text-white">{[...verticalGroups, ...horizontalGroups, ...selectedColumns].map((item) => <th key={item} className="border border-white/20 px-4 py-3 text-left">{item}</th>)}</tr></thead>
+              <thead><tr className="bg-navy text-white">{[...verticalGroups, ...horizontalGroups, ...selectedColumns].map((item) => <th key={item} className="border border-white/20 px-4 py-3 text-left">{t(item)}</th>)}</tr></thead>
               <tbody>
-                <tr>{verticalGroups.map((item) => <td key={item} className="border px-4 py-3">{user || "Все пользователи"}</td>)}{horizontalGroups.map((item) => <td key={item} className="border px-4 py-3">{zone || "Все зоны"}</td>)}{selectedColumns.map((item, index) => <td key={item} className="border px-4 py-3 text-right">{index === 0 ? 104 : 0}</td>)}</tr>
-                {showTotals && <tr className="bg-slate-100 font-bold"><td colSpan={verticalGroups.length + horizontalGroups.length || 1} className="border px-4 py-3">Итого</td>{selectedColumns.map((item, index) => <td key={item} className="border px-4 py-3 text-right">{index === 0 ? 104 : 0}</td>)}</tr>}
+                <tr>{verticalGroups.map((item) => <td key={item} className="border px-4 py-3">{user || t("Все пользователи")}</td>)}{horizontalGroups.map((item) => <td key={item} className="border px-4 py-3">{zone || t("Все зоны")}</td>)}{selectedColumns.map((item, index) => <td key={item} className="border px-4 py-3 text-right">{index === 0 ? 104 : 0}</td>)}</tr>
+                {showTotals && <tr className="bg-slate-100 font-bold"><td colSpan={verticalGroups.length + horizontalGroups.length || 1} className="border px-4 py-3">{t("Итого")}</td>{selectedColumns.map((item, index) => <td key={item} className="border px-4 py-3 text-right">{index === 0 ? 104 : 0}</td>)}</tr>}
               </tbody>
             </table>
           </div>
@@ -357,8 +344,8 @@ export function VisitBuilderView({ variant = "visits" }: { variant?: "visits" | 
           className="fixed bottom-0 right-0 top-0 z-[100] flex w-[min(960px,calc(100vw-24px))] flex-col border-r-[7px] border-sky-500 bg-white shadow-2xl animate-in slide-in-from-right-full duration-200"
         >
           <header className="flex items-center justify-between border-b border-slate-200 px-10 py-6">
-            <h2 id="saved-reports-title" className="font-bold uppercase">Отчеты</h2>
-            <button type="button" onClick={() => setReportsOpen(false)} aria-label="Закрыть отчеты" className="rounded p-1 text-slate-500 hover:bg-slate-100">
+            <h2 id="saved-reports-title" className="font-bold uppercase">{t("Отчеты")}</h2>
+            <button type="button" onClick={() => setReportsOpen(false)} aria-label={t("Закрыть отчеты")} className="rounded p-1 text-slate-500 hover:bg-slate-100">
               <X className="h-7 w-7" />
             </button>
           </header>
@@ -368,20 +355,20 @@ export function VisitBuilderView({ variant = "visits" }: { variant?: "visits" | 
               <input
                 value={reportQuery}
                 onChange={(event) => setReportQuery(event.target.value)}
-                placeholder="Поиск таблицы..."
+                placeholder={t("Поиск таблицы...")}
                 className="w-full border-0 border-b border-slate-300 px-0 py-3 pr-10 outline-none focus:border-brand-blue"
               />
               <Search className="absolute right-2 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
             </label>
             <span className="ml-auto text-slate-500">
-              {filteredReports.length ? `1 - ${filteredReports.length} из ${filteredReports.length}` : "0 из 0"}
+              {filteredReports.length ? `1 - ${filteredReports.length} ${t("из")} ${filteredReports.length}` : `0 ${t("из")} 0`}
             </span>
             <button type="button" disabled className="rounded-full border-2 border-slate-300 p-1 text-slate-300"><ChevronDown className="h-4 w-4 rotate-90" /></button>
             <button type="button" disabled className="rounded-full border-2 border-slate-300 p-1 text-slate-300"><ChevronDown className="h-4 w-4 -rotate-90" /></button>
           </div>
 
           <div className="grid grid-cols-[72px_minmax(180px,1fr)_minmax(230px,1.4fr)_140px] border-b border-dashed border-slate-300 px-10 py-5 font-bold">
-            <span>№</span><span>Название</span><span>Модель</span><span />
+            <span>{t("№")}</span><span>{t("Название")}</span><span>{t("Модель")}</span><span />
           </div>
 
           <div className="flex-1 overflow-y-auto">
@@ -405,16 +392,16 @@ export function VisitBuilderView({ variant = "visits" }: { variant?: "visits" | 
                 ) : (
                   <button type="button" onClick={() => loadSavedReport(report)} className="pr-3 text-left">{report.name}</button>
                 )}
-                <button type="button" onClick={() => loadSavedReport(report)} className="pr-3 text-left">{report.model}</button>
+                <button type="button" onClick={() => loadSavedReport(report)} className="pr-3 text-left">{t(report.model)}</button>
                 <div className="flex gap-4 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
-                  <button type="button" onClick={() => setEditingReportId(report.id)} aria-label={`Изменить ${report.name}`}><Pencil className="h-5 w-5 text-slate-600" /></button>
-                  <button type="button" onClick={() => deleteReport(report.id)} aria-label={`Удалить ${report.name}`}><Trash2 className="h-5 w-5 text-slate-600" /></button>
-                  <button type="button" onClick={() => shareReport(report)} aria-label={`Поделиться ${report.name}`}><Users className="h-5 w-5 text-slate-600" /></button>
+                  <button type="button" onClick={() => setEditingReportId(report.id)} aria-label={`${t("Изменить")} ${report.name}`}><Pencil className="h-5 w-5 text-slate-600" /></button>
+                  <button type="button" onClick={() => deleteReport(report.id)} aria-label={`${t("Удалить")} ${report.name}`}><Trash2 className="h-5 w-5 text-slate-600" /></button>
+                  <button type="button" onClick={() => shareReport(report)} aria-label={`${t("Поделиться")} ${report.name}`}><Users className="h-5 w-5 text-slate-600" /></button>
                 </div>
               </div>
             ))}
             {filteredReports.length === 0 && (
-              <p className="px-10 py-12 text-center text-slate-400">Отчеты не найдены</p>
+              <p className="px-10 py-12 text-center text-slate-400">{t("Отчеты не найдены")}</p>
             )}
           </div>
         </aside>
@@ -424,18 +411,19 @@ export function VisitBuilderView({ variant = "visits" }: { variant?: "visits" | 
 }
 
 function OptionColumn({ title, placeholder, query, onQuery, items, selected, onToggle, info = false }: { title: string; placeholder: string; query: string; onQuery: (value: string) => void; items: string[]; selected: string[]; onToggle: (item: string) => void; info?: boolean }) {
+  const { t } = useLanguage()
   return (
     <div className="p-6">
-      <h2 className="text-xl font-bold">{title}</h2>
+      <h2 className="text-xl font-bold">{t(title)}</h2>
       <label className="relative mt-3 block">
-        <input value={query} onChange={(event) => onQuery(event.target.value)} placeholder={placeholder} className="w-full rounded border border-slate-300 bg-slate-50 px-3 py-3 pr-10 outline-none focus:border-brand-blue" />
+        <input value={query} onChange={(event) => onQuery(event.target.value)} placeholder={t(placeholder)} className="w-full rounded border border-slate-300 bg-slate-50 px-3 py-3 pr-10 outline-none focus:border-brand-blue" />
         <Search className="absolute right-3 top-1/2 h-6 w-6 -translate-y-1/2" />
       </label>
       <div className="mt-4 space-y-3">
         {items.map((item) => (
           <label key={item} className="flex cursor-pointer items-center gap-3 font-semibold">
             <input type="checkbox" checked={selected.includes(item)} onChange={() => onToggle(item)} className="h-5 w-5 accent-[#5470e8]" />
-            {item}
+            {t(item)}
             {info && ["Выполнение плана, %", "Strike Rate, %", "Отказано"].includes(item) && <Info className="h-5 w-5 text-slate-500" />}
           </label>
         ))}
@@ -445,12 +433,13 @@ function OptionColumn({ title, placeholder, query, onQuery, items, selected, onT
 }
 
 function FilterSelect({ label, value, onChange, options }: { label: string; value: string; onChange: (value: string) => void; options: string[] }) {
+  const { t } = useLanguage()
   return (
     <label className="relative mt-9 block">
-      <span className="sr-only">{label}</span>
+      <span className="sr-only">{t(label)}</span>
       <select value={value} onChange={(event) => onChange(event.target.value)} className="w-full appearance-none border-0 border-b border-slate-300 bg-white py-3 pr-8 text-base outline-none">
-        <option value="">{label}</option>
-        {options.map((option, index) => <option key={`${option}-${index}`} value={option}>{option}</option>)}
+        <option value="">{t(label)}</option>
+        {options.map((option, index) => <option key={`${option}-${index}`} value={option}>{t(option)}</option>)}
       </select>
       <ChevronDown className="pointer-events-none absolute right-1 top-3 h-5 w-5 text-slate-400" />
     </label>

@@ -6,5 +6,5 @@ import { listSupplierPayments } from "@/lib/supplier-payments-repo"
 export async function GET() {
   const user = await getCurrentUser()
   if (!user) return NextResponse.json({ error: "Tizimga kirilmagan" }, { status: 401 })
-  return NextResponse.json(listSupplierPayments())
+  return NextResponse.json((await listSupplierPayments()))
 }

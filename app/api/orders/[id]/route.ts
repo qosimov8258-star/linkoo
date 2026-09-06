@@ -1,57 +1,52 @@
 import { NextRequest, NextResponse } from "next/server"
+import { z } from "zod"
 
 import { getCurrentUser } from "@/lib/current-user"
+import { requireRole } from "@/lib/rbac"
+import { parseJsonBody } from "@/lib/validation"
 import { getOrder, updateOrder, type OrderPatch } from "@/lib/orders-repo"
 
 type RouteParams = { params: Promise<{ id: string }> }
 
-const STRING_FIELDS = ["client", "zone", "type", "product", "created", "delivery", "agent", "amount", "balance", "status", "discount"] as const
-
-function parseOrderPatch(body: unknown): OrderPatch | null {
-  if (!body || typeof body !== "object") return null
-  const value = body as Record<string, unknown>
-  const patch: OrderPatch = {}
-
-  for (const field of STRING_FIELDS) {
-    if (field in value && typeof value[field] === "string") {
-      patch[field] = value[field] as string
-    }
-  }
-  if ("negative" in value && typeof value.negative === "boolean") {
-    patch.negative = value.negative
-  }
-
-  return Object.keys(patch).length > 0 ? patch : null
-}
+const orderPatchSchema = z.object({
+  client: z.string().optional(),
+  zone: z.string().optional(),
+  type: z.string().optional(),
+  product: z.string().optional(),
+  created: z.string().optional(),
+  delivery: z.string().optional(),
+  agent: z.string().optional(),
+  amount: z.string().optional(),
+  balance: z.string().optional(),
+  status: z.string().optional(),
+  discount: z.string().optional(),
+  negative: z.boolean().optional(),
+})
 
 export async function GET(_request: NextRequest, { params }: RouteParams) {
   const user = await getCurrentUser()
   if (!user) return NextResponse.json({ error: "Tizimga kirilmagan" }, { status: 401 })
 
   const id = Number((await params).id)
-  const order = getOrder(id)
+  const order = (await getOrder(id))
   if (!order) return NextResponse.json({ error: "Заказ не найден" }, { status: 404 })
   return NextResponse.json(order)
 }
 
 export async function PATCH(request: NextRequest, { params }: RouteParams) {
-  const user = await getCurrentUser()
-  if (!user) return NextResponse.json({ error: "Tizimga kirilmagan" }, { status: 401 })
+  const auth = await requireRole("manager")
+  if ("error" in auth) return auth.error
 
   const id = Number((await params).id)
-  let body: unknown
-  try {
-    body = await request.json()
-  } catch {
-    return NextResponse.json({ error: "Noto'g'ri so'rov" }, { status: 400 })
-  }
+  const parsed = await parseJsonBody(request, orderPatchSchema)
+  if (parsed.error) return parsed.error
 
-  const patch = parseOrderPatch(body)
-  if (!patch) {
+  const patch = Object.fromEntries(Object.entries(parsed.data).filter(([, value]) => value !== undefined)) as OrderPatch
+  if (Object.keys(patch).length === 0) {
     return NextResponse.json({ error: "Нет данных для обновления" }, { status: 400 })
   }
 
-  const order = updateOrder(id, patch)
+  const order = (await updateOrder(id, patch))
   if (!order) return NextResponse.json({ error: "Заказ не найден" }, { status: 404 })
   return NextResponse.json(order)
 }

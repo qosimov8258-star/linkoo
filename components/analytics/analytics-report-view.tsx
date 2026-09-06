@@ -52,10 +52,6 @@ function createDefaultFilters(): Filters {
   }
 }
 
-function hashText(value: string) {
-  return Array.from(value).reduce((hash, character) => (hash * 31 + character.charCodeAt(0)) >>> 0, 7)
-}
-
 function formatNumber(value: number) {
   return new Intl.NumberFormat("ru-RU").format(Math.round(value))
 }
@@ -86,72 +82,22 @@ export function AnalyticsReportView({ report }: { report: AnalyticsReport }) {
     setFavorite(window.localStorage.getItem(`analytics-favorite:${report.slug}`) === "true")
   }, [report.slug])
 
-  const branchFactor = filters.branch === "Все филиалы" ? 1 : 0.38 + branches.indexOf(filters.branch) * 0.07
-  const seed = hashText(`${report.slug}:${filters.from}:${filters.to}:${filters.branch}`)
-
-  const rows = useMemo<ReportRow[]>(() => {
-    const visitNames = [
-      "Александр Иванов",
-      "Азиз Рахимов",
-      "Дилшод Каримов",
-      "Мария Петрова",
-      "Сардор Юсупов",
-      "Нодира Алиева",
-      "Руслан Ахмедов",
-      "Камилла Усманова",
-    ]
-    const salesNames = [
-      "Ташкент — Центр",
-      "Ташкент — Юг",
-      "Самарканд",
-      "Фергана",
-      "Андижан",
-      "Бухара",
-      "Наманган",
-      "Карши",
-    ]
-    const toolNames = [
-      "Супермаркеты",
-      "Мини-маркеты",
-      "Аптеки",
-      "HoReCa",
-      "Оптовые клиенты",
-      "Розничные точки",
-      "Новые клиенты",
-      "Ключевые клиенты",
-    ]
-    const names = report.group === "visits" ? visitNames : report.group === "sales" ? salesNames : toolNames
-
-    return names.map((name, index) => {
-      const base = 72 + ((seed + index * 37) % 83)
-      const plan = Math.round((base + 24 + (index % 3) * 9) * branchFactor)
-      const actual = Math.max(1, Math.round(plan * (0.72 + ((seed + index * 19) % 37) / 100)))
-      const primary = report.group === "sales" ? actual * (920000 + ((seed + index * 11) % 28) * 50000) : actual
-
-      return {
-        name,
-        primary,
-        plan,
-        completion: Math.round((actual / plan) * 100),
-        change: ((seed + index * 13) % 23) - 7,
-      }
-    })
-  }, [branchFactor, report.group, seed])
+  const rows = useMemo<ReportRow[]>(() => [], [])
 
   const series = useMemo(
     () =>
       Array.from({ length: period }, (_, index) => ({
         label: String(index + 1),
-        value: 42 + ((seed + index * 29 + Math.floor(index / 3) * 17) % 57),
+        value: 0,
       })),
-    [period, seed],
+    [period],
   )
 
   const totals = useMemo(() => {
     const primary = rows.reduce((sum, row) => sum + row.primary, 0)
     const plan = rows.reduce((sum, row) => sum + row.plan, 0)
-    const completion = Math.round(rows.reduce((sum, row) => sum + row.completion, 0) / rows.length)
-    const change = Math.round(rows.reduce((sum, row) => sum + row.change, 0) / rows.length)
+    const completion = rows.length ? Math.round(rows.reduce((sum, row) => sum + row.completion, 0) / rows.length) : 0
+    const change = rows.length ? Math.round(rows.reduce((sum, row) => sum + row.change, 0) / rows.length) : 0
     return { primary, plan, completion, change }
   }, [rows])
 

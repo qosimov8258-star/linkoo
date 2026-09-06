@@ -2,7 +2,8 @@
 
 import { useState } from "react"
 import { useRouter } from "next/navigation"
-import { Star } from "lucide-react"
+import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
+import { useLanguage } from "@/lib/i18n/language-context"
 
 const tabs = ["ВИДЖЕТЫ", "KPI", "БАЛАНС", "ОХВАТ", "ФИЛИАЛ", "P&L", "ДОЛГ КЛИЕНТОВ", "ПРОДАЖА", "ГИБКИЙ ДАШБОРД"]
 const tabHref: Partial<Record<string, string>> = {
@@ -17,22 +18,16 @@ const tabHref: Partial<Record<string, string>> = {
 }
 
 export function WidgetTabs() {
+  const { t } = useLanguage()
   const router = useRouter()
   const [activeTab, setActiveTab] = useState("ВИДЖЕТЫ")
-  const [favorite, setFavorite] = useState(true)
 
   return (
     <div className="flex items-center gap-6 px-6 pt-4">
       <div className="flex items-center gap-4">
-        <button
-          onClick={() => setFavorite((f) => !f)}
-          className="flex items-center gap-2 text-lg font-bold text-link"
-        >
-          <Star className={`h-5 w-5 ${favorite ? "fill-current" : ""}`} />
-          Избранные
-        </button>
+        <FavoritesButton className="flex items-center gap-2 text-lg font-bold text-link" />
         <span className="text-slate-300">|</span>
-        <span className="text-lg font-bold text-slate-700">Виджеты</span>
+        <span className="text-lg font-bold text-slate-700">{t("Виджеты")}</span>
       </div>
 
       <div className="flex flex-1 items-center gap-2 overflow-hidden">
@@ -46,7 +41,7 @@ export function WidgetTabs() {
                 : "text-slate-600 hover:bg-slate-100"
             }`}
           >
-            {tab}
+            {t(tab)}
           </button>
         ))}
       </div>

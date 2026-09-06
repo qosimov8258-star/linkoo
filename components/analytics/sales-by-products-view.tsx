@@ -1,13 +1,63 @@
 "use client"
 
-import { FormEvent, useMemo, useState } from "react"
-import { Download, Expand, ListFilter, Search, Star, X } from "lucide-react"
+import { FormEvent, useEffect, useMemo, useState } from "react"
+import { Download, Expand, ListFilter, Search, X } from "lucide-react"
+import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
+import type { OrderItemWithOrder } from "@/lib/order-items-repo"
 
-const products = [
-  { name: "sndwch", unit: "sht", saleQty: 22, saleSum: 220000, returnQty: 2, returnSum: 20000 },
-  { name: "Apple Juice", unit: "sht", saleQty: 8, saleSum: 96000, returnQty: 0, returnSum: 0 },
-  { name: "Aqua de lux", unit: "sht", saleQty: 14, saleSum: 154000, returnQty: 1, returnSum: 11000 },
-]
+type ProductRow = { name: string; unit: string; saleQty: number; saleSum: number; returnQty: number; returnSum: number }
+
+// "orderCreated" comes back as either an ISO date ("2026-08-02") from seeded/legacy orders
+// or a Russian day+month string with no year ("06 сент. 14:23") from orders created via the UI.
+// Parse defensively; unparseable values are treated as "in range" so real rows never get
+// silently dropped because of a date-format surprise.
+function parseOrderCreatedDate(value: string): Date | null {
+  if (!value) return null
+  const iso = value.match(/^(\d{4})-(\d{2})-(\d{2})/)
+  if (iso) {
+    const date = new Date(Number(iso[1]), Number(iso[2]) - 1, Number(iso[3]))
+    return Number.isNaN(date.getTime()) ? null : date
+  }
+  const ru = value.match(/(\d{1,2})\s+([а-яё]+)\.?/i)
+  if (ru) {
+    const monthNames = ["янв", "февр", "мар", "апр", "мая", "июня", "июля", "авг", "сент", "окт", "нояб", "дек"]
+    const monthIndex = monthNames.indexOf(ru[2].toLowerCase())
+    if (monthIndex >= 0) {
+      const yearMatch = value.match(/(\d{4})/)
+      const year = yearMatch ? Number(yearMatch[1]) : new Date().getFullYear()
+      const date = new Date(year, monthIndex, Number(ru[1]))
+      return Number.isNaN(date.getTime()) ? null : date
+    }
+  }
+  return null
+}
+
+function isWithinRange(value: string, fromIso: string, toIso: string): boolean {
+  const date = parseOrderCreatedDate(value)
+  if (!date) return true
+  const from = new Date(`${fromIso}T00:00:00`)
+  const to = new Date(`${toIso}T23:59:59`)
+  return date.getTime() >= from.getTime() && date.getTime() <= to.getTime()
+}
+
+const isReturnItem = (item: OrderItemWithOrder) => item.orderType === "Возврат"
+
+function buildProductRows(items: OrderItemWithOrder[]): ProductRow[] {
+  const map = new Map<string, ProductRow>()
+  for (const item of items) {
+    const key = item.productName || "—"
+    const row = map.get(key) ?? { name: key, unit: item.unit || "шт.", saleQty: 0, saleSum: 0, returnQty: 0, returnSum: 0 }
+    if (isReturnItem(item)) {
+      row.returnQty += item.quantity
+      row.returnSum += item.lineTotal
+    } else {
+      row.saleQty += item.quantity
+      row.saleSum += item.lineTotal
+    }
+    map.set(key, row)
+  }
+  return Array.from(map.values()).sort((a, b) => b.saleSum - a.saleSum)
+}
 
 const options = {
   branch: ["Все филиалы", "777", "878", "Andijon", "AURUM samarqand"],
@@ -34,7 +84,6 @@ export function SalesByProductsView() {
     const date = new Date()
     return iso(new Date(date.getFullYear(), date.getMonth(), 1))
   }, [])
-  const [favorite, setFavorite] = useState(false)
   const [filterOpen, setFilterOpen] = useState(false)
   const [fullscreen, setFullscreen] = useState(false)
   const [query, setQuery] = useState("")
@@ -49,15 +98,47 @@ export function SalesByProductsView() {
     Object.fromEntries(Object.entries(options).map(([key, values]) => [key, values[0]])) as Record<FilterKey, string>,
   )
 
+  const [items, setItems] = useState<OrderItemWithOrder[]>([])
+  const [itemsLoading, setItemsLoading] = useState(true)
+  const [itemsError, setItemsError] = useState("")
+
+  useEffect(() => {
+    let cancelled = false
+    setItemsLoading(true)
+    fetch("/api/order-items")
+      .then(async (response) => {
+        if (!response.ok) throw new Error("Не удалось загрузить данные")
+        return (await response.json()) as OrderItemWithOrder[]
+      })
+      .then((data) => {
+        if (cancelled) return
+        setItems(data)
+        setItemsError("")
+      })
+      .catch(() => {
+        if (!cancelled) setItemsError("Не удалось загрузить данные с сервера")
+      })
+      .finally(() => {
+        if (!cancelled) setItemsLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  // Only the "created date" report mode has a real date dimension to filter on
+  // (orderCreated). "profit" mode toggles a formerly-fake ×0.95 multiplier that has
+  // been removed — this table has no separate profit column, so both modes now show
+  // the same real figures; the button stays in place but is cosmetic.
+  const products = useMemo(() => {
+    const dateFiltered = mode === "created" ? items.filter((item) => isWithinRange(item.orderCreated, from, to)) : items
+    return buildProductRows(dateFiltered)
+  }, [items, mode, from, to])
+
   const rows = useMemo(() => {
     const term = query.trim().toLowerCase()
-    return products
-      .filter((row) => !term || row.name.toLowerCase().includes(term))
-      .map((row) => {
-        const factor = reportMode === "created" ? 1 : 0.95
-        return { ...row, saleSum: Math.round(row.saleSum * factor) }
-      })
-  }, [query, reportMode])
+    return products.filter((row) => !term || row.name.toLowerCase().includes(term))
+  }, [query, products])
   const totals = rows.reduce(
     (sum, row) => ({
       saleQty: sum.saleQty + row.saleQty,
@@ -93,10 +174,7 @@ export function SalesByProductsView() {
   return (
     <main className="min-h-[calc(100vh-4rem)] bg-slate-100">
       <header className="flex items-center gap-3 border-b px-5 py-4 text-xl font-bold sm:px-10 sm:text-2xl">
-        <button type="button" onClick={() => setFavorite(!favorite)} className="flex items-center gap-2 text-[#5470e8]">
-          <Star className={`h-6 w-6 ${favorite ? "fill-amber-400 text-amber-400" : "fill-slate-600 text-slate-600"}`} />
-          Избранные
-        </button>
+        <FavoritesButton className="flex items-center gap-2 text-[#5470e8]" />
         <span className="text-slate-500">|</span>
         <h1 className="text-slate-600">Прибыль от товаров</h1>
       </header>
@@ -143,7 +221,13 @@ export function SalesByProductsView() {
           </div>
         </div>
 
-        <ProductTable rows={rows.slice(0, pageSize)} bonus={bonus} />
+        {itemsLoading ? (
+          <p className="px-3 py-16 text-center text-slate-400">Загрузка...</p>
+        ) : itemsError ? (
+          <p className="px-3 py-16 text-center text-red-600">{itemsError}</p>
+        ) : (
+          <ProductTable rows={rows.slice(0, pageSize)} bonus={bonus} />
+        )}
       </section>
 
       {filterOpen && (
@@ -167,8 +251,8 @@ export function SalesByProductsView() {
   )
 }
 
-function ProductTable({ rows, bonus }: { rows: typeof products; bonus: boolean }) {
-  return <div className="overflow-x-auto"><table className="min-w-[1400px] w-full border-collapse text-sm"><thead><tr className="bg-slate-100 text-slate-700"><th colSpan={2} /><Group title="Продажа" /><Group title="Возврат в этом периоде" /><Group title="Фактическая продажа" /><Group title="Скидки" /><Group title="Бонус" /></tr><tr className="bg-slate-100">{["Товар","Ед. измер","Кол-во","Сумма","Кол-во","Сумма","Кол-во","Сумма","Кол-во","Сумма","Кол-во","Сумма"].map((item, i) => <th key={`${item}-${i}`} className="border px-3 py-3">{item}</th>)}</tr></thead><tbody>{rows.map((row) => { const cells = [row.name,row.unit,row.saleQty,row.saleSum,row.returnQty,row.returnSum,row.saleQty-row.returnQty,row.saleSum-row.returnSum,0,0,bonus ? 1 : 0,bonus ? 5000 : 0]; return <tr key={row.name}>{cells.map((cell, i) => <td key={i} className={`border px-2 py-3 ${i > 1 && Number(cell) > 0 ? "text-green-600" : ""}`}>{typeof cell === "number" ? cell.toLocaleString("ru-RU") : cell}</td>)}</tr>})}</tbody></table></div>
+function ProductTable({ rows, bonus }: { rows: ProductRow[]; bonus: boolean }) {
+  return <div className="overflow-x-auto"><table className="min-w-[1400px] w-full border-collapse text-sm"><thead><tr className="bg-slate-100 text-slate-700"><th colSpan={2} /><Group title="Продажа" /><Group title="Возврат в этом периоде" /><Group title="Фактическая продажа" /><Group title="Скидки" /><Group title="Бонус" /></tr><tr className="bg-slate-100">{["Товар","Ед. измер","Кол-во","Сумма","Кол-во","Сумма","Кол-во","Сумма","Кол-во","Сумма","Кол-во","Сумма"].map((item, i) => <th key={`${item}-${i}`} className="border px-3 py-3">{item}</th>)}</tr></thead><tbody>{rows.length === 0 ? <tr><td colSpan={12} className="border px-3 py-16 text-center text-slate-400">Нет данных за выбранный период</td></tr> : rows.map((row) => { const cells = [row.name,row.unit,row.saleQty,row.saleSum,row.returnQty,row.returnSum,row.saleQty-row.returnQty,row.saleSum-row.returnSum,0,0,bonus ? 1 : 0,bonus ? 5000 : 0]; return <tr key={row.name}>{cells.map((cell, i) => <td key={i} className={`border px-2 py-3 ${i > 1 && Number(cell) > 0 ? "text-green-600" : ""}`}>{typeof cell === "number" ? cell.toLocaleString("ru-RU") : cell}</td>)}</tr>})}</tbody></table></div>
 }
 function Group({ title }: { title: string }) { return <th colSpan={2} className="border px-3 py-3">{title}</th> }
 function Summary({ label, sum, qty, right = false }: { label: string; sum: number; qty: number; right?: boolean }) { return <div className={`border px-5 py-3 ${right ? "text-right" : ""}`}><p className="text-slate-500">{label}</p><strong className="text-xl text-[#6ccd8b]">{sum.toLocaleString("ru-RU")} SUM <small className="text-base text-slate-700">({qty} шт)</small></strong></div> }

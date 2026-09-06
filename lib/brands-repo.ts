@@ -33,37 +33,37 @@ export function parseBrandInput(body: unknown): BrandInput | null {
   return { name, organization, photoUrl }
 }
 
-export function listBrands(): Brand[] {
+export async function listBrands(): Promise<Brand[]> {
   const db = getDb()
-  const rows = db.prepare("SELECT * FROM brands ORDER BY id DESC").all() as Row[]
+  const rows = (await db.prepare("SELECT * FROM brands ORDER BY id DESC").all()) as Row[]
   return rows.map(rowToBrand)
 }
 
-export function getBrand(id: number): Brand | null {
+export async function getBrand(id: number): Promise<Brand | null> {
   const db = getDb()
-  const row = db.prepare("SELECT * FROM brands WHERE id = ?").get(id) as Row | undefined
+  const row = (await db.prepare("SELECT * FROM brands WHERE id = ?").get(id)) as Row | undefined
   return row ? rowToBrand(row) : null
 }
 
-export function createBrand(input: BrandInput): Brand {
+export async function createBrand(input: BrandInput): Promise<Brand> {
   const db = getDb()
-  const result = db
-    .prepare("INSERT INTO brands (name, organization, photo_url) VALUES (@name, @organization, @photoUrl)")
-    .run({ name: input.name, organization: input.organization, photoUrl: input.photoUrl })
-  return getBrand(Number(result.lastInsertRowid))!
+  const result = (await db
+      .prepare("INSERT INTO brands (name, organization, photo_url) VALUES (@name, @organization, @photoUrl)")
+      .run({ name: input.name, organization: input.organization, photoUrl: input.photoUrl }))
+  return (await getBrand(Number(result.lastInsertRowid)))!
 }
 
-export function updateBrand(id: number, input: BrandInput): Brand | null {
-  if (!getBrand(id)) return null
+export async function updateBrand(id: number, input: BrandInput): Promise<Brand | null> {
+  if (!(await getBrand(id))) return null
   const db = getDb()
-  db.prepare(
-    "UPDATE brands SET name = @name, organization = @organization, photo_url = @photoUrl, updated_at = datetime('now') WHERE id = @id",
-  ).run({ id, name: input.name, organization: input.organization, photoUrl: input.photoUrl })
-  return getBrand(id)
+  await db.prepare(
+        "UPDATE brands SET name = @name, organization = @organization, photo_url = @photoUrl, updated_at = datetime('now') WHERE id = @id",
+      ).run({ id, name: input.name, organization: input.organization, photoUrl: input.photoUrl })
+  return (await getBrand(id))
 }
 
-export function deleteBrand(id: number): boolean {
+export async function deleteBrand(id: number): Promise<boolean> {
   const db = getDb()
-  const result = db.prepare("DELETE FROM brands WHERE id = ?").run(id)
+  const result = (await db.prepare("DELETE FROM brands WHERE id = ?").run(id))
   return result.changes > 0
 }

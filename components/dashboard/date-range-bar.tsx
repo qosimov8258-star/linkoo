@@ -1,88 +1,93 @@
 "use client"
 
-import { useState } from "react"
-import { User } from "lucide-react"
+import { useEffect, useState } from "react"
+import { SlidersHorizontal, User } from "lucide-react"
+import type { PeriodKey } from "@/lib/dashboard-date-range"
+import { useLanguage } from "@/lib/i18n/language-context"
+import { WidgetsPanel } from "./widgets-panel"
 
-const MONTHS = [
-  "Января",
-  "Февраля",
-  "Марта",
-  "Апреля",
-  "Мая",
-  "Июня",
-  "Июля",
-  "Августа",
-  "Сентября",
-  "Октября",
-  "Ноября",
-  "Декабря",
-]
+const rangeButtons: PeriodKey[] = ["СЕГОДНЯ", "ВЧЕРА", "ПОСЛ. 7", "МЕСЯЦ", "СВОЯ"]
 
-function fmt(date: Date) {
-  return `${String(date.getDate()).padStart(2, "0")} ${MONTHS[date.getMonth()]} ${date.getFullYear()}`
-}
+export function DateRangeBar({
+  period,
+  onPeriodChange,
+  label,
+  selectedWidgets,
+  onWidgetsChange,
+}: {
+  period: PeriodKey
+  onPeriodChange: (period: PeriodKey) => void
+  label: string
+  selectedWidgets: string[]
+  onWidgetsChange: (keys: string[]) => void
+}) {
+  const { t } = useLanguage()
+  const [displayName, setDisplayName] = useState("admin")
+  const [widgetsOpen, setWidgetsOpen] = useState(false)
 
-// Fixed reference date to match the mockup (July 2026)
-const REFERENCE = new Date(2026, 6, 31)
-
-function computeRange(key: string): string {
-  const end = new Date(REFERENCE)
-  switch (key) {
-    case "СЕГОДНЯ": {
-      return fmt(end)
+  useEffect(() => {
+    let cancelled = false
+    fetch("/api/auth/me")
+      .then((response) => (response.ok ? response.json() : null))
+      .then((data: { displayName?: string } | null) => {
+        if (!cancelled && data?.displayName) setDisplayName(data.displayName)
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
     }
-    case "ВЧЕРА": {
-      const y = new Date(end)
-      y.setDate(y.getDate() - 1)
-      return fmt(y)
-    }
-    case "ПОСЛ. 7": {
-      const start = new Date(end)
-      start.setDate(start.getDate() - 6)
-      return `${fmt(start)} - ${fmt(end)}`
-    }
-    case "МЕСЯЦ":
-    default: {
-      const start = new Date(end.getFullYear(), end.getMonth(), 1)
-      const last = new Date(end.getFullYear(), end.getMonth() + 1, 0)
-      return `${fmt(start)} - ${fmt(last)}`
-    }
-  }
-}
-
-const rangeButtons = ["СЕГОДНЯ", "ВЧЕРА", "ПОСЛ. 7", "МЕСЯЦ"]
-
-export function DateRangeBar() {
-  const [active, setActive] = useState("МЕСЯЦ")
+  }, [])
 
   return (
-    <div className="mx-6 mt-4 flex flex-wrap items-center justify-between gap-4 rounded-lg bg-white px-6 py-4 shadow-sm">
-      <div className="flex items-center gap-3">
-        <span className="flex h-11 w-11 items-center justify-center overflow-hidden rounded-full bg-slate-100">
-          <User className="h-7 w-7 text-slate-400" />
+    <div className="mx-6 mt-4 flex flex-wrap items-center justify-between gap-2.5 rounded-[2px] bg-white px-[30px] py-5 shadow-sm">
+      <div className="flex items-center gap-2.5">
+        <span className="flex h-[30px] w-[30px] items-center justify-center overflow-hidden rounded-full bg-slate-100">
+          <User className="h-[18px] w-[18px] text-slate-400" />
         </span>
-        <div className="flex items-baseline gap-2">
-          <span className="text-xl font-bold text-slate-700">Admin Ritm</span>
-          <span className="text-sm text-slate-400">Сервер: (https://time3.linko.uz)</span>
+        <div className="flex items-center gap-[5px]">
+          <span className="text-base font-semibold text-[#333333]">{displayName}</span>
+          <span className="text-xs font-semibold text-[#999999]">{t("Сервер: (https://time3.linko.uz)")}</span>
         </div>
       </div>
 
-      <div className="flex flex-wrap items-center gap-4">
-        <span className="text-base font-bold text-link">{computeRange(active)}</span>
-        <div className="flex items-center gap-1 rounded-md">
-          {rangeButtons.map((label) => (
+      <div className="flex flex-wrap items-center gap-2.5">
+        <span className="mr-[5px] text-[13px] font-bold text-[#4f71dc]">{label}</span>
+        <div className="flex items-center">
+          {rangeButtons.map((btn) => (
             <button
-              key={label}
-              onClick={() => setActive(label)}
-              className={`rounded-md px-4 py-2.5 text-sm font-bold transition-colors ${
-                label === active
-                  ? "bg-brand-blue text-white"
-                  : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+              key={btn}
+              onClick={() => onPeriodChange(btn)}
+              className={`h-8 rounded-[5px] px-4 text-[13px] font-normal transition-colors ${
+                btn === period
+                  ? "bg-[#4f71dc] text-white shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]"
+                  : "bg-white text-black shadow-[inset_0_0_2px_rgba(0,0,0,0.12)] hover:bg-slate-50"
               }`}
             >
-              {label}
+              {t(btn)}
             </button>
           ))}
+        </div>
+
+        <div className="relative">
+          <button
+            type="button"
+            onClick={() => setWidgetsOpen((open) => !open)}
+            aria-expanded={widgetsOpen}
+            className="flex h-9 items-center gap-2 rounded-[5px] bg-[#4f71dc] pl-3 pr-4 text-[13px] font-semibold text-white transition-colors hover:brightness-95"
+          >
+            <SlidersHorizontal className="h-[18px] w-[18px]" />
+            {t("Виджеты")}
+          </button>
+          {widgetsOpen && (
+            <WidgetsPanel
+              selected={selectedWidgets}
+              onClose={() => setWidgetsOpen(false)}
+              onSave={(keys) => {
+                onWidgetsChange(keys)
+                setWidgetsOpen(false)
+              }}
+            />
+          )}
         </div>
       </div>
     </div>

@@ -1,10 +1,17 @@
 "use client"
 
 import { FormEvent, useEffect, useMemo, useState } from "react"
-import { ChevronRight, Download, PlusCircle, Star, X } from "lucide-react"
+import { Download, PlusCircle, X } from "lucide-react"
 import { downloadExcelTable } from "@/lib/excel-export"
+import { DashboardDialog } from "./dashboard-dialog"
+import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
 
-const agents = ["Admin Ritm", "Samandar Abdurahmonov"]
+type AgentRoute = {
+  agent: string
+  routeDate: string
+  routeVisited: number
+  outsideVisited: number
+}
 
 function inputDate(date: Date) {
   const year = date.getFullYear()
@@ -18,30 +25,49 @@ function monthStart() {
   return inputDate(new Date(today.getFullYear(), today.getMonth(), 1))
 }
 
-function downloadVisitsCsv(days: number[]) {
-  const rows = [
-    ["Агент", ...days.map(String)],
-    ...agents.map((agent, agentIndex) => [
-      agent,
-      ...days.map((day) => (agentIndex === 1 && day === 12 ? "1" : "0")),
-    ]),
-  ]
-  downloadExcelTable("visits-by-day.xls", rows)
-}
-
 export function VisitsByDayView() {
   const today = useMemo(() => inputDate(new Date()), [])
   const [draftFrom, setDraftFrom] = useState(monthStart)
   const [draftTo, setDraftTo] = useState(today)
   const [range, setRange] = useState({ from: monthStart(), to: today })
-  const [favorite, setFavorite] = useState(false)
   const [inDashboard, setInDashboard] = useState(false)
   const [dashboardOpen, setDashboardOpen] = useState(false)
-  const [favoritesOpen, setFavoritesOpen] = useState(false)
   const [visibility, setVisibility] = useState("all")
   const [dashboard, setDashboard] = useState("Основной дашборд")
+  const [routes, setRoutes] = useState<AgentRoute[]>([])
 
-  const overlayOpen = dashboardOpen || favoritesOpen
+  const overlayOpen = dashboardOpen
+
+  useEffect(() => {
+    let cancelled = false
+    fetch("/api/agent-routes")
+      .then((response) => (response.ok ? (response.json() as Promise<AgentRoute[]>) : Promise.reject()))
+      .then((data) => {
+        if (!cancelled) setRoutes(data)
+      })
+      .catch(() => {
+        if (!cancelled) setRoutes([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const agents = useMemo(() => Array.from(new Set(routes.map((route) => route.agent))).sort((a, b) => a.localeCompare(b, "ru")), [routes])
+
+  // Marks a day "visited" for an agent when that day's route row recorded any
+  // completed visit (on-route or off-route) — 1/0 matrix drawn straight from
+  // real agent_routes rows, not fabricated.
+  const visitedByAgentAndDay = useMemo(() => {
+    const map = new Map<string, Set<string>>()
+    for (const route of routes) {
+      if (route.routeVisited > 0 || route.outsideVisited > 0) {
+        if (!map.has(route.agent)) map.set(route.agent, new Set())
+        map.get(route.agent)!.add(route.routeDate)
+      }
+    }
+    return map
+  }, [routes])
 
   useEffect(() => {
     if (!overlayOpen) return
@@ -49,7 +75,6 @@ export function VisitsByDayView() {
     function closeOnEscape(event: KeyboardEvent) {
       if (event.key === "Escape") {
         setDashboardOpen(false)
-        setFavoritesOpen(false)
       }
     }
 
@@ -65,9 +90,9 @@ export function VisitsByDayView() {
   const days = useMemo(() => {
     const start = new Date(`${range.from}T00:00:00`)
     const end = new Date(`${range.to}T00:00:00`)
-    const result: number[] = []
+    const result: { day: number; iso: string }[] = []
     for (const date = start; date <= end && result.length < 31; date.setDate(date.getDate() + 1)) {
-      result.push(date.getDate())
+      result.push({ day: date.getDate(), iso: inputDate(date) })
     }
     return result
   }, [range])
@@ -77,19 +102,19 @@ export function VisitsByDayView() {
     if (draftFrom <= draftTo) setRange({ from: draftFrom, to: draftTo })
   }
 
+  function downloadVisitsCsv() {
+    const rows = [
+      ["Агент", ...days.map((day) => String(day.day))],
+      ...agents.map((agent) => [agent, ...days.map((day) => (visitedByAgentAndDay.get(agent)?.has(day.iso) ? "1" : "0"))]),
+    ]
+    downloadExcelTable("visits-by-day.xls", rows)
+  }
+
   return (
     <main className="min-h-[calc(100vh-4rem)] bg-slate-100">
       <header className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-300 bg-slate-100 px-5 py-4 sm:px-10">
         <div className="flex items-center gap-3 text-xl font-bold sm:text-2xl">
-          <button
-            type="button"
-            onClick={() => setFavoritesOpen(true)}
-            aria-pressed={favorite}
-            className="flex items-center gap-2 text-[#5470e8]"
-          >
-            <Star className={`h-6 w-6 text-slate-600 ${favorite ? "fill-amber-400 text-amber-400" : "fill-slate-600"}`} />
-            Избранные
-          </button>
+          <FavoritesButton className="flex items-center gap-2 text-[#5470e8]" />
           <span className="text-slate-500">|</span>
           <h1 className="text-slate-600">Визиты по дням</h1>
         </div>
@@ -97,7 +122,7 @@ export function VisitsByDayView() {
         <div className="flex flex-wrap gap-3">
           <button
             type="button"
-            onClick={() => downloadVisitsCsv(days)}
+            onClick={downloadVisitsCsv}
             className="inline-flex items-center gap-2 rounded-md bg-[#6ccd8b] px-5 py-2.5 font-semibold text-white hover:brightness-95"
           >
             <Download className="h-5 w-5" />
@@ -162,8 +187,8 @@ export function VisitsByDayView() {
               <tr className="bg-slate-50">
                 <th className="sticky left-0 z-20 w-[375px] min-w-[260px] border-b border-r border-slate-300 bg-slate-50 px-3 py-4" />
                 {days.map((day) => (
-                  <th key={day} className="h-14 w-[70px] min-w-[70px] border-b border-r border-slate-300 text-center font-medium">
-                    {day}
+                  <th key={day.iso} className="h-14 w-[70px] min-w-[70px] border-b border-r border-slate-300 text-center font-medium">
+                    {day.day}
                   </th>
                 ))}
               </tr>
@@ -172,7 +197,7 @@ export function VisitsByDayView() {
                   Агент
                 </th>
                 {days.map((day) => (
-                  <th key={day} className="h-14 border-b border-r border-slate-300 text-center font-semibold">
+                  <th key={day.iso} className="h-14 border-b border-r border-slate-300 text-center font-semibold">
                     Визит
                   </th>
                 ))}
@@ -185,12 +210,19 @@ export function VisitsByDayView() {
                     {agent}
                   </th>
                   {days.map((day) => (
-                    <td key={day} className="border-b border-r border-slate-300 px-2 py-4 text-right">
-                      {agentIndex === 1 && day === 12 ? 1 : 0}
+                    <td key={day.iso} className="border-b border-r border-slate-300 px-2 py-4 text-right">
+                      {visitedByAgentAndDay.get(agent)?.has(day.iso) ? 1 : 0}
                     </td>
                   ))}
                 </tr>
               ))}
+              {agents.length === 0 && (
+                <tr>
+                  <td colSpan={days.length + 1} className="border-b border-slate-300 px-3 py-10 text-center text-slate-400">
+                    Нет данных по маршрутам агентов
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>
@@ -200,123 +232,22 @@ export function VisitsByDayView() {
         <button
           type="button"
           aria-label="Окнони yopish"
-          onClick={() => {
-            setDashboardOpen(false)
-            setFavoritesOpen(false)
-          }}
+          onClick={() => setDashboardOpen(false)}
           className="fixed inset-0 z-[90] cursor-default bg-black/55"
         />
       )}
 
       {dashboardOpen && (
-        <section
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="dashboard-dialog-title"
-          className="fixed left-1/2 top-1/2 z-[100] flex h-[min(646px,calc(100vh-32px))] w-[min(750px,calc(100vw-32px))] -translate-x-1/2 -translate-y-1/2 flex-col bg-white shadow-2xl"
-        >
-          <header className="flex items-center justify-between border-b border-slate-200 px-9 py-7">
-            <h2 id="dashboard-dialog-title" className="text-lg font-bold uppercase text-slate-900">
-              Добавить в дашборд
-            </h2>
-            <button
-              type="button"
-              onClick={() => setDashboardOpen(false)}
-              aria-label="Закрыть"
-              className="rounded p-1 text-slate-500 hover:bg-slate-100"
-            >
-              <X className="h-7 w-7" />
-            </button>
-          </header>
-
-          <div className="flex-1 px-16 py-10">
-            <fieldset className="space-y-5">
-              <legend className="sr-only">Кому показывать виджет</legend>
-              {[
-                ["all", "Все"],
-                ["employees", "Выбранным сотрудникам"],
-                ["access", "Выбранным доступам"],
-              ].map(([value, label]) => (
-                <label key={value} className="flex cursor-pointer items-center gap-5 text-lg text-slate-900">
-                  <input
-                    type="radio"
-                    name="dashboard-visibility"
-                    value={value}
-                    checked={visibility === value}
-                    onChange={() => setVisibility(value)}
-                    className="h-6 w-6 accent-slate-500"
-                  />
-                  {label}
-                </label>
-              ))}
-            </fieldset>
-
-            <label className="mt-12 block border-b border-slate-200 pb-2 text-base font-bold text-slate-900">
-              Дашборд
-              <select
-                value={dashboard}
-                onChange={(event) => setDashboard(event.target.value)}
-                className="mt-2 block w-full border-0 bg-white py-2 text-base font-normal outline-none"
-              >
-                <option>Основной дашборд</option>
-                <option>Продажи</option>
-                <option>Контроль агентов</option>
-              </select>
-            </label>
-          </div>
-
-          <footer className="flex justify-end border-t border-slate-200 px-9 py-6">
-            <button
-              type="button"
-              onClick={() => {
-                setInDashboard(true)
-                setDashboardOpen(false)
-              }}
-              className="font-semibold uppercase text-sky-500 hover:text-sky-600"
-            >
-              Сохранить
-            </button>
-          </footer>
-        </section>
-      )}
-
-      {favoritesOpen && (
-        <aside
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="favorites-title"
-          className="fixed bottom-0 left-0 top-0 z-[100] w-[min(418px,calc(100vw-28px))] border-r-[10px] border-sky-500 bg-white shadow-2xl animate-in slide-in-from-left-full duration-200"
-        >
-          <header className="flex items-center justify-between border-b border-slate-200 px-9 py-7">
-            <h2 id="favorites-title" className="text-xl font-medium text-slate-900">Избранные</h2>
-            <button
-              type="button"
-              onClick={() => setFavoritesOpen(false)}
-              aria-label="Закрыть"
-              className="rounded p-1 hover:bg-slate-100"
-            >
-              <X className="h-7 w-7" />
-            </button>
-          </header>
-          <nav aria-label="Избранные разделы">
-            {["Клиенты", "Заказы", "Виджеты", "Заказы", "Ограничение продуктов", "Продукты"].map(
-              (item, index) => (
-                <button
-                  key={`${item}-${index}`}
-                  type="button"
-                  onClick={() => {
-                    setFavorite(true)
-                    setFavoritesOpen(false)
-                  }}
-                  className="flex w-full items-center justify-between border-b border-slate-200 px-6 py-3.5 text-left text-[17px] font-medium text-slate-900 hover:bg-slate-50"
-                >
-                  {item}
-                  <ChevronRight className="h-5 w-5 text-slate-500" />
-                </button>
-              ),
-            )}
-          </nav>
-        </aside>
+        <DashboardDialog
+          reportSlug="visits-by-day"
+          reportLabel="Визиты по дням"
+          visibility={visibility}
+          setVisibility={setVisibility}
+          dashboard={dashboard}
+          setDashboard={setDashboard}
+          onClose={() => setDashboardOpen(false)}
+          onSave={() => setInDashboard(true)}
+        />
       )}
     </main>
   )

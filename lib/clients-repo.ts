@@ -67,74 +67,74 @@ export function parseClientInput(body: unknown): ClientInput | null {
   }
 }
 
-export function listClients(search?: string): Client[] {
+export async function listClients(search?: string): Promise<Client[]> {
   const db = getDb()
   const rows = search
-    ? (db
-        .prepare("SELECT * FROM clients WHERE name LIKE ? OR phone LIKE ? ORDER BY id DESC")
-        .all(`%${search}%`, `%${search}%`) as ClientRow[])
-    : (db.prepare("SELECT * FROM clients ORDER BY id DESC").all() as ClientRow[])
+    ? ((await db
+              .prepare("SELECT * FROM clients WHERE name LIKE ? OR phone LIKE ? ORDER BY id DESC")
+              .all(`%${search}%`, `%${search}%`)) as ClientRow[])
+    : ((await db.prepare("SELECT * FROM clients ORDER BY id DESC").all()) as ClientRow[])
   return rows.map(rowToClient)
 }
 
-export function getClient(id: number): Client | null {
+export async function getClient(id: number): Promise<Client | null> {
   const db = getDb()
-  const row = db.prepare("SELECT * FROM clients WHERE id = ?").get(id) as ClientRow | undefined
+  const row = (await db.prepare("SELECT * FROM clients WHERE id = ?").get(id)) as ClientRow | undefined
   return row ? rowToClient(row) : null
 }
 
-export function createClient(input: ClientInput): Client {
+export async function createClient(input: ClientInput): Promise<Client> {
   const db = getDb()
-  const result = db
-    .prepare(
-      `INSERT INTO clients (name, phone, inn, type, zone, zone_agent, agent, deliverer, collector, balance, tab, updated_at)
+  const result = (await db
+      .prepare(
+        `INSERT INTO clients (name, phone, inn, type, zone, zone_agent, agent, deliverer, collector, balance, tab, updated_at)
        VALUES (@name, @phone, @inn, @type, @zone, @zoneAgent, @agent, @deliverer, @collector, @balance, @tab, datetime('now'))`,
-    )
-    .run({
-      name: input.name,
-      phone: input.phone,
-      inn: input.inn ?? null,
-      type: input.type,
-      zone: input.zone,
-      zoneAgent: input.zoneAgent,
-      agent: input.agent,
-      deliverer: input.deliverer,
-      collector: input.collector,
-      balance: input.balance ?? null,
-      tab: input.tab,
-    })
-  return getClient(Number(result.lastInsertRowid))!
+      )
+      .run({
+        name: input.name,
+        phone: input.phone,
+        inn: input.inn ?? null,
+        type: input.type,
+        zone: input.zone,
+        zoneAgent: input.zoneAgent,
+        agent: input.agent,
+        deliverer: input.deliverer,
+        collector: input.collector,
+        balance: input.balance ?? null,
+        tab: input.tab,
+      }))
+  return (await getClient(Number(result.lastInsertRowid)))!
 }
 
-export function updateClient(id: number, input: ClientInput): Client | null {
+export async function updateClient(id: number, input: ClientInput): Promise<Client | null> {
   const db = getDb()
-  const existing = getClient(id)
+  const existing = (await getClient(id))
   if (!existing) return null
 
-  db.prepare(
-    `UPDATE clients SET name = @name, phone = @phone, inn = @inn, type = @type, zone = @zone,
+  await db.prepare(
+        `UPDATE clients SET name = @name, phone = @phone, inn = @inn, type = @type, zone = @zone,
        zone_agent = @zoneAgent, agent = @agent, deliverer = @deliverer, collector = @collector,
        balance = @balance, tab = @tab, updated_at = datetime('now')
      WHERE id = @id`,
-  ).run({
-    id,
-    name: input.name,
-    phone: input.phone,
-    inn: input.inn ?? null,
-    type: input.type,
-    zone: input.zone,
-    zoneAgent: input.zoneAgent,
-    agent: input.agent,
-    deliverer: input.deliverer,
-    collector: input.collector,
-    balance: input.balance ?? null,
-    tab: input.tab,
-  })
-  return getClient(id)
+      ).run({
+        id,
+        name: input.name,
+        phone: input.phone,
+        inn: input.inn ?? null,
+        type: input.type,
+        zone: input.zone,
+        zoneAgent: input.zoneAgent,
+        agent: input.agent,
+        deliverer: input.deliverer,
+        collector: input.collector,
+        balance: input.balance ?? null,
+        tab: input.tab,
+      })
+  return (await getClient(id))
 }
 
-export function deleteClient(id: number): boolean {
+export async function deleteClient(id: number): Promise<boolean> {
   const db = getDb()
-  const result = db.prepare("DELETE FROM clients WHERE id = ?").run(id)
+  const result = (await db.prepare("DELETE FROM clients WHERE id = ?").run(id))
   return result.changes > 0
 }

@@ -1,7 +1,8 @@
 "use client"
 
-import { useMemo, useState } from "react"
-import { Bookmark, ChevronDown, ChevronUp, Download, FolderOpen, Search, Star, X } from "lucide-react"
+import { useEffect, useMemo, useState } from "react"
+import { Bookmark, ChevronDown, ChevronUp, Download, FolderOpen, Search, X } from "lucide-react"
+import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
 
 type Row = {
   product: string
@@ -24,18 +25,7 @@ type Row = {
   skuCount: number
 }
 
-const rows: Row[] = [
-  { product: "energetik 1 l", article: "123321", barcode: "4870001234567", code: "PRD-0001", type: "Напитки", brand: "Flash", parentType: "Напитки", productId: "P-1001", inBlock: "12 шт", warehouse: "Asosiy ombor", organization: "Linko", blocksCount: 26, stock: 306, reserved: 12, stockKg: 306, reservedKg: 12, minStock: 50, skuCount: 1 },
-  { product: "g'ilof", article: "62", barcode: "4870002234567", code: "PRD-0002", type: "Упаковка", brand: "No brand", parentType: "Упаковка", productId: "P-1002", inBlock: "50 шт", warehouse: "Asosiy ombor", organization: "Linko", blocksCount: 1, stock: 19, reserved: 0, stockKg: 4, reservedKg: 0, minStock: 20, skuCount: 1 },
-  { product: "robot moshina", article: "1009", barcode: "4870003234567", code: "PRD-0003", type: "Техника", brand: "Robot", parentType: "Техника", productId: "P-1003", inBlock: "1 шт", warehouse: "Tayyor mahsulotlar", organization: "Linko", blocksCount: 5215, stock: 5215, reserved: 120, stockKg: 5215, reservedKg: 120, minStock: 100, skuCount: 1 },
-  { product: "sndwch", article: "334221", barcode: "4870004234567", code: "PRD-0004", type: "Продукты питания", brand: "Sendvich", parentType: "Продукты питания", productId: "P-1004", inBlock: "24 шт", warehouse: "Tayyor mahsulotlar", organization: "Linko", blocksCount: 51359, stock: 1232619, reserved: 4400, stockKg: 246524, reservedKg: 880, minStock: 5000, skuCount: 1 },
-  { product: "334", article: "100-1232", barcode: "4870005234567", code: "PRD-0005", type: "oziq ovqat", brand: "No brand", parentType: "oziq ovqat", productId: "P-1005", inBlock: "10 шт", warehouse: "Asosiy ombor", organization: "Linko", blocksCount: 0, stock: 0, reserved: 0, stockKg: 0, reservedKg: 0, minStock: 10, skuCount: 1 },
-  { product: "3453", article: "100-1232", barcode: "4870006234567", code: "PRD-0006", type: "Coca Cola", brand: "No brand", parentType: "oziq ovqat", productId: "P-1006", inBlock: "10 шт", warehouse: "Andijon ombori", organization: "Linko", blocksCount: 0, stock: 0, reserved: 0, stockKg: 0, reservedKg: 0, minStock: 10, skuCount: 1 },
-  { product: "Alpen Gold Dark", article: "100-1232", barcode: "4870007234567", code: "PRD-0007", type: "Coca Cola", brand: "Alpen Gold", parentType: "oziq ovqat", productId: "P-1007", inBlock: "20 шт", warehouse: "Andijon ombori", organization: "Linko", blocksCount: 0, stock: 0, reserved: 0, stockKg: 0, reservedKg: 0, minStock: 15, skuCount: 1 },
-  { product: "Alpen Goldfgd", article: "100-1232", barcode: "4870008234567", code: "PRD-0008", type: "oziq ovqat", brand: "Alpen Gold", parentType: "oziq ovqat", productId: "P-1008", inBlock: "20 шт", warehouse: "Xomashyo ombori", organization: "Linko", blocksCount: 550, stock: 11000, reserved: 300, stockKg: 2200, reservedKg: 60, minStock: 200, skuCount: 1 },
-  { product: "Aqua de lux 0.33 bez gaz", article: "100-1232", barcode: "4870009234567", code: "PRD-0009", type: "Coca Cola", brand: "No brand", parentType: "Напитки", productId: "P-1009", inBlock: "24 шт", warehouse: "Asosiy ombor", organization: "Linko", blocksCount: 0, stock: 0, reserved: 0, stockKg: 0, reservedKg: 0, minStock: 30, skuCount: 1 },
-  { product: "avto 1.3 mator", article: "100-1232", barcode: "4870010234567", code: "PRD-0010", type: "oziq ovqat", brand: "No brand", parentType: "Техника", productId: "P-1010", inBlock: "1 шт", warehouse: "Xomashyo ombori", organization: "Linko", blocksCount: 0, stock: 0, reserved: 0, stockKg: 0, reservedKg: 0, minStock: 5, skuCount: 1 },
-]
+const rows: Row[] = []
 
 const columnFields = [
   ["blocksCount", "Кол-во блоков"],
@@ -122,7 +112,6 @@ function toggleInSet<T>(set: Set<T>, value: T) {
 }
 
 export function ReportBuilderView() {
-  const [favorite, setFavorite] = useState(false)
   const [mode, setMode] = useState<"stock" | "warehouse">("stock")
   const [settingsOpen, setSettingsOpen] = useState(true)
   const [dateRange, setDateRange] = useState("01 Авг. 2026 - 31 Авг. 2026")
@@ -146,6 +135,22 @@ export function ReportBuilderView() {
 
   const [savedReports, setSavedReports] = useState<{ id: number; name: string }[]>([])
   const [savedFlash, setSavedFlash] = useState(false)
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    fetch("/api/saved-reports")
+      .then((response) => (response.ok ? (response.json() as Promise<{ id: number; name: string }[]>) : []))
+      .then((reports) => {
+        if (!cancelled) setSavedReports(reports)
+      })
+      .catch(() => {
+        // keep the empty local list if the request fails
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
   const [reportsOpen, setReportsOpen] = useState(false)
   const [generated, setGenerated] = useState<{ columns: ColumnKey[]; vertical: GroupKey[]; horizontal: GroupKey[]; groups: { key: string; label: string; rows: Row[] }[] } | null>(null)
 
@@ -205,10 +210,40 @@ export function ReportBuilderView() {
     URL.revokeObjectURL(link.href)
   }
 
-  const saveReport = () => {
-    setSavedReports((current) => [...current, { id: nextFilterId + 1000 + current.length, name: `Мой отчёт ${current.length + 1}` }])
-    setSavedFlash(true)
-    setTimeout(() => setSavedFlash(false), 1500)
+  const saveReport = async () => {
+    if (saving) return
+    setSaving(true)
+    const name = `Мой отчёт ${savedReports.length + 1}`
+    const config = {
+      mode,
+      dateRange,
+      columns: [...selectedColumns],
+      vertical: [...verticalGroups],
+      horizontal: [...horizontalGroups],
+      showTotals,
+      filterProduct,
+      filterWarehouse,
+      filterType,
+      filterBrand,
+      filterOrganization,
+      customFilters,
+    }
+    try {
+      const response = await fetch("/api/saved-reports", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, config }),
+      })
+      if (response.ok) {
+        const saved = (await response.json()) as { id: number; name: string }
+        setSavedReports((current) => [...current, { id: saved.id, name: saved.name }])
+        setSavedFlash(true)
+        setTimeout(() => setSavedFlash(false), 1500)
+      }
+    } catch {
+      // ignore network failures, no flash on failure
+    }
+    setSaving(false)
   }
 
   const addCustomFilter = () => {
@@ -225,11 +260,10 @@ export function ReportBuilderView() {
   return (
     <main className="min-h-screen bg-[#f1f4f8] text-[#17233b]">
       <header className="flex min-h-[76px] items-center justify-between border-b border-[#d8dee7] bg-[#f2f5f8] px-6 md:px-9">
-        <button onClick={() => setFavorite((value) => !value)} className="flex items-center gap-3">
-          <Star className={`h-7 w-7 ${favorite ? "fill-[#4f70e7] text-[#4f70e7]" : "fill-[#596376] text-[#596376]"}`} />
-          <span className="text-2xl font-bold text-[#4f70e7]">Избранные</span><span className="text-3xl font-light text-[#586174]">|</span>
+        <div className="flex items-center gap-3">
+          <FavoritesButton className="flex items-center gap-2 text-2xl font-bold text-[#4f70e7]" /><span className="text-3xl font-light text-[#586174]">|</span>
           <span className="text-2xl font-bold text-[#586174]">Конструктор</span>
-        </button>
+        </div>
 
         <div className="flex overflow-hidden rounded-full shadow-sm">
           <button
@@ -248,8 +282,8 @@ export function ReportBuilderView() {
       </header>
 
       <section className="flex flex-wrap items-center gap-4 border-b border-[#e1e5eb] bg-white px-6 py-4 md:px-9">
-        <button onClick={saveReport} className="flex h-11 items-center gap-2 rounded-md bg-[#4f71dc] px-5 font-semibold text-white">
-          <Bookmark className="h-5 w-5" /> {savedFlash ? "Сохранено ✓" : "Сохранить"}
+        <button onClick={() => void saveReport()} disabled={saving} className="flex h-11 items-center gap-2 rounded-md bg-[#4f71dc] px-5 font-semibold text-white disabled:opacity-60">
+          <Bookmark className="h-5 w-5" /> {savedFlash ? "Сохранено ✓" : saving ? "Сохранение..." : "Сохранить"}
         </button>
 
         <div className="relative">

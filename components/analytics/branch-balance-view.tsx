@@ -1,48 +1,30 @@
 "use client"
 
-import { useMemo, useState } from "react"
-import { ChevronDown, ChevronRight, Expand, MinusCircle, PlusCircle, Search, Star, Trash2, X } from "lucide-react"
+import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react"
+import { ChevronDown, Expand, FileText, MinusCircle, PlusCircle, Search, X } from "lucide-react"
+
+import { downloadExcelTable } from "@/lib/excel-export"
+import { mapHeaderColumns, readExcelRows } from "@/lib/excel-import"
+import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
 
 type Money = { sum: number; usd: number }
 type Branch = { id: number; name: string; opening: Money }
 
-const zero: Money = { sum: 0, usd: 0 }
+const branches: Branch[] = []
 
-const branches: Branch[] = [
-  { id: 1, name: "Samarqand", opening: { sum: 515572, usd: 0 } },
-  { id: 2, name: "Buxoro", opening: { sum: -1282800, usd: 9231 } },
-  { id: 3, name: "Mirzo Ulugbek1", opening: { sum: -1200, usd: 0 } },
-  { id: 4, name: "Samarqand filial", opening: { ...zero } },
-  { id: 5, name: "Namangan", opening: { sum: 12000, usd: 0 } },
-  { id: 6, name: "Farg'ona", opening: { ...zero } },
-  { id: 7, name: "Xorazm", opening: { sum: 902000, usd: -62992 } },
-  { id: 8, name: "Andijon", opening: { sum: 202230800, usd: 0 } },
-  { id: 9, name: "Jizzax shahri", opening: { sum: -300120000, usd: 0 } },
-  { id: 10, name: "Geoinnovatsiya markazi", opening: { ...zero } },
-  { id: 11, name: "candycold", opening: { ...zero } },
-  { id: 12, name: "tosh98", opening: { ...zero } },
-  { id: 13, name: "Salohiddin Farg'ona Filial", opening: { sum: -5000, usd: 0 } },
-  { id: 14, name: "Shakhrisabz", opening: { ...zero } },
-  { id: 15, name: "Shayxontoxur", opening: { sum: -1300000, usd: 0 } },
-  { id: 16, name: "Chinobod", opening: { sum: 260000, usd: 0 } },
-  { id: 17, name: "Shayxontoxur 2", opening: { ...zero } },
-  { id: 18, name: "Shayxontoxur 1", opening: { ...zero } },
-  { id: 19, name: "novza", opening: { sum: -916370, usd: 0 } },
-  { id: 20, name: "choshtepa", opening: { sum: -421630, usd: 0 } },
-  { id: 21, name: "Филиал Чиланзар", opening: { sum: -45000, usd: 0 } },
-  { id: 22, name: "Филиал Юнусабад", opening: { ...zero } },
-  { id: 23, name: "toshkent filial", opening: { ...zero } },
-  { id: 24, name: "samarqand filial", opening: { ...zero } },
-  { id: 25, name: "Maftuna MCHJ", opening: { ...zero } },
-]
-
-const TOTAL_BRANCHES = 28
-const FIXED_TOTALS = { sum: -100636628, usd: -53761 }
-const favoriteItemsInitial = ["Клиенты", "Заказы", "Виджеты", "Заказы", "Ограничение продуктов", "Продукты"]
+const TOTAL_BRANCHES = 0
+const FIXED_TOTALS = { sum: 0, usd: 0 }
 
 const groups = ["Баланс на начало периода", "Передача на склад", "Возврат передачи", "Оплата", "Прочие приходы", "Прочие расходы", "Баланс на конец"] as const
 
-const money = (value: number) => new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 3 }).format(value)
+const IMPORT_HEADER_ALIASES: Record<string, string> = {
+  "филиал": "branch", "branch": "branch",
+  "валюта": "currency", "currency": "currency",
+  "сумма": "amount", "amount": "amount",
+  "дата": "date", "date": "date",
+}
+
+const money = (value: number) => new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 2 }).format(value)
 
 function AmountCell({ value }: { value: number }) {
   if (value === 0) return <span>0</span>
@@ -51,16 +33,54 @@ function AmountCell({ value }: { value: number }) {
 }
 
 export function BranchBalanceView() {
-  const [favorite, setFavorite] = useState(false)
-  const [favoritesOpen, setFavoritesOpen] = useState(false)
-  const [favoriteItems, setFavoriteItems] = useState(favoriteItemsInitial)
-  const [hoveredFavorite, setHoveredFavorite] = useState<number | null>(null)
   const [rows, setRows] = useState(branches)
   const [search, setSearch] = useState("")
   const [filterOpen, setFilterOpen] = useState(false)
   const [pageSize, setPageSize] = useState(25)
   const [page, setPage] = useState(1)
   const [modal, setModal] = useState<{ type: "add" | "expense"; branchId: number } | null>(null)
+  const [importOpen, setImportOpen] = useState(false)
+  const [importFile, setImportFile] = useState<File | null>(null)
+  const [importSaving, setImportSaving] = useState(false)
+  const importInputRef = useRef<HTMLInputElement>(null)
+  const [loadError, setLoadError] = useState("")
+
+  useEffect(() => {
+    let cancelled = false
+    Promise.all([
+      fetch("/api/branches").then(async (response) => {
+        if (!response.ok) throw new Error("Не удалось загрузить филиалы")
+        return (await response.json()) as { id: number; name: string }[]
+      }),
+      fetch("/api/branch-balance-transactions").then(async (response) => {
+        if (!response.ok) throw new Error("Не удалось загрузить транзакции")
+        return (await response.json()) as { branchId: number; kind: "add" | "expense"; currency: keyof Money; amount: number }[]
+      }),
+    ])
+      .then(([branchList, transactions]) => {
+        if (cancelled) return
+        const merged: Branch[] = branchList.map((item) => {
+          const opening = transactions
+            .filter((transaction) => transaction.branchId === item.id)
+            .reduce(
+              (acc, transaction) => {
+                const signed = transaction.kind === "expense" ? -transaction.amount : transaction.amount
+                return { ...acc, [transaction.currency]: acc[transaction.currency] + signed }
+              },
+              { sum: 0, usd: 0 } as Money,
+            )
+          return { id: item.id, name: item.name, opening }
+        })
+        setRows(merged)
+        setLoadError("")
+      })
+      .catch(() => {
+        if (!cancelled) setLoadError("Не удалось загрузить баланс филиалов с сервера")
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const filtered = useMemo(
     () => rows.filter((branch) => branch.name.toLocaleLowerCase("ru").includes(search.trim().toLocaleLowerCase("ru"))),
@@ -83,19 +103,112 @@ export function BranchBalanceView() {
     )
   }
 
-  const removeFavorite = (index: number) => {
-    setFavoriteItems((current) => current.filter((_, itemIndex) => itemIndex !== index))
+  const saveTransaction = async (
+    branchId: number,
+    branchName: string,
+    kind: "add" | "expense",
+    currency: keyof Money,
+    amount: number,
+    date: string,
+    comment: string,
+  ) => {
+    try {
+      const response = await fetch("/api/branch-balance-transactions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ branchId, branchName, kind, currency, amount, date, comment }),
+      })
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}))
+        window.alert(data.error || "Не удалось сохранить транзакцию")
+        return false
+      }
+      applyTransaction(branchId, kind, currency, amount)
+      return true
+    } catch {
+      window.alert("Сервер недоступен, попробуйте ещё раз")
+      return false
+    }
+  }
+
+  function downloadTemplate() {
+    downloadExcelTable("branch-balance-template", [["Филиал", "Валюта", "Сумма", "Дата"]])
+  }
+
+  function pickImportFile(event: ChangeEvent<HTMLInputElement>) {
+    setImportFile(event.target.files?.[0] ?? null)
+  }
+
+  async function saveImport() {
+    if (!importFile) return
+    setImportSaving(true)
+    try {
+      const fileRows = await readExcelRows(importFile)
+      if (!fileRows.length) {
+        window.alert("Не удалось найти данные для импорта в выбранном файле")
+        return
+      }
+      const fieldByIndex = mapHeaderColumns(fileRows[0], IMPORT_HEADER_ALIASES)
+      const hasHeader = Array.from(fieldByIndex.values()).includes("branch")
+      const dataRows = hasHeader ? fileRows.slice(1) : fileRows
+
+      const parsed: { branch: string; currency: keyof Money; amount: number }[] = []
+      for (const row of dataRows) {
+        const record: Record<string, string> = {}
+        if (hasHeader) {
+          row.forEach((cell, index) => {
+            const field = fieldByIndex.get(index)
+            if (field) record[field] = cell
+          })
+        } else {
+          record.branch = row[0] ?? ""
+          record.currency = row[1] ?? ""
+          record.amount = row[2] ?? ""
+          record.date = row[3] ?? ""
+        }
+        if (!record.branch) continue
+        const amount = Number(record.amount)
+        if (!amount || amount <= 0) continue
+        const currency: keyof Money = (record.currency || "").toLowerCase().includes("usd") ? "usd" : "sum"
+        parsed.push({ branch: record.branch, currency, amount })
+      }
+
+      if (!parsed.length) {
+        window.alert("Не удалось найти данные для импорта в выбранном файле")
+        return
+      }
+
+      let applied = 0
+      let notFound = 0
+      const today = new Date().toISOString().slice(0, 10)
+      for (const item of parsed) {
+        const match = rows.find((branch) => branch.name.trim().toLowerCase() === item.branch.trim().toLowerCase())
+        if (match) {
+          const ok = await saveTransaction(match.id, match.name, "add", item.currency, item.amount, today, "")
+          if (ok) applied += 1
+        } else {
+          notFound += 1
+        }
+      }
+      if (notFound || applied < parsed.length) window.alert(`Импортировано ${applied} из ${parsed.length}. Филиал не найден: ${notFound}`)
+    } finally {
+      setImportSaving(false)
+      setImportOpen(false)
+      setImportFile(null)
+    }
   }
 
   return (
     <main className="min-h-screen bg-white text-[#17233b]">
       <header className="flex min-h-[76px] items-center border-b border-[#d8dee7] bg-[#f2f5f8] px-6 md:px-9">
-        <button onClick={() => setFavoritesOpen(true)} className="flex items-center gap-3">
-          <Star className={`h-7 w-7 ${favorite ? "fill-[#4f70e7] text-[#4f70e7]" : "fill-[#596376] text-[#596376]"}`} />
-          <span className="text-2xl font-bold text-[#4f70e7]">Избранные</span><span className="text-3xl font-light text-[#586174]">|</span>
+        <div className="flex items-center gap-3">
+          <FavoritesButton className="flex items-center gap-3 text-2xl font-bold text-[#4f70e7]" />
+          <span className="text-3xl font-light text-[#586174]">|</span>
           <span className="text-2xl font-bold text-[#586174]">Баланс филиалов</span>
-        </button>
+        </div>
       </header>
+
+      {loadError && <p className="px-6 pt-3 text-sm text-red-500 md:px-9">{loadError}</p>}
 
       <section className="grid grid-cols-1 gap-6 px-6 py-6 sm:grid-cols-2 lg:grid-cols-4 md:px-9">
         <div>
@@ -138,6 +251,10 @@ export function BranchBalanceView() {
       <section className="flex flex-wrap items-center gap-5 border-t border-[#e1e5eb] bg-white px-6 py-3 md:px-9">
         <button onClick={() => setFilterOpen((value) => !value)} className="flex items-center gap-1 font-medium text-[#4f70e7]">
           Показать фильтр <ChevronDown className={`h-4 w-4 transition ${filterOpen ? "rotate-180" : ""}`} />
+        </button>
+
+        <button type="button" onClick={() => setImportOpen(true)} className="inline-flex items-center gap-2 rounded bg-[#4f70e7] px-5 py-2.5 font-semibold text-white hover:brightness-95">
+          <FileText className="h-4 w-4" /> Импорт с Excel
         </button>
 
         <label className="relative min-w-[220px] flex-1 border-b border-[#dbe0e8] pb-1.5">
@@ -220,40 +337,43 @@ export function BranchBalanceView() {
           branch={rows.find((item) => item.id === modal.branchId)!}
           type={modal.type}
           onClose={() => setModal(null)}
-          onSave={(currency, amount) => {
-            applyTransaction(modal.branchId, modal.type, currency, amount)
-            setModal(null)
+          onSave={async (currency, amount, date, comment) => {
+            const branch = rows.find((item) => item.id === modal.branchId)
+            const ok = await saveTransaction(modal.branchId, branch?.name ?? "", modal.type, currency, amount, date, comment)
+            if (ok) setModal(null)
           }}
         />
       )}
 
-      {favoritesOpen && (
-        <div className="fixed inset-0 z-[100] flex">
-          <button aria-label="Закрыть" onClick={() => setFavoritesOpen(false)} className="flex-1 bg-black/40" />
-          <aside className="w-[420px] max-w-[90vw] bg-white shadow-2xl">
-            <header className="flex items-center justify-between border-b px-8 py-6">
-              <h2 className="text-2xl font-semibold">Избранные</h2>
-              <button aria-label="Закрыть" onClick={() => setFavoritesOpen(false)}><X className="h-6 w-6 text-slate-600" /></button>
+      {importOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
+          <div className="w-full max-w-md rounded bg-white">
+            <header className="flex items-center justify-between border-b p-6">
+              <b className="uppercase">Импорт с Excel</b>
+              <button type="button" onClick={() => { setImportOpen(false); setImportFile(null) }} aria-label="Закрыть">
+                <X className="h-5 w-5" />
+              </button>
             </header>
-            {favoriteItems.map((item, index) => (
-              <div
-                key={`${item}-${index}`}
-                onMouseEnter={() => setHoveredFavorite(index)}
-                onMouseLeave={() => setHoveredFavorite((current) => (current === index ? null : current))}
-                className={`flex w-full items-center justify-between border-b px-8 py-5 text-left text-lg ${hoveredFavorite === index ? "bg-[#eaf0fd]" : ""}`}
+            <div className="p-8">
+              <button type="button" onClick={downloadTemplate} className="mb-4 font-semibold text-[#4f70e7] hover:underline">
+                1. Скачать шаблон
+              </button>
+              <input ref={importInputRef} type="file" accept=".csv,.xls,.xlsx" onChange={pickImportFile} className="hidden" />
+              <button
+                type="button"
+                onClick={() => importInputRef.current?.click()}
+                className="flex w-full flex-col items-center justify-center gap-3 rounded border-2 border-dashed border-slate-300 py-10 text-slate-500 hover:border-[#4f70e7] hover:text-[#4f70e7]"
               >
-                <button type="button" onClick={() => { setFavorite(true); setFavoritesOpen(false) }} className="flex flex-1 items-center gap-3 text-left">
-                  {hoveredFavorite === index && (
-                    <span role="button" aria-label="Удалить из избранного" onClick={(event) => { event.stopPropagation(); removeFavorite(index) }} className="text-slate-600 hover:text-[#e5484d]">
-                      <Trash2 className="h-5 w-5" />
-                    </span>
-                  )}
-                  {item}
-                </button>
-                <ChevronRight className="h-5 w-5 text-slate-400" />
-              </div>
-            ))}
-          </aside>
+                <FileText className="h-8 w-8" />
+                {importFile ? importFile.name : "Добавьте файл Excel или нажмите для выбора"}
+              </button>
+            </div>
+            <footer className="flex justify-end border-t p-5">
+              <button type="button" disabled={!importFile || importSaving} onClick={saveImport} className="rounded bg-[#6ccd8b] px-5 py-3 font-semibold text-white hover:brightness-95 disabled:opacity-40">
+                {importSaving ? "Импорт..." : "Сохранить"}
+              </button>
+            </footer>
+          </div>
         </div>
       )}
     </main>
@@ -269,7 +389,7 @@ function TransactionModal({
   branch: Branch
   type: "add" | "expense"
   onClose: () => void
-  onSave: (currency: keyof Money, amount: number) => void
+  onSave: (currency: keyof Money, amount: number, date: string, comment: string) => void
 }) {
   const [currency, setCurrency] = useState<keyof Money>("sum")
   const [amount, setAmount] = useState("")
@@ -312,7 +432,7 @@ function TransactionModal({
           <button
             onClick={() => {
               const value = Number(amount)
-              if (value > 0) onSave(currency, value)
+              if (value > 0) onSave(currency, value, date, comment)
             }}
             className="font-bold uppercase tracking-wide text-[#4f70e7]"
           >

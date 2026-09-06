@@ -1,22 +1,34 @@
 "use client"
 
 import { ChevronLeft, ChevronRight, Pencil, Search, X } from "lucide-react"
-import { FormEvent, useMemo, useState } from "react"
+import { FormEvent, useEffect, useMemo, useState } from "react"
 
 type TimeRestriction = { id: number; name: string; from: string; to: string; fullDay: boolean }
 
-const seed: TimeRestriction[] = [
-  { id: 1, name: "Создания заказа", from: "00:00", to: "23:59", fullDay: true },
-  { id: 2, name: "Редактировать заказ", from: "00:00", to: "23:59", fullDay: true },
-]
-
 export function TimeRestrictionsView({ embedded = false }: { embedded?: boolean }) {
-  const [rows, setRows] = useState(seed)
+  const [rows, setRows] = useState<TimeRestriction[]>([])
   const [query, setQuery] = useState("")
   const [page, setPage] = useState(1)
   const [editing, setEditing] = useState<TimeRestriction | null>(null)
   const [draft, setDraft] = useState({ fullDay: true, from: "00:00", to: "23:59" })
+  const [saving, setSaving] = useState(false)
   const pageSize = 25
+
+  useEffect(() => {
+    let cancelled = false
+    fetch("/api/order-time-restrictions")
+      .then(async (response) => {
+        if (!response.ok) throw new Error("Не удалось загрузить ограничения")
+        return (await response.json()) as TimeRestriction[]
+      })
+      .then((data) => {
+        if (!cancelled) setRows(data)
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const filtered = useMemo(() => rows.filter((row) => row.name.toLowerCase().includes(query.toLowerCase())), [rows, query])
   const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize))
@@ -28,11 +40,28 @@ export function TimeRestrictionsView({ embedded = false }: { embedded?: boolean 
     setEditing(row)
   }
 
-  function save(event: FormEvent) {
+  async function save(event: FormEvent) {
     event.preventDefault()
     if (!editing) return
-    setRows((current) => current.map((row) => (row.id === editing.id ? { ...row, ...draft } : row)))
-    setEditing(null)
+    setSaving(true)
+    try {
+      const response = await fetch(`/api/order-time-restrictions/${editing.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: editing.name, ...draft }),
+      })
+      if (!response.ok) {
+        window.alert("Не удалось сохранить ограничение")
+        return
+      }
+      const saved = (await response.json()) as TimeRestriction
+      setRows((current) => current.map((row) => (row.id === saved.id ? saved : row)))
+      setEditing(null)
+    } catch {
+      window.alert("Сервер недоступен, попробуйте ещё раз")
+    } finally {
+      setSaving(false)
+    }
   }
 
   return (
@@ -115,8 +144,8 @@ export function TimeRestrictionsView({ embedded = false }: { embedded?: boolean 
               <button type="button" onClick={() => setEditing(null)} className="rounded border px-4 py-2">
                 Отмена
               </button>
-              <button type="submit" className="rounded bg-[#5474e6] px-4 py-2 font-semibold text-white">
-                Сохранить
+              <button type="submit" disabled={saving} className="rounded bg-[#5474e6] px-4 py-2 font-semibold text-white disabled:opacity-60">
+                {saving ? "Сохранение..." : "Сохранить"}
               </button>
             </div>
           </form>

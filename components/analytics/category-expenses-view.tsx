@@ -2,13 +2,12 @@
 
 import { useMemo, useState } from "react"
 import Image from "next/image"
-import { BarChart, ChevronDown, ChevronRight, Filter, Search, Star, Trash2, X } from "lucide-react"
+import { BarChart, ChevronDown, Filter, Search, X } from "lucide-react"
+import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
 
 type ExpenseRow = { id: number; category: string; sum: number }
 
 const rows: ExpenseRow[] = []
-
-const favoriteItemsInitial = ["Клиенты", "Заказы", "Виджеты", "Заказы", "Ограничение продуктов", "Продукты"]
 
 const number = (value: number) => new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 2 }).format(value)
 
@@ -24,10 +23,6 @@ function formatLongDate(date: Date) {
 }
 
 export function CategoryExpensesView() {
-  const [favorite, setFavorite] = useState(false)
-  const [favoritesOpen, setFavoritesOpen] = useState(false)
-  const [favoriteItems, setFavoriteItems] = useState(favoriteItemsInitial)
-  const [hoveredFavorite, setHoveredFavorite] = useState<number | null>(null)
   const [search, setSearch] = useState("")
   const [pageSize, setPageSize] = useState(25)
   const [page, setPage] = useState(1)
@@ -56,10 +51,6 @@ export function CategoryExpensesView() {
     setFilterOpen(false)
   }
 
-  const removeFavorite = (index: number) => {
-    setFavoriteItems((current) => current.filter((_, itemIndex) => itemIndex !== index))
-  }
-
   const downloadAll = () => {
     const header = ["Категория", "Сумма (SUM)"]
     const body = filtered.map((row) => [row.category, number(row.sum)])
@@ -75,11 +66,11 @@ export function CategoryExpensesView() {
   return (
     <main className="min-h-screen bg-white text-[#17233b]">
       <header className="flex min-h-[76px] items-center border-b border-[#d8dee7] bg-[#f2f5f8] px-6 md:px-9">
-        <button onClick={() => setFavoritesOpen(true)} className="flex items-center gap-3">
-          <Star className={`h-7 w-7 ${favorite ? "fill-[#4f70e7] text-[#4f70e7]" : "fill-[#596376] text-[#596376]"}`} />
-          <span className="text-2xl font-bold text-[#4f70e7]">Избранные</span><span className="text-3xl font-light text-[#586174]">|</span>
+        <div className="flex items-center gap-3">
+          <FavoritesButton className="flex items-center gap-3 text-2xl font-bold text-[#4f70e7]" />
+          <span className="text-3xl font-light text-[#586174]">|</span>
           <span className="text-2xl font-bold text-[#586174]">Расходы по категориям</span>
-        </button>
+        </div>
       </header>
 
       <section className="flex flex-wrap items-center gap-4 px-6 py-4 md:px-9">
@@ -169,36 +160,6 @@ export function CategoryExpensesView() {
             <button onClick={applyFilter} className="block w-full rounded-md bg-[#6fcf97] py-3.5 text-center font-semibold text-white hover:bg-[#5fbf87]">Применить</button>
             <p className="sr-only">{appliedRange}</p>
           </div>
-        </div>
-      )}
-
-      {favoritesOpen && (
-        <div className="fixed inset-0 z-[100] flex">
-          <button aria-label="Закрыть" onClick={() => setFavoritesOpen(false)} className="flex-1 bg-black/40" />
-          <aside className="w-[420px] max-w-[90vw] bg-white shadow-2xl">
-            <header className="flex items-center justify-between border-b px-8 py-6">
-              <h2 className="text-2xl font-semibold">Избранные</h2>
-              <button aria-label="Закрыть" onClick={() => setFavoritesOpen(false)}><X className="h-6 w-6 text-slate-600" /></button>
-            </header>
-            {favoriteItems.map((item, index) => (
-              <div
-                key={`${item}-${index}`}
-                onMouseEnter={() => setHoveredFavorite(index)}
-                onMouseLeave={() => setHoveredFavorite((current) => (current === index ? null : current))}
-                className={`flex w-full items-center justify-between border-b px-8 py-5 text-left text-lg ${hoveredFavorite === index ? "bg-[#eaf0fd]" : ""}`}
-              >
-                <button type="button" onClick={() => { setFavorite(true); setFavoritesOpen(false) }} className="flex flex-1 items-center gap-3 text-left">
-                  {hoveredFavorite === index && (
-                    <span role="button" aria-label="Удалить из избранного" onClick={(event) => { event.stopPropagation(); removeFavorite(index) }} className="text-slate-600 hover:text-[#e5484d]">
-                      <Trash2 className="h-5 w-5" />
-                    </span>
-                  )}
-                  {item}
-                </button>
-                <ChevronRight className="h-5 w-5 text-slate-400" />
-              </div>
-            ))}
-          </aside>
         </div>
       )}
     </main>

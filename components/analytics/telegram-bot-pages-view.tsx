@@ -1,7 +1,8 @@
 "use client"
 
-import { Fragment, FormEvent, useMemo, useState } from "react"
+import { Fragment, FormEvent, useEffect, useMemo, useState } from "react"
 import { ChevronLeft, ChevronRight, Pencil, Search, X } from "lucide-react"
+import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
 
 type Lang = "ru" | "uz" | "en"
 
@@ -20,48 +21,7 @@ const langTabs: { key: Lang; label: string }[] = [
   { key: "en", label: "EN" },
 ]
 
-const initialPages: BotPage[] = [
-  {
-    key: "call_operator",
-    title: "Номер оператора",
-    description: "",
-    createdAt: "15 янв. 2022, 15:56",
-    updatedAt: "15 янв. 2022, 15:56",
-    content: {
-      ru: "+998 71 200 00 00 — звоните с 9:00 до 18:00 в будние дни.",
-      uz: "+998 71 200 00 00 — dushanbadan jumagacha 9:00 dan 18:00 gacha qo'ng'iroq qiling.",
-      en: "+998 71 200 00 00 — call us from 9:00 to 18:00 on weekdays.",
-    },
-  },
-  {
-    key: "our_productions",
-    title: "Каталог наших товаров",
-    description: "",
-    createdAt: "19 февр. 2018, 10:48",
-    updatedAt: "09 янв. 2022, 20:49",
-    content: {
-      ru: "Каталог наших товаров",
-      uz: "Bizning mahsulotlarimiz katalogi",
-      en: "Our products catalog",
-    },
-  },
-  {
-    key: "telegram_contacts",
-    title: "Наши телефоны",
-    description: "",
-    createdAt: "19 февр. 2018, 10:44",
-    updatedAt: "19 февр. 2018, 10:44",
-    content: {
-      ru: "Наши телефоны: +998 71 200 00 00, +998 71 200 00 01",
-      uz: "Bizning telefonlarimiz: +998 71 200 00 00, +998 71 200 00 01",
-      en: "Our phone numbers: +998 71 200 00 00, +998 71 200 00 01",
-    },
-  },
-]
-
-function now() {
-  return new Intl.DateTimeFormat("ru-RU", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }).format(new Date()).replace(".", "")
-}
+const initialPages: BotPage[] = []
 
 export function TelegramBotPagesView() {
   const [pages, setPages] = useState(initialPages)
@@ -74,6 +34,14 @@ export function TelegramBotPagesView() {
     description: "",
     content: { ru: "", uz: "", en: "" },
   })
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    fetch("/api/telegram-bot-pages")
+      .then((response) => (response.ok ? (response.json() as Promise<BotPage[]>) : Promise.reject()))
+      .then(setPages)
+      .catch(() => {})
+  }, [])
 
   const rows = useMemo(() => {
     const normalized = query.trim().toLowerCase()
@@ -91,22 +59,35 @@ export function TelegramBotPagesView() {
     setEditing(page)
   }
 
-  function saveEdit(event: FormEvent) {
+  async function saveEdit(event: FormEvent) {
     event.preventDefault()
     if (!editing) return
-    setPages((list) =>
-      list.map((page) =>
-        page.key === editing.key ? { ...page, title: draft.title.trim() || page.title, description: draft.description, content: draft.content, updatedAt: now() } : page,
-      ),
-    )
-    setEditing(null)
+    setSaving(true)
+    try {
+      const response = await fetch(`/api/telegram-bot-pages/${editing.key}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: draft.title, description: draft.description, content: draft.content }),
+      })
+      if (!response.ok) {
+        window.alert("Не удалось сохранить страницу")
+        return
+      }
+      const saved = (await response.json()) as BotPage
+      setPages((list) => list.map((page) => (page.key === editing.key ? saved : page)))
+      setEditing(null)
+    } catch {
+      window.alert("Сервер недоступен, попробуйте ещё раз")
+    } finally {
+      setSaving(false)
+    }
   }
 
   return (
     <main className="min-h-[calc(100vh-4rem)] bg-[#f1f4f8] px-9 py-5">
       <header className="mb-5">
         <h1 className="text-2xl font-bold text-slate-600">
-          <span className="inline-flex items-center gap-2 text-[#4f70e7]">★ Избранные</span>
+          <FavoritesButton className="inline-flex items-center gap-2 text-[#4f70e7]" />
           <span className="mx-2 text-slate-400">|</span> Страницы телеграм бота
         </h1>
       </header>
@@ -229,8 +210,8 @@ export function TelegramBotPagesView() {
               ))}
             </div>
             <footer className="flex justify-end border-t p-5">
-              <button type="submit" className="rounded bg-[#6ccd8b] px-5 py-3 font-semibold text-white hover:brightness-95">
-                Сохранить
+              <button type="submit" disabled={saving} className="rounded bg-[#6ccd8b] px-5 py-3 font-semibold text-white hover:brightness-95 disabled:opacity-60">
+                {saving ? "Сохранение..." : "Сохранить"}
               </button>
             </footer>
           </form>

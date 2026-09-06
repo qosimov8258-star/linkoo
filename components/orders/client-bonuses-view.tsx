@@ -11,6 +11,8 @@ import {
   Upload,
   X,
 } from "lucide-react";
+import { FavoritesButton } from "@/components/dashboard/favorites-drawer";
+import { useLanguage } from "@/lib/i18n/language-context";
 
 type BonusEntry = {
   product: string;
@@ -30,28 +32,7 @@ type BonusClient = {
   history: BonusEntry[];
 };
 
-const initialClients: BonusClient[] = [
-  { id: 4594, name: "Markus Vitinha", points: 0, lastScore: "Не получатель", history: [] },
-  { id: 4593, name: "Usman Dembele", points: 0, lastScore: "Не получатель", history: [] },
-  { id: 4592, name: "Ashraf Hakimi", points: 0, lastScore: "Не получатель", history: [] },
-  { id: 4591, name: "Doston market", points: 0, lastScore: "Не получатель", history: [] },
-  { id: 4590, name: "3333333333333333333333333333333", points: 0, lastScore: "Не получатель", history: [] },
-  { id: 4587, name: "Частное Лицо", points: 0, lastScore: "Не получатель", history: [] },
-  { id: 4586, name: "ЧЛ Кылышбай", points: 0, lastScore: "Не получатель", history: [] },
-  { id: 4582, name: "ИП Каркабаев", points: -155, lastScore: "22 апр. 2026", history: [] },
-  { id: 4580, name: "ЧЛ Николай", points: 0, lastScore: "Не получатель", history: [] },
-  { id: 4578, name: ".", points: 0, lastScore: "Не получатель", history: [] },
-  { id: 4576, name: "klient 1", points: 25, lastScore: "10 мар. 2026", history: [] },
-  { id: 4575, name: "ЧЛ Балаев Фаик Мусаевич", points: 0, lastScore: "Не получатель", history: [] },
-  { id: 4574, name: 'ТОО "SEDA ELECTRIC"', points: 0, lastScore: "Не получатель", history: [] },
-  { id: 4573, name: "ИП Рамазан (Каметулы Бауржан)", points: 0, lastScore: "Не получатель", history: [] },
-  { id: 4572, name: 'ТОО "Пол Берри Юг"', points: 40, lastScore: "24 февр. 2026", history: [] },
-  { id: 4571, name: 'ТОО "Mega zakaz"', points: 0, lastScore: "Не получатель", history: [] },
-  { id: 4570, name: "ЧЛ Курбатов Вадим Николаевич", points: 0, lastScore: "Не получатель", history: [] },
-  { id: 4569, name: "ЧЛ Автигунов Замон Едилбайугли", points: 0, lastScore: "Не получатель", history: [] },
-  { id: 4568, name: "ИП Торехан (Анна)", points: 0, lastScore: "Не получатель", history: [] },
-  { id: 4567, name: "ЧЛ Ибраева Мадина Амангельдыева", points: 0, lastScore: "Не получатель", history: [] },
-];
+const initialClients: BonusClient[] = [];
 
 const dateLabel = new Intl.DateTimeFormat("ru-RU", {
   day: "numeric",
@@ -60,6 +41,7 @@ const dateLabel = new Intl.DateTimeFormat("ru-RU", {
 });
 
 export function ClientBonusesView() {
+  const { t } = useLanguage();
   const [clients, setClients] = useState(initialClients);
   const [search, setSearch] = useState("");
   const [filterOpen, setFilterOpen] = useState(false);
@@ -99,7 +81,7 @@ export function ClientBonusesView() {
 
   function exportCsv() {
     const rows = [
-      ["№", "Наименование", "Балл", "Дата последнего бала"],
+      [t("№"), t("Наименование"), t("Балл"), t("Дата последнего бала")],
       ...filteredClients.map((client) => [
         String(client.id),
         client.name,
@@ -114,7 +96,7 @@ export function ClientBonusesView() {
     anchor.download = "bonusy-klientov.csv";
     anchor.click();
     URL.revokeObjectURL(url);
-    setNotice("Файл Excel/CSV скачан");
+    setNotice(t("Файл Excel/CSV скачан"));
   }
 
   function importCsv(event: ChangeEvent<HTMLInputElement>) {
@@ -142,7 +124,7 @@ export function ClientBonusesView() {
           };
         }),
       );
-      setNotice(changed ? `Импортировано записей: ${changed}` : "Файл обработан: подходящих клиентов не найдено");
+      setNotice(changed ? `${t("Импортировано записей")}: ${changed}` : t("Файл обработан: подходящих клиентов не найдено"));
     };
     reader.readAsText(file);
     event.target.value = "";
@@ -157,7 +139,7 @@ export function ClientBonusesView() {
     const amount = Number(form.get("points"));
 
     if (!promotion || !comment || !Number.isFinite(amount) || amount <= 0) {
-      setFormError("Заполните все обязательные поля и укажите балл больше нуля.");
+      setFormError(t("Заполните все обязательные поля и укажите балл больше нуля."));
       return;
     }
 
@@ -184,7 +166,7 @@ export function ClientBonusesView() {
           : client,
       ),
     );
-    setNotice(`Баллы для «${bonusClient.name}» обновлены`);
+    setNotice(`${t("Баллы для")} «${bonusClient.name}» ${t("обновлены")}`);
     setBonusClient(null);
     setFormError("");
   }
@@ -195,24 +177,23 @@ export function ClientBonusesView() {
 
       <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-[27px] font-bold text-[#5d687b]">
-          <span className="mr-2 text-[#596579]">★</span>
-          <span className="text-[#4d6fe2]">Избранные</span>
+          <FavoritesButton className="text-[#4d6fe2]" />
           <span className="mx-3 text-[#667184]">|</span>
-          Бонусы клиентов
+          {t("Бонусы клиентов")}
         </h1>
         <button
           onClick={() => importRef.current?.click()}
           className="inline-flex items-center gap-2 rounded-md bg-[#5273df] px-5 py-2.5 font-semibold text-white shadow-sm transition hover:bg-[#4264d0]"
         >
           <Upload size={19} />
-          Импортировать
+          {t("Импортировать")}
         </button>
       </div>
 
       {notice && (
         <div className="mb-3 flex items-center justify-between rounded-md border border-[#b6dfbf] bg-[#effaf1] px-4 py-2 text-sm text-[#368c4e]">
           {notice}
-          <button onClick={() => setNotice("")} aria-label="Закрыть уведомление">
+          <button onClick={() => setNotice("")} aria-label={t("Закрыть уведомление")}>
             <X size={17} />
           </button>
         </div>
@@ -225,14 +206,14 @@ export function ClientBonusesView() {
             className="inline-flex items-center gap-2 rounded-md bg-[#5273df] px-4 py-2.5 font-semibold text-white shadow-sm hover:bg-[#4264d0]"
           >
             <Filter size={18} />
-            Показать фильтр
+            {t("Показать фильтр")}
           </button>
 
           <label className="mx-auto flex w-full max-w-[380px] items-center border-b border-[#d9dfe8] px-1 py-1 text-[#7c8799] sm:w-[380px]">
             <input
               value={search}
               onChange={(event) => setSearch(event.target.value)}
-              placeholder="Поиск"
+              placeholder={t("Поиск")}
               className="w-full bg-transparent text-[16px] outline-none placeholder:text-[#b3bcc9]"
             />
             <Search size={25} className="text-[#b5bdc8]" />
@@ -240,10 +221,10 @@ export function ClientBonusesView() {
 
           <div className="ml-auto flex items-center gap-4 whitespace-nowrap text-[#596477]">
             <span>25⌄</span>
-            <span>1 - {Math.min(25, filteredClients.length)} из {search || scoreFilter !== "all" ? filteredClients.length : "4307"}</span>
+            <span>1 - {Math.min(25, filteredClients.length)} {t("из")} {filteredClients.length}</span>
             <ChevronLeft className="rounded-full border border-[#b5bdc8] p-0.5" size={25} />
             <ChevronRight className="rounded-full border border-[#8b95a5] p-0.5" size={25} />
-            <button onClick={exportCsv} title="Скачать Excel/CSV" className="text-[#616c7b] hover:text-[#5273df]">
+            <button onClick={exportCsv} title={t("Скачать Excel/CSV")} className="text-[#616c7b] hover:text-[#5273df]">
               <Download size={28} />
             </button>
           </div>
@@ -251,7 +232,7 @@ export function ClientBonusesView() {
 
         {filterOpen && (
           <div className="flex flex-wrap items-center gap-3 border-b border-[#e0e4eb] bg-[#f8fafc] px-5 py-3">
-            <span className="font-semibold">Фильтр по баллам:</span>
+            <span className="font-semibold">{t("Фильтр по баллам:")}</span>
             {[
               ["all", "Все клиенты"],
               ["positive", "Положительный балл"],
@@ -265,11 +246,11 @@ export function ClientBonusesView() {
                   checked={draftFilter === value}
                   onChange={() => setDraftFilter(value as typeof draftFilter)}
                 />
-                {label}
+                {t(label)}
               </label>
             ))}
             <button onClick={applyFilter} className="rounded bg-[#70cf88] px-4 py-2 text-sm font-bold text-white">
-              Применить
+              {t("Применить")}
             </button>
           </div>
         )}
@@ -278,11 +259,11 @@ export function ClientBonusesView() {
           <table className="w-full min-w-[820px] border-collapse text-left">
             <thead className="bg-[#626d82] text-white">
               <tr>
-                <th className="px-9 py-4 font-bold">№</th>
-                <th className="px-9 py-4 font-bold">Наименование</th>
-                <th className="px-9 py-4 font-bold">Балл</th>
-                <th className="px-9 py-4 font-bold">Дата последнего бала</th>
-                <th className="w-24 px-4 py-4" aria-label="Действия" />
+                <th className="px-9 py-4 font-bold">{t("№")}</th>
+                <th className="px-9 py-4 font-bold">{t("Наименование")}</th>
+                <th className="px-9 py-4 font-bold">{t("Балл")}</th>
+                <th className="px-9 py-4 font-bold">{t("Дата последнего бала")}</th>
+                <th className="w-24 px-4 py-4" aria-label={t("Действия")} />
               </tr>
             </thead>
             <tbody>
@@ -298,7 +279,7 @@ export function ClientBonusesView() {
                   <td className="px-9 py-4 text-[17px]">{client.lastScore}</td>
                   <td className="px-4 py-4 text-center">
                     <button
-                      title="Добавить балл"
+                      title={t("Добавить балл")}
                       onClick={(event) => {
                         event.stopPropagation();
                         setBonusClient(client);
@@ -314,7 +295,7 @@ export function ClientBonusesView() {
               ))}
               {!filteredClients.length && (
                 <tr>
-                  <td colSpan={5} className="px-8 py-16 text-center text-[#8b95a5]">Ничего не найдено</td>
+                  <td colSpan={5} className="px-8 py-16 text-center text-[#8b95a5]">{t("Ничего не найдено")}</td>
                 </tr>
               )}
             </tbody>
@@ -326,36 +307,36 @@ export function ClientBonusesView() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#0e1727]/60 p-4">
           <form onSubmit={submitBonus} className="w-full max-w-[375px] overflow-hidden bg-white shadow-2xl">
             <div className="flex items-center justify-between border-b border-[#e6e8ec] px-9 py-6">
-              <h2 className="text-[18px] font-bold">ДОБАВИТЬ БАЛЛ</h2>
+              <h2 className="text-[18px] font-bold">{t("ДОБАВИТЬ БАЛЛ")}</h2>
               <button type="button" onClick={() => setBonusClient(null)} className="text-[#636363]"><X size={28} /></button>
             </div>
             <div className="space-y-7 px-6 py-8">
               <div className="space-y-4">
                 <label className="flex items-center gap-4 text-[16px]">
                   <input type="radio" checked={bonusKind === "plus"} onChange={() => setBonusKind("plus")} className="h-6 w-6 accent-[#657185]" />
-                  Плюсовой балл
+                  {t("Плюсовой балл")}
                 </label>
                 <label className="flex items-center gap-4 text-[16px]">
                   <input type="radio" checked={bonusKind === "minus"} onChange={() => setBonusKind("minus")} className="h-6 w-6 accent-[#657185]" />
-                  Минусовой балл
+                  {t("Минусовой балл")}
                 </label>
               </div>
               <label className="block border-b border-[#d9dfe7] pb-2">
-                <span className="block font-bold">Акция <b className="text-[#fa7777]">*</b></span>
-                <input name="promotion" placeholder="Выберите акцию" className="mt-1 w-full bg-transparent text-sm outline-none placeholder:text-[#b7bfca]" />
+                <span className="block font-bold">{t("Акция")} <b className="text-[#fa7777]">*</b></span>
+                <input name="promotion" placeholder={t("Выберите акцию")} className="mt-1 w-full bg-transparent text-sm outline-none placeholder:text-[#b7bfca]" />
               </label>
               <label className="block border-b border-[#d9dfe7] pb-2">
-                <span className="block font-bold">Балл <b className="text-[#fa7777]">*</b></span>
-                <input name="points" type="number" min="1" placeholder="Введите количество" className="mt-1 w-full bg-transparent text-sm outline-none placeholder:text-[#b7bfca]" />
+                <span className="block font-bold">{t("Балл")} <b className="text-[#fa7777]">*</b></span>
+                <input name="points" type="number" min="1" placeholder={t("Введите количество")} className="mt-1 w-full bg-transparent text-sm outline-none placeholder:text-[#b7bfca]" />
               </label>
               <label className="block border-b border-[#d9dfe7] pb-2">
-                <span className="block font-bold">Оставить комментарий... <b className="text-[#fa7777]">*</b></span>
-                <input name="comment" placeholder="Комментарий" className="mt-1 w-full bg-transparent text-sm outline-none placeholder:text-[#b7bfca]" />
+                <span className="block font-bold">{t("Оставить комментарий...")} <b className="text-[#fa7777]">*</b></span>
+                <input name="comment" placeholder={t("Комментарий")} className="mt-1 w-full bg-transparent text-sm outline-none placeholder:text-[#b7bfca]" />
               </label>
               {formError && <p className="text-sm text-[#e46666]">{formError}</p>}
             </div>
             <div className="border-t border-[#e6e8ec] px-8 py-6 text-right">
-              <button type="submit" className="font-bold text-[#149bd7] hover:text-[#0b7eaf]">ДОБАВИТЬ</button>
+              <button type="submit" className="font-bold text-[#149bd7] hover:text-[#0b7eaf]">{t("ДОБАВИТЬ")}</button>
             </div>
           </form>
         </div>
@@ -373,17 +354,17 @@ export function ClientBonusesView() {
                 <thead>
                   <tr className="border-b-2 border-dotted border-[#dce4ec] text-[#4b4b4b]">
                     {["Продукт", "Кол-во", "Заказ", "Тип", "Акция", "Дата", "Балл"].map((heading) => (
-                      <th key={heading} className="px-9 py-4 font-semibold">{heading}</th>
+                      <th key={heading} className="px-9 py-4 font-semibold">{t(heading)}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
                   {activeClient.history.length ? activeClient.history.map((entry, index) => (
                     <tr key={index} className="border-b-2 border-dotted border-[#dce4ec]">
-                      <td className="px-9 py-4">{entry.product}</td>
+                      <td className="px-9 py-4">{t(entry.product)}</td>
                       <td className="px-9 py-4">{entry.quantity}</td>
                       <td className="px-9 py-4">{entry.order}</td>
-                      <td className="px-9 py-4">{entry.type}</td>
+                      <td className="px-9 py-4">{t(entry.type)}</td>
                       <td className="px-9 py-4">{entry.promotion}</td>
                       <td className="px-9 py-4">{entry.date}</td>
                       <td className={`px-9 py-4 font-semibold ${entry.points < 0 ? "text-[#e46666]" : "text-[#42a75b]"}`}>{entry.points}</td>
@@ -392,7 +373,7 @@ export function ClientBonusesView() {
                     <tr>
                       <td colSpan={7} className="py-10 text-center text-[#7e8792]">
                         <img src="/robot-mascot.png" alt="" className="mx-auto mb-3 h-48 w-48 object-contain" />
-                        У этого клиента нету бонусов
+                        {t("У этого клиента нету бонусов")}
                       </td>
                     </tr>
                   )}
@@ -400,7 +381,7 @@ export function ClientBonusesView() {
               </table>
             </div>
             <div className="flex justify-end gap-4 border-t border-[#e6e8ec] px-8 py-4 text-[#687385]">
-              <span>25⌄</span><span>1 - {activeClient.history.length} из {activeClient.history.length}</span>
+              <span>25⌄</span><span>1 - {activeClient.history.length} {t("из")} {activeClient.history.length}</span>
               <ChevronLeft className="rounded-full border border-[#b5bdc8] p-0.5" size={25} />
               <ChevronRight className="rounded-full border border-[#8b95a5] p-0.5" size={25} />
             </div>

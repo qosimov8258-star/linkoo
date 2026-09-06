@@ -15,7 +15,6 @@ import {
   Plus,
   PlusCircle,
   Search,
-  Star,
   Trash2,
   Upload,
   X,
@@ -23,6 +22,9 @@ import {
 import { ChangeEvent, DragEvent, Fragment, FormEvent, useEffect, useMemo, useRef, useState } from "react"
 
 import { downloadExcelTable } from "@/lib/excel-export"
+import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
+import { mapHeaderColumns, readExcelRows } from "@/lib/excel-import"
+import { useLanguage } from "@/lib/i18n/language-context"
 import {
   defaultPriceLists,
   productCurrencies,
@@ -37,6 +39,37 @@ type Tab = "sellable" | "inventory" | "delisted" | "all" | "deleted"
 type ToggleKey = "onlyMml" | "perfectStore" | "isInventory" | "groupOnly" | "showInBot" | "trackExpiry" | "markedProduct"
 
 const defaultPriceListNames = defaultPriceLists().map((entry) => entry.name)
+
+// Maps flexible spreadsheet header text to product fields so imports work
+// regardless of column order or which template (ours or the client's own
+// export) produced the file. Keys are normalized via normalizeHeader().
+const IMPORT_HEADER_ALIASES: Record<string, string> = {
+  "наименование": "name", "название": "name", "наименование обязательно": "name", "name": "name", "товар": "name", "nomi": "name",
+  "полное наименование": "fullName", "полное название": "fullName", "full name": "fullName", "fullname": "fullName",
+  "штрихкод": "barcode", "штрих код": "barcode", "штрих код товара": "barcode", "barcode": "barcode", "штрихкод товара": "barcode",
+  "артикул": "article", "article": "article", "sku": "article", "код товара": "article",
+  "код интеграции": "integrationCode", "integration code": "integrationCode",
+  "тип": "type", "тип товара": "type", "type": "type", "категория": "type", "turi": "type",
+  "организация": "organization", "organization": "organization", "компания": "organization", "tashkilot": "organization",
+  "мера": "unit", "мера обязательно": "unit", "единица": "unit", "единица измерения": "unit", "unit": "unit", "o lchov birligi": "unit",
+  "доп мера": "subUnit", "доп единица": "subUnit", "sub unit": "subUnit",
+  "бренд": "brand", "brand": "brand",
+  "поставщик": "supplier", "supplier": "supplier", "yetkazib beruvchi": "supplier",
+  "группа": "group", "group": "group",
+  "подкатегория": "subcategory", "subcategory": "subcategory",
+  "описание": "description", "description": "description", "izoh": "description",
+  "икпу": "ikpu", "ikpu": "ikpu",
+  "код единицы измерения для накладной": "invoiceUnitCode", "invoice unit code": "invoiceUnitCode",
+  "ндс": "vat", "vat": "vat",
+  "баллы": "salePoints", "points": "salePoints",
+  "мин остаток": "minStock", "минимальный остаток": "minStock", "min stock": "minStock",
+  "объем": "volume", "объём": "volume", "volume": "volume", "hajmi": "volume",
+  "вес": "weight", "weight": "weight", "og irligi": "weight",
+  "чистый вес": "netWeight", "net weight": "netWeight",
+  "цвет": "color", "color": "color", "rangi": "color",
+  "себестоимость": "cost", "cost": "cost", "tannarx": "cost",
+  "порядковый номер": "orderNumber", "order number": "orderNumber",
+}
 
 function emptyDraft() {
   return {
@@ -121,13 +154,13 @@ function buildProductInput(draft: Draft, base?: Product): Omit<Product, "id" | "
 }
 
 export function ProductsView({ embedded = false }: { embedded?: boolean }) {
+  const { t } = useLanguage()
   const [products, setProducts] = useState<Product[]>([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState("")
   const [tab, setTab] = useState<Tab>("sellable")
   const [query, setQuery] = useState("")
   const [page, setPage] = useState(1)
-  const [favorite, setFavorite] = useState(false)
   const [filterOpen, setFilterOpen] = useState(false)
   const [typeFilter, setTypeFilter] = useState("all")
   const [organizationFilter, setOrganizationFilter] = useState("all")
@@ -149,7 +182,7 @@ export function ProductsView({ embedded = false }: { embedded?: boolean }) {
   const [importSaving, setImportSaving] = useState(false)
   const updateInputRef = useRef<HTMLInputElement>(null)
   const modalFileInputRef = useRef<HTMLInputElement>(null)
-  const pageSize = 25
+  const [pageSize, setPageSize] = useState(25)
 
   useEffect(() => {
     let cancelled = false
@@ -165,7 +198,7 @@ export function ProductsView({ embedded = false }: { embedded?: boolean }) {
         setLoadError("")
       })
       .catch(() => {
-        if (!cancelled) setLoadError("Не удалось загрузить продукты с сервера")
+        if (!cancelled) setLoadError(t("Не удалось загрузить продукты с сервера"))
       })
       .finally(() => {
         if (!cancelled) setLoading(false)
@@ -183,7 +216,12 @@ export function ProductsView({ embedded = false }: { embedded?: boolean }) {
     )
   }, [products])
 
+  // While searching, ignore the tab scoping (Можно продавать/Инвентари/...)
+  // so a match shows up no matter which category the product is actually
+  // in — otherwise a query silently returns nothing for products outside
+  // the currently selected tab, which looks like search is broken.
   const scoped = useMemo(() => {
+    if (query.trim()) return products.filter((product) => !product.deleted)
     switch (tab) {
       case "sellable": return products.filter((product) => product.canSell && !product.deleted)
       case "inventory": return products.filter((product) => product.isInventory && !product.deleted)
@@ -191,13 +229,21 @@ export function ProductsView({ embedded = false }: { embedded?: boolean }) {
       case "deleted": return products.filter((product) => product.deleted)
       default: return products.filter((product) => !product.deleted)
     }
-  }, [products, tab])
+  }, [products, tab, query])
 
   const availableTypes = useMemo(() => Array.from(new Set(scoped.map((product) => product.type))).slice(0, 40), [scoped])
 
   const filtered = useMemo(() => {
+    const needle = query.trim().toLowerCase()
     return scoped.filter((product) => {
-      if (query && !product.name.toLowerCase().includes(query.toLowerCase()) && !product.article.toLowerCase().includes(query.toLowerCase())) return false
+      if (
+        needle &&
+        !product.name.toLowerCase().includes(needle) &&
+        !product.article.toLowerCase().includes(needle) &&
+        !product.barcode.toLowerCase().includes(needle) &&
+        !product.integrationCode.toLowerCase().includes(needle)
+      )
+        return false
       if (typeFilter !== "all" && product.type !== typeFilter) return false
       if (organizationFilter !== "all" && product.organization !== organizationFilter) return false
       return true
@@ -236,13 +282,13 @@ export function ProductsView({ embedded = false }: { embedded?: boolean }) {
       })
       if (!response.ok) {
         const data = await response.json().catch(() => ({}))
-        window.alert(data.error || "Не удалось сохранить товар")
+        window.alert(data.error || t("Не удалось сохранить товар"))
         return
       }
       const saved = (await response.json()) as Product
       setProducts((curr) => curr.map((product) => (product.id === id ? saved : product)))
     } catch {
-      window.alert("Сервер недоступен, попробуйте ещё раз")
+      window.alert(t("Сервер недоступен, попробуйте ещё раз"))
     }
   }
 
@@ -262,7 +308,7 @@ export function ProductsView({ embedded = false }: { embedded?: boolean }) {
   }
 
   function softDelete(product: Product) {
-    if (!window.confirm(`Удалить «${product.name}»?`)) return
+    if (!window.confirm(`${t("Удалить")} «${product.name}»?`)) return
     void patchProduct(product.id, { deleted: true })
     setOpenMenuId(null)
     setExpandedId(null)
@@ -338,7 +384,7 @@ export function ProductsView({ embedded = false }: { embedded?: boolean }) {
         })
         if (!response.ok) {
           const data = await response.json().catch(() => ({}))
-          window.alert(data.error || "Не удалось сохранить товар")
+          window.alert(data.error || t("Не удалось сохранить товар"))
           return
         }
         const saved = (await response.json()) as Product
@@ -352,7 +398,7 @@ export function ProductsView({ embedded = false }: { embedded?: boolean }) {
         })
         if (!response.ok) {
           const data = await response.json().catch(() => ({}))
-          window.alert(data.error || "Не удалось создать товар")
+          window.alert(data.error || t("Не удалось создать товар"))
           return
         }
         const saved = (await response.json()) as Product
@@ -360,67 +406,98 @@ export function ProductsView({ embedded = false }: { embedded?: boolean }) {
       }
       setModalOpen(false)
     } catch {
-      window.alert("Сервер недоступен, попробуйте ещё раз")
+      window.alert(t("Сервер недоступен, попробуйте ещё раз"))
     } finally {
       setSaving(false)
     }
   }
 
-  function readAndImport(file: File): Promise<number> {
-    return new Promise((resolve) => {
-      const reader = new FileReader()
-      reader.onload = async () => {
-        const text = String(reader.result ?? "")
-        const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean)
-        const parsed: Omit<Product, "id" | "createdDate">[] = []
-        for (const line of lines) {
-          const cells = line.split(/\t|,|;/).map((cell) => cell.replace(/<[^>]+>/g, "").trim())
-          const [name, barcode, article] = cells
-          if (!name || /^(наименование|название|name)$/i.test(name)) continue
-          parsed.push(
-            buildProductInput({
-              ...emptyDraft(),
-              name,
-              barcodes: [barcode || ""],
-              article: article || "",
-              integrationCode: article || "",
-              type: "Импорт",
-            }),
-          )
-        }
-        if (!parsed.length) {
-          resolve(0)
-          return
-        }
-        const created: Product[] = []
-        for (const item of parsed) {
-          try {
-            const response = await fetch("/api/products", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify(item),
-            })
-            if (response.ok) created.push((await response.json()) as Product)
-          } catch {
-            // ignore individual row failures during bulk import
-          }
-        }
-        if (created.length) setProducts((current) => [...created, ...current])
-        resolve(created.length)
+  async function readAndImport(file: File): Promise<{ created: number; total: number; failed: number }> {
+    const rows = await readExcelRows(file)
+    if (!rows.length) return { created: 0, total: 0, failed: 0 }
+
+    // Map columns by header text (works with our own template or the
+    // client's own export, whatever order/columns it uses). Falls back
+    // to the fixed Наименование/Штрихкод/Артикул column order only if
+    // the first row has no recognizable "name" header at all.
+    const fieldByIndex = mapHeaderColumns(rows[0], IMPORT_HEADER_ALIASES)
+    const hasNameColumn = Array.from(fieldByIndex.values()).includes("name")
+    const dataRows = hasNameColumn ? rows.slice(1) : rows
+
+    const parsed: Omit<Product, "id" | "createdDate">[] = []
+    for (const row of dataRows) {
+      const record: Record<string, string> = {}
+      if (hasNameColumn) {
+        row.forEach((cell, index) => {
+          const field = fieldByIndex.get(index)
+          if (field) record[field] = cell
+        })
+      } else {
+        record.name = row[0] ?? ""
+        record.barcode = row[1] ?? ""
+        record.article = row[2] ?? ""
       }
-      reader.readAsText(file)
-    })
+      const name = record.name || ""
+      if (!name || /^(наименование|название|name)$/i.test(name)) continue
+      parsed.push(
+        buildProductInput({
+          ...emptyDraft(),
+          name,
+          fullName: record.fullName || "",
+          barcodes: [record.barcode || ""],
+          article: record.article || "",
+          integrationCode: record.integrationCode || record.article || "",
+          type: record.type || "Импорт",
+          organization: record.organization || emptyDraft().organization,
+          unit: record.unit || emptyDraft().unit,
+          brand: record.brand || "",
+          supplier: record.supplier || "",
+          group: record.group || "",
+          description: record.description || "",
+          ikpu: record.ikpu || "",
+          vat: record.vat || productVatOptions[0],
+          minStock: record.minStock || "",
+          volume: record.volume || "",
+          weight: record.weight || "",
+          netWeight: record.netWeight || "",
+          color: record.color || "",
+          orderNumber: record.orderNumber || "",
+        }),
+      )
+    }
+    if (!parsed.length) return { created: 0, total: 0, failed: 0 }
+
+    const created: Product[] = []
+    let failed = 0
+    for (const item of parsed) {
+      try {
+        const response = await fetch("/api/products", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(item),
+        })
+        if (response.ok) created.push((await response.json()) as Product)
+        else failed += 1
+      } catch {
+        failed += 1
+      }
+    }
+    if (created.length) setProducts((current) => [...created, ...current])
+    return { created: created.length, total: parsed.length, failed }
   }
 
   function parseImport(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0]
     if (!file) return
-    void readAndImport(file)
+    void readAndImport(file).then(({ created, total, failed }) => {
+      if (!total) window.alert(t("Не удалось найти товары для импорта в выбранном файле"))
+      else if (failed) window.alert(`${t("Импортировано")} ${created} ${t("из")} ${total}. ${t("Не удалось сохранить")}: ${failed}`)
+    })
     event.target.value = ""
   }
 
   function downloadImportTemplate() {
-    downloadExcelTable("shablon_produktov", [["Наименование", "Штрих-код товара", "Артикул"]])
+    downloadExcelTable("shablon_produktov", [[t("Наименование"), t("Штрих-код товара"), t("Артикул")]])
   }
 
   function handleImportDrop(event: DragEvent<HTMLDivElement>) {
@@ -433,26 +510,27 @@ export function ProductsView({ embedded = false }: { embedded?: boolean }) {
   async function saveImportModal() {
     if (!importFile) return
     setImportSaving(true)
-    const count = await readAndImport(importFile)
+    const { created, total, failed } = await readAndImport(importFile)
     setImportSaving(false)
     setImportModalOpen(false)
     setImportFile(null)
-    if (!count) window.alert("Не удалось найти товары для импорта в выбранном файле")
+    if (!total) window.alert(t("Не удалось найти товары для импорта в выбранном файле"))
+    else if (failed) window.alert(`${t("Импортировано")} ${created} ${t("из")} ${total}. ${t("Не удалось сохранить")}: ${failed}`)
   }
 
   function downloadList() {
     downloadExcelTable("produkty", [
-      ["Наименование", "Штрих-код товара", "Артикул", "Тип товара", "Организация", "Мера", "Дата создания", "Порядковый номер"],
+      [t("Наименование"), t("Штрих-код товара"), t("Артикул"), t("Тип товара"), t("Организация"), t("Мера"), t("Дата создания"), t("Порядковый номер")],
       ...filtered.map((product) => [product.name, product.barcode, product.article, product.type, product.organization, product.unit, product.createdDate, product.orderNumber]),
     ])
   }
 
   const tabs: { id: Tab; label: string }[] = [
-    { id: "sellable", label: "Можно продавать" },
-    { id: "inventory", label: "Инвентари" },
-    { id: "delisted", label: "Сняты с продажи" },
-    { id: "all", label: "Все" },
-    { id: "deleted", label: "Удалённые" },
+    { id: "sellable", label: t("Можно продавать") },
+    { id: "inventory", label: t("Инвентари") },
+    { id: "delisted", label: t("Сняты с продажи") },
+    { id: "all", label: t("Все") },
+    { id: "deleted", label: t("Удалённые") },
   ]
 
   return (
@@ -460,20 +538,18 @@ export function ProductsView({ embedded = false }: { embedded?: boolean }) {
       {!embedded && (
         <header className="mb-5 flex items-center justify-between">
           <h1 className="flex items-center text-2xl font-bold text-slate-600">
-            <button type="button" onClick={() => setFavorite((value) => !value)} className="inline-flex items-center gap-2 text-[#4f70e7]">
-              <Star className={`h-5 w-5 ${favorite ? "fill-amber-400 text-amber-400" : ""}`} /> Избранные
-            </button>
-            <span className="mx-2 text-slate-400">|</span> Продукты
+            <FavoritesButton className="inline-flex items-center gap-2 text-[#4f70e7]" />
+            <span className="mx-2 text-slate-400">|</span> {t("Продукты")}
           </h1>
           <div className="flex items-center gap-3">
             <button type="button" onClick={() => setImportModalOpen(true)} className="inline-flex items-center gap-2 rounded bg-[#4f70e7] px-4 py-2.5 font-semibold text-white hover:brightness-95">
-              <BarChart3 className="h-4 w-4" /> Импортировать
+              <BarChart3 className="h-4 w-4" /> {t("Импортировать")}
             </button>
             <button type="button" onClick={() => updateInputRef.current?.click()} className="inline-flex items-center gap-2 rounded bg-[#4f70e7] px-4 py-2.5 font-semibold text-white hover:brightness-95">
-              <BarChart3 className="h-4 w-4" /> Обновить с excel
+              <BarChart3 className="h-4 w-4" /> {t("Обновить с excel")}
             </button>
             <button type="button" onClick={openCreate} className="inline-flex items-center gap-2 rounded bg-[#6ccd8b] px-5 py-2.5 font-semibold text-white hover:brightness-95">
-              <Plus className="h-4 w-4" /> Добавить
+              <Plus className="h-4 w-4" /> {t("Добавить")}
             </button>
             <input ref={updateInputRef} type="file" accept=".csv,.xls,.xlsx,text/csv" onChange={parseImport} className="hidden" />
           </div>
@@ -496,23 +572,23 @@ export function ProductsView({ embedded = false }: { embedded?: boolean }) {
 
         <div className="flex flex-wrap items-center gap-4 px-5 py-3">
           <button type="button" onClick={() => setFilterOpen((value) => !value)} className="inline-flex items-center gap-1 text-[#4f70e7] hover:underline">
-            Показать фильтр <ChevronDown className={`h-4 w-4 transition-transform ${filterOpen ? "rotate-180" : ""}`} />
+            {t("Показать фильтр")} <ChevronDown className={`h-4 w-4 transition-transform ${filterOpen ? "rotate-180" : ""}`} />
           </button>
         </div>
 
         {filterOpen && (
           <div className="flex flex-wrap items-center gap-4 border-b border-slate-100 bg-slate-50 px-5 py-3">
             <label className="text-sm text-slate-600">
-              Тип товара:{" "}
+              {t("Тип товара:")}{" "}
               <select value={typeFilter} onChange={(event) => { setTypeFilter(event.target.value); setPage(1) }} className="ml-1 rounded border border-slate-300 px-2 py-1">
-                <option value="all">Все</option>
+                <option value="all">{t("Все")}</option>
                 {availableTypes.map((type) => <option key={type} value={type}>{type}</option>)}
               </select>
             </label>
             <label className="text-sm text-slate-600">
-              Организация:{" "}
+              {t("Организация:")}{" "}
               <select value={organizationFilter} onChange={(event) => { setOrganizationFilter(event.target.value); setPage(1) }} className="ml-1 rounded border border-slate-300 px-2 py-1">
-                <option value="all">Все</option>
+                <option value="all">{t("Все")}</option>
                 {organizations.map((org) => <option key={org} value={org}>{org}</option>)}
               </select>
             </label>
@@ -521,26 +597,35 @@ export function ProductsView({ embedded = false }: { embedded?: boolean }) {
 
         <div className="flex flex-wrap items-center gap-4 px-5 py-3">
           <label className="relative w-64">
-            <input value={query} onChange={(event) => { setQuery(event.target.value); setPage(1) }} placeholder="Поиск" className="w-full border-b border-slate-300 py-2 pr-10 outline-none focus:border-[#4f70e7]" />
+            <input value={query} onChange={(event) => { setQuery(event.target.value); setPage(1) }} placeholder={t("Поиск")} className="w-full border-b border-slate-300 py-2 pr-10 outline-none focus:border-[#4f70e7]" />
             <Search className="absolute right-2 top-2 h-5 w-5 text-slate-300" />
           </label>
-          <span className="ml-auto text-slate-500">25</span>
+          <select
+            value={pageSize}
+            onChange={(event) => { setPageSize(Number(event.target.value)); setPage(1) }}
+            className="ml-auto rounded border border-slate-300 bg-white px-2 py-1 text-slate-600"
+          >
+            <option value={25}>25</option>
+            <option value={50}>50</option>
+            <option value={100}>100</option>
+            <option value={250}>250</option>
+          </select>
           <span className="text-slate-500">
-            {filtered.length ? (safePage - 1) * pageSize + 1 : 0} - {Math.min(safePage * pageSize, filtered.length)} из {filtered.length}
+            {filtered.length ? (safePage - 1) * pageSize + 1 : 0} - {Math.min(safePage * pageSize, filtered.length)} {t("из")} {filtered.length}
           </span>
-          <button type="button" onClick={() => setPage((value) => Math.max(1, value - 1))} disabled={safePage <= 1} aria-label="Назад" className="disabled:opacity-30">
+          <button type="button" onClick={() => setPage((value) => Math.max(1, value - 1))} disabled={safePage <= 1} aria-label={t("Назад")} className="disabled:opacity-30">
             <ChevronLeft className="h-5 w-5 text-slate-400" />
           </button>
-          <button type="button" onClick={() => setPage((value) => Math.min(pageCount, value + 1))} disabled={safePage >= pageCount} aria-label="Вперед" className="disabled:opacity-30">
+          <button type="button" onClick={() => setPage((value) => Math.min(pageCount, value + 1))} disabled={safePage >= pageCount} aria-label={t("Вперед")} className="disabled:opacity-30">
             <ChevronRight className="h-5 w-5 text-slate-400" />
           </button>
           <ListChecks className="h-5 w-5 text-slate-400" />
-          <button type="button" onClick={downloadList} aria-label="Скачать" className="text-slate-500 hover:text-[#4f70e7]">
+          <button type="button" onClick={downloadList} aria-label={t("Скачать")} className="text-slate-500 hover:text-[#4f70e7]">
             <Upload className="h-5 w-5 rotate-180" />
           </button>
           {embedded && (
             <button type="button" onClick={openCreate} className="inline-flex items-center gap-2 rounded bg-[#6ccd8b] px-4 py-2 text-sm font-semibold text-white hover:brightness-95">
-              <Plus className="h-4 w-4" /> Добавить
+              <Plus className="h-4 w-4" /> {t("Добавить")}
             </button>
           )}
         </div>
@@ -548,20 +633,20 @@ export function ProductsView({ embedded = false }: { embedded?: boolean }) {
         <table className="w-full text-left">
           <thead className="bg-[#626b7e] text-white">
             <tr>
-              <th className="px-9 py-5">Наименование</th>
-              <th className="px-5 py-5">Штрих - код товара</th>
-              <th className="px-5 py-5">Артикул</th>
-              <th className="px-5 py-5">Тип товара</th>
-              <th className="px-5 py-5">Организация</th>
-              <th className="px-5 py-5">Мера</th>
-              <th className="px-5 py-5">Дата создания</th>
-              <th className="px-5 py-5">Порядковый номер</th>
+              <th className="px-9 py-5">{t("Наименование")}</th>
+              <th className="px-5 py-5">{t("Штрих - код товара")}</th>
+              <th className="px-5 py-5">{t("Артикул")}</th>
+              <th className="px-5 py-5">{t("Тип товара")}</th>
+              <th className="px-5 py-5">{t("Организация")}</th>
+              <th className="px-5 py-5">{t("Мера")}</th>
+              <th className="px-5 py-5">{t("Дата создания")}</th>
+              <th className="px-5 py-5">{t("Порядковый номер")}</th>
               <th className="w-12" />
             </tr>
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={9} className="px-9 py-10 text-center text-slate-400">Загрузка продуктов...</td></tr>
+              <tr><td colSpan={9} className="px-9 py-10 text-center text-slate-400">{t("Загрузка продуктов...")}</td></tr>
             ) : loadError ? (
               <tr><td colSpan={9} className="px-9 py-10 text-center text-red-600">{loadError}</td></tr>
             ) : visible.map((product) => (
@@ -587,7 +672,7 @@ export function ProductsView({ embedded = false }: { embedded?: boolean }) {
                     <button
                       type="button"
                       onClick={(event) => { event.stopPropagation(); setOpenMenuId((current) => (current === product.id ? null : product.id)) }}
-                      aria-label="Ещё"
+                      aria-label={t("Ещё")}
                       className="text-slate-500 hover:text-slate-800"
                     >
                       <MoreVertical className="h-5 w-5" />
@@ -595,19 +680,19 @@ export function ProductsView({ embedded = false }: { embedded?: boolean }) {
                     {openMenuId === product.id && (
                       <div onClick={(event) => event.stopPropagation()} className="absolute right-3 top-12 z-30 w-52 rounded border border-slate-200 bg-white py-1 text-left shadow-xl">
                         <button type="button" onClick={() => openEdit(product)} className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm hover:bg-slate-50">
-                          <Pencil className="h-4 w-4" /> Изменить
+                          <Pencil className="h-4 w-4" /> {t("Изменить")}
                         </button>
                         {product.deleted ? (
                           <button type="button" onClick={() => restore(product)} className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm hover:bg-slate-50">
-                            <Check className="h-4 w-4" /> Восстановить
+                            <Check className="h-4 w-4" /> {t("Восстановить")}
                           </button>
                         ) : product.canSell ? (
                           <button type="button" onClick={() => delist(product)} className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm hover:bg-slate-50">
-                            <X className="h-4 w-4" /> Снять с продажи
+                            <X className="h-4 w-4" /> {t("Снять с продажи")}
                           </button>
                         ) : (
                           <button type="button" onClick={() => restore(product)} className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm hover:bg-slate-50">
-                            <Check className="h-4 w-4" /> Восстановить
+                            <Check className="h-4 w-4" /> {t("Восстановить")}
                           </button>
                         )}
                       </div>
@@ -622,10 +707,10 @@ export function ProductsView({ embedded = false }: { embedded?: boolean }) {
                         <div className="mb-6 flex items-center justify-between">
                           <h2 className="text-xl font-bold text-slate-700">{expanded.name}</h2>
                           <div className="flex items-center gap-4 text-slate-500">
-                            <button type="button" onClick={() => openEdit(expanded)} aria-label="Изменить" className="hover:text-[#4f70e7]">
+                            <button type="button" onClick={() => openEdit(expanded)} aria-label={t("Изменить")} className="hover:text-[#4f70e7]">
                               <Pencil className="h-5 w-5" />
                             </button>
-                            <button type="button" onClick={() => softDelete(expanded)} aria-label="Удалить" className="hover:text-rose-500">
+                            <button type="button" onClick={() => softDelete(expanded)} aria-label={t("Удалить")} className="hover:text-rose-500">
                               <Trash2 className="h-5 w-5" />
                             </button>
                           </div>
@@ -634,23 +719,23 @@ export function ProductsView({ embedded = false }: { embedded?: boolean }) {
                         <div className="grid gap-8 lg:grid-cols-[220px_1.4fr_1.4fr]">
                           <div>
                             <div className="mb-4 flex h-40 flex-col items-center justify-center gap-1 rounded border border-dashed border-slate-300 text-center text-sm text-slate-400">
-                              {expanded.hasPhoto ? <ImageIcon className="h-10 w-10" /> : <span>Фото отсутствует</span>}
-                              <button type="button" className="text-[#4f70e7] hover:underline">добавить фото</button>
+                              {expanded.hasPhoto ? <ImageIcon className="h-10 w-10" /> : <span>{t("Фото отсутствует")}</span>}
+                              <button type="button" className="text-[#4f70e7] hover:underline">{t("добавить фото")}</button>
                             </div>
                             <ul className="space-y-2 text-sm">
                               {(
                                 [
-                                  ["canSell", "Можно продавать"],
-                                  ["onlyMml", "Только ММЛ продукты"],
-                                  ["isInventory", "Инвентарь"],
+                                  ["canSell", t("Можно продавать")],
+                                  ["onlyMml", t("Только ММЛ продукты")],
+                                  ["isInventory", t("Инвентарь")],
                                   ["perfectStore", "Perfect store"],
-                                  ["groupOnly", "Продать только в группе"],
-                                  ["trackExpiry", "Учитывать срок годности"],
-                                  ["manualDiscount", "Можно дать ручную скидку"],
-                                  ["hideFromAgent", "Скрыть из списка заказов для агента"],
-                                  ["trackSeries", "Учитывать серии"],
-                                  ["showInBot", "Показывать в боте"],
-                                  ["markedProduct", "Маркировочный товар"],
+                                  ["groupOnly", t("Продать только в группе")],
+                                  ["trackExpiry", t("Учитывать срок годности")],
+                                  ["manualDiscount", t("Можно дать ручную скидку")],
+                                  ["hideFromAgent", t("Скрыть из списка заказов для агента")],
+                                  ["trackSeries", t("Учитывать серии")],
+                                  ["showInBot", t("Показывать в боте")],
+                                  ["markedProduct", t("Маркировочный товар")],
                                 ] as [keyof Product, string][]
                               ).map(([key, label]) => (
                                 <li key={key} className="flex items-center justify-between gap-2">
@@ -664,29 +749,29 @@ export function ProductsView({ embedded = false }: { embedded?: boolean }) {
                           </div>
 
                           <div>
-                            <p className="mb-3 font-medium text-slate-800">Товар:</p>
+                            <p className="mb-3 font-medium text-slate-800">{t("Товар")}:</p>
                             <dl className="space-y-2 text-sm">
-                              <div className="flex justify-between gap-4"><dt className="text-slate-500">Наименование:</dt><dd className="text-right font-medium">{expanded.name}</dd></div>
-                              <div className="flex justify-between gap-4"><dt className="shrink-0 text-slate-500">Полное наименование:</dt><dd className="text-right font-medium">{expanded.fullName}</dd></div>
-                              <div className="flex justify-between gap-4"><dt className="text-slate-500">Мера:</dt><dd className="font-medium">{expanded.unit}</dd></div>
-                              <div className="flex justify-between gap-4"><dt className="text-slate-500">Группа:</dt><dd className="font-medium">{expanded.group || "Не указано"}</dd></div>
-                              <div className="flex justify-between gap-4"><dt className="text-slate-500">Подкатегория:</dt><dd className="font-medium">{expanded.subcategory}</dd></div>
-                              <div className="flex justify-between gap-4"><dt className="text-slate-500">Бренд:</dt><dd className="font-medium">{expanded.brand}</dd></div>
-                              <div className="flex justify-between gap-4"><dt className="text-slate-500">Организация:</dt><dd className="font-medium">{expanded.organization}</dd></div>
-                              <div className="flex justify-between gap-4"><dt className="text-slate-500">Порядковый номер:</dt><dd className="font-medium">{expanded.orderNumber || "Не указано"}</dd></div>
-                              <div className="flex justify-between gap-4"><dt className="text-slate-500">Минимальный остаток:</dt><dd className="font-medium">{expanded.minStock}</dd></div>
-                              <div className="flex justify-between gap-4"><dt className="text-slate-500">Описание:</dt><dd className="font-medium">{expanded.description}</dd></div>
-                              <div className="flex justify-between gap-4"><dt className="text-slate-500">Штрих-коды товара:</dt><dd className="font-medium">{expanded.barcode === "не установлен" ? "Не указано" : expanded.barcode}</dd></div>
-                              <div className="flex justify-between gap-4"><dt className="text-slate-500">Артикул:</dt><dd className="font-medium">{expanded.article || "Не указано"}</dd></div>
-                              <div className="flex justify-between gap-4"><dt className="text-slate-500">Поставщик:</dt><dd className="font-medium">{expanded.supplier}</dd></div>
-                              <div className="flex justify-between gap-4"><dt className="text-slate-500">Код для интеграции:</dt><dd className="font-medium">{expanded.integrationCode || "Не указано"}</dd></div>
-                              <div className="flex justify-between gap-4"><dt className="text-slate-500">Икпу:</dt><dd className="font-medium">{expanded.ikpu || "Не указано"}</dd></div>
-                              <div className="flex justify-between gap-4"><dt className="shrink-0 text-slate-500">Код ед.изм. в фактуре:</dt><dd className="font-medium">{expanded.invoiceUnitCode || "Не указано"}</dd></div>
-                              <div className="flex justify-between gap-4"><dt className="text-slate-500">НДС:</dt><dd className="font-medium">{expanded.vat || "Без НДС"}</dd></div>
-                              <div className="flex justify-between gap-4"><dt className="text-slate-500">Масса - кг:</dt><dd className="font-medium">{expanded.weight}</dd></div>
-                              <div className="flex justify-between gap-4"><dt className="text-slate-500">Вес нетто:</dt><dd className="font-medium">{expanded.netWeight}</dd></div>
-                              <div className="flex justify-between gap-4"><dt className="text-slate-500">Объем:</dt><dd className="font-medium">{expanded.volume}</dd></div>
-                              <div className="flex justify-between gap-4"><dt className="text-slate-500">Цвет:</dt><dd className="font-medium">{expanded.color}</dd></div>
+                              <div className="flex justify-between gap-4"><dt className="text-slate-500">{t("Наименование")}:</dt><dd className="text-right font-medium">{expanded.name}</dd></div>
+                              <div className="flex justify-between gap-4"><dt className="shrink-0 text-slate-500">{t("Полное наименование")}:</dt><dd className="text-right font-medium">{expanded.fullName}</dd></div>
+                              <div className="flex justify-between gap-4"><dt className="text-slate-500">{t("Мера")}:</dt><dd className="font-medium">{expanded.unit}</dd></div>
+                              <div className="flex justify-between gap-4"><dt className="text-slate-500">{t("Группа")}:</dt><dd className="font-medium">{expanded.group || t("Не указано")}</dd></div>
+                              <div className="flex justify-between gap-4"><dt className="text-slate-500">{t("Подкатегория")}:</dt><dd className="font-medium">{expanded.subcategory}</dd></div>
+                              <div className="flex justify-between gap-4"><dt className="text-slate-500">{t("Бренд")}:</dt><dd className="font-medium">{expanded.brand}</dd></div>
+                              <div className="flex justify-between gap-4"><dt className="text-slate-500">{t("Организация")}:</dt><dd className="font-medium">{expanded.organization}</dd></div>
+                              <div className="flex justify-between gap-4"><dt className="text-slate-500">{t("Порядковый номер")}:</dt><dd className="font-medium">{expanded.orderNumber || t("Не указано")}</dd></div>
+                              <div className="flex justify-between gap-4"><dt className="text-slate-500">{t("Минимальный остаток")}:</dt><dd className="font-medium">{expanded.minStock}</dd></div>
+                              <div className="flex justify-between gap-4"><dt className="text-slate-500">{t("Описание")}:</dt><dd className="font-medium">{expanded.description}</dd></div>
+                              <div className="flex justify-between gap-4"><dt className="text-slate-500">{t("Штрих-коды товара")}:</dt><dd className="font-medium">{expanded.barcode === "не установлен" ? t("Не указано") : expanded.barcode}</dd></div>
+                              <div className="flex justify-between gap-4"><dt className="text-slate-500">{t("Артикул")}:</dt><dd className="font-medium">{expanded.article || t("Не указано")}</dd></div>
+                              <div className="flex justify-between gap-4"><dt className="text-slate-500">{t("Поставщик")}:</dt><dd className="font-medium">{expanded.supplier}</dd></div>
+                              <div className="flex justify-between gap-4"><dt className="text-slate-500">{t("Код для интеграции")}:</dt><dd className="font-medium">{expanded.integrationCode || t("Не указано")}</dd></div>
+                              <div className="flex justify-between gap-4"><dt className="text-slate-500">{t("Икпу")}:</dt><dd className="font-medium">{expanded.ikpu || t("Не указано")}</dd></div>
+                              <div className="flex justify-between gap-4"><dt className="shrink-0 text-slate-500">{t("Код ед.изм. в фактуре")}:</dt><dd className="font-medium">{expanded.invoiceUnitCode || t("Не указано")}</dd></div>
+                              <div className="flex justify-between gap-4"><dt className="text-slate-500">{t("НДС")}:</dt><dd className="font-medium">{expanded.vat || t("Без НДС")}</dd></div>
+                              <div className="flex justify-between gap-4"><dt className="text-slate-500">{t("Масса - кг")}:</dt><dd className="font-medium">{expanded.weight}</dd></div>
+                              <div className="flex justify-between gap-4"><dt className="text-slate-500">{t("Вес нетто")}:</dt><dd className="font-medium">{expanded.netWeight}</dd></div>
+                              <div className="flex justify-between gap-4"><dt className="text-slate-500">{t("Объем")}:</dt><dd className="font-medium">{expanded.volume}</dd></div>
+                              <div className="flex justify-between gap-4"><dt className="text-slate-500">{t("Цвет")}:</dt><dd className="font-medium">{expanded.color}</dd></div>
                             </dl>
                           </div>
 
@@ -694,11 +779,11 @@ export function ProductsView({ embedded = false }: { embedded?: boolean }) {
                             <table className="w-full text-left text-sm">
                               <thead>
                                 <tr className="text-slate-500">
-                                  <th className="py-2 pr-4">Прайс лист</th>
-                                  <th className="py-2 pr-4">Нал</th>
-                                  <th className="py-2 pr-4">Безнал</th>
-                                  <th className="py-2 pr-4">Мин</th>
-                                  <th className="py-2 pr-4">Макс</th>
+                                  <th className="py-2 pr-4">{t("Прайс лист")}</th>
+                                  <th className="py-2 pr-4">{t("Нал")}</th>
+                                  <th className="py-2 pr-4">{t("Безнал")}</th>
+                                  <th className="py-2 pr-4">{t("Мин")}</th>
+                                  <th className="py-2 pr-4">{t("Макс")}</th>
                                 </tr>
                               </thead>
                               <tbody>
@@ -715,12 +800,12 @@ export function ProductsView({ embedded = false }: { embedded?: boolean }) {
                             </table>
                             {expanded.limitPrice && (
                               <p className="mt-3 text-sm text-slate-600">
-                                <b>Мин/Макс цена продажи:</b> {expanded.priceMin.toLocaleString("ru-RU")} — {expanded.priceMax.toLocaleString("ru-RU")} SUM
+                                <b>{t("Мин/Макс цена продажи")}:</b> {expanded.priceMin.toLocaleString("ru-RU")} — {expanded.priceMax.toLocaleString("ru-RU")} SUM
                               </p>
                             )}
-                            <p className="mb-2 mt-5 font-medium text-slate-800">Характеристика:</p>
-                            <p className="text-sm text-slate-600"><b>Балл:</b> {expanded.salePoints && expanded.salePoints !== "0" ? expanded.salePoints : "Неизвестно"}</p>
-                            <p className="text-sm text-slate-500">Лимиты для агентов отсутствуют</p>
+                            <p className="mb-2 mt-5 font-medium text-slate-800">{t("Характеристика")}:</p>
+                            <p className="text-sm text-slate-600"><b>{t("Балл")}:</b> {expanded.salePoints && expanded.salePoints !== "0" ? expanded.salePoints : t("Неизвестно")}</p>
+                            <p className="text-sm text-slate-500">{t("Лимиты для агентов отсутствуют")}</p>
                           </div>
                         </div>
                       </div>
@@ -734,7 +819,7 @@ export function ProductsView({ embedded = false }: { embedded?: boolean }) {
 
         {!loading && !loadError && visible.length === 0 && (
           <div className="flex min-h-[240px] flex-col items-center justify-center gap-3 py-10">
-            <p className="text-lg text-slate-400">По вашему запросу ничего не найдено</p>
+            <p className="text-lg text-slate-400">{t("По вашему запросу ничего не найдено")}</p>
           </div>
         )}
       </section>
@@ -743,8 +828,8 @@ export function ProductsView({ embedded = false }: { embedded?: boolean }) {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
           <form onSubmit={save} className="flex max-h-[90vh] w-full max-w-6xl flex-col rounded bg-white">
             <header className="flex items-center justify-between border-b p-6">
-              <b className="uppercase">{editingId !== null ? "Изменить продукт" : "Добавить продукт"}</b>
-              <button type="button" onClick={() => setModalOpen(false)} aria-label="Закрыть"><X className="h-5 w-5" /></button>
+              <b className="uppercase">{editingId !== null ? t("Изменить продукт") : t("Добавить продукт")}</b>
+              <button type="button" onClick={() => setModalOpen(false)} aria-label={t("Закрыть")}><X className="h-5 w-5" /></button>
             </header>
 
             <div className="flex-1 overflow-y-auto p-8">
@@ -752,22 +837,22 @@ export function ProductsView({ embedded = false }: { embedded?: boolean }) {
                 {/* Left column */}
                 <div className="space-y-4">
                   <label className="block border-b border-slate-200 pb-2 font-medium">
-                    Наименование <span className="text-red-500">*</span>
+                    {t("Наименование")} <span className="text-red-500">*</span>
                     <input autoFocus required value={draft.name} onChange={(event) => setDraft((value) => ({ ...value, name: event.target.value }))} className="mt-2 block w-full outline-none" />
                   </label>
 
                   <div className="flex items-end gap-2 border-b border-slate-200 pb-2">
                     <label className="block flex-1 font-medium">
-                      Мера <span className="text-red-500">*</span>
+                      {t("Мера")} <span className="text-red-500">*</span>
                       <select value={draft.unit} onChange={(event) => setDraft((value) => ({ ...value, unit: event.target.value }))} className="mt-2 block w-full bg-white outline-none">
                         {unitOptions.map((unit) => <option key={unit}>{unit}</option>)}
                       </select>
                     </label>
                     <button
                       type="button"
-                      title="Добавить меру"
+                      title={t("Добавить меру")}
                       onClick={() => {
-                        const value = window.prompt("Новая мера")
+                        const value = window.prompt(t("Новая мера"))
                         if (value?.trim()) {
                           setUnitOptions((current) => Array.from(new Set([...current, value.trim()])))
                           setDraft((current) => ({ ...current, unit: value.trim() }))
@@ -782,35 +867,35 @@ export function ProductsView({ embedded = false }: { embedded?: boolean }) {
                   <div className="space-y-2 text-sm">
                     <label className="flex items-center gap-2">
                       <input type="checkbox" checked={groupOpen} onChange={(event) => setGroupOpen(event.target.checked)} className="h-4 w-4 rounded border-slate-300" />
-                      Указать группу
+                      {t("Указать группу")}
                     </label>
                     {groupOpen && (
                       <input
                         value={draft.group}
                         onChange={(event) => setDraft((value) => ({ ...value, group: event.target.value }))}
-                        placeholder="Группа"
+                        placeholder={t("Группа")}
                         className="block w-full border-b border-slate-200 pb-2 outline-none"
                       />
                     )}
                     <label className="flex items-center gap-2">
                       <input type="checkbox" checked={extraOpen} onChange={(event) => setExtraOpen(event.target.checked)} className="h-4 w-4 rounded border-slate-300" />
-                      Доп. параметры
+                      {t("Доп. параметры")}
                     </label>
                   </div>
 
                   <div className="flex items-end gap-2 border-b border-slate-200 pb-2">
                     <label className="block flex-1 font-medium">
-                      Тип продукта
+                      {t("Тип продукта")}
                       <select value={draft.type} onChange={(event) => setDraft((value) => ({ ...value, type: event.target.value }))} className="mt-2 block w-full bg-white outline-none">
-                        <option value="">Не указано</option>
+                        <option value="">{t("Не указано")}</option>
                         {typeOptions.map((type) => <option key={type}>{type}</option>)}
                       </select>
                     </label>
                     <button
                       type="button"
-                      title="Добавить тип продукта"
+                      title={t("Добавить тип продукта")}
                       onClick={() => {
-                        const value = window.prompt("Новый тип продукта")
+                        const value = window.prompt(t("Новый тип продукта"))
                         if (value?.trim()) {
                           setTypeOptions((current) => Array.from(new Set([...current, value.trim()])))
                           setDraft((current) => ({ ...current, type: value.trim() }))
@@ -824,12 +909,12 @@ export function ProductsView({ embedded = false }: { embedded?: boolean }) {
 
                   <div className="flex gap-3">
                     <label className="block flex-1 border-b border-slate-200 pb-2 font-medium">
-                      Поставщик
+                      {t("Поставщик")}
                       <input value={draft.supplier} onChange={(event) => setDraft((value) => ({ ...value, supplier: event.target.value }))} className="mt-2 block w-full outline-none" />
                     </label>
                     <div className="flex flex-1 items-end gap-2">
                       <label className="block flex-1 border-b border-slate-200 pb-2 font-medium">
-                        Бренд
+                        {t("Бренд")}
                         <select value={draft.brand} onChange={(event) => setDraft((value) => ({ ...value, brand: event.target.value }))} className="mt-2 block w-full bg-white outline-none">
                           <option value="">No brand</option>
                           {brandOptions.map((brand) => <option key={brand}>{brand}</option>)}
@@ -837,9 +922,9 @@ export function ProductsView({ embedded = false }: { embedded?: boolean }) {
                       </label>
                       <button
                         type="button"
-                        title="Добавить бренд"
+                        title={t("Добавить бренд")}
                         onClick={() => {
-                          const value = window.prompt("Новый бренд")
+                          const value = window.prompt(t("Новый бренд"))
                           if (value?.trim()) {
                             setBrandOptions((current) => Array.from(new Set([...current, value.trim()])))
                             setDraft((current) => ({ ...current, brand: value.trim() }))
@@ -853,27 +938,27 @@ export function ProductsView({ embedded = false }: { embedded?: boolean }) {
                   </div>
 
                   <label className="block border-b border-slate-200 pb-2 font-medium">
-                    Организация
+                    {t("Организация")}
                     <select value={draft.organization} onChange={(event) => setDraft((value) => ({ ...value, organization: event.target.value }))} className="mt-2 block w-full bg-white outline-none">
                       {organizations.map((org) => <option key={org}>{org}</option>)}
                     </select>
                   </label>
                   <label className="block border-b border-slate-200 pb-2 font-medium">
                     <span className="inline-flex items-center gap-1">
-                      Порядковый номер
-                      <span title="Определяет позицию товара в списках"><Info className="h-3.5 w-3.5 text-slate-400" /></span>
+                      {t("Порядковый номер")}
+                      <span title={t("Определяет позицию товара в списках")}><Info className="h-3.5 w-3.5 text-slate-400" /></span>
                     </span>
                     <input value={draft.orderNumber} onChange={(event) => setDraft((value) => ({ ...value, orderNumber: event.target.value }))} className="mt-2 block w-full outline-none" />
                   </label>
                   <label className="block border-b border-slate-200 pb-2 font-medium">
                     <span className="inline-flex items-center gap-1">
-                      Минимальный остаток
-                      <span title="Порог для уведомления о нехватке товара"><Info className="h-3.5 w-3.5 text-slate-400" /></span>
+                      {t("Минимальный остаток")}
+                      <span title={t("Порог для уведомления о нехватке товара")}><Info className="h-3.5 w-3.5 text-slate-400" /></span>
                     </span>
                     <input value={draft.minStock} onChange={(event) => setDraft((value) => ({ ...value, minStock: event.target.value }))} className="mt-2 block w-full outline-none" />
                   </label>
                   <label className="block border-b border-slate-200 pb-2 font-medium">
-                    Цвет
+                    {t("Цвет")}
                     <input value={draft.color} onChange={(event) => setDraft((value) => ({ ...value, color: event.target.value }))} className="mt-2 block w-full outline-none" />
                   </label>
                 </div>
@@ -881,12 +966,12 @@ export function ProductsView({ embedded = false }: { embedded?: boolean }) {
                 {/* Middle column */}
                 <div className="space-y-4">
                   <label className="block border-b border-slate-200 pb-2 font-medium">
-                    Полное наименование
+                    {t("Полное наименование")}
                     <input value={draft.fullName} onChange={(event) => setDraft((value) => ({ ...value, fullName: event.target.value }))} className="mt-2 block w-full outline-none" />
                   </label>
 
                   <div className="border-b border-slate-200 pb-2">
-                    <span className="font-medium">Штрих-код</span>
+                    <span className="font-medium">{t("Штрих-код")}</span>
                     <div className="mt-2 space-y-2">
                       {draft.barcodes.map((code, index) => (
                         <div key={index} className="flex items-center gap-2">
@@ -898,7 +983,7 @@ export function ProductsView({ embedded = false }: { embedded?: boolean }) {
                           {index === draft.barcodes.length - 1 ? (
                             <button
                               type="button"
-                              title="Добавить штрих-код"
+                              title={t("Добавить штрих-код")}
                               onClick={() => setDraft((value) => ({ ...value, barcodes: [...value.barcodes, ""] }))}
                               className="shrink-0 text-[#5fb583] hover:text-[#4a9d6d]"
                             >
@@ -907,7 +992,7 @@ export function ProductsView({ embedded = false }: { embedded?: boolean }) {
                           ) : (
                             <button
                               type="button"
-                              title="Удалить штрих-код"
+                              title={t("Удалить штрих-код")}
                               onClick={() => setDraft((value) => ({ ...value, barcodes: value.barcodes.filter((_, i) => i !== index) }))}
                               className="shrink-0 text-rose-400 hover:text-rose-600"
                             >
@@ -922,43 +1007,43 @@ export function ProductsView({ embedded = false }: { embedded?: boolean }) {
                       onClick={() => setDraft((value) => ({ ...value, barcodes: [String(Date.now()).slice(-13), ...value.barcodes.slice(1)] }))}
                       className="mt-2 text-sm text-[#4f70e7] hover:underline"
                     >
-                      Сгенерировать
+                      {t("Сгенерировать")}
                     </button>
                   </div>
 
                   <label className="block border-b border-slate-200 pb-2 font-medium">
-                    Артикул
+                    {t("Артикул")}
                     <input value={draft.article} onChange={(event) => setDraft((value) => ({ ...value, article: event.target.value }))} className="mt-2 block w-full outline-none" />
                   </label>
                   <label className="block border-b border-slate-200 pb-2 font-medium">
-                    Код для интеграции
+                    {t("Код для интеграции")}
                     <input value={draft.integrationCode} onChange={(event) => setDraft((value) => ({ ...value, integrationCode: event.target.value }))} className="mt-2 block w-full outline-none" />
                   </label>
                   <label className="block border-b border-slate-200 pb-2 font-medium">
-                    Масса - кг
+                    {t("Масса - кг")}
                     <input value={draft.weight} onChange={(event) => setDraft((value) => ({ ...value, weight: event.target.value }))} className="mt-2 block w-full outline-none" />
                   </label>
                   <label className="block border-b border-slate-200 pb-2 font-medium">
-                    Вес нетто
+                    {t("Вес нетто")}
                     <input value={draft.netWeight} onChange={(event) => setDraft((value) => ({ ...value, netWeight: event.target.value }))} className="mt-2 block w-full outline-none" />
                   </label>
                   <label className="block border-b border-slate-200 pb-2 font-medium">
-                    Объем
+                    {t("Объем")}
                     <input value={draft.volume} onChange={(event) => setDraft((value) => ({ ...value, volume: event.target.value }))} className="mt-2 block w-full outline-none" />
                   </label>
 
                   {extraOpen && (
                     <>
                       <label className="block border-b border-slate-200 pb-2 font-medium">
-                        Икпу
+                        {t("Икпу")}
                         <input value={draft.ikpu} onChange={(event) => setDraft((value) => ({ ...value, ikpu: event.target.value }))} className="mt-2 block w-full outline-none" />
                       </label>
                       <label className="block border-b border-slate-200 pb-2 font-medium">
-                        Код ед.изм. в фактуре
+                        {t("Код ед.изм. в фактуре")}
                         <input value={draft.invoiceUnitCode} onChange={(event) => setDraft((value) => ({ ...value, invoiceUnitCode: event.target.value }))} className="mt-2 block w-full outline-none" />
                       </label>
                       <label className="block border-b border-slate-200 pb-2 font-medium">
-                        НДС
+                        {t("НДС")}
                         <select value={draft.vat} onChange={(event) => setDraft((value) => ({ ...value, vat: event.target.value }))} className="mt-2 block w-full bg-white outline-none">
                           {productVatOptions.map((option) => <option key={option}>{option}</option>)}
                         </select>
@@ -979,7 +1064,7 @@ export function ProductsView({ embedded = false }: { embedded?: boolean }) {
                       ] as [ToggleKey, string][]
                     ).map(([key, label]) => (
                       <label key={key} className="flex items-center justify-between gap-3">
-                        <span className="text-sm font-medium text-slate-700">{label}</span>
+                        <span className="text-sm font-medium text-slate-700">{t(label)}</span>
                         <button
                           type="button"
                           onClick={() => setDraft((value) => ({ ...value, [key]: !value[key] }))}
@@ -992,7 +1077,7 @@ export function ProductsView({ embedded = false }: { embedded?: boolean }) {
                   </div>
 
                   <label className="block border-b border-slate-200 pb-2 pt-2 font-medium">
-                    Описание
+                    {t("Описание")}
                     <textarea value={draft.description} onChange={(event) => setDraft((value) => ({ ...value, description: event.target.value }))} rows={2} className="mt-2 block w-full resize-none outline-none" />
                   </label>
                 </div>
@@ -1001,8 +1086,8 @@ export function ProductsView({ embedded = false }: { embedded?: boolean }) {
                 <div className="space-y-4">
                   <label className="flex items-center justify-between gap-3 rounded bg-slate-50 p-3">
                     <span>
-                      <span className="block font-medium text-slate-800">Можно продавать</span>
-                      <span className="block text-xs text-slate-500">Агенты могут продать этот товар</span>
+                      <span className="block font-medium text-slate-800">{t("Можно продавать")}</span>
+                      <span className="block text-xs text-slate-500">{t("Агенты могут продать этот товар")}</span>
                     </span>
                     <button
                       type="button"
@@ -1014,9 +1099,9 @@ export function ProductsView({ embedded = false }: { embedded?: boolean }) {
                   </label>
 
                   <div className="flex items-center justify-between gap-2">
-                    <span className="font-medium text-slate-800">Продажная цена</span>
+                    <span className="font-medium text-slate-800">{t("Продажная цена")}</span>
                     <button type="button" onClick={addPriceEntry} className="inline-flex items-center gap-1 whitespace-nowrap rounded bg-[#4f70e7] px-3 py-1.5 text-sm font-semibold text-white hover:brightness-95">
-                      <Plus className="h-3.5 w-3.5" /> Добавить новую цену
+                      <Plus className="h-3.5 w-3.5" /> {t("Добавить новую цену")}
                     </button>
                   </div>
 
@@ -1025,23 +1110,23 @@ export function ProductsView({ embedded = false }: { embedded?: boolean }) {
                       <div key={index} className="space-y-3 rounded border border-slate-200 p-3">
                         {draft.priceEntries.length > 1 && (
                           <div className="flex justify-end">
-                            <button type="button" title="Удалить цену" onClick={() => removePriceEntry(index)} className="text-rose-400 hover:text-rose-600">
+                            <button type="button" title={t("Удалить цену")} onClick={() => removePriceEntry(index)} className="text-rose-400 hover:text-rose-600">
                               <X className="h-4 w-4" />
                             </button>
                           </div>
                         )}
                         <div className="flex items-end gap-2">
                           <label className="block flex-1 border-b border-slate-200 pb-2 font-medium">
-                            Прайс лист
+                            {t("Прайс лист")}
                             <select value={entry.name} onChange={(event) => updatePriceEntry(index, { name: event.target.value })} className="mt-2 block w-full bg-white outline-none">
                               {priceListNameOptions.map((name) => <option key={name}>{name}</option>)}
                             </select>
                           </label>
                           <button
                             type="button"
-                            title="Добавить прайс лист"
+                            title={t("Добавить прайс лист")}
                             onClick={() => {
-                              const value = window.prompt("Название прайс листа")
+                              const value = window.prompt(t("Название прайс листа"))
                               if (value?.trim()) {
                                 setPriceListNameOptions((current) => Array.from(new Set([...current, value.trim()])))
                                 updatePriceEntry(index, { name: value.trim() })
@@ -1054,11 +1139,11 @@ export function ProductsView({ embedded = false }: { embedded?: boolean }) {
                         </div>
                         <div className="flex gap-2">
                           <label className="block flex-1 border-b border-slate-200 pb-2 font-medium">
-                            Цена наличные
+                            {t("Цена наличные")}
                             <input type="number" value={entry.cash} onChange={(event) => updatePriceEntry(index, { cash: event.target.value })} className="mt-2 block w-full outline-none" />
                           </label>
                           <label className="block w-24 border-b border-slate-200 pb-2 font-medium">
-                            Валюта
+                            {t("Валюта")}
                             <select value={entry.cashCurrency} onChange={(event) => updatePriceEntry(index, { cashCurrency: event.target.value })} className="mt-2 block w-full bg-white outline-none">
                               {productCurrencies.map((code) => <option key={code}>{code}</option>)}
                             </select>
@@ -1066,11 +1151,11 @@ export function ProductsView({ embedded = false }: { embedded?: boolean }) {
                         </div>
                         <div className="flex gap-2">
                           <label className="block flex-1 border-b border-slate-200 pb-2 font-medium">
-                            Цена безналичные
+                            {t("Цена безналичные")}
                             <input type="number" value={entry.nonCash} onChange={(event) => updatePriceEntry(index, { nonCash: event.target.value })} className="mt-2 block w-full outline-none" />
                           </label>
                           <label className="block w-24 border-b border-slate-200 pb-2 font-medium">
-                            Валюта
+                            {t("Валюта")}
                             <select value={entry.nonCashCurrency} onChange={(event) => updatePriceEntry(index, { nonCashCurrency: event.target.value })} className="mt-2 block w-full bg-white outline-none">
                               {productCurrencies.map((code) => <option key={code}>{code}</option>)}
                             </select>
@@ -1081,7 +1166,7 @@ export function ProductsView({ embedded = false }: { embedded?: boolean }) {
                   </div>
 
                   <label className="flex items-center justify-between gap-3">
-                    <span className="text-sm font-medium text-slate-700">Установить минимальную и максимальную цену для продажи</span>
+                    <span className="text-sm font-medium text-slate-700">{t("Установить минимальную и максимальную цену для продажи")}</span>
                     <button
                       type="button"
                       onClick={() => setDraft((value) => ({ ...value, limitPrice: !value.limitPrice }))}
@@ -1093,11 +1178,11 @@ export function ProductsView({ embedded = false }: { embedded?: boolean }) {
                   {draft.limitPrice && (
                     <div className="flex gap-2">
                       <label className="block flex-1 border-b border-slate-200 pb-2 font-medium">
-                        Мин
+                        {t("Мин")}
                         <input type="number" value={draft.priceMin} onChange={(event) => setDraft((value) => ({ ...value, priceMin: event.target.value }))} className="mt-2 block w-full outline-none" />
                       </label>
                       <label className="block flex-1 border-b border-slate-200 pb-2 font-medium">
-                        Макс
+                        {t("Макс")}
                         <input type="number" value={draft.priceMax} onChange={(event) => setDraft((value) => ({ ...value, priceMax: event.target.value }))} className="mt-2 block w-full outline-none" />
                       </label>
                     </div>
@@ -1105,8 +1190,8 @@ export function ProductsView({ embedded = false }: { embedded?: boolean }) {
 
                   <label className="block border-b border-slate-200 pb-2 font-medium">
                     <span className="inline-flex items-center gap-1">
-                      Можно продать за кол-во балов
-                      <span title="Количество бонусных баллов, за которые можно продать товар"><Info className="h-3.5 w-3.5 text-slate-400" /></span>
+                      {t("Можно продать за кол-во балов")}
+                      <span title={t("Количество бонусных баллов, за которые можно продать товар")}><Info className="h-3.5 w-3.5 text-slate-400" /></span>
                     </span>
                     <input value={draft.salePoints} onChange={(event) => setDraft((value) => ({ ...value, salePoints: event.target.value }))} className="mt-2 block w-full outline-none" />
                   </label>
@@ -1116,7 +1201,7 @@ export function ProductsView({ embedded = false }: { embedded?: boolean }) {
 
             <footer className="flex justify-end border-t p-5">
               <button type="submit" disabled={saving} className="rounded bg-[#6ccd8b] px-6 py-3 font-semibold text-white hover:brightness-95 disabled:opacity-60">
-                {saving ? "Сохранение..." : "Сохранить изменение"}
+                {saving ? t("Сохранение...") : t("Сохранить изменение")}
               </button>
             </footer>
           </form>
@@ -1127,12 +1212,12 @@ export function ProductsView({ embedded = false }: { embedded?: boolean }) {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
           <div className="w-full max-w-md rounded bg-white">
             <header className="flex items-center justify-between border-b p-6">
-              <b className="uppercase">Импорт с excel</b>
-              <button type="button" onClick={() => { setImportModalOpen(false); setImportFile(null) }} aria-label="Закрыть"><X className="h-5 w-5" /></button>
+              <b className="uppercase">{t("Импорт с excel")}</b>
+              <button type="button" onClick={() => { setImportModalOpen(false); setImportFile(null) }} aria-label={t("Закрыть")}><X className="h-5 w-5" /></button>
             </header>
             <div className="p-6">
               <button type="button" onClick={downloadImportTemplate} className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-700 hover:text-[#4f70e7]">
-                1. Скачать шаблон
+                {t("1. Скачать шаблон")}
               </button>
               <div
                 onClick={() => modalFileInputRef.current?.click()}
@@ -1145,7 +1230,7 @@ export function ProductsView({ embedded = false }: { embedded?: boolean }) {
                 {importFile ? (
                   <span className="px-4 font-medium text-slate-700">{importFile.name}</span>
                 ) : (
-                  <span className="px-4 text-slate-500">Добавьте файл Excel или нажмите для выбора</span>
+                  <span className="px-4 text-slate-500">{t("Добавьте файл Excel или нажмите для выбора")}</span>
                 )}
               </div>
               <input
@@ -1167,7 +1252,7 @@ export function ProductsView({ embedded = false }: { embedded?: boolean }) {
                 disabled={!importFile || importSaving}
                 className="rounded bg-[#6ccd8b] px-6 py-3 font-semibold text-white hover:brightness-95 disabled:opacity-50"
               >
-                {importSaving ? "Импорт..." : "Сохранить"}
+                {importSaving ? t("Импорт...") : t("Сохранить")}
               </button>
             </footer>
           </div>

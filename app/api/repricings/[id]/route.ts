@@ -1,36 +1,44 @@
 import { NextResponse } from "next/server"
+import { z } from "zod"
 
-import { getCurrentUser } from "@/lib/current-user"
+import { requireRole } from "@/lib/rbac"
+import { parseJsonBody } from "@/lib/validation"
 import { deleteRepricing, parseRepricingInput, updateRepricing } from "@/lib/repricings-repo"
+
+const repricingSchema = z.object({
+  priceListId: z.number().finite(),
+  productId: z.number().finite(),
+  amount: z.number().optional(),
+  currency: z.enum(["SUM", "USD", "Euro"]).optional(),
+  status: z.enum(["проведен", "черновик"]).optional(),
+  user: z.string().trim().optional(),
+})
 
 type RouteParams = { params: Promise<{ id: string }> }
 
 export async function PUT(request: Request, { params }: RouteParams) {
-  const user = await getCurrentUser()
-  if (!user) return NextResponse.json({ error: "Tizimga kirilmagan" }, { status: 401 })
+  const auth = await requireRole("manager")
+  if ("error" in auth) return auth.error
+  const user = auth.user
 
   const id = Number((await params).id)
-  let body: unknown
-  try {
-    body = await request.json()
-  } catch {
-    return NextResponse.json({ error: "Noto'g'ri so'rov" }, { status: 400 })
-  }
+  const parsed = await parseJsonBody(request, repricingSchema)
+  if (parsed.error) return parsed.error
 
-  const input = parseRepricingInput(body, user.displayName)
+  const input = parseRepricingInput(parsed.data, user.displayName)
   if (!input) return NextResponse.json({ error: "Прайс-лист и товар обязательны" }, { status: 400 })
 
-  const repricing = updateRepricing(id, input)
+  const repricing = (await updateRepricing(id, input))
   if (!repricing) return NextResponse.json({ error: "Переоценка не найдена" }, { status: 404 })
   return NextResponse.json(repricing)
 }
 
 export async function DELETE(_request: Request, { params }: RouteParams) {
-  const user = await getCurrentUser()
-  if (!user) return NextResponse.json({ error: "Tizimga kirilmagan" }, { status: 401 })
+  const auth = await requireRole("manager")
+  if ("error" in auth) return auth.error
 
   const id = Number((await params).id)
-  const ok = deleteRepricing(id)
+  const ok = (await deleteRepricing(id))
   if (!ok) return NextResponse.json({ error: "Переоценка не найдена" }, { status: 404 })
   return NextResponse.json({ ok: true })
 }

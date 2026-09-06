@@ -1,19 +1,33 @@
 "use client"
 
 import { ChevronLeft, ChevronRight, FileText, Pencil, Search, Trash2, X } from "lucide-react"
-import { ChangeEvent, FormEvent, useMemo, useRef, useState } from "react"
+import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react"
+
+import { downloadExcelTable } from "@/lib/excel-export"
+import { mapHeaderColumns, readExcelRows } from "@/lib/excel-import"
 
 type Article = { id: number; name: string; text: string; active: boolean; roles: string[]; fileName?: string }
 
 const roles = ["Агент", "Доставщик", "Супервайзер", "Инкассатор", "Мерчендайзер", "Кассир", "Зав. склад", "Супер-Админ"]
 
-const seed: Article[] = [
-  { id: 5, name: "test_name", text: "", active: false, roles: [] },
-  { id: 4, name: "Агент | Функции", text: "Функции и обязанности агента", active: true, roles: ["Агент"] },
-  { id: 3, name: "shaxriyor", text: "", active: false, roles: [] },
-  { id: 2, name: "eslatma", text: "", active: false, roles: [] },
-  { id: 1, name: "eslatma", text: "", active: false, roles: [] },
-]
+const seed: Article[] = []
+
+const IMPORT_HEADER_ALIASES: Record<string, string> = {
+  "название": "name", "наименование": "name", "name": "name",
+  "текст": "text", "text": "text",
+  "активный": "active", "active": "active",
+  "права доступа": "roles", "роли": "roles", "roles": "roles",
+}
+
+function parseBool(value: string) {
+  return /^(да|yes|true|1|\+|✓)$/i.test(value.trim())
+}
+
+function parseRoles(value: string) {
+  if (!value) return [] as string[]
+  const wanted = value.split(/[,;]/).map((item) => item.trim().toLowerCase()).filter(Boolean)
+  return roles.filter((role) => wanted.includes(role.toLowerCase()))
+}
 
 function emptyDraft() {
   return { name: "", text: "", active: false, roles: [] as string[], fileName: undefined as string | undefined }
@@ -22,10 +36,31 @@ function emptyDraft() {
 export function KnowledgeBaseView({ embedded = false }: { embedded?: boolean }) {
   const [articles, setArticles] = useState(seed)
   const [query, setQuery] = useState("")
+  useEffect(() => {
+    let cancelled = false
+    fetch("/api/knowledge-base")
+      .then(async (response) => {
+        if (!response.ok) throw new Error("failed")
+        return (await response.json()) as Article[]
+      })
+      .then((data) => {
+        if (!cancelled) setArticles(data)
+      })
+      .catch(() => {
+        if (!cancelled) window.alert("Не удалось загрузить статьи с сервера")
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
   const [page, setPage] = useState(1)
   const [editing, setEditing] = useState<Article | "new" | null>(null)
   const [draft, setDraft] = useState(emptyDraft)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const [importOpen, setImportOpen] = useState(false)
+  const [importFile, setImportFile] = useState<File | null>(null)
+  const [importSaving, setImportSaving] = useState(false)
+  const importInputRef = useRef<HTMLInputElement>(null)
   const pageSize = 25
 
   const filtered = useMemo(() => articles.filter((article) => article.name.toLowerCase().includes(query.toLowerCase())), [articles, query])
@@ -53,20 +88,129 @@ export function KnowledgeBaseView({ embedded = false }: { embedded?: boolean }) 
     event.target.value = ""
   }
 
-  function save(event: FormEvent) {
+  async function save(event: FormEvent) {
     event.preventDefault()
     if (!draft.name.trim()) return
-    if (editing !== "new" && editing) {
-      setArticles((current) => current.map((article) => (article.id === editing.id ? { ...article, ...draft, name: draft.name.trim() } : article)))
-    } else {
-      const id = Math.max(0, ...articles.map((article) => article.id)) + 1
-      setArticles((current) => [{ id, ...draft, name: draft.name.trim() }, ...current])
+    const payload = { name: draft.name.trim(), text: draft.text, active: draft.active, roles: draft.roles }
+    try {
+      if (editing !== "new" && editing) {
+        const response = await fetch(`/api/knowledge-base/${editing.id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        })
+        if (!response.ok) {
+          const data = await response.json().catch(() => ({}))
+          window.alert(data.error || "Не удалось сохранить статью")
+          return
+        }
+        const saved = (await response.json()) as Article
+        setArticles((current) => current.map((article) => (article.id === saved.id ? { ...saved, fileName: draft.fileName } : article)))
+      } else {
+        const response = await fetch("/api/knowledge-base", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        })
+        if (!response.ok) {
+          const data = await response.json().catch(() => ({}))
+          window.alert(data.error || "Не удалось создать статью")
+          return
+        }
+        const saved = (await response.json()) as Article
+        setArticles((current) => [{ ...saved, fileName: draft.fileName }, ...current])
+      }
+      setEditing(null)
+    } catch {
+      window.alert("Сервер недоступен, попробуйте ещё раз")
     }
-    setEditing(null)
   }
 
-  function remove(id: number) {
-    setArticles((current) => current.filter((article) => article.id !== id))
+  async function remove(id: number) {
+    try {
+      const response = await fetch(`/api/knowledge-base/${id}`, { method: "DELETE" })
+      if (!response.ok) {
+        window.alert("Не удалось удалить статью")
+        return
+      }
+      setArticles((current) => current.filter((article) => article.id !== id))
+    } catch {
+      window.alert("Сервер недоступен, попробуйте ещё раз")
+    }
+  }
+
+  function downloadTemplate() {
+    downloadExcelTable("knowledge-base-template", [["Название", "Текст", "Активный (да/нет)", "Права доступа"]])
+  }
+
+  function pickImportFile(event: ChangeEvent<HTMLInputElement>) {
+    setImportFile(event.target.files?.[0] ?? null)
+  }
+
+  async function saveImport() {
+    if (!importFile) return
+    setImportSaving(true)
+    try {
+      const rows = await readExcelRows(importFile)
+      if (!rows.length) {
+        window.alert("Не удалось найти данные для импорта в выбранном файле")
+        return
+      }
+      const fieldByIndex = mapHeaderColumns(rows[0], IMPORT_HEADER_ALIASES)
+      const hasHeader = Array.from(fieldByIndex.values()).includes("name")
+      const dataRows = hasHeader ? rows.slice(1) : rows
+
+      type ParsedArticle = { name: string; text: string; active: boolean; roles: string[] }
+      const parsed: ParsedArticle[] = []
+      for (const row of dataRows) {
+        const record: Record<string, string> = {}
+        if (hasHeader) {
+          row.forEach((cell, index) => {
+            const field = fieldByIndex.get(index)
+            if (field) record[field] = cell
+          })
+        } else {
+          record.name = row[0] ?? ""
+          record.text = row[1] ?? ""
+          record.active = row[2] ?? ""
+          record.roles = row[3] ?? ""
+        }
+        if (!record.name) continue
+        parsed.push({
+          name: record.name.trim(),
+          text: record.text?.trim() || "",
+          active: parseBool(record.active || ""),
+          roles: parseRoles(record.roles || ""),
+        })
+      }
+
+      if (!parsed.length) {
+        window.alert("Не удалось найти данные для импорта в выбранном файле")
+        return
+      }
+
+      const created: Article[] = []
+      let failed = 0
+      for (const item of parsed) {
+        try {
+          const response = await fetch("/api/knowledge-base", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(item),
+          })
+          if (response.ok) created.push((await response.json()) as Article)
+          else failed += 1
+        } catch {
+          failed += 1
+        }
+      }
+      if (created.length) setArticles((current) => [...created, ...current])
+      if (failed) window.alert(`Импортировано ${created.length} из ${parsed.length}. Не удалось сохранить: ${failed}`)
+    } finally {
+      setImportSaving(false)
+      setImportOpen(false)
+      setImportFile(null)
+    }
   }
 
   return (
@@ -75,6 +219,9 @@ export function KnowledgeBaseView({ embedded = false }: { embedded?: boolean }) 
         <div className="flex flex-wrap items-center gap-4 px-5 py-4">
           <button type="button" onClick={openCreate} className="text-[17px] text-[#4f70e7] hover:underline">
             + Добавить
+          </button>
+          <button type="button" onClick={() => setImportOpen(true)} className="flex items-center gap-1 text-[17px] text-[#4f70e7] hover:underline">
+            <FileText className="h-4 w-4" /> Импорт с Excel
           </button>
           <label className="relative ml-4 w-72">
             <input value={query} onChange={(event) => { setQuery(event.target.value); setPage(1) }} placeholder="Поиск" className="w-full border-b border-slate-300 py-2 pr-10 outline-none focus:border-[#4f70e7]" />
@@ -177,6 +324,38 @@ export function KnowledgeBaseView({ embedded = false }: { embedded?: boolean }) 
               </button>
             </footer>
           </form>
+        </div>
+      )}
+
+      {importOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
+          <div className="w-full max-w-md rounded bg-white">
+            <header className="flex items-center justify-between border-b p-6">
+              <b className="uppercase">Импорт с Excel</b>
+              <button type="button" onClick={() => { setImportOpen(false); setImportFile(null) }} aria-label="Закрыть">
+                <X className="h-5 w-5" />
+              </button>
+            </header>
+            <div className="p-8">
+              <button type="button" onClick={downloadTemplate} className="mb-4 font-semibold text-[#4f70e7] hover:underline">
+                1. Скачать шаблон
+              </button>
+              <input ref={importInputRef} type="file" accept=".csv,.xls,.xlsx" onChange={pickImportFile} className="hidden" />
+              <button
+                type="button"
+                onClick={() => importInputRef.current?.click()}
+                className="flex w-full flex-col items-center justify-center gap-3 rounded border-2 border-dashed border-slate-300 py-10 text-slate-500 hover:border-[#4f70e7] hover:text-[#4f70e7]"
+              >
+                <FileText className="h-8 w-8" />
+                {importFile ? importFile.name : "Добавьте файл Excel или нажмите для выбора"}
+              </button>
+            </div>
+            <footer className="flex justify-end border-t p-5">
+              <button type="button" disabled={!importFile || importSaving} onClick={saveImport} className="rounded bg-[#6ccd8b] px-5 py-3 font-semibold text-white hover:brightness-95 disabled:opacity-40">
+                {importSaving ? "Импорт..." : "Сохранить"}
+              </button>
+            </footer>
+          </div>
         </div>
       )}
     </main>

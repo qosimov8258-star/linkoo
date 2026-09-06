@@ -1,28 +1,36 @@
 import { NextResponse } from "next/server"
+import { z } from "zod"
 
 import { getCurrentUser } from "@/lib/current-user"
-import { createProductType, listProductTypes, parseProductTypeInput } from "@/lib/product-types-repo"
+import { requireRole } from "@/lib/rbac"
+import { parseJsonBody } from "@/lib/validation"
+import { createProductType, listProductTypes } from "@/lib/product-types-repo"
+
+const productTypeSchema = z.object({
+  name: z.string().trim().min(1),
+  organization: z.string().trim().min(1),
+  parentId: z.number().finite().nullable().optional(),
+  showInBot: z.boolean().optional(),
+})
 
 export async function GET() {
   const user = await getCurrentUser()
   if (!user) return NextResponse.json({ error: "Tizimga kirilmagan" }, { status: 401 })
-  return NextResponse.json(listProductTypes())
+  return NextResponse.json((await listProductTypes()))
 }
 
 export async function POST(request: Request) {
-  const user = await getCurrentUser()
-  if (!user) return NextResponse.json({ error: "Tizimga kirilmagan" }, { status: 401 })
+  const auth = await requireRole("manager")
+  if ("error" in auth) return auth.error
 
-  let body: unknown
-  try {
-    body = await request.json()
-  } catch {
-    return NextResponse.json({ error: "Noto'g'ri so'rov" }, { status: 400 })
-  }
+  const parsed = await parseJsonBody(request, productTypeSchema)
+  if (parsed.error) return parsed.error
 
-  const input = parseProductTypeInput(body)
-  if (!input) return NextResponse.json({ error: "Наименование и организация обязательны" }, { status: 400 })
-
-  const type = createProductType(input)
+  const type = (await createProductType({
+    name: parsed.data.name,
+    organization: parsed.data.organization,
+    parentId: parsed.data.parentId ?? null,
+    showInBot: parsed.data.showInBot ?? false,
+  }))
   return NextResponse.json(type, { status: 201 })
 }

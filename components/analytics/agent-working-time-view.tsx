@@ -2,18 +2,13 @@
 
 import Image from "next/image"
 import { FormEvent, useEffect, useMemo, useState } from "react"
-import { ChevronRight, Download, PlusCircle, Star, X } from "lucide-react"
+import { Download, PlusCircle } from "lucide-react"
 import { downloadExcelTable } from "@/lib/excel-export"
+import { DashboardDialog } from "./dashboard-dialog"
+import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
 
-const agents = [
-  "Все агенты",
-  "Admin Ritm",
-  "Samandar Abdurahmonov",
-  "Zaynillo Sadullayev",
-  "Salohiddin Agent Tashkent",
-  "Азизхон Супервайзер",
-]
-const supervisors = ["Все супервайзеры", "Admin Ritm", "Азизхон Супервайзер"]
+const ALL_AGENTS = "Все агенты"
+const ALL_SUPERVISORS = "Все супервайзеры"
 
 function inputDate(date: Date) {
   const year = date.getFullYear()
@@ -32,21 +27,45 @@ export function AgentWorkingTimeView() {
   const [from, setFrom] = useState(monthStart)
   const [to, setTo] = useState(today)
   const [metric, setMetric] = useState("Время нахождения")
-  const [supervisor, setSupervisor] = useState(supervisors[0])
-  const [agent, setAgent] = useState(agents[0])
-  const [appliedAgent, setAppliedAgent] = useState(agents[0])
-  const [favorite, setFavorite] = useState(false)
-  const [favoritesOpen, setFavoritesOpen] = useState(false)
+  const [supervisor, setSupervisor] = useState(ALL_SUPERVISORS)
+  const [agent, setAgent] = useState(ALL_AGENTS)
+  const [appliedAgent, setAppliedAgent] = useState(ALL_AGENTS)
   const [dashboardOpen, setDashboardOpen] = useState(false)
   const [visibility, setVisibility] = useState("all")
   const [dashboard, setDashboard] = useState("Основной дашборд")
-  const overlayOpen = favoritesOpen || dashboardOpen
+  const [employees, setEmployees] = useState<{ name: string; position: string }[]>([])
+  const overlayOpen = dashboardOpen
+
+  // Real employees stand in for "agents"/"supervisors" (this app has no
+  // separate field-force-automation domain); no table anywhere records
+  // actual clock-in/out or time-in-store, so the result panel below keeps
+  // showing "not found" rather than fabricated hours — see report notes.
+  useEffect(() => {
+    let cancelled = false
+    fetch("/api/employees")
+      .then((response) => (response.ok ? (response.json() as Promise<{ name: string; position: string }[]>) : Promise.reject()))
+      .then((data) => {
+        if (!cancelled) setEmployees(data)
+      })
+      .catch(() => {
+        if (!cancelled) setEmployees([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const agents = useMemo(() => [ALL_AGENTS, ...employees.map((employee) => employee.name).filter(Boolean).sort((a, b) => a.localeCompare(b, "ru"))], [employees])
+  const supervisors = useMemo(() => {
+    const supervisorNames = employees.filter((employee) => /супервайзер|supervisor/i.test(employee.position)).map((employee) => employee.name)
+    const names = supervisorNames.length > 0 ? supervisorNames : employees.map((employee) => employee.name)
+    return [ALL_SUPERVISORS, ...Array.from(new Set(names)).filter(Boolean).sort((a, b) => a.localeCompare(b, "ru"))]
+  }, [employees])
 
   useEffect(() => {
     if (!overlayOpen) return
     function closeOnEscape(event: KeyboardEvent) {
       if (event.key === "Escape") {
-        setFavoritesOpen(false)
         setDashboardOpen(false)
       }
     }
@@ -75,10 +94,7 @@ export function AgentWorkingTimeView() {
     <main className="min-h-[calc(100vh-4rem)] bg-slate-100">
       <header className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-200 px-5 py-4 sm:px-10">
         <div className="flex items-center gap-3 text-xl font-bold sm:text-2xl">
-          <button type="button" onClick={() => setFavoritesOpen(true)} className="flex items-center gap-2 text-[#5470e8]">
-            <Star className={`h-6 w-6 ${favorite ? "fill-amber-400 text-amber-400" : "fill-slate-600 text-slate-600"}`} />
-            Избранные
-          </button>
+          <FavoritesButton className="flex items-center gap-2 text-[#5470e8]" />
           <span className="text-slate-500">|</span>
           <h1 className="text-slate-600">Время работы агента</h1>
         </div>
@@ -139,52 +155,19 @@ export function AgentWorkingTimeView() {
       </section>
 
       {overlayOpen && (
-        <button type="button" aria-label="Закрыть окно" onClick={() => { setFavoritesOpen(false); setDashboardOpen(false) }} className="fixed inset-0 z-[90] cursor-default bg-black/55" />
+        <button type="button" aria-label="Закрыть окно" onClick={() => setDashboardOpen(false)} className="fixed inset-0 z-[90] cursor-default bg-black/55" />
       )}
 
       {dashboardOpen && (
-        <section role="dialog" aria-modal="true" aria-labelledby="working-dashboard-title" className="fixed left-1/2 top-1/2 z-[100] flex h-[min(646px,calc(100vh-32px))] w-[min(750px,calc(100vw-32px))] -translate-x-1/2 -translate-y-1/2 flex-col bg-white shadow-2xl">
-          <header className="flex items-center justify-between border-b border-slate-200 px-9 py-7">
-            <h2 id="working-dashboard-title" className="text-lg font-bold uppercase">Добавить в дашборд</h2>
-            <button type="button" onClick={() => setDashboardOpen(false)} aria-label="Закрыть" className="rounded p-1 hover:bg-slate-100"><X className="h-7 w-7" /></button>
-          </header>
-          <div className="flex-1 px-16 py-10">
-            <fieldset className="space-y-5">
-              <legend className="sr-only">Доступ к виджету</legend>
-              {[["all", "Все"], ["employees", "Выбранным сотрудникам"], ["access", "Выбранным доступам"]].map(([value, label]) => (
-                <label key={value} className="flex items-center gap-5 text-lg">
-                  <input type="radio" name="working-visibility" checked={visibility === value} onChange={() => setVisibility(value)} className="h-6 w-6 accent-slate-500" />
-                  {label}
-                </label>
-              ))}
-            </fieldset>
-            <label className="mt-12 block border-b border-slate-200 pb-2 font-bold">
-              Дашборд
-              <select value={dashboard} onChange={(event) => setDashboard(event.target.value)} className="mt-2 block w-full border-0 bg-white py-2 font-normal outline-none">
-                <option>Основной дашборд</option><option>Продажи</option><option>Контроль агентов</option>
-              </select>
-            </label>
-          </div>
-          <footer className="flex justify-end border-t border-slate-200 px-9 py-6">
-            <button type="button" onClick={() => setDashboardOpen(false)} className="font-semibold uppercase text-sky-500">Сохранить</button>
-          </footer>
-        </section>
-      )}
-
-      {favoritesOpen && (
-        <aside role="dialog" aria-modal="true" aria-labelledby="working-favorites-title" className="fixed bottom-0 left-0 top-0 z-[100] w-[min(418px,calc(100vw-28px))] border-r-[10px] border-sky-500 bg-white shadow-2xl animate-in slide-in-from-left-full duration-200">
-          <header className="flex items-center justify-between border-b border-slate-200 px-9 py-7">
-            <h2 id="working-favorites-title" className="text-xl font-medium">Избранные</h2>
-            <button type="button" onClick={() => setFavoritesOpen(false)} aria-label="Закрыть" className="rounded p-1 hover:bg-slate-100"><X className="h-7 w-7" /></button>
-          </header>
-          <nav>
-            {["Клиенты", "Заказы", "Виджеты", "Ограничение продуктов", "Продукты"].map((item) => (
-              <button key={item} type="button" onClick={() => { setFavorite(true); setFavoritesOpen(false) }} className="flex w-full items-center justify-between border-b border-slate-200 px-6 py-3.5 text-left text-[17px] font-medium hover:bg-slate-50">
-                {item}<ChevronRight className="h-5 w-5 text-slate-500" />
-              </button>
-            ))}
-          </nav>
-        </aside>
+        <DashboardDialog
+          reportSlug="agent-working-time"
+          reportLabel="Рабочее время агента"
+          visibility={visibility}
+          setVisibility={setVisibility}
+          dashboard={dashboard}
+          setDashboard={setDashboard}
+          onClose={() => setDashboardOpen(false)}
+        />
       )}
     </main>
   )

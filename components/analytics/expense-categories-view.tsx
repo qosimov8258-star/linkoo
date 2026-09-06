@@ -1,9 +1,23 @@
 "use client"
 
-import { ChevronLeft, ChevronRight, Pencil, Search, Trash2, X } from "lucide-react"
-import { FormEvent, useEffect, useMemo, useState } from "react"
+import { ChevronLeft, ChevronRight, FileText, Pencil, Search, Trash2, X } from "lucide-react"
+import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react"
 
+import { downloadExcelTable } from "@/lib/excel-export"
+import { mapHeaderColumns, readExcelRows } from "@/lib/excel-import"
 import { expenseParameterOptions as parameterOptions, type ExpenseCategory } from "./expense-categories-data"
+
+const IMPORT_HEADER_ALIASES: Record<string, string> = {
+  "наименование": "name", "название": "name", "name": "name",
+  "родительская категория": "parentName", "родитель": "parentName", "parent category": "parentName",
+  "параметр": "parameter", "параметры": "parameter", "parameter": "parameter",
+  "прямой расход": "direct", "direct expense": "direct",
+  "не учитывать в pnl": "excludeFromPnl", "исключить из pnl": "excludeFromPnl", "не учитывать в p l": "excludeFromPnl",
+}
+
+function parseBool(value: string) {
+  return /^(да|yes|true|1|\+|✓)$/i.test(value.trim())
+}
 
 function emptyDraft() {
   return { name: "", parentId: "", hasParameter: false, parameter: parameterOptions[0], direct: false, excludeFromPnl: false }
@@ -20,6 +34,10 @@ export function ExpenseCategoriesView({ embedded = false }: { embedded?: boolean
   const [draft, setDraft] = useState(emptyDraft)
   const [formError, setFormError] = useState("")
   const [saving, setSaving] = useState(false)
+  const [importOpen, setImportOpen] = useState(false)
+  const [importFile, setImportFile] = useState<File | null>(null)
+  const [importSaving, setImportSaving] = useState(false)
+  const importInputRef = useRef<HTMLInputElement>(null)
   const pageSize = 25
 
   useEffect(() => {
@@ -127,11 +145,91 @@ export function ExpenseCategoriesView({ embedded = false }: { embedded?: boolean
     }
   }
 
+  function downloadTemplate() {
+    downloadExcelTable("expense-categories-template", [["Наименование", "Родительская категория", "Параметры", "Прямой расход (да/нет)", "Не учитывать в P&L (да/нет)"]])
+  }
+
+  function pickImportFile(event: ChangeEvent<HTMLInputElement>) {
+    setImportFile(event.target.files?.[0] ?? null)
+  }
+
+  async function saveImport() {
+    if (!importFile) return
+    setImportSaving(true)
+    try {
+      const rows = await readExcelRows(importFile)
+      if (!rows.length) {
+        window.alert("Не удалось найти данные для импорта в выбранном файле")
+        return
+      }
+      const fieldByIndex = mapHeaderColumns(rows[0], IMPORT_HEADER_ALIASES)
+      const hasHeader = Array.from(fieldByIndex.values()).includes("name")
+      const dataRows = hasHeader ? rows.slice(1) : rows
+
+      type ParsedCategory = { name: string; parameter: string; parentId: number | null; direct: boolean; excludeFromPnl: boolean }
+      const parsed: ParsedCategory[] = []
+      for (const row of dataRows) {
+        const record: Record<string, string> = {}
+        if (hasHeader) {
+          row.forEach((cell, index) => {
+            const field = fieldByIndex.get(index)
+            if (field) record[field] = cell
+          })
+        } else {
+          record.name = row[0] ?? ""
+          record.parentName = row[1] ?? ""
+          record.parameter = row[2] ?? ""
+          record.direct = row[3] ?? ""
+          record.excludeFromPnl = row[4] ?? ""
+        }
+        if (!record.name) continue
+        const parent = record.parentName ? categories.find((category) => category.name.toLowerCase() === record.parentName.trim().toLowerCase()) : undefined
+        parsed.push({
+          name: record.name.trim(),
+          parameter: record.parameter?.trim() || "",
+          parentId: parent ? parent.id : null,
+          direct: parseBool(record.direct || ""),
+          excludeFromPnl: parseBool(record.excludeFromPnl || ""),
+        })
+      }
+
+      if (!parsed.length) {
+        window.alert("Не удалось найти данные для импорта в выбранном файле")
+        return
+      }
+
+      const created: ExpenseCategory[] = []
+      let failed = 0
+      for (const item of parsed) {
+        try {
+          const response = await fetch("/api/expense-categories", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(item),
+          })
+          if (response.ok) created.push((await response.json()) as ExpenseCategory)
+          else failed += 1
+        } catch {
+          failed += 1
+        }
+      }
+      if (created.length) { setCategories((current) => [...created, ...current]); setPage(1) }
+      if (failed) window.alert(`Импортировано ${created.length} из ${parsed.length}. Не удалось сохранить: ${failed}`)
+    } finally {
+      setImportSaving(false)
+      setImportOpen(false)
+      setImportFile(null)
+    }
+  }
+
   return (
     <main className={embedded ? "min-w-0 flex-1" : "min-h-[calc(100vh-4rem)] bg-white px-9 py-5"}>
       <div className="mb-4 flex flex-wrap items-center gap-4">
         <button type="button" onClick={openCreate} className="text-[16px] text-[#4f70e7] hover:underline">
           + добавить категорию расходов
+        </button>
+        <button type="button" onClick={() => setImportOpen(true)} className="flex items-center gap-1 text-[16px] text-[#4f70e7] hover:underline">
+          <FileText className="h-4 w-4" /> Импорт с Excel
         </button>
         <label className="relative ml-auto w-64">
           <input
@@ -251,6 +349,38 @@ export function ExpenseCategoriesView({ embedded = false }: { embedded?: boolean
               </button>
             </footer>
           </form>
+        </div>
+      )}
+
+      {importOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
+          <div className="w-full max-w-md rounded bg-white">
+            <header className="flex items-center justify-between border-b p-6">
+              <b className="uppercase">Импорт с Excel</b>
+              <button type="button" onClick={() => { setImportOpen(false); setImportFile(null) }} aria-label="Закрыть">
+                <X className="h-5 w-5" />
+              </button>
+            </header>
+            <div className="p-8">
+              <button type="button" onClick={downloadTemplate} className="mb-4 font-semibold text-[#4f70e7] hover:underline">
+                1. Скачать шаблон
+              </button>
+              <input ref={importInputRef} type="file" accept=".csv,.xls,.xlsx" onChange={pickImportFile} className="hidden" />
+              <button
+                type="button"
+                onClick={() => importInputRef.current?.click()}
+                className="flex w-full flex-col items-center justify-center gap-3 rounded border-2 border-dashed border-slate-300 py-10 text-slate-500 hover:border-[#4f70e7] hover:text-[#4f70e7]"
+              >
+                <FileText className="h-8 w-8" />
+                {importFile ? importFile.name : "Добавьте файл Excel или нажмите для выбора"}
+              </button>
+            </div>
+            <footer className="flex justify-end border-t p-5">
+              <button type="button" disabled={!importFile || importSaving} onClick={saveImport} className="rounded bg-[#6ccd8b] px-5 py-3 font-semibold text-white hover:brightness-95 disabled:opacity-40">
+                {importSaving ? "Импорт..." : "Сохранить"}
+              </button>
+            </footer>
+          </div>
         </div>
       )}
     </main>

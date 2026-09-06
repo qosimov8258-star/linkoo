@@ -17,52 +17,40 @@ function rowToCategory(row: Row): IncomeCategory {
 
 export type IncomeCategoryInput = { name: string; parameter: string; otherIncome: boolean }
 
-export function parseIncomeCategoryInput(body: unknown): IncomeCategoryInput | null {
-  if (!body || typeof body !== "object") return null
-  const value = body as Record<string, unknown>
-  const name = typeof value.name === "string" ? value.name.trim() : ""
-  if (!name) return null
-  return {
-    name,
-    parameter: typeof value.parameter === "string" ? value.parameter.trim() : "",
-    otherIncome: value.otherIncome === true,
-  }
-}
-
-export function listIncomeCategories(): IncomeCategory[] {
+export async function listIncomeCategories(): Promise<IncomeCategory[]> {
   const db = getDb()
-  const rows = db.prepare("SELECT * FROM income_categories ORDER BY id DESC").all() as Row[]
+  const rows = (await db.prepare("SELECT * FROM income_categories ORDER BY id DESC").all()) as Row[]
   return rows.map(rowToCategory)
 }
 
-export function getIncomeCategory(id: number): IncomeCategory | null {
+export async function getIncomeCategory(id: number): Promise<IncomeCategory | null> {
   const db = getDb()
-  const row = db.prepare("SELECT * FROM income_categories WHERE id = ?").get(id) as Row | undefined
+  const row = (await db.prepare("SELECT * FROM income_categories WHERE id = ?").get(id)) as Row | undefined
   return row ? rowToCategory(row) : null
 }
 
-export function createIncomeCategory(input: IncomeCategoryInput): IncomeCategory {
+export async function createIncomeCategory(input: IncomeCategoryInput): Promise<IncomeCategory> {
   const db = getDb()
-  const result = db
-    .prepare("INSERT INTO income_categories (name, parameter, other_income) VALUES (?, ?, ?)")
-    .run(input.name, input.parameter, input.otherIncome ? 1 : 0)
-  return getIncomeCategory(Number(result.lastInsertRowid))!
+  const result = (await db
+      .prepare("INSERT INTO income_categories (name, parameter, other_income) VALUES (?, ?, ?)")
+      .run(input.name, input.parameter, input.otherIncome ? 1 : 0))
+  return (await getIncomeCategory(Number(result.lastInsertRowid)))!
 }
 
-export function updateIncomeCategory(id: number, input: IncomeCategoryInput): IncomeCategory | null {
-  if (!getIncomeCategory(id)) return null
+export async function updateIncomeCategory(id: number, input: IncomeCategoryInput): Promise<IncomeCategory | null> {
+  if (!(await getIncomeCategory(id))) return null
   const db = getDb()
-  db.prepare("UPDATE income_categories SET name = ?, parameter = ?, other_income = ?, updated_at = datetime('now') WHERE id = ?").run(
-    input.name,
-    input.parameter,
-    input.otherIncome ? 1 : 0,
-    id,
-  )
-  return getIncomeCategory(id)
+  await db.prepare("UPDATE income_categories SET name = ?, parameter = ?, other_income = ?, updated_at = datetime('now') WHERE id = ?").run(
+        input.name,
+        input.parameter,
+        input.otherIncome ? 1 : 0,
+        id,
+      )
+  return (await getIncomeCategory(id))
 }
 
-export function deleteIncomeCategory(id: number): boolean {
+export async function deleteIncomeCategory(id: number): Promise<boolean> {
   const db = getDb()
-  const result = db.prepare("DELETE FROM income_categories WHERE id = ?").run(id)
+  const result = (await db.prepare("DELETE FROM income_categories WHERE id = ?").run(id))
   return result.changes > 0
 }

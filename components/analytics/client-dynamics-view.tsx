@@ -1,21 +1,13 @@
 "use client"
 
 import { FormEvent, useMemo, useState } from "react"
-import { Download, Settings, Star, X } from "lucide-react"
+import { Download, Settings, X } from "lucide-react"
+import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
 
 type PeriodData = { stores: number; storePercent: number; sum: number; sumPercent: number; dynamic?: number }
 type ClassificationRow = { name: string; periods: [PeriodData, PeriodData, PeriodData] }
 
-const initialRows: ClassificationRow[] = [
-  { name: "Нет заказа", periods: [{ stores: 4270, storePercent: 100, sum: 0, sumPercent: 0 }, { stores: 4281, storePercent: 100, sum: 0, sumPercent: 0, dynamic: 0 }, { stores: 4279, storePercent: 100, sum: 0, sumPercent: 0, dynamic: 0 }] },
-  { name: "< 1 млн", periods: [{ stores: 9, storePercent: 0, sum: 2947032, sumPercent: 0 }, { stores: 1, storePercent: 0, sum: 50000, sumPercent: 3, dynamic: -89 }, { stores: 2, storePercent: 0, sum: 520000, sumPercent: 0, dynamic: 100 }] },
-  { name: "1-2 млн", periods: [{ stores: 0, storePercent: 0, sum: 0, sumPercent: 0 }, { stores: 1, storePercent: 0, sum: 1625000, sumPercent: 97, dynamic: 100 }, { stores: 0, storePercent: 0, sum: 0, sumPercent: 0, dynamic: -100 }] },
-  { name: "2-3 млн", periods: [{ stores: 1, storePercent: 0, sum: 2574577, sumPercent: 0 }, { stores: 0, storePercent: 0, sum: 0, sumPercent: 0, dynamic: -100 }, { stores: 0, storePercent: 0, sum: 0, sumPercent: 0, dynamic: 0 }] },
-  { name: "3-5 млн", periods: [{ stores: 0, storePercent: 0, sum: 0, sumPercent: 0 }, { stores: 0, storePercent: 0, sum: 0, sumPercent: 0, dynamic: 0 }, { stores: 0, storePercent: 0, sum: 0, sumPercent: 0, dynamic: 0 }] },
-  { name: "5-10 млн", periods: [{ stores: 0, storePercent: 0, sum: 0, sumPercent: 0 }, { stores: 0, storePercent: 0, sum: 0, sumPercent: 0, dynamic: 0 }, { stores: 1, storePercent: 0, sum: 9859375, sumPercent: 4, dynamic: 100 }] },
-  { name: "10-20 млн", periods: [{ stores: 0, storePercent: 0, sum: 0, sumPercent: 0 }, { stores: 0, storePercent: 0, sum: 0, sumPercent: 0, dynamic: 0 }, { stores: 0, storePercent: 0, sum: 0, sumPercent: 0, dynamic: 0 }] },
-  { name: "20+ млн", periods: [{ stores: 3, storePercent: 0, sum: 1360796039, sumPercent: 100 }, { stores: 0, storePercent: 0, sum: 0, sumPercent: 0, dynamic: -100 }, { stores: 1, storePercent: 0, sum: 251171800, sumPercent: 96, dynamic: 100 }] },
-]
+const initialRows: ClassificationRow[] = []
 
 const selects = {
   zone: ["Все зоны", "Andijon shaharchasi", "Arslan", "chilonzor"],
@@ -31,7 +23,6 @@ const selects = {
 type SelectKey = keyof typeof selects
 
 export function ClientDynamicsView() {
-  const [favorite, setFavorite] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [periods, setPeriods] = useState(["2026-05-01", "2026-06-01", "2026-07-01"])
   const [filters, setFilters] = useState<Record<SelectKey, string>>(
@@ -58,7 +49,7 @@ export function ClientDynamicsView() {
   return (
     <main className="min-h-[calc(100vh-4rem)] bg-slate-100">
       <header className="flex flex-wrap items-center gap-3 px-5 py-4 text-xl font-bold sm:px-10 sm:text-2xl">
-        <button type="button" onClick={() => setFavorite(!favorite)} className="flex items-center gap-2 text-[#5470e8]"><Star className={`h-6 w-6 ${favorite ? "fill-amber-400 text-amber-400" : "fill-slate-600 text-slate-600"}`} />Избранные</button>
+        <FavoritesButton className="flex items-center gap-2 text-[#5470e8]" />
         <span className="text-slate-500">|</span><h1 className="text-slate-600">Классификация и динамика клиентов</h1>
         <div className="ml-auto flex gap-3">
           <button type="button" onClick={download} className="rounded bg-[#6ccd8b] px-5 py-2 text-base text-white"><Download className="mr-2 inline h-5 w-5" />Скачать</button>
@@ -95,7 +86,7 @@ export function ClientDynamicsView() {
 }
 
 function TotalRow({ periodLabels }: { periodLabels: string[] }) {
-  const totals = [[13, 0, 1366317649, 100], [2, 0, 1675000, 100, -85], [4, 0, 261551175, 100, 100]]
+  const totals = [[0, 0, 0, 0], [0, 0, 0, 0, 0], [0, 0, 0, 0, 0]]
   return <tr className="bg-[#555] font-bold text-white"><td className="border p-2">Итого активные<br />клиенты</td>{periodLabels.flatMap((_, period) => totals[period].map((value, index) => index === 4 ? <td key={`${period}-${index}`} className="border p-2 text-center"><Dynamic value={value} /></td> : <td key={`${period}-${index}`} className={`border p-2 text-right ${period && index === 0 ? "border-l-2 border-l-white" : ""}`}>{index === 1 || index === 3 ? `${value} %` : format(value)}</td>))}</tr>
 }
 function Dynamic({ value }: { value: number }) { const positive = value > 0; return <span className={`inline-block w-full rounded px-0.5 py-2 font-medium sm:px-1 ${positive ? "bg-emerald-100 text-emerald-500" : "bg-rose-100 text-rose-500"}`}>{positive ? "▲" : "▼"} {format(value)} %</span> }

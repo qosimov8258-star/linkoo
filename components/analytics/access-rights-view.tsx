@@ -1,95 +1,57 @@
 "use client"
 
 import { ChevronLeft, ChevronRight, Pencil, Search, Trash2, X } from "lucide-react"
-import { FormEvent, useMemo, useState } from "react"
+import { FormEvent, useEffect, useMemo, useState } from "react"
 
-type Role = { id: number; name: string; capabilities: string[] }
-
-const capabilityPool = [
-  "Завсклад", "Агент | Функции", "Доставщик", "Кассир | Функции", "Доставщик | Функции", "долг", "agent 2",
-  "Супервайзер | Функции", "Супервайзер", "Инкассатор", "Зав.Склад | Функции", "Мерчендайзер", "video",
-  "Мерчендайзер | Функции", "Кассир", "поставщик", "Инкассатор | Функции", "Доступ Сотрудник торговой точки",
-  "Доступ технолог", "Агент + Доставщик функции", "Агент | Функции авто доставки", "Shagi vizita",
-  "Видеть всех клиентов", "Только своих клиентов", "Доступ Оператор", "Расходы на персонал", "Доступ админ",
-  "авто доставки", "Redmi", "Доступ вансел агент", "Склад управления", "All", "Proizvodstva", "Агент |vazifasi",
-  "testucun atribut", "Ishchi", "mobil online", "Доступ Директора",
-]
-
-const extraRoleNames = [
-  "Агент юг", "Агент север", "Доставщик экспресс", "Супервайзер запад", "Тест роль 1", "Тест роль 2", "Демо агент",
-  "Складской оператор", "Финансовый менеджер", "Аналитик продаж", "Региональный директор", "Мерчендайзер юг",
-  "Курьер", "Кассир 2", "Экспедитор", "Логист", "Инспектор", "Контролер качества", "HR менеджер",
-  "IT администратор", "Маркетолог", "Продукт менеджер", "Территориальный агент", "Мобильный кассир",
-  "Приемщик товара", "Комплектовщик", "Водитель доставки", "Оператор call-центра", "Юрист", "Бухгалтер", "Стажер",
-]
-
-function generateRoles(): Role[] {
-  const seed: [string, string[]][] = [
-    ["Агент", ["Завсклад", "Агент | Функции"]],
-    ["Доставщик", ["Доставщик", "Кассир | Функции", "Доставщик | Функции", "долг"]],
-    ["Супервайзер", ["agent 2", "Супервайзер | Функции", "Супервайзер"]],
-    ["Инкассатор", ["Инкассатор", "Завсклад", "Зав.Склад | Функции"]],
-    ["Мерчендайзер", ["Мерчендайзер", "video", "Мерчендайзер | Функции"]],
-    ["Кассир", ["Кассир | Функции", "Кассир", "Агент | Функции"]],
-    ["Зав. склад", ["Завсклад", "Супервайзер | Функции", "Агент | Функции", "Супервайзер", "поставщик"]],
-    [
-      "Супер-Админ",
-      [
-        "Доставщик", "Инкассатор", "Мерчендайзер", "Инкассатор | Функции", "Завсклад", "Кассир | Функции",
-        "Доступ Сотрудник торговой точки", "Доступ технолог", "Агент + Доставщик функции", "Агент | Функции авто доставки",
-        "Shagi vizita", "video", "Видеть всех клиентов", "Только своих клиентов", "Доступ Оператор", "Расходы на персонал",
-        "agent 2", "Доступ админ", "авто доставки", "Redmi", "Доставщик | Функции", "Кассир", "Зав.Склад | Функции",
-        "Доступ вансел агент", "Склад управления", "All", "Proizvodstva", "Супервайзер | Функции", "Агент |vazifasi",
-        "Агент | Функции", "Супервайзер", "Мерчендайзер | Функции",
-      ],
-    ],
-    ["Сотрудник торговой точки", ["Завсклад", "Доступ Сотрудник торговой точки", "agent 2", "Кассир"]],
-    ["Оператор", ["Доставщик", "Доступ Оператор", "agent 2"]],
-    ["Админ", ["Доставщик", "Инкассатор", "Мерчендайзер", "Завсклад", "agent 2", "Кассир", "All", "Агент | Функции", "Супервайзер"]],
-    ["Вансел агент", ["Доставщик", "Завсклад", "agent 2", "Кассир", "Доступ вансел агент"]],
-    ["Агент + Доставщик", ["Доставщик", "Агент + Доставщик функции", "agent 2", "Кассир"]],
-    ["CEO", ["Агент | Функции"]],
-    ["Технолог", ["Завсклад", "Доступ технолог"]],
-    ["Agent Shgi vizita", ["Shagi vizita", "Видеть всех клиентов", "Расходы на персонал", "agent 2", "Агент | Функции"]],
-    ["Склад управления", ["Завсклад", "Склад управления"]],
-    ["Агент универсал", ["Агент | Функции авто доставки", "agent 2", "авто доставки", "Агент | Функции"]],
-    ["umumiy xodim", ["Доставщик", "Доставщик | Функции", "Супервайзер | Функции", "Агент | Функции"]],
-    ["Proizvodstva", ["Завсклад", "Proizvodstva"]],
-    ["alohida agent", ["agent 2", "Склад управления", "Агент | Функции"]],
-    ["yangi agent", ["testucun atribut", "agent 2", "Ishchi"]],
-    ["поставщик", ["Инкассатор | Функции", "Завсклад", "Кассир | Функции", "Доступ Оператор", "Кассир", "All", "поставщик", "mobil online"]],
-    ["Права доступ Директора", ["Доставщик", "Инкассатор", "agent 2", "Доступ Директора", "Супервайзер"]],
-    ["BURN", ["Доставщик", "Мерчендайзер", "agent 2", "Кассир", "Супервайзер | Функции", "Агент | Функции", "Супервайзер", "Мерчендайзер | Функции"]],
-  ]
-
-  const rows: Role[] = seed.map(([name, capabilities], index) => ({ id: index + 1, name, capabilities }))
-  let index = 0
-  while (rows.length < 56) {
-    const name = extraRoleNames[index % extraRoleNames.length]
-    const count = 2 + (index % 4)
-    const capabilities = Array.from({ length: count }, (_, offset) => capabilityPool[(index * 3 + offset) % capabilityPool.length])
-    rows.push({ id: rows.length + 1, name: `${name}${index >= extraRoleNames.length ? ` ${Math.floor(index / extraRoleNames.length) + 1}` : ""}`, capabilities: Array.from(new Set(capabilities)) })
-    index += 1
-  }
-  return rows
-}
-
-const seedRoles = generateRoles()
+import type { AccessRight, Capability, Permission } from "./access-rights-data"
 
 function emptyDraft() {
-  return { name: "", capabilities: [] as string[] }
+  return { name: "", capabilityIds: [] as number[] }
 }
 
 export function AccessRightsView() {
-  const [roles, setRoles] = useState(seedRoles)
-  const [capabilities, setCapabilities] = useState(capabilityPool)
+  const [roles, setRoles] = useState<AccessRight[]>([])
+  const [capabilities, setCapabilities] = useState<Capability[]>([])
+  const [permissions, setPermissions] = useState<Permission[]>([])
+  const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState("")
   const [query, setQuery] = useState("")
   const [page, setPage] = useState(1)
-  const [editing, setEditing] = useState<Role | "new" | null>(null)
+  const [saving, setSaving] = useState(false)
+  const [editing, setEditing] = useState<AccessRight | "new" | null>(null)
   const [draft, setDraft] = useState(emptyDraft)
   const [capabilityModalOpen, setCapabilityModalOpen] = useState(false)
   const [capabilityName, setCapabilityName] = useState("")
+  const [editingCapability, setEditingCapability] = useState<Capability | null>(null)
   const pageSize = 25
+
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    Promise.all([
+      fetch("/api/access-rights").then((response) => (response.ok ? (response.json() as Promise<AccessRight[]>) : Promise.reject())),
+      fetch("/api/capabilities").then((response) => (response.ok ? (response.json() as Promise<Capability[]>) : Promise.reject())),
+      fetch("/api/permissions").then((response) => (response.ok ? (response.json() as Promise<Permission[]>) : Promise.reject())),
+    ])
+      .then(([accessRights, caps, perms]) => {
+        if (cancelled) return
+        setRoles(accessRights)
+        setCapabilities(caps)
+        setPermissions(perms)
+        setLoadError("")
+      })
+      .catch(() => {
+        if (!cancelled) setLoadError("Не удалось загрузить данные с сервера")
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const capabilityById = useMemo(() => new Map(capabilities.map((item) => [item.id, item])), [capabilities])
 
   const filtered = useMemo(() => roles.filter((role) => role.name.toLowerCase().includes(query.toLowerCase())), [roles, query])
   const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize))
@@ -101,37 +63,77 @@ export function AccessRightsView() {
     setEditing("new")
   }
 
-  function openEdit(role: Role) {
-    setDraft({ name: role.name, capabilities: [...role.capabilities] })
+  function openEdit(role: AccessRight) {
+    setDraft({ name: role.name, capabilityIds: [...role.capabilityIds] })
     setEditing(role)
   }
 
-  function toggleCapability(item: string) {
-    setDraft((current) => ({ ...current, capabilities: current.capabilities.includes(item) ? current.capabilities.filter((value) => value !== item) : [...current.capabilities, item] }))
+  function toggleCapability(id: number) {
+    setDraft((current) => ({
+      ...current,
+      capabilityIds: current.capabilityIds.includes(id) ? current.capabilityIds.filter((value) => value !== id) : [...current.capabilityIds, id],
+    }))
   }
 
-  function save(event: FormEvent) {
+  async function save(event: FormEvent) {
     event.preventDefault()
     if (!draft.name.trim()) return
-    if (editing !== "new" && editing) {
-      setRoles((list) => list.map((role) => (role.id === editing.id ? { ...role, name: draft.name.trim(), capabilities: draft.capabilities } : role)))
-    } else {
-      const id = Math.max(0, ...roles.map((role) => role.id)) + 1
-      setRoles((list) => [{ id, name: draft.name.trim(), capabilities: draft.capabilities }, ...list])
+    setSaving(true)
+    try {
+      const isEdit = editing !== "new" && editing !== null
+      const response = await fetch(isEdit ? `/api/access-rights/${(editing as AccessRight).id}` : "/api/access-rights", {
+        method: isEdit ? "PUT" : "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: draft.name.trim(), capabilityIds: draft.capabilityIds }),
+      })
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}))
+        window.alert(data.error || "Не удалось сохранить права доступа")
+        return
+      }
+      const saved = (await response.json()) as AccessRight
+      setRoles((list) => (isEdit ? list.map((role) => (role.id === saved.id ? saved : role)) : [saved, ...list]))
+      setEditing(null)
+    } catch {
+      window.alert("Сервер недоступен, попробуйте ещё раз")
+    } finally {
+      setSaving(false)
     }
-    setEditing(null)
   }
 
-  function remove(id: number) {
-    setRoles((list) => list.filter((role) => role.id !== id))
+  async function remove(id: number) {
+    if (!window.confirm("Удалить эти права доступа?")) return
+    try {
+      const response = await fetch(`/api/access-rights/${id}`, { method: "DELETE" })
+      if (!response.ok) return
+      setRoles((list) => list.filter((role) => role.id !== id))
+    } catch {
+      window.alert("Сервер недоступен, попробуйте ещё раз")
+    }
   }
 
-  function saveCapability(event: FormEvent) {
+  async function saveCapability(event: FormEvent) {
     event.preventDefault()
-    if (!capabilityName.trim() || capabilities.includes(capabilityName.trim())) return
-    setCapabilities((current) => [...current, capabilityName.trim()])
-    setCapabilityName("")
-    setCapabilityModalOpen(false)
+    const name = capabilityName.trim()
+    if (!name) return
+    try {
+      const response = await fetch("/api/capabilities", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      })
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}))
+        window.alert(data.error || "Не удалось создать возможность")
+        return
+      }
+      const created = (await response.json()) as Capability
+      setCapabilities((current) => [...current, created])
+      setCapabilityName("")
+      setCapabilityModalOpen(false)
+    } catch {
+      window.alert("Сервер недоступен, попробуйте ещё раз")
+    }
   }
 
   return (
@@ -159,6 +161,8 @@ export function AccessRightsView() {
         </button>
       </div>
 
+      {loadError && <p className="px-5 pb-3 text-sm text-red-500">{loadError}</p>}
+
       <table className="w-full border-collapse text-left">
         <thead>
           <tr className="border-b border-slate-200">
@@ -173,11 +177,15 @@ export function AccessRightsView() {
               <td className="whitespace-nowrap px-5 py-5 font-medium text-slate-800">{role.name}</td>
               <td className="px-5 py-5">
                 <div className="flex flex-wrap gap-3">
-                  {role.capabilities.map((item, index) => (
-                    <span key={`${item}-${index}`} className="rounded bg-slate-100 px-4 py-2 text-sm text-slate-700">
-                      {item}
-                    </span>
-                  ))}
+                  {role.capabilityIds.map((id) => {
+                    const capability = capabilityById.get(id)
+                    if (!capability) return null
+                    return (
+                      <span key={id} className="rounded bg-slate-100 px-4 py-2 text-sm text-slate-700">
+                        {capability.name}
+                      </span>
+                    )
+                  })}
                 </div>
               </td>
               <td className="px-5 py-5">
@@ -192,7 +200,7 @@ export function AccessRightsView() {
               </td>
             </tr>
           ))}
-          {visible.length === 0 && (
+          {!loading && visible.length === 0 && (
             <tr>
               <td colSpan={3} className="px-5 py-10 text-center text-slate-400">
                 Ничего не найдено
@@ -219,16 +227,21 @@ export function AccessRightsView() {
               <p className="mb-3 font-medium text-slate-700">Возможности</p>
               <div className="grid gap-x-6 gap-y-2 sm:grid-cols-2">
                 {capabilities.map((item) => (
-                  <label key={item} className="flex items-center gap-2 text-sm">
-                    <input type="checkbox" checked={draft.capabilities.includes(item)} onChange={() => toggleCapability(item)} />
-                    <span className="truncate">{item}</span>
-                  </label>
+                  <div key={item.id} className="flex items-center gap-2 text-sm">
+                    <label className="flex flex-1 items-center gap-2 truncate">
+                      <input type="checkbox" checked={draft.capabilityIds.includes(item.id)} onChange={() => toggleCapability(item.id)} />
+                      <span className="truncate">{item.name}</span>
+                    </label>
+                    <button type="button" onClick={() => setEditingCapability(item)} aria-label={`Изменить «${item.name}»`} className="shrink-0 text-slate-400 hover:text-[#4f70e7]">
+                      <Pencil className="h-4 w-4" />
+                    </button>
+                  </div>
                 ))}
               </div>
             </div>
             <footer className="flex justify-end border-t p-5">
-              <button type="submit" className="rounded bg-[#6ccd8b] px-6 py-3 font-semibold text-white hover:brightness-95">
-                Сохранить
+              <button type="submit" disabled={saving} className="rounded bg-[#6ccd8b] px-6 py-3 font-semibold text-white hover:brightness-95 disabled:opacity-60">
+                {saving ? "Сохранение..." : "Сохранить"}
               </button>
             </footer>
           </form>
@@ -256,6 +269,178 @@ export function AccessRightsView() {
           </form>
         </div>
       )}
+
+      {editingCapability && (
+        <CapabilityPermissionsModal
+          capability={editingCapability}
+          allPermissions={permissions}
+          onClose={() => setEditingCapability(null)}
+          onSaved={(updated) => {
+            setCapabilities((current) => current.map((item) => (item.id === updated.id ? updated : item)))
+            setEditingCapability(null)
+          }}
+        />
+      )}
     </main>
+  )
+}
+
+function permissionMatches(permission: Permission, category: string, type: string, query: string) {
+  if (category && permission.category !== category) return false
+  if (type && permission.type !== type) return false
+  if (query) {
+    const needle = query.toLowerCase()
+    if (!permission.label.toLowerCase().includes(needle) && !permission.code.toLowerCase().includes(needle)) return false
+  }
+  return true
+}
+
+function CapabilityPermissionsModal({
+  capability,
+  allPermissions,
+  onClose,
+  onSaved,
+}: {
+  capability: Capability
+  allPermissions: Permission[]
+  onClose: () => void
+  onSaved: (capability: Capability) => void
+}) {
+  const [selectedIds, setSelectedIds] = useState<number[]>(capability.permissionIds)
+  const [saving, setSaving] = useState(false)
+  const [availableCategory, setAvailableCategory] = useState("")
+  const [availableType, setAvailableType] = useState("")
+  const [availableQuery, setAvailableQuery] = useState("")
+  const [selectedCategory, setSelectedCategory] = useState("")
+  const [selectedType, setSelectedType] = useState("")
+  const [selectedQuery, setSelectedQuery] = useState("")
+
+  const categories = useMemo(() => Array.from(new Set(allPermissions.map((item) => item.category))).filter(Boolean).sort(), [allPermissions])
+  const types = useMemo(() => Array.from(new Set(allPermissions.map((item) => item.type))).filter(Boolean).sort(), [allPermissions])
+
+  const available = useMemo(
+    () => allPermissions.filter((item) => !selectedIds.includes(item.id) && permissionMatches(item, availableCategory, availableType, availableQuery)),
+    [allPermissions, selectedIds, availableCategory, availableType, availableQuery],
+  )
+  const selected = useMemo(() => {
+    const byId = new Map(allPermissions.map((item) => [item.id, item]))
+    return selectedIds
+      .map((id) => byId.get(id))
+      .filter((item): item is Permission => Boolean(item))
+      .filter((item) => permissionMatches(item, selectedCategory, selectedType, selectedQuery))
+  }, [allPermissions, selectedIds, selectedCategory, selectedType, selectedQuery])
+
+  function addPermission(id: number) {
+    setSelectedIds((current) => (current.includes(id) ? current : [...current, id]))
+  }
+
+  function removePermission(id: number) {
+    setSelectedIds((current) => current.filter((value) => value !== id))
+  }
+
+  async function save() {
+    setSaving(true)
+    try {
+      const response = await fetch(`/api/capabilities/${capability.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: capability.name, permissionIds: selectedIds }),
+      })
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}))
+        window.alert(data.error || "Не удалось сохранить возможность")
+        return
+      }
+      const updated = (await response.json()) as Capability
+      onSaved(updated)
+    } catch {
+      window.alert("Сервер недоступен, попробуйте ещё раз")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-[60] bg-white">
+      <div className="flex h-full w-full flex-col">
+        <header className="flex items-center justify-between border-b p-6">
+          <b className="uppercase">Изменить возможность — {capability.name}</b>
+          <button type="button" onClick={onClose} aria-label="Закрыть">
+            <X className="h-5 w-5" />
+          </button>
+        </header>
+
+        <div className="grid flex-1 grid-cols-1 gap-6 overflow-hidden p-6 sm:grid-cols-2">
+          <div className="flex min-h-0 flex-col">
+            <div className="mb-3 flex flex-wrap items-center gap-3">
+              <select value={availableCategory} onChange={(event) => setAvailableCategory(event.target.value)} className="rounded border border-slate-300 px-2 py-2 text-sm">
+                <option value="">Категория</option>
+                {categories.map((item) => <option key={item} value={item}>{item}</option>)}
+              </select>
+              <select value={availableType} onChange={(event) => setAvailableType(event.target.value)} className="rounded border border-slate-300 px-2 py-2 text-sm">
+                <option value="">Тип</option>
+                {types.map((item) => <option key={item} value={item}>{item}</option>)}
+              </select>
+              <label className="relative min-w-[160px] flex-1">
+                <input value={availableQuery} onChange={(event) => setAvailableQuery(event.target.value)} placeholder="Поиск из разрешения" className="w-full border-b border-slate-300 py-1.5 pr-8 text-sm outline-none focus:border-[#4f70e7]" />
+                <Search className="pointer-events-none absolute right-1 top-1.5 h-4 w-4 text-slate-300" />
+              </label>
+            </div>
+            <div className="flex-1 overflow-y-auto rounded border border-slate-200">
+              {available.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => addPermission(item.id)}
+                  className="flex w-full items-center justify-between gap-3 border-b border-slate-100 px-4 py-3 text-left text-sm text-[#4f70e7] hover:bg-slate-50"
+                >
+                  <span className="truncate">
+                    {item.category}/{item.label} ({item.code})
+                  </span>
+                  <ChevronRight className="h-4 w-4 shrink-0" />
+                </button>
+              ))}
+              {available.length === 0 && <p className="px-4 py-6 text-center text-sm text-slate-400">Ничего не найдено</p>}
+            </div>
+          </div>
+
+          <div className="flex min-h-0 flex-col">
+            <div className="mb-3 flex flex-wrap items-center gap-3">
+              <select value={selectedCategory} onChange={(event) => setSelectedCategory(event.target.value)} className="rounded border border-slate-300 px-2 py-2 text-sm">
+                <option value="">Категория</option>
+                {categories.map((item) => <option key={item} value={item}>{item}</option>)}
+              </select>
+              <select value={selectedType} onChange={(event) => setSelectedType(event.target.value)} className="rounded border border-slate-300 px-2 py-2 text-sm">
+                <option value="">Тип</option>
+                {types.map((item) => <option key={item} value={item}>{item}</option>)}
+              </select>
+              <label className="relative min-w-[160px] flex-1">
+                <input value={selectedQuery} onChange={(event) => setSelectedQuery(event.target.value)} placeholder="Поиск из выбранных разрешения" className="w-full border-b border-slate-300 py-1.5 pr-8 text-sm outline-none focus:border-[#4f70e7]" />
+                <Search className="pointer-events-none absolute right-1 top-1.5 h-4 w-4 text-slate-300" />
+              </label>
+            </div>
+            <div className="flex-1 overflow-y-auto rounded border border-slate-200">
+              {selected.map((item) => (
+                <div key={item.id} className="flex items-center justify-between gap-3 border-b border-slate-100 px-4 py-3 text-sm text-slate-700">
+                  <span className="truncate">
+                    {item.category}/{item.label} ({item.code})
+                  </span>
+                  <button type="button" onClick={() => removePermission(item.id)} aria-label="Убрать" className="shrink-0 text-[#4f70e7] hover:text-rose-500">
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+              ))}
+              {selected.length === 0 && <p className="px-4 py-6 text-center text-sm text-slate-400">Ничего не выбрано</p>}
+            </div>
+          </div>
+        </div>
+
+        <footer className="flex justify-end border-t p-5">
+          <button type="button" onClick={() => void save()} disabled={saving} className="rounded bg-[#6ccd8b] px-6 py-3 font-semibold uppercase text-white hover:brightness-95 disabled:opacity-60">
+            {saving ? "Сохранение..." : "Сохранить"}
+          </button>
+        </footer>
+      </div>
+    </div>
   )
 }

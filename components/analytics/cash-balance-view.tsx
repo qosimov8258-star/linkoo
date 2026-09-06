@@ -1,7 +1,8 @@
 "use client"
 
 import { useMemo, useState } from "react"
-import { BarChart, Calendar, ChevronRight, ChevronsUpDown, Filter, Star, X } from "lucide-react"
+import { BarChart, Calendar, ChevronsUpDown, Filter, X } from "lucide-react"
+import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
 
 type Currency = "SUM" | "USD" | "Euro"
 type Register = {
@@ -43,9 +44,7 @@ const registers: Register[] = [
 
 const FIXED_TOTALS = { opening: { euro: 20, sum: 25884392057.44, usd: 6577793.296 }, closing: { euro: 20, sum: 25884392057.44, usd: 6577793.296 } }
 
-const favoriteItems = ["Клиенты", "Заказы", "Виджеты", "Заказы", "Ограничение продуктов", "Продукты"]
-
-const money = (value: number) => new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 3 }).format(value)
+const money = (value: number) => new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 2 }).format(value)
 
 function pad(value: number) {
   return String(value).padStart(2, "0")
@@ -86,8 +85,6 @@ function SortableHeader({ label, sortKey, active, dir, onSort }: { label: string
 }
 
 export function CashBalanceView() {
-  const [favorite, setFavorite] = useState(false)
-  const [favoritesOpen, setFavoritesOpen] = useState(false)
   const [filterOpen, setFilterOpen] = useState(false)
   const [sortKey, setSortKey] = useState<SortKey | null>(null)
   const [sortDir, setSortDir] = useState<SortDir>("asc")
@@ -159,11 +156,11 @@ export function CashBalanceView() {
   return (
     <main className="min-h-screen bg-white text-[#17233b]">
       <header className="flex min-h-[76px] items-center border-b border-[#d8dee7] bg-[#f2f5f8] px-6 md:px-9">
-        <button onClick={() => setFavoritesOpen(true)} className="flex items-center gap-3">
-          <Star className={`h-7 w-7 ${favorite ? "fill-[#4f70e7] text-[#4f70e7]" : "fill-[#596376] text-[#596376]"}`} />
-          <span className="text-2xl font-bold text-[#4f70e7]">Избранные</span><span className="text-3xl font-light text-[#586174]">|</span>
+        <div className="flex items-center gap-3">
+          <FavoritesButton className="flex items-center gap-3 text-2xl font-bold text-[#4f70e7]" />
+          <span className="text-3xl font-light text-[#586174]">|</span>
           <span className="text-2xl font-bold text-[#586174]">Баланс кассы</span>
-        </button>
+        </div>
       </header>
 
       <section className="flex flex-wrap items-center gap-4 px-6 py-4 md:px-9">
@@ -274,28 +271,6 @@ export function CashBalanceView() {
               <button onClick={applyFilter} className="block w-full rounded-md bg-[#6fcf97] py-3.5 text-center font-semibold text-white hover:bg-[#5fbf87]">Применить</button>
             </div>
           </div>
-        </div>
-      )}
-
-      {favoritesOpen && (
-        <div className="fixed inset-0 z-[100] flex">
-          <button aria-label="Закрыть" onClick={() => setFavoritesOpen(false)} className="flex-1 bg-black/40" />
-          <aside className="w-[420px] max-w-[90vw] bg-white shadow-2xl">
-            <header className="flex items-center justify-between border-b px-8 py-6">
-              <h2 className="text-2xl font-semibold">Избранные</h2>
-              <button aria-label="Закрыть" onClick={() => setFavoritesOpen(false)}><X className="h-6 w-6 text-slate-600" /></button>
-            </header>
-            {favoriteItems.map((item, index) => (
-              <button
-                key={`${item}-${index}`}
-                type="button"
-                onClick={() => { setFavorite(true); setFavoritesOpen(false) }}
-                className="flex w-full items-center justify-between border-b px-8 py-5 text-left text-lg"
-              >
-                {item} <ChevronRight className="h-5 w-5 text-slate-400" />
-              </button>
-            ))}
-          </aside>
         </div>
       )}
     </main>

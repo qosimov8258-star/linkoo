@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState } from "react"
 import { X, ChevronDown } from "lucide-react"
 
+import { useLanguage } from "@/lib/i18n/language-context"
+
 interface SelectFieldProps {
   label: string
   options: string[]
@@ -12,6 +14,7 @@ interface SelectFieldProps {
 }
 
 export function SelectField({ label, options, value, onChange, placeholder = "Выберите" }: SelectFieldProps) {
+  const { t } = useLanguage()
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
 
@@ -34,13 +37,13 @@ export function SelectField({ label, options, value, onChange, placeholder = "В
         onClick={() => setOpen((o) => !o)}
         className="mt-2 flex w-full items-center justify-between border-b border-slate-300 pb-2 text-left outline-none focus:border-brand-blue"
       >
-        <span className={value ? "text-base text-slate-700" : "text-base text-slate-400"}>{value || placeholder}</span>
+        <span className={value ? "text-base text-slate-700" : "text-base text-slate-400"}>{t(value) || t(placeholder)}</span>
         <span className="flex items-center gap-1 text-slate-400">
           {value && (
             <span
               role="button"
               tabIndex={0}
-              aria-label="Очистить"
+              aria-label={t("Очистить")}
               onClick={(e) => {
                 e.stopPropagation()
                 onChange("")
@@ -68,7 +71,7 @@ export function SelectField({ label, options, value, onChange, placeholder = "В
                   option === value ? "bg-slate-100 font-semibold text-slate-800" : "text-slate-700"
                 }`}
               >
-                {option}
+                {t(option)}
               </button>
             </li>
           ))}

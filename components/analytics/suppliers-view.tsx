@@ -1,90 +1,38 @@
 "use client"
 
-import { ChevronLeft, ChevronRight, Download, Minus, Pencil, Plus, PlusCircle, Search, Star, Trash2, X } from "lucide-react"
-import { Fragment, FormEvent, useMemo, useState } from "react"
+import { ChevronLeft, ChevronRight, Download, FileText, Minus, Pencil, Plus, PlusCircle, Search, Trash2, X } from "lucide-react"
+import { ChangeEvent, Fragment, FormEvent, useEffect, useMemo, useRef, useState } from "react"
 
+import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
 import { downloadExcelTable } from "@/lib/excel-export"
-
-type Contact = { id: number; name: string; email: string; phone: string }
-type Product = { id: number; product: string; qty: number; price: number }
-type Supplier = {
-  id: number
-  name: string
-  category: string
-  createdDate: string
-  address: string
-  branch: string
-  organization: string
-  contacts: Contact[]
-  products: Product[]
-}
-
-const categories = ["Water", "напитки", "Zavod23", "Sardoraka Malochniy", "energetik", "toshkent filial", "Ноутбук", "Компьютер/Орг-техника", "operator", "Бозор", "Диллер"]
-const branches = ["Не указано", "Toshkent", "Buxoro", "Andijon"]
-const organizations = ["Не указано", "Linko Distribution", "ТестоваяОрганизация"]
-const productPool = ["energetik 1 l", "coca-cola", "lipton", "sprayt", "baby still", "g'ilof"]
-
-const monthNames = [
-  "янв.", "февр.", "марта", "апр.", "мая", "июня",
-  "июля", "авг.", "сент.", "окт.", "нояб.", "дек.",
-]
-
-function formatDate(date: Date) {
-  return `${String(date.getDate()).padStart(2, "0")} ${monthNames[date.getMonth()]} ${date.getFullYear()}`
-}
-
-const knownRows: Omit<Supplier, "contacts" | "products">[] = [
-  { id: 79, name: "Fardad", category: "напитки", createdDate: "31 янв. 2026", address: "Не указано", branch: "Не указано", organization: "Не указано" },
-  { id: 78, name: "tillochi", category: "Диллер", createdDate: "12 янв. 2026", address: "Не указано", branch: "Не указано", organization: "Не указано" },
-  { id: 77, name: "наблюдатель", category: "Бозор", createdDate: "11 янв. 2026", address: "Ташкет", branch: "Не указано", organization: "Не указано" },
-  { id: 76, name: "Zalal Mowafaq", category: "напитки", createdDate: "11 янв. 2026", address: "Не указано", branch: "Не указано", organization: "Не указано" },
-  { id: 75, name: "PGC", category: "напитки", createdDate: "11 янв. 2026", address: "Не указано", branch: "Не указано", organization: "Не указано" },
-]
-
-function generateRows(): Supplier[] {
-  const baseline = new Date(2026, 0, 31)
-  const rows: Supplier[] = knownRows.map((row) => ({
-    ...row,
-    contacts: row.id === 77 ? [{ id: 1, name: "ЫВОмиорвир", email: "", phone: "+99988862648" }] : [],
-    products: [],
-  }))
-
-  const namePool = ["Nestle Uzbekistan", "PepsiCo Distribution", "Mareven Food", "ANGOR MChJ", "Karim Supply", "Doston Trade", "Global Water", "Uzon Beverages", "Sarvar Group", "Otash Import", "Toshkent Logistics", "Farg'ona Trade"]
-
-  for (let id = 74; id >= 3; id -= 1) {
-    const offsetDays = (79 - id) * 5
-    const date = new Date(baseline)
-    date.setDate(date.getDate() - offsetDays)
-    const hasProducts = id % 4 === 0
-    rows.push({
-      id,
-      name: namePool[id % namePool.length] + (id % namePool.length === 0 ? ` #${id}` : ""),
-      category: categories[id % categories.length],
-      createdDate: formatDate(date),
-      address: id % 3 === 0 ? "Ташкент" : "Не указано",
-      branch: branches[id % branches.length],
-      organization: organizations[id % organizations.length],
-      contacts: id % 5 === 0 ? [{ id: 1, name: namePool[(id + 1) % namePool.length], email: "", phone: `+9989${String(10000000 + id * 137).slice(0, 7)}` }] : [],
-      products: hasProducts
-        ? [{ id: 1, product: productPool[id % productPool.length], qty: 1 + (id % 30), price: 1000 + (id * 733) % 40000 }]
-        : [],
-    })
-  }
-
-  return rows
-}
+import { mapHeaderColumns, readExcelRows } from "@/lib/excel-import"
+import {
+  supplierCategoryPool as categories,
+  supplierBranchPool as branches,
+  supplierOrganizationPool as organizations,
+  type Supplier,
+} from "./suppliers-data"
 
 type DraftContact = { id: number; name: string; email: string; phone: string }
+
+const IMPORT_HEADER_ALIASES: Record<string, string> = {
+  "название": "name", "наименование": "name", "name": "name",
+  "категория": "category", "category": "category",
+  "адрес": "address", "местоположение": "address", "address": "address",
+  "филиал": "branch", "branch": "branch",
+  "организация": "organization", "organization": "organization",
+}
 
 function emptyDraft() {
   return { name: "", category: "", address: "", branch: "", organization: "" }
 }
 
 export function SuppliersView({ embedded = false }: { embedded?: boolean }) {
-  const [rows, setRows] = useState<Supplier[]>(generateRows)
+  const [rows, setRows] = useState<Supplier[]>([])
+  const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState("")
   const [query, setQuery] = useState("")
   const [page, setPage] = useState(1)
-  const [favorite, setFavorite] = useState(false)
   const [expandedId, setExpandedId] = useState<number | null>(null)
   const [modalOpen, setModalOpen] = useState(false)
   const [editingId, setEditingId] = useState<number | null>(null)
@@ -93,7 +41,35 @@ export function SuppliersView({ embedded = false }: { embedded?: boolean }) {
   const [categoryOptions, setCategoryOptions] = useState(categories)
   const [categoryModalOpen, setCategoryModalOpen] = useState(false)
   const [newCategoryName, setNewCategoryName] = useState("")
+  const [importOpen, setImportOpen] = useState(false)
+  const [importFile, setImportFile] = useState<File | null>(null)
+  const [importSaving, setImportSaving] = useState(false)
+  const importInputRef = useRef<HTMLInputElement>(null)
   const pageSize = 25
+
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    fetch("/api/suppliers")
+      .then(async (response) => {
+        if (!response.ok) throw new Error("failed")
+        return (await response.json()) as Supplier[]
+      })
+      .then((data) => {
+        if (cancelled) return
+        setRows(data)
+        setLoadError("")
+      })
+      .catch(() => {
+        if (!cancelled) setLoadError("Не удалось загрузить поставщиков с сервера")
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const filtered = useMemo(
     () => rows.filter((row) => row.name.toLowerCase().includes(query.toLowerCase()) || String(row.id).includes(query)),
@@ -121,10 +97,20 @@ export function SuppliersView({ embedded = false }: { embedded?: boolean }) {
     setModalOpen(true)
   }
 
-  function removeRow(row: Supplier) {
+  async function removeRow(row: Supplier) {
     if (!window.confirm(`Удалить поставщика «${row.name}»?`)) return
-    setRows((current) => current.filter((item) => item.id !== row.id))
-    if (expandedId === row.id) setExpandedId(null)
+    try {
+      const response = await fetch(`/api/suppliers/${row.id}`, { method: "DELETE" })
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}))
+        window.alert(data.error || "Не удалось удалить поставщика")
+        return
+      }
+      setRows((current) => current.filter((item) => item.id !== row.id))
+      if (expandedId === row.id) setExpandedId(null)
+    } catch {
+      window.alert("Сервер недоступен, попробуйте ещё раз")
+    }
   }
 
   function addContact() {
@@ -139,44 +125,59 @@ export function SuppliersView({ embedded = false }: { embedded?: boolean }) {
     setDraftContacts((current) => current.map((contact) => (contact.id === id ? { ...contact, ...patch } : contact)))
   }
 
-  function saveCategory(event: FormEvent) {
+  async function saveCategory(event: FormEvent) {
     event.preventDefault()
     const trimmed = newCategoryName.trim()
     if (!trimmed) return
+    try {
+      await fetch("/api/supplier-categories", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: trimmed }),
+      })
+    } catch {
+      // Category creation is best-effort here; the supplier form still uses it locally.
+    }
     setCategoryOptions((current) => (current.includes(trimmed) ? current : [...current, trimmed]))
     setDraft((current) => ({ ...current, category: trimmed }))
     setNewCategoryName("")
     setCategoryModalOpen(false)
   }
 
-  function save(event: FormEvent) {
+  const [saving, setSaving] = useState(false)
+
+  async function save(event: FormEvent) {
     event.preventDefault()
     if (!draft.name.trim() || !draft.category || !draft.address.trim()) return
     const contacts = draftContacts.filter((contact) => contact.name.trim() || contact.phone.trim()).map((contact) => ({ ...contact }))
-    if (editingId !== null) {
-      setRows((current) =>
-        current.map((row) =>
-          row.id === editingId
-            ? { ...row, name: draft.name.trim(), category: draft.category, address: draft.address.trim(), branch: draft.branch, organization: draft.organization, contacts }
-            : row,
-        ),
-      )
-    } else {
-      const id = Math.max(0, ...rows.map((row) => row.id)) + 1
-      const newRow: Supplier = {
-        id,
-        name: draft.name.trim(),
-        category: draft.category,
-        createdDate: formatDate(new Date()),
-        address: draft.address.trim(),
-        branch: draft.branch || "Не указано",
-        organization: draft.organization || "Не указано",
-        contacts,
-        products: [],
+    setSaving(true)
+    try {
+      const isEdit = editingId !== null
+      const response = await fetch(isEdit ? `/api/suppliers/${editingId}` : "/api/suppliers", {
+        method: isEdit ? "PUT" : "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: draft.name.trim(),
+          category: draft.category,
+          address: draft.address.trim(),
+          branch: draft.branch || "Не указано",
+          organization: draft.organization || "Не указано",
+          contacts,
+        }),
+      })
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}))
+        window.alert(data.error || "Не удалось сохранить поставщика")
+        return
       }
-      setRows((current) => [newRow, ...current])
+      const saved = (await response.json()) as Supplier
+      setRows((current) => (isEdit ? current.map((row) => (row.id === editingId ? saved : row)) : [saved, ...current]))
+      setModalOpen(false)
+    } catch {
+      window.alert("Сервер недоступен, попробуйте ещё раз")
+    } finally {
+      setSaving(false)
     }
-    setModalOpen(false)
   }
 
   function downloadList() {
@@ -186,19 +187,98 @@ export function SuppliersView({ embedded = false }: { embedded?: boolean }) {
     ])
   }
 
+  function downloadTemplate() {
+    downloadExcelTable("suppliers-template", [["Название", "Категория", "Местоположение", "Филиал", "Организация"]])
+  }
+
+  function pickImportFile(event: ChangeEvent<HTMLInputElement>) {
+    setImportFile(event.target.files?.[0] ?? null)
+  }
+
+  async function saveImport() {
+    if (!importFile) return
+    setImportSaving(true)
+    try {
+      const rowsRaw = await readExcelRows(importFile)
+      if (!rowsRaw.length) {
+        window.alert("Не удалось найти данные для импорта в выбранном файле")
+        return
+      }
+      const fieldByIndex = mapHeaderColumns(rowsRaw[0], IMPORT_HEADER_ALIASES)
+      const hasHeader = Array.from(fieldByIndex.values()).includes("name")
+      const dataRows = hasHeader ? rowsRaw.slice(1) : rowsRaw
+
+      type ParsedSupplier = { name: string; category: string; address: string; branch: string; organization: string }
+      const parsed: ParsedSupplier[] = []
+      for (const row of dataRows) {
+        const record: Record<string, string> = {}
+        if (hasHeader) {
+          row.forEach((cell, index) => {
+            const field = fieldByIndex.get(index)
+            if (field) record[field] = cell
+          })
+        } else {
+          record.name = row[0] ?? ""
+          record.category = row[1] ?? ""
+          record.address = row[2] ?? ""
+          record.branch = row[3] ?? ""
+          record.organization = row[4] ?? ""
+        }
+        if (!record.name) continue
+        parsed.push({
+          name: record.name,
+          category: record.category || categoryOptions[0] || "",
+          address: record.address || "Не указано",
+          branch: record.branch || "Не указано",
+          organization: record.organization || "Не указано",
+        })
+      }
+
+      if (!parsed.length) {
+        window.alert("Не удалось найти данные для импорта в выбранном файле")
+        return
+      }
+
+      const created: Supplier[] = []
+      let failed = 0
+      for (const item of parsed) {
+        try {
+          const response = await fetch("/api/suppliers", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ ...item, contacts: [] }),
+          })
+          if (response.ok) created.push((await response.json()) as Supplier)
+          else failed += 1
+        } catch {
+          failed += 1
+        }
+      }
+      if (created.length) setRows((current) => [...created, ...current])
+      if (failed) window.alert(`Импортировано ${created.length} из ${parsed.length}. Не удалось сохранить: ${failed}`)
+    } finally {
+      setImportSaving(false)
+      setImportOpen(false)
+      setImportFile(null)
+    }
+  }
+
   return (
     <main className={embedded ? "min-w-0 flex-1" : "min-h-[calc(100vh-4rem)] bg-[#f1f4f8] px-9 py-5"}>
       {!embedded && (
         <header className="mb-5 flex items-center justify-between">
           <h1 className="flex items-center text-2xl font-bold text-slate-600">
-            <button type="button" onClick={() => setFavorite((value) => !value)} className="inline-flex items-center gap-2 text-[#4f70e7]">
-              <Star className={`h-5 w-5 ${favorite ? "fill-amber-400 text-amber-400" : ""}`} /> Избранные
-            </button>
+            <FavoritesButton className="inline-flex items-center gap-2 text-[#4f70e7]" />
             <span className="mx-2 text-slate-400">|</span> Поставщики
           </h1>
-          <button type="button" onClick={openCreate} className="inline-flex items-center gap-2 rounded bg-[#6ccd8b] px-5 py-2.5 font-semibold text-white hover:brightness-95">
-            <Plus className="h-4 w-4" /> Добавить
-          </button>
+          <div className="flex items-center gap-3">
+            <button type="button" onClick={() => setImportOpen(true)} className="inline-flex items-center gap-2 rounded bg-[#4f70e7] px-5 py-2.5 font-semibold text-white hover:brightness-95">
+              <FileText className="h-4 w-4" /> Импорт с Excel
+            </button>
+            <button type="button" onClick={openCreate} className="inline-flex items-center gap-2 rounded bg-[#6ccd8b] px-5 py-2.5 font-semibold text-white hover:brightness-95">
+              <Plus className="h-4 w-4" /> Добавить
+            </button>
+          </div>
         </header>
       )}
 
@@ -222,9 +302,14 @@ export function SuppliersView({ embedded = false }: { embedded?: boolean }) {
             <Download className="h-5 w-5" />
           </button>
           {embedded && (
-            <button type="button" onClick={openCreate} className="inline-flex items-center gap-2 rounded bg-[#6ccd8b] px-4 py-2 text-sm font-semibold text-white hover:brightness-95">
-              <Plus className="h-4 w-4" /> Добавить
-            </button>
+            <>
+              <button type="button" onClick={() => setImportOpen(true)} className="inline-flex items-center gap-2 rounded bg-[#4f70e7] px-4 py-2 text-sm font-semibold text-white hover:brightness-95">
+                <FileText className="h-4 w-4" /> Импорт с Excel
+              </button>
+              <button type="button" onClick={openCreate} className="inline-flex items-center gap-2 rounded bg-[#6ccd8b] px-4 py-2 text-sm font-semibold text-white hover:brightness-95">
+                <Plus className="h-4 w-4" /> Добавить
+              </button>
+            </>
           )}
         </div>
 
@@ -238,7 +323,11 @@ export function SuppliersView({ embedded = false }: { embedded?: boolean }) {
             </tr>
           </thead>
           <tbody>
-            {visible.map((row) => (
+            {loading ? (
+              <tr><td colSpan={4} className="px-9 py-10 text-center text-slate-400">Загрузка поставщиков...</td></tr>
+            ) : loadError ? (
+              <tr><td colSpan={4} className="px-9 py-10 text-center text-red-600">{loadError}</td></tr>
+            ) : visible.map((row) => (
               <Fragment key={row.id}>
                 <tr onClick={() => toggleExpand(row)} className="cursor-pointer border-b border-dashed border-slate-300 hover:bg-slate-50">
                   <td className="px-9 py-4">{row.id}</td>
@@ -322,7 +411,7 @@ export function SuppliersView({ embedded = false }: { embedded?: boolean }) {
           </tbody>
         </table>
 
-        {visible.length === 0 && (
+        {!loading && !loadError && visible.length === 0 && (
           <div className="flex min-h-[240px] flex-col items-center justify-center gap-3 py-10">
             <p className="text-lg text-slate-400">По вашему запросу ничего не найдено</p>
           </div>
@@ -411,8 +500,8 @@ export function SuppliersView({ embedded = false }: { embedded?: boolean }) {
             </div>
 
             <footer className="flex justify-end border-t p-5">
-              <button type="submit" className="rounded bg-[#6ccd8b] px-6 py-3 font-semibold text-white hover:brightness-95">
-                Сохранить
+              <button type="submit" disabled={saving} className="rounded bg-[#6ccd8b] px-6 py-3 font-semibold text-white hover:brightness-95 disabled:opacity-60">
+                {saving ? "Сохранение..." : "Сохранить"}
               </button>
             </footer>
           </form>
@@ -434,6 +523,38 @@ export function SuppliersView({ embedded = false }: { embedded?: boolean }) {
               <button type="submit" className="rounded bg-[#6ccd8b] px-5 py-2.5 font-semibold text-white hover:brightness-95">Сохранить</button>
             </div>
           </form>
+        </div>
+      )}
+
+      {importOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
+          <div className="w-full max-w-md rounded bg-white">
+            <header className="flex items-center justify-between border-b p-6">
+              <b className="uppercase">Импорт с Excel</b>
+              <button type="button" onClick={() => { setImportOpen(false); setImportFile(null) }} aria-label="Закрыть">
+                <X className="h-5 w-5" />
+              </button>
+            </header>
+            <div className="p-8">
+              <button type="button" onClick={downloadTemplate} className="mb-4 font-semibold text-[#4f70e7] hover:underline">
+                1. Скачать шаблон
+              </button>
+              <input ref={importInputRef} type="file" accept=".csv,.xls,.xlsx" onChange={pickImportFile} className="hidden" />
+              <button
+                type="button"
+                onClick={() => importInputRef.current?.click()}
+                className="flex w-full flex-col items-center justify-center gap-3 rounded border-2 border-dashed border-slate-300 py-10 text-slate-500 hover:border-[#4f70e7] hover:text-[#4f70e7]"
+              >
+                <FileText className="h-8 w-8" />
+                {importFile ? importFile.name : "Добавьте файл Excel или нажмите для выбора"}
+              </button>
+            </div>
+            <footer className="flex justify-end border-t p-5">
+              <button type="button" disabled={!importFile || importSaving} onClick={saveImport} className="rounded bg-[#6ccd8b] px-5 py-3 font-semibold text-white hover:brightness-95 disabled:opacity-40">
+                {importSaving ? "Импорт..." : "Сохранить"}
+              </button>
+            </footer>
+          </div>
         </div>
       )}
     </main>

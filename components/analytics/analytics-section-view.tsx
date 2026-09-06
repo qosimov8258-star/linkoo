@@ -36,12 +36,11 @@ export function AnalyticsSectionView({
   reports: AnalyticsReport[]
 }) {
   const ResourceIcon = resourceIcons[resource.slug] ?? LayoutGrid
-  const sectionSeed = Array.from(resource.slug).reduce((sum, letter) => sum + letter.charCodeAt(0), 0)
   const metrics = [
     { label: "Активные отчёты", value: reports.length, icon: BarChart3, color: "bg-blue-50 text-brand-blue" },
-    { label: "Обработано записей", value: `${(12 + (sectionSeed % 17)).toLocaleString("ru-RU")} тыс.`, icon: Boxes, color: "bg-violet-50 text-violet-600" },
-    { label: "Выполнение плана", value: `${88 + (sectionSeed % 10)}%`, icon: ClipboardCheck, color: "bg-emerald-50 text-brand-green" },
-    { label: "Динамика за месяц", value: `+${3 + (sectionSeed % 9)}%`, icon: CircleDollarSign, color: "bg-orange-50 text-brand-orange" },
+    { label: "Обработано записей", value: "0", icon: Boxes, color: "bg-violet-50 text-violet-600" },
+    { label: "Выполнение плана", value: "0%", icon: ClipboardCheck, color: "bg-emerald-50 text-brand-green" },
+    { label: "Динамика за месяц", value: "0%", icon: CircleDollarSign, color: "bg-orange-50 text-brand-orange" },
   ]
 
   return (

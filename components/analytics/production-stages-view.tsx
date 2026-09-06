@@ -1,19 +1,35 @@
 "use client"
 
 import Image from "next/image"
-import { FormEvent, useMemo, useState } from "react"
+import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react"
 import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
   Factory,
+  FileText,
   Pencil,
   Plus,
   Search,
-  Star,
   Trash2,
   X,
 } from "lucide-react"
+
+import { downloadExcelTable } from "@/lib/excel-export"
+import { mapHeaderColumns, readExcelRows } from "@/lib/excel-import"
+import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
+import { useLanguage } from "@/lib/i18n/language-context"
+
+const PRODUCT_IMPORT_ALIASES: Record<string, string> = {
+  "наименование": "name", "название": "name", "name": "name",
+  "тип товара": "type", "тип": "type", "type": "type",
+  "кол-во": "quantity", "количество": "quantity", "quantity": "quantity",
+}
+const OPERATION_IMPORT_ALIASES: Record<string, string> = {
+  "наименование": "name", "название": "name", "name": "name",
+  "тип товара": "type", "тип": "type", "type": "type",
+  "оборудование": "equipment", "equipment": "equipment",
+}
 
 type Tab = "products" | "operations" | "staff" | "equipment" | "activity"
 type Stage = { id: number; name: string }
@@ -21,20 +37,7 @@ type Product = { id: number; stageId: number; name: string; type: string; quanti
 type Operation = { id: number; stageId: number; name: string; type: string; equipment: string }
 type SimpleRow = { id: number; stageId: number; name: string; role: string; value: string }
 
-const initialStages: Stage[] = [
-  { id: 1, name: "Konditer maxsulotlari" },
-  { id: 2, name: "demotest_proizvotsva_1" },
-  { id: 3, name: "Sendvich Bolochka" },
-  { id: 4, name: "Klub Sendvich" },
-  { id: 5, name: "NEW MANUFACTURING" },
-  { id: 6, name: "УПК" },
-  { id: 7, name: "Мойка" },
-  { id: 8, name: "1 - чистка" },
-  { id: 9, name: "Супервайзер | Функции" },
-  { id: 10, name: "Агент | Функции0000000" },
-  { id: 11, name: "ДСП" },
-  { id: 12, name: "buxanka" },
-]
+const initialStages: Stage[] = []
 
 const initialProducts: Product[] = initialStages.map((stage, index) => ({
   id: index + 1,
@@ -44,18 +47,7 @@ const initialProducts: Product[] = initialStages.map((stage, index) => ({
   quantity: index === 0 ? 1 : index + 2,
 }))
 
-const initialOperations: Operation[] = [
-  { id: 1, stageId: 1, name: "pepsi", type: "Оборудование", equipment: "presa 15 t" },
-  { id: 2, stageId: 1, name: "LIST 55", type: "Оборудование", equipment: "presa 15 t" },
-  { id: 3, stageId: 1, name: "nuruddin", type: "Трудовые затраты", equipment: "N/A" },
-  ...initialStages.slice(1).map((stage, index) => ({
-    id: index + 4,
-    stageId: stage.id,
-    name: `${stage.name} операция`,
-    type: index % 2 ? "Трудовые затраты" : "Оборудование",
-    equipment: index % 2 ? "N/A" : "Производственная линия",
-  })),
-]
+const initialOperations: Operation[] = []
 
 const initialDetails: Record<Exclude<Tab, "products" | "operations">, SimpleRow[]> = {
   staff: initialStages.map((stage, index) => ({
@@ -90,7 +82,7 @@ const tabs: Array<{ id: Tab; label: string }> = [
 ]
 
 export function ProductionStagesView() {
-  const [favorite, setFavorite] = useState(false)
+  const { t } = useLanguage()
   const [stages] = useState(initialStages)
   const [selectedStage, setSelectedStage] = useState<number | null>(null)
   const [tab, setTab] = useState<Tab>("products")
@@ -104,6 +96,46 @@ export function ProductionStagesView() {
   const [formName, setFormName] = useState("")
   const [formType, setFormType] = useState("")
   const [formValue, setFormValue] = useState("")
+  const [importOpen, setImportOpen] = useState(false)
+  const [importFile, setImportFile] = useState<File | null>(null)
+  const [importSaving, setImportSaving] = useState(false)
+  const importInputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    fetch("/api/production-stage-items")
+      .then(async (response) => {
+        if (!response.ok) throw new Error("Не удалось загрузить данные")
+        return (await response.json()) as Array<{
+          id: number
+          stageId: number
+          kind: "product" | "operation"
+          name: string
+          type: string
+          quantity: number | null
+          equipment: string | null
+        }>
+      })
+      .then((data) => {
+        if (cancelled) return
+        setProducts(
+          data
+            .filter((item) => item.kind === "product")
+            .map((item) => ({ id: item.id, stageId: item.stageId, name: item.name, type: item.type, quantity: item.quantity ?? 1 })),
+        )
+        setOperations(
+          data
+            .filter((item) => item.kind === "operation")
+            .map((item) => ({ id: item.id, stageId: item.stageId, name: item.name, type: item.type, equipment: item.equipment ?? "N/A" })),
+        )
+      })
+      .catch(() => {
+        if (!cancelled) window.alert("Не удалось загрузить данные с сервера")
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const selectedName = stages.find((stage) => stage.id === selectedStage)?.name
 
@@ -163,44 +195,163 @@ export function ProductionStagesView() {
     setEditingId(id)
   }
 
-  function save(event: FormEvent) {
+  async function save(event: FormEvent) {
     event.preventDefault()
     if (!selectedStage || !modal || !formName.trim()) return
-    if (modal === "product") {
+    const isProduct = modal === "product"
+    const body = JSON.stringify({
+      stageId: selectedStage,
+      kind: modal,
+      name: formName.trim(),
+      type: formType,
+      quantity: isProduct ? Math.max(1, Number(formValue) || 1) : undefined,
+      equipment: !isProduct ? (formValue.trim() || "N/A") : undefined,
+    })
+    try {
       if (editingId) {
-        setProducts((current) => current.map((row) => row.id === editingId
-          ? { ...row, name: formName.trim(), type: formType, quantity: Math.max(1, Number(formValue) || 1) }
-          : row))
+        const response = await fetch(`/api/production-stage-items/${editingId}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body,
+        })
+        if (!response.ok) {
+          const data = await response.json().catch(() => ({}))
+          window.alert(data.error || "Не удалось сохранить запись")
+          return
+        }
+        const saved = await response.json()
+        if (isProduct) {
+          setProducts((current) => current.map((row) => row.id === editingId ? { id: saved.id, stageId: saved.stageId, name: saved.name, type: saved.type, quantity: saved.quantity ?? 1 } : row))
+        } else {
+          setOperations((current) => current.map((row) => row.id === editingId ? { id: saved.id, stageId: saved.stageId, name: saved.name, type: saved.type, equipment: saved.equipment ?? "N/A" } : row))
+        }
       } else {
-        setProducts((current) => [...current, {
-          id: Math.max(0, ...current.map((row) => row.id)) + 1,
-          stageId: selectedStage,
-          name: formName.trim(),
-          type: formType,
-          quantity: Math.max(1, Number(formValue) || 1),
-        }])
+        const response = await fetch("/api/production-stage-items", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body,
+        })
+        if (!response.ok) {
+          const data = await response.json().catch(() => ({}))
+          window.alert(data.error || "Не удалось создать запись")
+          return
+        }
+        const saved = await response.json()
+        if (isProduct) {
+          setProducts((current) => [...current, { id: saved.id, stageId: saved.stageId, name: saved.name, type: saved.type, quantity: saved.quantity ?? 1 }])
+        } else {
+          setOperations((current) => [...current, { id: saved.id, stageId: saved.stageId, name: saved.name, type: saved.type, equipment: saved.equipment ?? "N/A" }])
+        }
       }
-    } else {
-      if (editingId) {
-        setOperations((current) => current.map((row) => row.id === editingId
-          ? { ...row, name: formName.trim(), type: formType, equipment: formValue.trim() || "N/A" }
-          : row))
-      } else {
-        setOperations((current) => [...current, {
-          id: Math.max(0, ...current.map((row) => row.id)) + 1,
-          stageId: selectedStage,
-          name: formName.trim(),
-          type: formType,
-          equipment: formValue.trim() || "N/A",
-        }])
-      }
+      setModal(null)
+    } catch {
+      window.alert("Сервер недоступен, попробуйте ещё раз")
     }
-    setModal(null)
   }
 
-  function remove(id: number) {
-    if (tab === "products") setProducts((current) => current.filter((row) => row.id !== id))
-    if (tab === "operations") setOperations((current) => current.filter((row) => row.id !== id))
+  async function remove(id: number) {
+    try {
+      const response = await fetch(`/api/production-stage-items/${id}`, { method: "DELETE" })
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}))
+        window.alert(data.error || "Не удалось удалить запись")
+        return
+      }
+      if (tab === "products") setProducts((current) => current.filter((row) => row.id !== id))
+      if (tab === "operations") setOperations((current) => current.filter((row) => row.id !== id))
+    } catch {
+      window.alert("Сервер недоступен, попробуйте ещё раз")
+    }
+  }
+
+  function downloadTemplate() {
+    if (tab === "operations") {
+      downloadExcelTable("operations-template", [["Наименование", "Тип товара", "Оборудование"]])
+    } else {
+      downloadExcelTable("products-template", [["Наименование", "Тип товара", "Кол-во"]])
+    }
+  }
+
+  function pickImportFile(event: ChangeEvent<HTMLInputElement>) {
+    setImportFile(event.target.files?.[0] ?? null)
+  }
+
+  async function saveImport() {
+    if (!importFile || !selectedStage) return
+    setImportSaving(true)
+    try {
+      const rows = await readExcelRows(importFile)
+      if (!rows.length) {
+        window.alert("Не удалось найти данные для импорта в выбранном файле")
+        return
+      }
+      const isOperation = tab === "operations"
+      const aliases = isOperation ? OPERATION_IMPORT_ALIASES : PRODUCT_IMPORT_ALIASES
+      const fieldByIndex = mapHeaderColumns(rows[0], aliases)
+      const hasHeader = Array.from(fieldByIndex.values()).includes("name")
+      const dataRows = hasHeader ? rows.slice(1) : rows
+
+      const parsed: { name: string; type: string; extra: string }[] = []
+      for (const row of dataRows) {
+        const record: Record<string, string> = {}
+        if (hasHeader) {
+          row.forEach((cell, index) => {
+            const field = fieldByIndex.get(index)
+            if (field) record[field] = cell
+          })
+        } else {
+          record.name = row[0] ?? ""
+          record.type = row[1] ?? ""
+          record[isOperation ? "equipment" : "quantity"] = row[2] ?? ""
+        }
+        if (!record.name) continue
+        parsed.push({
+          name: record.name,
+          type: record.type || (isOperation ? "Оборудование" : "Готовая продукция"),
+          extra: isOperation ? (record.equipment || "N/A") : (record.quantity || "1"),
+        })
+      }
+
+      if (!parsed.length) {
+        window.alert("Не удалось найти данные для импорта в выбранном файле")
+        return
+      }
+
+      const bodies = parsed.map((item) =>
+        isOperation
+          ? { stageId: selectedStage, kind: "operation", name: item.name, type: item.type, equipment: item.extra }
+          : { stageId: selectedStage, kind: "product", name: item.name, type: item.type, quantity: Math.max(1, Number(item.extra) || 1) },
+      )
+
+      const createdProducts: Product[] = []
+      const createdOperations: Operation[] = []
+      let failed = 0
+      for (const body of bodies) {
+        try {
+          const response = await fetch("/api/production-stage-items", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+          })
+          if (response.ok) {
+            const saved = await response.json()
+            if (isOperation) createdOperations.push({ id: saved.id, stageId: saved.stageId, name: saved.name, type: saved.type, equipment: saved.equipment ?? "N/A" })
+            else createdProducts.push({ id: saved.id, stageId: saved.stageId, name: saved.name, type: saved.type, quantity: saved.quantity ?? 1 })
+          } else {
+            failed += 1
+          }
+        } catch {
+          failed += 1
+        }
+      }
+      if (createdOperations.length) setOperations((current) => [...current, ...createdOperations])
+      if (createdProducts.length) setProducts((current) => [...current, ...createdProducts])
+      if (failed) window.alert(`Импортировано ${bodies.length - failed} из ${bodies.length}. Не удалось сохранить: ${failed}`)
+    } finally {
+      setImportSaving(false)
+      setImportOpen(false)
+      setImportFile(null)
+    }
   }
 
   const productOrOperation = tab === "products" || tab === "operations"
@@ -212,16 +363,11 @@ export function ProductionStagesView() {
   return (
     <main className="min-h-[calc(100vh-4rem)] bg-slate-100 text-slate-800">
       <header className="px-8 py-4">
-        <button
-          onClick={() => setFavorite((value) => !value)}
-          className="flex items-center gap-3"
-          aria-label="Избранные | Этапы производства"
-        >
-          <Star className={`h-7 w-7 ${favorite ? "fill-amber-400 text-amber-400" : "fill-slate-600 text-slate-600"}`} />
-          <span className="text-2xl font-semibold text-blue-600">Избранные</span>
+        <div className="flex items-center gap-3">
+          <FavoritesButton className="flex items-center gap-2 text-2xl font-semibold text-blue-600" />
           <span className="text-2xl text-slate-500">|</span>
           <span className="text-2xl font-semibold text-slate-600">Этапы производства</span>
-        </button>
+        </div>
       </header>
 
       <div className="grid min-h-[calc(100vh-8.5rem)] grid-cols-[350px_minmax(0,1fr)]">
@@ -268,9 +414,14 @@ export function ProductionStagesView() {
               <div className="mb-5 flex items-center justify-between">
                 <p className="text-lg text-slate-500">Производство: <strong className="text-slate-700">{selectedName}</strong></p>
                 {productOrOperation && (
-                  <button onClick={openCreate} className="flex items-center gap-1 text-lg text-blue-600">
-                    <Plus className="h-5 w-5" /> {addLabel}
-                  </button>
+                  <div className="flex items-center gap-4">
+                    <button onClick={openCreate} className="flex items-center gap-1 text-lg text-blue-600">
+                      <Plus className="h-5 w-5" /> {addLabel}
+                    </button>
+                    <button onClick={() => setImportOpen(true)} className="flex items-center gap-1 text-lg text-blue-600">
+                      <FileText className="h-5 w-5" /> Импорт с Excel
+                    </button>
+                  </div>
                 )}
               </div>
 
@@ -374,6 +525,36 @@ export function ProductionStagesView() {
               <button type="submit" className="rounded-md bg-emerald-400 px-7 py-3 font-semibold text-white">СОХРАНИТЬ</button>
             </div>
           </form>
+        </div>
+      )}
+
+      {importOpen && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/45 p-4" role="dialog" aria-modal="true">
+          <div className="w-full max-w-md bg-white shadow-2xl">
+            <div className="flex items-center justify-between border-b px-7 py-5">
+              <h2 className="text-xl font-bold">ИМПОРТ С EXCEL</h2>
+              <button type="button" onClick={() => { setImportOpen(false); setImportFile(null) }} aria-label="Закрыть"><X className="h-6 w-6" /></button>
+            </div>
+            <div className="p-7">
+              <button type="button" onClick={downloadTemplate} className="mb-4 font-semibold text-blue-600 hover:underline">
+                1. Скачать шаблон
+              </button>
+              <input ref={importInputRef} type="file" accept=".csv,.xls,.xlsx" onChange={pickImportFile} className="hidden" />
+              <button
+                type="button"
+                onClick={() => importInputRef.current?.click()}
+                className="flex w-full flex-col items-center justify-center gap-3 rounded border-2 border-dashed border-slate-300 py-10 text-slate-500 hover:border-blue-600 hover:text-blue-600"
+              >
+                <FileText className="h-8 w-8" />
+                {importFile ? importFile.name : "Добавьте файл Excel или нажмите для выбора"}
+              </button>
+            </div>
+            <div className="flex justify-end border-t p-5">
+              <button type="button" disabled={!importFile || importSaving} onClick={saveImport} className="rounded-md bg-emerald-400 px-7 py-3 font-semibold text-white disabled:opacity-40">
+                {importSaving ? "Импорт..." : "СОХРАНИТЬ"}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </main>

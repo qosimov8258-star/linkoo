@@ -25,49 +25,38 @@ function rowToPriceList(row: Row): PriceList {
 
 export type PriceListInput = { name: string; currency: string; linkedList: string; calcMethod: string }
 
-export function parsePriceListInput(body: unknown): PriceListInput | null {
-  if (!body || typeof body !== "object") return null
-  const value = body as Record<string, unknown>
-  const name = typeof value.name === "string" ? value.name.trim() : ""
-  if (!name) return null
-  const currency = typeof value.currency === "string" && value.currency.trim() ? value.currency.trim() : "SUM"
-  const linkedList = typeof value.linkedList === "string" && value.linkedList.trim() ? value.linkedList.trim() : "Не указано"
-  const calcMethod = typeof value.calcMethod === "string" && value.calcMethod.trim() ? value.calcMethod.trim() : "Не указано"
-  return { name, currency, linkedList, calcMethod }
-}
-
-export function listPriceLists(): PriceList[] {
+export async function listPriceLists(): Promise<PriceList[]> {
   const db = getDb()
-  const rows = db.prepare("SELECT * FROM price_lists ORDER BY id DESC").all() as Row[]
+  const rows = (await db.prepare("SELECT * FROM price_lists ORDER BY id DESC").all()) as Row[]
   return rows.map(rowToPriceList)
 }
 
-export function getPriceList(id: number): PriceList | null {
+export async function getPriceList(id: number): Promise<PriceList | null> {
   const db = getDb()
-  const row = db.prepare("SELECT * FROM price_lists WHERE id = ?").get(id) as Row | undefined
+  const row = (await db.prepare("SELECT * FROM price_lists WHERE id = ?").get(id)) as Row | undefined
   return row ? rowToPriceList(row) : null
 }
 
-export function createPriceList(input: PriceListInput): PriceList {
+export async function createPriceList(input: PriceListInput): Promise<PriceList> {
   const db = getDb()
-  const result = db
-    .prepare("INSERT INTO price_lists (name, currency, linked_list, calc_method) VALUES (@name, @currency, @linkedList, @calcMethod)")
-    .run(input)
-  return getPriceList(Number(result.lastInsertRowid))!
+  const result = (await db
+      .prepare("INSERT INTO price_lists (name, currency, linked_list, calc_method) VALUES (@name, @currency, @linkedList, @calcMethod)")
+      .run(input))
+  return (await getPriceList(Number(result.lastInsertRowid)))!
 }
 
-export function updatePriceList(id: number, input: PriceListInput): PriceList | null {
-  if (!getPriceList(id)) return null
+export async function updatePriceList(id: number, input: PriceListInput): Promise<PriceList | null> {
+  if (!(await getPriceList(id))) return null
   const db = getDb()
-  db.prepare(
-    `UPDATE price_lists SET name = @name, currency = @currency, linked_list = @linkedList,
+  await db.prepare(
+        `UPDATE price_lists SET name = @name, currency = @currency, linked_list = @linkedList,
        calc_method = @calcMethod, updated_at = datetime('now') WHERE id = @id`,
-  ).run({ ...input, id })
-  return getPriceList(id)
+      ).run({ ...input, id })
+  return (await getPriceList(id))
 }
 
-export function deletePriceList(id: number): boolean {
+export async function deletePriceList(id: number): Promise<boolean> {
   const db = getDb()
-  const result = db.prepare("DELETE FROM price_lists WHERE id = ?").run(id)
+  const result = (await db.prepare("DELETE FROM price_lists WHERE id = ?").run(id))
   return result.changes > 0
 }

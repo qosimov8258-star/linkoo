@@ -121,15 +121,15 @@ export function parseRawMaterialInput(body: unknown): RawMaterialInput | null {
   }
 }
 
-export function listRawMaterials(): RawMaterial[] {
+export async function listRawMaterials(): Promise<RawMaterial[]> {
   const db = getDb()
-  const rows = db.prepare("SELECT * FROM raw_materials ORDER BY id DESC").all() as Row[]
+  const rows = (await db.prepare("SELECT * FROM raw_materials ORDER BY id DESC").all()) as Row[]
   return rows.map(rowToRawMaterial)
 }
 
-export function getRawMaterial(id: number): RawMaterial | null {
+export async function getRawMaterial(id: number): Promise<RawMaterial | null> {
   const db = getDb()
-  const row = db.prepare("SELECT * FROM raw_materials WHERE id = ?").get(id) as Row | undefined
+  const row = (await db.prepare("SELECT * FROM raw_materials WHERE id = ?").get(id)) as Row | undefined
   return row ? rowToRawMaterial(row) : null
 }
 
@@ -166,11 +166,11 @@ function toParams(input: RawMaterialInput) {
   }
 }
 
-export function createRawMaterial(input: RawMaterialInput): RawMaterial {
+export async function createRawMaterial(input: RawMaterialInput): Promise<RawMaterial> {
   const db = getDb()
-  const result = db
-    .prepare(
-      `INSERT INTO raw_materials (
+  const result = (await db
+      .prepare(
+        `INSERT INTO raw_materials (
         name, full_name, barcode, article, type, organization, unit, sub_unit, created_date, order_number,
         supplier, brand, min_stock, color, integration_code, mass, net_weight, volume, description, can_sell,
         only_mml, show_as_inventory, group_only, show_in_bot, track_expiry, marked_product, price_list, cash_price, non_cash_price
@@ -179,16 +179,16 @@ export function createRawMaterial(input: RawMaterialInput): RawMaterial {
         @supplier, @brand, @minStock, @color, @integrationCode, @mass, @netWeight, @volume, @description, @canSell,
         @onlyMml, @showAsInventory, @groupOnly, @showInBot, @trackExpiry, @markedProduct, @priceList, @cashPrice, @nonCashPrice
       )`,
-    )
-    .run({ ...toParams(input), createdDate: formatRawMaterialDate(new Date()) })
-  return getRawMaterial(Number(result.lastInsertRowid))!
+      )
+      .run({ ...toParams(input), createdDate: formatRawMaterialDate(new Date()) }))
+  return (await getRawMaterial(Number(result.lastInsertRowid)))!
 }
 
-export function updateRawMaterial(id: number, input: RawMaterialInput): RawMaterial | null {
-  if (!getRawMaterial(id)) return null
+export async function updateRawMaterial(id: number, input: RawMaterialInput): Promise<RawMaterial | null> {
+  if (!(await getRawMaterial(id))) return null
   const db = getDb()
-  db.prepare(
-    `UPDATE raw_materials SET
+  await db.prepare(
+        `UPDATE raw_materials SET
       name = @name, full_name = @fullName, barcode = @barcode, article = @article, type = @type,
       organization = @organization, unit = @unit, sub_unit = @subUnit, order_number = @orderNumber,
       supplier = @supplier, brand = @brand, min_stock = @minStock, color = @color, integration_code = @integrationCode,
@@ -197,12 +197,12 @@ export function updateRawMaterial(id: number, input: RawMaterialInput): RawMater
       track_expiry = @trackExpiry, marked_product = @markedProduct, price_list = @priceList, cash_price = @cashPrice,
       non_cash_price = @nonCashPrice, updated_at = datetime('now')
     WHERE id = @id`,
-  ).run({ ...toParams(input), id })
-  return getRawMaterial(id)
+      ).run({ ...toParams(input), id })
+  return (await getRawMaterial(id))
 }
 
-export function deleteRawMaterial(id: number): boolean {
+export async function deleteRawMaterial(id: number): Promise<boolean> {
   const db = getDb()
-  const result = db.prepare("DELETE FROM raw_materials WHERE id = ?").run(id)
+  const result = (await db.prepare("DELETE FROM raw_materials WHERE id = ?").run(id))
   return result.changes > 0
 }

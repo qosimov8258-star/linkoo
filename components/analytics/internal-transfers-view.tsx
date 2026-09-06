@@ -1,6 +1,6 @@
 "use client"
 
-import { ChangeEvent, Fragment, useMemo, useRef, useState } from "react"
+import { ChangeEvent, Fragment, useEffect, useMemo, useRef, useState } from "react"
 import {
   ChevronDown,
   ChevronLeft,
@@ -14,83 +14,19 @@ import {
   Printer,
   RefreshCw,
   Search,
-  Star,
   Trash2,
   Upload,
   X,
 } from "lucide-react"
 
-type Status = "принят" | "потвержден" | "отменен"
+import { readExcelRows } from "@/lib/excel-import"
+import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
 
-type Item = { id: number; product: string; quantity: number; weight: number; price: number }
-
-type Transfer = {
-  id: number
-  fromWarehouse: string
-  toWarehouse: string
-  createdBy: string
-  createdAt: string
-  deliveredAt: string
-  amount: number
-  weight: number
-  status: Status
-  priceList: string
-  organization: string
-  invoiceNumber: string
-  transportNumber: string
-  driver: string
-  comment: string
-  items: Item[]
-}
-
-const warehouses = ["toshkent", "Manufacturing1", "Яндекс Лавка", "Suhrob sklad", "Toshkent sut ombori", "Центральный склад", "Чиланзарский склад", "123 test"]
-
-const initialTransfers: Transfer[] = [
-  { id: 59, fromWarehouse: "toshkent", toWarehouse: "Manufacturing1", createdBy: "Admin Ritm", createdAt: "16 янв. 2026", deliveredAt: "16 янв. 2026", amount: 1200000, weight: 0, status: "принят", priceList: "11111", organization: "", invoiceNumber: "", transportNumber: "", driver: "", comment: "", items: [{ id: 1, product: "robot moshina", quantity: 12, weight: 0, price: 100000 }] },
-  { id: 58, fromWarehouse: "toshkent", toWarehouse: "Manufacturing1", createdBy: "Admin Ritm", createdAt: "09 янв. 2026", deliveredAt: "16 янв. 2026", amount: 78000, weight: 0, status: "принят", priceList: "878", organization: "", invoiceNumber: "", transportNumber: "", driver: "", comment: "", items: [{ id: 1, product: "g'ilof", quantity: 78, weight: 0, price: 1000 }] },
-  { id: 57, fromWarehouse: "toshkent", toWarehouse: "Яндекс Лавка", createdBy: "Admin Ritm", createdAt: "07 янв. 2026", deliveredAt: "07 янв. 2026", amount: 0, weight: 0, status: "принят", priceList: "savdo", organization: "", invoiceNumber: "", transportNumber: "", driver: "", comment: "", items: [] },
-  { id: 56, fromWarehouse: "toshkent", toWarehouse: "Яндекс Лавка", createdBy: "Admin Ritm", createdAt: "07 янв. 2026", deliveredAt: "07 янв. 2026", amount: 0, weight: 0, status: "потвержден", priceList: "donalik", organization: "", invoiceNumber: "", transportNumber: "", driver: "", comment: "", items: [{ id: 1, product: "avto 1.3 mator", quantity: 500, weight: 0, price: 0 }] },
-  { id: 55, fromWarehouse: "Suhrob sklad", toWarehouse: "toshkent", createdBy: "Admin Ritm", createdAt: "30 дек. 2025", deliveredAt: "30 дек. 2025", amount: 60000, weight: 0, status: "потвержден", priceList: "11111", organization: "", invoiceNumber: "", transportNumber: "", driver: "", comment: "", items: [{ id: 1, product: "sndwch", quantity: 60, weight: 0, price: 1000 }] },
-  { id: 54, fromWarehouse: "Suhrob sklad", toWarehouse: "toshkent", createdBy: "Admin Ritm", createdAt: "30 дек. 2025", deliveredAt: "30 дек. 2025", amount: 60000, weight: 0, status: "потвержден", priceList: "11111", organization: "", invoiceNumber: "", transportNumber: "", driver: "", comment: "", items: [{ id: 1, product: "sndwch", quantity: 60, weight: 0, price: 1000 }] },
-  { id: 53, fromWarehouse: "toshkent", toWarehouse: "Manufacturing1", createdBy: "Admin Ritm", createdAt: "30 дек. 2025", deliveredAt: "30 дек. 2025", amount: 720000, weight: 0, status: "потвержден", priceList: "tovar", organization: "", invoiceNumber: "", transportNumber: "", driver: "", comment: "", items: [{ id: 1, product: "robot moshina", quantity: 72, weight: 0, price: 10000 }] },
-  { id: 52, fromWarehouse: "Suhrob sklad", toWarehouse: "Toshkent sut ombori", createdBy: "Admin Ritm", createdAt: "20 дек. 2025", deliveredAt: "20 дек. 2025", amount: 1500000, weight: 0, status: "потвержден", priceList: "Bozor narx", organization: "", invoiceNumber: "", transportNumber: "", driver: "", comment: "", items: [{ id: 1, product: "energetik 1 l", quantity: 150, weight: 0, price: 10000 }] },
-  { id: 51, fromWarehouse: "Центральный склад", toWarehouse: "Чиланзарский склад", createdBy: "Admin Ritm", createdAt: "10 дек. 2025", deliveredAt: "10 дек. 2025", amount: 45000, weight: 0, status: "принят", priceList: "Шт14", organization: "", invoiceNumber: "", transportNumber: "", driver: "", comment: "", items: [{ id: 1, product: "g'ilof", quantity: 45, weight: 0, price: 1000 }] },
-  { id: 50, fromWarehouse: "toshkent", toWarehouse: "123 test", createdBy: "Admin Ritm", createdAt: "09 дек. 2025", deliveredAt: "17 дек. 2025", amount: 168000, weight: 0, status: "потвержден", priceList: "123123123", organization: "", invoiceNumber: "", transportNumber: "", driver: "", comment: "", items: [{ id: 1, product: "sndwch", quantity: 168, weight: 0, price: 1000 }] },
-]
-
-const generatedTransfers: Transfer[] = Array.from({ length: 36 }, (_, index) => {
-  const id = 49 - index
-  const from = warehouses[id % warehouses.length]
-  const to = warehouses[(id + 3) % warehouses.length]
-  const amount = (id * 3721) % 500000
-  const status: Status = id % 4 === 0 ? "отменен" : id % 2 === 0 ? "принят" : "потвержден"
-  const day = 1 + (id % 28)
-  const month = ["янв.", "февр.", "мар.", "апр.", "мая", "июня", "июля", "авг.", "сент.", "окт.", "нояб.", "дек."][id % 12]
-  const year = id > 20 ? 2025 : 2024
-  return {
-    id,
-    fromWarehouse: from,
-    toWarehouse: to,
-    createdBy: "Admin Ritm",
-    createdAt: `${String(day).padStart(2, "0")} ${month} ${year}`,
-    deliveredAt: `${String(day).padStart(2, "0")} ${month} ${year}`,
-    amount,
-    weight: 0,
-    status,
-    priceList: "11111",
-    organization: "",
-    invoiceNumber: "",
-    transportNumber: "",
-    driver: "",
-    comment: "",
-    items: [{ id: 1, product: "sndwch", quantity: Math.max(1, Math.round(amount / 1000)), weight: 0, price: 1000 }],
-  }
-})
+import { transferWarehouses as warehouses, type Transfer, type TransferItem as Item } from "./internal-transfers-data"
 
 const number = (value: number) => new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 2 }).format(value)
-const favoriteItems = ["Клиенты", "Заказы", "Виджеты", "Заказы", "Ограничение продуктов", "Продукты"]
 
-function statusColor(status: Status) {
+function statusColor(status: Transfer["status"]) {
   if (status === "принят") return "#39ca79"
   if (status === "потвержден") return "#4f8ff0"
   return "#e5484d"
@@ -101,9 +37,9 @@ function todayISO() {
 }
 
 export function InternalTransfersView() {
-  const [favorite, setFavorite] = useState(false)
-  const [favoritesOpen, setFavoritesOpen] = useState(false)
-  const [transfers, setTransfers] = useState([...initialTransfers, ...generatedTransfers])
+  const [transfers, setTransfers] = useState<Transfer[]>([])
+  const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState("")
   const [search, setSearch] = useState("")
   const [filterOpen, setFilterOpen] = useState(false)
   const [fromFilter, setFromFilter] = useState("Все склады")
@@ -114,6 +50,30 @@ export function InternalTransfersView() {
   const [expandedId, setExpandedId] = useState<number | null>(null)
   const [detailTab, setDetailTab] = useState<"items" | "logs">("items")
   const [formOpen, setFormOpen] = useState<{ mode: "add" | "edit"; transfer: Transfer | null } | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    fetch("/api/internal-transfers")
+      .then(async (response) => {
+        if (!response.ok) throw new Error("failed")
+        return (await response.json()) as Transfer[]
+      })
+      .then((data) => {
+        if (cancelled) return
+        setTransfers(data)
+        setLoadError("")
+      })
+      .catch(() => {
+        if (!cancelled) setLoadError("Не удалось загрузить передачи с сервера")
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const filtered = useMemo(() => {
     return transfers.filter((transfer) => {
@@ -129,19 +89,40 @@ export function InternalTransfersView() {
   const safePage = Math.min(page, maxPage)
   const visible = filtered.slice((safePage - 1) * pageSize, safePage * pageSize)
 
-  const deleteTransfer = (id: number) => {
-    setTransfers((current) => current.filter((transfer) => transfer.id !== id))
-    setExpandedId(null)
+  const deleteTransfer = async (id: number) => {
+    try {
+      const response = await fetch(`/api/internal-transfers/${id}`, { method: "DELETE" })
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}))
+        window.alert(data.error || "Не удалось удалить передачу")
+        return
+      }
+      setTransfers((current) => current.filter((transfer) => transfer.id !== id))
+      setExpandedId(null)
+    } catch {
+      window.alert("Сервер недоступен, попробуйте ещё раз")
+    }
   }
 
-  const saveTransfer = (data: Transfer) => {
-    setTransfers((current) => {
-      const exists = data.id !== 0 && current.some((transfer) => transfer.id === data.id)
-      if (exists) return current.map((transfer) => (transfer.id === data.id ? data : transfer))
-      const nextId = Math.max(0, ...current.map((transfer) => transfer.id)) + 1
-      return [{ ...data, id: nextId }, ...current]
-    })
-    setFormOpen(null)
+  const saveTransfer = async (data: Transfer) => {
+    try {
+      const isEdit = data.id !== 0
+      const response = await fetch(isEdit ? `/api/internal-transfers/${data.id}` : "/api/internal-transfers", {
+        method: isEdit ? "PUT" : "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      })
+      if (!response.ok) {
+        const responseData = await response.json().catch(() => ({}))
+        window.alert(responseData.error || "Не удалось сохранить передачу")
+        return
+      }
+      const saved = (await response.json()) as Transfer
+      setTransfers((current) => (isEdit ? current.map((transfer) => (transfer.id === saved.id ? saved : transfer)) : [saved, ...current]))
+      setFormOpen(null)
+    } catch {
+      window.alert("Сервер недоступен, попробуйте ещё раз")
+    }
   }
 
   const downloadAll = () => {
@@ -159,11 +140,11 @@ export function InternalTransfersView() {
   return (
     <main className="min-h-screen bg-white text-[#17233b]">
       <header className="flex flex-wrap items-center justify-between gap-4 border-b border-[#e1e5eb] px-6 py-5 md:px-9">
-        <button onClick={() => setFavoritesOpen(true)} className="flex items-center gap-3">
-          <Star className={`h-7 w-7 ${favorite ? "fill-[#4f70e7] text-[#4f70e7]" : "fill-[#596376] text-[#596376]"}`} />
-          <span className="text-2xl font-bold text-[#4f70e7]">Избранные</span><span className="text-3xl font-light text-[#586174]">|</span>
+        <div className="flex items-center gap-3">
+          <FavoritesButton className="flex items-center gap-3 text-2xl font-bold text-[#4f70e7]" />
+          <span className="text-3xl font-light text-[#586174]">|</span>
           <span className="text-2xl font-bold text-[#586174]">Передачи между складами</span>
-        </button>
+        </div>
         <button onClick={() => setFormOpen({ mode: "add", transfer: null })} className="flex h-11 items-center gap-2 rounded-md bg-[#69cd87] px-5 font-semibold text-white">
           <Plus className="h-5 w-5" /> Добавить
         </button>
@@ -242,7 +223,11 @@ export function InternalTransfersView() {
             </tr>
           </thead>
           <tbody>
-            {visible.map((transfer, index) => (
+            {loading ? (
+              <tr><td colSpan={8} className="px-4 py-16 text-center text-[#9aa3b6]">Загрузка передач...</td></tr>
+            ) : loadError ? (
+              <tr><td colSpan={8} className="px-4 py-16 text-center text-red-600">{loadError}</td></tr>
+            ) : visible.map((transfer, index) => (
               <Fragment key={transfer.id}>
                 <tr
                   onClick={() => { setExpandedId((current) => (current === transfer.id ? null : transfer.id)); setDetailTab("items") }}
@@ -279,34 +264,12 @@ export function InternalTransfersView() {
                 )}
               </Fragment>
             ))}
-            {visible.length === 0 && (
+            {!loading && !loadError && visible.length === 0 && (
               <tr><td colSpan={8} className="px-4 py-16 text-center text-[#9aa3b6]">Ничего не найдено</td></tr>
             )}
           </tbody>
         </table>
       </section>
-
-      {favoritesOpen && (
-        <div className="fixed inset-0 z-[100] flex">
-          <button aria-label="Закрыть" onClick={() => setFavoritesOpen(false)} className="flex-1 bg-black/40" />
-          <aside className="w-[420px] max-w-[90vw] bg-white shadow-2xl">
-            <header className="flex items-center justify-between border-b px-8 py-6">
-              <h2 className="text-2xl font-semibold">Избранные</h2>
-              <button aria-label="Закрыть" onClick={() => setFavoritesOpen(false)}><X className="h-6 w-6 text-slate-600" /></button>
-            </header>
-            {favoriteItems.map((item, index) => (
-              <button
-                key={`${item}-${index}`}
-                type="button"
-                onClick={() => { setFavorite(true); setFavoritesOpen(false) }}
-                className="flex w-full items-center justify-between border-b px-8 py-5 text-left text-lg"
-              >
-                {item} <ChevronRight className="h-5 w-5 text-slate-400" />
-              </button>
-            ))}
-          </aside>
-        </div>
-      )}
 
       {formOpen && (
         <TransferFormModal
@@ -466,11 +429,9 @@ function TransferFormModal({
     const file = event.target.files?.[0]
     event.target.value = ""
     if (!file) return
-    const reader = new FileReader()
-    reader.onload = () => {
-      const lines = String(reader.result ?? "").split(/\r?\n/).filter(Boolean)
-      const parsed = lines
-        .map((line) => line.split(/[;,\t]/).map((cell) => cell.trim()))
+    void (async () => {
+      const rows = await readExcelRows(file)
+      const parsed = rows
         .filter(([product]) => product && !/^(наименование|товар|product)$/i.test(product))
         .map(([product, quantity, price], index) => ({
           id: Date.now() + index,
@@ -480,8 +441,7 @@ function TransferFormModal({
           price: Number(price) || 0,
         }))
       if (parsed.length) setItems((current) => [...current, ...parsed])
-    }
-    reader.readAsText(file)
+    })()
   }
   const updateItem = (id: number, patch: Partial<Item>) => {
     setItems((current) => current.map((item) => (item.id === id ? { ...item, ...patch } : item)))

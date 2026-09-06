@@ -1,57 +1,40 @@
 import { NextRequest, NextResponse } from "next/server"
+import { z } from "zod"
 
 import { getCurrentUser } from "@/lib/current-user"
+import { requireRole } from "@/lib/rbac"
+import { parseJsonBody } from "@/lib/validation"
 import { createOrder, formatOrderTimestamp, listOrders, type OrderInput } from "@/lib/orders-repo"
 
-function parseOrderInput(body: unknown): Partial<OrderInput> | null {
-  if (!body || typeof body !== "object") return null
-  const value = body as Record<string, unknown>
-
-  const client = typeof value.client === "string" ? value.client.trim() : ""
-  if (!client) return null
-
-  const str = (key: string) => (typeof value[key] === "string" ? (value[key] as string).trim() : undefined)
-
-  return {
-    client,
-    zone: str("zone"),
-    type: str("type"),
-    product: str("product"),
-    delivery: str("delivery"),
-    agent: str("agent"),
-    amount: str("amount"),
-    balance: str("balance"),
-    status: str("status"),
-    discount: str("discount"),
-    negative: typeof value.negative === "boolean" ? value.negative : undefined,
-    created: formatOrderTimestamp(new Date()),
-  }
-}
+const orderSchema = z.object({
+  client: z.string().trim().min(1),
+  zone: z.string().trim().optional(),
+  type: z.string().trim().optional(),
+  product: z.string().trim().optional(),
+  delivery: z.string().trim().optional(),
+  agent: z.string().trim().optional(),
+  amount: z.string().trim().optional(),
+  balance: z.string().trim().optional(),
+  status: z.string().trim().optional(),
+  discount: z.string().trim().optional(),
+  negative: z.boolean().optional(),
+})
 
 export async function GET(request: NextRequest) {
   const user = await getCurrentUser()
   if (!user) return NextResponse.json({ error: "Tizimga kirilmagan" }, { status: 401 })
 
   const search = request.nextUrl.searchParams.get("q") ?? undefined
-  return NextResponse.json(listOrders(search))
+  return NextResponse.json((await listOrders(search)))
 }
 
 export async function POST(request: NextRequest) {
-  const user = await getCurrentUser()
-  if (!user) return NextResponse.json({ error: "Tizimga kirilmagan" }, { status: 401 })
+  const auth = await requireRole("manager")
+  if ("error" in auth) return auth.error
 
-  let body: unknown
-  try {
-    body = await request.json()
-  } catch {
-    return NextResponse.json({ error: "Noto'g'ri so'rov" }, { status: 400 })
-  }
+  const parsed = await parseJsonBody(request, orderSchema)
+  if (parsed.error) return parsed.error
 
-  const input = parseOrderInput(body)
-  if (!input) {
-    return NextResponse.json({ error: "Клиент обязателен" }, { status: 400 })
-  }
-
-  const order = createOrder(input)
+  const order = (await createOrder({ ...parsed.data, created: formatOrderTimestamp(new Date()) } satisfies Partial<OrderInput>))
   return NextResponse.json(order, { status: 201 })
 }

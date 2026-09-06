@@ -4,6 +4,7 @@ import { useEffect, useRef } from "react"
 import L from "leaflet"
 import "leaflet/dist/leaflet.css"
 import { mapAgents, mapClients, mapZones } from "./tracking-data"
+import { useLanguage } from "@/lib/i18n/language-context"
 
 type TrackingMapProps = {
   showAgents: boolean
@@ -12,6 +13,7 @@ type TrackingMapProps = {
 }
 
 export function TrackingMap({ showAgents, showClients, showZones }: TrackingMapProps) {
+  const { t, language } = useLanguage()
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<L.Map | null>(null)
   const agentLayerRef = useRef<L.LayerGroup | null>(null)
@@ -64,7 +66,7 @@ export function TrackingMap({ showAgents, showClients, showZones }: TrackingMapP
     const clientMarkers = mapClients.map((client) => {
       const isActive = client.status === "active"
       const color = isActive ? "#27ae60" : "#f2994a"
-      const status = isActive ? "Активный клиент" : "Требует внимания"
+      const status = isActive ? t("Активный клиент") : t("Требует внимания")
       const html = `
         <div style="display:flex;align-items:center;justify-content:center;width:30px;height:30px;border:3px solid #fff;border-radius:50% 50% 50% 0;background:${color};box-shadow:0 2px 7px rgba(0,0,0,.35);transform:rotate(-45deg);">
           <span style="color:#fff;font-size:13px;font-weight:800;transform:rotate(45deg);">${client.name.charAt(0)}</span>
@@ -102,7 +104,7 @@ export function TrackingMap({ showAgents, showClients, showZones }: TrackingMapP
       clientLayerRef.current = null
       zoneLayerRef.current = null
     }
-  }, [])
+  }, [language])
 
   useEffect(() => {
     const map = mapRef.current
@@ -113,7 +115,7 @@ export function TrackingMap({ showAgents, showClients, showZones }: TrackingMapP
     syncLayer(map, zoneLayerRef.current, showZones)
   }, [showAgents, showClients, showZones])
 
-  return <div ref={containerRef} className="h-full w-full" />
+  return <div ref={containerRef} className="relative z-0 h-full w-full" />
 }
 
 function syncLayer(map: L.Map, layer: L.LayerGroup | null, visible: boolean) {

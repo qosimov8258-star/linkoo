@@ -1,20 +1,11 @@
 "use client"
 
 import { useMemo, useState } from "react"
+import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
 
 const tabs = ["Приемка", "Передача", "Движение товаров", "История Приемки", "История Передачи"] as const
 
-const rows = [
-  ["sndwch", "-22 sht", "-", "13 июля 2026, 16:17", "Andijon skladi", "Заказ 1582"],
-  ["robot moshina", "213 dona", "-", "10 июля 2026, 09:43", "Andijon skladi", "Поставка 351"],
-  ["robot moshina", "1 dona", "-", "10 июля 2026, 09:43", "Andijon skladi", "Поставка 351"],
-  ["sndwch", "-1 sht", "-", "24 июня 2026, 16:21", "05,08,2025(1)", "Списание 69"],
-  ["Arslan 111111", "1 Dona", "-", "23 июня 2026, 10:00", "Andijon skladi", "Поставка 349"],
-  ["g'ilof", "10 шт", "-", "14 мая 2026, 13:20", "05,08,2025(1)", "Поставка 348"],
-  ["test inventar", "1 dona", "-", "14 мая 2026, 13:12", "toshkent", "Инвентаризация 27"],
-  ["Nataxtari 0.25", "6 Dona", "-", "09 мая 2026, 09:45", "05,08,2025(1)", "Инвентаризация 219"],
-  ["spark123", "-1 шт", "-", "08 мая 2026, 16:13", "Andijon skladi", "Заказ 1572"],
-]
+const rows: string[][] = []
 
 const filterColumns: Record<string, number> = { "Товар": 0, "Склад": 4, "Тип": 5 }
 
@@ -54,7 +45,7 @@ export function GoodsMovementView() {
 
   return (
     <section className="min-h-[calc(100vh-64px)] bg-[#f2f5f9] p-4 text-[#18233a] md:p-9">
-      <h1 className="mb-5 text-2xl font-semibold text-[#566074]">★ <span className="text-[#4f70e7]">Избранные</span> | План приемок и передач</h1>
+      <h1 className="mb-5 flex items-center text-2xl font-semibold text-[#566074]"><FavoritesButton className="flex items-center gap-2 text-[#4f70e7]" /> | План приемок и передач</h1>
       <div className="overflow-hidden rounded-sm bg-white shadow">
         <div className="grid grid-cols-2 md:grid-cols-5">
           {tabs.map((item) => (

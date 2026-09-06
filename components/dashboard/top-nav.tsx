@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useRef, useState, type ComponentType } from "react"
+import { useEffect, useLayoutEffect, useRef, useState, type ComponentType } from "react"
 import { usePathname, useRouter } from "next/navigation"
 import {
   BarChart3,
@@ -20,17 +20,19 @@ import {
   type LucideIcon,
 } from "lucide-react"
 
+import { useLanguage } from "@/lib/i18n/language-context"
+
 import { AccountDropdown } from "./account-dropdown"
 import { AnalyticsMenu } from "./analytics-menu"
 import { BrandMenu, type CustomServer, type WorkspaceId } from "./brand-menu"
 import { ClientsMenu } from "./clients-menu"
-import { FinanceMenu } from "./finance-menu"
+import { FinanceMenu, financeHrefs } from "./finance-menu"
 import { NotificationsMenu } from "./notifications-menu"
-import { PersonnelMenu } from "./personnel-menu"
+import { PersonnelMenu, personnelHrefs } from "./personnel-menu"
 import { ProductionMenu } from "./production-menu"
-import { SalesMenu } from "./sales-menu"
+import { SalesMenu, salesHrefs } from "./sales-menu"
 import { SettingsMenu } from "./settings-menu"
-import { WarehouseMenu } from "./warehouse-menu"
+import { WarehouseMenu, warehouseHrefs } from "./warehouse-menu"
 
 type MenuProps = {
   onSelect: (item: string) => void
@@ -44,6 +46,16 @@ type NavItem = {
   icon: LucideIcon
   matches: (pathname: string) => boolean
   menu: ComponentType<MenuProps>
+}
+
+// Most of a tab's menu pages live under the shared /analytics/[slug] route
+// rather than a prefix unique to that tab, so highlighting has to check the
+// tab's actual link list instead of a path prefix.
+function matchesHrefs(pathname: string, hrefs: string[]): boolean {
+  return hrefs.some((href) => {
+    const base = href.split("?")[0]
+    return pathname === base || pathname.startsWith(`${base}/`)
+  })
 }
 
 const navItems: NavItem[] = [
@@ -65,28 +77,28 @@ const navItems: NavItem[] = [
     label: "Продажи",
     href: "/analytics/sales",
     icon: Video,
-    matches: (pathname) => pathname.startsWith("/analytics/sales"),
+    matches: (pathname) => matchesHrefs(pathname, salesHrefs),
     menu: SalesMenu,
   },
   {
     label: "Персонал",
     href: "/tracking",
     icon: UserRound,
-    matches: (pathname) => pathname.startsWith("/tracking"),
+    matches: (pathname) => pathname.startsWith("/tracking") || matchesHrefs(pathname, personnelHrefs),
     menu: PersonnelMenu,
   },
   {
     label: "Склад",
     href: "/analytics/warehouse-logistics",
     icon: Warehouse,
-    matches: (pathname) => pathname.startsWith("/analytics/warehouse"),
+    matches: (pathname) => matchesHrefs(pathname, warehouseHrefs),
     menu: WarehouseMenu,
   },
   {
     label: "Финансы",
     href: "/analytics/finance-cash",
     icon: BriefcaseBusiness,
-    matches: (pathname) => pathname.startsWith("/analytics/finance"),
+    matches: (pathname) => matchesHrefs(pathname, financeHrefs),
     menu: FinanceMenu,
   },
   {
@@ -101,6 +113,7 @@ const navItems: NavItem[] = [
 export function TopNav() {
   const pathname = usePathname()
   const router = useRouter()
+  const { t } = useLanguage()
   const [openMenu, setOpenMenu] = useState<string | null>(null)
   const [accountOpen, setAccountOpen] = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
@@ -111,7 +124,7 @@ export function TopNav() {
   const [createServerOpen, setCreateServerOpen] = useState(false)
   const [newServerName, setNewServerName] = useState("")
   const [notificationsOpen, setNotificationsOpen] = useState(false)
-  const [notificationsBadge, setNotificationsBadge] = useState(1)
+  const [notificationsBadge, setNotificationsBadge] = useState(0)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [displayName, setDisplayName] = useState("admin")
   const accountRef = useRef<HTMLDivElement>(null)
@@ -120,9 +133,40 @@ export function TopNav() {
   const settingsRef = useRef<HTMLDivElement>(null)
   const navRef = useRef<HTMLElement>(null)
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const headerRef = useRef<HTMLElement>(null)
+  const navButtonRefs = useRef<Record<string, HTMLButtonElement | null>>({})
+  const menuWrapperRef = useRef<HTMLDivElement>(null)
+  const [menuLeft, setMenuLeft] = useState(0)
 
   const activeItem = [...navItems].reverse().find((item) => item.matches(pathname))
   const desktopMenu = navItems.find((item) => item.label === openMenu)
+
+  // Each mega-menu has its own natural width, so it can't be positioned with
+  // a fixed Tailwind offset — it has to align with its own trigger button and
+  // then get nudged left if that would push it past the right edge of the
+  // header (which is what makes buttons on the right side of the bar, like
+  // "Финансы" or "Производство", not overflow off-screen).
+  useLayoutEffect(() => {
+    if (!openMenu) return
+
+    function recompute() {
+      const header = headerRef.current
+      const button = navButtonRefs.current[openMenu!]
+      const wrapper = menuWrapperRef.current
+      if (!header || !button || !wrapper) return
+
+      const headerRect = header.getBoundingClientRect()
+      const buttonRect = button.getBoundingClientRect()
+      const margin = 8
+      const maxLeft = Math.max(margin, headerRect.width - wrapper.offsetWidth - margin)
+      const left = Math.min(Math.max(buttonRect.left - headerRect.left, margin), maxLeft)
+      setMenuLeft(left)
+    }
+
+    recompute()
+    window.addEventListener("resize", recompute)
+    return () => window.removeEventListener("resize", recompute)
+  }, [openMenu])
 
   useEffect(() => {
     function handlePointerDown(event: MouseEvent) {
@@ -200,12 +244,12 @@ export function TopNav() {
     router.push(href)
   }
 
-  if (pathname === "/login") return null
+  if (pathname === "/login" || pathname.startsWith("/login/")) return null
 
   return (
-    <header className="relative z-40 bg-[#2d2a84] text-white shadow-[0_6px_14px_rgba(30,41,90,0.24)]">
-      <div className="flex h-16 items-center gap-3 px-4 xl:px-6">
-        <div ref={brandRef} className="relative mr-auto shrink-0 xl:mr-3">
+    <header ref={headerRef} className="relative z-40 bg-[#272780] text-white shadow-[0_6px_14px_rgba(30,41,90,0.24)]">
+      <div className="flex h-[50px] items-center gap-3 px-4 xl:px-6">
+        <div ref={brandRef} className="relative mr-auto shrink-0 lg:mr-3">
           <button
             type="button"
             onClick={() => setBrandMenuOpen((current) => !current)}
@@ -215,12 +259,18 @@ export function TopNav() {
             aria-label="Linko menyusi"
           >
             <span className="flex flex-col text-left leading-none">
-              <span className="text-2xl font-bold tracking-tight">
+              <span className="text-xl font-bold tracking-tight lg:text-2xl">
                 l<span className="text-brand-sky">i</span>nko
                 <span className="ml-1 text-sm font-normal opacity-80">▾</span>
               </span>
               <span className="text-[11px] font-light tracking-wide opacity-80">
-                {workspace === "distribution" ? "Дистрибуция" : workspace === "store" ? "Магазин" : workspace === "edo" ? "ЭДО & ЭДИ" : customServers.find((server) => server.id === workspace)?.name ?? "Дистрибуция"}
+                {workspace === "distribution"
+                  ? t("Дистрибуция")
+                  : workspace === "store"
+                    ? t("Магазин")
+                    : workspace === "edo"
+                      ? t("ЭДО & ЭДИ")
+                      : (customServers.find((server) => server.id === workspace)?.name ?? t("Дистрибуция"))}
               </span>
             </span>
           </button>
@@ -245,14 +295,17 @@ export function TopNav() {
           )}
         </div>
 
-        <nav ref={navRef} className="hidden h-full min-w-0 flex-1 items-stretch justify-center xl:flex">
-          {navItems.map(({ label, icon: Icon }, index) => {
+        <nav ref={navRef} className="hidden h-full min-w-0 shrink-0 items-stretch lg:flex">
+          {navItems.map(({ label, icon: Icon }) => {
             const isActive = activeItem?.label === label
             const isOpen = openMenu === label
 
             return (
               <button
                 key={label}
+                ref={(el) => {
+                  navButtonRefs.current[label] = el
+                }}
                 type="button"
                 onClick={() => {
                   cancelClose()
@@ -266,31 +319,33 @@ export function TopNav() {
                 onFocus={() => setOpenMenu(label)}
                 aria-haspopup="menu"
                 aria-expanded={isOpen}
-                className={`flex h-full shrink-0 items-center gap-2 border-l border-white/10 px-3 text-sm font-semibold transition-colors 2xl:px-5 2xl:text-[15px] ${
-                  index === navItems.length - 1 ? "border-r" : ""
-                } ${
+                className={`flex h-full shrink-0 items-center gap-[5px] py-0 pl-[18px] pr-[25px] text-[13px] font-normal transition-colors ${
                   isActive || isOpen
                     ? "bg-[#5c6df3] hover:bg-[#5c6df3]"
                     : "hover:bg-[#3a3897]"
                 } focus-visible:z-10 focus-visible:outline-2 focus-visible:outline-inset focus-visible:outline-white`}
               >
-                <Icon className="h-5 w-5 2xl:h-6 2xl:w-6" strokeWidth={2.2} />
-                <span>{label}</span>
+                <Icon className="h-4 w-4" strokeWidth={2.2} />
+                <span>{t(label)}</span>
               </button>
             )
           })}
 
           {desktopMenu && (
-            <desktopMenu.menu
-              onSelect={() => setOpenMenu(null)}
-              onMouseEnter={cancelClose}
-              onMouseLeave={scheduleClose}
-            />
+            <div ref={menuWrapperRef} className="absolute top-full z-50" style={{ left: menuLeft }}>
+              <desktopMenu.menu
+                onSelect={() => setOpenMenu(null)}
+                onMouseEnter={cancelClose}
+                onMouseLeave={scheduleClose}
+              />
+            </div>
           )}
         </nav>
 
-        <div ref={accountRef} className="relative hidden shrink-0 items-center gap-2 xl:flex">
-          <div ref={notificationsRef} className="relative">
+        <div className="flex-1" />
+
+        <div ref={accountRef} className="hidden shrink-0 items-center gap-1 lg:flex xl:gap-2">
+          <div ref={notificationsRef}>
             <button
               type="button"
               onClick={() => {
@@ -300,7 +355,7 @@ export function TopNav() {
               aria-haspopup="menu"
               aria-expanded={notificationsOpen}
               className="relative rounded-full p-2 transition-colors hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-white"
-              aria-label="Уведомления"
+              aria-label={t("Уведомления")}
             >
               <Bell className="h-5 w-5" />
               {notificationsBadge > 0 && (
@@ -313,14 +368,14 @@ export function TopNav() {
               <NotificationsMenu onClose={() => setNotificationsOpen(false)} />
             )}
           </div>
-          <div ref={settingsRef} className="relative">
+          <div ref={settingsRef}>
             <button
               type="button"
               onClick={() => setSettingsOpen((current) => !current)}
               aria-haspopup="menu"
               aria-expanded={settingsOpen}
               className="rounded-full p-2 transition-colors hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-white"
-              aria-label="Настройки"
+              aria-label={t("Настройки")}
             >
               <Settings className="h-5 w-5" />
             </button>
@@ -334,9 +389,9 @@ export function TopNav() {
             className="flex items-center gap-2 rounded-md py-1 pl-2 pr-3 text-left transition-colors hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-white"
           >
             <User className="h-7 w-7 rounded-full border border-white/40 p-0.5" />
-            <span className="hidden flex-col leading-tight 2xl:flex">
+            <span className="hidden flex-col leading-tight xl:flex">
               <span className="text-sm font-bold">{displayName}</span>
-              <span className="max-w-28 truncate text-xs opacity-80">{branch}</span>
+              <span className="max-w-28 truncate text-xs opacity-80">{t(branch)}</span>
             </span>
             {accountOpen ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
           </button>
@@ -356,7 +411,7 @@ export function TopNav() {
                   router.refresh()
                 })
               }}
-              onAddAccount={() => navigate("/settings")}
+              onAddAccount={() => navigate("/login/add-account")}
             />
           )}
         </div>
@@ -364,7 +419,7 @@ export function TopNav() {
         <button
           type="button"
           onClick={() => setMobileOpen((current) => !current)}
-          className="rounded-md p-2 transition-colors hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-white xl:hidden"
+          className="rounded-md p-2 transition-colors hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-white lg:hidden"
           aria-label={mobileOpen ? "Menyuni yopish" : "Menyuni ochish"}
           aria-expanded={mobileOpen}
           aria-controls="mobile-navigation"
@@ -376,7 +431,7 @@ export function TopNav() {
       {mobileOpen && (
         <nav
           id="mobile-navigation"
-          className="absolute left-0 right-0 top-full max-h-[calc(100vh-4rem)] overflow-y-auto border-t border-white/10 bg-[#2d2a84] p-3 shadow-2xl xl:hidden"
+          className="absolute left-0 right-0 top-full max-h-[calc(100vh-4rem)] overflow-y-auto border-t border-white/10 bg-[#2d2a84] p-3 shadow-2xl lg:hidden"
         >
           <div className="grid gap-1 sm:grid-cols-2">
             {navItems.map(({ label, href, icon: Icon }) => (
@@ -389,7 +444,7 @@ export function TopNav() {
                 } focus-visible:outline-2 focus-visible:outline-white`}
               >
                 <Icon className="h-5 w-5" />
-                {label}
+                {t(label)}
               </button>
             ))}
           </div>
@@ -401,7 +456,7 @@ export function TopNav() {
               className="flex items-center justify-center gap-2 rounded-lg bg-white/10 px-3 py-3 font-semibold hover:bg-white/15"
             >
               <Bell className="h-5 w-5" />
-              Уведомления
+              {t("Уведомления")}
             </button>
             <button
               type="button"
@@ -409,7 +464,7 @@ export function TopNav() {
               className="flex items-center justify-center gap-2 rounded-lg bg-white/10 px-3 py-3 font-semibold hover:bg-white/15"
             >
               <Settings className="h-5 w-5" />
-              Настройки
+              {t("Настройки")}
             </button>
           </div>
         </nav>
@@ -424,14 +479,14 @@ export function TopNav() {
             onClick={(event) => event.stopPropagation()}
             className="w-[440px] max-w-[92vw] rounded-md bg-white p-7 text-foreground shadow-2xl"
           >
-            <h2 className="mb-4 text-lg font-bold text-slate-800">Создать сервер</h2>
+            <h2 className="mb-4 text-lg font-bold text-slate-800">{t("Создать сервер")}</h2>
             <label className="mb-6 block border-b border-slate-200 pb-2 text-[13px] font-medium text-slate-500">
-              Название сервера
+              {t("Название сервера")}
               <input
                 autoFocus
                 value={newServerName}
                 onChange={(event) => setNewServerName(event.target.value)}
-                placeholder="Например, Мой филиал"
+                placeholder={t("Например, Мой филиал")}
                 className="mt-1 block w-full bg-transparent text-[16px] font-semibold text-slate-800 outline-none placeholder:font-normal placeholder:text-slate-400"
               />
             </label>
@@ -441,7 +496,7 @@ export function TopNav() {
                 onClick={() => setCreateServerOpen(false)}
                 className="rounded-md border border-slate-200 px-5 py-2.5 font-semibold text-slate-600"
               >
-                Отмена
+                {t("Отмена")}
               </button>
               <button
                 type="button"
@@ -456,7 +511,7 @@ export function TopNav() {
                 }}
                 className="rounded-md bg-[#4f70e7] px-5 py-2.5 font-semibold text-white"
               >
-                Создать
+                {t("Создать")}
               </button>
             </div>
           </div>

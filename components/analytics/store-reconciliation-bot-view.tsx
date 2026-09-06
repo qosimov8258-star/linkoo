@@ -1,7 +1,8 @@
 "use client"
 
-import { useMemo, useState } from "react"
-import { BarChart, ChevronDown, ChevronRight, Expand, MinusCircle, Pencil, PlusCircle, Search, Send, Star, Trash2, X } from "lucide-react"
+import { useEffect, useMemo, useState } from "react"
+import { BarChart, ChevronDown, Expand, MinusCircle, Pencil, PlusCircle, Search, Send } from "lucide-react"
+import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
 
 type Money = { euro: number; sum: number; usd: number }
 type ClientRow = {
@@ -25,51 +26,84 @@ type ClientRow = {
 
 const zero: Money = { euro: 0, sum: 0, usd: 0 }
 
-const clients: ClientRow[] = [
-  { id: 1, client: "HANGUK", connected: false, daysAfterPayment: 0, daysAfterOrder: 0, amount: { ...zero }, sumCash: 0, sumTransfer: 0, usdCash: 0, usdTransfer: 0, euroCash: 0, euroTransfer: 0, orders: 0 },
-  { id: 2, client: "Javohir qoratosh", connected: false, debtTerm: "10 мая 2026", daysAfterPayment: 245, daysAfterOrder: 0, amount: { ...zero }, sumCash: 0, sumTransfer: 0, usdCash: 0, usdTransfer: 0, euroCash: 0, euroTransfer: 0, orders: 0 },
-  { id: 3, client: "klient 1", connected: false, daysAfterPayment: 0, daysAfterOrder: 96, amount: { euro: 0, sum: -169000, usd: 0 }, sumCash: 0, sumTransfer: -169000, usdCash: 0, usdTransfer: 0, euroCash: 0, euroTransfer: 0, orders: 2, altAmountSum: -109000, altSumTransfer: -109000 },
-  { id: 4, client: "Makro 037", connected: false, daysAfterPayment: 0, daysAfterOrder: 0, amount: { ...zero }, sumCash: 0, sumTransfer: 0, usdCash: 0, usdTransfer: 0, euroCash: 0, euroTransfer: 0, orders: 0 },
-  { id: 5, client: "Makro 035", connected: false, daysAfterPayment: 0, daysAfterOrder: 0, amount: { ...zero }, sumCash: 0, sumTransfer: 0, usdCash: 0, usdTransfer: 0, euroCash: 0, euroTransfer: 0, orders: 0 },
-  { id: 6, client: "Makro 034", connected: false, daysAfterPayment: 0, daysAfterOrder: 0, amount: { ...zero }, sumCash: 0, sumTransfer: 0, usdCash: 0, usdTransfer: 0, euroCash: 0, euroTransfer: 0, orders: 0 },
-  { id: 7, client: "Makro 033", connected: false, daysAfterPayment: 0, daysAfterOrder: 0, amount: { ...zero }, sumCash: 0, sumTransfer: 0, usdCash: 0, usdTransfer: 0, euroCash: 0, euroTransfer: 0, orders: 0 },
-  { id: 8, client: "Makro 032", connected: false, daysAfterPayment: 0, daysAfterOrder: 0, amount: { ...zero }, sumCash: 0, sumTransfer: 0, usdCash: 0, usdTransfer: 0, euroCash: 0, euroTransfer: 0, orders: 0 },
-  { id: 9, client: "Makro 031", connected: false, daysAfterPayment: 0, daysAfterOrder: 0, amount: { ...zero }, sumCash: 0, sumTransfer: 0, usdCash: 0, usdTransfer: 0, euroCash: 0, euroTransfer: 0, orders: 0 },
-  { id: 10, client: "Makro 030", connected: false, daysAfterPayment: 0, daysAfterOrder: 0, amount: { ...zero }, sumCash: 0, sumTransfer: 0, usdCash: 0, usdTransfer: 0, euroCash: 0, euroTransfer: 0, orders: 0 },
-  { id: 11, client: "Makro 029", connected: false, daysAfterPayment: 0, daysAfterOrder: 0, amount: { ...zero }, sumCash: 0, sumTransfer: 0, usdCash: 0, usdTransfer: 0, euroCash: 0, euroTransfer: 0, orders: 0 },
-  { id: 12, client: "aziz", connected: false, daysAfterPayment: 0, daysAfterOrder: 0, amount: { ...zero }, sumCash: 0, sumTransfer: 0, usdCash: 0, usdTransfer: 0, euroCash: 0, euroTransfer: 0, orders: 0 },
-  { id: 13, client: "ASUS", connected: false, daysAfterPayment: 244, daysAfterOrder: 0, amount: { euro: 0, sum: -600000, usd: 0 }, sumCash: -600000, sumTransfer: 0, usdCash: 0, usdTransfer: 0, euroCash: 0, euroTransfer: 0, orders: 0 },
-  { id: 14, client: "Агент | Функции", connected: false, daysAfterPayment: 0, daysAfterOrder: 0, amount: { ...zero }, sumCash: 0, sumTransfer: 0, usdCash: 0, usdTransfer: 0, euroCash: 0, euroTransfer: 0, orders: 0 },
-  { id: 15, client: "ТЕСТОВЫЙ КЛИЕНТ 1", connected: false, daysAfterPayment: 255, daysAfterOrder: 255, amount: { ...zero }, sumCash: 0, sumTransfer: 0, usdCash: 0, usdTransfer: 0, euroCash: 0, euroTransfer: 0, orders: 1 },
-  { id: 16, client: "magazin", connected: false, daysAfterPayment: 237, daysAfterOrder: 60, amount: { euro: 0, sum: 2653000, usd: 0 }, sumCash: 1200000, sumTransfer: 1453000, usdCash: 0, usdTransfer: 0, euroCash: 0, euroTransfer: 0, orders: 2 },
-  { id: 17, client: "Pardachi Abbos", connected: false, daysAfterPayment: 243, daysAfterOrder: 238, amount: { euro: 0, sum: 109020, usd: 0 }, sumCash: 99020, sumTransfer: 10000, usdCash: 0, usdTransfer: 0, euroCash: 0, euroTransfer: 0, orders: 2 },
-  { id: 18, client: "54", connected: false, daysAfterPayment: 0, daysAfterOrder: 0, amount: { ...zero }, sumCash: 0, sumTransfer: 0, usdCash: 0, usdTransfer: 0, euroCash: 0, euroTransfer: 0, orders: 0 },
-  { id: 19, client: "Makro 028", connected: false, daysAfterPayment: 0, daysAfterOrder: 411, amount: { ...zero }, sumCash: 0, sumTransfer: 0, usdCash: 0, usdTransfer: 0, euroCash: 0, euroTransfer: 0, orders: 1 },
-  { id: 20, client: "Makro 027", connected: false, daysAfterPayment: 0, daysAfterOrder: 0, amount: { ...zero }, sumCash: 0, sumTransfer: 0, usdCash: 0, usdTransfer: 0, euroCash: 0, euroTransfer: 0, orders: 0 },
-  { id: 21, client: "Makro 026", connected: false, daysAfterPayment: 0, daysAfterOrder: 0, amount: { ...zero }, sumCash: 0, sumTransfer: 0, usdCash: 0, usdTransfer: 0, euroCash: 0, euroTransfer: 0, orders: 0 },
-  { id: 22, client: "Makro 025", connected: false, daysAfterPayment: 0, daysAfterOrder: 0, amount: { ...zero }, sumCash: 0, sumTransfer: 0, usdCash: 0, usdTransfer: 0, euroCash: 0, euroTransfer: 0, orders: 0 },
-  { id: 23, client: "Makro 024", connected: false, daysAfterPayment: 0, daysAfterOrder: 0, amount: { ...zero }, sumCash: 0, sumTransfer: 0, usdCash: 0, usdTransfer: 0, euroCash: 0, euroTransfer: 0, orders: 0 },
-  { id: 24, client: "Makro 023", connected: false, daysAfterPayment: 0, daysAfterOrder: 0, amount: { ...zero }, sumCash: 0, sumTransfer: 0, usdCash: 0, usdTransfer: 0, euroCash: 0, euroTransfer: 0, orders: 0 },
-  { id: 25, client: "Makro 022", connected: false, daysAfterPayment: 0, daysAfterOrder: 0, amount: { ...zero }, sumCash: 0, sumTransfer: 0, usdCash: 0, usdTransfer: 0, euroCash: 0, euroTransfer: 0, orders: 0 },
-]
+type ApiRow = {
+  id: number
+  client: string
+  connected: boolean
+  debtTerm: string
+  daysAfterPayment: number
+  daysAfterOrder: number
+  amountSum: number
+  amountEuro: number
+  sumCash: number
+  sumTransfer: number
+  usdCash: number
+  usdTransfer: number
+  euroCash: number
+  euroTransfer: number
+  orders: number
+  altSumTransfer: number
+  altAmountSum: number
+}
 
-const TOTAL_CLIENTS = 4307
-const favoriteItemsInitial = ["Клиенты", "Заказы", "Виджеты", "Заказы", "Ограничение продуктов", "Продукты"]
+function apiRowToClientRow(row: ApiRow): ClientRow {
+  return {
+    id: row.id,
+    client: row.client,
+    connected: row.connected,
+    debtTerm: row.debtTerm || undefined,
+    daysAfterPayment: row.daysAfterPayment,
+    daysAfterOrder: row.daysAfterOrder,
+    amount: { sum: row.amountSum, euro: row.amountEuro, usd: 0 },
+    sumCash: row.sumCash,
+    sumTransfer: row.sumTransfer,
+    usdCash: row.usdCash,
+    usdTransfer: row.usdTransfer,
+    euroCash: row.euroCash,
+    euroTransfer: row.euroTransfer,
+    orders: row.orders,
+    altSumTransfer: row.altSumTransfer,
+    altAmountSum: row.altAmountSum,
+  }
+}
+
+function clientRowToApiInput(row: ClientRow) {
+  return {
+    client: row.client,
+    connected: row.connected,
+    debtTerm: row.debtTerm ?? "",
+    daysAfterPayment: row.daysAfterPayment,
+    daysAfterOrder: row.daysAfterOrder,
+    amountSum: row.amount.sum,
+    amountEuro: row.amount.euro,
+    sumCash: row.sumCash,
+    sumTransfer: row.sumTransfer,
+    usdCash: row.usdCash,
+    usdTransfer: row.usdTransfer,
+    euroCash: row.euroCash,
+    euroTransfer: row.euroTransfer,
+    orders: row.orders,
+    altSumTransfer: row.altSumTransfer ?? 0,
+    altAmountSum: row.altAmountSum ?? 0,
+  }
+}
+
+const TOTAL_CLIENTS = 0
 
 const TOTALS_BY_MODE = {
   created: {
-    cash: { euro: -10504880.396, sum: -45902845862.894, usd: 7002492.151 },
-    transfer: { euro: -1200000, sum: 13936520883.76, usd: 77289.152 },
-    total: { euro: -11704880.396, sum: -31966324979.134, usd: 7079781.302 },
+    cash: { euro: 0, sum: 0, usd: 0 },
+    transfer: { euro: 0, sum: 0, usd: 0 },
+    total: { euro: 0, sum: 0, usd: 0 },
   },
   realized: {
-    cash: { euro: -10504880.396, sum: -45703175322.894, usd: 7002490.981 },
-    transfer: { euro: -1200000, sum: 13936420883.76, usd: 77289.152 },
-    total: { euro: -11704880.396, sum: -31766754439.134, usd: 7079780.133 },
+    cash: { euro: 0, sum: 0, usd: 0 },
+    transfer: { euro: 0, sum: 0, usd: 0 },
+    total: { euro: 0, sum: 0, usd: 0 },
   },
 } as const
 
-const number = (value: number) => new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 3 }).format(value)
+const number = (value: number) => new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 2 }).format(value)
 
 function AmountText({ value }: { value: number }) {
   if (value === 0) return <span className="text-[#17233b]">0</span>
@@ -77,10 +111,7 @@ function AmountText({ value }: { value: number }) {
 }
 
 export function StoreReconciliationBotView() {
-  const [favorite, setFavorite] = useState(false)
-  const [favoritesOpen, setFavoritesOpen] = useState(false)
-  const [favoriteItems, setFavoriteItems] = useState(favoriteItemsInitial)
-  const [rows, setRows] = useState(clients)
+  const [rows, setRows] = useState<ClientRow[]>([])
   const [mode, setMode] = useState<"created" | "realized">("created")
   const [search, setSearch] = useState("")
   const [filterOpen, setFilterOpen] = useState(false)
@@ -89,7 +120,20 @@ export function StoreReconciliationBotView() {
   const [connectTarget, setConnectTarget] = useState<ClientRow | null>(null)
   const [editTarget, setEditTarget] = useState<ClientRow | null>(null)
   const [editName, setEditName] = useState("")
-  const [hoveredFavorite, setHoveredFavorite] = useState<number | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    fetch("/api/store-reconciliation-rows")
+      .then((response) => (response.ok ? response.json() : []))
+      .then((data: ApiRow[]) => {
+        if (cancelled) return
+        setRows(Array.isArray(data) ? data.map(apiRowToClientRow) : [])
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const filtered = useMemo(
     () => rows.filter((row) => row.client.toLocaleLowerCase("ru").includes(search.trim().toLocaleLowerCase("ru"))),
@@ -103,21 +147,62 @@ export function StoreReconciliationBotView() {
   const totalLabel = isDefaultView ? TOTAL_CLIENTS : filtered.length
   const totals = TOTALS_BY_MODE[mode]
 
-  const toggleConnection = (id: number) => {
-    setRows((current) => current.map((row) => (row.id === id ? { ...row, connected: !row.connected } : row)))
-    setConnectTarget(null)
+  const toggleConnection = async (id: number) => {
+    const target = rows.find((row) => row.id === id)
+    if (!target) return
+    try {
+      const response = await fetch(`/api/store-reconciliation-rows/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ connected: !target.connected }),
+      })
+      if (!response.ok) {
+        window.alert("Не удалось изменить подключение")
+        return
+      }
+      const saved = (await response.json()) as ApiRow
+      setRows((current) => current.map((row) => (row.id === id ? apiRowToClientRow(saved) : row)))
+    } catch {
+      window.alert("Сервер недоступен, попробуйте ещё раз")
+    } finally {
+      setConnectTarget(null)
+    }
   }
 
-  const removeRow = (id: number) => {
-    setRows((current) => current.filter((row) => row.id !== id))
+  const removeRow = async (id: number) => {
+    try {
+      const response = await fetch(`/api/store-reconciliation-rows/${id}`, { method: "DELETE" })
+      if (!response.ok) {
+        window.alert("Не удалось удалить строку")
+        return
+      }
+      setRows((current) => current.filter((row) => row.id !== id))
+    } catch {
+      window.alert("Сервер недоступен, попробуйте ещё раз")
+    }
   }
 
-  const duplicateRow = (row: ClientRow) => {
-    setRows((current) => {
-      const index = current.findIndex((item) => item.id === row.id)
-      const copy: ClientRow = { ...row, id: Math.max(0, ...current.map((item) => item.id)) + 1, client: `${row.client} (копия)`, connected: false }
-      return [...current.slice(0, index + 1), copy, ...current.slice(index + 1)]
-    })
+  const duplicateRow = async (row: ClientRow) => {
+    const copy: ClientRow = { ...row, client: `${row.client} (копия)`, connected: false }
+    try {
+      const response = await fetch("/api/store-reconciliation-rows", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(clientRowToApiInput(copy)),
+      })
+      if (!response.ok) {
+        window.alert("Не удалось дублировать строку")
+        return
+      }
+      const saved = (await response.json()) as ApiRow
+      setRows((current) => {
+        const index = current.findIndex((item) => item.id === row.id)
+        const inserted = apiRowToClientRow(saved)
+        return [...current.slice(0, index + 1), inserted, ...current.slice(index + 1)]
+      })
+    } catch {
+      window.alert("Сервер недоступен, попробуйте ещё раз")
+    }
   }
 
   const startEdit = (row: ClientRow) => {
@@ -125,14 +210,25 @@ export function StoreReconciliationBotView() {
     setEditName(row.client)
   }
 
-  const saveEdit = () => {
+  const saveEdit = async () => {
     if (!editTarget) return
-    setRows((current) => current.map((row) => (row.id === editTarget.id ? { ...row, client: editName || row.client } : row)))
-    setEditTarget(null)
-  }
-
-  const removeFavorite = (index: number) => {
-    setFavoriteItems((current) => current.filter((_, itemIndex) => itemIndex !== index))
+    try {
+      const response = await fetch(`/api/store-reconciliation-rows/${editTarget.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ client: editName || editTarget.client }),
+      })
+      if (!response.ok) {
+        window.alert("Не удалось сохранить клиента")
+        return
+      }
+      const saved = (await response.json()) as ApiRow
+      setRows((current) => current.map((row) => (row.id === editTarget.id ? apiRowToClientRow(saved) : row)))
+    } catch {
+      window.alert("Сервер недоступен, попробуйте ещё раз")
+    } finally {
+      setEditTarget(null)
+    }
   }
 
   const downloadAll = () => {
@@ -168,11 +264,11 @@ export function StoreReconciliationBotView() {
   return (
     <main className="min-h-screen bg-white text-[#17233b]">
       <header className="flex flex-wrap items-center gap-4 border-b border-[#d8dee7] bg-[#f2f5f8] px-6 py-4 md:px-9">
-        <button onClick={() => setFavoritesOpen(true)} className="flex items-center gap-3">
-          <Star className={`h-7 w-7 ${favorite ? "fill-[#4f70e7] text-[#4f70e7]" : "fill-[#596376] text-[#596376]"}`} />
-          <span className="text-2xl font-bold text-[#4f70e7]">Избранные</span><span className="text-3xl font-light text-[#586174]">|</span>
+        <div className="flex items-center gap-3">
+          <FavoritesButton className="flex items-center gap-3 text-2xl font-bold text-[#4f70e7]" />
+          <span className="text-3xl font-light text-[#586174]">|</span>
           <span className="text-2xl font-bold text-[#586174]">Сверка счетов</span>
-        </button>
+        </div>
         <div className="ml-auto flex overflow-hidden rounded-md">
           <button onClick={() => setMode("created")} className={`px-6 py-3 font-semibold ${mode === "created" ? "bg-[#3aca6a] text-white" : "bg-white text-[#586174] border border-[#e1e5eb]"}`}>По дате создания</button>
           <button onClick={() => setMode("realized")} className={`px-6 py-3 font-semibold ${mode === "realized" ? "bg-[#3aca6a] text-white" : "bg-white text-[#586174] border border-[#e1e5eb]"}`}>По дате реализации</button>
@@ -317,36 +413,6 @@ export function StoreReconciliationBotView() {
               <button onClick={saveEdit} className="rounded-md bg-[#4f70e7] px-5 py-2.5 font-semibold text-white">Сохранить</button>
             </div>
           </div>
-        </div>
-      )}
-
-      {favoritesOpen && (
-        <div className="fixed inset-0 z-[100] flex">
-          <button aria-label="Закрыть" onClick={() => setFavoritesOpen(false)} className="flex-1 bg-black/40" />
-          <aside className="w-[420px] max-w-[90vw] bg-white shadow-2xl">
-            <header className="flex items-center justify-between border-b px-8 py-6">
-              <h2 className="text-2xl font-semibold">Избранные</h2>
-              <button aria-label="Закрыть" onClick={() => setFavoritesOpen(false)}><X className="h-6 w-6 text-slate-600" /></button>
-            </header>
-            {favoriteItems.map((item, index) => (
-              <div
-                key={`${item}-${index}`}
-                onMouseEnter={() => setHoveredFavorite(index)}
-                onMouseLeave={() => setHoveredFavorite((current) => (current === index ? null : current))}
-                className={`flex w-full items-center justify-between border-b px-8 py-5 text-left text-lg ${hoveredFavorite === index ? "bg-[#eaf0fd]" : ""}`}
-              >
-                <button type="button" onClick={() => { setFavorite(true); setFavoritesOpen(false) }} className="flex flex-1 items-center gap-3 text-left">
-                  {hoveredFavorite === index && (
-                    <span role="button" aria-label="Удалить из избранного" onClick={(event) => { event.stopPropagation(); removeFavorite(index) }} className="text-slate-600 hover:text-[#e5484d]">
-                      <Trash2 className="h-5 w-5" />
-                    </span>
-                  )}
-                  {item}
-                </button>
-                <ChevronRight className="h-5 w-5 text-slate-400" />
-              </div>
-            ))}
-          </aside>
         </div>
       )}
     </main>

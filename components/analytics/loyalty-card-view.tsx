@@ -1,7 +1,8 @@
 "use client"
 
-import { useMemo, useState } from "react"
-import { ChevronDown, ChevronRight, Expand, MinusCircle, PlusCircle, Search, Star, Trash2, X } from "lucide-react"
+import { useEffect, useMemo, useState } from "react"
+import { ChevronDown, Expand, MinusCircle, PlusCircle, Search, X } from "lucide-react"
+import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
 
 type Money = { euro: number; sum: number; usd: number }
 type Transaction = { id: number; type: string; action: string; date: string; amount: number; currency: keyof Money }
@@ -12,40 +13,11 @@ type CardClient = {
   transactions: Transaction[]
 }
 
-const zero: Money = { euro: 0, sum: 0, usd: 0 }
+const clients: CardClient[] = []
 
-const clients: CardClient[] = [
-  { id: 1, client: "HANGUK", balance: { euro: 0, sum: 6000000, usd: 0 }, transactions: [{ id: 1, type: "Не указано", action: "", date: "22 нояб. 2025, 16:08", amount: 6000000, currency: "sum" }] },
-  { id: 2, client: "Javohir qoratosh", balance: { ...zero }, transactions: [] },
-  { id: 3, client: "klient 1", balance: { ...zero }, transactions: [] },
-  { id: 4, client: "Makro 037", balance: { ...zero }, transactions: [] },
-  { id: 5, client: "Makro 035", balance: { ...zero }, transactions: [] },
-  { id: 6, client: "Makro 034", balance: { ...zero }, transactions: [] },
-  { id: 7, client: "Makro 033", balance: { ...zero }, transactions: [] },
-  { id: 8, client: "Makro 032", balance: { ...zero }, transactions: [] },
-  { id: 9, client: "Makro 031", balance: { ...zero }, transactions: [] },
-  { id: 10, client: "Makro 030", balance: { ...zero }, transactions: [] },
-  { id: 11, client: "Makro 029", balance: { ...zero }, transactions: [] },
-  { id: 12, client: "aziz", balance: { ...zero }, transactions: [] },
-  { id: 13, client: "ASUS", balance: { ...zero }, transactions: [] },
-  { id: 14, client: "Агент | Функции", balance: { ...zero }, transactions: [] },
-  { id: 15, client: "ТЕСТОВЫЙ КЛИЕНТ 1", balance: { euro: 0, sum: 1000000, usd: 0 }, transactions: [{ id: 1, type: "Не указано", action: "", date: "22 нояб. 2025, 16:08", amount: 1000000, currency: "sum" }] },
-  { id: 16, client: "magazin", balance: { ...zero }, transactions: [] },
-  { id: 17, client: "Pardachi Abbos", balance: { ...zero }, transactions: [] },
-  { id: 18, client: "54", balance: { ...zero }, transactions: [] },
-  { id: 19, client: "Makro 028", balance: { ...zero }, transactions: [] },
-  { id: 20, client: "Makro 027", balance: { ...zero }, transactions: [] },
-  { id: 21, client: "Makro 026", balance: { ...zero }, transactions: [] },
-  { id: 22, client: "Makro 025", balance: { ...zero }, transactions: [] },
-  { id: 23, client: "Makro 024", balance: { ...zero }, transactions: [] },
-  { id: 24, client: "Makro 023", balance: { ...zero }, transactions: [] },
-  { id: 25, client: "Makro 022", balance: { ...zero }, transactions: [] },
-]
+const TOTAL_CLIENTS = 0
 
-const TOTAL_CLIENTS = 4307
-const favoriteItemsInitial = ["Клиенты", "Заказы", "Виджеты", "Заказы", "Ограничение продуктов", "Продукты"]
-
-const number = (value: number) => new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 3 }).format(value)
+const number = (value: number) => new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 2 }).format(value)
 
 function AmountText({ value }: { value: number }) {
   if (value === 0) return <span>0</span>
@@ -53,11 +25,8 @@ function AmountText({ value }: { value: number }) {
 }
 
 export function LoyaltyCardView() {
-  const [favorite, setFavorite] = useState(false)
-  const [favoritesOpen, setFavoritesOpen] = useState(false)
-  const [favoriteItems, setFavoriteItems] = useState(favoriteItemsInitial)
-  const [hoveredFavorite, setHoveredFavorite] = useState<number | null>(null)
   const [rows, setRows] = useState(clients)
+  const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState("")
   const [filterOpen, setFilterOpen] = useState(false)
   const [pageSize, setPageSize] = useState(25)
@@ -76,35 +45,49 @@ export function LoyaltyCardView() {
   const isDefaultView = !search.trim()
   const totalLabel = isDefaultView ? TOTAL_CLIENTS : filtered.length
 
-  const applyTransaction = (clientId: number, kind: "add" | "expense", currency: keyof Money, amount: number, comment: string) => {
-    setRows((current) =>
-      current.map((row) => {
-        if (row.id !== clientId) return row
-        const signedAmount = kind === "add" ? amount : -amount
-        const now = new Date()
-        const label = now.toLocaleString("ru-RU", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })
-        const nextId = Math.max(0, ...row.transactions.map((t) => t.id)) + 1
-        return {
-          ...row,
-          balance: { ...row.balance, [currency]: row.balance[currency] + signedAmount },
-          transactions: [{ id: nextId, type: comment || "Не указано", action: kind === "add" ? "Приход" : "Расход", date: label, amount: signedAmount, currency }, ...row.transactions],
-        }
-      }),
-    )
-  }
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    fetch("/api/loyalty-card")
+      .then(async (response) => {
+        if (!response.ok) throw new Error("Не удалось загрузить данные")
+        return (await response.json()) as CardClient[]
+      })
+      .then((data) => {
+        if (!cancelled) setRows(data)
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
-  const removeFavorite = (index: number) => {
-    setFavoriteItems((current) => current.filter((_, itemIndex) => itemIndex !== index))
+  const applyTransaction = async (clientId: number, kind: "add" | "expense", currency: keyof Money, amount: number, comment: string) => {
+    try {
+      const response = await fetch("/api/loyalty-card", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ clientId, currency, amount, kind, comment }),
+      })
+      if (!response.ok) return
+      const saved = (await response.json()) as CardClient
+      setRows((current) => current.map((row) => (row.id === clientId ? saved : row)))
+    } catch {
+      window.alert("Сервер недоступен, попробуйте ещё раз")
+    }
   }
 
   return (
     <main className="min-h-screen bg-white text-[#17233b]">
       <header className="flex min-h-[76px] items-center border-b border-[#d8dee7] bg-[#f2f5f8] px-6 md:px-9">
-        <button onClick={() => setFavoritesOpen(true)} className="flex items-center gap-3">
-          <Star className={`h-7 w-7 ${favorite ? "fill-[#4f70e7] text-[#4f70e7]" : "fill-[#596376] text-[#596376]"}`} />
-          <span className="text-2xl font-bold text-[#4f70e7]">Избранные</span><span className="text-3xl font-light text-[#586174]">|</span>
+        <div className="flex items-center gap-3">
+          <FavoritesButton className="flex items-center gap-3 text-2xl font-bold text-[#4f70e7]" />
+          <span className="text-3xl font-light text-[#586174]">|</span>
           <span className="text-2xl font-bold text-[#586174]">Накопительная карта</span>
-        </button>
+        </div>
       </header>
 
       <section className="flex flex-wrap items-center gap-4 px-6 py-4 md:px-9">
@@ -164,7 +147,7 @@ export function LoyaltyCardView() {
                 <td className="border-b border-[#e1e5eb] px-4 py-3.5"><AmountText value={row.balance.usd} /></td>
               </tr>
             ))}
-            {visible.length === 0 && (
+            {!loading && visible.length === 0 && (
               <tr><td colSpan={4} className="border-b border-[#e1e5eb] px-4 py-16 text-center text-[#9aa3b6]">Ничего не найдено</td></tr>
             )}
           </tbody>
@@ -217,40 +200,10 @@ export function LoyaltyCardView() {
           type={modal.type}
           onClose={() => setModal(null)}
           onSave={(currency, amount, comment) => {
-            applyTransaction(modal.clientId, modal.type, currency, amount, comment)
+            void applyTransaction(modal.clientId, modal.type, currency, amount, comment)
             setModal(null)
           }}
         />
-      )}
-
-      {favoritesOpen && (
-        <div className="fixed inset-0 z-[100] flex">
-          <button aria-label="Закрыть" onClick={() => setFavoritesOpen(false)} className="flex-1 bg-black/40" />
-          <aside className="w-[420px] max-w-[90vw] bg-white shadow-2xl">
-            <header className="flex items-center justify-between border-b px-8 py-6">
-              <h2 className="text-2xl font-semibold">Избранные</h2>
-              <button aria-label="Закрыть" onClick={() => setFavoritesOpen(false)}><X className="h-6 w-6 text-slate-600" /></button>
-            </header>
-            {favoriteItems.map((item, index) => (
-              <div
-                key={`${item}-${index}`}
-                onMouseEnter={() => setHoveredFavorite(index)}
-                onMouseLeave={() => setHoveredFavorite((current) => (current === index ? null : current))}
-                className={`flex w-full items-center justify-between border-b px-8 py-5 text-left text-lg ${hoveredFavorite === index ? "bg-[#eaf0fd]" : ""}`}
-              >
-                <button type="button" onClick={() => { setFavorite(true); setFavoritesOpen(false) }} className="flex flex-1 items-center gap-3 text-left">
-                  {hoveredFavorite === index && (
-                    <span role="button" aria-label="Удалить из избранного" onClick={(event) => { event.stopPropagation(); removeFavorite(index) }} className="text-slate-600 hover:text-[#e5484d]">
-                      <Trash2 className="h-5 w-5" />
-                    </span>
-                  )}
-                  {item}
-                </button>
-                <ChevronRight className="h-5 w-5 text-slate-400" />
-              </div>
-            ))}
-          </aside>
-        </div>
       )}
     </main>
   )

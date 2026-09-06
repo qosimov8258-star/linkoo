@@ -2,8 +2,10 @@
 
 import Image from "next/image"
 import { FormEvent, useEffect, useMemo, useState } from "react"
-import { ChevronRight, Download, PlusCircle, Star, X } from "lucide-react"
+import { Download, PlusCircle } from "lucide-react"
 import { downloadExcelTable } from "@/lib/excel-export"
+import { DashboardDialog } from "./dashboard-dialog"
+import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
 
 const branches = ["Все филиалы", "777", "878", "agent", "Andijon", "AURUM samarqand", "baby still", "Buxoro"]
 const contractors = [
@@ -41,6 +43,7 @@ export function StoreTimeView({ storeCheckMode = false, productCheckMode = false
   const [from, setFrom] = useState(storeCheckMode || productCheckMode ? monthStart : today)
   const [to, setTo] = useState(storeCheckMode || productCheckMode ? monthEnd : today)
   const [agent, setAgent] = useState("")
+  const [agentNames, setAgentNames] = useState<string[]>([])
   const [branch, setBranch] = useState(branches[0])
   const [contractor, setContractor] = useState(contractors[0])
   const [planned, setPlanned] = useState("")
@@ -48,18 +51,15 @@ export function StoreTimeView({ storeCheckMode = false, productCheckMode = false
   const [survey, setSurvey] = useState("")
   const [productGroup, setProductGroup] = useState("")
   const [applied, setApplied] = useState("")
-  const [favorite, setFavorite] = useState(false)
-  const [favoritesOpen, setFavoritesOpen] = useState(false)
   const [dashboardOpen, setDashboardOpen] = useState(false)
   const [visibility, setVisibility] = useState("all")
   const [dashboard, setDashboard] = useState("Основной дашборд")
-  const overlayOpen = favoritesOpen || dashboardOpen
+  const overlayOpen = dashboardOpen
 
   useEffect(() => {
     if (!overlayOpen) return
     function closeOnEscape(event: KeyboardEvent) {
       if (event.key === "Escape") {
-        setFavoritesOpen(false)
         setDashboardOpen(false)
       }
     }
@@ -71,6 +71,23 @@ export function StoreTimeView({ storeCheckMode = false, productCheckMode = false
       document.removeEventListener("keydown", closeOnEscape)
     }
   }, [overlayOpen])
+
+  // No table tracks actual store dwell time, so the agent filter is wired to
+  // real employees but the result panel below still reports "not found".
+  useEffect(() => {
+    let cancelled = false
+    fetch("/api/employees")
+      .then((response) => (response.ok ? (response.json() as Promise<{ name: string }[]>) : Promise.reject()))
+      .then((data) => {
+        if (!cancelled) setAgentNames(data.map((employee) => employee.name).filter(Boolean).sort((a, b) => a.localeCompare(b, "ru")))
+      })
+      .catch(() => {
+        if (!cancelled) setAgentNames([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   function apply(event: FormEvent) {
     event.preventDefault()
@@ -94,9 +111,7 @@ export function StoreTimeView({ storeCheckMode = false, productCheckMode = false
     <main className="min-h-[calc(100vh-4rem)] bg-slate-100">
       <header className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-200 px-5 py-4 sm:px-10">
         <div className="flex items-center gap-3 text-xl font-bold sm:text-2xl">
-          <button type="button" onClick={() => setFavoritesOpen(true)} className="flex items-center gap-2 text-[#5470e8]">
-            <Star className={`h-6 w-6 ${favorite ? "fill-amber-400 text-amber-400" : "fill-slate-600 text-slate-600"}`} />Избранные
-          </button>
+          <FavoritesButton className="flex items-center gap-2 text-[#5470e8]" />
           <span className="text-slate-500">|</span>
           <h1 className="text-slate-600">
             {productCheckMode ? "Store check по продуктам" : storeCheckMode ? "Выполнение Store Check" : "Время нахождения в магазинах"}
@@ -126,7 +141,7 @@ export function StoreTimeView({ storeCheckMode = false, productCheckMode = false
             )}
             {!storeCheckMode && !productCheckMode && (
               <>
-                <FilterSelect label="Агент" value={agent} onChange={setAgent} options={[]} emptyLabel="Не найдено" />
+                <FilterSelect label="Агент" value={agent} onChange={setAgent} options={agentNames} emptyLabel="Не найдено" />
                 <FilterSelect label="Филиал" value={branch} onChange={setBranch} options={branches} />
                 <FilterSelect label="Контрагент" value={contractor} onChange={setContractor} options={contractors} />
                 <FilterSelect label="По плану" value={planned} onChange={setPlanned} options={["", "Да", "Нет"]} />
@@ -143,22 +158,17 @@ export function StoreTimeView({ storeCheckMode = false, productCheckMode = false
         </div>
       </section>
 
-      {overlayOpen && <button type="button" aria-label="Закрыть окно" onClick={() => { setFavoritesOpen(false); setDashboardOpen(false) }} className="fixed inset-0 z-[90] cursor-default bg-black/55" />}
+      {overlayOpen && <button type="button" aria-label="Закрыть окно" onClick={() => setDashboardOpen(false)} className="fixed inset-0 z-[90] cursor-default bg-black/55" />}
       {dashboardOpen && (
-        <section role="dialog" aria-modal="true" aria-labelledby="store-dashboard-title" className="fixed left-1/2 top-1/2 z-[100] flex h-[min(646px,calc(100vh-32px))] w-[min(750px,calc(100vw-32px))] -translate-x-1/2 -translate-y-1/2 flex-col bg-white shadow-2xl">
-          <header className="flex items-center justify-between border-b px-9 py-7"><h2 id="store-dashboard-title" className="text-lg font-bold uppercase">Добавить в дашборд</h2><button type="button" onClick={() => setDashboardOpen(false)} aria-label="Закрыть"><X className="h-7 w-7" /></button></header>
-          <div className="flex-1 px-16 py-10">
-            <fieldset className="space-y-5"><legend className="sr-only">Доступ</legend>{[["all", "Все"], ["employees", "Выбранным сотрудникам"], ["access", "Выбранным доступам"]].map(([value, label]) => <label key={value} className="flex items-center gap-5 text-lg"><input type="radio" name="store-visibility" checked={visibility === value} onChange={() => setVisibility(value)} className="h-6 w-6 accent-slate-500" />{label}</label>)}</fieldset>
-            <label className="mt-12 block border-b pb-2 font-bold">Дашборд<select value={dashboard} onChange={(event) => setDashboard(event.target.value)} className="mt-2 block w-full border-0 bg-white py-2 font-normal"><option>Основной дашборд</option><option>Продажи</option><option>Контроль агентов</option></select></label>
-          </div>
-          <footer className="flex justify-end border-t px-9 py-6"><button type="button" onClick={() => setDashboardOpen(false)} className="font-semibold uppercase text-sky-500">Сохранить</button></footer>
-        </section>
-      )}
-      {favoritesOpen && (
-        <aside role="dialog" aria-modal="true" aria-labelledby="store-favorites-title" className="fixed bottom-0 left-0 top-0 z-[100] w-[min(418px,calc(100vw-28px))] border-r-[10px] border-sky-500 bg-white shadow-2xl animate-in slide-in-from-left-full duration-200">
-          <header className="flex items-center justify-between border-b px-9 py-7"><h2 id="store-favorites-title" className="text-xl font-medium">Избранные</h2><button type="button" onClick={() => setFavoritesOpen(false)} aria-label="Закрыть"><X className="h-7 w-7" /></button></header>
-          <nav>{["Клиенты", "Заказы", "Виджеты", "Ограничение продуктов", "Продукты"].map((item) => <button key={item} type="button" onClick={() => { setFavorite(true); setFavoritesOpen(false) }} className="flex w-full items-center justify-between border-b px-6 py-3.5 text-left text-[17px] font-medium hover:bg-slate-50">{item}<ChevronRight className="h-5 w-5 text-slate-500" /></button>)}</nav>
-        </aside>
+        <DashboardDialog
+          reportSlug="store-time"
+          reportLabel="Время на точке"
+          visibility={visibility}
+          setVisibility={setVisibility}
+          dashboard={dashboard}
+          setDashboard={setDashboard}
+          onClose={() => setDashboardOpen(false)}
+        />
       )}
     </main>
   )

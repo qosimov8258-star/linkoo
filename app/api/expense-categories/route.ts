@@ -1,28 +1,38 @@
 import { NextResponse } from "next/server"
+import { z } from "zod"
 
 import { getCurrentUser } from "@/lib/current-user"
-import { createExpenseCategory, listExpenseCategories, parseExpenseCategoryInput } from "@/lib/expense-categories-repo"
+import { requireRole } from "@/lib/rbac"
+import { parseJsonBody } from "@/lib/validation"
+import { createExpenseCategory, listExpenseCategories } from "@/lib/expense-categories-repo"
+
+const expenseCategorySchema = z.object({
+  name: z.string().trim().min(1),
+  parameter: z.string().trim().optional(),
+  parentId: z.number().finite().nullable().optional(),
+  direct: z.boolean().optional(),
+  excludeFromPnl: z.boolean().optional(),
+})
 
 export async function GET() {
   const user = await getCurrentUser()
   if (!user) return NextResponse.json({ error: "Tizimga kirilmagan" }, { status: 401 })
-  return NextResponse.json(listExpenseCategories())
+  return NextResponse.json((await listExpenseCategories()))
 }
 
 export async function POST(request: Request) {
-  const user = await getCurrentUser()
-  if (!user) return NextResponse.json({ error: "Tizimga kirilmagan" }, { status: 401 })
+  const auth = await requireRole("manager")
+  if ("error" in auth) return auth.error
 
-  let body: unknown
-  try {
-    body = await request.json()
-  } catch {
-    return NextResponse.json({ error: "Noto'g'ri so'rov" }, { status: 400 })
-  }
+  const parsed = await parseJsonBody(request, expenseCategorySchema)
+  if (parsed.error) return parsed.error
 
-  const input = parseExpenseCategoryInput(body)
-  if (!input) return NextResponse.json({ error: "Наименование обязательно" }, { status: 400 })
-
-  const category = createExpenseCategory(input)
+  const category = (await createExpenseCategory({
+    name: parsed.data.name,
+    parameter: parsed.data.parameter ?? "",
+    parentId: parsed.data.parentId ?? null,
+    direct: parsed.data.direct ?? false,
+    excludeFromPnl: parsed.data.excludeFromPnl ?? false,
+  }))
   return NextResponse.json(category, { status: 201 })
 }

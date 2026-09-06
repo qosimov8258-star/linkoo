@@ -9,9 +9,9 @@ import {
   Filter,
   Maximize,
   Search,
-  Star,
   X,
 } from "lucide-react"
+import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
 
 type Mode = "quantity" | "cost" | "price"
 
@@ -38,90 +38,7 @@ type MaterialRow = {
   endingCost: number
 }
 
-const zeroRow = (name: string, article = "100-1232"): MaterialRow => ({
-  name,
-  article,
-  opening: 0,
-  openingCost: 0,
-  supplies: 0,
-  suppliesCost: 0,
-  supplierReturns: 0,
-  supplierReturnsCost: 0,
-  returns: 0,
-  returnsCost: 0,
-  issued: 0,
-  issuedCost: 0,
-  writtenOff: 0,
-  writtenOffCost: 0,
-  otherIncome: 0,
-  otherIncomeCost: 0,
-  otherExpense: 0,
-  otherExpenseCost: 0,
-  ending: 0,
-  endingCost: 0,
-})
-
-const rows: MaterialRow[] = [
-  {
-    ...zeroRow("energetik 1 l", "123321"),
-    opening: 306,
-    openingCost: -44135315.83,
-    ending: 306,
-    endingCost: -44135315.83,
-  },
-  {
-    ...zeroRow("g'ilof", "62"),
-    opening: 19,
-    openingCost: -29640.18,
-    ending: 19,
-    endingCost: -29640.18,
-  },
-  {
-    ...zeroRow("robot moshina", "1009"),
-    opening: 5001,
-    openingCost: 572401511.55,
-    supplies: 214,
-    suppliesCost: 256800,
-    ending: 5215,
-    endingCost: 572658311.55,
-  },
-  {
-    ...zeroRow("sndwch", ""),
-    opening: 1232641,
-    openingCost: 12505900148,
-    issued: 22,
-    issuedCost: 135662.89,
-    ending: 1232619,
-    endingCost: 12505764485.11,
-  },
-  ...[
-    "334",
-    "3453",
-    "45t5454",
-    "6766",
-    "7555t",
-    "7867",
-    "78787",
-    "Aldfgd",
-    "Al,gdfIg,",
-    "Alpefgdfgdfg",
-    "Alpendfgdg",
-    "Alpendgdfg",
-    "Alpen Gold Dark",
-    "Alpen Gold Darkr234324",
-    "Alpen Goldfgd",
-    "Alpen Gold Milk",
-    "Alpen hik",
-    "Alpen old",
-    "Alpenwerwer",
-    "Aqua de lux 0.33 bez gaz",
-    "avto 1.3 mator",
-  ].map((name) =>
-    name === "Alpen Goldfgd"
-      ? { ...zeroRow(name), otherExpense: 11000, otherExpenseCost: 1650000000 }
-      : zeroRow(name),
-  ),
-]
+const rows: MaterialRow[] = []
 
 const groups = [
   ["opening", "openingCost", "Остаток на начало периода"],
@@ -219,8 +136,7 @@ export function MaterialReportViewV2() {
   return (
     <div className="min-h-[calc(100vh-64px)] bg-[#f1f4f8] text-[#12213b]">
       <section className="flex min-h-[76px] items-center border-b border-slate-300 bg-[#f3f6fa] px-9">
-        <Star className="mr-2 h-7 w-7 fill-[#566173] text-[#566173]" />
-        <span className="text-[25px] font-semibold text-[#4d72e5]">Избранные</span>
+        <FavoritesButton className="flex items-center gap-2 text-[25px] font-semibold text-[#4d72e5]" />
         <span className="mx-3 text-3xl text-[#566173]">|</span>
         <h1 className="text-[25px] font-semibold text-[#566173]">Остаток на определенную дату</h1>
       </section>
@@ -247,12 +163,12 @@ export function MaterialReportViewV2() {
         </div>
 
         <div className="mt-7 grid grid-cols-5 gap-x-8 gap-y-3 border-b border-slate-200 pb-10">
-          <Metric label="Остаток на начало периода" value={mode === "quantity" ? "3 609 100,1 шт" : "41 519 981 071,9 SUM (3 609 100,1 шт)"} />
-          <Metric label="Поставки за период" value={mode === "quantity" ? "214 шт" : "256 800 SUM (214 шт)"} />
+          <Metric label="Остаток на начало периода" value="0 шт" />
+          <Metric label="Поставки за период" value="0 шт" />
           <Metric label="Прочие приходы на склад" value="0 SUM (0 шт)" />
-          <Metric label="Выдано по заказу" value={mode === "quantity" ? "22 шт" : "135 662,89 SUM (22 шт)"} />
+          <Metric label="Выдано по заказу" value="0 шт" />
           <Metric label="Списано за период" value="0 SUM (0 шт)" />
-          <Metric label="Остаток на конец периода" value={mode === "quantity" ? "3 609 292,1 шт" : "41 520 102 209 SUM (3 609 292,1 шт)"} />
+          <Metric label="Остаток на конец периода" value="0 шт" />
           <Metric label="Возврат по поставкам за период" value="0 SUM (0 шт)" />
           <Metric label="Прочие расходы на склад" value="0 SUM (0 шт)" />
           <Metric label="Возврат" value="0 SUM (0 шт)" />
@@ -300,7 +216,7 @@ export function MaterialReportViewV2() {
           </div>
           <div className="flex items-center gap-4 text-slate-500">
             <span>25 <ChevronDown className="inline h-4 w-4" /></span>
-            <span>{(page - 1) * 25 + 1} - {Math.min(page * 25, filteredRows.length)} из 805</span>
+            <span>{filteredRows.length ? (page - 1) * 25 + 1 : 0} - {Math.min(page * 25, filteredRows.length)} из {filteredRows.length}</span>
             <button onClick={() => setPage(Math.max(1, page - 1))}><ChevronLeft /></button>
             <button onClick={() => setPage(page + 1)}><ChevronRight /></button>
             <Maximize className="h-5 w-5" />

@@ -51,63 +51,63 @@ export function parseCashboxInput(body: unknown): CashboxInput | null {
   }
 }
 
-export function listCashboxes(search?: string): Cashbox[] {
+export async function listCashboxes(search?: string): Promise<Cashbox[]> {
   const db = getDb()
   const rows = search
-    ? (db.prepare("SELECT * FROM cashboxes WHERE name LIKE ? ORDER BY id DESC").all(`%${search}%`) as CashboxRow[])
-    : (db.prepare("SELECT * FROM cashboxes ORDER BY id DESC").all() as CashboxRow[])
+    ? ((await db.prepare("SELECT * FROM cashboxes WHERE name LIKE ? ORDER BY id DESC").all(`%${search}%`)) as CashboxRow[])
+    : ((await db.prepare("SELECT * FROM cashboxes ORDER BY id DESC").all()) as CashboxRow[])
   return rows.map(rowToCashbox)
 }
 
-export function getCashbox(id: number): Cashbox | null {
+export async function getCashbox(id: number): Promise<Cashbox | null> {
   const db = getDb()
-  const row = db.prepare("SELECT * FROM cashboxes WHERE id = ?").get(id) as CashboxRow | undefined
+  const row = (await db.prepare("SELECT * FROM cashboxes WHERE id = ?").get(id)) as CashboxRow | undefined
   return row ? rowToCashbox(row) : null
 }
 
-export function createCashbox(input: CashboxInput): Cashbox {
+export async function createCashbox(input: CashboxInput): Promise<Cashbox> {
   const db = getDb()
-  const result = db
-    .prepare(
-      `INSERT INTO cashboxes (name, currency, cashier, branch, payment_type, vansell, order_number)
+  const result = (await db
+      .prepare(
+        `INSERT INTO cashboxes (name, currency, cashier, branch, payment_type, vansell, order_number)
        VALUES (@name, @currency, @cashier, @branch, @paymentType, @vansell, @orderNumber)`,
-    )
-    .run({
-      name: input.name,
-      currency: input.currency,
-      cashier: input.cashier,
-      branch: input.branch,
-      paymentType: input.paymentType,
-      vansell: input.vansell ? 1 : 0,
-      orderNumber: input.orderNumber,
-    })
-  return getCashbox(Number(result.lastInsertRowid))!
+      )
+      .run({
+        name: input.name,
+        currency: input.currency,
+        cashier: input.cashier,
+        branch: input.branch,
+        paymentType: input.paymentType,
+        vansell: input.vansell ? 1 : 0,
+        orderNumber: input.orderNumber,
+      }))
+  return (await getCashbox(Number(result.lastInsertRowid)))!
 }
 
-export function updateCashbox(id: number, input: CashboxInput): Cashbox | null {
-  const existing = getCashbox(id)
+export async function updateCashbox(id: number, input: CashboxInput): Promise<Cashbox | null> {
+  const existing = (await getCashbox(id))
   if (!existing) return null
 
   const db = getDb()
-  db.prepare(
-    `UPDATE cashboxes SET name = @name, currency = @currency, cashier = @cashier, branch = @branch,
+  await db.prepare(
+        `UPDATE cashboxes SET name = @name, currency = @currency, cashier = @cashier, branch = @branch,
        payment_type = @paymentType, vansell = @vansell, order_number = @orderNumber, updated_at = datetime('now')
      WHERE id = @id`,
-  ).run({
-    id,
-    name: input.name,
-    currency: input.currency,
-    cashier: input.cashier,
-    branch: input.branch,
-    paymentType: input.paymentType,
-    vansell: input.vansell ? 1 : 0,
-    orderNumber: input.orderNumber,
-  })
-  return getCashbox(id)
+      ).run({
+        id,
+        name: input.name,
+        currency: input.currency,
+        cashier: input.cashier,
+        branch: input.branch,
+        paymentType: input.paymentType,
+        vansell: input.vansell ? 1 : 0,
+        orderNumber: input.orderNumber,
+      })
+  return (await getCashbox(id))
 }
 
-export function deleteCashbox(id: number): boolean {
+export async function deleteCashbox(id: number): Promise<boolean> {
   const db = getDb()
-  const result = db.prepare("DELETE FROM cashboxes WHERE id = ?").run(id)
+  const result = (await db.prepare("DELETE FROM cashboxes WHERE id = ?").run(id))
   return result.changes > 0
 }

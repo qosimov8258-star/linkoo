@@ -33,8 +33,8 @@ function rowToPayment(row: Row): SupplierPaymentRow {
   }
 }
 
-export function listSupplierPayments(): SupplierPaymentRow[] {
+export async function listSupplierPayments(): Promise<SupplierPaymentRow[]> {
   const db = getDb()
-  const rows = db.prepare("SELECT * FROM supplier_payments ORDER BY id DESC").all() as Row[]
+  const rows = (await db.prepare("SELECT * FROM supplier_payments ORDER BY id DESC").all()) as Row[]
   return rows.map(rowToPayment)
 }

@@ -11,6 +11,7 @@ import {
   Search,
   X,
 } from "lucide-react"
+import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
 
 type TabId = "receipt" | "transfer" | "movement" | "receiptHistory" | "transferHistory"
 
@@ -32,53 +33,13 @@ const tabs: { id: TabId; label: string }[] = [
   { id: "transferHistory", label: "История Передачи" },
 ]
 
-const movements: Movement[] = [
-  { product: "sndwch", amount: "-22 sht", direction: "out", series: "-", date: "13 июля 2026, 16:17", warehouse: "Andijon skladi", type: "Заказ 1582" },
-  { product: "robot moshina", amount: "213 dona", direction: "in", series: "-", date: "10 июля 2026, 09:43", warehouse: "Andijon skladi", type: "Поставка 351" },
-  { product: "robot moshina", amount: "1 dona", direction: "in", series: "-", date: "10 июля 2026, 09:43", warehouse: "Andijon skladi", type: "Поставка 351" },
-  { product: "sndwch", amount: "-1 sht", direction: "out", series: "-", date: "24 июня 2026, 16:21", warehouse: "05,08,2025(1)", type: "Списание 69" },
-  { product: "Arslan 111111", amount: "1 Dona", direction: "in", series: "-", date: "23 июня 2026, 10:00", warehouse: "Andijon skladi", type: "Поставка 349" },
-  { product: "sndwch", amount: "1 sht", direction: "in", series: "-", date: "06 июня 2026, 11:20", warehouse: "Andijon skladi", type: "220" },
-  { product: "Arslan 111111", amount: "-85 Dona", direction: "out", series: "-", date: "16 мая 2026, 13:36", warehouse: "Andijon skladi", type: "Заказ 1577" },
-  { product: "g'ilof", amount: "1 шт", direction: "in", series: "-", date: "14 мая 2026, 13:30", warehouse: "05,08,2025(1)", type: "33" },
-  { product: "g'ilof", amount: "-1 шт", direction: "out", series: "-", date: "14 мая 2026, 13:21", warehouse: "05,08,2025(1)", type: "33" },
-  { product: "g'ilof", amount: "10 шт", direction: "in", series: "-", date: "14 мая 2026, 13:20", warehouse: "05,08,2025(1)", type: "Поставка 348" },
-  { product: "test inventar", amount: "1 dona", direction: "in", series: "-", date: "14 мая 2026, 13:12", warehouse: "toshkent", type: "27" },
-  { product: "test inventar", amount: "-1 dona", direction: "out", series: "-", date: "14 мая 2026, 13:09", warehouse: "toshkent", type: "27" },
-  { product: "Nataxtari 0.25", amount: "6 Dona", direction: "in", series: "-", date: "09 мая 2026, 09:45", warehouse: "05,08,2025(1)", type: "219" },
-  { product: "spark123", amount: "-1 шт", direction: "out", series: "-", date: "08 мая 2026, 16:13", warehouse: "Andijon skladi", type: "Заказ 1572" },
-  { product: "Marojna Xaladilnik", amount: "1 Qop", direction: "in", series: "-", date: "02 мая 2026, 10:20", warehouse: "toshkent", type: "32" },
-  { product: "Un", amount: "-1 kilogram", direction: "out", series: "-", date: "14 апр. 2026, 18:23", warehouse: "Сырьё Склад", type: "Партия 107" },
-]
+const movements: Movement[] = []
 
-const receiptRows = [
-  ["222", "ЧЛ Ибраева Мадина Амангельдыева", "Возврат", "17 июля 2026", "Andijon skladi"],
-  ["221", "ЧЛ Ибраева Мадина Амангельдыева", "Возврат", "17 июля 2026", "Andijon skladi"],
-  ["350", "Fardad", "Поставка", "23 июня 2026", "Andijon skladi"],
-  ["218", "loe messi", "Возврат", "07 мая 2026", "Andijon skladi"],
-  ["344", "Fardad", "Поставка", "14 апр. 2026", "Andijon skladi"],
-  ["217", "new klient707", "Возврат", "28 мар. 2026", "toshkent"],
-  ["331", "Fardad", "Поставка", "06 мар. 2026", "Andijon skladi"],
-  ["216", "marketsavdo1", "Возврат", "04 мар. 2026", "Suhrob sklad"],
-]
+const receiptRows: string[][] = []
 
-const transferRows = [
-  ["1579", "24 мая 2026", "Andijon skladi", "Заказ", "Ashraf Hakimi", "Не указана", "Не указана"],
-  ["1578", "24 мая 2026", "Andijon skladi", "Заказ", "Ashraf Hakimi", "Не указана", "Не указана"],
-  ["1559", "23 мар. 2026", "toshkent", "Заказ", "klient 1", "Не указана", "Не указана"],
-  ["1548", "07 февр. 2026", "Suhrob sklad", "Заказ", "Asu market", "Не указана", "Не указана"],
-  ["56", "07 янв. 2026", "toshkent", "Передача", "Яндекс Лавка", "Admin Ritm", "Не указана"],
-  ["55", "30 дек. 2025", "Suhrob sklad", "Передача", "toshkent", "Admin Ritm", "Не указана"],
-]
+const transferRows: string[][] = []
 
-const transferHistoryRows = [
-  ["37", "16 авг. 2025", "сырия (000)", "Передача", "Toshkent sut ombori", "Не указана", "Не указана"],
-  ["1582", "12 июля 2026", "Andijon skladi", "Заказ", "Doston market", "Admin Ritm", "13 июля 2026"],
-  ["1577", "15 мая 2026", "Andijon skladi", "Заказ", "Частное Лицо", "Admin Ritm", "16 мая 2026"],
-  ["1575", "08 мая 2026", "Andijon skladi", "Заказ", "klient 1", "Admin Ritm", "09 мая 2026"],
-  ["1572", "25 апр. 2026", "Andijon skladi", "Заказ", "55521632", "Admin Ritm", "08 мая 2026"],
-  ["1574", "04 мая 2026", "Andijon skladi", "Заказ", "ЧЛ Кылышбай", "Admin Ritm", "05 мая 2026"],
-]
+const transferHistoryRows: string[][] = []
 
 const tableConfig: Record<Exclude<TabId, "movement">, { headers: string[]; rows: string[][] }> = {
   receipt: { headers: ["№", "От кого", "Тип", "Дата приемки", "Склад"], rows: receiptRows },
@@ -93,7 +54,6 @@ function includesQuery(values: string[], query: string) {
 
 export function StockMovementPage() {
   const [tab, setTab] = useState<TabId>("movement")
-  const [favorite, setFavorite] = useState(false)
   const [query, setQuery] = useState("")
   const [filterOpen, setFilterOpen] = useState(false)
   const [warehouse, setWarehouse] = useState("")
@@ -124,10 +84,7 @@ export function StockMovementPage() {
   return (
     <main className="min-h-[calc(100vh-64px)] bg-[#f2f5f8] pb-10 text-[#17233b]">
       <header className="flex min-h-[76px] items-center border-b border-slate-200 bg-[#f1f4f7] px-9">
-        <button type="button" onClick={() => setFavorite((value) => !value)} className="flex items-center">
-          <span className={`mr-3 text-3xl ${favorite ? "text-amber-400" : "text-[#5e6879]"}`}>★</span>
-          <span className="text-[26px] font-semibold text-[#4f72e5]">Избранные</span>
-        </button>
+        <FavoritesButton className="flex items-center text-[26px] font-semibold text-[#4f72e5]" />
         <span className="mx-4 h-8 w-px bg-[#5d6572]" />
         <h1 className="text-[25px] font-semibold text-[#596273]">План приемок и передач</h1>
       </header>

@@ -11,31 +11,7 @@ type DuplicateGroup = {
   clients: string[]
 }
 
-const initialGroups: DuplicateGroup[] = [
-  { id: 1, inn: "200540016194", phone: "+7 727 295 41 10", clients: ['ТОО "Metal Working Tools Almaty (MWTA)"', "Metal Working Tools Almaty (MWTA)"] },
-  { id: 2, inn: "950825300548", phone: "+7 701 825 30 05", clients: ["ЧЛ Шиделко Виктор Валерьевич", "ИП Мусафер"] },
-  { id: 3, inn: "160440007161", phone: "+7 705 440 07 16", clients: ["ГК ПДГ", 'НАО «Государственная корпорация «Правительство для граждан»'] },
-  { id: 4, inn: "951125300258", phone: "+7 747 125 30 02", clients: ["ИП Жана Групп", "ИП Жана Групп"] },
-  { id: 5, inn: "840620350228", phone: "+7 702 620 35 02", clients: ["ИП OZZ", "ИП OZZ KGF"] },
-  { id: 6, inn: "150340026182", phone: "+7 701 340 02 61", clients: ['ТОО "AL City LTD"', "ТОО Auto City LTD"] },
-  { id: 7, inn: "041102501540", phone: "+7 707 102 50 15", clients: ["ЧЛ Рамазан", "ИП Казна (Азермахан Рамазан Еркальулы)"] },
-  { id: 8, inn: "140241014416", phone: "+7 700 241 01 44", clients: ["Дирекция платных автомобильных дорог АО Национальная компания ҚазАвтоЖол", "Дирекция платных автомобильных дорог АО Национальная компания ҚазАвтоЖол"] },
-  { id: 9, inn: "900301300143", phone: "+7 777 301 30 01", clients: ["ЧЛ Махенов Дастан Еркинович", "ИП Dake Oil"] },
-  { id: 10, inn: "090840011793", phone: "+7 701 840 01 17", clients: ['Товарищество с ограниченной ответственностью "АБДИ КМ"', 'ТОО "АБДИ КМ"', 'Товарищество с ограниченной ответственностью "АБДИ КМ"'] },
-  { id: 11, inn: "051240005485", phone: "+7 705 240 00 54", clients: ['ТОО "Юг-Электрокомплект"', 'ТОО "Юг-Электрокомплект"'] },
-  { id: 12, inn: "810103350203", phone: "+7 747 103 35 02", clients: ['ИП "INTELLPACK"', "ИП INTELLPACK"] },
-  { id: 13, inn: "821018301446", phone: "+7 701 018 30 14", clients: ['ИП "JETI"', "ИП JETI"] },
-  { id: 14, inn: "880102300274", phone: "+7 707 102 30 02", clients: ["МАКЕЕВ ДМИТРИЙ ДМИТРИЕВИЧ", "ИП Макеев"] },
-  { id: 15, inn: "220440013625", phone: "+7 705 440 01 36", clients: ['ОО "Inclusion.kz"', "ЧЛ Мансур"] },
-  { id: 16, inn: "010817501044", phone: "+7 700 817 50 10", clients: ["ИП Кивиров", "ЧЛ Киворов"] },
-  { id: 17, inn: "250640016177", phone: "+7 702 640 01 61", clients: ['Товарищество с ограниченной ответственностью "Drive On"', 'ТОО "Drive On"'] },
-  { id: 18, inn: "890617401825", phone: "+7 747 617 40 18", clients: ["ИП Кираджян", "ИП Кираджян"] },
-  { id: 19, inn: "150140023953", phone: "+7 701 140 02 39", clients: ["ТОО Eco Solution Service", "ТОО Eco Solution Service"] },
-  { id: 20, inn: "060340026351", phone: "+7 705 340 02 63", clients: ["ТОО Mega zakaz", 'ТОО "Mega zakaz"'] },
-  { id: 21, inn: "090840013770", phone: "+7 707 840 01 37", clients: ["ТОО Arena S (Арена S)", "Arena S"] },
-  { id: 22, inn: "830613400646", phone: "+7 700 613 40 06", clients: ["ИП HOTEL SERVICES", "ИП HOTEL SERVICES"] },
-  { id: 23, inn: "231240019582", phone: "+7 702 240 01 95", clients: ['ТОО "Пол Берри Юг"', 'ТОО "Пол Берри Юг"'] },
-]
+const initialGroups: DuplicateGroup[] = []
 
 const sidebar = [
   ["Персонал", "Подписки", "Сотрудники", "Смены", "Должности", "Права доступа", "Транспорт", "Сессия"],
@@ -95,14 +71,7 @@ export function DuplicateAnalysisView() {
     [groups, selected],
   )
 
-  const survivorOptions = [
-    "Markus Vitinha (№4594) (4594) (Arslan)",
-    "Usman Dembele (№4593) (4593) (spark)",
-    "Ashraf Hakimi (№4592) (4592) (spark)",
-    "Doston market (№4591) (4591) (spark)",
-    "3333333333333333333333333333 (№4590) (4590) (spark)",
-    "Частное Лицо (№4587) (д00000128) (Andijon shaharchasi)",
-  ]
+  const survivorOptions: string[] = []
 
   const filtered = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase("ru")
@@ -129,13 +98,13 @@ export function DuplicateAnalysisView() {
       }
       const fallbackSelection = group.clients.slice(0, 2).map((_, index) => `${group.id}:${index}`)
       setSelected(fallbackSelection)
-      setPrimary(survivorOptions[0])
+      setPrimary(survivorOptions[0] ?? "")
       setActiveGroupId(group.id)
       setClientPickerOpen(true)
       setMergeOpen(true)
       return
     }
-    setPrimary(survivorOptions[0])
+    setPrimary(survivorOptions[0] ?? "")
     setActiveGroupId(Number(selected[0].split(":")[0]))
     setClientPickerOpen(true)
     setMergeOpen(true)
@@ -144,7 +113,7 @@ export function DuplicateAnalysisView() {
   function openGroupMerge(group: DuplicateGroup) {
     const groupSelection = group.clients.map((_, index) => `${group.id}:${index}`)
     setSelected(groupSelection)
-    setPrimary(survivorOptions[0])
+    setPrimary(survivorOptions[0] ?? "")
     setActiveGroupId(group.id)
     setClientPickerOpen(true)
     setMergeOpen(true)

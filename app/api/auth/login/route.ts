@@ -1,41 +1,47 @@
 import { NextRequest, NextResponse } from "next/server"
+import { z } from "zod"
 
 import { verifyPassword } from "@/lib/auth"
 import { getDb } from "@/lib/db"
-import { REMEMBER_TTL_MS, SESSION_COOKIE, SESSION_TTL_MS, signSession } from "@/lib/session"
+import { REMEMBER_TTL_MS, SESSION_COOKIE, SESSION_TTL_MS, signSession, type Role } from "@/lib/session"
+import { recordSession } from "@/lib/user-sessions-repo"
+import { parseJsonBody } from "@/lib/validation"
 
 type UserRow = {
   id: number
   username: string
   display_name: string
   password_hash: string
-  password_salt: string
+  role: string
 }
 
-export async function POST(request: NextRequest) {
-  let body: { username?: string; password?: string; remember?: boolean }
-  try {
-    body = await request.json()
-  } catch {
-    return NextResponse.json({ error: "Noto'g'ri so'rov" }, { status: 400 })
-  }
+const loginSchema = z.object({
+  username: z.string().trim().min(1).max(200),
+  password: z.string().min(1).max(200),
+  remember: z.boolean().optional(),
+})
 
-  const username = body.username?.trim()
-  const password = body.password ?? ""
-  if (!username || !password) {
-    return NextResponse.json({ error: "Login va parolni kiriting" }, { status: 400 })
-  }
+export async function POST(request: NextRequest) {
+  const parsed = await parseJsonBody(request, loginSchema)
+  if (parsed.error) return parsed.error
+  const { username, password, remember } = parsed.data
 
   const db = getDb()
-  const user = db.prepare("SELECT * FROM users WHERE username = ?").get(username) as UserRow | undefined
-  if (!user || !verifyPassword(password, user.password_hash, user.password_salt)) {
+  const user = (await db.prepare("SELECT * FROM users WHERE username = ?").get(username)) as UserRow | undefined
+  if (!user || !(await verifyPassword(password, user.password_hash))) {
     return NextResponse.json({ error: "Login yoki parol noto'g'ri" }, { status: 401 })
   }
 
-  const remember = body.remember === true
+  const role: Role = user.role === "admin" || user.role === "manager" ? user.role : "viewer"
   const ttlMs = remember ? REMEMBER_TTL_MS : SESSION_TTL_MS
-  const token = await signSession(user.id, ttlMs)
-  const response = NextResponse.json({ id: user.id, username: user.username, displayName: user.display_name })
+  const sid = crypto.randomUUID()
+  const token = await signSession({ userId: user.id, role, sessionId: sid }, ttlMs)
+
+  const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || request.headers.get("x-real-ip") || ""
+  const userAgent = request.headers.get("user-agent") || ""
+  await recordSession({ id: sid, userId: user.id, ip, userAgent })
+
+  const response = NextResponse.json({ id: user.id, username: user.username, displayName: user.display_name, role })
   response.cookies.set(SESSION_COOKIE, token, {
     httpOnly: true,
     sameSite: "lax",

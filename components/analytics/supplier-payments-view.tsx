@@ -12,14 +12,14 @@ import {
   Info,
   ListChecks,
   Search,
-  Star,
   X,
 } from "lucide-react"
 
+import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
 import type { SupplierPaymentRow as PaymentRow } from "./supplier-payments-data"
 
 const number = (value: number, fraction = 0) =>
-  new Intl.NumberFormat("ru-RU", { minimumFractionDigits: fraction, maximumFractionDigits: 3 }).format(value)
+  new Intl.NumberFormat("ru-RU", { minimumFractionDigits: fraction, maximumFractionDigits: fraction }).format(value)
 
 const RU_MONTHS: Record<string, number> = {
   "янв.": 0, "февр.": 1, "мар.": 2, "апр.": 3, "мая": 4, "июня": 5,
@@ -43,7 +43,6 @@ function PaymentIcon({ type }: { type: "cash" | "card" }) {
 }
 
 export function SupplierPaymentsView() {
-  const [favorite, setFavorite] = useState(false)
   const [rows, setRows] = useState<PaymentRow[]>([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState("")
@@ -167,11 +166,11 @@ export function SupplierPaymentsView() {
   return (
     <main className="min-h-screen bg-[#f1f4f8] text-[#17233b]">
       <header className="flex min-h-[76px] items-center justify-between border-b border-[#d8dee7] bg-[#f2f5f8] px-6 md:px-9">
-        <button onClick={() => setFavorite((value) => !value)} className="flex items-center gap-3">
-          <Star className={`h-7 w-7 ${favorite ? "fill-[#4f70e7] text-[#4f70e7]" : "fill-[#596376] text-[#596376]"}`} />
-          <span className="text-2xl font-bold text-[#4f70e7]">Избранные</span><span className="text-3xl font-light text-[#586174]">|</span>
+        <div className="flex items-center gap-3">
+          <FavoritesButton className="flex items-center gap-3 text-2xl font-bold text-[#4f70e7]" />
+          <span className="text-3xl font-light text-[#586174]">|</span>
           <span className="text-2xl font-bold text-[#586174]">Оплаты поставщикам</span>
-        </button>
+        </div>
       </header>
 
       <div className="bg-[#4f5fd9] px-6 py-3 text-[15px] font-semibold text-white md:px-9">

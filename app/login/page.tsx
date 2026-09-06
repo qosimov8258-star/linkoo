@@ -1,34 +1,55 @@
 "use client"
 
-import { Suspense, useState, type FormEvent } from "react"
+import { Suspense, useEffect, useState, type FormEvent } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
-import { Eye, EyeOff, ShieldAlert, X } from "lucide-react"
+import { Phone, Send, X } from "lucide-react"
 
 import { LoginIllustration } from "@/components/login-illustration"
+import { useLanguage } from "@/lib/i18n/language-context"
 
-function formatPhoneDisplay(digits: string) {
-  if (digits.length <= 2) return digits
-  if (digits.length <= 5) return `${digits.slice(0, 2)} ${digits.slice(2)}`
-  return `${digits.slice(0, 2)} ${digits.slice(2, 5)}-${digits.slice(5, 9)}`
+const SAVED_SERVERS_KEY = "linko_saved_servers"
+
+type SavedServer = { login: string; server: string }
+
+function loadSavedServers(): SavedServer[] {
+  if (typeof window === "undefined") return []
+  try {
+    const raw = window.localStorage.getItem(SAVED_SERVERS_KEY)
+    if (!raw) return []
+    const parsed = JSON.parse(raw)
+    if (!Array.isArray(parsed)) return []
+    return parsed.filter(
+      (entry): entry is SavedServer =>
+        entry && typeof entry.login === "string" && typeof entry.server === "string",
+    )
+  } catch {
+    return []
+  }
+}
+
+function saveSavedServers(servers: SavedServer[]) {
+  if (typeof window === "undefined") return
+  window.localStorage.setItem(SAVED_SERVERS_KEY, JSON.stringify(servers))
 }
 
 function InfoModal({ title, onClose }: { title: string; onClose: () => void }) {
+  const { t } = useLanguage()
   return (
     <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
       <div onClick={(event) => event.stopPropagation()} className="w-full max-w-sm rounded-lg bg-white p-6 shadow-2xl">
         <div className="mb-3 flex items-center justify-between">
-          <h3 className="text-lg font-bold text-slate-900">{title}</h3>
-          <button type="button" onClick={onClose} aria-label="Закрыть"><X className="h-5 w-5 text-slate-500" /></button>
+          <h3 className="text-lg font-bold text-slate-900">{t(title)}</h3>
+          <button type="button" onClick={onClose} aria-label={t("Закрыть")}><X className="h-5 w-5 text-slate-500" /></button>
         </div>
         <p className="text-sm leading-6 text-slate-600">
-          Эта функция недоступна в демо-версии. Обратитесь к администратору системы.
+          {t("Эта функция недоступна в демо-версии. Обратитесь к администратору системы.")}
         </p>
         <button
           type="button"
           onClick={onClose}
           className="mt-5 w-full rounded-md bg-[#4f70e7] py-2.5 text-sm font-semibold text-white hover:opacity-90"
         >
-          Понятно
+          {t("Понятно")}
         </button>
       </div>
     </div>
@@ -36,19 +57,37 @@ function InfoModal({ title, onClose }: { title: string; onClose: () => void }) {
 }
 
 function LoginForm() {
+  const { t } = useLanguage()
   const router = useRouter()
   const searchParams = useSearchParams()
-  const [authTab, setAuthTab] = useState<"phone" | "ecp">("phone")
-  const [phoneDigits, setPhoneDigits] = useState("")
+  const [server, setServer] = useState("time3")
+  const [login, setLogin] = useState("")
   const [password, setPassword] = useState("")
-  const [showPassword, setShowPassword] = useState(false)
   const [remember, setRemember] = useState(false)
   const [error, setError] = useState("")
   const [submitting, setSubmitting] = useState(false)
   const [infoModal, setInfoModal] = useState<string | null>(null)
+  const [savedServers, setSavedServers] = useState<SavedServer[]>([])
 
-  const phoneValid = phoneDigits.length === 9
-  const canSubmit = phoneValid && password.length > 0 && !submitting
+  useEffect(() => {
+    setSavedServers(loadSavedServers())
+  }, [])
+
+  const canSubmit = server.trim().length > 0 && login.trim().length > 0 && password.length > 0 && !submitting
+
+  function selectSavedServer(entry: SavedServer) {
+    setServer(entry.server)
+    setLogin(entry.login)
+    setError("")
+  }
+
+  function removeSavedServer(entry: SavedServer) {
+    setSavedServers((current) => {
+      const next = current.filter((item) => !(item.login === entry.login && item.server === entry.server))
+      saveSavedServers(next)
+      return next
+    })
+  }
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault()
@@ -59,18 +98,24 @@ function LoginForm() {
       const response = await fetch("/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username: `998${phoneDigits}`, password, remember }),
+        body: JSON.stringify({ username: login.trim(), password, remember }),
       })
       if (!response.ok) {
         const data = await response.json().catch(() => ({}))
-        setError(data.error || "Не удалось войти")
+        setError(data.error || t("Не удалось войти"))
         return
       }
+
+      const entry: SavedServer = { login: login.trim(), server: server.trim() }
+      const next = [entry, ...savedServers.filter((item) => !(item.login === entry.login && item.server === entry.server))]
+      saveSavedServers(next)
+      setSavedServers(next)
+
       const from = searchParams.get("from")
       router.push(from && from.startsWith("/") ? from : "/")
       router.refresh()
     } catch {
-      setError("Сервер недоступен, попробуйте ещё раз")
+      setError(t("Сервер недоступен, попробуйте ещё раз"))
     } finally {
       setSubmitting(false)
     }
@@ -78,112 +123,119 @@ function LoginForm() {
 
   return (
     <>
-      <div className="mb-8 flex overflow-hidden rounded-md border border-slate-200">
-        {(
-          [
-            ["phone", "Вход с телефоном"],
-            ["ecp", "Вход через ЭЦП"],
-          ] as const
-        ).map(([key, label]) => (
-          <button
-            key={key}
-            type="button"
-            onClick={() => setAuthTab(key)}
-            className={`flex-1 border-b-2 px-4 py-3 text-[15px] font-semibold transition-colors ${
-              authTab === key ? "border-[#4f70e7] text-[#4f70e7]" : "border-transparent text-slate-500 hover:text-slate-700"
-            }`}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
-
-      {authTab === "ecp" ? (
-        <div className="flex flex-col items-center gap-4 rounded-md border border-dashed border-slate-300 px-6 py-10 text-center">
-          <ShieldAlert className="h-10 w-10 text-slate-400" />
-          <p className="text-sm text-slate-500">Вход через ЭЦП временно недоступен в этой версии.</p>
-          <button type="button" onClick={() => setAuthTab("phone")} className="text-sm font-semibold text-[#4f70e7] hover:underline">
-            Вернуться к входу по телефону
-          </button>
-        </div>
-      ) : (
-        <form onSubmit={handleSubmit} className="space-y-5">
-          <label className="block">
-            <span className="mb-1.5 block text-[15px] text-slate-800">
-              <span className="text-red-500">*</span> Телефон
-            </span>
-            <div className="flex overflow-hidden rounded-md border border-slate-300 focus-within:border-[#4f70e7]">
-              <span className="flex items-center bg-slate-50 px-3 text-[15px] text-slate-500">+998</span>
-              <input
-                autoFocus
-                inputMode="numeric"
-                value={formatPhoneDisplay(phoneDigits)}
-                onChange={(event) => setPhoneDigits(event.target.value.replace(/\D/g, "").slice(0, 9))}
-                placeholder="XX XXX-XXXX"
-                className="w-full px-3 py-2.5 text-[15px] outline-none"
-                autoComplete="tel-national"
-              />
-            </div>
-          </label>
-
-          <label className="block">
-            <span className="mb-1.5 block text-[15px] text-slate-800">
-              <span className="text-red-500">*</span> Пароль
-            </span>
-            <div className="flex items-center rounded-md border border-slate-300 px-3 focus-within:border-[#4f70e7]">
-              <input
-                type={showPassword ? "text" : "password"}
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-                placeholder="Введите пароль"
-                className="w-full py-2.5 text-[15px] outline-none"
-                autoComplete="current-password"
-              />
-              <button
-                type="button"
-                onClick={() => setShowPassword((value) => !value)}
-                aria-label={showPassword ? "Скрыть пароль" : "Показать пароль"}
-                className="shrink-0 text-slate-400 hover:text-slate-600"
+      {savedServers.length > 0 && (
+        <div className="mb-6">
+          <span className="mb-2 block text-[15px] text-slate-800">{t("Сохранённые серверы")}</span>
+          <div className="flex flex-wrap gap-3">
+            {savedServers.map((entry) => (
+              <div
+                key={`${entry.login}@${entry.server}`}
+                className="relative flex w-[190px] items-start justify-between rounded-md border border-slate-200 px-4 py-3"
               >
-                {showPassword ? <Eye className="h-5 w-5" /> : <EyeOff className="h-5 w-5" />}
-              </button>
-            </div>
-          </label>
+                <button
+                  type="button"
+                  onClick={() => selectSavedServer(entry)}
+                  className="min-w-0 flex-1 text-left"
+                >
+                  <span className="block truncate text-[15px] font-semibold text-slate-800">{entry.login}</span>
+                  <span className="block truncate text-[13px] text-slate-500">{entry.server}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => removeSavedServer(entry)}
+                  aria-label={t("Удалить сохранённый сервер")}
+                  className="shrink-0 text-slate-400 hover:text-slate-600"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
-          <label className="flex items-center gap-2 text-[15px] text-slate-700">
+      <form onSubmit={handleSubmit} className="space-y-5">
+        <label className="block">
+          <span className="mb-2 block text-sm font-medium leading-[17.5px] text-black">
+            {t("Сервер")} <span className="text-red-500">*</span>
+          </span>
+          <input
+            value={server}
+            onChange={(event) => setServer(event.target.value)}
+            placeholder={t("Введите")}
+            required
+            className="h-10 w-full rounded-[8px] border border-[#D0D5DD] px-3.5 text-base leading-[normal] text-[#1D2939] outline-none placeholder:text-[#667085] focus:border-[#444CE7] focus:shadow-[0_1px_2px_0_rgba(16,24,40,0.05)]"
+            autoComplete="off"
+          />
+        </label>
+
+        <label className="block">
+          <span className="mb-2 block text-sm font-medium leading-[17.5px] text-black">
+            {t("Логин")} <span className="text-red-500">*</span>
+          </span>
+          <input
+            autoFocus
+            value={login}
+            onChange={(event) => setLogin(event.target.value)}
+            placeholder={t("Введите")}
+            required
+            className="h-10 w-full rounded-[8px] border border-[#D0D5DD] px-3.5 text-base leading-[normal] text-[#1D2939] outline-none placeholder:text-[#667085] focus:border-[#444CE7] focus:shadow-[0_1px_2px_0_rgba(16,24,40,0.05)]"
+            autoComplete="username"
+          />
+        </label>
+
+        <label className="block">
+          <span className="mb-2 block text-sm font-medium leading-[17.5px] text-black">
+            {t("Пароль")} <span className="text-red-500">*</span>
+          </span>
+          <input
+            type="password"
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+            placeholder={t("Введите")}
+            required
+            className="h-10 w-full rounded-[8px] border border-[#D0D5DD] px-3.5 text-base leading-[normal] text-[#1D2939] outline-none placeholder:text-[#667085] focus:border-[#444CE7] focus:shadow-[0_1px_2px_0_rgba(16,24,40,0.05)]"
+            autoComplete="current-password"
+          />
+        </label>
+
+        <div className="flex items-center justify-between">
+          <label className="flex items-center gap-4 text-[13px] text-[#333333]">
             <input
               type="checkbox"
               checked={remember}
               onChange={(event) => setRemember(event.target.checked)}
-              className="h-4 w-4 accent-[#4f70e7]"
+              className="h-5 w-5 accent-[#333333]"
             />
-            Запомнить аккаунт
+            {t("Запомнить меня")}
           </label>
-
-          {error && <p className="text-sm font-medium text-rose-600">{error}</p>}
-
           <button
-            type="submit"
-            disabled={!canSubmit}
-            className={`w-full rounded-md py-3 font-semibold text-white transition-colors ${
-              canSubmit ? "bg-[#4f70e7] hover:opacity-90" : "cursor-not-allowed bg-[#c7d2f7]"
-            }`}
+            type="button"
+            onClick={() => setInfoModal(t("Восстановление пароля"))}
+            className="text-[13px] font-semibold text-[#3538CD] hover:underline"
           >
-            {submitting ? "Вход..." : "Войти"}
+            {t("Забыли пароль?")}
           </button>
-        </form>
-      )}
+        </div>
 
-      <div className="mt-6 space-y-2 text-center text-[15px]">
-        <p className="text-slate-600">
-          Нет доступа?{" "}
-          <button type="button" onClick={() => setInfoModal("Регистрация")} className="font-semibold text-[#4f70e7] hover:underline">
-            Регистрация
+        {error && <p className="text-sm font-medium text-rose-600">{error}</p>}
+
+        <button
+          type="submit"
+          disabled={submitting}
+          className="flex h-12 w-full items-center justify-center rounded-[5px] bg-[#4243FF] px-5 text-base font-medium text-white transition-colors hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-70"
+        >
+          {submitting ? t("Вход...") : t("Войти")}
+        </button>
+      </form>
+
+      <div className="mt-[25px] text-center text-[13px]">
+        <p className="text-[#475467]">
+          {t("У вас нет доступа?")}{" "}
+          <button type="button" onClick={() => setInfoModal(t("Регистрация"))} className="font-semibold text-[#3538CD] hover:underline">
+            {t("Регистрация")}
           </button>
         </p>
-        <button type="button" onClick={() => setInfoModal("Восстановление пароля")} className="font-semibold text-[#4f70e7] hover:underline">
-          Забыли пароль?
-        </button>
       </div>
 
       {infoModal && <InfoModal title={infoModal} onClose={() => setInfoModal(null)} />}
@@ -192,34 +244,50 @@ function LoginForm() {
 }
 
 export default function LoginPage() {
+  const { t } = useLanguage()
   return (
     <main className="flex min-h-screen">
-      <div className="flex w-full flex-col justify-center px-6 py-12 sm:px-12 lg:w-1/2 lg:px-20">
-        <div className="mx-auto w-full max-w-md">
-          <div className="mb-10 inline-flex flex-col items-start">
-            <span className="h-3 w-16 rounded-t-full border-t-[5px] border-[#4f37c8]" />
-            <span className="-mt-px text-4xl font-extrabold tracking-tight text-[#1c2758]">
-              l<span className="text-[#4f70e7]">i</span>nko
-            </span>
-          </div>
+      <div className="flex w-full flex-col lg:w-1/2">
+        <div className="flex flex-1 flex-col justify-center px-6 py-12 sm:px-12 lg:px-0">
+          <div className="mx-auto w-full max-w-[500px]">
+            <div className="inline-flex flex-col items-start">
+              <span className="h-3 w-16 rounded-t-full border-t-[5px] border-[#4f37c8]" />
+              <span className="-mt-px text-4xl font-extrabold tracking-tight text-[#1c2758]">
+                l<span className="text-[#4f70e7]">i</span>nko
+              </span>
+            </div>
 
-          <h1 className="text-3xl font-extrabold text-slate-900 sm:text-[34px]">Войти в систему</h1>
-          <p className="mt-3 text-[15px] leading-6 text-slate-500">
-            Выберите тип авторизации и заполните данные для входа в аккаунт
-          </p>
+            <h1 className="mt-[60px] mb-3 text-[36px] font-bold leading-[44px] text-[#333333]">{t("Войти в систему")}</h1>
+            <p className="text-base leading-5 text-[#475467]">
+              {t("Выберите тип авторизации и заполните данные для входа в аккаунт")}
+            </p>
 
-          <div className="mt-8">
-            <Suspense fallback={<div className="h-96" />}>
-              <LoginForm />
-            </Suspense>
+            <div className="mt-8">
+              <Suspense fallback={<div className="h-96" />}>
+                <LoginForm />
+              </Suspense>
+            </div>
           </div>
         </div>
+
+        <footer className="flex items-center justify-between bg-[#F3F4F6] px-8 py-6">
+          <a
+            href="https://t.me/Linko_tech_support"
+            target="_blank"
+            rel="noreferrer"
+            className="flex items-center gap-2 text-[13px] text-[#129FDD] underline"
+          >
+            <Send className="h-4 w-4" />
+            {t("Онлайн поддержка")}
+          </a>
+          <div className="flex items-center gap-2 text-sm text-[#475467] underline">
+            <Phone className="h-4 w-4" />
+            +998 78 555-55-25
+          </div>
+        </footer>
       </div>
 
       <div className="relative hidden lg:block lg:w-1/2">
-        <div className="absolute right-6 top-6 z-10 rounded-full bg-white px-4 py-1.5 text-sm font-semibold text-slate-700 shadow-md">
-          RU
-        </div>
         <LoginIllustration />
       </div>
     </main>

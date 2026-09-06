@@ -1,8 +1,11 @@
 "use client"
 
 import Image from "next/image"
-import { ChangeEvent, useMemo, useRef, useState } from "react"
-import { ChevronLeft, ChevronRight, Copy, ListChecks, Pencil, PlusCircle, RefreshCw, Search, Star, Trash2, X } from "lucide-react"
+import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react"
+import { ChevronLeft, ChevronRight, Copy, ListChecks, Pencil, PlusCircle, RefreshCw, Search, Trash2, X } from "lucide-react"
+
+import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
+import { readExcelRows } from "@/lib/excel-import"
 
 type PlanEntry = { employee: string; survey: string }
 
@@ -39,19 +42,7 @@ function periodKey(month: string, year: string) {
   return `${month}-${year}`
 }
 
-const initialPlans: Record<string, PlanEntry[]> = {
-  [periodKey("Июль", "2026")]: [
-    { employee: "Zaynillo Sadullayev", survey: "distr" },
-    { employee: "Salohiddin Agent Tashkent", survey: "so'rovnoma 1" },
-    { employee: "Islom Toirjonov", survey: "narxlar royxat" },
-    { employee: "Maykl Jekson", survey: "salom GG" },
-    { employee: "Admin Ritm", survey: "oprosnik taski" },
-  ],
-  [periodKey("Июнь", "2026")]: [
-    { employee: "Fozil Agent", survey: "demo oprosnik" },
-    { employee: "Samandar Abdurahmonov", survey: "mijozlar fikri" },
-  ],
-}
+const initialPlans: Record<string, PlanEntry[]> = {}
 
 function currentMonthName() {
   return months[new Date().getMonth()]
@@ -61,19 +52,9 @@ function currentYear() {
   return String(new Date().getFullYear())
 }
 
-function parseImportedText(text: string) {
-  const isHtml = /<table/i.test(text)
-  const lines = isHtml
-    ? Array.from(text.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/gi)).map((match) =>
-        Array.from(match[1].matchAll(/<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi))
-          .map((cell) => cell[1].replace(/<[^>]+>/g, "").trim())
-          .join(";"),
-      )
-    : text.split(/\r?\n/).filter(Boolean)
-
+function parseImportedRows(rows: string[][]) {
   const entries: PlanEntry[] = []
-  lines.forEach((line, index) => {
-    const [employee, survey] = line.split(/[;,\t]/).map((value) => value?.trim())
+  rows.forEach(([employee, survey], index) => {
     if (!employee || !survey) return
     if (index === 0 && /сотрудник/i.test(employee)) return
     entries.push({ employee, survey })
@@ -93,8 +74,38 @@ export function SurveyPlanView() {
   const [copyMonth, setCopyMonth] = useState(currentMonthName)
   const [copyYear, setCopyYear] = useState(currentYear)
   const [copyDone, setCopyDone] = useState(false)
-  const [favorite, setFavorite] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    fetch("/api/survey-plans")
+      .then((response) => (response.ok ? (response.json() as Promise<{ period: string; employee: string; survey: string }[]>) : Promise.reject()))
+      .then((entries) => {
+        const grouped: Record<string, PlanEntry[]> = {}
+        for (const entry of entries) {
+          grouped[entry.period] = [...(grouped[entry.period] ?? []), { employee: entry.employee, survey: entry.survey }]
+        }
+        setPlans(grouped)
+      })
+      .catch(() => {})
+  }, [])
+
+  async function savePeriod(period: string, entries: PlanEntry[]) {
+    try {
+      const response = await fetch("/api/survey-plans", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ period, entries }),
+      })
+      if (!response.ok) {
+        window.alert("Не удалось сохранить план")
+        return false
+      }
+      return true
+    } catch {
+      window.alert("Сервер недоступен, попробуйте ещё раз")
+      return false
+    }
+  }
 
   const key = periodKey(month, year)
   const rows = useMemo(() => (plans[key] ?? []).filter((row) => row.employee.toLowerCase().includes(query.toLowerCase()) || row.survey.toLowerCase().includes(query.toLowerCase())), [plans, key, query])
@@ -113,8 +124,10 @@ export function SurveyPlanView() {
     setEditing(true)
   }
 
-  function saveEdit() {
+  async function saveEdit() {
     const clean = draft.filter((row) => row.employee && row.survey)
+    const ok = await savePeriod(key, clean)
+    if (!ok) return
     setPlans((current) => ({ ...current, [key]: clean }))
     setEditing(false)
   }
@@ -131,9 +144,12 @@ export function SurveyPlanView() {
     setDraft((rows) => rows.filter((_, position) => position !== index))
   }
 
-  function copyPlan() {
+  async function copyPlan() {
     const targetKey = periodKey(copyMonth, copyYear)
-    setPlans((current) => ({ ...current, [targetKey]: plans[key] ?? [] }))
+    const entries = plans[key] ?? []
+    const ok = await savePeriod(targetKey, entries)
+    if (!ok) return
+    setPlans((current) => ({ ...current, [targetKey]: entries }))
     setCopyDone(true)
     setTimeout(() => setCopyDone(false), 2000)
   }
@@ -142,22 +158,19 @@ export function SurveyPlanView() {
     const file = event.target.files?.[0]
     event.target.value = ""
     if (!file) return
-    const reader = new FileReader()
-    reader.onload = () => {
-      const entries = parseImportedText(String(reader.result ?? ""))
-      if (entries.length) setPlans((current) => ({ ...current, [key]: entries }))
-    }
-    reader.readAsText(file)
+    void readExcelRows(file).then(async (rows) => {
+      const entries = parseImportedRows(rows)
+      if (!entries.length) return
+      const ok = await savePeriod(key, entries)
+      if (ok) setPlans((current) => ({ ...current, [key]: entries }))
+    })
   }
 
   return (
     <main className="min-h-[calc(100vh-4rem)] bg-slate-100 px-4 pb-8 sm:px-9">
       <header className="flex flex-wrap items-center justify-between gap-3 py-4">
         <h1 className="text-2xl font-bold text-slate-600">
-          <button type="button" onClick={() => setFavorite((value) => !value)} className="inline-flex items-center gap-2 text-[#4f70e7]">
-            <Star className={`h-6 w-6 ${favorite ? "fill-[#4f70e7]" : "fill-slate-500 text-slate-500"}`} />
-            Избранные
-          </button>
+          <FavoritesButton className="inline-flex items-center gap-2 text-[#4f70e7]" />
           <span className="mx-2 text-slate-400">|</span> План опроса
         </h1>
         <div className="flex items-center gap-3">

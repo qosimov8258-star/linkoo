@@ -1,36 +1,41 @@
 import { NextResponse } from "next/server"
+import { z } from "zod"
 
-import { getCurrentUser } from "@/lib/current-user"
-import { deleteBrand, parseBrandInput, updateBrand } from "@/lib/brands-repo"
+import { requireRole } from "@/lib/rbac"
+import { parseJsonBody } from "@/lib/validation"
+import { deleteBrand, updateBrand } from "@/lib/brands-repo"
+
+const brandSchema = z.object({
+  name: z.string().trim().min(1),
+  organization: z.string().trim().min(1),
+  photoUrl: z.string().optional(),
+})
 
 type RouteParams = { params: Promise<{ id: string }> }
 
 export async function PUT(request: Request, { params }: RouteParams) {
-  const user = await getCurrentUser()
-  if (!user) return NextResponse.json({ error: "Tizimga kirilmagan" }, { status: 401 })
+  const auth = await requireRole("manager")
+  if ("error" in auth) return auth.error
 
   const id = Number((await params).id)
-  let body: unknown
-  try {
-    body = await request.json()
-  } catch {
-    return NextResponse.json({ error: "Noto'g'ri so'rov" }, { status: 400 })
-  }
+  const parsed = await parseJsonBody(request, brandSchema)
+  if (parsed.error) return parsed.error
 
-  const input = parseBrandInput(body)
-  if (!input) return NextResponse.json({ error: "Наименование и организация обязательны" }, { status: 400 })
-
-  const brand = updateBrand(id, input)
+  const brand = await updateBrand(id, {
+    name: parsed.data.name,
+    organization: parsed.data.organization,
+    photoUrl: parsed.data.photoUrl && parsed.data.photoUrl.trim() ? parsed.data.photoUrl : null,
+  })
   if (!brand) return NextResponse.json({ error: "Бренд не найден" }, { status: 404 })
   return NextResponse.json(brand)
 }
 
 export async function DELETE(_request: Request, { params }: RouteParams) {
-  const user = await getCurrentUser()
-  if (!user) return NextResponse.json({ error: "Tizimga kirilmagan" }, { status: 401 })
+  const auth = await requireRole("manager")
+  if ("error" in auth) return auth.error
 
   const id = Number((await params).id)
-  const ok = deleteBrand(id)
+  const ok = (await deleteBrand(id))
   if (!ok) return NextResponse.json({ error: "Бренд не найден" }, { status: 404 })
   return NextResponse.json({ ok: true })
 }

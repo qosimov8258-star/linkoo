@@ -1,77 +1,34 @@
 "use client"
 
-import { Ban, Download, Minus, Plus, Printer, Search, Star, X, ChevronLeft, ChevronRight, ChevronDown } from "lucide-react"
-import { Fragment, FormEvent, useMemo, useState } from "react"
+import { Ban, Download, FileText, Minus, Plus, Printer, Search, X, ChevronLeft, ChevronRight, ChevronDown } from "lucide-react"
+import { ChangeEvent, Fragment, FormEvent, useEffect, useMemo, useRef, useState } from "react"
 
+import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
 import { downloadExcelTable } from "@/lib/excel-export"
+import { mapHeaderColumns, readExcelRows } from "@/lib/excel-import"
+import { writeOffWarehouses as warehouses, writeOffReasons as reasons, writeOffProducts as products, type WriteOff } from "./write-offs-data"
 
-type WriteOffItem = { id: number; product: string; code: string; series: string; block: number; qty: number; cost: number; sum: number }
-type WriteOff = { id: number; creator: string; warehouse: string; date: string; status: "закрыт" | "открыт"; comment: string; reason: string; items: WriteOffItem[] }
-
-const warehouses = ["05,08,2025(1)", "Andijon skladi", "toshkent", "Suhrob sklad", "основной"]
-const reasons = ["Порча", "Истек срок годности", "Недостача", "Брак", "Прочее"]
-const products = ["Muzlatkich 2", "sndwch", "g'ilof", "robot moshina", "energetik 1 l", "coca-cola"]
-
-const monthNames = ["янв.", "февр.", "мар.", "апр.", "мая", "июня", "июля", "авг.", "сент.", "окт.", "нояб.", "дек."]
-function fmt(date: Date) {
-  return `${String(date.getDate()).padStart(2, "0")} ${monthNames[date.getMonth()]} ${date.getFullYear()}`
-}
-
-const knownRows: Omit<WriteOff, "items" | "comment" | "reason">[] = [
-  { id: 69, creator: "Admin Ritm", warehouse: "05,08,2025(1)", date: "24 июня 2026", status: "закрыт" },
-  { id: 68, creator: "Admin Ritm", warehouse: "05,08,2025(1)", date: "11 апр. 2026", status: "закрыт" },
-  { id: 67, creator: "Admin Ritm", warehouse: "05,08,2025(1)", date: "16 мар. 2026", status: "закрыт" },
-  { id: 66, creator: "Admin Ritm", warehouse: "Andijon skladi", date: "06 февр. 2026", status: "закрыт" },
-  { id: 65, creator: "Admin Ritm", warehouse: "05,08,2025(1)", date: "05 февр. 2026", status: "закрыт" },
-]
-
-function buildRows(): WriteOff[] {
-  const rows: WriteOff[] = knownRows.map((row) => ({
-    ...row,
-    comment: "",
-    reason: reasons[row.id % reasons.length],
-    items:
-      row.id === 67
-        ? [{ id: 1, product: "Muzlatkich 2", code: "-", series: "-", block: 0, qty: 10, cost: 51176.499, sum: 511764.994 }]
-        : [{ id: 1, product: products[row.id % products.length], code: "-", series: "-", block: 0, qty: 1 + (row.id % 15), cost: 1000 + (row.id * 373) % 90000, sum: 0 }],
-  }))
-  rows.forEach((row) => {
-    if (row.id !== 67) row.items[0].sum = row.items[0].qty * row.items[0].cost
-  })
-
-  const baseline = new Date(2026, 1, 5)
-  for (let id = 64; id >= 5; id -= 1) {
-    const offsetDays = (65 - id) * 6
-    const date = new Date(baseline)
-    date.setDate(date.getDate() - offsetDays)
-    const qty = 1 + (id % 15)
-    const cost = 1000 + (id * 373) % 90000
-    rows.push({
-      id,
-      creator: "Admin Ritm",
-      warehouse: warehouses[id % warehouses.length],
-      date: fmt(date),
-      status: "закрыт",
-      comment: "",
-      reason: reasons[id % reasons.length],
-      items: [{ id: 1, product: products[id % products.length], code: "-", series: "-", block: 0, qty, cost, sum: qty * cost }],
-    })
-  }
-
-  return rows
+const IMPORT_HEADER_ALIASES: Record<string, string> = {
+  "склад": "warehouse", "warehouse": "warehouse",
+  "причина списания": "reason", "причина": "reason", "reason": "reason",
+  "товар": "product", "product": "product",
+  "кол во": "qty", "количество": "qty", "qty": "qty",
+  "себестоимость": "cost", "cost": "cost",
+  "комментарий": "comment", "comment": "comment",
 }
 
 function money(value: number) {
-  return value.toLocaleString("ru-RU", { maximumFractionDigits: 3 })
+  return value.toLocaleString("ru-RU", { maximumFractionDigits: 2 })
 }
 
 type DraftItem = { id: number; product: string; qty: number; cost: number }
 
 export function WriteOffsView({ embedded = false }: { embedded?: boolean }) {
-  const [rows, setRows] = useState<WriteOff[]>(buildRows)
+  const [rows, setRows] = useState<WriteOff[]>([])
+  const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState("")
   const [query, setQuery] = useState("")
   const [page, setPage] = useState(1)
-  const [favorite, setFavorite] = useState(false)
   const [filterOpen, setFilterOpen] = useState(false)
   const [warehouseFilter, setWarehouseFilter] = useState("all")
   const [expandedId, setExpandedId] = useState<number | null>(null)
@@ -80,7 +37,36 @@ export function WriteOffsView({ embedded = false }: { embedded?: boolean }) {
   const [draftReason, setDraftReason] = useState(reasons[0])
   const [draftComment, setDraftComment] = useState("")
   const [draftItems, setDraftItems] = useState<DraftItem[]>([])
+  const [saving, setSaving] = useState(false)
+  const [importOpen, setImportOpen] = useState(false)
+  const [importFile, setImportFile] = useState<File | null>(null)
+  const [importSaving, setImportSaving] = useState(false)
+  const importInputRef = useRef<HTMLInputElement>(null)
   const pageSize = 25
+
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    fetch("/api/write-offs")
+      .then(async (response) => {
+        if (!response.ok) throw new Error("failed")
+        return (await response.json()) as WriteOff[]
+      })
+      .then((data) => {
+        if (cancelled) return
+        setRows(data)
+        setLoadError("")
+      })
+      .catch(() => {
+        if (!cancelled) setLoadError("Не удалось загрузить списания с сервера")
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const filtered = useMemo(() => {
     return rows.filter((row) => {
@@ -98,10 +84,20 @@ export function WriteOffsView({ embedded = false }: { embedded?: boolean }) {
     setExpandedId((current) => (current === row.id ? null : row.id))
   }
 
-  function cancelWriteOff(row: WriteOff) {
+  async function cancelWriteOff(row: WriteOff) {
     if (!window.confirm(`Отменить списание № ${row.id}? Товар будет возвращён на склад.`)) return
-    setRows((current) => current.filter((item) => item.id !== row.id))
-    if (expandedId === row.id) setExpandedId(null)
+    try {
+      const response = await fetch(`/api/write-offs/${row.id}`, { method: "DELETE" })
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}))
+        window.alert(data.error || "Не удалось отменить списание")
+        return
+      }
+      setRows((current) => current.filter((item) => item.id !== row.id))
+      if (expandedId === row.id) setExpandedId(null)
+    } catch {
+      window.alert("Сервер недоступен, попробуйте ещё раз")
+    }
   }
 
   function openCreate() {
@@ -126,22 +122,116 @@ export function WriteOffsView({ embedded = false }: { embedded?: boolean }) {
 
   const draftTotal = draftItems.reduce((sum, item) => sum + item.qty * item.cost, 0)
 
-  function save(event: FormEvent) {
+  async function save(event: FormEvent) {
     event.preventDefault()
     if (!draftItems.length) return
-    const id = Math.max(0, ...rows.map((row) => row.id)) + 1
-    const newRow: WriteOff = {
-      id,
-      creator: "Admin Ritm",
-      warehouse: draftWarehouse,
-      date: fmt(new Date()),
-      status: "закрыт",
-      comment: draftComment || "",
-      reason: draftReason,
-      items: draftItems.map((item) => ({ id: item.id, product: item.product, code: "-", series: "-", block: 0, qty: item.qty, cost: item.cost, sum: item.qty * item.cost })),
+    setSaving(true)
+    try {
+      const response = await fetch("/api/write-offs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          warehouse: draftWarehouse,
+          reason: draftReason,
+          comment: draftComment || "",
+          items: draftItems.map((item) => ({ id: item.id, product: item.product, code: "-", series: "-", block: 0, qty: item.qty, cost: item.cost })),
+        }),
+      })
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}))
+        window.alert(data.error || "Не удалось создать списание")
+        return
+      }
+      const saved = (await response.json()) as WriteOff
+      setRows((current) => [saved, ...current])
+      setModalOpen(false)
+    } catch {
+      window.alert("Сервер недоступен, попробуйте ещё раз")
+    } finally {
+      setSaving(false)
     }
-    setRows((current) => [newRow, ...current])
-    setModalOpen(false)
+  }
+
+  function downloadTemplate() {
+    downloadExcelTable("write-offs-template", [["Склад", "Причина списания", "Товар", "Кол-во", "Себестоимость", "Комментарий"]])
+  }
+
+  function pickImportFile(event: ChangeEvent<HTMLInputElement>) {
+    setImportFile(event.target.files?.[0] ?? null)
+  }
+
+  async function saveImport() {
+    if (!importFile) return
+    setImportSaving(true)
+    try {
+      const rowsRaw = await readExcelRows(importFile)
+      if (!rowsRaw.length) {
+        window.alert("Не удалось найти данные для импорта в выбранном файле")
+        return
+      }
+      const fieldByIndex = mapHeaderColumns(rowsRaw[0], IMPORT_HEADER_ALIASES)
+      const hasHeader = Array.from(fieldByIndex.values()).includes("product")
+      const dataRows = hasHeader ? rowsRaw.slice(1) : rowsRaw
+
+      const parsed: { warehouse: string; reason: string; product: string; qty: number; cost: number; comment: string }[] = []
+      for (const row of dataRows) {
+        const record: Record<string, string> = {}
+        if (hasHeader) {
+          row.forEach((cell, index) => {
+            const field = fieldByIndex.get(index)
+            if (field) record[field] = cell
+          })
+        } else {
+          record.warehouse = row[0] ?? ""
+          record.reason = row[1] ?? ""
+          record.product = row[2] ?? ""
+          record.qty = row[3] ?? ""
+          record.cost = row[4] ?? ""
+          record.comment = row[5] ?? ""
+        }
+        if (!record.product) continue
+        parsed.push({
+          warehouse: record.warehouse || warehouses[0],
+          reason: record.reason || reasons[0],
+          product: record.product,
+          qty: Number(record.qty) || 1,
+          cost: Number(record.cost) || 0,
+          comment: record.comment || "",
+        })
+      }
+
+      if (!parsed.length) {
+        window.alert("Не удалось найти данные для импорта в выбранном файле")
+        return
+      }
+
+      const created: WriteOff[] = []
+      let failed = 0
+      for (const item of parsed) {
+        try {
+          const response = await fetch("/api/write-offs", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              warehouse: item.warehouse,
+              reason: item.reason,
+              comment: item.comment,
+              items: [{ id: 1, product: item.product, code: "-", series: "-", block: 0, qty: item.qty, cost: item.cost }],
+            }),
+          })
+          if (response.ok) created.push((await response.json()) as WriteOff)
+          else failed += 1
+        } catch {
+          failed += 1
+        }
+      }
+      if (created.length) setRows((current) => [...created, ...current])
+      if (failed) window.alert(`Импортировано ${created.length} из ${parsed.length}. Не удалось сохранить: ${failed}`)
+    } finally {
+      setImportSaving(false)
+      setImportOpen(false)
+      setImportFile(null)
+    }
   }
 
   function downloadList() {
@@ -156,14 +246,17 @@ export function WriteOffsView({ embedded = false }: { embedded?: boolean }) {
       {!embedded && (
         <header className="mb-5 flex items-center justify-between">
           <h1 className="flex items-center text-2xl font-bold text-slate-600">
-            <button type="button" onClick={() => setFavorite((value) => !value)} className="inline-flex items-center gap-2 text-[#4f70e7]">
-              <Star className={`h-5 w-5 ${favorite ? "fill-amber-400 text-amber-400" : ""}`} /> Избранные
-            </button>
+            <FavoritesButton className="inline-flex items-center gap-2 text-[#4f70e7]" />
             <span className="mx-2 text-slate-400">|</span> Списание
           </h1>
-          <button type="button" onClick={openCreate} className="text-[15px] font-medium text-[#ff7a59] hover:underline">
-            Списание товара
-          </button>
+          <div className="flex items-center gap-4">
+            <button type="button" onClick={openCreate} className="text-[15px] font-medium text-[#ff7a59] hover:underline">
+              Списание товара
+            </button>
+            <button type="button" onClick={() => setImportOpen(true)} className="inline-flex items-center gap-1 text-[15px] font-medium text-[#4f70e7] hover:underline">
+              <FileText className="h-4 w-4" /> Импорт с Excel
+            </button>
+          </div>
         </header>
       )}
 
@@ -205,9 +298,14 @@ export function WriteOffsView({ embedded = false }: { embedded?: boolean }) {
             <Download className="h-5 w-5" />
           </button>
           {embedded && (
-            <button type="button" onClick={openCreate} className="text-sm font-medium text-[#ff7a59] hover:underline">
-              Списание товара
-            </button>
+            <>
+              <button type="button" onClick={openCreate} className="text-sm font-medium text-[#ff7a59] hover:underline">
+                Списание товара
+              </button>
+              <button type="button" onClick={() => setImportOpen(true)} className="inline-flex items-center gap-1 text-sm font-medium text-[#4f70e7] hover:underline">
+                <FileText className="h-4 w-4" /> Импорт с Excel
+              </button>
+            </>
           )}
         </div>
 
@@ -222,7 +320,11 @@ export function WriteOffsView({ embedded = false }: { embedded?: boolean }) {
             </tr>
           </thead>
           <tbody>
-            {visible.map((row) => (
+            {loading ? (
+              <tr><td colSpan={5} className="px-9 py-10 text-center text-slate-400">Загрузка списаний...</td></tr>
+            ) : loadError ? (
+              <tr><td colSpan={5} className="px-9 py-10 text-center text-red-600">{loadError}</td></tr>
+            ) : visible.map((row) => (
               <Fragment key={row.id}>
                 <tr onClick={() => toggleExpand(row)} className="cursor-pointer border-b border-dashed border-slate-300 hover:bg-slate-50">
                   <td className="px-9 py-4">{row.id}</td>
@@ -298,7 +400,7 @@ export function WriteOffsView({ embedded = false }: { embedded?: boolean }) {
           </tbody>
         </table>
 
-        {visible.length === 0 && (
+        {!loading && !loadError && visible.length === 0 && (
           <div className="flex min-h-[240px] flex-col items-center justify-center gap-3 py-10">
             <p className="text-lg text-slate-400">По вашему запросу ничего не найдено</p>
           </div>
@@ -392,11 +494,43 @@ export function WriteOffsView({ embedded = false }: { embedded?: boolean }) {
               <div className="text-sm text-slate-600">
                 Общая сумма: <b>{money(draftTotal)}</b>
               </div>
-              <button type="submit" disabled={!draftItems.length} className="rounded bg-[#ff7a59] px-6 py-3 font-semibold text-white hover:brightness-95 disabled:opacity-40">
-                Списать
+              <button type="submit" disabled={!draftItems.length || saving} className="rounded bg-[#ff7a59] px-6 py-3 font-semibold text-white hover:brightness-95 disabled:opacity-40">
+                {saving ? "Списание..." : "Списать"}
               </button>
             </footer>
           </form>
+        </div>
+      )}
+
+      {importOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
+          <div className="w-full max-w-md rounded bg-white">
+            <header className="flex items-center justify-between border-b p-6">
+              <b className="uppercase">Импорт с Excel</b>
+              <button type="button" onClick={() => { setImportOpen(false); setImportFile(null) }} aria-label="Закрыть">
+                <X className="h-5 w-5" />
+              </button>
+            </header>
+            <div className="p-8">
+              <button type="button" onClick={downloadTemplate} className="mb-4 font-semibold text-[#4f70e7] hover:underline">
+                1. Скачать шаблон
+              </button>
+              <input ref={importInputRef} type="file" accept=".csv,.xls,.xlsx" onChange={pickImportFile} className="hidden" />
+              <button
+                type="button"
+                onClick={() => importInputRef.current?.click()}
+                className="flex w-full flex-col items-center justify-center gap-3 rounded border-2 border-dashed border-slate-300 py-10 text-slate-500 hover:border-[#4f70e7] hover:text-[#4f70e7]"
+              >
+                <FileText className="h-8 w-8" />
+                {importFile ? importFile.name : "Добавьте файл Excel или нажмите для выбора"}
+              </button>
+            </div>
+            <footer className="flex justify-end border-t p-5">
+              <button type="button" disabled={!importFile || importSaving} onClick={saveImport} className="rounded bg-[#6ccd8b] px-5 py-3 font-semibold text-white hover:brightness-95 disabled:opacity-40">
+                {importSaving ? "Импорт..." : "Сохранить"}
+              </button>
+            </footer>
+          </div>
         </div>
       )}
     </main>

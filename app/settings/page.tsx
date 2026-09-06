@@ -1,13 +1,15 @@
 import Link from "next/link"
+import { getServerT } from "@/lib/i18n/server"
 
-export default function SettingsPage() {
+export default async function SettingsPage() {
+  const t = await getServerT()
   return (
     <main className="min-h-[calc(100vh-4rem)] bg-slate-100 px-4 py-6 sm:px-6 lg:px-8">
       <div className="mx-auto max-w-[1320px]">
         <div className="mb-8 rounded-3xl bg-white p-8 shadow-sm">
-          <h1 className="text-3xl font-bold text-slate-900">Настройки</h1>
+          <h1 className="text-3xl font-bold text-slate-900">{t("Настройки")}</h1>
           <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-600">
-            Управляйте параметрами аккаунта, уведомлениями, структурой приложения и предпочтениями.
+            {t("Управляйте параметрами аккаунта, уведомлениями, структурой приложения и предпочтениями.")}
           </p>
         </div>
 
@@ -37,17 +39,17 @@ export default function SettingsPage() {
               <div className="flex items-center justify-between gap-4">
                 <div>
                   <p className="text-sm font-semibold uppercase tracking-[0.18em] text-brand-blue">
-                    {item.title}
+                    {t(item.title)}
                   </p>
-                  <h2 className="mt-3 text-2xl font-bold text-slate-900">{item.title}</h2>
+                  <h2 className="mt-3 text-2xl font-bold text-slate-900">{t(item.title)}</h2>
                 </div>
                 <span className="inline-flex h-12 w-12 items-center justify-center rounded-3xl bg-brand-blue/10 text-brand-blue">
                   {item.title.slice(0, 1)}
                 </span>
               </div>
-              <p className="mt-5 text-sm leading-6 text-slate-600">{item.description}</p>
+              <p className="mt-5 text-sm leading-6 text-slate-600">{t(item.description)}</p>
               <div className="mt-6 flex items-center justify-between text-sm font-semibold text-brand-blue">
-                <span>Открыть</span>
+                <span>{t("Открыть")}</span>
                 <span aria-hidden="true">→</span>
               </div>
             </Link>

@@ -1,10 +1,20 @@
 "use client"
 
 import Image from "next/image"
-import { ChangeEvent, FormEvent, useMemo, useRef, useState } from "react"
-import { ChevronLeft, ChevronRight, Copy, Download, ListChecks, Pencil, PlusCircle, RefreshCw, Star, X } from "lucide-react"
+import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react"
+import { ChevronLeft, ChevronRight, Copy, Download, FileText, ListChecks, Pencil, PlusCircle, RefreshCw, X } from "lucide-react"
+import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
+
+import { downloadExcelTable } from "@/lib/excel-export"
+import { mapHeaderColumns, readExcelRows } from "@/lib/excel-import"
 
 const months = ["Январь", "Февраль", "Март", "Апрель", "Май", "Июнь", "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"]
+
+const IMPORT_HEADER_ALIASES: Record<string, string> = {
+  "сотрудник": "employee",
+  "зарплата": "salary",
+  "kpi": "kpi",
+}
 
 type SalaryRow = {
   id: number
@@ -35,11 +45,32 @@ export function SalaryPlanningView() {
   const [query, setQuery] = useState("")
   const [pageSize, setPageSize] = useState(25)
   const [page, setPage] = useState(1)
-  const [favorite, setFavorite] = useState(false)
   const [addOpen, setAddOpen] = useState(false)
   const [plansOpen, setPlansOpen] = useState(false)
   const [recalculating, setRecalculating] = useState(false)
   const [message, setMessage] = useState("")
+  const [importOpen, setImportOpen] = useState(false)
+  const [importFile, setImportFile] = useState<File | null>(null)
+  const [importSaving, setImportSaving] = useState(false)
+  const importInputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    fetch("/api/salary-plans")
+      .then(async (response) => {
+        if (!response.ok) throw new Error("Не удалось загрузить зарплаты")
+        return (await response.json()) as SalaryRow[]
+      })
+      .then((data) => {
+        if (!cancelled) setRows(data)
+      })
+      .catch(() => {
+        if (!cancelled) window.alert("Не удалось загрузить зарплаты с сервера")
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const filtered = useMemo(
     () =>
@@ -57,9 +88,120 @@ export function SalaryPlanningView() {
     setSelected((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id])
   }
 
-  function setCredited(credited: boolean) {
-    setRows((current) => current.map((row) => selected.includes(row.id) ? { ...row, credited } : row))
+  async function setCredited(credited: boolean) {
+    const targets = rows.filter((row) => selected.includes(row.id))
+    const updated: SalaryRow[] = []
+    let failed = 0
+    for (const row of targets) {
+      try {
+        const response = await fetch(`/api/salary-plans/${row.id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ employee: row.employee, salary: row.salary, bonus: row.bonus, kpi: row.kpi, credited }),
+        })
+        if (response.ok) updated.push((await response.json()) as SalaryRow)
+        else failed += 1
+      } catch {
+        failed += 1
+      }
+    }
+    if (updated.length) setRows((current) => current.map((row) => updated.find((item) => item.id === row.id) ?? row))
+    if (failed) window.alert(`Не удалось обновить записей: ${failed}`)
     setMessage(credited ? "Зарплата зачислена" : "Зачисление отменено")
+  }
+
+  async function recalcKpi() {
+    setRecalculating(true)
+    try {
+      const updated: SalaryRow[] = []
+      let failed = 0
+      for (const row of rows) {
+        const bonus = Math.round((row.salary * row.kpi) / 100)
+        try {
+          const response = await fetch(`/api/salary-plans/${row.id}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ employee: row.employee, salary: row.salary, bonus, kpi: row.kpi, credited: row.credited }),
+          })
+          if (response.ok) updated.push((await response.json()) as SalaryRow)
+          else failed += 1
+        } catch {
+          failed += 1
+        }
+      }
+      if (updated.length) setRows((current) => current.map((row) => updated.find((item) => item.id === row.id) ?? row))
+      if (failed) window.alert(`Не удалось пересчитать записей: ${failed}`)
+      setMessage("KPI пересчитан")
+    } finally {
+      setRecalculating(false)
+    }
+  }
+
+  async function addSalary(employee: string, salary: number, kpi: number) {
+    try {
+      const response = await fetch("/api/salary-plans", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ employee, salary, bonus: 0, kpi, credited: false }),
+      })
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}))
+        window.alert(data.error || "Не удалось добавить зарплату")
+        return
+      }
+      const saved = (await response.json()) as SalaryRow
+      setRows((current) => [...current, saved])
+      setAddOpen(false)
+      setMessage("Зарплата добавлена")
+    } catch {
+      window.alert("Сервер недоступен, попробуйте ещё раз")
+    }
+  }
+
+  async function updatePlans(salary: number, kpi: number) {
+    const targets = rows.filter((row) => selected.includes(row.id))
+    const updated: SalaryRow[] = []
+    let failed = 0
+    for (const row of targets) {
+      try {
+        const response = await fetch(`/api/salary-plans/${row.id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ employee: row.employee, salary, bonus: row.bonus, kpi, credited: row.credited }),
+        })
+        if (response.ok) updated.push((await response.json()) as SalaryRow)
+        else failed += 1
+      } catch {
+        failed += 1
+      }
+    }
+    if (updated.length) setRows((current) => current.map((row) => updated.find((item) => item.id === row.id) ?? row))
+    setPlansOpen(false)
+    setMessage("Планы обновлены")
+    if (failed) window.alert(`Не удалось обновить записей: ${failed}`)
+  }
+
+  async function duplicateSelected() {
+    if (!selected.length) return
+    const targets = rows.filter((row) => selected.includes(row.id))
+    const created: SalaryRow[] = []
+    let failed = 0
+    for (const row of targets) {
+      try {
+        const response = await fetch("/api/salary-plans", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ employee: `${row.employee} — копия`, salary: row.salary, bonus: row.bonus, kpi: row.kpi, credited: row.credited }),
+        })
+        if (response.ok) created.push((await response.json()) as SalaryRow)
+        else failed += 1
+      } catch {
+        failed += 1
+      }
+    }
+    if (created.length) setRows((current) => [...current, ...created])
+    setMessage("Выбранные строки скопированы")
+    if (failed) window.alert(`Не удалось скопировать записей: ${failed}`)
   }
 
   function exportCsv() {
@@ -74,23 +216,118 @@ export function SalaryPlanningView() {
     const text = await file.text()
     const imported = text.split(/\r?\n/).slice(1).filter(Boolean).map((line, index) => {
       const [employee, salary, bonus, , kpi, credited] = line.split(";")
-      return { id: Date.now() + index, employee: employee || `Сотрудник ${index + 1}`, salary: Number(salary) || 0, bonus: Number(bonus) || 0, kpi: Number(kpi) || 0, credited: credited === "Да" }
+      return { employee: employee || `Сотрудник ${index + 1}`, salary: Number(salary) || 0, bonus: Number(bonus) || 0, kpi: Number(kpi) || 0, credited: credited === "Да" }
     })
-    setRows(imported)
-    setMessage(`Импортировано сотрудников: ${imported.length}`)
     event.target.value = ""
+    if (!imported.length) return
+
+    // "Обновить с excel" replaces the whole plan list: clear existing rows, then recreate from the file
+    for (const row of rows) {
+      try {
+        await fetch(`/api/salary-plans/${row.id}`, { method: "DELETE" })
+      } catch {
+        // best effort — continue even if one delete fails
+      }
+    }
+    const created: SalaryRow[] = []
+    let failed = 0
+    for (const item of imported) {
+      try {
+        const response = await fetch("/api/salary-plans", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(item),
+        })
+        if (response.ok) created.push((await response.json()) as SalaryRow)
+        else failed += 1
+      } catch {
+        failed += 1
+      }
+    }
+    setRows(created)
+    setMessage(`Импортировано сотрудников: ${created.length}`)
+    if (failed) window.alert(`Не удалось импортировать записей: ${failed}`)
+  }
+
+  function downloadTemplate() {
+    downloadExcelTable("salary-template", [["Сотрудник", "Зарплата", "KPI"]])
+  }
+
+  function pickImportFile(event: ChangeEvent<HTMLInputElement>) {
+    setImportFile(event.target.files?.[0] ?? null)
+  }
+
+  async function saveImport() {
+    if (!importFile) return
+    setImportSaving(true)
+    try {
+      const excelRows = await readExcelRows(importFile)
+      if (!excelRows.length) {
+        window.alert("Не удалось найти данные для импорта в выбранном файле")
+        return
+      }
+      const fieldByIndex = mapHeaderColumns(excelRows[0], IMPORT_HEADER_ALIASES)
+      const hasHeader = Array.from(fieldByIndex.values()).includes("employee")
+      const dataRows = hasHeader ? excelRows.slice(1) : excelRows
+
+      const parsed: { employee: string; salary: number; kpi: number }[] = []
+      for (const row of dataRows) {
+        const record: Record<string, string> = {}
+        if (hasHeader) {
+          row.forEach((cell, index) => {
+            const field = fieldByIndex.get(index)
+            if (field) record[field] = cell
+          })
+        } else {
+          record.employee = row[0] ?? ""
+          record.salary = row[1] ?? ""
+          record.kpi = row[2] ?? ""
+        }
+        if (!record.employee) continue
+        parsed.push({ employee: record.employee.trim(), salary: Number(record.salary) || 0, kpi: Number(record.kpi) || 0 })
+      }
+
+      if (!parsed.length) {
+        window.alert("Не удалось найти данные для импорта в выбранном файле")
+        return
+      }
+
+      const created: SalaryRow[] = []
+      let failed = 0
+      for (const item of parsed) {
+        try {
+          const response = await fetch("/api/salary-plans", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ employee: item.employee, salary: item.salary, bonus: 0, kpi: item.kpi, credited: false }),
+          })
+          if (response.ok) created.push((await response.json()) as SalaryRow)
+          else failed += 1
+        } catch {
+          failed += 1
+        }
+      }
+      if (created.length) setRows((current) => [...current, ...created])
+      setMessage(`Импортировано сотрудников: ${created.length}`)
+      if (failed) window.alert(`Не удалось импортировать записей: ${failed}`)
+    } finally {
+      setImportSaving(false)
+      setImportOpen(false)
+      setImportFile(null)
+    }
   }
 
   return (
     <main className="min-h-[calc(100vh-4rem)] bg-slate-100 px-4 pb-10">
       <header className="flex flex-wrap items-center justify-between gap-4 py-4 sm:px-5">
-        <button type="button" onClick={() => setFavorite((value) => !value)} className="flex items-center gap-2 text-2xl font-bold text-[#5470e8]"><Star className={`h-7 w-7 ${favorite ? "fill-amber-400 text-amber-400" : "fill-slate-600 text-slate-600"}`} />Избранные <span className="text-slate-500">|</span><span className="text-slate-600">Зарплата и установка планов</span></button>
+        <div className="flex items-center gap-2 text-2xl font-bold text-[#5470e8]"><FavoritesButton className="flex items-center gap-2 text-2xl font-bold text-[#5470e8]" /> <span className="text-slate-500">|</span><span className="text-slate-600">Зарплата и установка планов</span></div>
         <div className="flex flex-wrap gap-4">
-          <button type="button" onClick={() => { setRecalculating(true); window.setTimeout(() => { setRows((current) => current.map((row) => ({ ...row, bonus: Math.round(row.salary * row.kpi / 100) }))); setRecalculating(false); setMessage("KPI пересчитан") }, 600) }} className="rounded-md bg-[#6ccd8b] px-5 py-2.5 font-bold text-white"><RefreshCw className={`mr-2 inline h-5 w-5 ${recalculating ? "animate-spin" : ""}`} />Перерасчет KPI</button>
+          <button type="button" onClick={() => void recalcKpi()} className="rounded-md bg-[#6ccd8b] px-5 py-2.5 font-bold text-white"><RefreshCw className={`mr-2 inline h-5 w-5 ${recalculating ? "animate-spin" : ""}`} />Перерасчет KPI</button>
           <input ref={fileRef} type="file" accept=".csv" onChange={importCsv} className="hidden" />
           <button type="button" onClick={() => fileRef.current?.click()} className="rounded-md bg-[#5470e8] px-5 py-2.5 font-bold text-white"><RefreshCw className="mr-2 inline h-5 w-5" />Обновить с excel</button>
           <button type="button" onClick={exportCsv} className="rounded-md bg-[#6ccd8b] px-5 py-2.5 font-bold text-white"><Download className="mr-2 inline h-5 w-5" />Скачать EXCEL</button>
           <button type="button" onClick={() => setAddOpen(true)} className="rounded-md bg-[#6ccd8b] px-5 py-2.5 font-bold text-white"><PlusCircle className="mr-2 inline h-5 w-5" />Добавить зарплату</button>
+          <button type="button" onClick={() => setImportOpen(true)} className="rounded-md bg-[#5470e8] px-5 py-2.5 font-bold text-white"><FileText className="mr-2 inline h-5 w-5" />Импорт с Excel</button>
         </div>
       </header>
 
@@ -116,14 +353,45 @@ export function SalaryPlanningView() {
           <button type="button" disabled={!selected.length} onClick={() => setCredited(true)} className="rounded bg-[#6ccd8b] px-5 py-2 font-bold text-white disabled:opacity-50">Зачислить</button>
           <button type="button" disabled={!selected.length} onClick={() => setCredited(false)} className="rounded bg-[#ff786e] px-5 py-2 font-bold text-white disabled:opacity-50">Отменить зачисление</button>
           <button type="button" disabled={!selected.length} onClick={() => setPlansOpen(true)} className="rounded bg-[#5470e8] px-5 py-2 font-bold text-white disabled:opacity-50"><Pencil className="mr-2 inline h-4 w-4" />Изменить планы</button>
-          <button type="button" aria-label="Копировать выбранные" onClick={() => { if (selected.length) setRows((current) => [...current, ...current.filter((row) => selected.includes(row.id)).map((row, index) => ({ ...row, id: Date.now() + index, employee: `${row.employee} — копия` }))]); setMessage("Выбранные строки скопированы") }}><Copy /></button>
+          <button type="button" aria-label="Копировать выбранные" onClick={() => void duplicateSelected()}><Copy /></button>
         </div>
         {message && <div className="flex justify-between bg-blue-50 px-5 py-2 text-blue-700">{message}<button type="button" onClick={() => setMessage("")}>×</button></div>}
         <div className="overflow-x-auto"><table className="w-full min-w-[900px]"><thead className="bg-slate-600 text-white"><tr><th className="px-6 py-5"><input type="checkbox" checked={shown.length > 0 && shown.every((row) => selected.includes(row.id))} onChange={(event) => setSelected(event.target.checked ? shown.map((row) => row.id) : [])} /></th><th className="px-5 py-5 text-left">Сотрудник</th><th className="px-5 py-5 text-right">Зарплата</th><th className="px-5 py-5 text-right">Сумма бонусов</th><th className="px-5 py-5 text-right">Итоговая зарплата</th><th className="px-5 py-5 text-right">KPI</th></tr></thead><tbody>{shown.map((row) => <tr key={row.id} className="border-b"><td className="px-6 py-4"><input type="checkbox" checked={selected.includes(row.id)} onChange={() => toggleSelected(row.id)} /></td><td className="px-5 py-4">{row.employee}</td><td className="px-5 py-4 text-right">{row.salary.toLocaleString("ru-RU")}</td><td className="px-5 py-4 text-right">{row.bonus.toLocaleString("ru-RU")}</td><td className="px-5 py-4 text-right">{(row.salary + row.bonus).toLocaleString("ru-RU")}</td><td className="px-5 py-4 text-right">{row.kpi}%</td></tr>)}</tbody></table></div>
         {!shown.length && <div className="flex min-h-[345px] flex-col items-center justify-center"><Image src="/robot-mascot.png" alt="Робот-помощник" width={150} height={150} priority /><p className="mt-6 text-slate-400">По вашему запросу ничего не найдено</p></div>}
       </section>
-      {addOpen && <SalaryModal title="Добавить зарплату" onClose={() => setAddOpen(false)} onSave={(employee, salary, kpi) => { setRows((current) => [...current, { id: Date.now(), employee, salary, bonus: 0, kpi, credited: false }]); setAddOpen(false); setMessage("Зарплата добавлена") }} />}
-      {plansOpen && <PlansModal onClose={() => setPlansOpen(false)} onSave={(salary, kpi) => { setRows((current) => current.map((row) => selected.includes(row.id) ? { ...row, salary, kpi } : row)); setPlansOpen(false); setMessage("Планы обновлены") }} />}
+      {addOpen && <SalaryModal title="Добавить зарплату" onClose={() => setAddOpen(false)} onSave={(employee, salary, kpi) => void addSalary(employee, salary, kpi)} />}
+      {plansOpen && <PlansModal onClose={() => setPlansOpen(false)} onSave={(salary, kpi) => void updatePlans(salary, kpi)} />}
+      {importOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/45 p-4">
+          <div className="w-full max-w-md rounded bg-white">
+            <header className="flex items-center justify-between border-b p-6">
+              <b className="uppercase">Импорт с Excel</b>
+              <button type="button" onClick={() => { setImportOpen(false); setImportFile(null) }} aria-label="Закрыть">
+                <X className="h-5 w-5" />
+              </button>
+            </header>
+            <div className="p-8">
+              <button type="button" onClick={downloadTemplate} className="mb-4 font-semibold text-[#5470e8] hover:underline">
+                1. Скачать шаблон
+              </button>
+              <input ref={importInputRef} type="file" accept=".csv,.xls,.xlsx" onChange={pickImportFile} className="hidden" />
+              <button
+                type="button"
+                onClick={() => importInputRef.current?.click()}
+                className="flex w-full flex-col items-center justify-center gap-3 rounded border-2 border-dashed border-slate-300 py-10 text-slate-500 hover:border-[#5470e8] hover:text-[#5470e8]"
+              >
+                <FileText className="h-8 w-8" />
+                {importFile ? importFile.name : "Добавьте файл Excel или нажмите для выбора"}
+              </button>
+            </div>
+            <footer className="flex justify-end border-t p-5">
+              <button type="button" disabled={!importFile || importSaving} onClick={saveImport} className="rounded bg-[#6ccd8b] px-5 py-3 font-semibold text-white hover:brightness-95 disabled:opacity-40">
+                {importSaving ? "Импорт..." : "Сохранить"}
+              </button>
+            </footer>
+          </div>
+        </div>
+      )}
     </main>
   )
 }

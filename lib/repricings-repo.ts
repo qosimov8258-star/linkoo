@@ -75,51 +75,51 @@ export function parseRepricingInput(body: unknown, fallbackUser: string): Repric
   return { priceListId, productId, amount, currency, status, createdBy: fallbackUser, user }
 }
 
-export function listRepricings(): Repricing[] {
+export async function listRepricings(): Promise<Repricing[]> {
   const db = getDb()
-  const rows = db.prepare(`${SELECT} ORDER BY r.id DESC`).all() as Row[]
+  const rows = (await db.prepare(`${SELECT} ORDER BY r.id DESC`).all()) as Row[]
   return rows.map(rowToRepricing)
 }
 
-export function getRepricing(id: number): Repricing | null {
+export async function getRepricing(id: number): Promise<Repricing | null> {
   const db = getDb()
-  const row = db.prepare(`${SELECT} WHERE r.id = ?`).get(id) as Row | undefined
+  const row = (await db.prepare(`${SELECT} WHERE r.id = ?`).get(id)) as Row | undefined
   return row ? rowToRepricing(row) : null
 }
 
-export function createRepricing(input: RepricingInput): Repricing {
+export async function createRepricing(input: RepricingInput): Promise<Repricing> {
   const db = getDb()
-  const result = db
-    .prepare(
-      `INSERT INTO repricings (created_by, created_at_label, price_list_id, product_id, amount, currency, status, user)
+  const result = (await db
+      .prepare(
+        `INSERT INTO repricings (created_by, created_at_label, price_list_id, product_id, amount, currency, status, user)
        VALUES (@createdBy, @createdAtLabel, @priceListId, @productId, @amount, @currency, @status, @user)`,
-    )
-    .run({
-      createdBy: input.createdBy,
-      createdAtLabel: monthLabel(new Date()),
-      priceListId: input.priceListId,
-      productId: input.productId,
-      amount: input.amount,
-      currency: input.currency,
-      status: input.status,
-      user: input.user,
-    })
-  return getRepricing(Number(result.lastInsertRowid))!
+      )
+      .run({
+        createdBy: input.createdBy,
+        createdAtLabel: monthLabel(new Date()),
+        priceListId: input.priceListId,
+        productId: input.productId,
+        amount: input.amount,
+        currency: input.currency,
+        status: input.status,
+        user: input.user,
+      }))
+  return (await getRepricing(Number(result.lastInsertRowid)))!
 }
 
-export function updateRepricing(id: number, input: RepricingInput): Repricing | null {
-  if (!getRepricing(id)) return null
+export async function updateRepricing(id: number, input: RepricingInput): Promise<Repricing | null> {
+  if (!(await getRepricing(id))) return null
   const db = getDb()
-  db.prepare(
-    `UPDATE repricings SET price_list_id = @priceListId, product_id = @productId, amount = @amount,
+  await db.prepare(
+        `UPDATE repricings SET price_list_id = @priceListId, product_id = @productId, amount = @amount,
        currency = @currency, status = @status, user = @user, updated_at = datetime('now')
      WHERE id = @id`,
-  ).run({ id, priceListId: input.priceListId, productId: input.productId, amount: input.amount, currency: input.currency, status: input.status, user: input.user })
-  return getRepricing(id)
+      ).run({ id, priceListId: input.priceListId, productId: input.productId, amount: input.amount, currency: input.currency, status: input.status, user: input.user })
+  return (await getRepricing(id))
 }
 
-export function deleteRepricing(id: number): boolean {
+export async function deleteRepricing(id: number): Promise<boolean> {
   const db = getDb()
-  const result = db.prepare("DELETE FROM repricings WHERE id = ?").run(id)
+  const result = (await db.prepare("DELETE FROM repricings WHERE id = ?").run(id))
   return result.changes > 0
 }

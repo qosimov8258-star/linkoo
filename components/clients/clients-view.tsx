@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react"
 import { useRouter } from "next/navigation"
 import {
-  Star,
   BarChart3,
   ListFilter,
   Import,
@@ -22,9 +21,26 @@ import {
   Download,
   CheckCircle2,
 } from "lucide-react"
+import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
+import { mapHeaderColumns, readExcelRows } from "@/lib/excel-import"
+import { useLanguage } from "@/lib/i18n/language-context"
+
 import { clientTabs, type Client } from "./clients-data"
 
 const pageSizes = [10, 25, 50, 100]
+
+const IMPORT_HEADER_ALIASES: Record<string, string> = {
+  "название": "name", "наименование": "name", "имя": "name", "клиент": "name", "name": "name",
+  "телефон": "phone", "тел": "phone", "phone": "phone",
+  "инн": "inn", "inn": "inn",
+  "тип": "type", "type": "type",
+  "зона": "zone", "zone": "zone",
+  "агент зоны": "zoneAgent", "zone agent": "zoneAgent",
+  "агент": "agent", "agent": "agent",
+  "доставщик": "deliverer", "deliverer": "deliverer",
+  "инкассатор": "collector", "collector": "collector",
+  "баланс": "balance", "balance": "balance",
+}
 
 type Notice = {
   tone: "info" | "success"
@@ -66,7 +82,7 @@ const emptyClientForm: ClientForm = {
 }
 
 function formatBalance(value: number) {
-  return `${value.toLocaleString("ru-RU").replace(/,/g, " ")} SUM`
+  return `${value.toLocaleString("ru-RU", { maximumFractionDigits: 0 })} SUM`
 }
 
 function formFromClient(client: Client): ClientForm {
@@ -135,6 +151,7 @@ function downloadCsv(rows: Client[]) {
 
 export function ClientsView() {
   const router = useRouter()
+  const { t } = useLanguage()
   const [clients, setClients] = useState<Client[]>([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState("")
@@ -150,22 +167,15 @@ export function ClientsView() {
   const [viewMode, setViewMode] = useState<ViewMode>("comfortable")
   const [actionMenu, setActionMenu] = useState<ActionMenu>(null)
   const [notice, setNotice] = useState<Notice | null>(null)
-  const [refreshing, setRefreshing] = useState(false)
   const [modalMode, setModalMode] = useState<ModalMode>(null)
   const [editingId, setEditingId] = useState<number | null>(null)
   const [form, setForm] = useState<ClientForm>(emptyClientForm)
   const [formError, setFormError] = useState("")
   const [routeAssigned, setRouteAssigned] = useState<Set<number>>(() => new Set())
   const [detailClient, setDetailClient] = useState<Client | null>(null)
-  const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const promotionInputRef = useRef<HTMLInputElement>(null)
   const importInputRef = useRef<HTMLInputElement>(null)
-
-  useEffect(() => {
-    return () => {
-      if (refreshTimer.current) clearTimeout(refreshTimer.current)
-    }
-  }, [])
+  const [importingClients, setImportingClients] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -181,7 +191,7 @@ export function ClientsView() {
         setLoadError("")
       })
       .catch(() => {
-        if (!cancelled) setLoadError("Не удалось загрузить клиентов с сервера")
+        if (!cancelled) setLoadError(t("Не удалось загрузить клиентов с сервера"))
       })
       .finally(() => {
         if (!cancelled) setLoading(false)
@@ -258,7 +268,7 @@ export function ClientsView() {
     setTypeFilter("all")
     setZoneFilter("all")
     setPage(1)
-    setNotice({ tone: "info", message: "Фильтры и поиск сброшены" })
+    setNotice({ tone: "info", message: t("Фильтры и поиск сброшены") })
     setActionMenu(null)
   }
 
@@ -291,13 +301,13 @@ export function ClientsView() {
     const type = form.type.trim()
     const zone = form.zone.trim()
     if (!name || !phone || !type || !zone) {
-      setFormError("Заполните название, телефон, тип и зону")
+      setFormError(t("Заполните название, телефон, тип и зону"))
       return
     }
 
     const parsedBalance = form.balance.trim() === "" ? undefined : Number(form.balance.replace(/\s/g, ""))
     if (parsedBalance !== undefined && !Number.isFinite(parsedBalance)) {
-      setFormError("Баланс должен быть числом")
+      setFormError(t("Баланс должен быть числом"))
       return
     }
 
@@ -329,7 +339,7 @@ export function ClientsView() {
         setSelected([created.id])
         setActiveTab("all")
         setPage(1)
-        setNotice({ tone: "success", message: `Клиент «${name}» добавлен` })
+        setNotice({ tone: "success", message: `${t("Клиент")} «${name}» ${t("добавлен")}` })
       } else if (editingId !== null) {
         const response = await fetch(`/api/clients/${editingId}`, {
           method: "PUT",
@@ -339,11 +349,11 @@ export function ClientsView() {
         if (!response.ok) throw new Error("update failed")
         const updated = (await response.json()) as Client
         setClients((current) => current.map((client) => (client.id === editingId ? updated : client)))
-        setNotice({ tone: "success", message: `Клиент «${name}» обновлён` })
+        setNotice({ tone: "success", message: `${t("Клиент")} «${name}» ${t("обновлён")}` })
       }
       setModalMode(null)
     } catch {
-      setFormError("Не удалось сохранить клиента, попробуйте ещё раз")
+      setFormError(t("Не удалось сохранить клиента, попробуйте ещё раз"))
     } finally {
       setSaving(false)
     }
@@ -352,30 +362,97 @@ export function ClientsView() {
   function chooseFile(file: File | undefined, subject: string) {
     if (!file) return
     setNotice({
-      tone: "success",
-      message: `${subject}: файл «${file.name}» выбран (${Math.max(1, Math.round(file.size / 1024))} КБ)`,
+      tone: "info",
+      message: `${t(subject)} ${t("пока не поддерживается для файла")} «${file.name}»`,
     })
   }
 
-  function refreshFromExcel() {
-    if (refreshing) return
-    if (refreshTimer.current) clearTimeout(refreshTimer.current)
-    setRefreshing(true)
-    setNotice({ tone: "info", message: "Проверяем изменения в Excel…" })
-    refreshTimer.current = setTimeout(() => {
-      setRefreshing(false)
+  async function importClientsFromExcel(file: File | undefined) {
+    if (!file || importingClients) return
+    setImportingClients(true)
+    setNotice({ tone: "info", message: t("Импортируем клиентов…") })
+    try {
+      const rows = await readExcelRows(file)
+      if (!rows.length) {
+        setNotice({ tone: "info", message: t("Не удалось найти клиентов для импорта в выбранном файле") })
+        return
+      }
+
+      const fieldByIndex = mapHeaderColumns(rows[0], IMPORT_HEADER_ALIASES)
+      const hasHeader = Array.from(fieldByIndex.values()).includes("name")
+      const dataRows = hasHeader ? rows.slice(1) : rows
+
+      const parsed: Record<string, string>[] = []
+      for (const row of dataRows) {
+        const record: Record<string, string> = {}
+        if (hasHeader) {
+          row.forEach((cell, index) => {
+            const field = fieldByIndex.get(index)
+            if (field) record[field] = cell
+          })
+        } else {
+          record.name = row[0] ?? ""
+          record.phone = row[1] ?? ""
+          record.type = row[2] ?? ""
+          record.zone = row[3] ?? ""
+        }
+        if (!record.name || /^(название|наименование|имя|клиент|name)$/i.test(record.name)) continue
+        parsed.push(record)
+      }
+
+      if (!parsed.length) {
+        setNotice({ tone: "info", message: t("Не удалось найти клиентов для импорта в выбранном файле") })
+        return
+      }
+
+      const created: Client[] = []
+      let failed = 0
+      for (const record of parsed) {
+        try {
+          const response = await fetch("/api/clients", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              name: record.name,
+              phone: record.phone || "-",
+              inn: record.inn || undefined,
+              type: record.type || "Не указано",
+              zone: record.zone || "Не указано",
+              zoneAgent: record.zoneAgent,
+              agent: record.agent,
+              deliverer: record.deliverer,
+              collector: record.collector,
+              balance: record.balance ? Number(record.balance.replace(/\s/g, "")) : undefined,
+              tab: "all",
+            }),
+          })
+          if (response.ok) created.push((await response.json()) as Client)
+          else failed += 1
+        } catch {
+          failed += 1
+        }
+      }
+      if (created.length) setClients((current) => [...created, ...current])
       setNotice({
-        tone: "success",
-        message: `Данные актуальны. Проверено в ${new Date().toLocaleTimeString("ru-RU")}`,
+        tone: failed ? "info" : "success",
+        message: failed
+          ? `${t("Импортировано")} ${created.length} ${t("из")} ${parsed.length}. ${t("Не удалось сохранить")}: ${failed}`
+          : `${t("Импортировано клиентов")}: ${created.length}`,
       })
-      refreshTimer.current = null
-    }, 700)
+    } finally {
+      setImportingClients(false)
+    }
+  }
+
+  function refreshFromExcel() {
+    if (importingClients) return
+    importInputRef.current?.click()
   }
 
   function exportClients(rows: Client[]) {
     if (rows.length === 0) return
     downloadCsv(rows)
-    setNotice({ tone: "success", message: `Экспортировано клиентов: ${rows.length}` })
+    setNotice({ tone: "success", message: `${t("Экспортировано клиентов")}: ${rows.length}` })
     setActionMenu(null)
   }
 
@@ -384,7 +461,7 @@ export function ClientsView() {
     setRouteAssigned((current) => new Set([...current, ...selectedClients.map((client) => client.id)]))
     setNotice({
       tone: "success",
-      message: `Маршрут установлен для ${selectedClients.length} клиент(ов)`,
+      message: `${t("Маршрут установлен для")} ${selectedClients.length} ${t("клиент(ов)")}`,
     })
   }
 
@@ -393,30 +470,34 @@ export function ClientsView() {
       {/* Header row */}
       <div className="flex flex-wrap items-center justify-between gap-4 py-5">
         <div className="flex items-center gap-3">
-          <Star className="h-6 w-6 fill-link text-link" />
-          <span className="text-2xl font-bold text-link">Избранные</span>
+          <FavoritesButton className="flex items-center gap-3 text-2xl font-bold text-link" />
           <span className="text-slate-300">|</span>
-          <span className="text-2xl font-bold text-slate-700">Клиенты</span>
+          <span className="text-2xl font-bold text-slate-700">{t("Клиенты")}</span>
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
           <HeaderButton
             icon={BarChart3}
-            label="Импортировать акции"
+            label={t("Импортировать акции")}
             onClick={() => promotionInputRef.current?.click()}
           />
           <HeaderButton
             icon={ListFilter}
-            label="Показать на карте"
+            label={t("Показать на карте")}
             onClick={() => router.push("/tracking?view=clients")}
           />
-          <HeaderButton icon={Import} label="Импортировать" onClick={() => importInputRef.current?.click()} />
+          <HeaderButton
+            icon={Import}
+            label={importingClients ? t("Импорт…") : t("Импортировать")}
+            onClick={() => importInputRef.current?.click()}
+            disabled={importingClients}
+          />
           <HeaderButton
             icon={RefreshCw}
-            label={refreshing ? "Обновление…" : "Обновить с excel"}
+            label={importingClients ? t("Импорт…") : t("Обновить с excel")}
             onClick={refreshFromExcel}
-            disabled={refreshing}
-            iconClassName={refreshing ? "animate-spin" : undefined}
+            disabled={importingClients}
+            iconClassName={importingClients ? "animate-spin" : undefined}
           />
           <button
             type="button"
@@ -424,7 +505,7 @@ export function ClientsView() {
             className="flex items-center gap-2 rounded-md bg-brand-green px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-brand-green-dark"
           >
             <Plus className="h-4 w-4" strokeWidth={3} />
-            Добавить
+            {t("Добавить")}
           </button>
           <div className="relative">
             <button
@@ -433,7 +514,7 @@ export function ClientsView() {
                 setPageSizeOpen(false)
                 setActionMenu((current) => (current === "header" ? null : "header"))
               }}
-              aria-label="Дополнительные действия с клиентами"
+              aria-label={t("Дополнительные действия с клиентами")}
               aria-expanded={actionMenu === "header"}
               className="rounded-md p-2 text-slate-500 transition-colors hover:bg-slate-100"
             >
@@ -454,7 +535,7 @@ export function ClientsView() {
                     className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
                   >
                     <Download className="h-4 w-4" />
-                    Экспортировать CSV
+                    {t("Экспортировать CSV")}
                   </button>
                   <button
                     type="button"
@@ -464,7 +545,7 @@ export function ClientsView() {
                     className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
                   >
                     <RefreshCw className="h-4 w-4" />
-                    Сбросить фильтры
+                    {t("Сбросить фильтры")}
                   </button>
                 </div>
               </>
@@ -489,7 +570,7 @@ export function ClientsView() {
         accept=".csv,.xls,.xlsx"
         className="hidden"
         onChange={(event) => {
-          chooseFile(event.currentTarget.files?.[0], "Импорт клиентов")
+          void importClientsFromExcel(event.currentTarget.files?.[0])
           event.currentTarget.value = ""
         }}
       />
@@ -506,13 +587,13 @@ export function ClientsView() {
           {notice.tone === "success" ? (
             <CheckCircle2 className="h-5 w-5 shrink-0" />
           ) : (
-            <RefreshCw className={`h-5 w-5 shrink-0 ${refreshing ? "animate-spin" : ""}`} />
+            <RefreshCw className={`h-5 w-5 shrink-0 ${importingClients ? "animate-spin" : ""}`} />
           )}
           <span className="flex-1">{notice.message}</span>
           <button
             type="button"
             onClick={() => setNotice(null)}
-            aria-label="Закрыть уведомление"
+            aria-label={t("Закрыть уведомление")}
             className="rounded p-1 transition-colors hover:bg-black/5"
           >
             <X className="h-4 w-4" />
@@ -535,7 +616,7 @@ export function ClientsView() {
                 activeTab === tab.id ? "text-link" : "text-slate-600 hover:text-slate-900"
               }`}
             >
-              {tab.label}
+              {t(tab.label)}
               {activeTab === tab.id && (
                 <span className="absolute inset-x-0 bottom-0 h-1 rounded-t bg-link" />
               )}
@@ -554,7 +635,7 @@ export function ClientsView() {
             }`}
           >
             <ListFilter className="h-4 w-4" />
-            {filtersOpen ? "Скрыть фильтр" : "Показать фильтр"}
+            {filtersOpen ? t("Скрыть фильтр") : t("Показать фильтр")}
             {activeFilterCount > 0 && (
               <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-white px-1 text-xs text-link">
                 {activeFilterCount}
@@ -569,7 +650,7 @@ export function ClientsView() {
                 setQuery(e.target.value)
                 setPage(1)
               }}
-              placeholder="Поиск"
+              placeholder={t("Поиск")}
               className="w-full rounded-md border border-slate-200 bg-white py-2.5 pl-4 pr-10 text-sm outline-none transition-colors focus:border-brand-blue"
             />
             {query ? (
@@ -579,7 +660,7 @@ export function ClientsView() {
                   setQuery("")
                   setPage(1)
                 }}
-                aria-label="Очистить поиск"
+                aria-label={t("Очистить поиск")}
                 className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700"
               >
                 <X className="h-4 w-4" />
@@ -597,7 +678,7 @@ export function ClientsView() {
                 setActionMenu(null)
                 setPageSizeOpen((open) => !open)
               }}
-              aria-label="Количество строк на странице"
+              aria-label={t("Количество строк на странице")}
               aria-expanded={pageSizeOpen}
               className="flex items-center gap-2 rounded-md border border-slate-200 px-3 py-2.5 text-sm text-slate-700 transition-colors hover:bg-slate-50"
             >
@@ -632,13 +713,13 @@ export function ClientsView() {
           {/* Pagination */}
           <div className="flex items-center gap-2">
             <span className="whitespace-nowrap text-sm text-slate-600">
-              {rangeStart} - {rangeEnd} из {total}
+              {rangeStart} - {rangeEnd} {t("из")} {total}
             </span>
             <button
               type="button"
               onClick={() => setPage((p) => Math.max(1, p - 1))}
               disabled={currentPage <= 1}
-              aria-label="Предыдущая страница"
+              aria-label={t("Предыдущая страница")}
               className="rounded-full p-1 text-brand-blue transition-colors hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-30"
             >
               <ChevronLeft className="h-6 w-6" />
@@ -647,7 +728,7 @@ export function ClientsView() {
               type="button"
               onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
               disabled={currentPage >= totalPages}
-              aria-label="Следующая страница"
+              aria-label={t("Следующая страница")}
               className="rounded-full p-1 text-brand-blue transition-colors hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-30"
             >
               <ChevronRight className="h-6 w-6" />
@@ -658,9 +739,9 @@ export function ClientsView() {
             type="button"
             onClick={toggleAll}
             disabled={pageRows.length === 0}
-            aria-label={allSelected ? "Снять выделение со страницы" : "Выбрать строки на странице"}
+            aria-label={allSelected ? t("Снять выделение со страницы") : t("Выбрать строки на странице")}
             aria-pressed={allSelected}
-            title={allSelected ? "Снять выделение со страницы" : "Выбрать строки на странице"}
+            title={allSelected ? t("Снять выделение со страницы") : t("Выбрать строки на странице")}
             className={`rounded-md p-2 transition-colors hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-30 ${
               allSelected ? "bg-blue-50 text-link" : "text-slate-500"
             }`}
@@ -670,9 +751,9 @@ export function ClientsView() {
           <button
             type="button"
             onClick={() => setViewMode((mode) => (mode === "comfortable" ? "compact" : "comfortable"))}
-            aria-label={viewMode === "compact" ? "Включить обычный вид" : "Включить компактный вид"}
+            aria-label={viewMode === "compact" ? t("Включить обычный вид") : t("Включить компактный вид")}
             aria-pressed={viewMode === "compact"}
-            title={viewMode === "compact" ? "Обычный вид" : "Компактный вид"}
+            title={viewMode === "compact" ? t("Обычный вид") : t("Компактный вид")}
             className={`rounded-md p-2 transition-colors hover:bg-slate-100 ${
               viewMode === "compact" ? "bg-blue-50 text-link" : "text-slate-500"
             }`}
@@ -681,7 +762,7 @@ export function ClientsView() {
           </button>
 
           {selectedClients.length > 0 && (
-            <span className="whitespace-nowrap text-sm font-medium text-link">Выбрано: {selectedClients.length}</span>
+            <span className="whitespace-nowrap text-sm font-medium text-link">{t("Выбрано")}: {selectedClients.length}</span>
           )}
 
           <button
@@ -691,7 +772,7 @@ export function ClientsView() {
             className="flex items-center gap-2 rounded-md bg-brand-blue px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-40"
           >
             <Pencil className="h-4 w-4" />
-            Изменить
+            {t("Изменить")}
           </button>
           <button
             type="button"
@@ -700,7 +781,7 @@ export function ClientsView() {
             className="flex items-center gap-2 rounded-md bg-brand-green px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-brand-green-dark disabled:cursor-not-allowed disabled:opacity-40"
           >
             <TrendingUp className="h-4 w-4" />
-            Уст. маршрут
+            {t("Уст. маршрут")}
           </button>
           <div className="relative">
             <button
@@ -709,7 +790,7 @@ export function ClientsView() {
                 setPageSizeOpen(false)
                 setActionMenu((current) => (current === "table" ? null : "table"))
               }}
-              aria-label="Дополнительные действия таблицы"
+              aria-label={t("Дополнительные действия таблицы")}
               aria-expanded={actionMenu === "table"}
               className="rounded-md p-2 text-slate-500 transition-colors hover:bg-slate-100"
             >
@@ -730,7 +811,7 @@ export function ClientsView() {
                     className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
                   >
                     <Download className="h-4 w-4" />
-                    {selectedClients.length > 0 ? "Экспортировать выбранные" : "Экспортировать результат"}
+                    {selectedClients.length > 0 ? t("Экспортировать выбранные") : t("Экспортировать результат")}
                   </button>
                   <button
                     type="button"
@@ -738,13 +819,13 @@ export function ClientsView() {
                     onClick={() => {
                       setSelected([])
                       setActionMenu(null)
-                      setNotice({ tone: "info", message: "Выделение снято" })
+                      setNotice({ tone: "info", message: t("Выделение снято") })
                     }}
                     disabled={selectedClients.length === 0}
                     className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
                   >
                     <X className="h-4 w-4" />
-                    Снять выделение
+                    {t("Снять выделение")}
                   </button>
                 </div>
               </>
@@ -755,7 +836,7 @@ export function ClientsView() {
         {filtersOpen && (
           <div className="grid gap-3 border-t border-slate-100 bg-slate-50 px-4 py-4 sm:grid-cols-[minmax(180px,1fr)_minmax(180px,1fr)_auto] sm:items-end">
             <label className="flex flex-col gap-1.5 text-sm font-medium text-slate-700">
-              Тип клиента
+              {t("Тип клиента")}
               <select
                 value={typeFilter}
                 onChange={(event) => {
@@ -764,7 +845,7 @@ export function ClientsView() {
                 }}
                 className="rounded-md border border-slate-200 bg-white px-3 py-2.5 text-sm font-normal outline-none transition-colors focus:border-brand-blue"
               >
-                <option value="all">Все типы</option>
+                <option value="all">{t("Все типы")}</option>
                 {typeOptions.map((type) => (
                   <option key={type} value={type}>
                     {type}
@@ -773,7 +854,7 @@ export function ClientsView() {
               </select>
             </label>
             <label className="flex flex-col gap-1.5 text-sm font-medium text-slate-700">
-              Зона
+              {t("Зона")}
               <select
                 value={zoneFilter}
                 onChange={(event) => {
@@ -782,7 +863,7 @@ export function ClientsView() {
                 }}
                 className="rounded-md border border-slate-200 bg-white px-3 py-2.5 text-sm font-normal outline-none transition-colors focus:border-brand-blue"
               >
-                <option value="all">Все зоны</option>
+                <option value="all">{t("Все зоны")}</option>
                 {zoneOptions.map((zone) => (
                   <option key={zone} value={zone}>
                     {zone}
@@ -800,7 +881,7 @@ export function ClientsView() {
               disabled={activeFilterCount === 0}
               className="rounded-md border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40"
             >
-              Сбросить
+              {t("Сбросить")}
             </button>
           </div>
         )}
@@ -817,25 +898,25 @@ export function ClientsView() {
                     onChange={toggleAll}
                     disabled={pageRows.length === 0}
                     className="h-4 w-4 cursor-pointer accent-brand-green disabled:cursor-not-allowed disabled:opacity-40"
-                    aria-label="Выбрать все"
+                    aria-label={t("Выбрать все")}
                   />
                 </th>
-                <th className="px-4 py-4 text-sm font-semibold">Название</th>
-                <th className="px-4 py-4 text-sm font-semibold">Тел. номер</th>
-                <th className="px-4 py-4 text-sm font-semibold">Информация</th>
-                <th className="px-4 py-4 text-sm font-semibold">Тип</th>
-                <th className="px-4 py-4 text-sm font-semibold">Зона</th>
-                <th className="px-4 py-4 text-sm font-semibold">Ответственный агент</th>
-                <th className="px-4 py-4 text-sm font-semibold">Ответственный доставщик</th>
-                <th className="px-4 py-4 text-sm font-semibold">Ответственный инкассатор</th>
-                <th className="px-4 py-4 text-sm font-semibold">Баланс</th>
+                <th className="px-4 py-4 text-sm font-semibold">{t("Название")}</th>
+                <th className="px-4 py-4 text-sm font-semibold">{t("Тел. номер")}</th>
+                <th className="px-4 py-4 text-sm font-semibold">{t("Информация")}</th>
+                <th className="px-4 py-4 text-sm font-semibold">{t("Тип")}</th>
+                <th className="px-4 py-4 text-sm font-semibold">{t("Зона")}</th>
+                <th className="px-4 py-4 text-sm font-semibold">{t("Ответственный агент")}</th>
+                <th className="px-4 py-4 text-sm font-semibold">{t("Ответственный доставщик")}</th>
+                <th className="px-4 py-4 text-sm font-semibold">{t("Ответственный инкассатор")}</th>
+                <th className="px-4 py-4 text-sm font-semibold">{t("Баланс")}</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
                 <tr>
                   <td colSpan={10} className="px-4 py-16 text-center text-slate-500">
-                    Загрузка клиентов...
+                    {t("Загрузка клиентов...")}
                   </td>
                 </tr>
               ) : loadError ? (
@@ -847,7 +928,7 @@ export function ClientsView() {
               ) : pageRows.length === 0 ? (
                 <tr>
                   <td colSpan={10} className="px-4 py-16 text-center text-slate-500">
-                    По вашему запросу ничего не найдено
+                    {t("По вашему запросу ничего не найдено")}
                   </td>
                 </tr>
               ) : (
@@ -933,6 +1014,7 @@ function ClientModal({
   onClose: () => void
   onSubmit: (event: FormEvent<HTMLFormElement>) => void
 }) {
+  const { t } = useLanguage()
   return (
     <div
       className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/45 p-4"
@@ -948,12 +1030,12 @@ function ClientModal({
       >
         <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-200 bg-white px-6 py-4">
           <h2 id="client-modal-title" className="text-xl font-bold text-slate-800">
-            {mode === "add" ? "Добавить клиента" : "Изменить клиента"}
+            {mode === "add" ? t("Добавить клиента") : t("Изменить клиента")}
           </h2>
           <button
             type="button"
             onClick={onClose}
-            aria-label="Закрыть окно"
+            aria-label={t("Закрыть окно")}
             className="rounded-md p-2 text-slate-500 transition-colors hover:bg-slate-100"
           >
             <X className="h-5 w-5" />
@@ -963,64 +1045,64 @@ function ClientModal({
         <form onSubmit={onSubmit} className="space-y-5 p-6">
           <div className="grid gap-4 sm:grid-cols-2">
             <ModalInput
-              label="Название"
+              label={t("Название")}
               value={form.name}
               onChange={(value) => onTextChange("name", value)}
               required
               autoFocus
             />
             <ModalInput
-              label="Телефон"
+              label={t("Телефон")}
               type="tel"
               value={form.phone}
               onChange={(value) => onTextChange("phone", value)}
               required
             />
             <ModalInput
-              label="ИНН"
+              label={t("ИНН")}
               value={form.inn}
               onChange={(value) => onTextChange("inn", value)}
             />
             <ModalInput
-              label="Баланс"
+              label={t("Баланс")}
               type="number"
               value={form.balance}
               onChange={(value) => onTextChange("balance", value)}
             />
             <ModalInput
-              label="Тип клиента"
+              label={t("Тип клиента")}
               value={form.type}
               onChange={(value) => onTextChange("type", value)}
               required
             />
             <ModalInput
-              label="Зона"
+              label={t("Зона")}
               value={form.zone}
               onChange={(value) => onTextChange("zone", value)}
               required
             />
             <ModalInput
-              label="Агент зоны"
+              label={t("Агент зоны")}
               value={form.zoneAgent}
               onChange={(value) => onTextChange("zoneAgent", value)}
             />
             <ModalInput
-              label="Ответственный агент"
+              label={t("Ответственный агент")}
               value={form.agent}
               onChange={(value) => onTextChange("agent", value)}
             />
             <ModalInput
-              label="Ответственный доставщик"
+              label={t("Ответственный доставщик")}
               value={form.deliverer}
               onChange={(value) => onTextChange("deliverer", value)}
             />
             <ModalInput
-              label="Ответственный инкассатор"
+              label={t("Ответственный инкассатор")}
               value={form.collector}
               onChange={(value) => onTextChange("collector", value)}
             />
             <label className="flex flex-col gap-1.5 text-sm font-semibold text-slate-700">
-              Статус
+              {t("Статус")}
               <select
                 value={form.tab}
                 onChange={(event) => onTabChange(event.target.value as Client["tab"])}
@@ -1028,7 +1110,7 @@ function ClientModal({
               >
                 {clientTabs.map((tab) => (
                   <option key={tab.id} value={tab.id}>
-                    {tab.label}
+                    {t(tab.label)}
                   </option>
                 ))}
               </select>
@@ -1048,14 +1130,14 @@ function ClientModal({
               disabled={saving}
               className="rounded-md border border-slate-200 px-5 py-2.5 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50 disabled:opacity-60"
             >
-              Отмена
+              {t("Отмена")}
             </button>
             <button
               type="submit"
               disabled={saving}
               className="rounded-md bg-brand-green px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-brand-green-dark disabled:cursor-wait disabled:opacity-60"
             >
-              {saving ? "Сохранение..." : mode === "add" ? "Добавить" : "Сохранить"}
+              {saving ? t("Сохранение...") : mode === "add" ? t("Добавить") : t("Сохранить")}
             </button>
           </div>
         </form>
@@ -1100,12 +1182,163 @@ function ModalInput({
 
 function ClientDetail({ client, onClose }: { client: Client; onClose: () => void }) {
   const router = useRouter()
+  const { t } = useLanguage()
   const [tab, setTab] = useState("АКТИВНОСТЬ")
   const [paymentOpen, setPaymentOpen] = useState(false)
   const [paymentAmount, setPaymentAmount] = useState("")
   const [paymentDone, setPaymentDone] = useState(false)
   const hasPhone = client.phone && client.phone !== "-"
-  return <><button type="button" aria-label="Закрыть карточку клиента" onClick={onClose} className="fixed inset-0 z-40 bg-black/20"/><aside className="fixed right-0 top-0 z-50 h-full w-[min(725px,62vw)] overflow-y-auto bg-white shadow-2xl"><header className="flex items-center justify-between border-b px-6 py-5"><strong><span className="mr-3 inline-block h-5 w-5 rounded-full bg-green-400"/>{client.name.toUpperCase()}</strong><button onClick={onClose}><X/></button></header><nav className="flex border-b">{["АКТИВНОСТЬ","ЗАДАЧИ","КЛИЕНТ","ОТЧЕТЫ","ОТКАЗЫ"].map(item=><button key={item} onClick={()=>setTab(item)} className={`px-5 py-4 ${tab===item?"border-b-2 border-link text-link":""}`}>{item}</button>)}</nav><section className="grid grid-cols-2 gap-x-12 px-6 py-6 text-[16px]"><Metric label="Фактические продажи (30 дней)" value="0 SUM"/><Metric label="Прошло дней с последнего заказа" value="135" red/><Metric label="Сумма продаж за период (30 дней)" value="0 SUM"/><Metric label="Прошло дней с последнего визита" value="19" red/><Metric label="Сумма возврата с заказов за период (30 дней)" value="0 SUM"/><Metric label="Комментарий отказа" value="Не указан"/></section><div className="flex flex-wrap gap-3 px-6"><button type="button" disabled={!hasPhone} onClick={()=>hasPhone&&(window.location.href=`tel:${client.phone}`)} className="rounded bg-[#6ccd8b] px-4 py-2 font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40">☎ Позвонить</button><button type="button" onClick={()=>router.push("/analytics/sales")} className="rounded bg-link px-4 py-2 font-semibold text-white">◉ Заказать</button><button type="button" onClick={()=>setTab("ОТКАЗЫ")} className="rounded bg-[#ff806f] px-4 py-2 font-semibold text-white">⊖ Отказ</button><button type="button" onClick={()=>setPaymentOpen(true)} className="rounded bg-[#6ccd8b] px-4 py-2 font-semibold text-white">▣ Добавить оплату</button></div>{paymentOpen&&<div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/45 p-4"><form onSubmit={(event)=>{event.preventDefault();setPaymentDone(true);setPaymentOpen(false);setPaymentAmount("");window.setTimeout(()=>setPaymentDone(false),2000)}} className="w-full max-w-sm rounded-md bg-white p-6 shadow-xl"><div className="mb-5 flex items-center justify-between"><h3 className="text-lg font-bold">Добавить оплату</h3><button type="button" onClick={()=>setPaymentOpen(false)} aria-label="Закрыть"><X className="h-5 w-5"/></button></div><label className="mb-5 block border-b border-slate-200 pb-2 text-[13px] font-medium text-slate-500">Сумма<input autoFocus type="number" min="0" value={paymentAmount} onChange={(event)=>setPaymentAmount(event.target.value)} className="mt-1 block w-full bg-transparent text-[16px] font-semibold text-slate-900 outline-none"/></label><button type="submit" className="w-full rounded-md bg-[#6ccd8b] py-3 font-semibold text-white">Добавить</button></form></div>}{paymentDone&&<div className="fixed bottom-6 right-6 z-[60] rounded-md bg-slate-900 px-5 py-3 text-sm font-semibold text-white shadow-xl">Оплата добавлена ✓</div>}<section className="px-6 py-6"><h3 className="mb-5 text-xl font-bold">Агенты магазина</h3><div className="border-b border-dashed pb-5">Агент <span className="ml-28">Комментарий</span><span className="ml-20">Прайс лист</span></div><h3 className="mb-5 mt-10 text-xl font-bold">Маршруты</h3><div className="border-b border-dashed pb-5">Admin Ritm <span className="ml-24">Раз в неделю</span><span className="ml-14 rounded bg-slate-100 px-3 py-2">Пн Вт Ср Чт Пт</span></div><h3 className="mb-5 mt-10 text-xl font-bold">Баланс</h3><div className="grid grid-cols-2 gap-4"><div className="rounded bg-slate-100 p-5">Баланс на начало периода<br/><b className="text-red-400">-20 000 SUM</b></div><div className="rounded bg-slate-100 p-5">Возврат<br/><b className="text-green-500">20 000 SUM</b></div></div></section></aside></>
+  return (
+    <>
+      <button
+        type="button"
+        aria-label={t("Закрыть карточку клиента")}
+        onClick={onClose}
+        className="fixed inset-0 z-40 bg-black/20"
+      />
+      <aside className="fixed right-0 top-0 z-50 h-full w-[min(725px,62vw)] overflow-y-auto bg-white shadow-2xl">
+        <header className="flex items-center justify-between border-b px-6 py-5">
+          <strong>
+            <span className="mr-3 inline-block h-5 w-5 rounded-full bg-green-400" />
+            {client.name.toUpperCase()}
+          </strong>
+          <button onClick={onClose}>
+            <X />
+          </button>
+        </header>
+        <nav className="flex border-b">
+          {["АКТИВНОСТЬ", "ЗАДАЧИ", "КЛИЕНТ", "ОТЧЕТЫ", "ОТКАЗЫ"].map((item) => (
+            <button
+              key={item}
+              onClick={() => setTab(item)}
+              className={`px-5 py-4 ${tab === item ? "border-b-2 border-link text-link" : ""}`}
+            >
+              {t(item)}
+            </button>
+          ))}
+        </nav>
+        <section className="grid grid-cols-2 gap-x-12 px-6 py-6 text-[16px]">
+          <Metric label={t("Фактические продажи (30 дней)")} value="0 SUM" />
+          <Metric label={t("Прошло дней с последнего заказа")} value="135" red />
+          <Metric label={t("Сумма продаж за период (30 дней)")} value="0 SUM" />
+          <Metric label={t("Прошло дней с последнего визита")} value="19" red />
+          <Metric label={t("Сумма возврата с заказов за период (30 дней)")} value="0 SUM" />
+          <Metric label={t("Комментарий отказа")} value={t("Не указан")} />
+        </section>
+        <div className="flex flex-wrap gap-3 px-6">
+          <button
+            type="button"
+            disabled={!hasPhone}
+            onClick={() => hasPhone && (window.location.href = `tel:${client.phone}`)}
+            className="rounded bg-[#6ccd8b] px-4 py-2 font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            {t("☎ Позвонить")}
+          </button>
+          <button
+            type="button"
+            onClick={() => router.push("/analytics/sales")}
+            className="rounded bg-link px-4 py-2 font-semibold text-white"
+          >
+            {t("◉ Заказать")}
+          </button>
+          <button
+            type="button"
+            onClick={() => setTab("ОТКАЗЫ")}
+            className="rounded bg-[#ff806f] px-4 py-2 font-semibold text-white"
+          >
+            {t("⊖ Отказ")}
+          </button>
+          <button
+            type="button"
+            onClick={() => setPaymentOpen(true)}
+            className="rounded bg-[#6ccd8b] px-4 py-2 font-semibold text-white"
+          >
+            {t("▣ Добавить оплату")}
+          </button>
+        </div>
+        {paymentOpen && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/45 p-4">
+            <form
+              onSubmit={async (event) => {
+                event.preventDefault()
+                try {
+                  const response = await fetch("/api/client-payments", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                      clientId: client.id,
+                      clientName: client.name,
+                      amount: Number(paymentAmount),
+                      comment: "",
+                      paymentDate: new Date().toISOString().slice(0, 10),
+                    }),
+                  })
+                  if (response.ok) {
+                    setPaymentDone(true)
+                    setPaymentOpen(false)
+                    setPaymentAmount("")
+                    window.setTimeout(() => setPaymentDone(false), 2000)
+                  }
+                } catch {}
+              }}
+              className="w-full max-w-sm rounded-md bg-white p-6 shadow-xl"
+            >
+              <div className="mb-5 flex items-center justify-between">
+                <h3 className="text-lg font-bold">{t("Добавить оплату")}</h3>
+                <button type="button" onClick={() => setPaymentOpen(false)} aria-label={t("Закрыть")}>
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+              <label className="mb-5 block border-b border-slate-200 pb-2 text-[13px] font-medium text-slate-500">
+                {t("Сумма")}
+                <input
+                  autoFocus
+                  type="number"
+                  min="0"
+                  value={paymentAmount}
+                  onChange={(event) => setPaymentAmount(event.target.value)}
+                  className="mt-1 block w-full bg-transparent text-[16px] font-semibold text-slate-900 outline-none"
+                />
+              </label>
+              <button type="submit" className="w-full rounded-md bg-[#6ccd8b] py-3 font-semibold text-white">
+                {t("Добавить")}
+              </button>
+            </form>
+          </div>
+        )}
+        {paymentDone && (
+          <div className="fixed bottom-6 right-6 z-[60] rounded-md bg-slate-900 px-5 py-3 text-sm font-semibold text-white shadow-xl">
+            {t("Оплата добавлена ✓")}
+          </div>
+        )}
+        <section className="px-6 py-6">
+          <h3 className="mb-5 text-xl font-bold">{t("Агенты магазина")}</h3>
+          <div className="border-b border-dashed pb-5">
+            {t("Агент")} <span className="ml-28">{t("Комментарий")}</span>
+            <span className="ml-20">{t("Прайс лист")}</span>
+          </div>
+          <h3 className="mb-5 mt-10 text-xl font-bold">{t("Маршруты")}</h3>
+          <div className="border-b border-dashed pb-5">
+            Admin Ritm <span className="ml-24">{t("Раз в неделю")}</span>
+            <span className="ml-14 rounded bg-slate-100 px-3 py-2">{t("Пн Вт Ср Чт Пт")}</span>
+          </div>
+          <h3 className="mb-5 mt-10 text-xl font-bold">{t("Баланс")}</h3>
+          <div className="grid grid-cols-2 gap-4">
+            <div className="rounded bg-slate-100 p-5">
+              {t("Баланс на начало периода")}
+              <br />
+              <b className="text-red-400">-20 000 SUM</b>
+            </div>
+            <div className="rounded bg-slate-100 p-5">
+              {t("Возврат")}
+              <br />
+              <b className="text-green-500">20 000 SUM</b>
+            </div>
+          </div>
+        </section>
+      </aside>
+    </>
+  )
 }
 function Metric({ label, value, red }: { label: string; value: string; red?: boolean }) { return <div className="border-b py-4 text-slate-500">{label}<b className={`mt-2 block text-lg ${red?"text-red-400":"text-slate-800"}`}>{value}</b></div> }
 
@@ -1124,6 +1357,7 @@ function ClientRow({
   onToggle: () => void
   onOpen: () => void
 }) {
+  const { t } = useLanguage()
   const verticalPadding = compact ? "py-3" : "py-5"
 
   return (
@@ -1138,7 +1372,7 @@ function ClientRow({
           checked={selected}
           onChange={onToggle}
           className="h-4 w-4 cursor-pointer accent-brand-green"
-          aria-label={`Выбрать ${client.name}`}
+          aria-label={`${t("Выбрать")} ${client.name}`}
         />
       </td>
       <td className={`px-4 ${verticalPadding} text-[15px] font-medium text-slate-800`}><button type="button" onClick={onOpen} className="text-left hover:text-link">{client.name}</button></td>
@@ -1146,7 +1380,7 @@ function ClientRow({
       <td className={`px-4 ${verticalPadding} text-[15px] text-slate-700`}>
         {client.inn ? (
           <span>
-            ИНН: <span className="font-semibold text-slate-900">{client.inn}</span>
+            {t("ИНН")}: <span className="font-semibold text-slate-900">{client.inn}</span>
           </span>
         ) : (
           ""
@@ -1156,7 +1390,7 @@ function ClientRow({
       <td className={`px-4 ${verticalPadding} text-[15px] text-slate-700`}>
         <div>{client.zone}</div>
         <div className="text-link">{client.zoneAgent}</div>
-        {routed && <div className="mt-1 text-xs font-semibold text-brand-green">Маршрут установлен</div>}
+        {routed && <div className="mt-1 text-xs font-semibold text-brand-green">{t("Маршрут установлен")}</div>}
       </td>
       <td className={`px-4 ${verticalPadding} text-[15px] text-slate-700`}>{client.agent}</td>
       <td className={`px-4 ${verticalPadding} text-[15px] text-slate-700`}>{client.deliverer}</td>

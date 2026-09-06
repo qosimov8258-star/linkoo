@@ -1,8 +1,8 @@
 "use client"
 
 import Link from "next/link"
-import type { FormEvent } from "react"
-import { useEffect, useMemo, useState } from "react"
+import type { ChangeEvent, FormEvent } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import type { LucideIcon } from "lucide-react"
 import {
   Activity,
@@ -31,6 +31,9 @@ import {
 
 import type { ClientModule, ClientModuleKind } from "@/lib/clients-catalog"
 import { cn } from "@/lib/utils"
+import { downloadExcelTable } from "@/lib/excel-export"
+import { mapHeaderColumns, normalizeHeader, readExcelRows } from "@/lib/excel-import"
+import { useLanguage } from "@/lib/i18n/language-context"
 
 type ModuleRowStatus = "active" | "attention" | "inactive"
 
@@ -113,473 +116,29 @@ const emptyDraft: RowDraft = {
 const inputClassName =
   "w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm font-normal text-slate-700 outline-none transition-colors placeholder:text-slate-400 focus:border-brand-blue focus:ring-2 focus:ring-brand-blue/10"
 
-const seedRows: Record<string, ModuleRow[]> = {
-  "client-dynamics": [
-    {
-      id: 1,
-      name: "Ключевые клиенты",
-      category: "Сегмент A",
-      detail: "Покупки каждый месяц · средний чек выше 8 млн SUM",
-      value: "128",
-      status: "active",
-      statusLabel: "Рост +12%",
-      updatedAt: "25.07.2026",
-    },
-    {
-      id: 2,
-      name: "Активные клиенты",
-      category: "Сегмент B",
-      detail: "Последняя покупка не более 30 дней назад",
-      value: "486",
-      status: "active",
-      statusLabel: "Стабильно",
-      updatedAt: "25.07.2026",
-    },
-    {
-      id: 3,
-      name: "Клиенты риска",
-      category: "Сегмент C",
-      detail: "Частота заказов снизилась более чем на 25%",
-      value: "74",
-      status: "attention",
-      statusLabel: "Снижение −18%",
-      updatedAt: "24.07.2026",
-    },
-    {
-      id: 4,
-      name: "Неактивные клиенты",
-      category: "Сегмент D",
-      detail: "Нет покупок более 90 дней",
-      value: "39",
-      status: "inactive",
-      statusLabel: "Без активности",
-      updatedAt: "23.07.2026",
-    },
-  ],
-  "financial-accounts": [
-    {
-      id: 1,
-      name: "ACC-100245 · Baraka Trade",
-      category: "Дебиторский",
-      detail: "Основной торговый счёт · лимит 250 000 000 SUM",
-      value: "184 250 000 SUM",
-      status: "active",
-      statusLabel: "В норме",
-      updatedAt: "25.07.2026",
-    },
-    {
-      id: 2,
-      name: "ACC-100318 · Aziz Market",
-      category: "Авансовый",
-      detail: "Доступный остаток для новых заказов",
-      value: "42 800 000 SUM",
-      status: "active",
-      statusLabel: "Доступен",
-      updatedAt: "25.07.2026",
-    },
-    {
-      id: 3,
-      name: "ACC-100411 · Fayz Retail",
-      category: "Кредитный",
-      detail: "Просрочен платёж по накладной № 8471",
-      value: "−18 460 000 SUM",
-      status: "attention",
-      statusLabel: "Просрочен",
-      updatedAt: "24.07.2026",
-    },
-    {
-      id: 4,
-      name: "ACC-100096 · Orient Shop",
-      category: "Дебиторский",
-      detail: "Счёт закрыт после сверки взаиморасчётов",
-      value: "0 SUM",
-      status: "inactive",
-      statusLabel: "Закрыт",
-      updatedAt: "18.07.2026",
-    },
-  ],
-  "telegram-users": [
-    {
-      id: 1,
-      name: "@aziz_market",
-      category: "Владелец",
-      detail: "Aziz Market · +998 95 060 33 32",
-      value: "48",
-      status: "active",
-      statusLabel: "Онлайн",
-      updatedAt: "25.07.2026",
-    },
-    {
-      id: 2,
-      name: "@baraka_operator",
-      category: "Оператор",
-      detail: "Baraka Trade · уведомления о заказах включены",
-      value: "31",
-      status: "active",
-      statusLabel: "Активен",
-      updatedAt: "25.07.2026",
-    },
-    {
-      id: 3,
-      name: "@fayz_owner",
-      category: "Владелец",
-      detail: "Fayz Retail · требуется повторная авторизация",
-      value: "7",
-      status: "attention",
-      statusLabel: "Сессия истекает",
-      updatedAt: "24.07.2026",
-    },
-    {
-      id: 4,
-      name: "@orient_cashier",
-      category: "Кассир",
-      detail: "Orient Shop · бот заблокирован пользователем",
-      value: "0",
-      status: "inactive",
-      statusLabel: "Отключён",
-      updatedAt: "19.07.2026",
-    },
-  ],
-  restrictions: [
-    {
-      id: 1,
-      name: "Baraka Trade",
-      category: "Кредитный лимит",
-      detail: "Блокировать заказ при превышении установленного лимита",
-      value: "250 000 000 SUM",
-      status: "active",
-      statusLabel: "Применяется",
-      updatedAt: "25.07.2026",
-    },
-    {
-      id: 2,
-      name: "Fayz Retail",
-      category: "Просроченная задолженность",
-      detail: "Разрешение от финансового контролёра обязательно",
-      value: "18 460 000 SUM",
-      status: "attention",
-      statusLabel: "На проверке",
-      updatedAt: "24.07.2026",
-    },
-    {
-      id: 3,
-      name: "Samarkand Market",
-      category: "Товарная группа",
-      detail: "Временно запрещена отгрузка охлаждённой продукции",
-      value: "12 SKU",
-      status: "active",
-      statusLabel: "Применяется",
-      updatedAt: "23.07.2026",
-    },
-    {
-      id: 4,
-      name: "Orient Shop",
-      category: "Маршрут",
-      detail: "Ограничение снято после изменения адреса",
-      value: "Без лимита",
-      status: "inactive",
-      statusLabel: "Снято",
-      updatedAt: "18.07.2026",
-    },
-  ],
-  territory: [
-    {
-      id: 1,
-      name: "Ташкент · Юнусабад",
-      category: "Ташкент",
-      detail: "Команда «Север» · супервайзер Дилшод Каримов",
-      value: "186",
-      status: "active",
-      statusLabel: "Активна",
-      updatedAt: "25.07.2026",
-    },
-    {
-      id: 2,
-      name: "Ташкент · Чиланзар",
-      category: "Ташкент",
-      detail: "Команда «Запад» · супервайзер Азиза Рахимова",
-      value: "214",
-      status: "active",
-      statusLabel: "Активна",
-      updatedAt: "25.07.2026",
-    },
-    {
-      id: 3,
-      name: "Самарканд · Центр",
-      category: "Самарканд",
-      detail: "Требуется назначить второго полевого агента",
-      value: "121",
-      status: "attention",
-      statusLabel: "Неполная команда",
-      updatedAt: "24.07.2026",
-    },
-    {
-      id: 4,
-      name: "Фергана · Промзона",
-      category: "Фергана",
-      detail: "Территория временно исключена из планирования",
-      value: "43",
-      status: "inactive",
-      statusLabel: "Приостановлена",
-      updatedAt: "20.07.2026",
-    },
-  ],
-  "territory-coverage": [
-    {
-      id: 1,
-      name: "Юнусабад",
-      category: "Ташкент",
-      detail: "186 из 198 доступных торговых точек",
-      value: "94%",
-      status: "active",
-      statusLabel: "Цель выполнена",
-      updatedAt: "25.07.2026",
-    },
-    {
-      id: 2,
-      name: "Чиланзар",
-      category: "Ташкент",
-      detail: "214 из 231 доступной торговой точки",
-      value: "93%",
-      status: "active",
-      statusLabel: "Цель выполнена",
-      updatedAt: "25.07.2026",
-    },
-    {
-      id: 3,
-      name: "Самарканд · Центр",
-      category: "Самарканд",
-      detail: "121 из 158 доступных торговых точек",
-      value: "77%",
-      status: "attention",
-      statusLabel: "Ниже цели",
-      updatedAt: "24.07.2026",
-    },
-    {
-      id: 4,
-      name: "Фергана · Промзона",
-      category: "Фергана",
-      detail: "43 из 96 доступных торговых точек",
-      value: "45%",
-      status: "inactive",
-      statusLabel: "Не обслуживается",
-      updatedAt: "20.07.2026",
-    },
-  ],
-  routes: [
-    {
-      id: 1,
-      name: "TASH-YUN-01",
-      category: "Шохрух Туляганов",
-      detail: "Пн / Ср / Пт · 34 закреплённых клиента",
-      value: "28",
-      status: "active",
-      statusLabel: "В пути",
-      updatedAt: "25.07.2026",
-    },
-    {
-      id: 2,
-      name: "TASH-CHIL-04",
-      category: "Азиз Абдуллаев",
-      detail: "Вт / Чт / Сб · 29 закреплённых клиентов",
-      value: "29",
-      status: "active",
-      statusLabel: "По плану",
-      updatedAt: "25.07.2026",
-    },
-    {
-      id: 3,
-      name: "SAM-CEN-02",
-      category: "Бекзод Хамидов",
-      detail: "Пн / Вт / Чт · две точки без координат",
-      value: "17",
-      status: "attention",
-      statusLabel: "Есть отклонения",
-      updatedAt: "24.07.2026",
-    },
-    {
-      id: 4,
-      name: "FER-PRM-01",
-      category: "Не назначен",
-      detail: "Маршрут сохранён без активного расписания",
-      value: "0",
-      status: "inactive",
-      statusLabel: "Приостановлен",
-      updatedAt: "20.07.2026",
-    },
-  ],
-  "duplicate-analysis": [
-    {
-      id: 1,
-      name: "Aziz Market ↔ Aziz market",
-      category: "Телефон и координаты",
-      detail: "+998 95 060 33 32 · расстояние между точками 4 м",
-      value: "99%",
-      status: "attention",
-      statusLabel: "На проверке",
-      updatedAt: "25.07.2026",
-    },
-    {
-      id: 2,
-      name: "Baraka Trade ↔ BARAKA",
-      category: "ИНН",
-      detail: "Одинаковый ИНН и ответственный владелец",
-      value: "100%",
-      status: "active",
-      statusLabel: "Объединено",
-      updatedAt: "25.07.2026",
-    },
-    {
-      id: 3,
-      name: "Fayz Retail ↔ Fayz Mini",
-      category: "Адрес",
-      detail: "Совпадает адрес, различаются номера телефонов",
-      value: "82%",
-      status: "attention",
-      statusLabel: "Нужна сверка",
-      updatedAt: "24.07.2026",
-    },
-    {
-      id: 4,
-      name: "Orient Shop ↔ Orient Market",
-      category: "Название",
-      detail: "Разные владельцы и координаты торговых точек",
-      value: "41%",
-      status: "inactive",
-      statusLabel: "Не является дублем",
-      updatedAt: "23.07.2026",
-    },
-  ],
-  "client-types": [
-    {
-      id: 1,
-      name: "Розница",
-      category: "Традиционная торговля",
-      detail: "Магазины у дома и небольшие торговые точки",
-      value: "842",
-      status: "active",
-      statusLabel: "Используется",
-      updatedAt: "25.07.2026",
-    },
-    {
-      id: 2,
-      name: "Мини-маркет",
-      category: "Современная торговля",
-      detail: "Точки самообслуживания площадью до 300 м²",
-      value: "326",
-      status: "active",
-      statusLabel: "Используется",
-      updatedAt: "24.07.2026",
-    },
-    {
-      id: 3,
-      name: "HoReCa",
-      category: "Общественное питание",
-      detail: "Рестораны, кафе, гостиницы и кейтеринг",
-      value: "118",
-      status: "attention",
-      statusLabel: "Нужна классификация",
-      updatedAt: "23.07.2026",
-    },
-    {
-      id: 4,
-      name: "Киоск",
-      category: "Традиционная торговля",
-      detail: "Архивный тип для закрытых форматов точек",
-      value: "14",
-      status: "inactive",
-      statusLabel: "Архив",
-      updatedAt: "18.07.2026",
-    },
-  ],
-  attributes: [
-    {
-      id: 1,
-      name: "Формат торговой точки",
-      category: "Список",
-      detail: "Обязательное поле · показывать в карточке и фильтрах",
-      value: "8",
-      status: "active",
-      statusLabel: "Опубликован",
-      updatedAt: "25.07.2026",
-    },
-    {
-      id: 2,
-      name: "Площадь торгового зала",
-      category: "Число",
-      detail: "Единица измерения: м² · диапазон от 1 до 10 000",
-      value: "1 146",
-      status: "active",
-      statusLabel: "Опубликован",
-      updatedAt: "24.07.2026",
-    },
-    {
-      id: 3,
-      name: "Предпочтительное время визита",
-      category: "Время",
-      detail: "Поле доступно агентам при планировании маршрута",
-      value: "419",
-      status: "attention",
-      statusLabel: "Черновик",
-      updatedAt: "23.07.2026",
-    },
-    {
-      id: 4,
-      name: "Старый код клиента",
-      category: "Текст",
-      detail: "Устаревшее поле после завершения миграции",
-      value: "73",
-      status: "inactive",
-      statusLabel: "Архив",
-      updatedAt: "17.07.2026",
-    },
-  ],
-  "attribute-values": [
-    {
-      id: 1,
-      name: "Мини-маркет",
-      category: "Формат торговой точки",
-      detail: "Порядок сортировки: 10 · цвет метки: синий",
-      value: "326",
-      status: "active",
-      statusLabel: "Доступно",
-      updatedAt: "25.07.2026",
-    },
-    {
-      id: 2,
-      name: "Магазин у дома",
-      category: "Формат торговой точки",
-      detail: "Порядок сортировки: 20 · цвет метки: зелёный",
-      value: "517",
-      status: "active",
-      statusLabel: "Доступно",
-      updatedAt: "24.07.2026",
-    },
-    {
-      id: 3,
-      name: "После 15:00",
-      category: "Предпочтительное время визита",
-      detail: "Значение ожидает публикации администратором",
-      value: "46",
-      status: "attention",
-      statusLabel: "Черновик",
-      updatedAt: "23.07.2026",
-    },
-    {
-      id: 4,
-      name: "Павильон старого образца",
-      category: "Формат торговой точки",
-      detail: "Значение больше нельзя назначать новым клиентам",
-      value: "19",
-      status: "inactive",
-      statusLabel: "Архив",
-      updatedAt: "18.07.2026",
-    },
-  ],
+type ApiModuleItem = {
+  id: number
+  moduleKey: string
+  name: string
+  category: string
+  detail: string
+  value: string
+  status: ModuleRowStatus
+  statusLabel: string
+  updatedAt: string
 }
 
-function cloneSeedRows(slug: string) {
-  return (seedRows[slug] ?? []).map((row) => ({ ...row }))
+function apiItemToRow(item: ApiModuleItem): ModuleRow {
+  return {
+    id: item.id,
+    name: item.name,
+    category: item.category,
+    detail: item.detail,
+    value: item.value,
+    status: item.status,
+    statusLabel: item.statusLabel,
+    updatedAt: item.updatedAt,
+  }
 }
 
 function csvCell(value: string | number) {
@@ -591,7 +150,8 @@ function todayLabel() {
 }
 
 export function ClientModuleView({ clientModule }: { clientModule: ClientModule }) {
-  const [rows, setRows] = useState<ModuleRow[]>(() => cloneSeedRows(clientModule.slug))
+  const { t } = useLanguage()
+  const [rows, setRows] = useState<ModuleRow[]>([])
   const [query, setQuery] = useState("")
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all")
   const [selectedIds, setSelectedIds] = useState<number[]>([])
@@ -602,15 +162,35 @@ export function ClientModuleView({ clientModule }: { clientModule: ClientModule 
   const [formError, setFormError] = useState("")
   const [deleteIds, setDeleteIds] = useState<number[]>([])
   const [notice, setNotice] = useState<string | null>(null)
+  const [importOpen, setImportOpen] = useState(false)
+  const [importFile, setImportFile] = useState<File | null>(null)
+  const [importSaving, setImportSaving] = useState(false)
+  const importInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
-    setRows(cloneSeedRows(clientModule.slug))
     setQuery("")
     setStatusFilter("all")
     setSelectedIds([])
     setModalMode(null)
     setEditingId(null)
     setDeleteIds([])
+
+    let cancelled = false
+    fetch("/api/client-module-items?moduleKey=" + encodeURIComponent(clientModule.slug))
+      .then(async (response) => {
+        if (!response.ok) throw new Error("Не удалось загрузить записи")
+        return (await response.json()) as ApiModuleItem[]
+      })
+      .then((data) => {
+        if (cancelled) return
+        setRows(data.map(apiItemToRow))
+      })
+      .catch(() => {
+        if (!cancelled) setRows([])
+      })
+    return () => {
+      cancelled = true
+    }
   }, [clientModule.slug])
 
   useEffect(() => {
@@ -675,7 +255,7 @@ export function ClientModuleView({ clientModule }: { clientModule: ClientModule 
     } catch {
       // The visual state still works when browser storage is unavailable.
     }
-    setNotice(next ? "Раздел добавлен в избранное" : "Раздел удалён из избранного")
+    setNotice(next ? t("Раздел добавлен в избранное") : t("Раздел удалён из избранного"))
   }
 
   function toggleVisibleRows() {
@@ -725,7 +305,7 @@ export function ClientModuleView({ clientModule }: { clientModule: ClientModule 
     setFormError("")
   }
 
-  function saveRow(event: FormEvent<HTMLFormElement>) {
+  async function saveRow(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const cleanDraft = {
       ...draft,
@@ -743,24 +323,41 @@ export function ClientModuleView({ clientModule }: { clientModule: ClientModule 
       !cleanDraft.value ||
       !cleanDraft.statusLabel
     ) {
-      setFormError("Заполните все обязательные поля.")
+      setFormError(t("Заполните все обязательные поля."))
       return
     }
 
-    if (modalMode === "edit" && editingId !== null) {
-      setRows((current) =>
-        current.map((row) =>
-          row.id === editingId ? { ...row, ...cleanDraft, updatedAt: todayLabel() } : row,
-        ),
-      )
-      setNotice("Запись успешно обновлена")
-    } else {
-      const nextId = rows.reduce((highest, row) => Math.max(highest, row.id), 0) + 1
-      setRows((current) => [
-        { id: nextId, ...cleanDraft, updatedAt: todayLabel() },
-        ...current,
-      ])
-      setNotice("Новая запись добавлена")
+    try {
+      if (modalMode === "edit" && editingId !== null) {
+        const response = await fetch("/api/client-module-items/" + editingId, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ moduleKey: clientModule.slug, ...cleanDraft }),
+        })
+        if (!response.ok) {
+          setFormError(t("Не удалось сохранить запись."))
+          return
+        }
+        const saved = apiItemToRow((await response.json()) as ApiModuleItem)
+        setRows((current) => current.map((row) => (row.id === editingId ? saved : row)))
+        setNotice(t("Запись успешно обновлена"))
+      } else {
+        const response = await fetch("/api/client-module-items", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ moduleKey: clientModule.slug, ...cleanDraft }),
+        })
+        if (!response.ok) {
+          setFormError(t("Не удалось добавить запись."))
+          return
+        }
+        const saved = apiItemToRow((await response.json()) as ApiModuleItem)
+        setRows((current) => [saved, ...current])
+        setNotice(t("Новая запись добавлена"))
+      }
+    } catch {
+      setFormError(t("Сервер недоступен, попробуйте ещё раз."))
+      return
     }
 
     closeEditor()
@@ -771,12 +368,19 @@ export function ClientModuleView({ clientModule }: { clientModule: ClientModule 
     setDeleteIds(ids)
   }
 
-  function confirmDelete() {
+  async function confirmDelete() {
     const count = deleteIds.length
-    setRows((current) => current.filter((row) => !deleteIds.includes(row.id)))
-    setSelectedIds((current) => current.filter((id) => !deleteIds.includes(id)))
+    const ids = deleteIds
+    try {
+      await Promise.all(ids.map((id) => fetch("/api/client-module-items/" + id, { method: "DELETE" })))
+    } catch {
+      // Rows are still removed from the visible list below; a failed request
+      // simply means it may reappear after the next reload.
+    }
+    setRows((current) => current.filter((row) => !ids.includes(row.id)))
+    setSelectedIds((current) => current.filter((id) => !ids.includes(id)))
     setDeleteIds([])
-    setNotice(count === 1 ? "Запись удалена" : "Удалено записей: " + count)
+    setNotice(count === 1 ? t("Запись удалена") : t("Удалено записей") + ": " + count)
   }
 
   function resetFilters() {
@@ -787,12 +391,12 @@ export function ClientModuleView({ clientModule }: { clientModule: ClientModule 
   function downloadCsv() {
     const exportRows = selectedRows.length > 0 ? selectedRows : filteredRows
     if (exportRows.length === 0) {
-      setNotice("Нет записей для экспорта")
+      setNotice(t("Нет записей для экспорта"))
       return
     }
 
     const csvRows = [
-      ["Название", clientModule.categoryLabel, "Описание", clientModule.valueLabel, "Статус", "Обновлено"],
+      [t("Название"), clientModule.categoryLabel, t("Описание"), clientModule.valueLabel, t("Статус"), t("Обновлено")],
       ...exportRows.map((row) => [
         row.name,
         row.category,
@@ -812,7 +416,117 @@ export function ClientModuleView({ clientModule }: { clientModule: ClientModule 
     anchor.click()
     anchor.remove()
     URL.revokeObjectURL(url)
-    setNotice("CSV подготовлен: " + exportRows.length + " записей")
+    setNotice(t("CSV подготовлен") + ": " + exportRows.length + " " + t("записей"))
+  }
+
+  const importAliases = useMemo(() => {
+    const aliases: Record<string, string> = {
+      "название": "name",
+      "наименование": "name",
+      "name": "name",
+      "описание": "detail",
+      "detail": "detail",
+      "статус": "statusLabel",
+      "status": "statusLabel",
+    }
+    aliases[normalizeHeader(clientModule.categoryLabel)] = "category"
+    aliases[normalizeHeader(clientModule.valueLabel)] = "value"
+    return aliases
+  }, [clientModule.categoryLabel, clientModule.valueLabel])
+
+  function downloadTemplate() {
+    downloadExcelTable(clientModule.slug + "-template", [
+      [t("Название"), clientModule.categoryLabel, t("Описание"), clientModule.valueLabel, t("Статус")],
+    ])
+  }
+
+  function pickImportFile(event: ChangeEvent<HTMLInputElement>) {
+    setImportFile(event.target.files?.[0] ?? null)
+  }
+
+  async function saveImport() {
+    if (!importFile) return
+    setImportSaving(true)
+    try {
+      const excelRows = await readExcelRows(importFile)
+      if (!excelRows.length) {
+        window.alert(t("Не удалось найти данные для импорта в выбранном файле"))
+        return
+      }
+      const fieldByIndex = mapHeaderColumns(excelRows[0], importAliases)
+      const hasHeader = Array.from(fieldByIndex.values()).includes("name")
+      const dataRows = hasHeader ? excelRows.slice(1) : excelRows
+
+      const parsed: Omit<ModuleRow, "id">[] = []
+      for (const row of dataRows) {
+        const record: Record<string, string> = {}
+        if (hasHeader) {
+          row.forEach((cell, index) => {
+            const field = fieldByIndex.get(index)
+            if (field) record[field] = cell
+          })
+        } else {
+          record.name = row[0] ?? ""
+          record.category = row[1] ?? ""
+          record.detail = row[2] ?? ""
+          record.value = row[3] ?? ""
+          record.statusLabel = row[4] ?? ""
+        }
+        if (!record.name) continue
+        const matchedStatus = statusOptions.find(
+          (option) => normalizeHeader(option.label) === normalizeHeader(record.statusLabel || ""),
+        )
+        const status = matchedStatus ? matchedStatus.value : "active"
+        parsed.push({
+          name: record.name.trim(),
+          category: record.category?.trim() || "-",
+          detail: record.detail?.trim() || "-",
+          value: record.value?.trim() || "-",
+          status,
+          statusLabel: record.statusLabel?.trim() || defaultStatusLabels[status],
+          updatedAt: todayLabel(),
+        })
+      }
+
+      if (!parsed.length) {
+        window.alert(t("Не удалось найти данные для импорта в выбранном файле"))
+        return
+      }
+
+      const created: ModuleRow[] = []
+      let failed = 0
+      for (const item of parsed) {
+        try {
+          const response = await fetch("/api/client-module-items", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              moduleKey: clientModule.slug,
+              name: item.name,
+              category: item.category,
+              detail: item.detail,
+              value: item.value,
+              status: item.status,
+              statusLabel: item.statusLabel,
+            }),
+          })
+          if (response.ok) created.push(apiItemToRow((await response.json()) as ApiModuleItem))
+          else failed += 1
+        } catch {
+          failed += 1
+        }
+      }
+      if (created.length) setRows((current) => [...created, ...current])
+      if (failed)
+        window.alert(
+          t("Импортировано") + " " + created.length + " " + t("из") + " " + parsed.length + ". " + t("Не удалось сохранить") + ": " + failed,
+        )
+      else setNotice(t("Импортировано записей") + ": " + created.length)
+    } finally {
+      setImportSaving(false)
+      setImportOpen(false)
+      setImportFile(null)
+    }
   }
 
   return (
@@ -823,7 +537,7 @@ export function ClientModuleView({ clientModule }: { clientModule: ClientModule 
           className="mb-4 inline-flex items-center gap-2 text-sm font-semibold text-brand-blue transition-colors hover:text-blue-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-blue"
         >
           <ArrowLeft className="h-4 w-4" />
-          Назад к клиентам
+          {t("Назад к клиентам")}
         </Link>
 
         <section className="relative mb-5 overflow-hidden rounded-2xl bg-navy px-5 py-6 text-white shadow-sm sm:px-7">
@@ -840,7 +554,7 @@ export function ClientModuleView({ clientModule }: { clientModule: ClientModule 
               </span>
               <div className="min-w-0">
                 <p className="mb-1 text-xs font-bold uppercase tracking-[0.14em] text-brand-sky">
-                  {kindLabels[clientModule.kind]}
+                  {t(kindLabels[clientModule.kind])}
                 </p>
                 <h1 className="text-2xl font-bold leading-tight sm:text-3xl">{clientModule.label}</h1>
                 <p className="mt-2 max-w-3xl text-sm leading-6 text-white/70">
@@ -852,12 +566,12 @@ export function ClientModuleView({ clientModule }: { clientModule: ClientModule 
             <button
               type="button"
               onClick={toggleFavorite}
-              aria-label={favorite ? "Удалить из избранного" : "Добавить в избранное"}
+              aria-label={favorite ? t("Удалить из избранного") : t("Добавить в избранное")}
               aria-pressed={favorite}
               className="inline-flex shrink-0 items-center justify-center gap-2 self-start rounded-lg bg-white/10 px-4 py-2.5 text-sm font-semibold ring-1 ring-white/15 transition-colors hover:bg-white/15 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
             >
               <Star className={cn("h-4 w-4 text-amber-300", favorite && "fill-current")} />
-              {favorite ? "В избранном" : "В избранное"}
+              {favorite ? t("В избранном") : t("В избранное")}
             </button>
           </div>
         </section>
@@ -865,25 +579,25 @@ export function ClientModuleView({ clientModule }: { clientModule: ClientModule 
         <section className="mb-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <MetricCard
             icon={FileText}
-            label="Всего записей"
+            label={t("Всего записей")}
             value={String(rows.length)}
             color="bg-blue-50 text-brand-blue"
           />
           <MetricCard
             icon={CheckCircle2}
-            label="Активные"
+            label={t("Активные")}
             value={String(activeCount)}
             color="bg-emerald-50 text-emerald-600"
           />
           <MetricCard
             icon={ShieldAlert}
-            label="Требуют внимания"
+            label={t("Требуют внимания")}
             value={String(attentionCount)}
             color="bg-amber-50 text-amber-600"
           />
           <MetricCard
             icon={Users}
-            label="Выбрано"
+            label={t("Выбрано")}
             value={String(selectedIds.length)}
             color="bg-violet-50 text-violet-600"
           />
@@ -902,7 +616,7 @@ export function ClientModuleView({ clientModule }: { clientModule: ClientModule 
               type="button"
               onClick={() => setNotice(null)}
               className="rounded p-1 hover:bg-emerald-100"
-              aria-label="Закрыть уведомление"
+              aria-label={t("Закрыть уведомление")}
             >
               <X className="h-4 w-4" />
             </button>
@@ -914,28 +628,28 @@ export function ClientModuleView({ clientModule }: { clientModule: ClientModule 
             <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
               <div className="flex min-w-0 flex-1 flex-col gap-3 sm:flex-row">
                 <label className="relative min-w-0 flex-1 xl:max-w-md">
-                  <span className="sr-only">Поиск</span>
+                  <span className="sr-only">{t("Поиск")}</span>
                   <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
                   <input
                     type="search"
                     value={query}
                     onChange={(event) => setQuery(event.target.value)}
-                    placeholder="Поиск по всем полям"
+                    placeholder={t("Поиск по всем полям")}
                     className="w-full rounded-lg border border-slate-200 bg-white py-2.5 pl-10 pr-4 text-sm text-slate-700 outline-none transition-colors placeholder:text-slate-400 focus:border-brand-blue focus:ring-2 focus:ring-brand-blue/10"
                   />
                 </label>
 
                 <label className="min-w-52">
-                  <span className="sr-only">Фильтр по статусу</span>
+                  <span className="sr-only">{t("Фильтр по статусу")}</span>
                   <select
                     value={statusFilter}
                     onChange={(event) => setStatusFilter(event.target.value as StatusFilter)}
                     className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700 outline-none transition-colors focus:border-brand-blue focus:ring-2 focus:ring-brand-blue/10"
                   >
-                    <option value="all">Все статусы</option>
+                    <option value="all">{t("Все статусы")}</option>
                     {statusOptions.map((option) => (
                       <option key={option.value} value={option.value}>
-                        {option.filterLabel}
+                        {t(option.filterLabel)}
                       </option>
                     ))}
                   </select>
@@ -948,7 +662,7 @@ export function ClientModuleView({ clientModule }: { clientModule: ClientModule 
                   className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-200 px-3 py-2.5 text-sm font-semibold text-slate-600 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   <RefreshCw className="h-4 w-4" />
-                  Сбросить
+                  {t("Сбросить")}
                 </button>
               </div>
 
@@ -967,13 +681,13 @@ export function ClientModuleView({ clientModule }: { clientModule: ClientModule 
                   disabled={selectedRows.length !== 1}
                   title={
                     selectedRows.length === 1
-                      ? "Изменить выбранную запись"
-                      : "Выберите одну запись"
+                      ? t("Изменить выбранную запись")
+                      : t("Выберите одну запись")
                   }
                   className="inline-flex items-center gap-2 rounded-lg border border-slate-200 px-3.5 py-2.5 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   <Pencil className="h-4 w-4" />
-                  Изменить
+                  {t("Изменить")}
                 </button>
                 <button
                   type="button"
@@ -982,7 +696,15 @@ export function ClientModuleView({ clientModule }: { clientModule: ClientModule 
                   className="inline-flex items-center gap-2 rounded-lg border border-red-200 px-3.5 py-2.5 text-sm font-semibold text-red-600 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   <Trash2 className="h-4 w-4" />
-                  Удалить
+                  {t("Удалить")}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setImportOpen(true)}
+                  className="inline-flex items-center gap-2 rounded-lg bg-brand-blue px-3.5 py-2.5 text-sm font-semibold text-white transition-colors hover:brightness-95"
+                >
+                  <FileText className="h-4 w-4" />
+                  {t("Импорт с Excel")}
                 </button>
                 <button
                   type="button"
@@ -990,18 +712,18 @@ export function ClientModuleView({ clientModule }: { clientModule: ClientModule 
                   className="inline-flex items-center gap-2 rounded-lg bg-brand-green px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-brand-green-dark focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-green"
                 >
                   <Plus className="h-4 w-4" strokeWidth={2.5} />
-                  Добавить
+                  {t("Добавить")}
                 </button>
               </div>
             </div>
 
             <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
               <span>
-                Показано {filteredRows.length} из {rows.length}
-                {selectedIds.length > 0 && " · выбрано " + selectedIds.length}
+                {t("Показано")} {filteredRows.length} {t("из")} {rows.length}
+                {selectedIds.length > 0 && " · " + t("выбрано") + " " + selectedIds.length}
               </span>
               <span>
-                CSV экспортирует {selectedRows.length > 0 ? "выбранные записи" : "текущую выборку"}
+                {t("CSV экспортирует")} {selectedRows.length > 0 ? t("выбранные записи") : t("текущую выборку")}
               </span>
             </div>
           </div>
@@ -1015,30 +737,30 @@ export function ClientModuleView({ clientModule }: { clientModule: ClientModule 
                       type="checkbox"
                       checked={allVisibleSelected}
                       onChange={toggleVisibleRows}
-                      aria-label="Выбрать все показанные записи"
+                      aria-label={t("Выбрать все показанные записи")}
                       className="h-4 w-4 cursor-pointer rounded border-slate-300 accent-brand-blue"
                     />
                   </th>
                   <th className="px-4 py-3.5 text-xs font-bold uppercase tracking-wide text-slate-500">
-                    Название
+                    {t("Название")}
                   </th>
                   <th className="px-4 py-3.5 text-xs font-bold uppercase tracking-wide text-slate-500">
                     {clientModule.categoryLabel}
                   </th>
                   <th className="px-4 py-3.5 text-xs font-bold uppercase tracking-wide text-slate-500">
-                    Описание
+                    {t("Описание")}
                   </th>
                   <th className="px-4 py-3.5 text-xs font-bold uppercase tracking-wide text-slate-500">
                     {clientModule.valueLabel}
                   </th>
                   <th className="px-4 py-3.5 text-xs font-bold uppercase tracking-wide text-slate-500">
-                    Статус
+                    {t("Статус")}
                   </th>
                   <th className="px-4 py-3.5 text-xs font-bold uppercase tracking-wide text-slate-500">
-                    Обновлено
+                    {t("Обновлено")}
                   </th>
                   <th className="w-24 px-4 py-3.5 text-right text-xs font-bold uppercase tracking-wide text-slate-500">
-                    Действия
+                    {t("Действия")}
                   </th>
                 </tr>
               </thead>
@@ -1047,16 +769,16 @@ export function ClientModuleView({ clientModule }: { clientModule: ClientModule 
                   <tr>
                     <td colSpan={8} className="px-5 py-16 text-center">
                       <Search className="mx-auto mb-3 h-8 w-8 text-slate-300" />
-                      <p className="font-semibold text-slate-700">Ничего не найдено</p>
+                      <p className="font-semibold text-slate-700">{t("Ничего не найдено")}</p>
                       <p className="mt-1 text-sm text-slate-400">
-                        Измените поисковый запрос или сбросьте фильтры.
+                        {t("Измените поисковый запрос или сбросьте фильтры.")}
                       </p>
                       <button
                         type="button"
                         onClick={resetFilters}
                         className="mt-4 text-sm font-semibold text-brand-blue hover:text-blue-700"
                       >
-                        Сбросить фильтры
+                        {t("Сбросить фильтры")}
                       </button>
                     </td>
                   </tr>
@@ -1077,7 +799,7 @@ export function ClientModuleView({ clientModule }: { clientModule: ClientModule 
                             type="checkbox"
                             checked={selected}
                             onChange={() => toggleRow(row.id)}
-                            aria-label={"Выбрать " + row.name}
+                            aria-label={t("Выбрать") + " " + row.name}
                             className="h-4 w-4 cursor-pointer rounded border-slate-300 accent-brand-blue"
                           />
                         </td>
@@ -1117,7 +839,7 @@ export function ClientModuleView({ clientModule }: { clientModule: ClientModule 
                             <button
                               type="button"
                               onClick={() => openEditModal(row)}
-                              aria-label={"Изменить " + row.name}
+                              aria-label={t("Изменить") + " " + row.name}
                               className="rounded-md p-2 text-slate-400 transition-colors hover:bg-blue-50 hover:text-brand-blue"
                             >
                               <Pencil className="h-4 w-4" />
@@ -1125,7 +847,7 @@ export function ClientModuleView({ clientModule }: { clientModule: ClientModule 
                             <button
                               type="button"
                               onClick={() => askToDelete([row.id])}
-                              aria-label={"Удалить " + row.name}
+                              aria-label={t("Удалить") + " " + row.name}
                               className="rounded-md p-2 text-slate-400 transition-colors hover:bg-red-50 hover:text-red-600"
                             >
                               <Trash2 className="h-4 w-4" />
@@ -1159,14 +881,14 @@ export function ClientModuleView({ clientModule }: { clientModule: ClientModule 
             <div className="flex items-start justify-between border-b border-slate-200 px-5 py-4 sm:px-6">
               <div>
                 <h2 id="client-module-editor-title" className="text-xl font-bold text-slate-800">
-                  {modalMode === "add" ? "Добавить запись" : "Изменить запись"}
+                  {modalMode === "add" ? t("Добавить запись") : t("Изменить запись")}
                 </h2>
                 <p className="mt-1 text-sm text-slate-500">{clientModule.label}</p>
               </div>
               <button
                 type="button"
                 onClick={closeEditor}
-                aria-label="Закрыть"
+                aria-label={t("Закрыть")}
                 className="rounded-lg p-2 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700"
               >
                 <X className="h-5 w-5" />
@@ -1175,13 +897,13 @@ export function ClientModuleView({ clientModule }: { clientModule: ClientModule 
 
             <form onSubmit={saveRow}>
               <div className="grid gap-4 px-5 py-5 sm:grid-cols-2 sm:px-6">
-                <FormField label="Название">
+                <FormField label={t("Название")}>
                   <input
                     autoFocus
                     value={draft.name}
                     onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))}
                     className={inputClassName}
-                    placeholder="Введите название"
+                    placeholder={t("Введите название")}
                   />
                 </FormField>
 
@@ -1192,7 +914,7 @@ export function ClientModuleView({ clientModule }: { clientModule: ClientModule 
                       setDraft((current) => ({ ...current, category: event.target.value }))
                     }
                     className={inputClassName}
-                    placeholder={"Введите: " + clientModule.categoryLabel.toLocaleLowerCase("ru-RU")}
+                    placeholder={t("Введите") + ": " + clientModule.categoryLabel.toLocaleLowerCase("ru-RU")}
                   />
                 </FormField>
 
@@ -1201,11 +923,11 @@ export function ClientModuleView({ clientModule }: { clientModule: ClientModule 
                     value={draft.value}
                     onChange={(event) => setDraft((current) => ({ ...current, value: event.target.value }))}
                     className={inputClassName}
-                    placeholder="Введите значение"
+                    placeholder={t("Введите значение")}
                   />
                 </FormField>
 
-                <FormField label="Системный статус">
+                <FormField label={t("Системный статус")}>
                   <select
                     value={draft.status}
                     onChange={(event) => {
@@ -1220,25 +942,25 @@ export function ClientModuleView({ clientModule }: { clientModule: ClientModule 
                   >
                     {statusOptions.map((option) => (
                       <option key={option.value} value={option.value}>
-                        {option.label}
+                        {t(option.label)}
                       </option>
                     ))}
                   </select>
                 </FormField>
 
-                <FormField label="Отображаемый статус">
+                <FormField label={t("Отображаемый статус")}>
                   <input
                     value={draft.statusLabel}
                     onChange={(event) =>
                       setDraft((current) => ({ ...current, statusLabel: event.target.value }))
                     }
                     className={inputClassName}
-                    placeholder="Например: В норме"
+                    placeholder={t("Например: В норме")}
                   />
                 </FormField>
 
                 <div className="sm:col-span-2">
-                  <FormField label="Описание">
+                  <FormField label={t("Описание")}>
                     <textarea
                       value={draft.detail}
                       onChange={(event) =>
@@ -1246,7 +968,7 @@ export function ClientModuleView({ clientModule }: { clientModule: ClientModule 
                       }
                       rows={3}
                       className={cn(inputClassName, "resize-y")}
-                      placeholder="Добавьте подробное описание"
+                      placeholder={t("Добавьте подробное описание")}
                     />
                   </FormField>
                 </div>
@@ -1264,13 +986,13 @@ export function ClientModuleView({ clientModule }: { clientModule: ClientModule 
                   onClick={closeEditor}
                   className="rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-100"
                 >
-                  Отмена
+                  {t("Отмена")}
                 </button>
                 <button
                   type="submit"
                   className="rounded-lg bg-brand-blue px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:brightness-95"
                 >
-                  {modalMode === "add" ? "Добавить" : "Сохранить изменения"}
+                  {modalMode === "add" ? t("Добавить") : t("Сохранить изменения")}
                 </button>
               </div>
             </form>
@@ -1297,13 +1019,13 @@ export function ClientModuleView({ clientModule }: { clientModule: ClientModule 
               <Trash2 className="h-5 w-5" />
             </span>
             <h2 id="delete-client-module-title" className="text-xl font-bold text-slate-800">
-              Удалить {deleteIds.length === 1 ? "запись" : "записи"}?
+              {t("Удалить")} {deleteIds.length === 1 ? t("запись") : t("записи")}?
             </h2>
             <p id="delete-client-module-description" className="mt-2 text-sm leading-6 text-slate-500">
               {deleteIds.length === 1
-                ? "Выбранная запись будет удалена из текущего раздела."
-                : "Будет удалено записей: " + deleteIds.length + "."}
-              {" "}Это действие нельзя отменить.
+                ? t("Выбранная запись будет удалена из текущего раздела.")
+                : t("Будет удалено записей") + ": " + deleteIds.length + "."}
+              {" "}{t("Это действие нельзя отменить.")}
             </p>
             <div className="mt-6 flex justify-end gap-2">
               <button
@@ -1311,7 +1033,7 @@ export function ClientModuleView({ clientModule }: { clientModule: ClientModule 
                 onClick={() => setDeleteIds([])}
                 className="rounded-lg border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50"
               >
-                Отмена
+                {t("Отмена")}
               </button>
               <button
                 type="button"
@@ -1319,10 +1041,54 @@ export function ClientModuleView({ clientModule }: { clientModule: ClientModule 
                 autoFocus
                 className="rounded-lg bg-red-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-red-700"
               >
-                Удалить
+                {t("Удалить")}
               </button>
             </div>
           </section>
+        </div>
+      )}
+
+      {importOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/45 p-4">
+          <div className="w-full max-w-md rounded-lg bg-white">
+            <header className="flex items-center justify-between border-b border-slate-200 p-6">
+              <b className="uppercase">{t("Импорт с Excel")}</b>
+              <button
+                type="button"
+                onClick={() => {
+                  setImportOpen(false)
+                  setImportFile(null)
+                }}
+                aria-label={t("Закрыть")}
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </header>
+            <div className="p-8">
+              <button type="button" onClick={downloadTemplate} className="mb-4 font-semibold text-brand-blue hover:underline">
+                {t("1. Скачать шаблон")}
+              </button>
+              <input ref={importInputRef} type="file" accept=".csv,.xls,.xlsx" onChange={pickImportFile} className="hidden" />
+              <button
+                type="button"
+                onClick={() => importInputRef.current?.click()}
+                className="flex w-full flex-col items-center justify-center gap-3 rounded-lg border-2 border-dashed border-slate-300 py-10 text-slate-500 hover:border-brand-blue hover:text-brand-blue"
+              >
+                <FileText className="h-8 w-8" />
+                {importFile ? importFile.name : t("Добавьте файл Excel или нажмите для выбора")}
+              </button>
+            </div>
+            <footer className="flex justify-end border-t border-slate-200 p-5">
+              <button
+                type="button"
+                disabled={!importFile || importSaving}
+                onClick={saveImport}
+                className="rounded-lg bg-brand-green px-5 py-3 font-semibold text-white hover:bg-brand-green-dark disabled:opacity-40"
+              >
+                {importSaving ? t("Импорт...") : t("Сохранить")}
+              </button>
+            </footer>
+          </div>
         </div>
       )}
     </main>

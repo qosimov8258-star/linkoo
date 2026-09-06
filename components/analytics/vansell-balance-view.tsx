@@ -1,9 +1,8 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import {
   ChevronDown,
-  ChevronRight,
   Expand,
   Filter,
   Info,
@@ -11,9 +10,9 @@ import {
   Pencil,
   PlusCircle,
   Search,
-  Star,
   X,
 } from "lucide-react"
+import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
 
 type Money = { sum: number; usd: number; eur: number }
 type Vansel = {
@@ -28,22 +27,7 @@ type Vansel = {
 
 const zero: Money = { sum: 0, usd: 0, eur: 0 }
 
-const initialVansels: Vansel[] = [
-  { id: 1, name: "Admin Ritm", opening: { sum: 136309860, usd: 5064171, eur: 20 }, transferToWarehouse: { ...zero }, transferReturn: { ...zero }, cash: { ...zero }, transferred: { ...zero } },
-  { id: 2, name: "Тп 2 Алиса", opening: { sum: 10000, usd: 0, eur: 0 }, transferToWarehouse: { ...zero }, transferReturn: { ...zero }, cash: { ...zero }, transferred: { ...zero } },
-  { id: 3, name: "Админ 1", opening: { sum: -710000, usd: 0, eur: 0 }, transferToWarehouse: { ...zero }, transferReturn: { ...zero }, cash: { ...zero }, transferred: { ...zero } },
-  { id: 4, name: "Admin Ritm44", opening: { sum: 1000000, usd: 100070, eur: 90000 }, transferToWarehouse: { ...zero }, transferReturn: { ...zero }, cash: { ...zero }, transferred: { ...zero } },
-  { id: 5, name: "Samandar Abdurahmonov", opening: { sum: -1711888000, usd: 0, eur: 0 }, transferToWarehouse: { ...zero }, transferReturn: { ...zero }, cash: { ...zero }, transferred: { ...zero } },
-  { id: 6, name: "A Rustam", opening: { sum: 460000, usd: 0, eur: 0 }, transferToWarehouse: { ...zero }, transferReturn: { ...zero }, cash: { ...zero }, transferred: { ...zero } },
-  { id: 7, name: "Temur Raupov", opening: { sum: 34572444, usd: 0, eur: 0 }, transferToWarehouse: { ...zero }, transferReturn: { ...zero }, cash: { ...zero }, transferred: { ...zero } },
-  { id: 8, name: "Sahob aka sobirov", opening: { sum: -300120000, usd: 0, eur: 0 }, transferToWarehouse: { ...zero }, transferReturn: { ...zero }, cash: { ...zero }, transferred: { ...zero } },
-  { id: 9, name: "Fozil Agent", opening: { sum: -2031900, usd: 0, eur: 0 }, transferToWarehouse: { ...zero }, transferReturn: { ...zero }, cash: { ...zero }, transferred: { ...zero } },
-  { id: 10, name: "Steve Adams", opening: { sum: 0, usd: 0, eur: 0 }, transferToWarehouse: { ...zero }, transferReturn: { ...zero }, cash: { ...zero }, transferred: { ...zero } },
-  { id: 11, name: "завсклада завсклада", opening: { sum: 0, usd: 0, eur: 0 }, transferToWarehouse: { ...zero }, transferReturn: { ...zero }, cash: { ...zero }, transferred: { ...zero } },
-  { id: 12, name: "test test", opening: { sum: -1113000, usd: 0, eur: 0 }, transferToWarehouse: { ...zero }, transferReturn: { ...zero }, cash: { ...zero }, transferred: { ...zero } },
-]
-
-const favoriteItems = ["Клиенты", "Заказы", "Виджеты", "Заказы", "Ограничение продуктов", "Продукты"]
+const initialVansels: Vansel[] = []
 
 const number = (value: number) => new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 2 }).format(value)
 
@@ -62,9 +46,8 @@ function AmountCell({ value }: { value: number }) {
 }
 
 export function VansellBalanceView() {
-  const [favorite, setFavorite] = useState(false)
-  const [favoritesOpen, setFavoritesOpen] = useState(false)
   const [vansels, setVansels] = useState(initialVansels)
+  const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState("")
   const [filterOpen, setFilterOpen] = useState(false)
   const [selected, setSelected] = useState<Set<number>>(new Set())
@@ -109,24 +92,49 @@ export function VansellBalanceView() {
     })
   }
 
-  const applyTransaction = (vanselId: number, kind: "add" | "expense", currency: keyof Money, amount: number) => {
-    setVansels((current) =>
-      current.map((vansel) => {
-        if (vansel.id !== vanselId) return vansel
-        const signedAmount = kind === "add" ? amount : -amount
-        return { ...vansel, cash: { ...vansel.cash, [currency]: vansel.cash[currency] + signedAmount } }
-      }),
-    )
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    fetch("/api/vansell-transactions")
+      .then(async (response) => {
+        if (!response.ok) throw new Error("Не удалось загрузить данные")
+        return (await response.json()) as Vansel[]
+      })
+      .then((data) => {
+        if (!cancelled) setVansels(data)
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const applyTransaction = async (vanselId: number, kind: "add" | "expense", currency: keyof Money, amount: number) => {
+    try {
+      const response = await fetch("/api/vansell-transactions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ vanselId, currency, amount, kind }),
+      })
+      if (!response.ok) return
+      const saved = (await response.json()) as Vansel
+      setVansels((current) => current.map((vansel) => (vansel.id === vanselId ? saved : vansel)))
+    } catch {
+      window.alert("Сервер недоступен, попробуйте ещё раз")
+    }
   }
 
   return (
     <main className="min-h-screen bg-[#f1f4f8] text-[#17233b]">
       <header className="flex min-h-[76px] items-center border-b border-[#d8dee7] bg-[#f2f5f8] px-6 md:px-9">
-        <button onClick={() => setFavoritesOpen(true)} className="flex items-center gap-3">
-          <Star className={`h-7 w-7 ${favorite ? "fill-[#4f70e7] text-[#4f70e7]" : "fill-[#596376] text-[#596376]"}`} />
-          <span className="text-2xl font-bold text-[#4f70e7]">Избранные</span><span className="text-3xl font-light text-[#586174]">|</span>
+        <div className="flex items-center gap-3">
+          <FavoritesButton className="flex items-center gap-3 text-2xl font-bold text-[#4f70e7]" />
+          <span className="text-3xl font-light text-[#586174]">|</span>
           <span className="text-2xl font-bold text-[#586174]">Баланс вансел</span>
-        </button>
+        </div>
       </header>
 
       <section className="grid grid-cols-1 gap-6 border-b border-[#e1e5eb] bg-white px-6 py-6 sm:grid-cols-2 lg:grid-cols-4 md:px-9">
@@ -296,28 +304,6 @@ export function VansellBalanceView() {
           </tbody>
         </table>
       </section>
-
-      {favoritesOpen && (
-        <div className="fixed inset-0 z-[100] flex">
-          <button aria-label="Закрыть" onClick={() => setFavoritesOpen(false)} className="flex-1 bg-black/40" />
-          <aside className="w-[420px] max-w-[90vw] bg-white shadow-2xl">
-            <header className="flex items-center justify-between border-b px-8 py-6">
-              <h2 className="text-2xl font-semibold">Избранные</h2>
-              <button aria-label="Закрыть" onClick={() => setFavoritesOpen(false)}><X className="h-6 w-6 text-slate-600" /></button>
-            </header>
-            {favoriteItems.map((item, index) => (
-              <button
-                key={`${item}-${index}`}
-                type="button"
-                onClick={() => { setFavorite(true); setFavoritesOpen(false) }}
-                className="flex w-full items-center justify-between border-b px-8 py-5 text-left text-lg"
-              >
-                {item} <ChevronRight className="h-5 w-5 text-slate-400" />
-              </button>
-            ))}
-          </aside>
-        </div>
-      )}
 
       {modal && (
         <TransactionModal

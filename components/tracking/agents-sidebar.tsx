@@ -19,6 +19,7 @@ import {
   X,
 } from "lucide-react"
 import { agents, type AgentCategory } from "./tracking-data"
+import { useLanguage } from "@/lib/i18n/language-context"
 
 const tabs: { id: "agents" | AgentCategory; icon: typeof Users }[] = [
   { id: "agents", icon: Users },
@@ -47,13 +48,14 @@ function Battery({ level }: { level: number }) {
 }
 
 export function AgentsSidebar() {
+  const { t } = useLanguage()
   const [activeTab, setActiveTab] = useState<"agents" | AgentCategory>("agents")
   const [query, setQuery] = useState("")
   const [date, setDate] = useState(() => new Date())
   const [selectedAgentId, setSelectedAgentId] = useState<number | null>(null)
   const [routeFilterOpen, setRouteFilterOpen] = useState(false)
   const [routeOrder, setRouteOrder] = useState<"default" | "optimized">("default")
-  const defaultRouteClients = ["ИП Каркабаев", "ЧЛ Кылышбай", "Частное Лицо", "Doston market", "Ashraf Hakimi", "Usman Dembele", "Markus Vitinha"]
+  const defaultRouteClients: string[] = []
   const routeClients = routeOrder === "optimized" ? [...defaultRouteClients].sort((a, b) => a.localeCompare(b, "ru")) : defaultRouteClients
 
   const dateLabel = useMemo(() => {
@@ -71,8 +73,8 @@ export function AgentsSidebar() {
       "Ноября",
       "Декабря",
     ]
-    return `${date.getDate()} ${months[date.getMonth()]} ${date.getFullYear()}`
-  }, [date])
+    return `${date.getDate()} ${t(months[date.getMonth()])} ${date.getFullYear()}`
+  }, [date, t])
 
   const filtered = useMemo(
     () =>
@@ -101,32 +103,32 @@ export function AgentsSidebar() {
           <strong className="uppercase text-slate-700">{selectedAgent.name}</strong>
           <ChevronRight className="h-5 w-5 text-slate-500" />
           <div className="relative ml-auto">
-            <button type="button" onClick={() => setRouteFilterOpen((value) => !value)} className="text-[#536fe1]">Показать фильтр⌄</button>
+            <button type="button" onClick={() => setRouteFilterOpen((value) => !value)} className="text-[#536fe1]">{t("Показать фильтр")}⌄</button>
             {routeFilterOpen && (
               <div className="absolute right-0 top-full z-20 mt-2 w-56 border border-slate-200 bg-white p-4 shadow-xl">
                 <label className="flex items-center gap-2 text-sm text-slate-600">
                   <input type="checkbox" checked={routeOrder === "optimized"} onChange={() => setRouteOrder((current) => (current === "optimized" ? "default" : "optimized"))} />
-                  Оптимизированный порядок (А-Я)
+                  {t("Оптимизированный порядок (А-Я)")}
                 </label>
               </div>
             )}
           </div>
-          <button type="button" onClick={() => setSelectedAgentId(null)} aria-label="Закрыть"><X className="h-7 w-7" /></button>
+          <button type="button" onClick={() => setSelectedAgentId(null)} aria-label={t("Закрыть")}><X className="h-7 w-7" /></button>
         </header>
         <div className="grid grid-cols-2 border-b bg-white px-7 py-4">
-          <div className="flex items-center gap-3"><Flame className="h-8 w-8 text-slate-400" /><div><b className="text-xl">0 <small>SUM</small></b><p>сделки</p></div></div>
-          <div className="flex items-center gap-3 justify-self-end"><MapPin className="h-8 w-8 text-slate-400" /><div><b className="text-xl">{selectedAgent.ratio}</b><p>посещено</p></div></div>
+          <div className="flex items-center gap-3"><Flame className="h-8 w-8 text-slate-400" /><div><b className="text-xl">0 <small>SUM</small></b><p>{t("сделки")}</p></div></div>
+          <div className="flex items-center gap-3 justify-self-end"><MapPin className="h-8 w-8 text-slate-400" /><div><b className="text-xl">{selectedAgent.ratio}</b><p>{t("посещено")}</p></div></div>
         </div>
         <div className="grid grid-cols-3 gap-4 p-6">
-          <div className="rounded bg-[#39ca79] py-3 text-center font-bold text-white"><b className="text-2xl">0</b> Заказ оформлен</div>
-          <div className="rounded bg-[#ff5d63] py-3 text-center font-bold text-white"><b className="text-2xl">0</b> Отказы</div>
-          <div className="rounded bg-[#13a0f4] py-3 text-center font-bold text-white"><b className="text-2xl">7</b> Надо посетить</div>
+          <div className="rounded bg-[#39ca79] py-3 text-center font-bold text-white"><b className="text-2xl">0</b> {t("Заказ оформлен")}</div>
+          <div className="rounded bg-[#ff5d63] py-3 text-center font-bold text-white"><b className="text-2xl">0</b> {t("Отказы")}</div>
+          <div className="rounded bg-[#13a0f4] py-3 text-center font-bold text-white"><b className="text-2xl">0</b> {t("Надо посетить")}</div>
         </div>
         <div className="flex items-center gap-5 px-6">
           <button type="button" onClick={() => shiftDate(-1)} className="rounded bg-[#20abc8] px-4 py-2 font-bold text-white">‹</button>
-          <b className="text-[#20abc8]">28 июля 2026</b>
+          <b className="text-[#20abc8]">{t("28 июля 2026")}</b>
           <button type="button" onClick={() => shiftDate(1)} className="rounded bg-[#20abc8] px-4 py-2 font-bold text-white">›</button>
-          <button type="button" onClick={() => setRouteOrder("optimized")} className="ml-auto rounded bg-[#536fe1] px-5 py-3 font-bold text-white">{routeOrder === "optimized" ? "Маршрут оптимизирован ✓" : "Оптимизировать маршрут"}</button>
+          <button type="button" onClick={() => setRouteOrder("optimized")} className="ml-auto rounded bg-[#536fe1] px-5 py-3 font-bold text-white">{routeOrder === "optimized" ? t("Маршрут оптимизирован ✓") : t("Оптимизировать маршрут")}</button>
           <ScanLine className="text-slate-500" /><Pencil className="rounded bg-slate-300 p-1 text-white" />
         </div>
         <div className="relative mt-5 flex-1 overflow-y-auto px-10 pb-8 pl-32">
@@ -135,7 +137,7 @@ export function AgentsSidebar() {
             <label key={client} className="relative mb-3 block rounded bg-white px-7 py-5 shadow">
               <span className="absolute -left-[52px] top-8 h-7 w-7 rounded-full border-[3px] border-[#536fe1] bg-white" />
               <span className="flex items-center gap-3 text-lg font-bold text-slate-600"><input type="checkbox" className="h-6 w-6" />{client}</span>
-              <span className="mt-2 flex items-center gap-3 text-slate-600"><RotateCcw className="h-5 w-5 text-orange-400" />Следует посетить 28 Июль 2026 года</span>
+              <span className="mt-2 flex items-center gap-3 text-slate-600"><RotateCcw className="h-5 w-5 text-orange-400" />{t("Следует посетить 28 Июль 2026 года")}</span>
             </label>
           ))}
         </div>
@@ -150,7 +152,7 @@ export function AgentsSidebar() {
         <button
           onClick={() => shiftDate(-1)}
           className="rounded-full p-1 text-slate-500 transition-colors hover:bg-slate-100"
-          aria-label="Предыдущий день"
+          aria-label={t("Предыдущий день")}
         >
           <ChevronLeft className="h-6 w-6" />
         </button>
@@ -158,7 +160,7 @@ export function AgentsSidebar() {
         <button
           onClick={() => shiftDate(1)}
           className="rounded-full p-1 text-slate-500 transition-colors hover:bg-slate-100"
-          aria-label="Следующий день"
+          aria-label={t("Следующий день")}
         >
           <ChevronRight className="h-6 w-6" />
         </button>
@@ -188,7 +190,7 @@ export function AgentsSidebar() {
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Поиск агентов..."
+            placeholder={t("Поиск агентов...")}
             className="flex-1 bg-transparent text-sm text-slate-700 outline-none placeholder:text-slate-400"
           />
           <Search className="h-5 w-5 text-slate-400" />
@@ -199,13 +201,13 @@ export function AgentsSidebar() {
       <div className="flex flex-col items-center px-4 py-2">
         <Image
           src="/robot-mascot.png"
-          alt="Робот-помощник"
+          alt={t("Робот-помощник")}
           width={120}
           height={120}
           className="h-28 w-28 object-contain"
         />
         <p className="mt-1 text-center text-sm font-medium text-slate-400">
-          Онлайн агенты не найдены...
+          {t("Онлайн агенты не найдены...")}
         </p>
       </div>
 
@@ -213,7 +215,7 @@ export function AgentsSidebar() {
       {filtered.length > 0 ? (
         <>
           <div className="flex items-center justify-between px-4 py-3">
-            <span className="text-base font-bold text-slate-700">Офлайн агенты</span>
+            <span className="text-base font-bold text-slate-700">{t("Офлайн агенты")}</span>
             <span className="text-base font-bold text-slate-700">{filtered.length}</span>
           </div>
 
@@ -242,13 +244,13 @@ export function AgentsSidebar() {
         <div className="flex flex-col items-center px-4 py-2">
           <Image
             src="/robot-mascot.png"
-            alt="Робот-помощник"
+            alt={t("Робот-помощник")}
             width={120}
             height={120}
             className="h-28 w-28 object-contain"
           />
           <p className="mt-1 text-center text-sm font-medium text-slate-400">
-            Офлайн агенты не найдены...
+            {t("Офлайн агенты не найдены...")}
           </p>
         </div>
       )}

@@ -6,5 +6,5 @@ import { listCustomerPayments } from "@/lib/customer-payments-repo"
 export async function GET() {
   const user = await getCurrentUser()
   if (!user) return NextResponse.json({ error: "Tizimga kirilmagan" }, { status: 401 })
-  return NextResponse.json(listCustomerPayments())
+  return NextResponse.json((await listCustomerPayments()))
 }

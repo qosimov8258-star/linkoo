@@ -40,20 +40,20 @@ function rowToOrder(row: OrderRow): Order {
 export type OrderInput = Omit<Order, "id">
 export type OrderPatch = Partial<OrderInput>
 
-export function listOrders(search?: string): Order[] {
+export async function listOrders(search?: string): Promise<Order[]> {
   const db = getDb()
   const rows = search
-    ? (db.prepare("SELECT * FROM orders WHERE client LIKE ? OR agent LIKE ? ORDER BY id DESC").all(
-        `%${search}%`,
-        `%${search}%`,
-      ) as OrderRow[])
-    : (db.prepare("SELECT * FROM orders ORDER BY id DESC").all() as OrderRow[])
+    ? ((await db.prepare("SELECT * FROM orders WHERE client LIKE ? OR agent LIKE ? ORDER BY id DESC").all(
+              `%${search}%`,
+              `%${search}%`,
+            )) as OrderRow[])
+    : ((await db.prepare("SELECT * FROM orders ORDER BY id DESC").all()) as OrderRow[])
   return rows.map(rowToOrder)
 }
 
-export function getOrder(id: number): Order | null {
+export async function getOrder(id: number): Promise<Order | null> {
   const db = getDb()
-  const row = db.prepare("SELECT * FROM orders WHERE id = ?").get(id) as OrderRow | undefined
+  const row = (await db.prepare("SELECT * FROM orders WHERE id = ?").get(id)) as OrderRow | undefined
   return row ? rowToOrder(row) : null
 }
 
@@ -79,63 +79,63 @@ const defaultOrder: OrderInput = {
   status: "Есть на складе",
 }
 
-export function createOrder(input: Partial<OrderInput>): Order {
+export async function createOrder(input: Partial<OrderInput>): Promise<Order> {
   const db = getDb()
   const cleaned = Object.fromEntries(Object.entries(input).filter(([, value]) => value !== undefined)) as Partial<OrderInput>
   const values = { ...defaultOrder, ...cleaned }
-  const result = db
-    .prepare(
-      `INSERT INTO orders (client, zone, type, product, created, delivery, agent, amount, balance, negative, status, discount)
+  const result = (await db
+      .prepare(
+        `INSERT INTO orders (client, zone, type, product, created, delivery, agent, amount, balance, negative, status, discount)
        VALUES (@client, @zone, @type, @product, @created, @delivery, @agent, @amount, @balance, @negative, @status, @discount)`,
-    )
-    .run({
-      client: values.client,
-      zone: values.zone,
-      type: values.type,
-      product: values.product,
-      created: values.created,
-      delivery: values.delivery,
-      agent: values.agent,
-      amount: values.amount,
-      balance: values.balance,
-      negative: values.negative ? 1 : 0,
-      status: values.status,
-      discount: values.discount ?? null,
-    })
-  return getOrder(Number(result.lastInsertRowid))!
+      )
+      .run({
+        client: values.client,
+        zone: values.zone,
+        type: values.type,
+        product: values.product,
+        created: values.created,
+        delivery: values.delivery,
+        agent: values.agent,
+        amount: values.amount,
+        balance: values.balance,
+        negative: values.negative ? 1 : 0,
+        status: values.status,
+        discount: values.discount ?? null,
+      }))
+  return (await getOrder(Number(result.lastInsertRowid)))!
 }
 
-export function updateOrder(id: number, patch: OrderPatch): Order | null {
-  const existing = getOrder(id)
+export async function updateOrder(id: number, patch: OrderPatch): Promise<Order | null> {
+  const existing = (await getOrder(id))
   if (!existing) return null
 
   const merged: OrderInput = { ...existing, ...patch }
   const db = getDb()
-  db.prepare(
-    `UPDATE orders SET client = @client, zone = @zone, type = @type, product = @product, created = @created,
+  await db.prepare(
+        `UPDATE orders SET client = @client, zone = @zone, type = @type, product = @product, created = @created,
        delivery = @delivery, agent = @agent, amount = @amount, balance = @balance, negative = @negative,
        status = @status, discount = @discount, updated_at = datetime('now')
      WHERE id = @id`,
-  ).run({
-    id,
-    client: merged.client,
-    zone: merged.zone,
-    type: merged.type,
-    product: merged.product,
-    created: merged.created,
-    delivery: merged.delivery,
-    agent: merged.agent,
-    amount: merged.amount,
-    balance: merged.balance,
-    negative: merged.negative ? 1 : 0,
-    status: merged.status,
-    discount: merged.discount ?? null,
-  })
-  return getOrder(id)
+      ).run({
+        id,
+        client: merged.client,
+        zone: merged.zone,
+        type: merged.type,
+        product: merged.product,
+        created: merged.created,
+        delivery: merged.delivery,
+        agent: merged.agent,
+        amount: merged.amount,
+        balance: merged.balance,
+        negative: merged.negative ? 1 : 0,
+        status: merged.status,
+        discount: merged.discount ?? null,
+      })
+  return (await getOrder(id))
 }
 
-export function deleteOrder(id: number): boolean {
+export async function deleteOrder(id: number): Promise<boolean> {
   const db = getDb()
-  const result = db.prepare("DELETE FROM orders WHERE id = ?").run(id)
+  const result = (await db.prepare("DELETE FROM orders WHERE id = ?").run(id))
   return result.changes > 0
 }

@@ -1,25 +1,16 @@
 "use client"
 
-import { BarChart3, ChevronLeft, ChevronRight, Clock3, FileText, Pencil, PlusCircle, Search, Star, X } from "lucide-react"
-import { ChangeEvent, FormEvent, useMemo, useRef, useState } from "react"
+import { BarChart3, ChevronLeft, ChevronRight, Clock3, FileText, Pencil, PlusCircle, Search, X } from "lucide-react"
+import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react"
 
-type Task = {
-  id: number
-  responsible: string
-  date: string
-  store: string
-  description: string
-  status: "in_progress" | "fulfilled" | "closed"
-}
+import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
+import { mapHeaderColumns, readExcelRows } from "@/lib/excel-import"
+import { taskResponsibles as responsibles, taskStatusLabels as statusLabels, taskStores as stores, type Task } from "./tasks-data"
 
-const responsibles = ["Admin Ritm", "Samandar Abdurahmonov", "Temur Raupov", "Fozil Agent"]
-const stores = ["Markus Vitinha", "Usman Dembele", "Ashraf Hakimi", "Doston market"]
-const statusLabels: Record<Task["status"], string> = { in_progress: "В процессе", fulfilled: "Выполнено", closed: "Завершенный" }
-
-const seedTasks: Task[] = [{ id: 3, responsible: "Admin Ritm", date: "04 авг. 2026", store: "Markus Vitinha", description: "1", status: "in_progress" }]
-
-function todayLabel() {
-  return new Intl.DateTimeFormat("ru-RU", { day: "2-digit", month: "short", year: "numeric" }).format(new Date()).replace(".", "")
+const IMPORT_HEADER_ALIASES: Record<string, string> = {
+  "ответственный": "responsible", "responsible": "responsible",
+  "магазин": "store", "store": "store",
+  "описание": "description", "description": "description",
 }
 
 function emptyDraft() {
@@ -27,7 +18,9 @@ function emptyDraft() {
 }
 
 export function TasksView() {
-  const [tasks, setTasks] = useState(seedTasks)
+  const [tasks, setTasks] = useState<Task[]>([])
+  const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState("")
   const [tab, setTab] = useState<"in_progress" | "fulfilled" | "closed" | "all">("all")
   const [query, setQuery] = useState("")
   const [page, setPage] = useState(1)
@@ -36,10 +29,36 @@ export function TasksView() {
   const [storeFilter, setStoreFilter] = useState("Все магазины")
   const [editing, setEditing] = useState<"new" | null>(null)
   const [draft, setDraft] = useState(emptyDraft)
+  const [saving, setSaving] = useState(false)
   const [importOpen, setImportOpen] = useState(false)
   const [importFile, setImportFile] = useState<File | null>(null)
+  const [importSaving, setImportSaving] = useState(false)
   const importInputRef = useRef<HTMLInputElement>(null)
   const pageSize = 25
+
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    fetch("/api/tasks")
+      .then(async (response) => {
+        if (!response.ok) throw new Error("Не удалось загрузить задачи")
+        return (await response.json()) as Task[]
+      })
+      .then((data) => {
+        if (cancelled) return
+        setTasks(data)
+        setLoadError("")
+      })
+      .catch(() => {
+        if (!cancelled) setLoadError("Не удалось загрузить задачи с сервера")
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const filtered = useMemo(
     () =>
@@ -53,31 +72,115 @@ export function TasksView() {
   const safePage = Math.min(page, pageCount)
   const visible = filtered.slice((safePage - 1) * pageSize, safePage * pageSize)
 
-  function cycleStatus(id: number) {
+  async function cycleStatus(id: number) {
+    const task = tasks.find((item) => item.id === id)
+    if (!task) return
     const order: Task["status"][] = ["in_progress", "fulfilled", "closed"]
-    setTasks((current) =>
-      current.map((task) => (task.id === id ? { ...task, status: order[(order.indexOf(task.status) + 1) % order.length] } : task)),
-    )
+    const status = order[(order.indexOf(task.status) + 1) % order.length]
+    try {
+      const response = await fetch(`/api/tasks/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ responsible: task.responsible, store: task.store, description: task.description, status }),
+      })
+      if (!response.ok) return
+      const saved = (await response.json()) as Task
+      setTasks((current) => current.map((item) => (item.id === id ? saved : item)))
+    } catch {
+      window.alert("Сервер недоступен, попробуйте ещё раз")
+    }
   }
 
-  function save(event: FormEvent) {
+  async function save(event: FormEvent) {
     event.preventDefault()
     if (!draft.description.trim()) return
-    const id = Math.max(0, ...tasks.map((task) => task.id)) + 1
-    setTasks((current) => [{ id, responsible: draft.responsible, store: draft.store, description: draft.description.trim(), date: todayLabel(), status: "in_progress" }, ...current])
-    setEditing(null)
+    setSaving(true)
+    try {
+      const response = await fetch("/api/tasks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ responsible: draft.responsible, store: draft.store, description: draft.description.trim(), status: "in_progress" }),
+      })
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}))
+        window.alert(data.error || "Не удалось создать задачу")
+        return
+      }
+      const saved = (await response.json()) as Task
+      setTasks((current) => [saved, ...current])
+      setEditing(null)
+    } catch {
+      window.alert("Сервер недоступен, попробуйте ещё раз")
+    } finally {
+      setSaving(false)
+    }
   }
 
   function pickImportFile(event: ChangeEvent<HTMLInputElement>) {
     setImportFile(event.target.files?.[0] ?? null)
   }
 
-  function saveImport() {
+  async function saveImport() {
     if (!importFile) return
-    const id = Math.max(0, ...tasks.map((task) => task.id)) + 1
-    setTasks((current) => [{ id, responsible: responsibles[0], store: `Импорт из ${importFile.name}`, description: "", date: todayLabel(), status: "in_progress" }, ...current])
-    setImportOpen(false)
-    setImportFile(null)
+    setImportSaving(true)
+    try {
+      const rows = await readExcelRows(importFile)
+      if (!rows.length) {
+        window.alert("Не удалось найти задачи для импорта в выбранном файле")
+        return
+      }
+      const fieldByIndex = mapHeaderColumns(rows[0], IMPORT_HEADER_ALIASES)
+      const hasHeader = Array.from(fieldByIndex.values()).includes("description") || Array.from(fieldByIndex.values()).includes("store")
+      const dataRows = hasHeader ? rows.slice(1) : rows
+
+      const parsed: { responsible: string; store: string; description: string }[] = []
+      for (const row of dataRows) {
+        const record: Record<string, string> = {}
+        if (hasHeader) {
+          row.forEach((cell, index) => {
+            const field = fieldByIndex.get(index)
+            if (field) record[field] = cell
+          })
+        } else {
+          record.responsible = row[0] ?? ""
+          record.store = row[1] ?? ""
+          record.description = row[2] ?? ""
+        }
+        if (!record.description && !record.store) continue
+        parsed.push({
+          responsible: record.responsible || responsibles[0],
+          store: record.store || stores[0],
+          description: record.description || "",
+        })
+      }
+
+      if (!parsed.length) {
+        window.alert("Не удалось найти задачи для импорта в выбранном файле")
+        return
+      }
+
+      const created: Task[] = []
+      let failed = 0
+      for (const item of parsed) {
+        try {
+          const response = await fetch("/api/tasks", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ ...item, status: "in_progress" }),
+          })
+          if (response.ok) created.push((await response.json()) as Task)
+          else failed += 1
+        } catch {
+          failed += 1
+        }
+      }
+      if (created.length) setTasks((current) => [...created, ...current])
+      if (failed) window.alert(`Импортировано ${created.length} из ${parsed.length}. Не удалось сохранить: ${failed}`)
+    } finally {
+      setImportSaving(false)
+      setImportOpen(false)
+      setImportFile(null)
+    }
   }
 
   const tabs: { key: typeof tab; label: string }[] = [
@@ -91,10 +194,7 @@ export function TasksView() {
     <main className="min-h-[calc(100vh-4rem)] bg-[#f1f4f8] px-9 py-5">
       <header className="mb-5 flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-bold text-slate-600">
-          <span className="inline-flex items-center gap-2 text-[#4f70e7]">
-            <Star className="h-6 w-6 fill-slate-500 text-slate-500" />
-            Избранные
-          </span>
+          <FavoritesButton className="inline-flex items-center gap-2 text-[#4f70e7]" />
           <span className="mx-2 text-slate-400">|</span> Задачи
         </h1>
         <div className="flex items-center gap-3">
@@ -160,6 +260,8 @@ export function TasksView() {
           </button>
         </div>
 
+        {loadError && <p className="px-5 pb-3 text-sm text-red-500">{loadError}</p>}
+
         <table className="w-full text-left">
           <thead className="bg-[#626b7e] text-white">
             <tr>
@@ -192,7 +294,7 @@ export function TasksView() {
                 </td>
               </tr>
             ))}
-            {visible.length === 0 && (
+            {!loading && visible.length === 0 && (
               <tr>
                 <td colSpan={6} className="px-5 py-10 text-center text-slate-400">
                   Ничего не найдено
@@ -226,9 +328,9 @@ export function TasksView() {
               <button type="button" onClick={() => setEditing(null)} className="rounded border px-4 py-2">
                 Отмена
               </button>
-              <button type="submit" className="inline-flex items-center gap-2 rounded bg-[#5474e6] px-4 py-2 font-semibold text-white">
+              <button type="submit" disabled={saving} className="inline-flex items-center gap-2 rounded bg-[#5474e6] px-4 py-2 font-semibold text-white disabled:opacity-60">
                 <PlusCircle className="h-4 w-4" />
-                Сохранить
+                {saving ? "Сохранение..." : "Сохранить"}
               </button>
             </div>
           </form>
@@ -255,8 +357,8 @@ export function TasksView() {
               </button>
             </div>
             <footer className="flex justify-end border-t p-5">
-              <button type="button" disabled={!importFile} onClick={saveImport} className="rounded bg-[#6ccd8b] px-5 py-3 font-semibold text-white hover:brightness-95 disabled:opacity-40">
-                Сохранить
+              <button type="button" disabled={!importFile || importSaving} onClick={saveImport} className="rounded bg-[#6ccd8b] px-5 py-3 font-semibold text-white hover:brightness-95 disabled:opacity-40">
+                {importSaving ? "Импорт..." : "Сохранить"}
               </button>
             </footer>
           </div>

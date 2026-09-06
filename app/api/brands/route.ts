@@ -1,28 +1,34 @@
 import { NextResponse } from "next/server"
+import { z } from "zod"
 
 import { getCurrentUser } from "@/lib/current-user"
-import { createBrand, listBrands, parseBrandInput } from "@/lib/brands-repo"
+import { requireRole } from "@/lib/rbac"
+import { parseJsonBody } from "@/lib/validation"
+import { createBrand, listBrands } from "@/lib/brands-repo"
+
+const brandSchema = z.object({
+  name: z.string().trim().min(1),
+  organization: z.string().trim().min(1),
+  photoUrl: z.string().optional(),
+})
 
 export async function GET() {
   const user = await getCurrentUser()
   if (!user) return NextResponse.json({ error: "Tizimga kirilmagan" }, { status: 401 })
-  return NextResponse.json(listBrands())
+  return NextResponse.json((await listBrands()))
 }
 
 export async function POST(request: Request) {
-  const user = await getCurrentUser()
-  if (!user) return NextResponse.json({ error: "Tizimga kirilmagan" }, { status: 401 })
+  const auth = await requireRole("manager")
+  if ("error" in auth) return auth.error
 
-  let body: unknown
-  try {
-    body = await request.json()
-  } catch {
-    return NextResponse.json({ error: "Noto'g'ri so'rov" }, { status: 400 })
-  }
+  const parsed = await parseJsonBody(request, brandSchema)
+  if (parsed.error) return parsed.error
 
-  const input = parseBrandInput(body)
-  if (!input) return NextResponse.json({ error: "Наименование и организация обязательны" }, { status: 400 })
-
-  const brand = createBrand(input)
+  const brand = await createBrand({
+    name: parsed.data.name,
+    organization: parsed.data.organization,
+    photoUrl: parsed.data.photoUrl && parsed.data.photoUrl.trim() ? parsed.data.photoUrl : null,
+  })
   return NextResponse.json(brand, { status: 201 })
 }

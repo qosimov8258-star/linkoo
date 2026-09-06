@@ -173,14 +173,14 @@ const salesReports: AnalyticsReport[] = [
   {
     slug: "customer-bonuses",
     label: "Бонусы клиентов",
-    href: "/analytics/customer-bonuses",
+    href: "/analytics/client-bonuses",
     description: "Отчет по начисленным бонусам и их использованию клиентами.",
     group: "sales",
   },
   {
     slug: "messaging",
     label: "Рассылка",
-    href: "/analytics/messaging",
+    href: "/analytics/mailing",
     description: "Статистика рассылок и взаимодействия с клиентами.",
     group: "sales",
   },
@@ -351,7 +351,7 @@ const toolReports: AnalyticsReport[] = [
   {
     slug: "integration",
     label: "Интеграция",
-    href: "/analytics/integration",
+    href: "/settings/integrations",
     description: "Мониторинг интеграций и синхронизации данных с внешними системами.",
     group: "tools",
   },

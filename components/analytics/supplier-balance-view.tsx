@@ -1,7 +1,8 @@
 "use client"
 
-import { useMemo, useState } from "react"
-import { ChevronDown, ChevronRight, ChevronsRight, DollarSign, Filter, MinusCircle, PlusCircle, Star, Trash2, X } from "lucide-react"
+import { useEffect, useMemo, useState } from "react"
+import { ChevronDown, ChevronsRight, DollarSign, Filter, MinusCircle, PlusCircle, X } from "lucide-react"
+import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
 
 type Money = { sum: number; usd: number; eur: number }
 type Supplier = {
@@ -10,46 +11,23 @@ type Supplier = {
   opening: Money
   pendingRequest: Money
 }
+type ApiSupplier = { id: number; name: string }
+type BalanceTransaction = {
+  id: number
+  supplierId: number
+  kind: "add" | "expense" | "fund_request"
+  currency: keyof Money
+  amount: number
+  date: string
+  comment: string
+}
 
 const zero: Money = { sum: 0, usd: 0, eur: 0 }
-
-const suppliers: Supplier[] = [
-  { id: 1, name: "Инвентаризация", opening: { sum: 100000000, usd: 0, eur: 0 }, pendingRequest: { sum: 9000200000, usd: 0, eur: 110 } },
-  { id: 2, name: "Kotta aka", opening: { sum: -8955504900, usd: 0, eur: 0 }, pendingRequest: { sum: 1000100000, usd: 0, eur: 0 } },
-  { id: 3, name: "Corelion", opening: { sum: 199400456, usd: 555, eur: 0 }, pendingRequest: { ...zero } },
-  { id: 4, name: "Corelion", opening: { sum: -693033, usd: 0, eur: 0 }, pendingRequest: { ...zero } },
-  { id: 5, name: "Dji technology", opening: { sum: -4149880000, usd: 0, eur: 0 }, pendingRequest: { ...zero } },
-  { id: 6, name: "shaxlo sutlari", opening: { sum: 1085700000, usd: 0, eur: 0 }, pendingRequest: { ...zero } },
-  { id: 7, name: "laylo shirin", opening: { sum: 69734000, usd: 0, eur: 0 }, pendingRequest: { ...zero } },
-  { id: 8, name: "Robot postavchik", opening: { sum: -5056000, usd: 0, eur: 0 }, pendingRequest: { ...zero } },
-  { id: 9, name: "energetik postavchik", opening: { sum: -963636000, usd: 0, eur: 0 }, pendingRequest: { ...zero } },
-  { id: 10, name: "andijanskiy postavchik", opening: { sum: -410035000, usd: 0, eur: 0 }, pendingRequest: { ...zero } },
-  { id: 11, name: "Xoramskaya postavshik", opening: { sum: -1301502000, usd: 0, eur: 0 }, pendingRequest: { ...zero } },
-  { id: 12, name: "universal postavshik", opening: { sum: -27331482, usd: -2790100, eur: 0 }, pendingRequest: { ...zero } },
-  { id: 13, name: "Demo", opening: { sum: -136594000, usd: -6000010, eur: 0 }, pendingRequest: { ...zero } },
-  { id: 14, name: "zapas", opening: { sum: -56194000, usd: 0, eur: 0 }, pendingRequest: { ...zero } },
-  { id: 15, name: "YEPPOYO", opening: { sum: -3880000, usd: 0, eur: 0 }, pendingRequest: { ...zero } },
-  { id: 16, name: "ООО ПРОФРЕШ", opening: { sum: 6500000, usd: 0, eur: 0 }, pendingRequest: { ...zero } },
-  { id: 17, name: "Айти-Системс", opening: { sum: -135000, usd: 0, eur: 0 }, pendingRequest: { ...zero } },
-  { id: 18, name: "TEEDBOOM", opening: { sum: 75000, usd: 0, eur: 0 }, pendingRequest: { ...zero } },
-  { id: 19, name: "azamat1", opening: { sum: -6437200, usd: -3099.9, eur: 0 }, pendingRequest: { ...zero } },
-  { id: 20, name: "PEPSI ХОЛДИНГ", opening: { sum: -2378000, usd: 0, eur: 0 }, pendingRequest: { ...zero } },
-  { id: 21, name: "Nestle Provider1", opening: { sum: 21645000, usd: 0, eur: 0 }, pendingRequest: { ...zero } },
-  { id: 22, name: "Ali olimov", opening: { sum: 10000, usd: 0, eur: 0 }, pendingRequest: { ...zero } },
-  { id: 23, name: "Доширак", opening: { sum: -480000, usd: 0, eur: 0 }, pendingRequest: { ...zero } },
-  { id: 24, name: "Турецкий Айран", opening: { ...zero }, pendingRequest: { ...zero } },
-  { id: 25, name: "Ali olimov", opening: { sum: -1773100000, usd: 2000, eur: 0 }, pendingRequest: { ...zero } },
-]
-
-const TOTAL_SUPPLIERS = 77
-const FIXED_TOTALS = { opening: { eur: 0, sum: -114854713953.32, usd: -16425511.374 } }
-
-const favoriteItemsInitial = ["Клиенты", "Заказы", "Виджеты", "Заказы", "Ограничение продуктов", "Продукты"]
 
 const groups = ["Баланс на начало периода", "Поставки", "Возврат", "Оплачено", "Прочие приходы", "Прочие расходы", "Баланс на конец периода"] as const
 const requestGroups = ["Баланс на конец периода", "Запас", "Остаток", "Запросы в ожидании"] as const
 
-const money = (value: number) => new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 3 }).format(value)
+const money = (value: number) => new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 2 }).format(value)
 
 function AmountCell({ value }: { value: number }) {
   if (value === 0) return <span>0</span>
@@ -62,10 +40,6 @@ function pad(value: number) {
 }
 
 export function SupplierBalanceView() {
-  const [favorite, setFavorite] = useState(false)
-  const [favoritesOpen, setFavoritesOpen] = useState(false)
-  const [favoriteItems, setFavoriteItems] = useState(favoriteItemsInitial)
-  const [hoveredFavorite, setHoveredFavorite] = useState<number | null>(null)
   const [tab, setTab] = useState<"balance" | "requests">("balance")
   const [filterOpen, setFilterOpen] = useState(false)
   const [organization, setOrganization] = useState("Все организации")
@@ -75,7 +49,61 @@ export function SupplierBalanceView() {
   const [page, setPage] = useState(1)
   const [modal, setModal] = useState<{ type: "add" | "expense"; supplierId: number } | null>(null)
   const [requestModalId, setRequestModalId] = useState<number | null>(null)
-  const [rows, setRows] = useState(suppliers)
+  const [suppliersList, setSuppliersList] = useState<ApiSupplier[]>([])
+  const [transactions, setTransactions] = useState<BalanceTransaction[]>([])
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    Promise.all([
+      fetch("/api/suppliers").then((response) => (response.ok ? response.json() : [])),
+      fetch("/api/supplier-balance-transactions").then((response) => (response.ok ? response.json() : [])),
+    ])
+      .then(([suppliersData, transactionsData]) => {
+        if (cancelled) return
+        setSuppliersList(Array.isArray(suppliersData) ? suppliersData : [])
+        setTransactions(Array.isArray(transactionsData) ? transactionsData : [])
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const rows = useMemo<Supplier[]>(
+    () =>
+      suppliersList.map((supplier) => {
+        const opening = { ...zero }
+        const pendingRequest = { ...zero }
+        transactions
+          .filter((transaction) => transaction.supplierId === supplier.id)
+          .forEach((transaction) => {
+            if (transaction.kind === "fund_request") {
+              pendingRequest[transaction.currency] += transaction.amount
+            } else {
+              const signed = transaction.kind === "add" ? transaction.amount : -transaction.amount
+              opening[transaction.currency] += signed
+            }
+          })
+        return { id: supplier.id, name: supplier.name, opening, pendingRequest }
+      }),
+    [suppliersList, transactions],
+  )
+
+  const TOTAL_SUPPLIERS = rows.length
+  const FIXED_TOTALS = useMemo(
+    () => ({
+      opening: rows.reduce(
+        (totals, supplier) => ({
+          sum: totals.sum + supplier.opening.sum,
+          usd: totals.usd + supplier.opening.usd,
+          eur: totals.eur + supplier.opening.eur,
+        }),
+        { sum: 0, usd: 0, eur: 0 },
+      ),
+    }),
+    [rows],
+  )
 
   const today = useMemo(() => new Date(), [])
   const monthStart = useMemo(() => new Date(today.getFullYear(), today.getMonth(), 1), [today])
@@ -95,22 +123,38 @@ export function SupplierBalanceView() {
   const isDefaultView = !search.trim()
   const totalLabel = isDefaultView ? TOTAL_SUPPLIERS : filtered.length
 
-  const applyTransaction = (supplierId: number, kind: "add" | "expense", currency: keyof Money, amount: number) => {
-    setRows((current) =>
-      current.map((supplier) => {
-        if (supplier.id !== supplierId) return supplier
-        const signedAmount = kind === "add" ? amount : -amount
-        return { ...supplier, opening: { ...supplier.opening, [currency]: supplier.opening[currency] + signedAmount } }
-      }),
-    )
+  const saveTransaction = async (
+    supplierId: number,
+    kind: "add" | "expense" | "fund_request",
+    currency: keyof Money,
+    amount: number,
+    date: string,
+    comment: string,
+  ) => {
+    setSaving(true)
+    try {
+      const response = await fetch("/api/supplier-balance-transactions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ supplierId, kind, currency, amount, date, comment }),
+      })
+      if (!response.ok) {
+        window.alert("Не удалось сохранить транзакцию")
+        return false
+      }
+      const saved = (await response.json()) as BalanceTransaction
+      setTransactions((current) => [saved, ...current])
+      return true
+    } catch {
+      window.alert("Сервер недоступен, попробуйте ещё раз")
+      return false
+    } finally {
+      setSaving(false)
+    }
   }
 
   const applyFilter = () => {
     setFilterOpen(false)
-  }
-
-  const removeFavorite = (index: number) => {
-    setFavoriteItems((current) => current.filter((_, itemIndex) => itemIndex !== index))
   }
 
   const downloadAll = () => {
@@ -138,11 +182,11 @@ export function SupplierBalanceView() {
   return (
     <main className="min-h-screen bg-white text-[#17233b]">
       <header className="flex min-h-[76px] items-center border-b border-[#d8dee7] bg-[#f2f5f8] px-6 md:px-9">
-        <button onClick={() => setFavoritesOpen(true)} className="flex items-center gap-3">
-          <Star className={`h-7 w-7 ${favorite ? "fill-[#4f70e7] text-[#4f70e7]" : "fill-[#596376] text-[#596376]"}`} />
-          <span className="text-2xl font-bold text-[#4f70e7]">Избранные</span><span className="text-3xl font-light text-[#586174]">|</span>
+        <div className="flex items-center gap-3">
+          <FavoritesButton className="flex items-center gap-3 text-2xl font-bold text-[#4f70e7]" />
+          <span className="text-3xl font-light text-[#586174]">|</span>
           <span className="text-2xl font-bold text-[#586174]">Баланс поставщиков</span>
-        </button>
+        </div>
       </header>
 
       <section className="flex flex-wrap items-center gap-4 px-6 py-4 md:px-9">
@@ -374,46 +418,25 @@ export function SupplierBalanceView() {
         <TransactionModal
           supplier={rows.find((item) => item.id === modal.supplierId)!}
           type={modal.type}
+          saving={saving}
           onClose={() => setModal(null)}
-          onSave={(currency, amount) => {
-            applyTransaction(modal.supplierId, modal.type, currency, amount)
-            setModal(null)
+          onSave={async (currency, amount, date, comment) => {
+            const ok = await saveTransaction(modal.supplierId, modal.type, currency, amount, date, comment)
+            if (ok) setModal(null)
           }}
         />
       )}
 
       {requestModalId !== null && (
-        <RequestFundsModal supplier={rows.find((item) => item.id === requestModalId)!} onClose={() => setRequestModalId(null)} />
-      )}
-
-      {favoritesOpen && (
-        <div className="fixed inset-0 z-[100] flex">
-          <button aria-label="Закрыть" onClick={() => setFavoritesOpen(false)} className="flex-1 bg-black/40" />
-          <aside className="w-[420px] max-w-[90vw] bg-white shadow-2xl">
-            <header className="flex items-center justify-between border-b px-8 py-6">
-              <h2 className="text-2xl font-semibold">Избранные</h2>
-              <button aria-label="Закрыть" onClick={() => setFavoritesOpen(false)}><X className="h-6 w-6 text-slate-600" /></button>
-            </header>
-            {favoriteItems.map((item, index) => (
-              <div
-                key={`${item}-${index}`}
-                onMouseEnter={() => setHoveredFavorite(index)}
-                onMouseLeave={() => setHoveredFavorite((current) => (current === index ? null : current))}
-                className={`flex w-full items-center justify-between border-b px-8 py-5 text-left text-lg ${hoveredFavorite === index ? "bg-[#eaf0fd]" : ""}`}
-              >
-                <button type="button" onClick={() => { setFavorite(true); setFavoritesOpen(false) }} className="flex flex-1 items-center gap-3 text-left">
-                  {hoveredFavorite === index && (
-                    <span role="button" aria-label="Удалить из избранного" onClick={(event) => { event.stopPropagation(); removeFavorite(index) }} className="text-slate-600 hover:text-[#e5484d]">
-                      <Trash2 className="h-5 w-5" />
-                    </span>
-                  )}
-                  {item}
-                </button>
-                <ChevronRight className="h-5 w-5 text-slate-400" />
-              </div>
-            ))}
-          </aside>
-        </div>
+        <RequestFundsModal
+          supplier={rows.find((item) => item.id === requestModalId)!}
+          saving={saving}
+          onClose={() => setRequestModalId(null)}
+          onSend={async (currency, amount, comment) => {
+            const ok = await saveTransaction(requestModalId, "fund_request", currency, amount, new Date().toISOString().slice(0, 10), comment)
+            if (ok) setRequestModalId(null)
+          }}
+        />
       )}
     </main>
   )
@@ -430,13 +453,15 @@ function BarChart({ className }: { className?: string }) {
 function TransactionModal({
   supplier,
   type,
+  saving,
   onClose,
   onSave,
 }: {
   supplier: Supplier
   type: "add" | "expense"
+  saving: boolean
   onClose: () => void
-  onSave: (currency: keyof Money, amount: number) => void
+  onSave: (currency: keyof Money, amount: number, date: string, comment: string) => void
 }) {
   const [currency, setCurrency] = useState<keyof Money>("sum")
   const [amount, setAmount] = useState("")
@@ -478,13 +503,14 @@ function TransactionModal({
         </div>
         <footer className="flex justify-end border-t px-8 py-5">
           <button
+            disabled={saving}
             onClick={() => {
               const value = Number(amount)
-              if (value > 0) onSave(currency, value)
+              if (value > 0) onSave(currency, value, date, comment)
             }}
-            className="font-bold uppercase tracking-wide text-[#4f70e7]"
+            className="font-bold uppercase tracking-wide text-[#4f70e7] disabled:opacity-50"
           >
-            Сохранить
+            {saving ? "Сохранение..." : "Сохранить"}
           </button>
         </footer>
       </div>
@@ -492,7 +518,17 @@ function TransactionModal({
   )
 }
 
-function RequestFundsModal({ supplier, onClose }: { supplier: Supplier; onClose: () => void }) {
+function RequestFundsModal({
+  supplier,
+  saving,
+  onClose,
+  onSend,
+}: {
+  supplier: Supplier
+  saving: boolean
+  onClose: () => void
+  onSend: (currency: keyof Money, amount: number, comment: string) => void
+}) {
   const [currency, setCurrency] = useState<keyof Money>("sum")
   const [amount, setAmount] = useState("")
   const [comment, setComment] = useState("")
@@ -527,7 +563,16 @@ function RequestFundsModal({ supplier, onClose }: { supplier: Supplier; onClose:
           </label>
         </div>
         <footer className="flex justify-end border-t px-8 py-5">
-          <button onClick={onClose} className="font-bold uppercase tracking-wide text-[#4f70e7]">Отправить</button>
+          <button
+            disabled={saving}
+            onClick={() => {
+              const value = Number(amount)
+              if (value > 0) onSend(currency, value, comment)
+            }}
+            className="font-bold uppercase tracking-wide text-[#4f70e7] disabled:opacity-50"
+          >
+            {saving ? "Отправка..." : "Отправить"}
+          </button>
         </footer>
       </div>
     </div>

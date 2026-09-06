@@ -1,8 +1,10 @@
 "use client"
 
 import { FormEvent, Fragment, useEffect, useMemo, useState } from "react"
-import { ChevronRight, Download, PlusCircle, Star, X } from "lucide-react"
+import { Download, PlusCircle } from "lucide-react"
 import { downloadExcelTable } from "@/lib/excel-export"
+import { DashboardDialog } from "./dashboard-dialog"
+import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
 
 type AgentRow = {
   name: string
@@ -10,31 +12,24 @@ type AgentRow = {
   outside: [number, number, number, number]
 }
 
-const rows: AgentRow[] = [
-  {
-    name: "Admin Ritm",
-    route: [104, 0, 0, 0, 0],
-    outside: [1, 1, 0, 9859375],
-  },
-  {
-    name: "Samandar Abdurahmonov",
-    route: [0, 0, 0, 0, 0],
-    outside: [1, 1, 0, 220000],
-  },
-]
+type AgentRoute = {
+  agent: string
+  routeDate: string
+  planVisits: number
+  routeVisited: number
+  routeEffective: number
+  routeRefused: number
+  routeSales: number
+  outsideVisited: number
+  outsideEffective: number
+  outsideRefused: number
+  outsideSales: number
+}
 
-const supervisorGroups = [
-  {
-    title: "Admin Ritm",
-    agent: "Admin Ritm",
-    values: [104, 0, 0, 0, 0, 1, 1, 0, 9859375],
-  },
-  {
-    title: "Азизхон Супервайзер",
-    agent: "Samandar Abdurahmonov",
-    values: [0, 0, 0, 0, 0, 1, 1, 0, 220000],
-  },
-]
+// Supervisor -> agent hierarchy isn't tracked anywhere in the schema
+// (employees only carry a free-text "position", not a manager/supervisor
+// relation), so the supervisor rollup view keeps showing an empty grouping.
+const supervisorGroups: { title: string; agent: string; values: number[] }[] = []
 
 function inputDate(date: Date) {
   const year = date.getFullYear()
@@ -52,37 +47,36 @@ function format(value: number) {
   return new Intl.NumberFormat("ru-RU").format(value)
 }
 
-function downloadCsv() {
-  const header = [
-    "Агент",
-    "План",
-    "Посещено по маршруту",
-    "Результативно по маршруту",
-    "Отказано по маршруту",
-    "Продажа по маршруту",
-    "Посещено вне маршрута",
-    "Результативно вне маршрута",
-    "Отказано вне маршрута",
-    "Продажа вне маршрута",
-  ]
-  downloadExcelTable("agent-visits.xls", [header, ...rows.map((row) => [row.name, ...row.route, ...row.outside])])
-}
-
 export function AgentVisitsView({ supervisorMode = false }: { supervisorMode?: boolean }) {
   const today = useMemo(() => inputDate(new Date()), [])
   const [draftFrom, setDraftFrom] = useState(monthStart)
   const [draftTo, setDraftTo] = useState(today)
-  const [favorite, setFavorite] = useState(false)
+  const [range, setRange] = useState({ from: monthStart(), to: today })
   const [inDashboard, setInDashboard] = useState(false)
   const [dashboardOpen, setDashboardOpen] = useState(false)
-  const [favoritesOpen, setFavoritesOpen] = useState(false)
   const [visibility, setVisibility] = useState("all")
   const [dashboard, setDashboard] = useState("Основной дашборд")
   const [supervisorAscending, setSupervisorAscending] = useState(true)
   const [expandedSupervisors, setExpandedSupervisors] = useState(() =>
     supervisorGroups.map((group) => group.title),
   )
-  const overlayOpen = dashboardOpen || favoritesOpen
+  const [agentRoutes, setAgentRoutes] = useState<AgentRoute[]>([])
+  const overlayOpen = dashboardOpen
+
+  useEffect(() => {
+    let cancelled = false
+    fetch("/api/agent-routes")
+      .then((response) => (response.ok ? (response.json() as Promise<AgentRoute[]>) : Promise.reject()))
+      .then((data) => {
+        if (!cancelled) setAgentRoutes(data)
+      })
+      .catch(() => {
+        if (!cancelled) setAgentRoutes([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   useEffect(() => {
     if (!overlayOpen) return
@@ -90,7 +84,6 @@ export function AgentVisitsView({ supervisorMode = false }: { supervisorMode?: b
     function closeOnEscape(event: KeyboardEvent) {
       if (event.key === "Escape") {
         setDashboardOpen(false)
-        setFavoritesOpen(false)
       }
     }
 
@@ -103,6 +96,52 @@ export function AgentVisitsView({ supervisorMode = false }: { supervisorMode?: b
     }
   }, [overlayOpen])
 
+  // Aggregates the real per-day agent_routes rows within the selected date
+  // range into the [План, Посещено, Результативно, Отказано, Продажа] shape
+  // this view renders, split into route vs. outside-of-route columns.
+  const rows = useMemo<AgentRow[]>(() => {
+    const byAgent = new Map<string, AgentRow>()
+    for (const route of agentRoutes) {
+      if (route.routeDate < range.from || route.routeDate > range.to) continue
+      const existing = byAgent.get(route.agent) ?? {
+        name: route.agent,
+        route: [0, 0, 0, 0, 0] as AgentRow["route"],
+        outside: [0, 0, 0, 0] as AgentRow["outside"],
+      }
+      existing.route = [
+        existing.route[0] + route.planVisits,
+        existing.route[1] + route.routeVisited,
+        existing.route[2] + route.routeEffective,
+        existing.route[3] + route.routeRefused,
+        existing.route[4] + route.routeSales,
+      ]
+      existing.outside = [
+        existing.outside[0] + route.outsideVisited,
+        existing.outside[1] + route.outsideEffective,
+        existing.outside[2] + route.outsideRefused,
+        existing.outside[3] + route.outsideSales,
+      ]
+      byAgent.set(route.agent, existing)
+    }
+    return Array.from(byAgent.values()).sort((a, b) => a.name.localeCompare(b.name, "ru"))
+  }, [agentRoutes, range])
+
+  function downloadCsv() {
+    const header = [
+      "Агент",
+      "План",
+      "Посещено по маршруту",
+      "Результативно по маршруту",
+      "Отказано по маршруту",
+      "Продажа по маршруту",
+      "Посещено вне маршрута",
+      "Результативно вне маршрута",
+      "Отказано вне маршрута",
+      "Продажа вне маршрута",
+    ]
+    downloadExcelTable("agent-visits.xls", [header, ...rows.map((row) => [row.name, ...row.route, ...row.outside])])
+  }
+
   const totals = useMemo(
     () => ({
       route: rows.reduce(
@@ -114,7 +153,7 @@ export function AgentVisitsView({ supervisorMode = false }: { supervisorMode?: b
         [0, 0, 0, 0] as AgentRow["outside"],
       ),
     }),
-    [],
+    [rows],
   )
   const orderedSupervisorGroups = useMemo(
     () =>
@@ -128,21 +167,14 @@ export function AgentVisitsView({ supervisorMode = false }: { supervisorMode?: b
 
   function apply(event: FormEvent) {
     event.preventDefault()
+    if (draftFrom <= draftTo) setRange({ from: draftFrom, to: draftTo })
   }
 
   return (
     <main className="min-h-[calc(100vh-4rem)] bg-slate-100">
       <header className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-300 bg-slate-100 px-5 py-4 sm:px-10">
         <div className="flex items-center gap-3 text-xl font-bold sm:text-2xl">
-          <button
-            type="button"
-            onClick={() => setFavoritesOpen(true)}
-            aria-pressed={favorite}
-            className="flex items-center gap-2 text-[#5470e8]"
-          >
-            <Star className={`h-6 w-6 ${favorite ? "fill-amber-400 text-amber-400" : "fill-slate-600 text-slate-600"}`} />
-            Избранные
-          </button>
+          <FavoritesButton className="flex items-center gap-2 text-[#5470e8]" />
           <span className="text-slate-500">|</span>
           <h1 className="text-slate-600">
             {supervisorMode ? "Визиты агентов по супервайзерам" : "Визиты агента"}
@@ -277,7 +309,7 @@ export function AgentVisitsView({ supervisorMode = false }: { supervisorMode?: b
               <tr className="bg-[#555] font-bold text-white">
                 <th className="border-r border-slate-300 px-2 py-4 text-left">Итого</th>
                 {(supervisorMode
-                  ? [104, 0, 0, 2, 0, 2, 2, 2, 10079375]
+                  ? [0, 0, 0, 0, 0, 0, 0, 0, 0]
                   : [...totals.route, ...totals.outside]
                 ).map((value, index) => (
                   <td key={index} className="border-r border-slate-300 px-2 py-4 text-right">
@@ -294,107 +326,22 @@ export function AgentVisitsView({ supervisorMode = false }: { supervisorMode?: b
         <button
           type="button"
           aria-label="Окнони yopish"
-          onClick={() => {
-            setDashboardOpen(false)
-            setFavoritesOpen(false)
-          }}
+          onClick={() => setDashboardOpen(false)}
           className="fixed inset-0 z-[90] cursor-default bg-black/55"
         />
       )}
 
       {dashboardOpen && (
-        <section
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="agent-dashboard-dialog-title"
-          className="fixed left-1/2 top-1/2 z-[100] flex h-[min(646px,calc(100vh-32px))] w-[min(750px,calc(100vw-32px))] -translate-x-1/2 -translate-y-1/2 flex-col bg-white shadow-2xl"
-        >
-          <header className="flex items-center justify-between border-b border-slate-200 px-9 py-7">
-            <h2 id="agent-dashboard-dialog-title" className="text-lg font-bold uppercase text-slate-900">
-              Добавить в дашборд
-            </h2>
-            <button type="button" onClick={() => setDashboardOpen(false)} aria-label="Закрыть" className="rounded p-1 text-slate-500 hover:bg-slate-100">
-              <X className="h-7 w-7" />
-            </button>
-          </header>
-
-          <div className="flex-1 px-16 py-10">
-            <fieldset className="space-y-5">
-              <legend className="sr-only">Кому показывать виджет</legend>
-              {[
-                ["all", "Все"],
-                ["employees", "Выбранным сотрудникам"],
-                ["access", "Выбранным доступам"],
-              ].map(([value, label]) => (
-                <label key={value} className="flex cursor-pointer items-center gap-5 text-lg text-slate-900">
-                  <input
-                    type="radio"
-                    name="agent-dashboard-visibility"
-                    value={value}
-                    checked={visibility === value}
-                    onChange={() => setVisibility(value)}
-                    className="h-6 w-6 accent-slate-500"
-                  />
-                  {label}
-                </label>
-              ))}
-            </fieldset>
-
-            <label className="mt-12 block border-b border-slate-200 pb-2 text-base font-bold text-slate-900">
-              Дашборд
-              <select value={dashboard} onChange={(event) => setDashboard(event.target.value)} className="mt-2 block w-full border-0 bg-white py-2 text-base font-normal outline-none">
-                <option>Основной дашборд</option>
-                <option>Продажи</option>
-                <option>Контроль агентов</option>
-              </select>
-            </label>
-          </div>
-
-          <footer className="flex justify-end border-t border-slate-200 px-9 py-6">
-            <button
-              type="button"
-              onClick={() => {
-                setInDashboard(true)
-                setDashboardOpen(false)
-              }}
-              className="font-semibold uppercase text-sky-500 hover:text-sky-600"
-            >
-              Сохранить
-            </button>
-          </footer>
-        </section>
-      )}
-
-      {favoritesOpen && (
-        <aside
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="agent-favorites-title"
-          className="fixed bottom-0 left-0 top-0 z-[100] w-[min(418px,calc(100vw-28px))] border-r-[10px] border-sky-500 bg-white shadow-2xl animate-in slide-in-from-left-full duration-200"
-        >
-          <header className="flex items-center justify-between border-b border-slate-200 px-9 py-7">
-            <h2 id="agent-favorites-title" className="text-xl font-medium text-slate-900">Избранные</h2>
-            <button type="button" onClick={() => setFavoritesOpen(false)} aria-label="Закрыть" className="rounded p-1 hover:bg-slate-100">
-              <X className="h-7 w-7" />
-            </button>
-          </header>
-          <nav aria-label="Избранные разделы">
-            {["Клиенты", "Заказы", "Виджеты", "Заказы", "Ограничение продуктов", "Продукты"].map((item, index) => (
-              <button
-                key={`${item}-${index}`}
-                type="button"
-                onClick={() => {
-                  setFavorite(true)
-                  setFavoritesOpen(false)
-                }}
-                className="flex w-full items-center justify-between border-b border-slate-200 px-6 py-3.5 text-left text-[17px] font-medium text-slate-900 hover:bg-slate-50"
-              >
-                {item}
-                <ChevronRight className="h-5 w-5 text-slate-500" />
-              </button>
-            ))}
-          </nav>
-        </aside>
+        <DashboardDialog
+          reportSlug="agent-visits"
+          reportLabel="Визиты агента"
+          visibility={visibility}
+          setVisibility={setVisibility}
+          dashboard={dashboard}
+          setDashboard={setDashboard}
+          onClose={() => setDashboardOpen(false)}
+          onSave={() => setInDashboard(true)}
+        />
       )}
     </main>
   )

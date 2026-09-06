@@ -11,10 +11,11 @@ import {
   PlusCircle,
   Route,
   Search,
-  Star,
   Trash2,
   X,
 } from "lucide-react"
+import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
+import { useLanguage } from "@/lib/i18n/language-context"
 import { AgentsSidebar } from "./agents-sidebar"
 
 const TrackingMap = dynamic(() => import("./tracking-map").then((m) => m.TrackingMap), {
@@ -41,6 +42,7 @@ const selectOptions: Record<string, string[]> = {
 }
 
 function SelectLine({ label }: { label: string }) {
+  const { t } = useLanguage()
   const [open, setOpen] = useState(false)
   const [value, setValue] = useState("")
 
@@ -51,7 +53,7 @@ function SelectLine({ label }: { label: string }) {
         onClick={() => setOpen((current) => !current)}
         className="flex h-11 w-full items-center justify-between border-b border-slate-200 text-left text-[16px] font-semibold text-slate-900"
       >
-        <span>{value || label}</span>
+        <span>{t(value) || t(label)}</span>
         <ChevronDown className={`h-4 w-4 text-slate-400 transition ${open ? "rotate-180" : ""}`} />
       </button>
       {open && (
@@ -66,7 +68,7 @@ function SelectLine({ label }: { label: string }) {
               }}
               className="block w-full px-3 py-2.5 text-left text-sm hover:bg-blue-50"
             >
-              {option}
+              {t(option)}
             </button>
           ))}
         </div>
@@ -86,6 +88,7 @@ function CheckLine({
   checked?: boolean
   onChange?: (checked: boolean) => void
 }) {
+  const { t } = useLanguage()
   const [internalChecked, setInternalChecked] = useState(defaultChecked)
   const checked = controlledChecked ?? internalChecked
   return (
@@ -99,12 +102,13 @@ function CheckLine({
         }}
         className="mt-0.5 h-5 w-5 accent-[#536fe1]"
       />
-      <span>{label}</span>
+      <span>{t(label)}</span>
     </label>
   )
 }
 
 function ClientsFilterModal({ onClose }: { onClose: () => void }) {
+  const { t } = useLanguage()
   const [days, setDays] = useState<string[]>([])
   const weekdays = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
 
@@ -113,20 +117,20 @@ function ClientsFilterModal({ onClose }: { onClose: () => void }) {
       <section
         role="dialog"
         aria-modal="true"
-        aria-label="Показать на карте"
+        aria-label={t("Показать на карте")}
         onMouseDown={(event) => event.stopPropagation()}
         className="flex max-h-[92vh] w-full max-w-[960px] flex-col overflow-hidden rounded-sm bg-white shadow-2xl"
       >
         <header className="flex items-center justify-between border-b px-9 py-6">
-          <h2 className="text-xl font-bold">ПОКАЗАТЬ НА КАРТЕ</h2>
-          <button type="button" onClick={onClose} aria-label="Закрыть">
+          <h2 className="text-xl font-bold">{t("ПОКАЗАТЬ НА КАРТЕ")}</h2>
+          <button type="button" onClick={onClose} aria-label={t("Закрыть")}>
             <X className="h-7 w-7 text-slate-600" />
           </button>
         </header>
         <div className="grid min-h-0 flex-1 grid-cols-2 overflow-y-auto px-8 py-5">
           <div className="space-y-4 border-r pr-8">
             <label className="block text-xs font-semibold">
-              Период создания клиента
+              {t("Период создания клиента")}
               <input type="date" className="mt-2 h-10 w-full border-b border-slate-200 text-base font-normal outline-none" />
             </label>
             {[
@@ -136,10 +140,10 @@ function ClientsFilterModal({ onClose }: { onClose: () => void }) {
               "Прошло дней с последнего визита",
             ].map((label) => (
               <div key={label}>
-                <p className="mb-1 text-sm text-slate-600">{label}</p>
+                <p className="mb-1 text-sm text-slate-600">{t(label)}</p>
                 <div className="grid grid-cols-2 gap-5">
-                  <input type="number" placeholder="От (дней)" className="h-10 border-b border-slate-200 font-semibold outline-none" />
-                  <input type="number" placeholder="До (дней)" className="h-10 border-b border-slate-200 font-semibold outline-none" />
+                  <input type="number" placeholder={t("От (дней)")} className="h-10 border-b border-slate-200 font-semibold outline-none" />
+                  <input type="number" placeholder={t("До (дней)")} className="h-10 border-b border-slate-200 font-semibold outline-none" />
                 </div>
               </div>
             ))}
@@ -151,7 +155,7 @@ function ClientsFilterModal({ onClose }: { onClose: () => void }) {
           </div>
           <div className="space-y-4 pl-8">
             <div>
-              <p className="mb-3 text-[16px] font-semibold">Показывать по маршруту (дни)</p>
+              <p className="mb-3 text-[16px] font-semibold">{t("Показывать по маршруту (дни)")}</p>
               <div className="flex gap-3">
                 {weekdays.map((day) => (
                   <button
@@ -160,7 +164,7 @@ function ClientsFilterModal({ onClose }: { onClose: () => void }) {
                     onClick={() => setDays((current) => current.includes(day) ? current.filter((item) => item !== day) : [...current, day])}
                     className={`h-10 w-10 ${days.includes(day) ? "bg-[#536fe1] text-white" : "bg-slate-100 text-slate-600"}`}
                   >
-                    {day}
+                    {t(day)}
                   </button>
                 ))}
               </div>
@@ -174,8 +178,8 @@ function ClientsFilterModal({ onClose }: { onClose: () => void }) {
           </div>
         </div>
         <footer className="flex justify-end gap-6 border-t px-16 py-3">
-          <button type="button" onClick={() => setDays([])} className="rounded-md bg-[#ff6262] px-6 py-3 font-bold text-white">ОЧИСТИТЬ</button>
-          <button type="button" onClick={onClose} className="rounded-md bg-[#6bce87] px-6 py-3 font-bold text-white">ПРИМЕНИТЬ</button>
+          <button type="button" onClick={() => setDays([])} className="rounded-md bg-[#ff6262] px-6 py-3 font-bold text-white">{t("ОЧИСТИТЬ")}</button>
+          <button type="button" onClick={onClose} className="rounded-md bg-[#6bce87] px-6 py-3 font-bold text-white">{t("ПРИМЕНИТЬ")}</button>
         </footer>
       </section>
     </div>
@@ -183,16 +187,17 @@ function ClientsFilterModal({ onClose }: { onClose: () => void }) {
 }
 
 function ZoneModal({ onClose }: { onClose: () => void }) {
+  const { t } = useLanguage()
   const [mode, setMode] = useState<"draw" | "select">("select")
   const [name, setName] = useState("")
   return (
     <div className="absolute inset-0 z-[700] flex items-start justify-center bg-slate-950/25 pt-16" onMouseDown={onClose}>
       <section onMouseDown={(event) => event.stopPropagation()} className="w-[690px] bg-white p-9 shadow-2xl">
         <div className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-5">
-          <input value={name} onChange={(event) => setName(event.target.value)} placeholder="Наименование зоны" className="h-11 border-b border-slate-200 text-base font-semibold outline-none" />
+          <input value={name} onChange={(event) => setName(event.target.value)} placeholder={t("Наименование зоны")} className="h-11 border-b border-slate-200 text-base font-semibold outline-none" />
           <button type="button" onClick={() => setMode("draw")} className={`rounded-md p-3 ${mode === "draw" ? "bg-slate-100" : ""}`}><Route /></button>
           <button type="button" onClick={() => setMode("select")} className={`rounded-md p-3 ${mode === "select" ? "bg-slate-100" : ""}`}><MapPinned /></button>
-          <button type="button" aria-label="Очистить зону" onClick={() => { setName(""); setMode("select") }} className="p-3"><Trash2 /></button>
+          <button type="button" aria-label={t("Очистить зону")} onClick={() => { setName(""); setMode("select") }} className="p-3"><Trash2 /></button>
         </div>
         <button type="button" onClick={onClose} className="absolute ml-[595px] mt-[-48px]"><X /></button>
         <div className="mt-6 grid grid-cols-2 gap-6">
@@ -201,10 +206,10 @@ function ZoneModal({ onClose }: { onClose: () => void }) {
         </div>
         <div className="mt-6 flex items-center justify-between">
           <CheckLine label="Переназначить зоны клиентов" />
-          <span className="text-sm text-sky-500">Видеоурок по созданию зоны</span>
+          <span className="text-sm text-sky-500">{t("Видеоурок по созданию зоны")}</span>
         </div>
         <div className="mt-9 text-right">
-          <button type="button" onClick={onClose} className="font-semibold text-sky-500">СОХРАНИТЬ</button>
+          <button type="button" onClick={onClose} className="font-semibold text-sky-500">{t("СОХРАНИТЬ")}</button>
         </div>
       </section>
     </div>
@@ -212,6 +217,7 @@ function ZoneModal({ onClose }: { onClose: () => void }) {
 }
 
 export function TrackingView({ view = "agents" }: TrackingViewProps) {
+  const { t } = useLanguage()
   const [showAgents, setShowAgents] = useState(view === "agents")
   const [showClients, setShowClients] = useState(true)
   const [showZones, setShowZones] = useState(view === "clients")
@@ -234,16 +240,15 @@ export function TrackingView({ view = "agents" }: TrackingViewProps) {
       <main className="flex h-[calc(100vh-4rem)] flex-col overflow-hidden bg-slate-100">
         <header className="flex min-h-[74px] items-center justify-between border-b bg-slate-100 px-8">
           <div className="flex items-center gap-3">
-            <Star className="h-7 w-7 fill-[#526fe0] text-[#526fe0]" />
-            <span className="text-2xl font-bold text-[#526fe0]">Избранные</span>
+            <FavoritesButton className="flex items-center gap-3 text-2xl font-bold text-[#526fe0]" />
             <span className="text-2xl text-slate-400">|</span>
-            <span className="text-2xl font-bold text-slate-600">Территория</span>
+            <span className="text-2xl font-bold text-slate-600">{t("Территория")}</span>
           </div>
           <div className="flex gap-3">
-            <button type="button" onClick={() => setFilterOpen(true)} className="flex items-center gap-3 rounded-md bg-[#526fe0] px-5 py-3 font-bold text-white"><Filter className="h-5 w-5" />Показать клиентов</button>
-            <button type="button" onClick={() => setShowZones(true)} className="flex items-center gap-3 rounded-md bg-[#526fe0] px-5 py-3 font-bold text-white"><Route className="h-5 w-5" />Установить маршрут</button>
-            <button type="button" onClick={() => setShowZones((current) => !current)} className="flex items-center gap-3 rounded-md bg-[#526fe0] px-5 py-3 font-bold text-white"><Filter className="h-5 w-5" />Управлять территориями</button>
-            <button type="button" onClick={() => setZoneOpen(true)} className="flex items-center gap-3 rounded-md bg-[#6bce87] px-5 py-3 font-bold text-white"><PlusCircle className="h-5 w-5" />Добавить</button>
+            <button type="button" onClick={() => setFilterOpen(true)} className="flex items-center gap-3 rounded-md bg-[#526fe0] px-5 py-3 font-bold text-white"><Filter className="h-5 w-5" />{t("Показать клиентов")}</button>
+            <button type="button" onClick={() => setShowZones(true)} className="flex items-center gap-3 rounded-md bg-[#526fe0] px-5 py-3 font-bold text-white"><Route className="h-5 w-5" />{t("Установить маршрут")}</button>
+            <button type="button" onClick={() => setShowZones((current) => !current)} className="flex items-center gap-3 rounded-md bg-[#526fe0] px-5 py-3 font-bold text-white"><Filter className="h-5 w-5" />{t("Управлять территориями")}</button>
+            <button type="button" onClick={() => setZoneOpen(true)} className="flex items-center gap-3 rounded-md bg-[#6bce87] px-5 py-3 font-bold text-white"><PlusCircle className="h-5 w-5" />{t("Добавить")}</button>
           </div>
         </header>
         <div className="relative min-h-0 flex-1 [&_.leaflet-tile-pane]:grayscale">
@@ -252,7 +257,7 @@ export function TrackingView({ view = "agents" }: TrackingViewProps) {
             {searchOpen && (
               <label className="flex h-full w-80 items-center gap-2 px-6">
                 <Search className="h-5 w-5 text-slate-400" />
-                <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Поиск" className="w-full text-lg outline-none" />
+                <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={t("Поиск")} className="w-full text-lg outline-none" />
               </label>
             )}
             <button type="button" onClick={() => setSearchOpen((current) => !current)} className="h-full px-5">
@@ -260,7 +265,7 @@ export function TrackingView({ view = "agents" }: TrackingViewProps) {
             </button>
           </div>
           <div className="absolute bottom-0 right-0 z-[500] w-72 bg-white shadow-2xl">
-            <button type="button" onClick={() => setFilterOpen(true)} className="flex w-full items-center gap-3 bg-[#526fe0] px-5 py-3 font-bold text-white"><Filter />Показать клиентов</button>
+            <button type="button" onClick={() => setFilterOpen(true)} className="flex w-full items-center gap-3 bg-[#526fe0] px-5 py-3 font-bold text-white"><Filter />{t("Показать клиентов")}</button>
             <div className="space-y-3 p-4">
               <CheckLine label="Скрыть ориентиры" />
               <CheckLine label="Режим спутника" />
@@ -280,10 +285,9 @@ export function TrackingView({ view = "agents" }: TrackingViewProps) {
         <TrackingMap showAgents={showAgents} showClients={showClients} showZones={showZones} />
 
         <div className="absolute left-20 top-5 z-[500] flex items-center gap-3">
-          <Star className="h-6 w-6 fill-[#596376] text-[#596376]" />
-          <span className="text-xl font-bold text-[#4f70e7]">Избранные</span>
+          <FavoritesButton className="flex items-center gap-3 text-xl font-bold text-[#4f70e7]" />
           <span className="text-2xl font-light text-slate-400">|</span>
-          <span className="text-xl font-bold text-slate-700">Отслеживание</span>
+          <span className="text-xl font-bold text-slate-700">{t("Отслеживание")}</span>
         </div>
 
         <div className="absolute left-6 top-[92px] z-[500]">
@@ -292,14 +296,14 @@ export function TrackingView({ view = "agents" }: TrackingViewProps) {
             onClick={() => setLegendOpen((current) => !current)}
             className="flex h-11 w-44 items-center justify-between rounded-md bg-white px-4 text-[15px] font-medium text-slate-700 shadow-lg"
           >
-            Легенда карты
+            {t("Легенда карты")}
             <ChevronDown className={`h-4 w-4 text-slate-400 transition ${legendOpen ? "rotate-180" : ""}`} />
           </button>
           {legendOpen && (
             <div className="mt-1 w-56 rounded-md bg-white p-3 text-sm shadow-xl">
-              <p className="mb-2 flex items-center gap-2"><span className="inline-block h-3 w-3 rounded-full bg-[#f2b705]" />Агент онлайн</p>
-              <p className="mb-2 flex items-center gap-2"><span className="inline-block h-3 w-3 rounded-full bg-[#ff4d3d]" />Агент офлайн</p>
-              <p className="flex items-center gap-2"><span className="inline-block h-3 w-3 rounded-full bg-[#27ae60]" />Клиент</p>
+              <p className="mb-2 flex items-center gap-2"><span className="inline-block h-3 w-3 rounded-full bg-[#f2b705]" />{t("Агент онлайн")}</p>
+              <p className="mb-2 flex items-center gap-2"><span className="inline-block h-3 w-3 rounded-full bg-[#ff4d3d]" />{t("Агент офлайн")}</p>
+              <p className="flex items-center gap-2"><span className="inline-block h-3 w-3 rounded-full bg-[#27ae60]" />{t("Клиент")}</p>
             </div>
           )}
         </div>

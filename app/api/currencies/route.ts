@@ -1,45 +1,41 @@
 import { NextRequest, NextResponse } from "next/server"
+import { z } from "zod"
 
 import { getCurrentUser } from "@/lib/current-user"
+import { requireRole } from "@/lib/rbac"
+import { parseJsonBody } from "@/lib/validation"
 import { createCurrency, listCurrencies, type CurrencyInput } from "@/lib/currencies-repo"
 
-function parseCurrencyInput(body: unknown): CurrencyInput | null {
-  if (!body || typeof body !== "object") return null
-  const value = body as Record<string, unknown>
+const currencySchema = z.object({
+  name: z.string().trim().min(1),
+  code: z.string().trim().min(1),
+  rate: z.coerce.number().catch(0),
+  isBase: z.boolean().optional(),
+})
 
-  const name = typeof value.name === "string" ? value.name.trim() : ""
-  const code = typeof value.code === "string" ? value.code.trim().toUpperCase() : ""
-  if (!name || !code) return null
-
-  const isBase = value.isBase === true
-  const rateRaw = typeof value.rate === "number" ? value.rate : Number(value.rate)
-  const rate = isBase ? 1 : Math.max(0, Number.isFinite(rateRaw) ? rateRaw : 0)
-
-  return { name, code, rate, isBase }
+function toCurrencyInput(data: z.infer<typeof currencySchema>): CurrencyInput {
+  const isBase = data.isBase === true
+  const rate = isBase ? 1 : Math.max(0, data.rate)
+  return { name: data.name, code: data.code.toUpperCase(), rate, isBase }
 }
 
 export async function GET() {
   const user = await getCurrentUser()
   if (!user) return NextResponse.json({ error: "Tizimga kirilmagan" }, { status: 401 })
-  return NextResponse.json(listCurrencies())
+  return NextResponse.json((await listCurrencies()))
 }
 
 export async function POST(request: NextRequest) {
-  const user = await getCurrentUser()
-  if (!user) return NextResponse.json({ error: "Tizimga kirilmagan" }, { status: 401 })
+  const auth = await requireRole("manager")
+  if ("error" in auth) return auth.error
 
-  let body: unknown
-  try {
-    body = await request.json()
-  } catch {
-    return NextResponse.json({ error: "Noto'g'ri so'rov" }, { status: 400 })
-  }
+  const parsed = await parseJsonBody(request, currencySchema)
+  if (parsed.error) return parsed.error
 
-  const input = parseCurrencyInput(body)
-  if (!input) return NextResponse.json({ error: "Название и код обязательны" }, { status: 400 })
+  const input = toCurrencyInput(parsed.data)
 
   try {
-    const currency = createCurrency(input)
+    const currency = (await createCurrency(input))
     return NextResponse.json(currency, { status: 201 })
   } catch {
     return NextResponse.json({ error: "Валюта с таким кодом уже существует" }, { status: 409 })

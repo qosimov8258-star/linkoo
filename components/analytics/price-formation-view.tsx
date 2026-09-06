@@ -8,13 +8,20 @@ import {
   DollarSign,
   Pencil,
   Search,
-  Star,
   Upload,
   X,
 } from "lucide-react"
 import { ChangeEvent, Fragment, FormEvent, useEffect, useMemo, useRef, useState } from "react"
 
 import { downloadExcelTable } from "@/lib/excel-export"
+import { mapHeaderColumns, readExcelRows } from "@/lib/excel-import"
+import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
+import { useLanguage } from "@/lib/i18n/language-context"
+
+const PRICE_IMPORT_HEADER_ALIASES: Record<string, string> = {
+  "штрих код товара": "barcode", "штрихкод": "barcode", "штрих код": "barcode", "barcode": "barcode",
+  "цена": "price", "price": "price",
+}
 import { defaultPriceLists, type PriceListEntry, type Product } from "./products-data"
 
 const priceListNames = defaultPriceLists().map((entry) => entry.name)
@@ -32,12 +39,12 @@ function toProductInput(product: Product): Omit<Product, "id" | "createdDate"> {
 }
 
 export function PriceFormationView({ embedded = false }: { embedded?: boolean }) {
+  const { t } = useLanguage()
   const [rows, setRows] = useState<Product[]>([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState("")
   const [query, setQuery] = useState("")
   const [page, setPage] = useState(1)
-  const [favorite, setFavorite] = useState(false)
   const [filterOpen, setFilterOpen] = useState(false)
   const [typeFilter, setTypeFilter] = useState("all")
   const [unitFilter, setUnitFilter] = useState("all")
@@ -80,7 +87,7 @@ export function PriceFormationView({ embedded = false }: { embedded?: boolean })
         setLoadError("")
       })
       .catch(() => {
-        if (!cancelled) setLoadError("Не удалось загрузить продукты с сервера")
+        if (!cancelled) setLoadError(t("Не удалось загрузить продукты с сервера"))
       })
       .finally(() => {
         if (!cancelled) setLoading(false)
@@ -140,14 +147,14 @@ export function PriceFormationView({ embedded = false }: { embedded?: boolean })
       })
       if (!response.ok) {
         const data = await response.json().catch(() => ({}))
-        window.alert(data.error || "Не удалось сохранить товар")
+        window.alert(data.error || t("Не удалось сохранить товар"))
         return null
       }
       const saved = (await response.json()) as Product
       setRows((curr) => curr.map((row) => (row.id === id ? saved : row)))
       return saved
     } catch {
-      window.alert("Сервер недоступен, попробуйте ещё раз")
+      window.alert(t("Сервер недоступен, попробуйте ещё раз"))
       return null
     }
   }
@@ -189,17 +196,21 @@ export function PriceFormationView({ embedded = false }: { embedded?: boolean })
     setEditingPrices(false)
   }
 
+  function downloadPriceImportTemplate() {
+    downloadExcelTable("shablon-import-cen", [[t("Штрих-код товара"), t("Цена")]])
+  }
+
   function downloadList() {
     downloadExcelTable("formirovanie-tsen", [
-      ["Название", "Штрих-код товара", "Себестоимость", "Цена(мин)", "Цена(макс)", "Дата обновления"],
+      [t("Название"), t("Штрих-код товара"), t("Себестоимость"), t("Цена(мин)"), t("Цена(макс)"), t("Дата обновления")],
       ...filtered.map((row) => [row.name, row.barcode, row.cost, row.priceMin, row.priceMax, row.priceUpdatedDate]),
     ])
   }
 
   function downloadView2() {
     downloadExcelTable("formirovanie-tsen-vid-2", [
-      ["Название", "Тип", "Бренд", "Ед.изм.", "Организация", "Можно продавать", "Себестоимость"],
-      ...filtered.map((row) => [row.name, row.type, row.brand, row.unit, row.organization, row.canSell ? "Да" : "Нет", row.cost]),
+      [t("Название"), t("Тип"), t("Бренд"), t("Ед.изм."), t("Организация"), t("Можно продавать"), t("Себестоимость")],
+      ...filtered.map((row) => [row.name, row.type, row.brand, row.unit, row.organization, row.canSell ? t("Да") : t("Нет"), row.cost]),
     ])
   }
 
@@ -234,12 +245,23 @@ export function PriceFormationView({ embedded = false }: { embedded?: boolean })
   function importPricesFromExcel(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0]
     if (!file) return
-    const reader = new FileReader()
-    reader.onload = async () => {
-      const text = String(reader.result ?? "")
-      const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean)
-      for (const line of lines) {
-        const [barcode, priceRaw] = line.split(/\t|,|;/).map((cell) => cell.trim())
+    void (async () => {
+      const lines = await readExcelRows(file)
+      if (!lines.length) return
+      const fieldByIndex = mapHeaderColumns(lines[0], PRICE_IMPORT_HEADER_ALIASES)
+      const hasHeader = Array.from(fieldByIndex.values()).includes("barcode")
+      const dataRows = hasHeader ? lines.slice(1) : lines
+      let barcodeIndex = 0
+      let priceIndex = 1
+      if (hasHeader) {
+        for (const [index, field] of fieldByIndex) {
+          if (field === "barcode") barcodeIndex = index
+          if (field === "price") priceIndex = index
+        }
+      }
+      for (const row of dataRows) {
+        const barcode = row[barcodeIndex]
+        const priceRaw = row[priceIndex]
         const price = Number(priceRaw)
         if (!barcode || !price) continue
         const target = rows.find((row) => row.barcode === barcode)
@@ -255,8 +277,7 @@ export function PriceFormationView({ embedded = false }: { embedded?: boolean })
       }
       event.target.value = ""
       setAddStage(null)
-    }
-    reader.readAsText(file)
+    })()
   }
 
   async function saveNewPrice(event: FormEvent) {
@@ -282,20 +303,18 @@ export function PriceFormationView({ embedded = false }: { embedded?: boolean })
       {!embedded && (
         <header className="mb-5 flex items-center justify-between">
           <h1 className="flex items-center text-2xl font-bold text-slate-600">
-            <button type="button" onClick={() => setFavorite((value) => !value)} className="inline-flex items-center gap-2 text-[#4f70e7]">
-              <Star className={`h-5 w-5 ${favorite ? "fill-amber-400 text-amber-400" : ""}`} /> Избранные
-            </button>
-            <span className="mx-2 text-slate-400">|</span> Формирование цен
+            <FavoritesButton className="inline-flex items-center gap-2 text-[#4f70e7]" />
+            <span className="mx-2 text-slate-400">|</span> {t("Формирование цен")}
           </h1>
           <div className="flex items-center gap-3">
             <button type="button" onClick={downloadView2} className="inline-flex items-center gap-2 rounded bg-[#4f70e7] px-4 py-2.5 font-semibold text-white hover:brightness-95">
-              <BarChart3 className="h-4 w-4" /> Скачать вид 2
+              <BarChart3 className="h-4 w-4" /> {t("Скачать вид 2")}
             </button>
             <button type="button" onClick={downloadList} className="inline-flex items-center gap-2 rounded bg-[#4f70e7] px-4 py-2.5 font-semibold text-white hover:brightness-95">
-              <BarChart3 className="h-4 w-4" /> Скачать
+              <BarChart3 className="h-4 w-4" /> {t("Скачать")}
             </button>
             <button type="button" onClick={openAddPrice} className="inline-flex items-center gap-2 rounded bg-[#6ccd8b] px-5 py-2.5 font-semibold text-white hover:brightness-95">
-              <DollarSign className="h-4 w-4" /> Добавить цену
+              <DollarSign className="h-4 w-4" /> {t("Добавить цену")}
             </button>
           </div>
         </header>
@@ -304,76 +323,76 @@ export function PriceFormationView({ embedded = false }: { embedded?: boolean })
       <section className="overflow-hidden rounded bg-white shadow">
         <div className="flex flex-wrap items-center gap-4 px-5 py-3">
           <button type="button" onClick={() => setFilterOpen((value) => !value)} className="inline-flex items-center gap-1 text-[#4f70e7] hover:underline">
-            Показать фильтр <ChevronDown className={`h-4 w-4 transition-transform ${filterOpen ? "rotate-180" : ""}`} />
+            {t("Показать фильтр")} <ChevronDown className={`h-4 w-4 transition-transform ${filterOpen ? "rotate-180" : ""}`} />
           </button>
         </div>
 
         {filterOpen && (
           <div className="grid gap-4 border-b border-slate-100 bg-slate-50 px-5 py-4 sm:grid-cols-3 lg:grid-cols-6">
             <label className="text-sm text-slate-600">
-              Тип продукта
+              {t("Тип продукта")}
               <select value={typeFilter} onChange={(event) => { setTypeFilter(event.target.value); setPage(1) }} className="mt-1 block w-full rounded border border-slate-300 px-2 py-1.5">
-                <option value="all">Все</option>
+                <option value="all">{t("Все")}</option>
                 {productTypes.map((type) => <option key={type} value={type}>{type}</option>)}
               </select>
             </label>
             <label className="text-sm text-slate-600">
-              Мера
+              {t("Мера")}
               <select value={unitFilter} onChange={(event) => { setUnitFilter(event.target.value); setPage(1) }} className="mt-1 block w-full rounded border border-slate-300 px-2 py-1.5">
-                <option value="all">Все</option>
+                <option value="all">{t("Все")}</option>
                 {units.map((unit) => <option key={unit} value={unit}>{unit}</option>)}
               </select>
             </label>
             <label className="text-sm text-slate-600">
-              Организация
+              {t("Организация")}
               <select value={organizationFilter} onChange={(event) => { setOrganizationFilter(event.target.value); setPage(1) }} className="mt-1 block w-full rounded border border-slate-300 px-2 py-1.5">
-                <option value="all">Все</option>
+                <option value="all">{t("Все")}</option>
                 {organizations.map((org) => <option key={org} value={org}>{org}</option>)}
               </select>
             </label>
             <label className="text-sm text-slate-600">
-              Бренд
+              {t("Бренд")}
               <select value={brandFilter} onChange={(event) => { setBrandFilter(event.target.value); setPage(1) }} className="mt-1 block w-full rounded border border-slate-300 px-2 py-1.5">
-                <option value="all">Все</option>
+                <option value="all">{t("Все")}</option>
                 {brands.map((brand) => <option key={brand} value={brand}>{brand}</option>)}
               </select>
             </label>
             <label className="text-sm text-slate-600">
-              Можно продавать
+              {t("Можно продавать")}
               <select value={canSellFilter} onChange={(event) => { setCanSellFilter(event.target.value); setPage(1) }} className="mt-1 block w-full rounded border border-slate-300 px-2 py-1.5">
-                <option value="all">Все</option>
-                <option value="true">Да</option>
-                <option value="false">Нет</option>
+                <option value="all">{t("Все")}</option>
+                <option value="true">{t("Да")}</option>
+                <option value="false">{t("Нет")}</option>
               </select>
             </label>
             <label className="flex items-end gap-2 text-sm text-slate-600">
               <input type="checkbox" checked={noCostOnly} onChange={(event) => { setNoCostOnly(event.target.checked); setPage(1) }} />
-              Товары без себестоимости
+              {t("Товары без себестоимости")}
             </label>
           </div>
         )}
 
         <div className="flex flex-wrap items-center gap-4 px-5 py-3">
           <label className="relative w-64">
-            <input value={query} onChange={(event) => { setQuery(event.target.value); setPage(1) }} placeholder="Поиск" className="w-full border-b border-slate-300 py-2 pr-10 outline-none focus:border-[#4f70e7]" />
+            <input value={query} onChange={(event) => { setQuery(event.target.value); setPage(1) }} placeholder={t("Поиск")} className="w-full border-b border-slate-300 py-2 pr-10 outline-none focus:border-[#4f70e7]" />
             <Search className="absolute right-2 top-2 h-5 w-5 text-slate-300" />
           </label>
           <span className="ml-auto text-slate-500">25</span>
           <span className="text-slate-500">
-            {filtered.length ? (safePage - 1) * pageSize + 1 : 0} - {Math.min(safePage * pageSize, filtered.length)} из {filtered.length}
+            {filtered.length ? (safePage - 1) * pageSize + 1 : 0} - {Math.min(safePage * pageSize, filtered.length)} {t("из")} {filtered.length}
           </span>
-          <button type="button" onClick={() => setPage((value) => Math.max(1, value - 1))} disabled={safePage <= 1} aria-label="Назад" className="disabled:opacity-30">
+          <button type="button" onClick={() => setPage((value) => Math.max(1, value - 1))} disabled={safePage <= 1} aria-label={t("Назад")} className="disabled:opacity-30">
             <ChevronLeft className="h-5 w-5 text-slate-400" />
           </button>
-          <button type="button" onClick={() => setPage((value) => Math.min(pageCount, value + 1))} disabled={safePage >= pageCount} aria-label="Вперед" className="disabled:opacity-30">
+          <button type="button" onClick={() => setPage((value) => Math.min(pageCount, value + 1))} disabled={safePage >= pageCount} aria-label={t("Вперед")} className="disabled:opacity-30">
             <ChevronRight className="h-5 w-5 text-slate-400" />
           </button>
-          <button type="button" onClick={downloadList} aria-label="Скачать" className="text-slate-500 hover:text-[#4f70e7]">
+          <button type="button" onClick={downloadList} aria-label={t("Скачать")} className="text-slate-500 hover:text-[#4f70e7]">
             <Upload className="h-5 w-5 rotate-180" />
           </button>
           {embedded && (
             <button type="button" onClick={openAddPrice} className="inline-flex items-center gap-2 rounded bg-[#6ccd8b] px-4 py-2 text-sm font-semibold text-white hover:brightness-95">
-              <DollarSign className="h-4 w-4" /> Добавить цену
+              <DollarSign className="h-4 w-4" /> {t("Добавить цену")}
             </button>
           )}
         </div>
@@ -605,6 +624,11 @@ export function PriceFormationView({ embedded = false }: { embedded?: boolean })
               <label className="flex items-center gap-2">
                 <input type="radio" checked={importMode === "excel"} onChange={() => setImportMode("excel")} /> Импортировать с excel
               </label>
+              {importMode === "excel" && (
+                <button type="button" onClick={downloadPriceImportTemplate} className="ml-6 text-sm font-semibold text-[#4f70e7] hover:underline">
+                  Скачать шаблон
+                </button>
+              )}
               <label className="flex items-center gap-2 text-sm">
                 <input type="checkbox" checked={separateTransferPrice} onChange={(event) => setSeparateTransferPrice(event.target.checked)} /> Установить другую цену для перевода
               </label>

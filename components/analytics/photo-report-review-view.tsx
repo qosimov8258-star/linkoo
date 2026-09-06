@@ -2,93 +2,8 @@
 
 import Image from "next/image"
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react"
-import { ChevronDown, ChevronLeft, ChevronRight, ListFilter, Star, UserRound, X } from "lucide-react"
-
-const employeeNames = `
-05.08.2025 (1)
-xodim1 1
-Zaynillo Sadullayev
-Salohiddin Agent Tashkent
-Islom Toirjonov
-Maykl Jekson
-Аббос Доставщик
-Admin Ritm
-Bexruz Abdulazizov
-Samandar Abdurahmonov
-doston zavsklad Zavzalov
-beyn kim
-agent2 2
-agent 007
-Анвар Комилов
-krugagentbek agentov
-старший агент склада Apple
-ali aliyev
-bobur axmadov
-Bahodir Axmedov
-Азизхон Супервайзер
-Aziz Karimov
-Temurbek Sharipov
-beyn kim
-ismoil boboyorov
-universal dostavshik
-Bahriddun tolaganov
-deliver man
-Dilmurod Madjidov
-доставщик доставщик
-Doston agentov agentov
-asadbek rasulov
-krugdoshtavshikbek dostavshikov
-doston supreviser supreviserov
-doston2cola agent agentov
-doston dostavka Dostavshikov
-Salohiddin Dastavchik Tashkent
-Feruz Ibragimov
-Feruz2 Bobokulov
-feruz bobokulov Bobokulov
-Fozil Agent
-Максим Валерьевич
-Аброр Билолов
-Сотрудник Илхомжон Жураев
-Islom Yuldashev
-Javohir Sindarov
-Karim Karimov
-Ares are
-Quvonchbek op
-onec onec
-Otabek Komiljonov
-Oybek Valiyev
-Quvonchbek Admin
-AboMuslim Raximov
-Salohiddin Agent Farg'ona
-Salohiddin Dastavchik Farg'ona
-Salohiddin Kassir Farg'ona
-Salohiddin Kassir Tashkent
-Salohiddin Operator Fargona
-Salohiddin Operator Tashkent
-Salohiddin Supervisor Farg'ona
-Salohiddin Supervisor Tashkent
-Salohiddin Zasklad Farg'ona
-Salohiddin Zavsklad Tashkent
-Sardor Rajabov
-Shaxriyor Xusanov
-Sherzod Gulyamov
-Shodiyor Mahmudov
-Shohista Muxamedova
-супервайзер супервайзер
-test1 asdsa
-testUser testUser
-agent TIMUR 007
-test Test
-van.agent2 2
-Vahit ATASH
-vansel agent test
-xodim2 1
-xodim3 1
-Shaxriyor Xusanov
-zav.sklad 007 qwerty
-завсклада завсклада
-Хайрулло Доставщик
-`.trim().split("\n")
+import { ChevronDown, ChevronLeft, ChevronRight, ListFilter, UserRound, X } from "lucide-react"
+import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
 
 function inputDate(date: Date) {
   const year = date.getFullYear()
@@ -121,8 +36,6 @@ export function PhotoReportReviewView() {
   const filterRef = useRef<HTMLFormElement>(null)
   const filterButtonRef = useRef<HTMLButtonElement>(null)
   const [activeEmployee, setActiveEmployee] = useState("Все")
-  const [favorite, setFavorite] = useState(false)
-  const [favoritesOpen, setFavoritesOpen] = useState(false)
   const [filtersOpen, setFiltersOpen] = useState(false)
   const [draftFrom, setDraftFrom] = useState(currentMonthStart)
   const [draftTo, setDraftTo] = useState(currentMonthEnd)
@@ -131,6 +44,26 @@ export function PhotoReportReviewView() {
   const [draftEquipment, setDraftEquipment] = useState("")
   const [clientType, setClientType] = useState("")
   const [equipment, setEquipment] = useState("")
+  const [employeeNames, setEmployeeNames] = useState<string[]>([])
+
+  // surveys-repo and survey-plans-repo (the only survey-related tables in
+  // this app) carry no photo/attachment fields at all, so there is no real
+  // photo-report data to show here — see report notes. Only the employee
+  // strip below is wired to real staff.
+  useEffect(() => {
+    let cancelled = false
+    fetch("/api/employees")
+      .then((response) => (response.ok ? (response.json() as Promise<{ name: string }[]>) : Promise.reject()))
+      .then((data) => {
+        if (!cancelled) setEmployeeNames(data.map((employee) => employee.name).filter(Boolean).sort((a, b) => a.localeCompare(b, "ru")))
+      })
+      .catch(() => {
+        if (!cancelled) setEmployeeNames([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   useEffect(() => {
     if (!filtersOpen) return
@@ -157,20 +90,6 @@ export function PhotoReportReviewView() {
     }
   }, [filtersOpen])
 
-  useEffect(() => {
-    if (!favoritesOpen) return
-    function closeOnEscape(event: KeyboardEvent) {
-      if (event.key === "Escape") setFavoritesOpen(false)
-    }
-    const previousOverflow = document.body.style.overflow
-    document.body.style.overflow = "hidden"
-    document.addEventListener("keydown", closeOnEscape)
-    return () => {
-      document.body.style.overflow = previousOverflow
-      document.removeEventListener("keydown", closeOnEscape)
-    }
-  }, [favoritesOpen])
-
   function scrollEmployees(direction: number) {
     stripRef.current?.scrollBy({ left: direction * 700, behavior: "smooth" })
   }
@@ -189,15 +108,7 @@ export function PhotoReportReviewView() {
     <main className="min-h-[calc(100vh-4rem)] bg-slate-100">
       <header className="relative flex flex-wrap items-center justify-between gap-4 border-b border-slate-200 px-5 py-4 sm:px-10">
         <div className="flex items-center gap-3 text-xl font-bold sm:text-2xl">
-          <button
-            ref={filterButtonRef}
-            type="button"
-            onClick={() => setFavoritesOpen(true)}
-            className="flex items-center gap-2 text-[#5470e8]"
-          >
-            <Star className={`h-6 w-6 ${favorite ? "fill-amber-400 text-amber-400" : "fill-slate-600 text-slate-600"}`} />
-            Избранные
-          </button>
+          <FavoritesButton className="flex items-center gap-2 text-[#5470e8]" />
           <span className="text-slate-500">|</span>
           <h1 className="text-slate-600">Активность</h1>
         </div>
@@ -322,24 +233,6 @@ export function PhotoReportReviewView() {
         )}
       </section>
 
-      {favoritesOpen && (
-        <>
-          <button type="button" aria-label="Закрыть избранное" onClick={() => setFavoritesOpen(false)} className="fixed inset-0 z-[90] cursor-default bg-black/55" />
-          <aside role="dialog" aria-modal="true" aria-labelledby="photo-favorites-title" className="fixed bottom-0 left-0 top-0 z-[100] w-[min(418px,calc(100vw-28px))] border-r-[10px] border-sky-500 bg-white shadow-2xl animate-in slide-in-from-left-full duration-200">
-            <header className="flex items-center justify-between border-b border-slate-200 px-9 py-7">
-              <h2 id="photo-favorites-title" className="text-xl font-medium">Избранные</h2>
-              <button type="button" onClick={() => setFavoritesOpen(false)} aria-label="Закрыть" className="rounded p-1 hover:bg-slate-100"><X className="h-7 w-7" /></button>
-            </header>
-            <nav>
-              {["Клиенты", "Заказы", "Виджеты", "Ограничение продуктов", "Продукты"].map((item) => (
-                <button key={item} type="button" onClick={() => { setFavorite(true); setFavoritesOpen(false) }} className="flex w-full items-center justify-between border-b border-slate-200 px-6 py-3.5 text-left text-[17px] font-medium hover:bg-slate-50">
-                  {item}<ChevronRight className="h-5 w-5 text-slate-500" />
-                </button>
-              ))}
-            </nav>
-          </aside>
-        </>
-      )}
     </main>
   )
 }

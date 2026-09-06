@@ -1,9 +1,19 @@
 "use client"
 
-import { ChevronLeft, ChevronRight, DollarSign, Pencil, Plus, Search, Star, Trash2, X } from "lucide-react"
-import { FormEvent, useEffect, useMemo, useState } from "react"
+import { ChevronLeft, ChevronRight, DollarSign, FileText, Pencil, Plus, Search, Trash2, X } from "lucide-react"
+import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react"
 
+import { downloadExcelTable } from "@/lib/excel-export"
+import { mapHeaderColumns, readExcelRows } from "@/lib/excel-import"
 import { priceListCalcMethods as calcMethods, priceListCurrencies as currencies, type PriceList } from "./price-lists-data"
+import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
+
+const IMPORT_HEADER_ALIASES: Record<string, string> = {
+  "наименование": "name", "название": "name", "name": "name",
+  "валюта": "currency", "currency": "currency",
+  "связанный прайс лист": "linkedList", "связанный список": "linkedList",
+  "метод расчета": "calcMethod", "метод расчёта": "calcMethod",
+}
 
 const products = [
   "Arslan 111111", "seriya test",
@@ -33,8 +43,12 @@ export function PriceListsView({ embedded = false }: { embedded?: boolean }) {
   const [saving, setSaving] = useState(false)
   const [priceModal, setPriceModal] = useState(false)
   const [priceDraft, setPriceDraft] = useState(emptyPriceDraft)
+  const [priceSaving, setPriceSaving] = useState(false)
   const [toast, setToast] = useState("")
-  const [favorite, setFavorite] = useState(false)
+  const [importOpen, setImportOpen] = useState(false)
+  const [importFile, setImportFile] = useState<File | null>(null)
+  const [importSaving, setImportSaving] = useState(false)
+  const importInputRef = useRef<HTMLInputElement>(null)
   const pageSize = 25
 
   useEffect(() => {
@@ -128,12 +142,107 @@ export function PriceListsView({ embedded = false }: { embedded?: boolean }) {
     setPriceModal(true)
   }
 
-  function savePrice(event: FormEvent) {
+  async function savePrice(event: FormEvent) {
     event.preventDefault()
     if (!priceDraft.priceList || !priceDraft.product) return
-    setPriceModal(false)
-    setToast(`Цена для «${priceDraft.product}» в прайс-листе «${priceDraft.priceList}» обновлена`)
-    window.setTimeout(() => setToast(""), 4000)
+    setPriceSaving(true)
+    try {
+      const response = await fetch("/api/price-list-entries", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          priceList: priceDraft.priceList,
+          product: priceDraft.product,
+          cash: priceDraft.cash === "" ? 0 : Number(priceDraft.cash),
+          nonCash: priceDraft.nonCash === "" ? 0 : Number(priceDraft.nonCash),
+        }),
+      })
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}))
+        window.alert(data.error || "Не удалось сохранить цену")
+        return
+      }
+      setPriceModal(false)
+      setToast(`Цена для «${priceDraft.product}» в прайс-листе «${priceDraft.priceList}» обновлена`)
+      window.setTimeout(() => setToast(""), 4000)
+    } catch {
+      window.alert("Сервер недоступен, попробуйте ещё раз")
+    } finally {
+      setPriceSaving(false)
+    }
+  }
+
+  function downloadTemplate() {
+    downloadExcelTable("price-lists-template", [["Наименование", "Валюта", "Связанный прайс лист", "Метод расчета"]])
+  }
+
+  function pickImportFile(event: ChangeEvent<HTMLInputElement>) {
+    setImportFile(event.target.files?.[0] ?? null)
+  }
+
+  async function saveImport() {
+    if (!importFile) return
+    setImportSaving(true)
+    try {
+      const importRows = await readExcelRows(importFile)
+      if (!importRows.length) {
+        window.alert("Не удалось найти данные для импорта в выбранном файле")
+        return
+      }
+      const fieldByIndex = mapHeaderColumns(importRows[0], IMPORT_HEADER_ALIASES)
+      const hasHeader = Array.from(fieldByIndex.values()).includes("name")
+      const dataRows = hasHeader ? importRows.slice(1) : importRows
+
+      const parsed: { name: string; currency: string; linkedList: string; calcMethod: string }[] = []
+      for (const row of dataRows) {
+        const record: Record<string, string> = {}
+        if (hasHeader) {
+          row.forEach((cell, index) => {
+            const field = fieldByIndex.get(index)
+            if (field) record[field] = cell
+          })
+        } else {
+          record.name = row[0] ?? ""
+          record.currency = row[1] ?? ""
+          record.linkedList = row[2] ?? ""
+          record.calcMethod = row[3] ?? ""
+        }
+        if (!record.name) continue
+        parsed.push({
+          name: record.name,
+          currency: record.currency || currencies[0],
+          linkedList: record.linkedList || "Не указано",
+          calcMethod: record.calcMethod || calcMethods[0],
+        })
+      }
+
+      if (!parsed.length) {
+        window.alert("Не удалось найти данные для импорта в выбранном файле")
+        return
+      }
+
+      const created: PriceList[] = []
+      let failed = 0
+      for (const item of parsed) {
+        try {
+          const response = await fetch("/api/price-lists", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(item),
+          })
+          if (response.ok) created.push((await response.json()) as PriceList)
+          else failed += 1
+        } catch {
+          failed += 1
+        }
+      }
+      if (created.length) setRows((current) => [...created, ...current])
+      if (failed) window.alert(`Импортировано ${created.length} из ${parsed.length}. Не удалось сохранить: ${failed}`)
+    } finally {
+      setImportSaving(false)
+      setImportOpen(false)
+      setImportFile(null)
+    }
   }
 
   return (
@@ -141,9 +250,7 @@ export function PriceListsView({ embedded = false }: { embedded?: boolean }) {
       {!embedded && (
         <header className="mb-5">
           <h1 className="flex items-center text-2xl font-bold text-slate-600">
-            <button type="button" onClick={() => setFavorite((value) => !value)} className="inline-flex items-center gap-2 text-[#4f70e7]">
-              <Star className={`h-5 w-5 ${favorite ? "fill-amber-400 text-amber-400" : ""}`} /> Избранные
-            </button>
+            <FavoritesButton className="inline-flex items-center gap-2 text-[#4f70e7]" />
             <span className="mx-2 text-slate-400">|</span> Прайс-листы
           </h1>
         </header>
@@ -160,6 +267,9 @@ export function PriceListsView({ embedded = false }: { embedded?: boolean }) {
         <div className="flex flex-wrap items-center gap-4 px-5 py-4">
           <button type="button" onClick={openCreate} className="inline-flex items-center gap-2 rounded bg-[#4f70e7] px-4 py-2.5 font-semibold text-white hover:brightness-95">
             <Plus className="h-4 w-4" /> Добавить прайс-лист
+          </button>
+          <button type="button" onClick={() => setImportOpen(true)} className="inline-flex items-center gap-2 rounded bg-[#4f70e7] px-4 py-2.5 font-semibold text-white hover:brightness-95">
+            <FileText className="h-4 w-4" /> Импорт с Excel
           </button>
           <label className="relative ml-4 w-72">
             <input value={query} onChange={(event) => { setQuery(event.target.value); setPage(1) }} placeholder="Поиск" className="w-full border-b border-slate-300 py-2 pr-10 outline-none focus:border-[#4f70e7]" />
@@ -303,9 +413,41 @@ export function PriceListsView({ embedded = false }: { embedded?: boolean }) {
               </label>
             </div>
             <div className="mt-6 flex justify-end">
-              <button type="submit" className="rounded bg-[#6ccd8b] px-6 py-3 font-semibold text-white hover:brightness-95">Сохранить</button>
+              <button type="submit" disabled={priceSaving} className="rounded bg-[#6ccd8b] px-6 py-3 font-semibold text-white hover:brightness-95 disabled:opacity-60">{priceSaving ? "Сохранение..." : "Сохранить"}</button>
             </div>
           </form>
+        </div>
+      )}
+
+      {importOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
+          <div className="w-full max-w-md rounded bg-white">
+            <header className="flex items-center justify-between border-b p-6">
+              <b className="uppercase">Импорт с Excel</b>
+              <button type="button" onClick={() => { setImportOpen(false); setImportFile(null) }} aria-label="Закрыть">
+                <X className="h-5 w-5" />
+              </button>
+            </header>
+            <div className="p-8">
+              <button type="button" onClick={downloadTemplate} className="mb-4 font-semibold text-[#4f70e7] hover:underline">
+                1. Скачать шаблон
+              </button>
+              <input ref={importInputRef} type="file" accept=".csv,.xls,.xlsx" onChange={pickImportFile} className="hidden" />
+              <button
+                type="button"
+                onClick={() => importInputRef.current?.click()}
+                className="flex w-full flex-col items-center justify-center gap-3 rounded border-2 border-dashed border-slate-300 py-10 text-slate-500 hover:border-[#4f70e7] hover:text-[#4f70e7]"
+              >
+                <FileText className="h-8 w-8" />
+                {importFile ? importFile.name : "Добавьте файл Excel или нажмите для выбора"}
+              </button>
+            </div>
+            <footer className="flex justify-end border-t p-5">
+              <button type="button" disabled={!importFile || importSaving} onClick={saveImport} className="rounded bg-[#6ccd8b] px-5 py-3 font-semibold text-white hover:brightness-95 disabled:opacity-40">
+                {importSaving ? "Импорт..." : "Сохранить"}
+              </button>
+            </footer>
+          </div>
         </div>
       )}
     </main>

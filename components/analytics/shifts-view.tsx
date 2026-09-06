@@ -1,7 +1,8 @@
 "use client"
 
 import Image from "next/image"
-import { ChevronLeft, ChevronRight, Search, Star } from "lucide-react"
+import { ChevronLeft, ChevronRight, Search } from "lucide-react"
+import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
 import { useMemo, useState } from "react"
 
 type Shift = {
@@ -24,10 +25,9 @@ function formatSum(value: number) {
   return `${new Intl.NumberFormat("ru-RU").format(value)} SUM`
 }
 
-export function ShiftsView() {
+export function ShiftsView({ embedded = false }: { embedded?: boolean }) {
   const [shifts] = useState(seed)
   const [query, setQuery] = useState("")
-  const [favorite, setFavorite] = useState(false)
 
   const rows = useMemo(
     () => shifts.filter((shift) => shift.name.toLowerCase().includes(query.toLowerCase()) || shift.user.toLowerCase().includes(query.toLowerCase())),
@@ -35,16 +35,15 @@ export function ShiftsView() {
   )
 
   return (
-    <main className="min-h-[calc(100vh-4rem)] bg-[#f1f4f8] px-9 py-5">
-      <header className="mb-5">
-        <h1 className="text-2xl font-bold text-slate-600">
-          <button type="button" onClick={() => setFavorite((value) => !value)} className="inline-flex items-center gap-2 text-[#4f70e7]">
-            <Star className={`h-6 w-6 ${favorite ? "fill-[#4f70e7]" : "fill-slate-500 text-slate-500"}`} />
-            Избранные
-          </button>
-          <span className="mx-2 text-slate-400">|</span> Смена
-        </h1>
-      </header>
+    <main className={embedded ? "min-w-0 flex-1" : "min-h-[calc(100vh-4rem)] bg-[#f1f4f8] px-9 py-5"}>
+      {!embedded && (
+        <header className="mb-5">
+          <h1 className="text-2xl font-bold text-slate-600">
+            <FavoritesButton className="inline-flex items-center gap-2 text-[#4f70e7]" />
+            <span className="mx-2 text-slate-400">|</span> Смена
+          </h1>
+        </header>
+      )}
 
       <section className="overflow-hidden rounded bg-white shadow">
         <div className="flex flex-wrap items-center gap-4 px-5 py-3">

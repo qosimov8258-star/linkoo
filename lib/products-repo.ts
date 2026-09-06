@@ -190,15 +190,15 @@ export function parseProductInput(body: unknown): ProductInput | null {
   }
 }
 
-export function listProducts(): Product[] {
+export async function listProducts(): Promise<Product[]> {
   const db = getDb()
-  const rows = db.prepare("SELECT * FROM products ORDER BY id DESC").all() as Row[]
+  const rows = (await db.prepare("SELECT * FROM products ORDER BY id DESC").all()) as Row[]
   return rows.map(rowToProduct)
 }
 
-export function getProduct(id: number): Product | null {
+export async function getProduct(id: number): Promise<Product | null> {
   const db = getDb()
-  const row = db.prepare("SELECT * FROM products WHERE id = ?").get(id) as Row | undefined
+  const row = (await db.prepare("SELECT * FROM products WHERE id = ?").get(id)) as Row | undefined
   return row ? rowToProduct(row) : null
 }
 
@@ -250,11 +250,11 @@ function toParams(input: ProductInput) {
   }
 }
 
-export function createProduct(input: ProductInput): Product {
+export async function createProduct(input: ProductInput): Promise<Product> {
   const db = getDb()
-  const result = db
-    .prepare(
-      `INSERT INTO products (
+  const result = (await db
+      .prepare(
+        `INSERT INTO products (
         name, full_name, barcode, article, type, organization, unit, sub_unit, created_date, order_number,
         has_photo, can_sell, is_inventory, deleted, only_mml, perfect_store, group_only, track_expiry,
         manual_discount, hide_from_agent, track_series, show_in_bot, marked_product, limit_price, product_group,
@@ -267,16 +267,16 @@ export function createProduct(input: ProductInput): Product {
         @ikpu, @invoiceUnitCode, @vat, @salePoints, @subcategory, @brand, @minStock, @description, @supplier,
         @integrationCode, @volume, @weight, @netWeight, @color, @priceLists, @cost, @priceMin, @priceMax, @priceUpdatedDate
       )`,
-    )
-    .run({ ...toParams(input), createdDate: formatProductDate(new Date()) })
-  return getProduct(Number(result.lastInsertRowid))!
+      )
+      .run({ ...toParams(input), createdDate: formatProductDate(new Date()) }))
+  return (await getProduct(Number(result.lastInsertRowid)))!
 }
 
-export function updateProduct(id: number, input: ProductInput): Product | null {
-  if (!getProduct(id)) return null
+export async function updateProduct(id: number, input: ProductInput): Promise<Product | null> {
+  if (!(await getProduct(id))) return null
   const db = getDb()
-  db.prepare(
-    `UPDATE products SET
+  await db.prepare(
+        `UPDATE products SET
       name = @name, full_name = @fullName, barcode = @barcode, article = @article, type = @type,
       organization = @organization, unit = @unit, sub_unit = @subUnit, order_number = @orderNumber,
       has_photo = @hasPhoto, can_sell = @canSell, is_inventory = @isInventory, deleted = @deleted,
@@ -289,12 +289,12 @@ export function updateProduct(id: number, input: ProductInput): Product | null {
       net_weight = @netWeight, color = @color, price_lists = @priceLists, cost = @cost, price_min = @priceMin,
       price_max = @priceMax, price_updated_date = @priceUpdatedDate, updated_at = datetime('now')
     WHERE id = @id`,
-  ).run({ ...toParams(input), id })
-  return getProduct(id)
+      ).run({ ...toParams(input), id })
+  return (await getProduct(id))
 }
 
-export function deleteProduct(id: number): boolean {
+export async function deleteProduct(id: number): Promise<boolean> {
   const db = getDb()
-  const result = db.prepare("DELETE FROM products WHERE id = ?").run(id)
+  const result = (await db.prepare("DELETE FROM products WHERE id = ?").run(id))
   return result.changes > 0
 }

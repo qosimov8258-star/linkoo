@@ -2,6 +2,8 @@
 
 import Link from "next/link"
 
+import { useLanguage } from "@/lib/i18n/language-context"
+
 type MenuItem = { label: string; href: string }
 
 const personnel: MenuItem[] = [
@@ -30,6 +32,11 @@ const order: MenuItem[] = [
   { label: "Ограничение продуктов", href: "/analytics/product-restrictions" },
 ]
 
+// Used by top-nav.tsx to decide when the "Персонал" tab should be
+// highlighted — most of these pages live under the shared /analytics/[slug]
+// route, which "Аналитика" would otherwise claim first.
+export const personnelHrefs: string[] = [...personnel, ...kpi, ...control, ...order].map((item) => item.href)
+
 type Props = {
   onSelect: (item: string) => void
   onMouseEnter?: () => void
@@ -45,18 +52,19 @@ function LinkColumn({
   items: MenuItem[]
   onSelect: (item: string) => void
 }) {
+  const { t } = useLanguage()
   return (
-    <div className="min-w-0">
-      <h3 className="mb-2 text-base font-bold text-brand-blue">{title}</h3>
+    <div className="min-w-0 px-5 py-5">
+      <h3 className="mb-3 text-[13px] font-bold text-brand-blue">{t(title)}</h3>
       <ul className="flex flex-col">
         {items.map((item) => (
           <li key={item.label} className="border-b border-slate-100 last:border-b-0">
             <Link
               href={item.href}
               onClick={() => onSelect(item.label)}
-              className="block w-full py-3.5 text-left text-[15px] text-slate-700 transition-colors hover:text-brand-blue"
+              className="block w-full py-2.5 text-left text-[13px] font-semibold text-slate-700 transition-colors hover:text-brand-blue"
             >
-              {item.label}
+              {t(item.label)}
             </Link>
           </li>
         ))}
@@ -70,9 +78,9 @@ export function PersonnelMenu({ onSelect, onMouseEnter, onMouseLeave }: Props) {
     <div
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
-      className="absolute left-1/2 top-full z-50 w-[1000px] max-w-[calc(100vw-2rem)] -translate-x-1/2 px-4"
+      className="w-[800px] max-w-[calc(100vw-2rem)]"
     >
-      <div className="mt-1 grid grid-cols-1 gap-x-10 gap-y-6 rounded-lg border border-slate-200 bg-white p-8 text-slate-700 shadow-2xl duration-150 animate-in fade-in-0 slide-in-from-top-2 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="mt-1 grid grid-cols-1 divide-slate-200 overflow-hidden rounded-b-xl border border-slate-200 bg-white text-slate-700 shadow-2xl duration-150 animate-in fade-in-0 slide-in-from-top-2 sm:grid-cols-2 lg:grid-cols-4 lg:divide-x">
         <LinkColumn title="Персонал" items={personnel} onSelect={onSelect} />
         <LinkColumn title="KPI" items={kpi} onSelect={onSelect} />
         <LinkColumn title="Контроль" items={control} onSelect={onSelect} />

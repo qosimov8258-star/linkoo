@@ -1,6 +1,6 @@
 "use client"
 
-import { Fragment, useMemo, useState } from "react"
+import { Fragment, useEffect, useMemo, useState } from "react"
 import {
   ChevronDown,
   ChevronLeft,
@@ -9,9 +9,10 @@ import {
   Download,
   Filter,
   Search,
-  Star,
   X,
 } from "lucide-react"
+import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
+import type { Product } from "@/components/analytics/products-data"
 
 type Mode = "quantity" | "cost" | "price"
 
@@ -19,57 +20,48 @@ type StockRow = {
   product: string
   article: string
   type: string
+  // NOTE (real-data gap): there is no live per-product / per-warehouse
+  // on-hand quantity ledger anywhere in the schema. `inventory_items`
+  // tracks physical assets attached to clients (fridges, freezers...) and
+  // `inventory_records` only stores one free-text warehouse-level `amount`
+  // string per reconciliation, not a per-product breakdown. So `total`,
+  // `reserved` and `transit` are honestly 0 for every row below rather than
+  // fabricated — see the report for details.
   total: number
   reserved: number
   transit: number
   unit: string
+  // No real per-product warehouse assignment exists (products aren't linked
+  // to a warehouse anywhere in the schema), so this is always "Не указано" —
+  // the warehouse filter below stays in the UI but has nothing real to
+  // filter on yet.
   warehouse: string
+  organization: string
   cost: number
   price: number
+  minStock: string
 }
 
-const rows: StockRow[] = [
-  { product: "robot moshina", article: "1009", type: "Texnika", total: 160589, reserved: 33, transit: 1, unit: "dona", warehouse: "Asosiy ombor", cost: 145000, price: 185000 },
-  { product: "sndwch", article: "", type: "oziq ovqat", total: 5539434, reserved: 18, transit: 54, unit: "sht", warehouse: "Tayyor mahsulotlar", cost: 10000, price: 12000 },
-  { product: "energetik 1 l", article: "123321", type: "flash", total: 102331, reserved: 237, transit: 0, unit: "кг", warehouse: "Asosiy ombor", cost: 7500, price: 10000 },
-  { product: "g'ilof", article: "62", type: "idish", total: 200022670, reserved: 4, transit: 852, unit: "шт", warehouse: "777", cost: 2400, price: 3500 },
-  { product: "old", article: "", type: "Coca Cola", total: 128, reserved: 1, transit: 0, unit: "blok", warehouse: "878", cost: 80000, price: 96000 },
-  { product: "shokolod", article: "", type: "muuzdek ichimlik", total: 48961.667, reserved: 0, transit: 0, unit: "dona", warehouse: "Andijon", cost: 6400, price: 8000 },
-  { product: "Маркер", article: "", type: "сырье", total: 3, reserved: 0, transit: 0, unit: "dona", warehouse: "Asosiy ombor", cost: 2500, price: 4000 },
-  { product: "Fuse tea 0.9", article: "0001", type: "54455", total: 60, reserved: 0, transit: 0, unit: "Dona", warehouse: "AURUM samarqand", cost: 8000, price: 10000 },
-  { product: "ун", article: "", type: "56756", total: 20, reserved: 0, transit: 0, unit: "Dona", warehouse: "Xomashyo", cost: 6500, price: 8000 },
-  { product: "cola 2.25 L", article: "", type: "Coca Cola", total: 0, reserved: 0, transit: 0, unit: "Dona", warehouse: "777", cost: 11000, price: 14000 },
-  { product: "Aqua de lux 0.33 bez gaz", article: "", type: "gf,knopgf", total: 37, reserved: 0, transit: 0, unit: "Dona", warehouse: "878", cost: 3000, price: 4500 },
-  { product: "Cola", article: "100-4563", type: "KIYIM KECHAK", total: 101200, reserved: 224, transit: 0, unit: "Dona", warehouse: "agent", cost: 9000, price: 12000 },
-  { product: "Kefir 0.8", article: "", type: "kkkd", total: 0, reserved: 0, transit: 0, unit: "Dona", warehouse: "Andijon", cost: 7000, price: 9500 },
-  { product: "name of product", article: "", type: "oziq ovqat", total: 2999950, reserved: 0, transit: 0, unit: "Dona", warehouse: "Asosiy ombor", cost: 15000, price: 19000 },
-  { product: "sdfefsa", article: "", type: "cola 0.5l", total: 0, reserved: 0, transit: 0, unit: "gramm", warehouse: "Xomashyo", cost: 30, price: 45 },
-  { product: "my_product_1", article: "", type: "oziq ovqat", total: 0, reserved: 0, transit: 0, unit: "kg", warehouse: "Asosiy ombor", cost: 18000, price: 23000 },
-  { product: "Muzlatkich 2", article: "", type: "avto", total: 510019, reserved: 0, transit: 0, unit: "лт", warehouse: "Inventar", cost: 2100000, price: 2500000 },
-  { product: "coca-cola", article: "", type: "напитки", total: 31113, reserved: 1, transit: 0, unit: "лт", warehouse: "777", cost: 8500, price: 11000 },
-  { product: "ays tea 0.5", article: "", type: "gazlanmagan", total: 118, reserved: 0, transit: 0, unit: "новый шт", warehouse: "878", cost: 6500, price: 8500 },
-  { product: "pankiy", article: "", type: "54455", total: 49990, reserved: 0, transit: 1, unit: "новый шт", warehouse: "agent", cost: 12000, price: 16000 },
-  { product: "tovar11", article: "", type: "Coca Cola", total: 1200000, reserved: 0, transit: 1, unit: "новый шт", warehouse: "Asosiy ombor", cost: 5000, price: 7500 },
-  { product: "Alpendgdfg", article: "", type: "fghgf", total: 0, reserved: 0, transit: 0, unit: "шт", warehouse: "Andijon", cost: 0, price: 0 },
-  { product: "Tekshirish uchun", article: "100-1232", type: "56756", total: 2000, reserved: 0, transit: 0, unit: "шт", warehouse: "AURUM samarqand", cost: 500, price: 750 },
-  { product: "try5r", article: "100-1232", type: "567568678", total: 0, reserved: 0, transit: 0, unit: "шт", warehouse: "777", cost: 0, price: 0 },
-  { product: "fghfh", article: "100-1232", type: "568678", total: 0, reserved: 0, transit: 0, unit: "шт", warehouse: "878", cost: 0, price: 0 },
-  ...Array.from({ length: 30 }, (_, index) => ({
-    product: `Mahsulot ${index + 1}`,
-    article: `ART-${String(index + 1).padStart(4, "0")}`,
-    type: index % 2 ? "oziq ovqat" : "Coca Cola",
-    total: (index + 1) * 137,
-    reserved: index % 5,
-    transit: index % 4,
-    unit: "шт",
-    warehouse: index % 2 ? "Asosiy ombor" : "777",
-    cost: 3000 + index * 100,
-    price: 4500 + index * 150,
-  })),
-]
+function productToRow(product: Product): StockRow {
+  const priceListMax = product.priceLists.reduce((max, entry) => Math.max(max, entry.cash || 0, entry.nonCash || 0), 0)
+  return {
+    product: product.name,
+    article: product.article || "-",
+    type: product.type || "Не указано",
+    total: 0,
+    reserved: 0,
+    transit: 0,
+    unit: product.unit || "шт.",
+    warehouse: "Не указано",
+    organization: product.organization || "Не указано",
+    cost: product.cost,
+    price: product.priceMax || priceListMax,
+    minStock: product.minStock,
+  }
+}
 
 const formatNumber = (value: number) =>
-  new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 3 }).format(value)
+  new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 2 }).format(value)
 
 function downloadExcel(data: StockRow[]) {
   const headings = ["Продукт", "Артикул", "Тип товара", "Всего", "Забронировано", "В пути", "Доступно", "Ед. изм."]
@@ -97,7 +89,8 @@ function downloadExcel(data: StockRow[]) {
 }
 
 export function StockLevelView() {
-  const [favorite, setFavorite] = useState(false)
+  const [rows, setRows] = useState<StockRow[]>([])
+  const [loading, setLoading] = useState(true)
   const [mode, setMode] = useState<Mode>("quantity")
   const [search, setSearch] = useState("")
   const [showFilter, setShowFilter] = useState(false)
@@ -107,6 +100,22 @@ export function StockLevelView() {
   const [pageSize, setPageSize] = useState(25)
   const [page, setPage] = useState(1)
   const [expanded, setExpanded] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    fetch("/api/products")
+      .then(async (response) => (response.ok ? ((await response.json()) as Product[]) : []))
+      .then((products) => {
+        if (!cancelled) setRows(products.filter((product) => !product.deleted).map(productToRow))
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const filtered = useMemo(() => {
     const needle = search.trim().toLocaleLowerCase("ru")
@@ -140,12 +149,11 @@ export function StockLevelView() {
   return (
     <main className="min-h-screen bg-[#f1f4f8] text-[#17233d]">
       <header className="flex min-h-[76px] items-center justify-between border-b border-[#d7dde7] bg-[#f4f6f9] px-5 md:px-10">
-        <button onClick={() => setFavorite((value) => !value)} className="flex items-center gap-3 text-left">
-          <Star className={`h-7 w-7 ${favorite ? "fill-[#4f70e7] text-[#4f70e7]" : "fill-[#596376] text-[#596376]"}`} />
-          <span className="text-2xl font-bold text-[#4f70e7]">Избранные</span>
+        <div className="flex items-center gap-3 text-left">
+          <FavoritesButton className="flex items-center gap-3 text-2xl font-bold text-[#4f70e7]" />
           <span className="text-3xl font-light text-[#586174]">|</span>
           <span className="text-2xl font-bold text-[#586174]">Остаток</span>
-        </button>
+        </div>
       </header>
 
       <section className="bg-white px-5 py-6 md:px-10">
@@ -229,9 +237,10 @@ export function StockLevelView() {
                     <tr className="bg-[#f8fbff]">
                       <td colSpan={7} className="border border-[#d9e2ec] px-12 py-4">
                         <div className="grid gap-3 md:grid-cols-3">
-                          <span><b>Склад:</b> {row.warehouse}</span>
+                          <span><b>Организация:</b> {row.organization}</span>
                           <span><b>Себестоимость:</b> {formatNumber(row.cost)} SUM</span>
                           <span><b>Прайс-лист:</b> {formatNumber(row.price)} SUM</span>
+                          <span><b>Мин. остаток:</b> {row.minStock}</span>
                         </div>
                       </td>
                     </tr>
@@ -241,7 +250,11 @@ export function StockLevelView() {
             })}
           </tbody>
         </table>
-        {!visible.length && <div className="p-16 text-center text-[#8b95a5]">По вашему запросу ничего не найдено...</div>}
+        {!visible.length && (
+          <div className="p-16 text-center text-[#8b95a5]">
+            {loading ? "Загрузка..." : "По вашему запросу ничего не найдено..."}
+          </div>
+        )}
       </section>
 
       {showFilter && (

@@ -1,57 +1,46 @@
 "use client"
 
-import { ChevronLeft, ChevronRight, Pencil, Search, Trash2, X } from "lucide-react"
-import { FormEvent, useMemo, useState } from "react"
+import { ChevronLeft, ChevronRight, FileText, Pencil, Search, Trash2, X } from "lucide-react"
+import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react"
+
+import { downloadExcelTable } from "@/lib/excel-export"
+import { mapHeaderColumns, readExcelRows } from "@/lib/excel-import"
+
+const IMPORT_HEADER_ALIASES: Record<string, string> = {
+  "наименование": "name", "название": "name", "должность": "name", "position": "name", "name": "name",
+}
 
 type Position = { id: number; name: string; date: string }
 
-const extraNames = [
-  "Менеджер", "Кассир", "Экспедитор", "Мерчендайзер", "Бухгалтер", "Логист", "Складовщик", "Курьер", "Технолог",
-  "Дизайнер", "Маркетолог", "Аналитик", "Юрист", "Секретарь", "HR-менеджер", "Контент-менеджер", "SMM-менеджер",
-  "Программист", "Тестировщик", "Системный администратор", "Инженер", "Электрик", "Сантехник", "Уборщик", "Охранник",
-  "Грузчик", "Комплектовщик", "Приемщик",
-]
-
-function generatePositions(): Position[] {
-  const seed: [number, string, string][] = [
-    [49, "РОП", "05 янв. 2026, 17:37"],
-    [48, "HR", "05 янв. 2026, 17:37"],
-    [47, "Водитель", "05 янв. 2026, 17:37"],
-    [46, "Zakaz uruvchi", "25 дек. 2025, 12:57"],
-    [45, "Varkteyk", "20 дек. 2025, 12:16"],
-    [44, "Agentcha", "20 дек. 2025, 12:06"],
-    [43, "fps_max", "20 дек. 2025, 12:06"],
-    [42, "test_doljenost", "06 дек. 2025, 17:19"],
-    [40, "derektor", "25 нояб. 2025, 19:59"],
-    [39, "Sotuvchi", "25 нояб. 2025, 19:02"],
-    [38, "Operator", "25 нояб. 2025, 19:02"],
-  ]
-
-  const rows: Position[] = seed.map(([id, name, date]) => ({ id, name, date }))
-  const months = ["янв.", "февр.", "мар.", "апр.", "мая", "июня", "июля", "авг.", "сент.", "окт.", "нояб.", "дек."]
-  let id = 37
-  let index = 0
-  while (rows.length < 39) {
-    const day = 1 + (index % 28)
-    const month = months[index % 12]
-    const year = 2024 + (index % 2)
-    const hour = String(9 + (index % 10)).padStart(2, "0")
-    const minute = String((index * 7) % 60).padStart(2, "0")
-    rows.push({ id, name: extraNames[index % extraNames.length], date: `${String(day).padStart(2, "0")} ${month} ${year}, ${hour}:${minute}` })
-    id -= 1
-    index += 1
-  }
-  return rows
-}
-
-const seedPositions = generatePositions()
+const seedPositions: Position[] = []
 
 export function PositionsView({ embedded = false }: { embedded?: boolean }) {
   const [positions, setPositions] = useState(seedPositions)
   const [query, setQuery] = useState("")
+  useEffect(() => {
+    let cancelled = false
+    fetch("/api/job-positions")
+      .then(async (response) => {
+        if (!response.ok) throw new Error("failed")
+        return (await response.json()) as Position[]
+      })
+      .then((data) => {
+        if (!cancelled) setPositions(data)
+      })
+      .catch(() => {
+        if (!cancelled) window.alert("Не удалось загрузить должности с сервера")
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
   const [page, setPage] = useState(1)
   const [editing, setEditing] = useState<Position | null>(null)
   const [name, setName] = useState("")
+  const [importOpen, setImportOpen] = useState(false)
+  const [importFile, setImportFile] = useState<File | null>(null)
+  const [importSaving, setImportSaving] = useState(false)
+  const importInputRef = useRef<HTMLInputElement>(null)
   const pageSize = 25
 
   const filtered = useMemo(() => positions.filter((position) => position.name.toLowerCase().includes(query.toLowerCase())), [positions, query])
@@ -69,21 +58,117 @@ export function PositionsView({ embedded = false }: { embedded?: boolean }) {
     setEditing(position)
   }
 
-  function save(event: FormEvent) {
+  async function save(event: FormEvent) {
     event.preventDefault()
     if (!name.trim()) return
-    if (editing?.id) {
-      setPositions((list) => list.map((position) => (position.id === editing.id ? { ...position, name: name.trim() } : position)))
-    } else {
-      const id = Math.max(0, ...positions.map((position) => position.id)) + 1
-      const today = new Intl.DateTimeFormat("ru-RU", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }).format(new Date()).replace(".", "")
-      setPositions((list) => [{ id, name: name.trim(), date: today }, ...list])
+    try {
+      if (editing?.id) {
+        const response = await fetch(`/api/job-positions/${editing.id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name: name.trim() }),
+        })
+        if (!response.ok) {
+          const data = await response.json().catch(() => ({}))
+          window.alert(data.error || "Не удалось сохранить должность")
+          return
+        }
+        const saved = (await response.json()) as Position
+        setPositions((list) => list.map((position) => (position.id === saved.id ? saved : position)))
+      } else {
+        const response = await fetch("/api/job-positions", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name: name.trim() }),
+        })
+        if (!response.ok) {
+          const data = await response.json().catch(() => ({}))
+          window.alert(data.error || "Не удалось создать должность")
+          return
+        }
+        const saved = (await response.json()) as Position
+        setPositions((list) => [saved, ...list])
+      }
+      setEditing(null)
+    } catch {
+      window.alert("Сервер недоступен, попробуйте ещё раз")
     }
-    setEditing(null)
   }
 
-  function remove(id: number) {
-    setPositions((list) => list.filter((position) => position.id !== id))
+  async function remove(id: number) {
+    try {
+      const response = await fetch(`/api/job-positions/${id}`, { method: "DELETE" })
+      if (!response.ok) {
+        window.alert("Не удалось удалить должность")
+        return
+      }
+      setPositions((list) => list.filter((position) => position.id !== id))
+    } catch {
+      window.alert("Сервер недоступен, попробуйте ещё раз")
+    }
+  }
+
+  function downloadTemplate() {
+    downloadExcelTable("positions-template", [["Наименование"]])
+  }
+
+  function pickImportFile(event: ChangeEvent<HTMLInputElement>) {
+    setImportFile(event.target.files?.[0] ?? null)
+  }
+
+  async function saveImport() {
+    if (!importFile) return
+    setImportSaving(true)
+    try {
+      const rows = await readExcelRows(importFile)
+      if (!rows.length) {
+        window.alert("Не удалось найти данные для импорта в выбранном файле")
+        return
+      }
+      const fieldByIndex = mapHeaderColumns(rows[0], IMPORT_HEADER_ALIASES)
+      const hasHeader = Array.from(fieldByIndex.values()).includes("name")
+      const dataRows = hasHeader ? rows.slice(1) : rows
+
+      const names: string[] = []
+      for (const row of dataRows) {
+        let value = ""
+        if (hasHeader) {
+          row.forEach((cell, index) => {
+            if (fieldByIndex.get(index) === "name") value = cell
+          })
+        } else {
+          value = row[0] ?? ""
+        }
+        if (value.trim()) names.push(value.trim())
+      }
+
+      if (!names.length) {
+        window.alert("Не удалось найти данные для импорта в выбранном файле")
+        return
+      }
+
+      const created: Position[] = []
+      let failed = 0
+      for (const item of names) {
+        try {
+          const response = await fetch("/api/job-positions", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name: item }),
+          })
+          if (response.ok) created.push((await response.json()) as Position)
+          else failed += 1
+        } catch {
+          failed += 1
+        }
+      }
+      if (created.length) setPositions((list) => [...created, ...list])
+      if (failed) window.alert(`Импортировано ${created.length} из ${names.length}. Не удалось сохранить: ${failed}`)
+    } finally {
+      setImportSaving(false)
+      setImportOpen(false)
+      setImportFile(null)
+    }
   }
 
   return (
@@ -92,6 +177,9 @@ export function PositionsView({ embedded = false }: { embedded?: boolean }) {
         <div className="flex flex-wrap items-center gap-4 px-5 py-4">
           <button type="button" onClick={openCreate} className="text-[17px] text-[#4f70e7] hover:underline">
             + добавить должность
+          </button>
+          <button type="button" onClick={() => setImportOpen(true)} className="inline-flex items-center gap-2 rounded bg-[#4f70e7] px-5 py-2.5 font-semibold text-white hover:brightness-95">
+            <FileText className="h-4 w-4" /> Импорт с Excel
           </button>
           <label className="relative ml-4 w-72">
             <input value={query} onChange={(event) => { setQuery(event.target.value); setPage(1) }} placeholder="Поиск" className="w-full border-b border-slate-300 py-2 pr-10 outline-none focus:border-[#4f70e7]" />
@@ -166,6 +254,38 @@ export function PositionsView({ embedded = false }: { embedded?: boolean }) {
               </button>
             </div>
           </form>
+        </div>
+      )}
+
+      {importOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
+          <div className="w-full max-w-md rounded bg-white">
+            <header className="flex items-center justify-between border-b p-6">
+              <b className="uppercase">Импорт с Excel</b>
+              <button type="button" onClick={() => { setImportOpen(false); setImportFile(null) }} aria-label="Закрыть">
+                <X className="h-5 w-5" />
+              </button>
+            </header>
+            <div className="p-8">
+              <button type="button" onClick={downloadTemplate} className="mb-4 font-semibold text-[#4f70e7] hover:underline">
+                1. Скачать шаблон
+              </button>
+              <input ref={importInputRef} type="file" accept=".csv,.xls,.xlsx" onChange={pickImportFile} className="hidden" />
+              <button
+                type="button"
+                onClick={() => importInputRef.current?.click()}
+                className="flex w-full flex-col items-center justify-center gap-3 rounded border-2 border-dashed border-slate-300 py-10 text-slate-500 hover:border-[#4f70e7] hover:text-[#4f70e7]"
+              >
+                <FileText className="h-8 w-8" />
+                {importFile ? importFile.name : "Добавьте файл Excel или нажмите для выбора"}
+              </button>
+            </div>
+            <footer className="flex justify-end border-t p-5">
+              <button type="button" disabled={!importFile || importSaving} onClick={saveImport} className="rounded bg-[#6ccd8b] px-5 py-3 font-semibold text-white hover:brightness-95 disabled:opacity-40">
+                {importSaving ? "Импорт..." : "Сохранить"}
+              </button>
+            </footer>
+          </div>
         </div>
       )}
     </main>

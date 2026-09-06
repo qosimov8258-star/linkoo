@@ -31,39 +31,39 @@ export function parseUnitOfMeasureInput(body: unknown): UnitOfMeasureInput | nul
   return { name, parentId }
 }
 
-export function listUnitsOfMeasure(): UnitOfMeasure[] {
+export async function listUnitsOfMeasure(): Promise<UnitOfMeasure[]> {
   const db = getDb()
-  const rows = db.prepare("SELECT * FROM units_of_measure ORDER BY id DESC").all() as Row[]
+  const rows = (await db.prepare("SELECT * FROM units_of_measure ORDER BY id DESC").all()) as Row[]
   return rows.map(rowToUnit)
 }
 
-export function getUnitOfMeasure(id: number): UnitOfMeasure | null {
+export async function getUnitOfMeasure(id: number): Promise<UnitOfMeasure | null> {
   const db = getDb()
-  const row = db.prepare("SELECT * FROM units_of_measure WHERE id = ?").get(id) as Row | undefined
+  const row = (await db.prepare("SELECT * FROM units_of_measure WHERE id = ?").get(id)) as Row | undefined
   return row ? rowToUnit(row) : null
 }
 
-export function createUnitOfMeasure(input: UnitOfMeasureInput): UnitOfMeasure {
+export async function createUnitOfMeasure(input: UnitOfMeasureInput): Promise<UnitOfMeasure> {
   const db = getDb()
-  const result = db
-    .prepare("INSERT INTO units_of_measure (name, parent_id) VALUES (@name, @parentId)")
-    .run({ name: input.name, parentId: input.parentId })
-  return getUnitOfMeasure(Number(result.lastInsertRowid))!
+  const result = (await db
+      .prepare("INSERT INTO units_of_measure (name, parent_id) VALUES (@name, @parentId)")
+      .run({ name: input.name, parentId: input.parentId }))
+  return (await getUnitOfMeasure(Number(result.lastInsertRowid)))!
 }
 
-export function updateUnitOfMeasure(id: number, input: UnitOfMeasureInput): UnitOfMeasure | null {
-  if (!getUnitOfMeasure(id)) return null
+export async function updateUnitOfMeasure(id: number, input: UnitOfMeasureInput): Promise<UnitOfMeasure | null> {
+  if (!(await getUnitOfMeasure(id))) return null
   const db = getDb()
-  db.prepare(
-    "UPDATE units_of_measure SET name = @name, parent_id = @parentId, updated_at = datetime('now') WHERE id = @id",
-  ).run({ id, name: input.name, parentId: input.parentId })
-  return getUnitOfMeasure(id)
+  await db.prepare(
+        "UPDATE units_of_measure SET name = @name, parent_id = @parentId, updated_at = datetime('now') WHERE id = @id",
+      ).run({ id, name: input.name, parentId: input.parentId })
+  return (await getUnitOfMeasure(id))
 }
 
 // Matches the original UI behaviour: deleting a unit also removes any direct
 // children pointing at it as their parent (one level, not recursive).
-export function deleteUnitOfMeasure(id: number): boolean {
+export async function deleteUnitOfMeasure(id: number): Promise<boolean> {
   const db = getDb()
-  const result = db.prepare("DELETE FROM units_of_measure WHERE id = ? OR parent_id = ?").run(id, id)
+  const result = (await db.prepare("DELETE FROM units_of_measure WHERE id = ? OR parent_id = ?").run(id, id))
   return result.changes > 0
 }

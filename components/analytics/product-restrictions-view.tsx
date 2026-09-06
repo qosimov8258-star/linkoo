@@ -2,7 +2,8 @@
 
 import Image from "next/image"
 import { CheckSquare, ChevronLeft, ChevronRight, ListChecks, PackagePlus, Search, Trash2, X } from "lucide-react"
-import { FormEvent, useMemo, useState } from "react"
+import { FormEvent, useEffect, useMemo, useState } from "react"
+import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
 
 type Restriction = { id: number; employee: string; items: string[] }
 type Tab = "products" | "types"
@@ -19,15 +20,32 @@ export function ProductRestrictionsView() {
   const [typeRestrictions, setTypeRestrictions] = useState<Restriction[]>([])
   const [query, setQuery] = useState("")
   const [page, setPage] = useState(1)
-  const [favorite, setFavorite] = useState(false)
   const [modalMode, setModalMode] = useState<ModalMode>(null)
   const [modalEmployee, setModalEmployee] = useState(employees[0])
   const [modalItems, setModalItems] = useState<string[]>([])
+  const [applying, setApplying] = useState(false)
   const pageSize = 25
 
   const restrictions = tab === "products" ? productRestrictions : typeRestrictions
   const setRestrictions = tab === "products" ? setProductRestrictions : setTypeRestrictions
   const itemPool = tab === "products" ? products : productTypes
+
+  useEffect(() => {
+    let cancelled = false
+    fetch(`/api/product-restrictions?scope=${tab}`)
+      .then(async (response) => {
+        if (!response.ok) throw new Error("Не удалось загрузить ограничения")
+        return (await response.json()) as Restriction[]
+      })
+      .then((data) => {
+        if (!cancelled) setRestrictions(data)
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab])
 
   const filtered = useMemo(() => restrictions.filter((row) => row.employee.toLowerCase().includes(query.toLowerCase())), [restrictions, query])
   const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize))
@@ -44,28 +62,31 @@ export function ProductRestrictionsView() {
     setModalItems((current) => (current.includes(item) ? current.filter((value) => value !== item) : [...current, item]))
   }
 
-  function apply(event: FormEvent) {
+  async function apply(event: FormEvent) {
     event.preventDefault()
-    if (!modalItems.length) {
+    if (!modalItems.length || !modalMode) {
       setModalMode(null)
       return
     }
-    setRestrictions((current) => {
-      const existing = current.find((row) => row.employee === modalEmployee)
-      if (modalMode === "add") {
-        if (existing) return current.map((row) => (row.employee === modalEmployee ? { ...row, items: Array.from(new Set([...row.items, ...modalItems])) } : row))
-        return [...current, { id: Math.max(0, ...current.map((row) => row.id)) + 1, employee: modalEmployee, items: modalItems }]
+    setApplying(true)
+    try {
+      const response = await fetch("/api/product-restrictions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ scope: tab, employee: modalEmployee, mode: modalMode, items: modalItems }),
+      })
+      if (!response.ok) {
+        window.alert("Не удалось сохранить ограничения")
+        return
       }
-      if (modalMode === "remove") {
-        if (!existing) return current
-        const items = existing.items.filter((item) => !modalItems.includes(item))
-        return items.length ? current.map((row) => (row.employee === modalEmployee ? { ...row, items } : row)) : current.filter((row) => row.employee !== modalEmployee)
-      }
-      // replace
-      if (existing) return current.map((row) => (row.employee === modalEmployee ? { ...row, items: modalItems } : row))
-      return [...current, { id: Math.max(0, ...current.map((row) => row.id)) + 1, employee: modalEmployee, items: modalItems }]
-    })
-    setModalMode(null)
+      const list = (await response.json()) as Restriction[]
+      setRestrictions(list)
+      setModalMode(null)
+    } catch {
+      window.alert("Сервер недоступен, попробуйте ещё раз")
+    } finally {
+      setApplying(false)
+    }
   }
 
   const modalTitle = modalMode === "add" ? "Добавить продукты" : modalMode === "remove" ? "Убрать продукты" : "Стереть и добавить"
@@ -74,9 +95,7 @@ export function ProductRestrictionsView() {
     <main className="min-h-[calc(100vh-4rem)] bg-[#f1f4f8] px-9 py-5">
       <header className="mb-5">
         <h1 className="text-2xl font-bold text-slate-600">
-          <button type="button" onClick={() => setFavorite((value) => !value)} className="inline-flex items-center gap-2 text-[#4f70e7]">
-            <span className={favorite ? "text-amber-400" : ""}>★</span> Избранные
-          </button>
+          <FavoritesButton className="inline-flex items-center gap-2 text-[#4f70e7]" />
           <span className="mx-2 text-slate-400">|</span> Ограничение продуктов
         </h1>
       </header>
@@ -184,8 +203,8 @@ export function ProductRestrictionsView() {
               </div>
             </div>
             <footer className="flex justify-end border-t p-5">
-              <button type="submit" className="rounded bg-[#6ccd8b] px-6 py-3 font-semibold text-white hover:brightness-95">
-                Применить
+              <button type="submit" disabled={applying} className="rounded bg-[#6ccd8b] px-6 py-3 font-semibold text-white hover:brightness-95 disabled:opacity-60">
+                {applying ? "Применение..." : "Применить"}
               </button>
             </footer>
           </form>

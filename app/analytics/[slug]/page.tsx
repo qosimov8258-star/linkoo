@@ -89,10 +89,17 @@ import { ExpenseCategoriesView } from "@/components/analytics/expense-categories
 import { AccountDebtsView } from "@/components/analytics/account-debts-view"
 import { ManagementBalanceView } from "@/components/analytics/management-balance-view"
 import { CashManagementView } from "@/components/analytics/cash-management-view"
+import { PriceAnalysisView } from "@/components/analytics/price-analysis-view"
+import { InvoiceIncomingsView } from "@/components/analytics/invoice-incomings-view"
+import { TransportView } from "@/components/analytics/transport-view"
+import { SubscriptionsView } from "@/components/analytics/subscriptions-view"
+import { SessionsView } from "@/components/analytics/sessions-view"
 import {
   getAnalyticsReport,
   getAnalyticsResource,
 } from "@/lib/analytics-catalog"
+import { CatalogPageLayout } from "@/components/dashboard/catalog-sidebar"
+import { getServerT } from "@/lib/i18n/server"
 
 type PageProps = {
   params: Promise<{ slug: string }>
@@ -107,13 +114,14 @@ export const dynamic = "force-dynamic"
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
   const { slug } = await params
   const page = getAnalyticsResource(slug) ?? getAnalyticsReport(slug)
+  const t = await getServerT()
 
-  if (!page) return { title: "Отчёт не найден — Linko" }
+  if (!page) return { title: `${t("Отчёт не найден")} — Linko` }
 
   const title = "title" in page ? page.title : page.label
   return {
-    title: `${title} — Linko`,
-    description: page.description,
+    title: `${t(title)} — Linko`,
+    description: t(page.description),
   }
 }
 
@@ -267,7 +275,7 @@ export default async function AnalyticsPage({ params }: PageProps) {
   }
 
   if (report.slug === "currencies") {
-    return <CurrenciesView />
+    return <CatalogPageLayout><CurrenciesView embedded /></CatalogPageLayout>
   }
 
   if (report.slug === "vansell-balance") {
@@ -351,7 +359,7 @@ export default async function AnalyticsPage({ params }: PageProps) {
   }
 
   if (report.slug === "shifts") {
-    return <ShiftsView />
+    return <CatalogPageLayout><ShiftsView embedded /></CatalogPageLayout>
   }
 
   if (report.slug === "branches") {
@@ -359,15 +367,15 @@ export default async function AnalyticsPage({ params }: PageProps) {
   }
 
   if (report.slug === "employees") {
-    return <EmployeesView />
+    return <CatalogPageLayout><EmployeesView /></CatalogPageLayout>
   }
 
   if (report.slug === "positions") {
-    return <PositionsView />
+    return <CatalogPageLayout><PositionsView embedded /></CatalogPageLayout>
   }
 
   if (report.slug === "access-rights") {
-    return <AccessRightsView />
+    return <CatalogPageLayout><AccessRightsView /></CatalogPageLayout>
   }
 
   if (report.slug === "branch-kpi-plans") {
@@ -435,15 +443,15 @@ export default async function AnalyticsPage({ params }: PageProps) {
   }
 
   if (report.slug === "product-types") {
-    return <ProductTypesView />
+    return <CatalogPageLayout><ProductTypesView embedded /></CatalogPageLayout>
   }
 
   if (report.slug === "units-of-measure") {
-    return <UnitsOfMeasureView />
+    return <CatalogPageLayout><UnitsOfMeasureView embedded /></CatalogPageLayout>
   }
 
   if (report.slug === "brands") {
-    return <BrandsView />
+    return <CatalogPageLayout><BrandsView embedded /></CatalogPageLayout>
   }
 
   if (report.slug === "cost-of-goods") {
@@ -455,15 +463,15 @@ export default async function AnalyticsPage({ params }: PageProps) {
   }
 
   if (report.slug === "cashboxes") {
-    return <CashboxesView />
+    return <CatalogPageLayout><CashboxesView embedded /></CatalogPageLayout>
   }
 
   if (report.slug === "income-categories") {
-    return <IncomeCategoriesView />
+    return <CatalogPageLayout><IncomeCategoriesView embedded /></CatalogPageLayout>
   }
 
   if (report.slug === "expense-categories") {
-    return <ExpenseCategoriesView />
+    return <CatalogPageLayout><ExpenseCategoriesView embedded /></CatalogPageLayout>
   }
 
   if (report.slug === "account-debts") {
@@ -476,6 +484,26 @@ export default async function AnalyticsPage({ params }: PageProps) {
 
   if (report.slug === "cash-management") {
     return <CashManagementView />
+  }
+
+  if (report.slug === "price-analysis") {
+    return <PriceAnalysisView />
+  }
+
+  if (report.slug === "invoice-incomings") {
+    return <InvoiceIncomingsView />
+  }
+
+  if (report.slug === "transport") {
+    return <CatalogPageLayout><TransportView embedded /></CatalogPageLayout>
+  }
+
+  if (report.slug === "subscriptions") {
+    return <CatalogPageLayout><SubscriptionsView embedded /></CatalogPageLayout>
+  }
+
+  if (report.slug === "sessions") {
+    return <CatalogPageLayout><SessionsView embedded /></CatalogPageLayout>
   }
 
   return <AnalyticsReportView report={report} />

@@ -10,9 +10,9 @@ import {
   List,
   Pencil,
   Search,
-  Star,
   X,
 } from "lucide-react"
+import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
 
 type EquipmentRow = {
   client: string
@@ -21,26 +21,7 @@ type EquipmentRow = {
   inventoryType: string
 }
 
-const equipmentRows: EquipmentRow[] = [
-  { client: "Pepsi Market", equipment: "Холодильник (2 шт.)", branch: "777", inventoryType: "Холодильник" },
-  { client: "test 2", equipment: "Холодильник (1 шт.)", branch: "878", inventoryType: "Холодильник" },
-  { client: "Тест один", equipment: "Холодильник (1 шт.)", branch: "agent", inventoryType: "Холодильник" },
-  { client: "Одил бобо лимонадный", equipment: "Холодильник (1 шт.)", branch: "Andijon", inventoryType: "Холодильник" },
-  { client: "Окошко сано хола", equipment: "Texnik apparat (1 шт.)", branch: "Andijon", inventoryType: "Техническое оборудование" },
-  { client: "Turizm police", equipment: "Холодильник (1 шт.)", branch: "AURUM samarqand", inventoryType: "Холодильник" },
-  { client: "o'n to'rtinchi klient", equipment: "g'ilof (1 шт.)", branch: "777", inventoryType: "Другое" },
-  { client: "Xorazm o'n sakkizinchi klient", equipment: "Холодильник (1 шт.)", branch: "878", inventoryType: "Холодильник" },
-  { client: "Xorazm qirq beshinchi klient", equipment: "Холодильник (1 шт.)", branch: "agent", inventoryType: "Холодильник" },
-  { client: "yangi mijoz", equipment: "Muzlatkich 2 (1 шт.), sprayt (1 шт.), Холодильник (1 шт.)", branch: "Andijon", inventoryType: "Холодильник" },
-  { client: "dhdbdb", equipment: "bagaj (1 шт.), shkaf (1 шт.)", branch: "Andijon", inventoryType: "Другое" },
-  { client: "Клиент #1", equipment: "g'ilof (1 шт.)", branch: "777", inventoryType: "Другое" },
-  { client: "teat", equipment: "Muzlatkich 2 (1 шт.)", branch: "878", inventoryType: "Морозильник" },
-  { client: "client shablon 1", equipment: "Muzlatkich 2 (1 шт.)", branch: "agent", inventoryType: "Морозильник" },
-  { client: "client shablon 2", equipment: "lipton (1 шт.)", branch: "Andijon", inventoryType: "Другое" },
-  { client: "ТЕСТОВЫЙ КЛИЕНТ 10", equipment: "test inventar (1 шт.)", branch: "AURUM samarqand", inventoryType: "Другое" },
-  { client: "Pardachi Abbos", equipment: "Холодильник (1 шт.)", branch: "777", inventoryType: "Холодильник" },
-  { client: "Javohir qoratosh", equipment: "coca-cola (1 шт.)", branch: "878", inventoryType: "Другое" },
-]
+const equipmentRows: EquipmentRow[] = []
 
 const selectOptions = {
   organization: ["Все организации", "Linko", "Time3 Distribution"],
@@ -127,7 +108,6 @@ function NumberField({ label, value, onChange }: { label: string; value: string;
 }
 
 export function EquipmentEfficiencyView() {
-  const [favorite, setFavorite] = useState(false)
   const [mode, setMode] = useState<"created" | "realized">("created")
   const [filterOpen, setFilterOpen] = useState(false)
   const [query, setQuery] = useState("")
@@ -180,12 +160,11 @@ export function EquipmentEfficiencyView() {
   return (
     <main className={fullscreen ? "fixed inset-0 z-50 overflow-auto bg-slate-100" : "min-h-[calc(100vh-64px)] bg-slate-100"}>
       <header className="flex flex-wrap items-center justify-between gap-4 border-b bg-slate-100 px-6 py-4">
-        <button onClick={() => setFavorite((value) => !value)} className="flex items-center gap-3 text-left">
-          <Star className={`h-7 w-7 ${favorite ? "fill-amber-400 text-amber-400" : "fill-slate-600 text-slate-600"}`} />
-          <span className="text-2xl font-semibold text-blue-600">Избранные</span>
+        <div className="flex items-center gap-3 text-left">
+          <FavoritesButton className="flex items-center gap-2 text-2xl font-semibold text-blue-600" />
           <span className="text-2xl text-slate-500">|</span>
           <span className="text-2xl font-semibold text-slate-600">Эффективность оборудования</span>
-        </button>
+        </div>
         <div className="flex rounded-md bg-white shadow">
           <button onClick={() => setMode("created")} className={`rounded-md px-6 py-3 ${mode === "created" ? "bg-emerald-400 text-white shadow" : ""}`}>ПО ДАТЕ СОЗДАНИЕ</button>
           <button onClick={() => setMode("realized")} className={`rounded-md px-6 py-3 ${mode === "realized" ? "bg-emerald-400 text-white shadow" : ""}`}>ПО ДАТЕ РЕАЛИЗАЦИИ</button>
@@ -207,12 +186,12 @@ export function EquipmentEfficiencyView() {
 
         <div className="grid border md:grid-cols-4">
           <div className="space-y-3 border-r p-4">
-            <div><p className="text-slate-500">ОКВ / ОКВ с оборудованием</p><b>4 294 / 18 (0,419 %) <span className="text-blue-600">22</span></b></div>
+            <div><p className="text-slate-500">ОКВ / ОКВ с оборудованием</p><b>0 / 0 (0 %) <span className="text-blue-600">0</span></b></div>
             <div><p className="text-slate-500">АКВ / АКВ с оборудованием</p><b>0 / 0 (0 %) <span className="text-blue-600">0</span></b></div>
           </div>
           <div className="space-y-3 border-r p-4">
             <div><p className="text-slate-500">Средний чек одного оборудования</p><b>0 SUM</b></div>
-            <div><p className="text-slate-500">От 0 SUM до 1 500 000 SUM</p><b>18 шт. (100%) <span className="text-blue-600">22</span></b></div>
+            <div><p className="text-slate-500">От 0 SUM до 1 500 000 SUM</p><b>0 шт. (0%) <span className="text-blue-600">0</span></b></div>
           </div>
           <div className="space-y-3 border-r p-4">
             <div><p className="flex items-center gap-3 text-slate-500">От 1 500 000 SUM до 3 000 000 SUM <Pencil className="h-5 w-5" /></p><b>0 шт. (0%) <span className="text-blue-600">0</span></b></div>

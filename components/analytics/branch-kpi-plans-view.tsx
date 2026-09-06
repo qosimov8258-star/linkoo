@@ -1,8 +1,11 @@
 "use client"
 
-import { ChevronLeft, ChevronRight, ChevronsUpDown, Copy, Download, ListChecks, Pencil, RefreshCw, Search, Star, X } from "lucide-react"
-import { Fragment, useMemo, useState } from "react"
+import { ChevronLeft, ChevronRight, ChevronsUpDown, Copy, Download, ListChecks, Pencil, RefreshCw, Search, X } from "lucide-react"
+import { Fragment, FormEvent, useEffect, useMemo, useState } from "react"
 import { branchNames } from "./branches-view"
+import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
+
+type BranchKpiPlan = { branchId: number; branchName: string; period: string; planSales: number; bonusPercent: number }
 
 const kpiColumns = ["KPI", "Уровень", "План", "Продажи", "Возврат", "Факт", "%", "Дневной план", "Прогноз", "%", "Бонус"]
 const months = ["Январь", "Февраль", "Март", "Апрель", "Май", "Июнь", "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"]
@@ -23,12 +26,81 @@ export function BranchKpiPlansView() {
   const [checkedIds, setCheckedIds] = useState<number[]>([])
   const [plansOpen, setPlansOpen] = useState(false)
   const [recalculating, setRecalculating] = useState(false)
+  const [planDraft, setPlanDraft] = useState({ planSales: "", bonusPercent: "" })
+  const [savingPlans, setSavingPlans] = useState(false)
   const pageSize = 25
+
+  const period = `${year}-${String(month + 1).padStart(2, "0")}`
+
+  useEffect(() => {
+    let cancelled = false
+    fetch(`/api/branch-kpi-plans?period=${period}`)
+      .then(async (response) => {
+        if (!response.ok) throw new Error("Не удалось загрузить планы")
+        return (await response.json()) as BranchKpiPlan[]
+      })
+      .then((plans) => {
+        if (cancelled) return
+        setBranches((current) =>
+          current.map((branch) => {
+            const plan = plans.find((item) => item.branchId === branch.id)
+            return plan ? { ...branch, bonus: plan.bonusPercent, kpi: plan.planSales } : branch
+          }),
+        )
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [period])
 
   const filtered = useMemo(() => branches.filter((branch) => branch.name.toLowerCase().includes(query.toLowerCase())), [branches, query])
   const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize))
   const safePage = Math.min(page, pageCount)
   const visible = filtered.slice((safePage - 1) * pageSize, safePage * pageSize)
+
+  function openPlans() {
+    setPlanDraft({ planSales: "", bonusPercent: "" })
+    setPlansOpen(true)
+  }
+
+  async function savePlans(event: FormEvent) {
+    event.preventDefault()
+    if (!checkedIds.length) {
+      setPlansOpen(false)
+      return
+    }
+    const planSales = Number(planDraft.planSales) || 0
+    const bonusPercent = Number(planDraft.bonusPercent) || 0
+    setSavingPlans(true)
+    try {
+      const results = await Promise.all(
+        checkedIds.map(async (branchId) => {
+          const branch = branches.find((item) => item.id === branchId)
+          if (!branch) return null
+          const response = await fetch("/api/branch-kpi-plans", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ branchId: branch.id, branchName: branch.name, period, planSales, bonusPercent }),
+          })
+          if (!response.ok) return null
+          return (await response.json()) as BranchKpiPlan
+        }),
+      )
+      setBranches((current) =>
+        current.map((branch) => {
+          const saved = results.find((item) => item && item.branchId === branch.id)
+          return saved ? { ...branch, bonus: saved.bonusPercent, kpi: saved.planSales } : branch
+        }),
+      )
+      setPlansOpen(false)
+    } catch {
+      window.alert("Сервер недоступен, попробуйте ещё раз")
+    } finally {
+      setSavingPlans(false)
+    }
+  }
 
   function toggleChecked(id: number) {
     setCheckedIds((current) => (current.includes(id) ? current.filter((item) => item !== id) : [...current, id]))
@@ -59,8 +131,7 @@ export function BranchKpiPlansView() {
     <main className="min-h-[calc(100vh-4rem)] bg-slate-100 px-4 pb-10">
       <header className="flex flex-wrap items-center justify-between gap-4 py-4 sm:px-5">
         <h1 className="flex items-center gap-2 text-2xl font-bold text-[#5470e8]">
-          <Star className="h-7 w-7 fill-slate-600 text-slate-600" />
-          Избранные <span className="text-slate-500">|</span> <span className="text-slate-600">KPI план филиалов</span>
+          <FavoritesButton className="flex items-center gap-2 text-2xl font-bold text-[#5470e8]" /> <span className="text-slate-500">|</span> <span className="text-slate-600">KPI план филиалов</span>
         </h1>
         <button
           type="button"
@@ -117,7 +188,7 @@ export function BranchKpiPlansView() {
           <button type="button" onClick={() => setSelectMode((value) => !value)} aria-pressed={selectMode} aria-label="Выбрать филиалы" className={`rounded p-1 ${selectMode ? "bg-[#5470e8] text-white" : "text-slate-500 hover:bg-slate-100"}`}>
             <ListChecks className="h-5 w-5" />
           </button>
-          <button type="button" onClick={() => setPlansOpen(true)} className="rounded-md bg-[#5470e8] px-5 py-2.5 font-bold text-white">
+          <button type="button" onClick={openPlans} className="rounded-md bg-[#5470e8] px-5 py-2.5 font-bold text-white">
             <Pencil className="mr-2 inline h-4 w-4" />
             Изменить планы
           </button>
@@ -213,13 +284,7 @@ export function BranchKpiPlansView() {
 
       {plansOpen && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/55 p-4">
-          <form
-            onSubmit={(event) => {
-              event.preventDefault()
-              setPlansOpen(false)
-            }}
-            className="w-full max-w-lg bg-white"
-          >
+          <form onSubmit={savePlans} className="w-full max-w-lg bg-white">
             <header className="flex justify-between border-b px-7 py-5">
               <h2 className="font-bold">ИЗМЕНИТЬ ПЛАНЫ</h2>
               <button type="button" onClick={() => setPlansOpen(false)} aria-label="Закрыть">
@@ -230,12 +295,26 @@ export function BranchKpiPlansView() {
               <p className="text-sm text-slate-500">
                 {checkedIds.length ? `Выбрано филиалов: ${checkedIds.length}` : "Выберите филиалы в таблице, чтобы изменить их планы"}
               </p>
-              <input type="number" min="0" placeholder="План продаж" className="w-full border-b py-3" />
-              <input type="number" min="0" placeholder="Бонус, %" className="w-full border-b py-3" />
+              <input
+                type="number"
+                min="0"
+                placeholder="План продаж"
+                value={planDraft.planSales}
+                onChange={(event) => setPlanDraft((value) => ({ ...value, planSales: event.target.value }))}
+                className="w-full border-b py-3"
+              />
+              <input
+                type="number"
+                min="0"
+                placeholder="Бонус, %"
+                value={planDraft.bonusPercent}
+                onChange={(event) => setPlanDraft((value) => ({ ...value, bonusPercent: event.target.value }))}
+                className="w-full border-b py-3"
+              />
             </div>
             <footer className="flex justify-end border-t px-7 py-5">
-              <button type="submit" className="font-bold uppercase text-sky-500">
-                Сохранить
+              <button type="submit" disabled={savingPlans || !checkedIds.length} className="font-bold uppercase text-sky-500 disabled:opacity-40">
+                {savingPlans ? "Сохранение..." : "Сохранить"}
               </button>
             </footer>
           </form>

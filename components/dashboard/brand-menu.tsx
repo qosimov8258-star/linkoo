@@ -2,6 +2,8 @@
 
 import { Check, ChevronRight, FileText, Plus, ShoppingBasket, Truck } from "lucide-react"
 
+import { useLanguage } from "@/lib/i18n/language-context"
+
 export type WorkspaceId = "distribution" | "store" | "edo"
 
 export type CustomServer = {
@@ -24,6 +26,7 @@ interface BrandMenuProps {
 }
 
 export function BrandMenu({ selected, customServers, onSelect, onSelectServer, onCreateServer }: BrandMenuProps) {
+  const { t } = useLanguage()
   return (
     <div className="absolute left-2 top-full z-50 w-[320px] rounded-lg bg-white p-3 text-foreground shadow-2xl">
       <ul className="space-y-2">
@@ -42,7 +45,7 @@ export function BrandMenu({ selected, customServers, onSelect, onSelectServer, o
                 }`}
               >
                 <Icon className={`h-5 w-5 shrink-0 ${workspace.iconClass}`} />
-                <span className="flex-1">{workspace.label}</span>
+                <span className="flex-1">{t(workspace.label)}</span>
                 {isSelected ? (
                   <Check className="h-5 w-5 shrink-0 text-[#4f70e7]" />
                 ) : (
@@ -86,7 +89,7 @@ export function BrandMenu({ selected, customServers, onSelect, onSelectServer, o
           className="flex w-full items-center gap-3 rounded-lg border border-[#4f70e7] px-4 py-3 text-left text-[15px] font-semibold text-[#4f70e7] transition-colors hover:bg-[#eef2ff]"
         >
           <Plus className="h-5 w-5 shrink-0" />
-          <span className="flex-1">Создать сервер</span>
+          <span className="flex-1">{t("Создать сервер")}</span>
           <ChevronRight className="h-5 w-5 shrink-0" />
         </button>
       </div>

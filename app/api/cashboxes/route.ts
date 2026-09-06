@@ -1,32 +1,44 @@
 import { NextRequest, NextResponse } from "next/server"
+import { z } from "zod"
 
 import { getCurrentUser } from "@/lib/current-user"
-import { createCashbox, listCashboxes, parseCashboxInput } from "@/lib/cashboxes-repo"
+import { requireRole } from "@/lib/rbac"
+import { parseJsonBody } from "@/lib/validation"
+import { createCashbox, listCashboxes } from "@/lib/cashboxes-repo"
+
+const cashboxSchema = z.object({
+  name: z.string().trim().min(1),
+  currency: z.string().trim().min(1),
+  cashier: z.string().trim().min(1),
+  branch: z.string().trim().optional(),
+  paymentType: z.string().trim().min(1),
+  vansell: z.boolean().optional(),
+  orderNumber: z.coerce.number().finite(),
+})
 
 export async function GET(request: NextRequest) {
   const user = await getCurrentUser()
   if (!user) return NextResponse.json({ error: "Tizimga kirilmagan" }, { status: 401 })
 
   const search = request.nextUrl.searchParams.get("q") ?? undefined
-  return NextResponse.json(listCashboxes(search))
+  return NextResponse.json((await listCashboxes(search)))
 }
 
 export async function POST(request: NextRequest) {
-  const user = await getCurrentUser()
-  if (!user) return NextResponse.json({ error: "Tizimga kirilmagan" }, { status: 401 })
+  const auth = await requireRole("manager")
+  if ("error" in auth) return auth.error
 
-  let body: unknown
-  try {
-    body = await request.json()
-  } catch {
-    return NextResponse.json({ error: "Noto'g'ri so'rov" }, { status: 400 })
-  }
+  const parsed = await parseJsonBody(request, cashboxSchema)
+  if (parsed.error) return parsed.error
 
-  const input = parseCashboxInput(body)
-  if (!input) {
-    return NextResponse.json({ error: "Название, валюта, кассир, тип оплаты и порядковый номер обязательны" }, { status: 400 })
-  }
-
-  const cashbox = createCashbox(input)
+  const cashbox = await createCashbox({
+    name: parsed.data.name,
+    currency: parsed.data.currency,
+    cashier: parsed.data.cashier,
+    branch: parsed.data.branch ?? "",
+    paymentType: parsed.data.paymentType,
+    vansell: parsed.data.vansell ?? false,
+    orderNumber: parsed.data.orderNumber,
+  })
   return NextResponse.json(cashbox, { status: 201 })
 }

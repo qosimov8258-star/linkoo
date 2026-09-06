@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
+import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
 import {
   CalendarDays,
   ChevronLeft,
@@ -19,11 +20,7 @@ import {
   X,
 } from "lucide-react"
 
-const agents = [
-  "05,08,2025 (1)", "xodim1 1", "Zaynillo Sadullayev", "Salohiddin Agent Tashkent",
-  "Islom Toirjonov", "Maykl Jekson", "999 999", "Пулатов Аббос", "Аббос Доставщик",
-  "Admin Ritm", "Samandar Abdurahmonov", "Fozil Agent",
-]
+const agents: string[] = []
 const branches = ["777", "878", "agent", "Andijon", "AURUM samarqand", "baby still"]
 const week = ["вс", "пн", "вт", "ср", "чт", "пт", "сб"]
 
@@ -63,6 +60,24 @@ function WorkingTimeModal({ onClose }: { onClose: () => void }) {
 function WeekendModal({ onClose, selected, setSelected, year, month }: { onClose: () => void; selected: number[]; setSelected: (days: number[]) => void; year: number; month: number }) {
   const daysInMonth = new Date(year, month + 1, 0).getDate()
   const sundays = useMemo(() => sundaysInMonth(year, month), [year, month])
+  const [saving, setSaving] = useState(false)
+
+  async function save() {
+    setSaving(true)
+    try {
+      const customDays = selected.filter((day) => !sundays.includes(day))
+      await fetch("/api/attendance-weekend-days", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ year, month, days: customDays }),
+      })
+    } catch {
+      // ignore network failures, still close like the rest of the app does
+    }
+    setSaving(false)
+    onClose()
+  }
+
   return (
     <Modal title="ДОБАВИТЬ ВЫХОДНЫЕ ДНИ" onClose={onClose}>
       <div className="px-9 py-7">
@@ -75,7 +90,7 @@ function WeekendModal({ onClose, selected, setSelected, year, month }: { onClose
           })}
         </div>
       </div>
-      <footer className="border-t px-9 py-4 text-right"><button type="button" onClick={onClose} className="rounded bg-[#6bce87] px-6 py-3 font-bold text-white">СОХРАНИТЬ</button></footer>
+      <footer className="border-t px-9 py-4 text-right"><button type="button" disabled={saving} onClick={() => void save()} className="rounded bg-[#6bce87] px-6 py-3 font-bold text-white disabled:opacity-60">{saving ? "СОХРАНЕНИЕ..." : "СОХРАНИТЬ"}</button></footer>
     </Modal>
   )
 }
@@ -135,7 +150,20 @@ export function AttendanceView() {
   const [weekends, setWeekends] = useState<number[]>(() => sundaysInMonth(today.getFullYear(), today.getMonth()))
 
   useEffect(() => {
+    let cancelled = false
     setWeekends(sundaysInMonth(year, month))
+    fetch(`/api/attendance-weekend-days?year=${year}&month=${month}`)
+      .then((response) => (response.ok ? (response.json() as Promise<number[]>) : []))
+      .then((customDays) => {
+        if (cancelled || !customDays.length) return
+        setWeekends((current) => Array.from(new Set([...current, ...customDays])).sort((a, b) => a - b))
+      })
+      .catch(() => {
+        // keep the auto-computed Sundays if the request fails
+      })
+    return () => {
+      cancelled = true
+    }
   }, [year, month])
   const [selectedRows, setSelectedRows] = useState<string[]>([])
   const [selectedAgent, setSelectedAgent] = useState<string | null>(null)
@@ -155,7 +183,7 @@ export function AttendanceView() {
   return (
     <main className="min-h-[calc(100vh-4rem)] bg-slate-100">
       <header className="flex flex-wrap items-center gap-3 px-9 py-5">
-        <Star className="h-7 w-7 fill-[#526fe0] text-[#526fe0]" /><span className="text-2xl font-bold text-[#526fe0]">Избранные</span><span className="text-2xl text-slate-400">|</span><h1 className="text-2xl font-bold text-slate-600">Посещаемость</h1>
+        <FavoritesButton className="flex items-center gap-2 text-2xl font-bold text-[#526fe0]" /><span className="text-2xl text-slate-400">|</span><h1 className="text-2xl font-bold text-slate-600">Посещаемость</h1>
         <div className="ml-auto flex gap-3">
           <button type="button" onClick={() => setWeekendOpen(true)} className="flex items-center gap-2 rounded bg-[#6bce87] px-5 py-3 font-bold text-white"><PlusCircle />Добавить выходные дни</button>
           <button type="button" onClick={() => setWorkingOpen(true)} className="flex items-center gap-2 rounded bg-[#526fe0] px-5 py-3 font-bold text-white"><Clock3 />Рабочее время</button>

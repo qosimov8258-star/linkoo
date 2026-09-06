@@ -1,87 +1,20 @@
 "use client"
 
-import { ChangeEvent, FormEvent, useMemo, useRef, useState } from "react"
+import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react"
 import { BarChart3, ChevronLeft, ChevronRight, FileText, ListChecks, MinusCircle, Pencil, PlusCircle, Search, Trash2, X } from "lucide-react"
 
-type Employee = {
-  id: number
-  name: string
-  login: string
-  role: string
-  extraPermission?: string
-  phone: string
-  position: string
-  active: boolean
+import { downloadExcelTable } from "@/lib/excel-export"
+import { mapHeaderColumns, readExcelRows } from "@/lib/excel-import"
+import { employeeBranches as branches, employeeOrganizations as organizations, employeePositions as positions, type Employee } from "./employees-data"
+
+const IMPORT_HEADER_ALIASES: Record<string, string> = {
+  "имя": "firstName", "first name": "firstName",
+  "фамилия": "lastName", "last name": "lastName",
+  "телефон": "phone", "phone": "phone",
+  "должность": "position", "position": "position",
+  "филиал": "branch", "branch": "branch",
+  "код для интеграции": "integrationCode", "integration code": "integrationCode",
 }
-
-const organizations = [
-  "05,08,2025", "1111111111111111111111", "1112233", "7777", "878", "avto organizatsiya 2", "baby still", "Buxoro 2", "ddr",
-  "ddr1", "doston2organizationCola", "DostonFood", "Dosya organization", "Electronika", "energetik", "Fardad", "gulomfood tashkilot",
-  "HANGUK", "hanguk13", "Ichimliklar", "IT maxsulotlari", "Konditerka", "Konstavar", "krug1Cola", "krug2Lit", "kumush", "Lalaku",
-  "laptops", "linko mevalar", "linko texnika", "Maishiy texnika", "maishiy texnika buyumlari", "Maxsulotlar", "mevalar",
-  "meva mahsulotlari", "MSI", "my_organitzation_2", "my_organization", "name of organisation", "NEW ORG", "Non Mahsulotlari",
-  "oltin", "oltin1", "Orbit", "ORG", "organizatsiya 007", "Pampers", "Pampers", "Pampers", "parfyumeriya", "PEPSI", "qwe123 org",
-  "RITM TEST", "robototexnika", "ROYAL", "Salohiddin Texnika", "Salohiddin Yemaklar", "Shaxnoza", "shirinliklar", "SmartPhone",
-  "telefonlar", "test1", "test_dilmurod_organisatsi...", "TestOrganization", "Texnika", "texnikalar", "tosh98", "vova", "waters",
-  "Xasanboy MCHJ", "xo'jalik mollari", "x org", "y org", "Zalal Mowafaq Company", "ZMC", "Айти-Системс", "Глобал", "Гулноза",
-  "напитки", "Одежда", "ООО ПРОФШ", "ООО \"ТестМаркет\"", "Орг_1", "Орг_2", "Парус", "производство организаци...",
-  "ТестоваяОрганизация", "Турецкий Айран", "Шахноза",
-]
-
-const positions = ["Админ", "Агент", "Доставщик", "Оператор", "Супервайзер", "Вансел агент", "Кассир", "Зав. склад", "Директор", "Мерчендайзер"]
-const branches = ["777", "878", "agent", "Andijon", "AURUM samarqand", "baby still", "Buxoro"]
-
-const editableSeed: [number, string, string, string, string | undefined, string, string][] = [
-  [188, "Admin Ritm", "admin", "Супер-Админ", undefined, "-", "Админ"],
-  [201, "Samandar Abdurahmonov", "admin1", "Агент", "Создания заказа Редактировать заказ", "+998946788878", "Агент"],
-  [208, "Quvonchbek Admin", "Quvonchbek admin", "Супер-Админ", "Редактировать заказ", "+998979482277", "Админ"],
-  [209, "Quvonchbek dostavchik Baxromov", "quvonchbek", "Доставщик", "Редактировать заказ", "+998908999999", "Доставщик"],
-  [211, "Quvonchbek op", "Ofis", "Оператор", "Редактировать заказ", "admin", "Оператор"],
-  [212, "Хайрулло Доставщик", "хайрулло", "Доставщик", "Редактировать заказ", "94-740-00-28", "Доставщик"],
-  [213, "Азизхон Супервайзер", "aziz", "Супервайзер", "Редактировать заказ", "919637100", "Доставщик"],
-  [214, "Fozil Agent", "Fozil", "Агент (default)", "Редактировать заказ", "+998901233359 +998770007788", "Агент"],
-  [216, "universal agent", "u", "Агент", "Редактировать заказ", "97 514 65 35", "Вансел агент"],
-  [217, "Otabek Komiljonov", "Otabek", "Вансел агент", "Редактировать заказ", "+998942449669", "Агент"],
-  [218, "Steve Adams", "Steve", "Агент", "Редактировать заказ", "+998942449669", "Доставщик"],
-  [219, "universal dostavshik", "d", "Доставщик", "Редактировать заказ", "+998888888888", "Доставщик"],
-  [220, "universal supervayzer", "supervayzer", "Супервайзер", "Редактировать заказ", "+998908999999", "Супервайзер"],
-  [221, "universal kassir", "kassir", "Кассир", "Редактировать заказ", "+998908999999", "Кассир"],
-  [222, "universal zavsklad .", "sklad", "поставщик", "Редактировать заказ", "+998908999999", "Зав. склад"],
-  [223, "Shaxriyor Xusanov", "shaxriyor0777", "Агент", "Редактировать заказ", "+998945324411", "Агент"],
-  [228, "onec onec", "onec", "Супер-Админ", "Редактировать заказ", "-", "Директор"],
-  [229, "beyn kim", "ADMIN99", "Супервайзер", undefined, "779990909", "Директор"],
-  [230, "Иван Орлов", "faruh", "Супервайзер", undefined, "+99890113-95-67", "Мерчендайзер"],
-  [232, "bobur axmadov", "asad21", "Агент", undefined, "909992222", "agent"],
-  [233, "asadbek rasulov", "dost", "Доставщик", undefined, "332118899", "Доставщик"],
-  [234, "Сапар Жоныбек угли", "andrey", "Агент", undefined, "admin", "agent"],
-  [235, "Дилмурод Жаныбек", "dulmurod", "Агент", undefined, "998997866543", "agent"],
-  [236, "beyn kim", "beyn19", "Агент", undefined, "909992222", "agent"],
-  [237, "Саша Орлов", "sasha", "Супервайзер", undefined, "+998500784532", "agent"],
-]
-
-function generateEmployees(): Employee[] {
-  const rows: Employee[] = editableSeed.map(([id, name, login, role, extraPermission, phone, position]) => ({
-    id, name, login, role, extraPermission, phone, position, active: true,
-  }))
-  const namePool = ["Botir Yusupov", "Dilnoza Karimova", "Sherzod Toshev", "Nodira Aliyeva", "Jasur Ergashev", "Malika Yoqubova", "Ravshan Isayev", "Feruza Nortoyeva"]
-  for (let index = rows.length; index < 129; index++) {
-    const id = 238 + (index - rows.length)
-    const person = namePool[index % namePool.length]
-    rows.push({
-      id,
-      name: `${person} ${index}`,
-      login: `user${id}`,
-      role: positions[index % positions.length],
-      extraPermission: index % 4 === 0 ? undefined : "Редактировать заказ",
-      phone: `+99890${String(1000000 + id).slice(0, 7)}`,
-      position: positions[index % positions.length],
-      active: index % 17 !== 0,
-    })
-  }
-  return rows
-}
-
-const seedEmployees = generateEmployees()
 
 type Draft = {
   firstName: string
@@ -117,8 +50,29 @@ function emptyDraft(): Draft {
   }
 }
 
+function draftToInput(draft: Draft, active = true) {
+  return {
+    firstName: draft.firstName.trim(),
+    lastName: draft.lastName.trim(),
+    phone: draft.phone.trim(),
+    integrationCode: draft.integrationCode,
+    position: draft.position,
+    branch: draft.branch,
+    systemAccess: draft.systemAccess,
+    showInTracking: draft.showInTracking,
+    twoStepCheck: draft.twoStepCheck,
+    sessionLimit: draft.sessionLimit,
+    gpsCheck: draft.gpsCheck,
+    startPoint: draft.startPoint,
+    organizations: draft.organizations,
+    active,
+  }
+}
+
 export function EmployeesView() {
-  const [employees, setEmployees] = useState(seedEmployees)
+  const [employees, setEmployees] = useState<Employee[]>([])
+  const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState("")
   const [tab, setTab] = useState<"active" | "deleted">("active")
   const [query, setQuery] = useState("")
   const [page, setPage] = useState(1)
@@ -126,10 +80,36 @@ export function EmployeesView() {
   const [checkedIds, setCheckedIds] = useState<number[]>([])
   const [editing, setEditing] = useState<Employee | "new" | null>(null)
   const [draft, setDraft] = useState<Draft>(emptyDraft)
+  const [saving, setSaving] = useState(false)
   const [importOpen, setImportOpen] = useState(false)
   const [importFile, setImportFile] = useState<File | null>(null)
+  const [importSaving, setImportSaving] = useState(false)
   const importInputRef = useRef<HTMLInputElement>(null)
   const pageSize = 25
+
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    fetch("/api/employees")
+      .then(async (response) => {
+        if (!response.ok) throw new Error("Не удалось загрузить сотрудников")
+        return (await response.json()) as Employee[]
+      })
+      .then((data) => {
+        if (cancelled) return
+        setEmployees(data)
+        setLoadError("")
+      })
+      .catch(() => {
+        if (!cancelled) setLoadError("Не удалось загрузить сотрудников с сервера")
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const filtered = useMemo(
     () =>
@@ -146,12 +126,46 @@ export function EmployeesView() {
     setCheckedIds((current) => (current.includes(id) ? current.filter((item) => item !== id) : [...current, id]))
   }
 
+  async function patchEmployee(employee: Employee, patch: Partial<Employee>) {
+    const merged = { ...employee, ...patch }
+    try {
+      const response = await fetch(`/api/employees/${employee.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          firstName: merged.firstName,
+          lastName: merged.lastName,
+          phone: merged.phone,
+          integrationCode: merged.integrationCode,
+          position: merged.position,
+          branch: merged.branch,
+          systemAccess: merged.systemAccess,
+          showInTracking: merged.showInTracking,
+          twoStepCheck: merged.twoStepCheck,
+          sessionLimit: merged.sessionLimit,
+          gpsCheck: merged.gpsCheck,
+          startPoint: merged.startPoint,
+          organizations: merged.organizations,
+          active: merged.active,
+        }),
+      })
+      if (!response.ok) return
+      const saved = (await response.json()) as Employee
+      setEmployees((current) => current.map((item) => (item.id === saved.id ? saved : item)))
+    } catch {
+      window.alert("Сервер недоступен, попробуйте ещё раз")
+    }
+  }
+
   function bulkDeactivate() {
     if (!checkedIds.length) {
       setSelectMode((value) => !value)
       return
     }
-    setEmployees((current) => current.map((employee) => (checkedIds.includes(employee.id) ? { ...employee, active: false } : employee)))
+    checkedIds.forEach((id) => {
+      const employee = employees.find((item) => item.id === id)
+      if (employee) void patchEmployee(employee, { active: false })
+    })
     setCheckedIds([])
   }
 
@@ -161,29 +175,67 @@ export function EmployeesView() {
   }
 
   function openEdit(employee: Employee) {
-    const [firstName, ...rest] = employee.name.split(" ")
-    setDraft({ ...emptyDraft(), firstName, lastName: rest.join(" "), phone: employee.phone, position: employee.position })
+    setDraft({
+      firstName: employee.firstName,
+      lastName: employee.lastName,
+      phone: employee.phone,
+      integrationCode: employee.integrationCode,
+      position: employee.position || positions[0],
+      branch: employee.branch || branches[0],
+      systemAccess: employee.systemAccess,
+      showInTracking: employee.showInTracking,
+      twoStepCheck: employee.twoStepCheck,
+      sessionLimit: employee.sessionLimit,
+      gpsCheck: employee.gpsCheck,
+      startPoint: employee.startPoint,
+      organizations: employee.organizations,
+    })
     setEditing(employee)
   }
 
   function remove(id: number) {
-    setEmployees((current) => current.map((employee) => (employee.id === id ? { ...employee, active: false } : employee)))
+    const employee = employees.find((item) => item.id === id)
+    if (employee) void patchEmployee(employee, { active: false })
   }
 
-  function save(event: FormEvent) {
+  async function save(event: FormEvent) {
     event.preventDefault()
     if (!draft.firstName.trim() || !draft.lastName.trim() || !draft.phone.trim()) return
-    const fullName = `${draft.firstName.trim()} ${draft.lastName.trim()}`
-    if (editing !== "new" && editing) {
-      setEmployees((current) => current.map((employee) => (employee.id === editing.id ? { ...employee, name: fullName, phone: draft.phone.trim(), position: draft.position } : employee)))
-    } else {
-      const id = Math.max(0, ...employees.map((employee) => employee.id)) + 1
-      setEmployees((current) => [
-        { id, name: fullName, login: fullName.toLowerCase().replace(/\s+/g, "."), role: draft.position, phone: draft.phone.trim(), position: draft.position, active: true },
-        ...current,
-      ])
+    setSaving(true)
+    try {
+      if (editing !== "new" && editing) {
+        const response = await fetch(`/api/employees/${editing.id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(draftToInput(draft, editing.active)),
+        })
+        if (!response.ok) {
+          const data = await response.json().catch(() => ({}))
+          window.alert(data.error || "Не удалось сохранить сотрудника")
+          return
+        }
+        const saved = (await response.json()) as Employee
+        setEmployees((current) => current.map((employee) => (employee.id === editing.id ? saved : employee)))
+      } else {
+        const response = await fetch("/api/employees", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(draftToInput(draft)),
+        })
+        if (!response.ok) {
+          const data = await response.json().catch(() => ({}))
+          window.alert(data.error || "Не удалось создать сотрудника")
+          return
+        }
+        const saved = (await response.json()) as Employee
+        setEmployees((current) => [saved, ...current])
+      }
+      setEditing(null)
+    } catch {
+      window.alert("Сервер недоступен, попробуйте ещё раз")
+    } finally {
+      setSaving(false)
     }
-    setEditing(null)
   }
 
   function toggleOrganization(org: string) {
@@ -191,30 +243,80 @@ export function EmployeesView() {
   }
 
   function downloadTemplate() {
-    const rows = [["Имя", "Фамилия", "Телефон", "Должность", "Филиал"]]
-    const table = rows.map((row) => `<tr>${row.map((cell) => `<th>${cell}</th>`).join("")}</tr>`).join("")
-    const html = `﻿<html><head><meta charset="utf-8"></head><body><table>${table}</table></body></html>`
-    const url = URL.createObjectURL(new Blob([html], { type: "application/vnd.ms-excel;charset=utf-8" }))
-    const anchor = document.createElement("a")
-    anchor.href = url
-    anchor.download = "employees-template.xls"
-    anchor.click()
-    URL.revokeObjectURL(url)
+    downloadExcelTable("employees-template", [["Имя", "Фамилия", "Телефон", "Должность", "Филиал"]])
   }
 
   function pickImportFile(event: ChangeEvent<HTMLInputElement>) {
     setImportFile(event.target.files?.[0] ?? null)
   }
 
-  function saveImport() {
+  async function saveImport() {
     if (!importFile) return
-    const id = Math.max(0, ...employees.map((employee) => employee.id)) + 1
-    setEmployees((current) => [
-      { id, name: `Импорт из ${importFile.name}`, login: `import${id}`, role: positions[0], phone: "-", position: positions[0], active: true },
-      ...current,
-    ])
-    setImportOpen(false)
-    setImportFile(null)
+    setImportSaving(true)
+    try {
+      const rows = await readExcelRows(importFile)
+      if (!rows.length) {
+        window.alert("Не удалось найти сотрудников для импорта в выбранном файле")
+        return
+      }
+      const fieldByIndex = mapHeaderColumns(rows[0], IMPORT_HEADER_ALIASES)
+      const hasHeader = Array.from(fieldByIndex.values()).includes("firstName")
+      const dataRows = hasHeader ? rows.slice(1) : rows
+
+      const parsed: Draft[] = []
+      for (const row of dataRows) {
+        const record: Record<string, string> = {}
+        if (hasHeader) {
+          row.forEach((cell, index) => {
+            const field = fieldByIndex.get(index)
+            if (field) record[field] = cell
+          })
+        } else {
+          record.firstName = row[0] ?? ""
+          record.lastName = row[1] ?? ""
+          record.phone = row[2] ?? ""
+          record.position = row[3] ?? ""
+          record.branch = row[4] ?? ""
+        }
+        if (!record.firstName || /^(имя|first name)$/i.test(record.firstName)) continue
+        parsed.push({
+          ...emptyDraft(),
+          firstName: record.firstName,
+          lastName: record.lastName || "",
+          phone: record.phone || "",
+          position: record.position || positions[0],
+          branch: record.branch || branches[0],
+          integrationCode: record.integrationCode || "",
+        })
+      }
+
+      if (!parsed.length) {
+        window.alert("Не удалось найти сотрудников для импорта в выбранном файле")
+        return
+      }
+
+      const created: Employee[] = []
+      let failed = 0
+      for (const item of parsed) {
+        try {
+          const response = await fetch("/api/employees", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(draftToInput(item)),
+          })
+          if (response.ok) created.push((await response.json()) as Employee)
+          else failed += 1
+        } catch {
+          failed += 1
+        }
+      }
+      if (created.length) setEmployees((current) => [...created, ...current])
+      if (failed) window.alert(`Импортировано ${created.length} из ${parsed.length}. Не удалось сохранить: ${failed}`)
+    } finally {
+      setImportSaving(false)
+      setImportOpen(false)
+      setImportFile(null)
+    }
   }
 
   return (
@@ -259,6 +361,8 @@ export function EmployeesView() {
         </button>
         <ListChecks className="h-5 w-5 text-slate-400" />
       </div>
+
+      {loadError && <p className="px-5 pb-3 text-sm text-red-500">{loadError}</p>}
 
       <div className="overflow-x-auto">
         <table className="w-full min-w-[1100px] text-left">
@@ -312,7 +416,7 @@ export function EmployeesView() {
                 </td>
               </tr>
             ))}
-            {visible.length === 0 && (
+            {!loading && visible.length === 0 && (
               <tr>
                 <td colSpan={selectMode ? 9 : 8} className="px-5 py-10 text-center text-slate-400">
                   Ничего не найдено
@@ -436,8 +540,8 @@ export function EmployeesView() {
               </div>
             </div>
             <footer className="flex justify-end border-t p-5">
-              <button type="submit" className="rounded bg-[#6ccd8b] px-6 py-3 font-semibold text-white hover:brightness-95">
-                Сохранить
+              <button type="submit" disabled={saving} className="rounded bg-[#6ccd8b] px-6 py-3 font-semibold text-white hover:brightness-95 disabled:opacity-60">
+                {saving ? "Сохранение..." : "Сохранить"}
               </button>
             </footer>
           </form>
@@ -468,8 +572,8 @@ export function EmployeesView() {
               </button>
             </div>
             <footer className="flex justify-end border-t p-5">
-              <button type="button" disabled={!importFile} onClick={saveImport} className="rounded bg-[#6ccd8b] px-5 py-3 font-semibold text-white hover:brightness-95 disabled:opacity-40">
-                Сохранить
+              <button type="button" disabled={!importFile || importSaving} onClick={saveImport} className="rounded bg-[#6ccd8b] px-5 py-3 font-semibold text-white hover:brightness-95 disabled:opacity-40">
+                {importSaving ? "Импорт..." : "Сохранить"}
               </button>
             </footer>
           </div>

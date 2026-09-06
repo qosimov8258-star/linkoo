@@ -3,6 +3,7 @@
 import Image from "next/image"
 import { Filter, Star, X } from "lucide-react"
 import { useMemo, useState } from "react"
+import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
 
 const agents = [
   "05,08,2025 (1)", "xodim1 1", "Zaynillo Sadullayev", "Salohiddin Agent Tashkent", "Islom Toirjonov",
@@ -44,7 +45,6 @@ export function ActivityView() {
   const [draftTo, setDraftTo] = useState(monthEnd)
   const [clientType, setClientType] = useState(clientTypes[0])
   const [equipmentStore, setEquipmentStore] = useState(equipmentStores[0])
-  const [favorite, setFavorite] = useState(false)
   const [filterOpen, setFilterOpen] = useState(false)
   const [selectedAgent, setSelectedAgent] = useState<string | null>(null)
 
@@ -58,10 +58,7 @@ export function ActivityView() {
     <main className="min-h-[calc(100vh-4rem)] bg-slate-100">
       <header className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-300 px-5 py-4 sm:px-10">
         <div className="flex items-center gap-3 text-xl font-bold sm:text-2xl">
-          <button type="button" onClick={() => setFavorite((value) => !value)} className="flex items-center gap-2 text-[#5470e8]">
-            <Star className={`h-6 w-6 ${favorite ? "fill-amber-400 text-amber-400" : "fill-slate-600 text-slate-600"}`} />
-            Избранные
-          </button>
+          <FavoritesButton className="flex items-center gap-2 text-[#5470e8]" />
           <span className="text-slate-500">|</span>
           <h1 className="text-slate-600">Активность</h1>
         </div>

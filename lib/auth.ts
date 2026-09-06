@@ -1,18 +1,13 @@
 import "server-only"
 
-import { randomBytes, scryptSync, timingSafeEqual } from "node:crypto"
+import bcrypt from "bcryptjs"
 
-const KEY_LENGTH = 64
+const SALT_ROUNDS = 12
 
-export function hashPassword(password: string): { hash: string; salt: string } {
-  const salt = randomBytes(16).toString("hex")
-  const hash = scryptSync(password, salt, KEY_LENGTH).toString("hex")
-  return { hash, salt }
+export async function hashPassword(password: string): Promise<string> {
+  return bcrypt.hash(password, SALT_ROUNDS)
 }
 
-export function verifyPassword(password: string, hash: string, salt: string): boolean {
-  const candidate = scryptSync(password, salt, KEY_LENGTH)
-  const stored = Buffer.from(hash, "hex")
-  if (candidate.length !== stored.length) return false
-  return timingSafeEqual(candidate, stored)
+export async function verifyPassword(password: string, hash: string): Promise<boolean> {
+  return bcrypt.compare(password, hash)
 }

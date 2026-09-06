@@ -1,48 +1,27 @@
 "use client"
 
 import { useEffect, useMemo, useRef, useState } from "react"
-import { ChevronDown, ChevronRight, Download, Expand, Filter, MoreVertical, Search, Star, Trash2, X } from "lucide-react"
+import { ChevronDown, Download, Expand, Filter, MoreVertical, Search, X } from "lucide-react"
+import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
 
 type Money = { sum: number; usd: number; eur: number }
 type Employee = { id: number; name: string; opening: Money }
+type ApiEmployee = { id: number; name: string }
+type BalanceTransaction = {
+  id: number
+  employeeId: number
+  kind: "add" | "expense"
+  currency: keyof Money
+  amount: number
+  date: string
+  comment: string
+}
 
 const zero: Money = { sum: 0, usd: 0, eur: 0 }
 
-const employees: Employee[] = [
-  { id: 1, name: "Admin Ritm", opening: { sum: 35546091.7, usd: 0, eur: 0 } },
-  { id: 2, name: "Тп 1 Исмоилов Гани", opening: { ...zero } },
-  { id: 3, name: "Тп 2 Алиса", opening: { ...zero } },
-  { id: 4, name: "Админ 1", opening: { sum: 3500000, usd: 0, eur: 0 } },
-  { id: 5, name: "Тп 1 Алиса", opening: { ...zero } },
-  { id: 6, name: "Suxrob Akramxodjaev", opening: { sum: 5495000, usd: 0, eur: 0 } },
-  { id: 7, name: "Suxrob Akramxodjaev", opening: { ...zero } },
-  { id: 8, name: "Suxrob Akramxodjaev", opening: { ...zero } },
-  { id: 9, name: "Admin Ritm44", opening: { sum: -298000, usd: -499000, eur: 0 } },
-  { id: 10, name: "Samandar Abdurahmonov", opening: { sum: -60000, usd: 0, eur: 0 } },
-  { id: 11, name: "A Rustam", opening: { ...zero } },
-  { id: 12, name: "Eldor Turobov", opening: { ...zero } },
-  { id: 13, name: "Temur Raupov", opening: { ...zero } },
-  { id: 14, name: "Sahob aka sobirov", opening: { ...zero } },
-  { id: 15, name: "javohir Sobirov", opening: { ...zero } },
-  { id: 16, name: "Atham Jabborov", opening: { ...zero } },
-  { id: 17, name: "Quvonchbek Admin", opening: { sum: 6999400, usd: 0, eur: 0 } },
-  { id: 18, name: "Quvonchbek dostavchik Baxromov", opening: { sum: -1000000, usd: 0, eur: 0 } },
-  { id: 19, name: "Quvonchbek agent баходиров", opening: { ...zero } },
-  { id: 20, name: "Quvonchbek op", opening: { ...zero } },
-  { id: 21, name: "Хайрулло Доставщик", opening: { ...zero } },
-  { id: 22, name: "Азизхон Супервайзер", opening: { ...zero } },
-  { id: 23, name: "Fozil Agent", opening: { sum: 300000, usd: 0, eur: 0 } },
-  { id: 24, name: "Xorazmlik agent", opening: { sum: -45000, usd: 0, eur: 0 } },
-  { id: 25, name: "universal agent", opening: { ...zero } },
-]
-
-const TOTAL_EMPLOYEES = 201
-const FIXED_TOTALS = { eur: -8000000, sum: -17658042.206, usd: -499000 }
-const favoriteItemsInitial = ["Клиенты", "Заказы", "Виджеты", "Заказы", "Ограничение продуктов", "Продукты"]
-
 const groups = ["Баланс на начало периода", "Зарплата", "Зачислено KPI", "Введено с кассы", "Штрафы", "Коректировки", "Баланс на конец периода"] as const
 
-const money = (value: number) => new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 3 }).format(value)
+const money = (value: number) => new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 2 }).format(value)
 
 function AmountCell({ value }: { value: number }) {
   if (value === 0) return <span>0</span>
@@ -51,17 +30,15 @@ function AmountCell({ value }: { value: number }) {
 }
 
 export function EmployeeBalanceView() {
-  const [favorite, setFavorite] = useState(false)
-  const [favoritesOpen, setFavoritesOpen] = useState(false)
-  const [favoriteItems, setFavoriteItems] = useState(favoriteItemsInitial)
-  const [hoveredFavorite, setHoveredFavorite] = useState<number | null>(null)
-  const [rows, setRows] = useState(employees)
+  const [employeesList, setEmployeesList] = useState<ApiEmployee[]>([])
+  const [transactions, setTransactions] = useState<BalanceTransaction[]>([])
   const [search, setSearch] = useState("")
   const [filterOpen, setFilterOpen] = useState(false)
   const [pageSize, setPageSize] = useState(25)
   const [page, setPage] = useState(1)
   const [menuOpenId, setMenuOpenId] = useState<number | null>(null)
   const [modal, setModal] = useState<{ type: "add" | "expense"; employeeId: number } | null>(null)
+  const [saving, setSaving] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -71,6 +48,52 @@ export function EmployeeBalanceView() {
     document.addEventListener("mousedown", closeMenu)
     return () => document.removeEventListener("mousedown", closeMenu)
   }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    Promise.all([
+      fetch("/api/employees").then((response) => (response.ok ? response.json() : [])),
+      fetch("/api/employee-balance-transactions").then((response) => (response.ok ? response.json() : [])),
+    ])
+      .then(([employeesData, transactionsData]) => {
+        if (cancelled) return
+        setEmployeesList(Array.isArray(employeesData) ? employeesData : [])
+        setTransactions(Array.isArray(transactionsData) ? transactionsData : [])
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const rows = useMemo<Employee[]>(
+    () =>
+      employeesList.map((employee) => {
+        const opening = { ...zero }
+        transactions
+          .filter((transaction) => transaction.employeeId === employee.id)
+          .forEach((transaction) => {
+            const signed = transaction.kind === "add" ? transaction.amount : -transaction.amount
+            opening[transaction.currency] += signed
+          })
+        return { id: employee.id, name: employee.name, opening }
+      }),
+    [employeesList, transactions],
+  )
+
+  const TOTAL_EMPLOYEES = rows.length
+  const FIXED_TOTALS = useMemo(
+    () =>
+      rows.reduce(
+        (totals, employee) => ({
+          sum: totals.sum + employee.opening.sum,
+          usd: totals.usd + employee.opening.usd,
+          eur: totals.eur + employee.opening.eur,
+        }),
+        { sum: 0, usd: 0, eur: 0 },
+      ),
+    [rows],
+  )
 
   const filtered = useMemo(
     () => rows.filter((employee) => employee.name.toLocaleLowerCase("ru").includes(search.trim().toLocaleLowerCase("ru"))),
@@ -83,18 +106,26 @@ export function EmployeeBalanceView() {
   const isDefaultView = !search.trim()
   const totalLabel = isDefaultView ? TOTAL_EMPLOYEES : filtered.length
 
-  const applyTransaction = (employeeId: number, kind: "add" | "expense", currency: keyof Money, amount: number) => {
-    setRows((current) =>
-      current.map((employee) => {
-        if (employee.id !== employeeId) return employee
-        const signedAmount = kind === "add" ? amount : -amount
-        return { ...employee, opening: { ...employee.opening, [currency]: employee.opening[currency] + signedAmount } }
-      }),
-    )
-  }
-
-  const removeFavorite = (index: number) => {
-    setFavoriteItems((current) => current.filter((_, itemIndex) => itemIndex !== index))
+  const applyTransaction = async (employeeId: number, kind: "add" | "expense", currency: keyof Money, amount: number, date: string, comment: string) => {
+    setSaving(true)
+    try {
+      const response = await fetch("/api/employee-balance-transactions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ employeeId, kind, currency, amount, date, comment }),
+      })
+      if (!response.ok) {
+        window.alert("Не удалось сохранить транзакцию")
+        return
+      }
+      const saved = (await response.json()) as BalanceTransaction
+      setTransactions((current) => [saved, ...current])
+      setModal(null)
+    } catch {
+      window.alert("Сервер недоступен, попробуйте ещё раз")
+    } finally {
+      setSaving(false)
+    }
   }
 
   const downloadAll = () => {
@@ -119,11 +150,11 @@ export function EmployeeBalanceView() {
   return (
     <main className="min-h-screen bg-white text-[#17233b]">
       <header className="flex min-h-[76px] items-center border-b border-[#d8dee7] bg-[#f2f5f8] px-6 md:px-9">
-        <button onClick={() => setFavoritesOpen(true)} className="flex items-center gap-3">
-          <Star className={`h-7 w-7 ${favorite ? "fill-[#4f70e7] text-[#4f70e7]" : "fill-[#596376] text-[#596376]"}`} />
-          <span className="text-2xl font-bold text-[#4f70e7]">Избранные</span><span className="text-3xl font-light text-[#586174]">|</span>
+        <div className="flex items-center gap-3">
+          <FavoritesButton className="flex items-center gap-3 text-2xl font-bold text-[#4f70e7]" />
+          <span className="text-3xl font-light text-[#586174]">|</span>
           <span className="text-2xl font-bold text-[#586174]">Баланс сотрудников</span>
-        </button>
+        </div>
       </header>
 
       <section className="grid grid-cols-1 gap-6 px-6 py-6 sm:grid-cols-2 lg:grid-cols-4 md:px-9">
@@ -280,43 +311,14 @@ export function EmployeeBalanceView() {
         <TransactionModal
           employee={rows.find((item) => item.id === modal.employeeId)!}
           type={modal.type}
+          saving={saving}
           onClose={() => setModal(null)}
-          onSave={(currency, amount) => {
-            applyTransaction(modal.employeeId, modal.type, currency, amount)
-            setModal(null)
+          onSave={(currency, amount, date, comment) => {
+            void applyTransaction(modal.employeeId, modal.type, currency, amount, date, comment)
           }}
         />
       )}
 
-      {favoritesOpen && (
-        <div className="fixed inset-0 z-[100] flex">
-          <button aria-label="Закрыть" onClick={() => setFavoritesOpen(false)} className="flex-1 bg-black/40" />
-          <aside className="w-[420px] max-w-[90vw] bg-white shadow-2xl">
-            <header className="flex items-center justify-between border-b px-8 py-6">
-              <h2 className="text-2xl font-semibold">Избранные</h2>
-              <button aria-label="Закрыть" onClick={() => setFavoritesOpen(false)}><X className="h-6 w-6 text-slate-600" /></button>
-            </header>
-            {favoriteItems.map((item, index) => (
-              <div
-                key={`${item}-${index}`}
-                onMouseEnter={() => setHoveredFavorite(index)}
-                onMouseLeave={() => setHoveredFavorite((current) => (current === index ? null : current))}
-                className={`flex w-full items-center justify-between border-b px-8 py-5 text-left text-lg ${hoveredFavorite === index ? "bg-[#eaf0fd]" : ""}`}
-              >
-                <button type="button" onClick={() => { setFavorite(true); setFavoritesOpen(false) }} className="flex flex-1 items-center gap-3 text-left">
-                  {hoveredFavorite === index && (
-                    <span role="button" aria-label="Удалить из избранного" onClick={(event) => { event.stopPropagation(); removeFavorite(index) }} className="text-slate-600 hover:text-[#e5484d]">
-                      <Trash2 className="h-5 w-5" />
-                    </span>
-                  )}
-                  {item}
-                </button>
-                <ChevronRight className="h-5 w-5 text-slate-400" />
-              </div>
-            ))}
-          </aside>
-        </div>
-      )}
     </main>
   )
 }
@@ -324,13 +326,15 @@ export function EmployeeBalanceView() {
 function TransactionModal({
   employee,
   type,
+  saving,
   onClose,
   onSave,
 }: {
   employee: Employee
   type: "add" | "expense"
+  saving: boolean
   onClose: () => void
-  onSave: (currency: keyof Money, amount: number) => void
+  onSave: (currency: keyof Money, amount: number, date: string, comment: string) => void
 }) {
   const [currency, setCurrency] = useState<keyof Money>("sum")
   const [amount, setAmount] = useState("")
@@ -372,13 +376,14 @@ function TransactionModal({
         </div>
         <footer className="flex justify-end border-t px-8 py-5">
           <button
+            disabled={saving}
             onClick={() => {
               const value = Number(amount)
-              if (value > 0) onSave(currency, value)
+              if (value > 0) onSave(currency, value, date, comment)
             }}
-            className="font-bold uppercase tracking-wide text-[#4f70e7]"
+            className="font-bold uppercase tracking-wide text-[#4f70e7] disabled:opacity-50"
           >
-            Сохранить
+            {saving ? "Сохранение..." : "Сохранить"}
           </button>
         </footer>
       </div>
