@@ -17,6 +17,7 @@ import {
 
 import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
 import type { SupplierPaymentRow as PaymentRow } from "./supplier-payments-data"
+import { downloadExcelTable } from "@/lib/excel-export"
 
 const number = (value: number, fraction = 0) =>
   new Intl.NumberFormat("ru-RU", { minimumFractionDigits: fraction, maximumFractionDigits: fraction }).format(value)
@@ -154,13 +155,7 @@ export function SupplierPaymentsView() {
       row.kassa,
       row.comment,
     ])
-    const html = [header, ...body].map((line) => `<tr>${line.map((cell) => `<td>${String(cell).replaceAll("&", "&amp;").replaceAll("<", "&lt;")}</td>`).join("")}</tr>`).join("")
-    const blob = new Blob([`﻿<html><meta charset="UTF-8"><table>${html}</table></html>`], { type: "application/vnd.ms-excel;charset=utf-8" })
-    const link = document.createElement("a")
-    link.href = URL.createObjectURL(blob)
-    link.download = "supplier-payments.xls"
-    link.click()
-    URL.revokeObjectURL(link.href)
+    downloadExcelTable("supplier-payments.xls", [header, ...body])
   }
 
   return (

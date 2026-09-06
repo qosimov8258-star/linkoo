@@ -1,13 +1,15 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { Bookmark, ChevronDown, ChevronUp, Download, FileText, FolderOpen, Pencil, Search, Trash2, X } from "lucide-react"
 import { downloadExcelTable } from "@/lib/excel-export"
 import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
 import { useLanguage } from "@/lib/i18n/language-context"
 import type { NewReportBuilderSave } from "@/lib/new-report-builder-repo"
 
-const reportTypes = ["ЗАКАЗ И ВОЗВРАТ ПО ДАТЕ РЕАЛИЗАЦИИ", "ЗАКАЗ И ВОЗВРАТ ПО ДАТЕ СОЗДАНИЯ", "ПРОДУКТЫ ЗАКАЗОВ ПО ДАТЕ СОЗДАНИЯ", "ДРУГИЕ"]
+const mainReportTypes = ["ЗАКАЗ И ВОЗВРАТ ПО ДАТЕ РЕАЛИЗАЦИИ", "ЗАКАЗ И ВОЗВРАТ ПО ДАТЕ СОЗДАНИЯ", "ПРОДУКТЫ ЗАКАЗОВ ПО ДАТЕ СОЗДАНИЯ"]
+const otherReportTypes = ["Продукты заказов по дате по дате доставки", "Продукты заказов по дате реализации со склада", "Возвраты", "Возвраты по дате приемки", "Отказы", "Заказы по дате доставки", "Задачи", "Склад", "Остаток партий", "Магазины"]
+const reportTypes = [...mainReportTypes, ...otherReportTypes]
 const columns = ["АКБ заказа", "Вес продуктов заказа", "Вес продуктов возврата", "Вес продуктов факт", "Кол. продуктов заказа", "Кол. продуктов возврата", "Кол. продуктов факт", "Кол. блоков заказа", "Кол. блоков возврата", "Кол. блоков факт", "Кол. бонусов заказа", "Кол. бонусов возврата", "Кол. бонусов факт", "Кол. оформленных заказов", "Кол. оформленных возвратов", "Прибыль от продаж", "Наценка Заказа (%)", "Сумма заказов", "Сумма возвратов", "Сумма факт", "Сумма заказов, SUM", "Сумма возвратов, SUM", "Сумма факт, SUM", "Себестоимость заказа", "Себестоимость возврата", "Себестоимость факт", "Ассортимент"]
 const groups = ["Дата по дням", "Дата по неделям", "Дата по месяцам", "Валюта", "Документ №", "Документ Тип", "Документ Отв.агент", "Документ Отв.агент (Имя)", "Документ Отв.агент (Фамилия)", "Документ Супервайзер", "Документ Аудиторы", "Документ Комментарий", "Доставщик", "Доставщик ID", "Сборщик", "Сборщик ID", "Организация", "Прайс-лист", "Продукт ИД", "Продукт Название", "Продукт Ед. изм", "Продукт Бренд", "Тип продукта", "Родительский тип продукта", "Продукт Артикул", "Продукт Код", "Продукт Штрих-код", "Магазин №", "Магазин Название", "Магазин Контактное лицо", "Магазин ИНН", "Магазин Тип магазина", "Магазин Категория магазина", "Себестоимость", "Склад", "Территория", "Тип оплаты", "Тип сделки", "Филиал", "Цена", "Цена до переоценки", "Код сотрудника", "Номер сервиса", "Марка", "Формат", "Группа портфель", "Группа ассортимент", "Группа продукт", "Группа марок"]
 const filters = ["Бренд", "Документ Отв. агент", "Документ Аудиторы", "Доставщик", "Права доступа", "Магазин", "Организация", "Ответственный агент магазина", "Прайс-лист", "Продукт", "Склад", "Склад заказа", "Склад возврата", "Статус заказа", "Статус возврата", "Территория", "Тип продукта", "Родительский Тип продукта", "Тип оплаты", "Тип магазина", "Категория канала", "Филиал", "ММЛ продукт", "Марка", "Формат", "Группа портфель", "Группа ассортимент", "Группа продукт", "Группа марок", "Магазин ИНН"]
@@ -24,6 +26,9 @@ function List({ title, items, selected, setSelected }: { title: string; items: s
 export function NewReportBuilderView() {
   const { t } = useLanguage()
   const [type, setType] = useState(reportTypes[0])
+  const [othersOpen, setOthersOpen] = useState(false)
+  const othersRef = useRef<HTMLDivElement>(null)
+  const isOtherActive = otherReportTypes.includes(type)
   const [settings, setSettings] = useState(true)
   const [selectedColumns, setSelectedColumns] = useState<string[]>([])
   const [vertical, setVertical] = useState<string[]>([])
@@ -50,15 +55,25 @@ export function NewReportBuilderView() {
   const exportExcel = () => downloadExcelTable("new-report-builder.xls", [[...displayGroups.map((item) => t(item)), ...displayColumns.map((item) => t(item))], ...resultRows.map((row) => [row.name, ...row.values]), ...(showTotals ? [[t("Итого"), ...displayColumns.map((_, index) => resultRows.reduce((sum, row) => sum + row.values[index], 0))]] : [])])
 
   useEffect(() => {
-    if (!saveModalOpen && !reportsOpen) return
+    if (!saveModalOpen && !reportsOpen && !othersOpen) return
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return
       setSaveModalOpen(false)
       setReportsOpen(false)
+      setOthersOpen(false)
     }
     window.addEventListener("keydown", onKeyDown)
     return () => window.removeEventListener("keydown", onKeyDown)
-  }, [saveModalOpen, reportsOpen])
+  }, [saveModalOpen, reportsOpen, othersOpen])
+
+  useEffect(() => {
+    if (!othersOpen) return
+    const onPointerDown = (event: MouseEvent) => {
+      if (othersRef.current && !othersRef.current.contains(event.target as Node)) setOthersOpen(false)
+    }
+    window.addEventListener("mousedown", onPointerDown)
+    return () => window.removeEventListener("mousedown", onPointerDown)
+  }, [othersOpen])
 
   const openSaveModal = () => {
     setTableName("")
@@ -132,7 +147,7 @@ export function NewReportBuilderView() {
   }
 
   return <main className="min-h-[calc(100vh-4rem)] bg-[#f1f4f8] text-[#17233b]">
-    <header className="flex flex-wrap items-center gap-5 border-b border-slate-200 px-9 py-4"><FavoritesButton className="flex items-center gap-2 text-2xl font-bold text-[#4f70e7]" /><span className="text-3xl text-slate-500">|</span><span className="text-2xl font-bold text-slate-600">{t("Конструктор")}</span><div className="ml-auto flex flex-wrap overflow-hidden rounded-md shadow-sm">{reportTypes.map((item) => <button type="button" key={item} onClick={() => { setType(item); setGenerated(false) }} className={`border border-slate-200 px-5 py-3 text-sm font-medium ${type === item ? "bg-[#27cd58] text-white" : "bg-white"}`}>{t(item)}</button>)}</div></header>
+    <header className="flex flex-wrap items-center gap-5 border-b border-slate-200 px-9 py-4"><FavoritesButton className="flex items-center gap-2 text-2xl font-bold text-[#4f70e7]" /><span className="text-3xl text-slate-500">|</span><span className="text-2xl font-bold text-slate-600">{t("Конструктор")}</span><div className="ml-auto flex flex-wrap shadow-sm">{mainReportTypes.map((item, index) => <button type="button" key={item} onClick={() => { setType(item); setGenerated(false); setOthersOpen(false) }} className={`border border-slate-200 px-5 py-3 text-sm font-medium ${index === 0 ? "rounded-l-md" : "-ml-px"} ${type === item ? "bg-[#27cd58] text-white" : "bg-white"}`}>{t(item)}</button>)}<div ref={othersRef} className="relative -ml-px"><button type="button" onClick={() => setOthersOpen((value) => !value)} className={`rounded-r-md border border-slate-200 px-5 py-3 text-sm font-medium ${isOtherActive ? "bg-[#27cd58] text-white" : "bg-white"}`}>{t("ДРУГИЕ")}</button>{othersOpen && <div role="menu" className="absolute right-0 top-full z-50 mt-1 max-h-[420px] w-[380px] overflow-y-auto rounded-md border border-slate-200 bg-white shadow-xl">{otherReportTypes.map((item) => <button type="button" role="menuitem" key={item} onClick={() => { setType(item); setGenerated(false); setOthersOpen(false) }} className={`block w-full border-b border-slate-100 px-5 py-4 text-left text-[15px] last:border-b-0 hover:bg-slate-100 ${type === item ? "bg-slate-100 font-semibold text-[#4f70e7]" : "text-slate-700"}`}>{t(item)}</button>)}</div>}</div></div></header>
     <section className="flex flex-wrap items-center gap-4 border-b bg-white px-9 py-4"><button onClick={openSaveModal} className="flex items-center gap-2 rounded-md bg-[#5271df] px-5 py-3 font-semibold text-white"><Bookmark className="h-5 w-5" />{saved ? t("Сохранено ✓") : t("Сохранить")}</button><button onClick={openReports} className="flex items-center gap-2 rounded-md bg-[#ff8967] px-5 py-3 font-semibold text-white"><FolderOpen className="h-5 w-5" />{t("Отчеты")}</button><button onClick={exportExcel} className="flex items-center gap-2 rounded-md bg-[#4db6ac] px-5 py-3 font-semibold text-white"><Download className="h-5 w-5" />{t("Скачать")}</button><span className="ml-auto font-bold text-[#4f70e7]">{t("01 Авг. 2026 - 31 Авг. 2026")}</span><button onClick={() => setSettings((value) => !value)} className="flex items-center gap-2 rounded-md bg-[#5271df] px-5 py-3 font-semibold text-white">{settings ? t("СКРЫТЬ НАСТРОЙКИ") : t("ПОКАЗАТЬ НАСТРОЙКИ")}{settings ? <ChevronUp /> : <ChevronDown />}</button><button onClick={generate} className="rounded-md bg-[#27cd58] px-6 py-3 font-semibold text-white">{t("СФОРМИРОВАТЬ ОТЧЕТ")}</button></section>
     {message && <div className="flex items-center justify-between border-b border-blue-100 bg-blue-50 px-9 py-2 text-sm text-blue-700">{message}<button type="button" onClick={() => setMessage("")} aria-label={t("Закрыть сообщение")}>×</button></div>}
     {settings && <section className="grid grid-cols-1 bg-white py-3 xl:grid-cols-[1fr_1fr_1fr_1.05fr]"><List title="Колонки" items={columns} selected={selectedColumns} setSelected={setSelectedColumns} /><List title="Вертикальная группировка" items={groups} selected={vertical} setSelected={setVertical} /><List title="Горизонтальная группировка" items={groups} selected={horizontal} setSelected={setHorizontal} /><section className="px-8"><h2 className="mb-3 text-xl font-semibold">{t("Фильтр")}</h2><label className="mb-5 flex items-center gap-3 font-semibold"><input type="checkbox" checked={showTotals} onChange={(event) => setShowTotals(event.target.checked)} className="h-5 w-5 accent-[#4f70e7]" />{t("Показать итоги")}</label><div>{filters.map((filter) => <button type="button" key={filter} onClick={() => setActiveFilters((current) => current.includes(filter) ? current.filter((item) => item !== filter) : [...current, filter])} className={`flex w-full items-center justify-between border-b py-4 text-left ${activeFilters.includes(filter) ? "font-semibold text-[#4f70e7]" : ""}`}>{t(filter)}<ChevronDown className="h-4 w-4 text-slate-400" /></button>)}</div>{customFilters.map((filter, index) => <input key={`${filter}-${index}`} placeholder={t("Значение фильтра")} className="mt-3 w-full border-b p-2 outline-none" />)}<button onClick={() => setCustomFilters((current) => [...current, ""])} className="mt-5 w-full rounded-md bg-[#5271df] py-3 font-semibold text-white">{t("ДОБАВИТЬ ИНДИВИДУАЛЬНЫЙ ФИЛЬТР")}</button></section></section>}

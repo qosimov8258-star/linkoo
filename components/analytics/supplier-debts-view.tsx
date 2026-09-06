@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react"
 import { ChevronDown, ChevronsRight, Download, RefreshCw, X } from "lucide-react"
 import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
+import { downloadExcelTable } from "@/lib/excel-export"
 
 type Money = { sum: number; usd: number; eur: number }
 type DebtRow = {
@@ -86,13 +87,7 @@ export function SupplierDebtsView() {
       ])
       return [row.name, ...cells]
     })
-    const html = [header, ...body].map((line) => `<tr>${line.map((cell) => `<td>${String(cell).replaceAll("&", "&amp;").replaceAll("<", "&lt;")}</td>`).join("")}</tr>`).join("")
-    const blob = new Blob([`﻿<html><meta charset="UTF-8"><table>${html}</table></html>`], { type: "application/vnd.ms-excel;charset=utf-8" })
-    const link = document.createElement("a")
-    link.href = URL.createObjectURL(blob)
-    link.download = debtTab === "suppliers" ? "supplier-debts.xls" : "agent-debts.xls"
-    link.click()
-    URL.revokeObjectURL(link.href)
+    downloadExcelTable(debtTab === "suppliers" ? "supplier-debts.xls" : "agent-debts.xls", [header, ...body])
   }
 
   const refresh = () => {

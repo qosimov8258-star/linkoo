@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react"
 import { ChevronDown, Download, Filter, Search, X } from "lucide-react"
 import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
 import type { Product } from "@/components/analytics/products-data"
+import { downloadExcelTable } from "@/lib/excel-export"
 
 type UnitType = "Количество" | "Объем" | "Вес" | "Блок"
 
@@ -189,13 +190,7 @@ export function ReorderLevelView() {
         row.recommended30,
       ]
     })
-    const html = [header, ...body].map((line) => `<tr>${line.map((cell) => `<td>${String(cell).replaceAll("&", "&amp;").replaceAll("<", "&lt;")}</td>`).join("")}</tr>`).join("")
-    const blob = new Blob([`﻿<html><meta charset="UTF-8"><table>${html}</table></html>`], { type: "application/vnd.ms-excel;charset=utf-8" })
-    const link = document.createElement("a")
-    link.href = URL.createObjectURL(blob)
-    link.download = "recommended-stock.xls"
-    link.click()
-    URL.revokeObjectURL(link.href)
+    downloadExcelTable("recommended-stock.xls", [header, ...body])
   }
 
   return (

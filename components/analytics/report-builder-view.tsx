@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react"
 import { Bookmark, ChevronDown, ChevronUp, Download, FolderOpen, Search, X } from "lucide-react"
 import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
+import { downloadExcelTable } from "@/lib/excel-export"
 
 type Row = {
   product: string
@@ -201,13 +202,7 @@ export function ReportBuilderView() {
       const values = report.columns.map((key) => number(group.rows.reduce((sum, row) => sum + fieldValue(row, key), 0)))
       return [...labelParts, ...values]
     })
-    const html = [header, ...body].map((line) => `<tr>${line.map((cell) => `<td>${String(cell).replaceAll("&", "&amp;").replaceAll("<", "&lt;")}</td>`).join("")}</tr>`).join("")
-    const blob = new Blob([`﻿<html><meta charset="UTF-8"><table>${html}</table></html>`], { type: "application/vnd.ms-excel;charset=utf-8" })
-    const link = document.createElement("a")
-    link.href = URL.createObjectURL(blob)
-    link.download = "konstruktor-otcheta.xls"
-    link.click()
-    URL.revokeObjectURL(link.href)
+    downloadExcelTable("konstruktor-otcheta.xls", [header, ...body])
   }
 
   const saveReport = async () => {

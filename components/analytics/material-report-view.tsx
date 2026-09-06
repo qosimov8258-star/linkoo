@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react"
 import { BarChart, ChevronDown, ChevronLeft, ChevronRight, Expand, Filter, Search, X } from "lucide-react"
 import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
+import { downloadExcelTable } from "@/lib/excel-export"
 import { useLanguage } from "@/lib/i18n/language-context"
 
 type Mode = "quantity" | "cost" | "price"
@@ -74,15 +75,7 @@ const TOTAL_PRODUCTS = 0
 type GroupedRow = { key: string; label: string; article: string; metrics: Record<GroupKey, Metric>; count: number }
 
 function exportExcel(fileName: string, columns: string[], data: (string | number)[][]) {
-  const html = [columns, ...data]
-    .map((line) => `<tr>${line.map((cell) => `<td>${String(cell).replaceAll("&", "&amp;").replaceAll("<", "&lt;")}</td>`).join("")}</tr>`)
-    .join("")
-  const blob = new Blob([`﻿<html><meta charset="UTF-8"><table>${html}</table></html>`], { type: "application/vnd.ms-excel;charset=utf-8" })
-  const link = document.createElement("a")
-  link.href = URL.createObjectURL(blob)
-  link.download = fileName
-  link.click()
-  URL.revokeObjectURL(link.href)
+  downloadExcelTable(fileName, [columns, ...data])
 }
 
 function SortableHeader({ label, sortKey, active, dir, onSort, className = "" }: { label: string; sortKey: SortKey; active: boolean; dir: SortDir; onSort: (key: SortKey) => void; className?: string }) {

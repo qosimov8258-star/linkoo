@@ -3,6 +3,7 @@
 import { Fragment, useMemo, useState } from "react"
 import { ArrowDown, ArrowUp, Check, ChevronLeft, ChevronRight, Download, Filter, ListChecks, MoreVertical, Printer, Search, X } from "lucide-react"
 import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
+import { downloadExcelTable } from "@/lib/excel-export"
 
 type Tab = "receipt" | "transfer" | "movement" | "receiptHistory" | "transferHistory"
 
@@ -111,17 +112,9 @@ export function GoodsMovementView() {
       transferHistory: [["no", "№"], ["requestDate", "Дата запроса"], ["warehouse", "Склад"], ["type", "Тип"], ["to", "Кому"], ["sender", "Передал"], ["transferDate", "Дата передачи"]],
     }
     const config = headers[tab]
-    const head = config.map(([, title]) => `<th>${title}</th>`).join("")
-    const body = filteredRows
-      .map((row) => `<tr>${config.map(([key]) => `<td>${String((row as Record<string, unknown>)[key] ?? "")}</td>`).join("")}</tr>`)
-      .join("")
-    const html = `﻿<html><head><meta charset="utf-8"></head><body><table border="1"><tr>${head}</tr>${body}</table></body></html>`
-    const url = URL.createObjectURL(new Blob([html], { type: "application/vnd.ms-excel;charset=utf-8" }))
-    const anchor = document.createElement("a")
-    anchor.href = url
-    anchor.download = `plan-priemok-peredach-${tab}.xls`
-    anchor.click()
-    URL.revokeObjectURL(url)
+    const header = config.map(([, title]) => title)
+    const body = filteredRows.map((row) => config.map(([key]) => String((row as Record<string, unknown>)[key] ?? "")))
+    downloadExcelTable(`plan-priemok-peredach-${tab}`, [header, ...body])
   }
 
   return (

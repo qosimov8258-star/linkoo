@@ -13,6 +13,7 @@ import {
   X,
 } from "lucide-react"
 import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
+import { downloadExcelTable } from "@/lib/excel-export"
 
 type EquipmentRow = {
   client: string
@@ -139,22 +140,8 @@ export function EquipmentEfficiencyView() {
 
   function downloadExcel() {
     const header = ["Клиент", "Факт. продажи", "Факт. продажи оборудования", "Разновидности", "Кол-во продуктов", "Оборудование"]
-    const escapeHtml = (value: string) =>
-      value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;")
-    const tableRows = [
-      `<tr>${header.map((cell) => `<th>${escapeHtml(cell)}</th>`).join("")}</tr>`,
-      ...rows.map((row) =>
-        `<tr>${[row.client, "0 SUM", "0 SUM", "0 SUM", "0 SUM", row.equipment]
-          .map((cell) => `<td>${escapeHtml(cell)}</td>`)
-          .join("")}</tr>`,
-      ),
-    ].join("")
-    const workbook = `<!doctype html><html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel"><head><meta charset="UTF-8"><!--[if gte mso 9]><xml><x:ExcelWorkbook><x:ExcelWorksheets><x:ExcelWorksheet><x:Name>Оборудование</x:Name><x:WorksheetOptions><x:DisplayGridlines/></x:WorksheetOptions></x:ExcelWorksheet></x:ExcelWorksheets></x:ExcelWorkbook></xml><![endif]--><style>table{border-collapse:collapse;font-family:Arial}th{background:#dce6f1;font-weight:bold}th,td{border:1px solid #999;padding:8px;white-space:nowrap}</style></head><body><table>${tableRows}</table></body></html>`
-    const link = document.createElement("a")
-    link.href = URL.createObjectURL(new Blob([`\uFEFF${workbook}`], { type: "application/vnd.ms-excel;charset=utf-8" }))
-    link.download = "equipment-efficiency.xls"
-    link.click()
-    URL.revokeObjectURL(link.href)
+    const body = rows.map((row) => [row.client, "0 SUM", "0 SUM", "0 SUM", "0 SUM", row.equipment])
+    downloadExcelTable("equipment-efficiency", [header, ...body])
   }
 
   return (

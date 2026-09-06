@@ -22,6 +22,7 @@ import { FormEvent, useEffect, useMemo, useState } from "react"
 
 import type { Cashbox as RawCashbox } from "@/components/analytics/cashboxes-data"
 import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
+import { downloadExcelTable } from "@/lib/excel-export"
 
 type Cashbox = { id: number; name: string; currency: string; balance: number }
 type LedgerEntry = {
@@ -295,13 +296,7 @@ export function CashManagementView() {
   function downloadList() {
     const header = ["№", "Описание", "Категория", "Филиал", "Организация", "Дата", "Сумма"]
     const rows = scopedLedger.map((entry) => [entry.id, entry.description, entry.category, entry.branch, entry.organization, fmtDateTime(entry.date), entry.amount])
-    const html = [header, ...rows].map((line) => `<tr>${line.map((cell) => `<td>${String(cell).replaceAll("&", "&amp;").replaceAll("<", "&lt;")}</td>`).join("")}</tr>`).join("")
-    const blob = new Blob([`﻿<html><meta charset="UTF-8"><table>${html}</table></html>`], { type: "application/vnd.ms-excel;charset=utf-8" })
-    const link = document.createElement("a")
-    link.href = URL.createObjectURL(blob)
-    link.download = "cash-management.xls"
-    link.click()
-    URL.revokeObjectURL(link.href)
+    downloadExcelTable("cash-management.xls", [header, ...rows])
   }
 
   return (

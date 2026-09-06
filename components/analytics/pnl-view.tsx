@@ -4,6 +4,7 @@ import { useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
 import { Calendar, ChevronDown, ChevronsUpDown, Download } from "lucide-react"
 import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
+import { downloadExcelTable } from "@/lib/excel-export"
 
 const tabs = ["ВИДЖЕТЫ", "KPI", "БАЛАНС", "ОХВАТ", "ФИЛИАЛ", "P&L", "ДОЛГ КЛИЕНТОВ", "ПРОДАЖА", "ГИБКИЙ ДАШБОРД"] as const
 const tabHref: Partial<Record<(typeof tabs)[number], string>> = {
@@ -147,13 +148,7 @@ export function PnLView() {
   const downloadAll = () => {
     const header = ["Название", "Реализация", "Возвраты", "Чистая реализация", "Валовая прибыль", "Рентабельность ВП (%)"]
     const body = sorted.map((row) => [row.name, row.realization, row.returns, row.netRealization, row.grossProfit, row.profitability.toFixed(1)])
-    const html = [header, ...body].map((line) => `<tr>${line.map((cell) => `<td>${String(cell).replaceAll("&", "&amp;").replaceAll("<", "&lt;")}</td>`).join("")}</tr>`).join("")
-    const blob = new Blob([`﻿<html><meta charset="UTF-8"><table>${html}</table></html>`], { type: "application/vnd.ms-excel;charset=utf-8" })
-    const link = document.createElement("a")
-    link.href = URL.createObjectURL(blob)
-    link.download = "pnl.xls"
-    link.click()
-    URL.revokeObjectURL(link.href)
+    downloadExcelTable("pnl.xls", [header, ...body])
   }
 
   return (

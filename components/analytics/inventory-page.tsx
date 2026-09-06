@@ -73,10 +73,9 @@ export function InventoryPage() {
   const visible = filtered.slice((page - 1) * pageSize, page * pageSize)
 
   function downloadExcel() {
-    const body = filtered.map((r) => `<tr><td>${r.id}</td><td>${r.warehouse}</td><td>${r.author}</td><td>${r.date}</td><td>${r.comment}</td><td>${t(r.status)}</td><td>${r.amount}</td></tr>`).join("")
-    const html = `<html><meta charset="utf-8"><table><tr><th>${t("№")}</th><th>${t("Склад")}</th><th>${t("Создал")}</th><th>${t("Дата создания")}</th><th>${t("Комментарий")}</th><th>${t("Статус")}</th><th>${t("Сумма")}</th></tr>${body}</table></html>`
-    const url = URL.createObjectURL(new Blob([html], { type: "application/vnd.ms-excel;charset=utf-8" }))
-    const link = document.createElement("a"); link.href = url; link.download = "inventory.xls"; link.click(); URL.revokeObjectURL(url)
+    const header = [t("№"), t("Склад"), t("Создал"), t("Дата создания"), t("Комментарий"), t("Статус"), t("Сумма")]
+    const body = filtered.map((r) => [r.id, r.warehouse, r.author, r.date, r.comment, t(r.status), r.amount])
+    downloadExcelTable("inventory", [header, ...body])
   }
 
   async function cancelInventory(id: number) {

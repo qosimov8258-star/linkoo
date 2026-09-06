@@ -12,6 +12,7 @@ import {
   X,
 } from "lucide-react"
 import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
+import { downloadExcelTable } from "@/lib/excel-export"
 import type { Product } from "@/components/analytics/products-data"
 
 type Mode = "quantity" | "cost" | "price"
@@ -75,17 +76,7 @@ function downloadExcel(data: StockRow[]) {
     row.total - row.reserved,
     row.unit,
   ])
-  const table = [headings, ...body]
-    .map((line) => `<tr>${line.map((cell) => `<td>${String(cell).replaceAll("&", "&amp;").replaceAll("<", "&lt;")}</td>`).join("")}</tr>`)
-    .join("")
-  const blob = new Blob([`\ufeff<html><meta charset="UTF-8"><table>${table}</table></html>`], {
-    type: "application/vnd.ms-excel;charset=utf-8",
-  })
-  const link = document.createElement("a")
-  link.href = URL.createObjectURL(blob)
-  link.download = "stock-level.xls"
-  link.click()
-  URL.revokeObjectURL(link.href)
+  downloadExcelTable("stock-level", [headings, ...body])
 }
 
 export function StockLevelView() {

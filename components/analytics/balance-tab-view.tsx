@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation"
 import { ChevronDown, Download, Info } from "lucide-react"
 import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
 import { useLanguage } from "@/lib/i18n/language-context"
+import { downloadExcelTable } from "@/lib/excel-export"
 
 const tabs = ["ВИДЖЕТЫ", "KPI", "БАЛАНС", "ОХВАТ", "ФИЛИАЛ", "P&L", "ДОЛГ КЛИЕНТОВ", "ПРОДАЖА", "ГИБКИЙ ДАШБОРД"] as const
 const tabHref: Partial<Record<(typeof tabs)[number], string>> = {
@@ -151,13 +152,7 @@ export function BalanceTabView() {
       [t("Обязательства перед поставщиками (SUM)"), SUPPLIER_DEBT_SUM_TOTAL, "", ""],
       [t("Обязательства перед поставщиками (USD)"), "", SUPPLIER_DEBT_USD_TOTAL, ""],
     ]
-    const html = [header, ...body].map((line) => `<tr>${line.map((cell) => `<td>${String(cell).replaceAll("&", "&amp;").replaceAll("<", "&lt;")}</td>`).join("")}</tr>`).join("")
-    const blob = new Blob([`﻿<html><meta charset="UTF-8"><table>${html}</table></html>`], { type: "application/vnd.ms-excel;charset=utf-8" })
-    const link = document.createElement("a")
-    link.href = URL.createObjectURL(blob)
-    link.download = "balance.xls"
-    link.click()
-    URL.revokeObjectURL(link.href)
+    downloadExcelTable("balance.xls", [header, ...body])
   }
 
   return (

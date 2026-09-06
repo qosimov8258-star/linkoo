@@ -23,6 +23,7 @@ import { readExcelRows } from "@/lib/excel-import"
 import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
 
 import { transferWarehouses as warehouses, type Transfer, type TransferItem as Item } from "./internal-transfers-data"
+import { downloadExcelTable } from "@/lib/excel-export"
 
 const number = (value: number) => new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 2 }).format(value)
 
@@ -128,13 +129,7 @@ export function InternalTransfersView() {
   const downloadAll = () => {
     const header = ["№", "Со склада", "На склад", "Создал", "Дата создания", "Дата доставки", "Сумма", "Статус"]
     const body = filtered.map((transfer) => [transfer.id, transfer.fromWarehouse, transfer.toWarehouse, transfer.createdBy, transfer.createdAt, transfer.deliveredAt, number(transfer.amount), transfer.status])
-    const html = [header, ...body].map((line) => `<tr>${line.map((cell) => `<td>${String(cell).replaceAll("&", "&amp;").replaceAll("<", "&lt;")}</td>`).join("")}</tr>`).join("")
-    const blob = new Blob([`﻿<html><meta charset="UTF-8"><table>${html}</table></html>`], { type: "application/vnd.ms-excel;charset=utf-8" })
-    const link = document.createElement("a")
-    link.href = URL.createObjectURL(blob)
-    link.download = "internal-transfers.xls"
-    link.click()
-    URL.revokeObjectURL(link.href)
+    downloadExcelTable("internal-transfers.xls", [header, ...body])
   }
 
   return (

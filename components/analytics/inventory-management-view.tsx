@@ -298,13 +298,7 @@ export function InventoryManagementView() {
   const downloadExcel = () => {
     const header = [t("№"), t("Серийный №"), t("Клиент"), t("Тип инвентаря"), t("Склад"), t("Дата прикрепления"), t("Дата проверки")]
     const body = filtered.map((item) => [item.id, item.serialNumber, item.client, item.inventoryType, item.warehouse, item.attachDate, item.checkDate])
-    const html = [header, ...body].map((line) => `<tr>${line.map((cell) => `<td>${String(cell).replaceAll("&", "&amp;").replaceAll("<", "&lt;")}</td>`).join("")}</tr>`).join("")
-    const blob = new Blob([`﻿<html><meta charset="UTF-8"><table>${html}</table></html>`], { type: "application/vnd.ms-excel;charset=utf-8" })
-    const link = document.createElement("a")
-    link.href = URL.createObjectURL(blob)
-    link.download = "inventory.xls"
-    link.click()
-    URL.revokeObjectURL(link.href)
+    downloadExcelTable("inventory", [header, ...body])
   }
 
   const mainTabs: { key: MainTab; label: string }[] = [

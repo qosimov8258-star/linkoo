@@ -12,6 +12,7 @@ import {
   X,
 } from "lucide-react"
 import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
+import { downloadExcelTable } from "@/lib/excel-export"
 
 type TabId = "receipt" | "transfer" | "movement" | "receiptHistory" | "transferHistory"
 
@@ -72,13 +73,7 @@ export function StockMovementPage() {
     const rows = tab === "movement"
       ? filteredMovements.map((r) => [r.product, r.amount, r.series, r.date, r.warehouse, r.type])
       : filteredNormalRows
-    const html = `<html><head><meta charset="utf-8"></head><body><table border="1"><tr>${headers.map((h) => `<th>${h}</th>`).join("")}</tr>${rows.map((r) => `<tr>${r.map((v) => `<td>${v}</td>`).join("")}</tr>`).join("")}</table></body></html>`
-    const url = URL.createObjectURL(new Blob(["\ufeff", html], { type: "application/vnd.ms-excel;charset=utf-8" }))
-    const anchor = document.createElement("a")
-    anchor.href = url
-    anchor.download = "dvizhenie-tovarov.xls"
-    anchor.click()
-    URL.revokeObjectURL(url)
+    downloadExcelTable("dvizhenie-tovarov", [headers, ...rows])
   }
 
   return (

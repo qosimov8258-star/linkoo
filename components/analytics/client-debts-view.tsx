@@ -4,6 +4,7 @@ import { useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
 import { BarChart, ChevronDown, Expand, Filter, Settings, X } from "lucide-react"
 import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
+import { downloadExcelTable } from "@/lib/excel-export"
 import { useLanguage } from "@/lib/i18n/language-context"
 
 const tabs = ["ВИДЖЕТЫ", "KPI", "БАЛАНС", "ОХВАТ", "ФИЛИАЛ", "P&L", "ДОЛГ КЛИЕНТОВ", "ПРОДАЖА", "ГИБКИЙ ДАШБОРД"] as const
@@ -152,23 +153,11 @@ export function ClientDebtsView() {
     if (view === "orders") {
       const header = [t("Заказ №"), t("Клиент"), t("Прошло дней"), t("Сумма заказа"), t("Долг"), t("Срок оплаты"), t("Агент"), t("Общий долг SUM"), t("Общий долг USD"), t("Общий долг Euro"), t("Доставщик"), t("Дата реализации"), t("Дата доставки"), t("Дата создания")]
       const body = filteredOrders.map((row) => [row.id, row.client, row.daysPassed, `${number(row.orderAmount, row.orderAmount % 1 ? 2 : 0)} ${row.orderCurrency}`, number(row.debt, row.debt % 1 ? 2 : 0), row.dueDate, row.agent, number(row.totalDebtSum, 2), number(row.totalDebtUsd, 3), number(row.totalDebtEur), row.courier, row.realizationDate, row.deliveryDate, row.createdAt])
-      const html = [header, ...body].map((line) => `<tr>${line.map((cell) => `<td>${String(cell).replaceAll("&", "&amp;").replaceAll("<", "&lt;")}</td>`).join("")}</tr>`).join("")
-      const blob = new Blob([`﻿<html><meta charset="UTF-8"><table>${html}</table></html>`], { type: "application/vnd.ms-excel;charset=utf-8" })
-      const link = document.createElement("a")
-      link.href = URL.createObjectURL(blob)
-      link.download = "client-debts-orders.xls"
-      link.click()
-      URL.revokeObjectURL(link.href)
+      downloadExcelTable("client-debts-orders", [header, ...body])
     } else {
       const header = [t("Клиент"), `${t("Прошло до")} ${p1} ${t("дней SUM")}`, "USD", `${t("С")} ${p1} ${t("дней - До")} ${p2} SUM`, "USD", `${t("С")} ${p2} ${t("дней - До")} ${p3} SUM`, "USD", `${t("Больше")} ${p3} ${t("дней SUM")}`, "USD", t("Итого SUM"), "USD", t("Тел"), t("Адрес"), t("Ориентир"), t("Ответственный агент"), t("Тип")]
       const body = filteredClients.map((row) => [row.client, 0, 0, 0, 0, 0, 0, number(row.overSum, 2), number(row.overUsd, 3), number(row.overSum, 2), number(row.overUsd, 3), row.phone, row.address, row.landmark, row.agent, row.type])
-      const html = [header, ...body].map((line) => `<tr>${line.map((cell) => `<td>${String(cell).replaceAll("&", "&amp;").replaceAll("<", "&lt;")}</td>`).join("")}</tr>`).join("")
-      const blob = new Blob([`﻿<html><meta charset="UTF-8"><table>${html}</table></html>`], { type: "application/vnd.ms-excel;charset=utf-8" })
-      const link = document.createElement("a")
-      link.href = URL.createObjectURL(blob)
-      link.download = "client-debts-clients.xls"
-      link.click()
-      URL.revokeObjectURL(link.href)
+      downloadExcelTable("client-debts-clients", [header, ...body])
     }
   }
 

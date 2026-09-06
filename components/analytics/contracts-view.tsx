@@ -271,13 +271,7 @@ export function ContractsView() {
   const downloadExcel = () => {
     const header = [t("№"), t("Дата создания"), t("Клиент"), t("Зона"), t("Агент"), t("ИНН"), t("Статус")]
     const body = filtered.map(({ row }) => [row.id, row.createdAt, row.client, row.zone, row.agent, row.inn, t(statusMeta[row.status].label)])
-    const html = [header, ...body].map((line) => `<tr>${line.map((cell) => `<td>${String(cell).replaceAll("&", "&amp;").replaceAll("<", "&lt;")}</td>`).join("")}</tr>`).join("")
-    const blob = new Blob([`﻿<html><meta charset="UTF-8"><table>${html}</table></html>`], { type: "application/vnd.ms-excel;charset=utf-8" })
-    const link = document.createElement("a")
-    link.href = URL.createObjectURL(blob)
-    link.download = "contracts.xls"
-    link.click()
-    URL.revokeObjectURL(link.href)
+    downloadExcelTable("contracts.xls", [header, ...body])
   }
 
   return (

@@ -4,6 +4,7 @@ import { useMemo, useState } from "react"
 import Image from "next/image"
 import { BarChart, ChevronDown, Filter, Search, X } from "lucide-react"
 import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
+import { downloadExcelTable } from "@/lib/excel-export"
 
 type ExpenseRow = { id: number; category: string; sum: number }
 
@@ -54,13 +55,7 @@ export function CategoryExpensesView() {
   const downloadAll = () => {
     const header = ["Категория", "Сумма (SUM)"]
     const body = filtered.map((row) => [row.category, number(row.sum)])
-    const html = [header, ...body].map((line) => `<tr>${line.map((cell) => `<td>${String(cell).replaceAll("&", "&amp;").replaceAll("<", "&lt;")}</td>`).join("")}</tr>`).join("")
-    const blob = new Blob([`﻿<html><meta charset="UTF-8"><table>${html}</table></html>`], { type: "application/vnd.ms-excel;charset=utf-8" })
-    const link = document.createElement("a")
-    link.href = URL.createObjectURL(blob)
-    link.download = "category-expenses.xls"
-    link.click()
-    URL.revokeObjectURL(link.href)
+    downloadExcelTable("category-expenses.xls", [header, ...body])
   }
 
   return (

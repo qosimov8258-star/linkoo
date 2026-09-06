@@ -38,16 +38,9 @@ const stages = [
 const initialBatches: Batch[] = []
 
 function downloadExcel(rows: Batch[]) {
-  const escape = (value: string) => value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;")
   const headers = ["№", "Дата начала", "Дата завершения", "Дата партии", "Этап производства", "Пользователь", "Статус"]
   const body = rows.map((row) => [String(row.id), row.startedAt, row.completedAt, row.batchDate, row.stage, row.user, row.status])
-  const table = [headers, ...body].map((row, index) => `<tr>${row.map((cell) => `<${index ? "td" : "th"}>${escape(cell)}</${index ? "td" : "th"}>`).join("")}</tr>`).join("")
-  const html = `<!doctype html><html xmlns:x="urn:schemas-microsoft-com:office:excel"><head><meta charset="utf-8"><style>table{border-collapse:collapse;font-family:Arial}th,td{border:1px solid #aaa;padding:8px;white-space:nowrap}th{background:#626b7e;color:white}</style></head><body><table>${table}</table></body></html>`
-  const link = document.createElement("a")
-  link.href = URL.createObjectURL(new Blob([`\uFEFF${html}`], { type: "application/vnd.ms-excel;charset=utf-8" }))
-  link.download = "production-batches.xls"
-  link.click()
-  URL.revokeObjectURL(link.href)
+  downloadExcelTable("production-batches", [headers, ...body])
 }
 
 export function ProductionBatchesView() {

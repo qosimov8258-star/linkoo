@@ -12,6 +12,7 @@ import {
   X,
 } from "lucide-react"
 import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
+import { downloadExcelTable } from "@/lib/excel-export"
 
 type Mode = "quantity" | "cost" | "price"
 
@@ -119,16 +120,7 @@ export function MaterialReportViewV2() {
       row.article ?? "",
       ...groups.flatMap(([quantity, cost]) => [row[quantity], row[cost]]),
     ])
-    const table = [header, ...body]
-      .map((line) => `<Row>${line.map((cell) => `<Cell><Data ss:Type="${typeof cell === "number" ? "Number" : "String"}">${cell}</Data></Cell>`).join("")}</Row>`)
-      .join("")
-    const xml = `<?xml version="1.0"?><Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"><Worksheet ss:Name="Материальный отчет"><Table>${table}</Table></Worksheet></Workbook>`
-    const url = URL.createObjectURL(new Blob([xml], { type: "application/vnd.ms-excel;charset=utf-8" }))
-    const link = document.createElement("a")
-    link.href = url
-    link.download = "material-report.xls"
-    link.click()
-    URL.revokeObjectURL(url)
+    downloadExcelTable("material-report", [header, ...body])
   }
 
   const selectedMode = mode === "quantity" ? "Количество" : mode === "cost" ? "Себестоимость" : "Прайс лист"
