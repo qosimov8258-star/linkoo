@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react"
 import { useRouter } from "next/navigation"
+import dynamic from "next/dynamic"
 import {
   BarChart3,
   ListFilter,
@@ -20,12 +21,27 @@ import {
   X,
   Download,
   CheckCircle2,
+  PlusCircle,
+  Minus,
+  Info,
+  MapPin,
 } from "lucide-react"
 import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
 import { mapHeaderColumns, readExcelRows } from "@/lib/excel-import"
 import { useLanguage } from "@/lib/i18n/language-context"
 
 import { clientTabs, type Client } from "./clients-data"
+
+const LocationPicker = dynamic(() => import("./location-picker").then((m) => m.LocationPicker), {
+  ssr: false,
+  loading: () => (
+    <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/50 p-4">
+      <div className="flex h-[460px] w-full max-w-2xl items-center justify-center rounded bg-white text-sm text-slate-400">
+        Загрузка карты...
+      </div>
+    </div>
+  ),
+})
 
 const pageSizes = [10, 25, 50, 100]
 
@@ -53,7 +69,7 @@ type ViewMode = "comfortable" | "compact"
 
 type ClientForm = {
   name: string
-  phone: string
+  phones: string[]
   inn: string
   type: string
   zone: string
@@ -63,13 +79,29 @@ type ClientForm = {
   collector: string
   balance: string
   tab: Client["tab"]
+  branch: string
+  salesChannel: string
+  realizationBy: string
+  address: string
+  landmark: string
+  locationLat: number | null
+  locationLng: number | null
+  telegramLocationLink: string
+  code: string
+  contactPerson: string
+  note: string
+  autoDelivery: boolean
+  unlimitedDebt: boolean
 }
 
-type ClientTextField = Exclude<keyof ClientForm, "tab">
+type ClientTextField = Exclude<
+  keyof ClientForm,
+  "tab" | "phones" | "locationLat" | "locationLng" | "autoDelivery" | "unlimitedDebt"
+>
 
 const emptyClientForm: ClientForm = {
   name: "",
-  phone: "",
+  phones: [""],
   inn: "",
   type: "",
   zone: "",
@@ -79,6 +111,19 @@ const emptyClientForm: ClientForm = {
   collector: "Не указано",
   balance: "",
   tab: "all",
+  branch: "",
+  salesChannel: "",
+  realizationBy: "",
+  address: "",
+  landmark: "",
+  locationLat: null,
+  locationLng: null,
+  telegramLocationLink: "",
+  code: "",
+  contactPerson: "",
+  note: "",
+  autoDelivery: false,
+  unlimitedDebt: false,
 }
 
 function formatBalance(value: number) {
@@ -86,9 +131,12 @@ function formatBalance(value: number) {
 }
 
 function formFromClient(client: Client): ClientForm {
+  const phones = client.phone
+    ? client.phone.split(",").map((phone) => phone.trim()).filter(Boolean)
+    : []
   return {
     name: client.name,
-    phone: client.phone,
+    phones: phones.length ? phones : [""],
     inn: client.inn ?? "",
     type: client.type,
     zone: client.zone,
@@ -98,6 +146,19 @@ function formFromClient(client: Client): ClientForm {
     collector: client.collector,
     balance: client.balance == null ? "" : String(client.balance),
     tab: client.tab,
+    branch: client.branch ?? "",
+    salesChannel: client.salesChannel ?? "",
+    realizationBy: client.realizationBy ?? "",
+    address: client.address ?? "",
+    landmark: client.landmark ?? "",
+    locationLat: client.locationLat ?? null,
+    locationLng: client.locationLng ?? null,
+    telegramLocationLink: client.telegramLocationLink ?? "",
+    code: client.code ?? "",
+    contactPerson: client.contactPerson ?? "",
+    note: client.note ?? "",
+    autoDelivery: client.autoDelivery ?? false,
+    unlimitedDebt: client.unlimitedDebt ?? false,
   }
 }
 
@@ -292,16 +353,43 @@ export function ClientsView() {
     setFormError("")
   }
 
+  function updatePhone(index: number, value: string) {
+    setForm((current) => ({ ...current, phones: current.phones.map((entry, i) => (i === index ? value : entry)) }))
+    setFormError("")
+  }
+
+  function addPhone() {
+    setForm((current) => ({ ...current, phones: [...current.phones, ""] }))
+  }
+
+  function removePhone(index: number) {
+    setForm((current) => ({ ...current, phones: current.phones.filter((_, i) => i !== index) }))
+  }
+
+  function updateFormToggle(field: "autoDelivery" | "unlimitedDebt", value: boolean) {
+    setForm((current) => ({ ...current, [field]: value }))
+  }
+
+  function setFormLocation(lat: number | null, lng: number | null) {
+    setForm((current) => ({ ...current, locationLat: lat, locationLng: lng }))
+  }
+
   const [saving, setSaving] = useState(false)
 
   async function saveClient(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const name = form.name.trim()
-    const phone = form.phone.trim()
+    const phone = form.phones.map((entry) => entry.trim()).filter(Boolean).join(", ")
     const type = form.type.trim()
     const zone = form.zone.trim()
+    const address = form.address.trim()
+    const landmark = form.landmark.trim()
     if (!name || !phone || !type || !zone) {
       setFormError(t("Заполните название, телефон, тип и зону"))
+      return
+    }
+    if (modalMode === "add" && (!address || !landmark)) {
+      setFormError(t("Заполните адрес и ориентир"))
       return
     }
 
@@ -323,6 +411,19 @@ export function ClientsView() {
       collector: form.collector.trim() || "Не указано",
       balance: parsedBalance,
       tab: form.tab,
+      branch: form.branch.trim() || undefined,
+      salesChannel: form.salesChannel.trim() || undefined,
+      realizationBy: form.realizationBy.trim() || undefined,
+      address,
+      landmark,
+      locationLat: form.locationLat ?? undefined,
+      locationLng: form.locationLng ?? undefined,
+      telegramLocationLink: form.telegramLocationLink.trim() || undefined,
+      code: form.code.trim() || undefined,
+      contactPerson: form.contactPerson.trim() || undefined,
+      note: form.note.trim() || undefined,
+      autoDelivery: form.autoDelivery,
+      unlimitedDebt: form.unlimitedDebt,
     }
 
     setSaving(true)
@@ -955,11 +1056,17 @@ export function ClientsView() {
           form={form}
           error={formError}
           saving={saving}
+          zoneOptions={zoneOptions}
           onTextChange={updateFormField}
           onTabChange={(tab) => {
             setForm((current) => ({ ...current, tab }))
             setFormError("")
           }}
+          onPhoneChange={updatePhone}
+          onPhoneAdd={addPhone}
+          onPhoneRemove={removePhone}
+          onToggleChange={updateFormToggle}
+          onLocationChange={setFormLocation}
           onClose={() => setModalMode(null)}
           onSubmit={saveClient}
         />
@@ -995,13 +1102,21 @@ function HeaderButton({
   )
 }
 
+type OptionItem = { name: string }
+
 function ClientModal({
   mode,
   form,
   error,
   saving,
+  zoneOptions,
   onTextChange,
   onTabChange,
+  onPhoneChange,
+  onPhoneAdd,
+  onPhoneRemove,
+  onToggleChange,
+  onLocationChange,
   onClose,
   onSubmit,
 }: {
@@ -1009,150 +1124,316 @@ function ClientModal({
   form: ClientForm
   error: string
   saving: boolean
+  zoneOptions: string[]
   onTextChange: (field: ClientTextField, value: string) => void
   onTabChange: (tab: Client["tab"]) => void
+  onPhoneChange: (index: number, value: string) => void
+  onPhoneAdd: () => void
+  onPhoneRemove: (index: number) => void
+  onToggleChange: (field: "autoDelivery" | "unlimitedDebt", value: boolean) => void
+  onLocationChange: (lat: number | null, lng: number | null) => void
   onClose: () => void
   onSubmit: (event: FormEvent<HTMLFormElement>) => void
 }) {
   const { t } = useLanguage()
+  const [branchOptions, setBranchOptions] = useState<string[]>([])
+  const [typeOptions, setTypeOptions] = useState<string[]>([])
+  const [addTypeOpen, setAddTypeOpen] = useState(false)
+  const [newTypeName, setNewTypeName] = useState("")
+  const [savingType, setSavingType] = useState(false)
+  const [locationPickerOpen, setLocationPickerOpen] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    async function loadOptions() {
+      const [branchesRes, typesRes] = await Promise.all([
+        fetch("/api/branches").catch(() => null),
+        fetch("/api/client-types").catch(() => null),
+      ])
+      if (cancelled) return
+      if (branchesRes?.ok) setBranchOptions(((await branchesRes.json()) as OptionItem[]).map((item) => item.name))
+      if (typesRes?.ok) setTypeOptions(((await typesRes.json()) as OptionItem[]).map((item) => item.name))
+    }
+    void loadOptions()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  // The client's current branch/type might not be in the fetched list (deleted
+  // elsewhere, or entered before that directory existed) — keep it selectable
+  // so saving the form never silently drops the existing value.
+  const branchSelectOptions = form.branch && !branchOptions.includes(form.branch) ? [form.branch, ...branchOptions] : branchOptions
+  const typeSelectOptions = form.type && !typeOptions.includes(form.type) ? [form.type, ...typeOptions] : typeOptions
+
+  async function saveNewType(event: FormEvent) {
+    event.preventDefault()
+    const trimmed = newTypeName.trim()
+    if (!trimmed) return
+    setSavingType(true)
+    try {
+      const response = await fetch("/api/client-types", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: trimmed }),
+      })
+      if (response.ok) {
+        setTypeOptions((current) => (current.includes(trimmed) ? current : [...current, trimmed]))
+        onTextChange("type", trimmed)
+        setNewTypeName("")
+        setAddTypeOpen(false)
+      }
+    } finally {
+      setSavingType(false)
+    }
+  }
+
   return (
     <div
-      className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/45 p-4"
+      className="fixed inset-0 z-[80] flex items-center justify-center bg-black/45 p-4"
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) onClose()
       }}
     >
-      <div
+      <form
+        onSubmit={onSubmit}
         role="dialog"
         aria-modal="true"
         aria-labelledby="client-modal-title"
-        className="max-h-[calc(100vh-2rem)] w-full max-w-3xl overflow-y-auto rounded-xl bg-white shadow-2xl"
+        className="flex max-h-[calc(100vh-2rem)] w-full max-w-4xl flex-col overflow-hidden rounded bg-white shadow-2xl"
       >
-        <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-200 bg-white px-6 py-4">
-          <h2 id="client-modal-title" className="text-xl font-bold text-slate-800">
-            {mode === "add" ? t("Добавить клиента") : t("Изменить клиента")}
-          </h2>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label={t("Закрыть окно")}
-            className="rounded-md p-2 text-slate-500 transition-colors hover:bg-slate-100"
-          >
+        <header className="flex items-center justify-between border-b p-6">
+          <b id="client-modal-title" className="uppercase">
+            {mode === "add" ? t("Добавление клиента") : t("Изменить клиента")}
+          </b>
+          <button type="button" onClick={onClose} aria-label={t("Закрыть")}>
             <X className="h-5 w-5" />
           </button>
-        </div>
+        </header>
 
-        <form onSubmit={onSubmit} className="space-y-5 p-6">
-          <div className="grid gap-4 sm:grid-cols-2">
-            <ModalInput
-              label={t("Название")}
-              value={form.name}
-              onChange={(value) => onTextChange("name", value)}
-              required
-              autoFocus
-            />
-            <ModalInput
-              label={t("Телефон")}
-              type="tel"
-              value={form.phone}
-              onChange={(value) => onTextChange("phone", value)}
-              required
-            />
-            <ModalInput
-              label={t("ИНН")}
-              value={form.inn}
-              onChange={(value) => onTextChange("inn", value)}
-            />
-            <ModalInput
-              label={t("Баланс")}
-              type="number"
-              value={form.balance}
-              onChange={(value) => onTextChange("balance", value)}
-            />
-            <ModalInput
-              label={t("Тип клиента")}
-              value={form.type}
-              onChange={(value) => onTextChange("type", value)}
-              required
-            />
-            <ModalInput
-              label={t("Зона")}
-              value={form.zone}
-              onChange={(value) => onTextChange("zone", value)}
-              required
-            />
-            <ModalInput
-              label={t("Агент зоны")}
-              value={form.zoneAgent}
-              onChange={(value) => onTextChange("zoneAgent", value)}
-            />
-            <ModalInput
-              label={t("Ответственный агент")}
-              value={form.agent}
-              onChange={(value) => onTextChange("agent", value)}
-            />
-            <ModalInput
-              label={t("Ответственный доставщик")}
-              value={form.deliverer}
-              onChange={(value) => onTextChange("deliverer", value)}
-            />
-            <ModalInput
-              label={t("Ответственный инкассатор")}
-              value={form.collector}
-              onChange={(value) => onTextChange("collector", value)}
-            />
-            <label className="flex flex-col gap-1.5 text-sm font-semibold text-slate-700">
-              {t("Статус")}
-              <select
-                value={form.tab}
-                onChange={(event) => onTabChange(event.target.value as Client["tab"])}
-                className="rounded-md border border-slate-200 bg-white px-3 py-2.5 font-normal outline-none transition-colors focus:border-brand-blue"
-              >
-                {clientTabs.map((tab) => (
-                  <option key={tab.id} value={tab.id}>
-                    {t(tab.label)}
-                  </option>
-                ))}
-              </select>
-            </label>
+        <div className="flex-1 overflow-y-auto p-8">
+          <div className="grid gap-x-10 gap-y-8 lg:grid-cols-2">
+            {/* Left column */}
+            <div className="space-y-6">
+              <section className="space-y-4">
+                <SectionTitle>{t("Общая информация")}</SectionTitle>
+                <FieldInput label={t("Наименование")} required autoFocus value={form.name} onChange={(value) => onTextChange("name", value)} />
+
+                <div className="flex items-end gap-2">
+                  <FieldSelect
+                    label={t("Тип клиента")}
+                    required
+                    value={form.type}
+                    onChange={(value) => onTextChange("type", value)}
+                    options={typeSelectOptions}
+                    className="flex-1"
+                  />
+                  <button
+                    type="button"
+                    title={t("Добавить тип клиента")}
+                    onClick={() => setAddTypeOpen(true)}
+                    className="mb-2 shrink-0 text-[#5fb583] hover:text-[#4a9d6d]"
+                  >
+                    <PlusCircle className="h-5 w-5" />
+                  </button>
+                </div>
+
+                <FieldInput
+                  label={t("Зона")}
+                  required
+                  value={form.zone}
+                  onChange={(value) => onTextChange("zone", value)}
+                  listId="client-zone-options"
+                  listOptions={zoneOptions}
+                />
+
+                <FieldSelect label={t("Филиал")} value={form.branch} onChange={(value) => onTextChange("branch", value)} options={branchSelectOptions} placeholder={t("Не указано")} />
+                <FieldInput label={t("Канал продаж")} value={form.salesChannel} onChange={(value) => onTextChange("salesChannel", value)} />
+                <FieldInput label={t("Реализация по")} value={form.realizationBy} onChange={(value) => onTextChange("realizationBy", value)} />
+                <FieldInput label={t("ИНН")} value={form.inn} onChange={(value) => onTextChange("inn", value)} />
+              </section>
+
+              <section className="space-y-4 border-t border-dashed border-slate-200 pt-6">
+                <SectionTitle>{t("Ответственные лица")}</SectionTitle>
+                <FieldInput label={t("Агент зоны")} value={form.zoneAgent} onChange={(value) => onTextChange("zoneAgent", value)} />
+                <FieldInput label={t("Ответственный агент")} value={form.agent} onChange={(value) => onTextChange("agent", value)} />
+                <FieldInput label={t("Ответственный доставщик")} value={form.deliverer} onChange={(value) => onTextChange("deliverer", value)} />
+                <FieldInput label={t("Ответственный инкассатор")} value={form.collector} onChange={(value) => onTextChange("collector", value)} />
+              </section>
+
+              <section className="space-y-4 border-t border-dashed border-slate-200 pt-6">
+                <SectionTitle>{t("Баланс и статус")}</SectionTitle>
+                <FieldInput label={t("Баланс")} type="number" value={form.balance} onChange={(value) => onTextChange("balance", value)} />
+                <FieldSelect
+                  label={t("Статус")}
+                  value={form.tab}
+                  onChange={(value) => onTabChange(value as Client["tab"])}
+                  options={clientTabs.map((tab) => tab.id)}
+                  optionLabels={Object.fromEntries(clientTabs.map((tab) => [tab.id, t(tab.label)]))}
+                />
+              </section>
+            </div>
+
+            {/* Right column */}
+            <div className="space-y-6">
+              <section className="space-y-4">
+                <SectionTitle>{t("Адрес и местоположение")}</SectionTitle>
+                <FieldInput label={t("Адрес")} required={mode === "add"} value={form.address} onChange={(value) => onTextChange("address", value)} />
+                <FieldInput label={t("Ориентир")} required={mode === "add"} value={form.landmark} onChange={(value) => onTextChange("landmark", value)} />
+
+                <div>
+                  <button
+                    type="button"
+                    onClick={() => setLocationPickerOpen(true)}
+                    className="inline-flex items-center gap-1.5 text-sm font-medium text-[#4f70e7] hover:underline"
+                  >
+                    <MapPin className="h-4 w-4" />
+                    {t("отметить местоположение на карте")}
+                  </button>
+                  {form.locationLat != null && form.locationLng != null && (
+                    <div className="mt-2 flex items-center gap-2 text-sm text-slate-500">
+                      {t("Координаты")}: {form.locationLat.toFixed(6)}, {form.locationLng.toFixed(6)}
+                      <button
+                        type="button"
+                        title={t("Убрать точку")}
+                        onClick={() => onLocationChange(null, null)}
+                        className="text-rose-400 hover:text-rose-600"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                <FieldInput
+                  label={t("Ссылка локации из телеграм")}
+                  value={form.telegramLocationLink}
+                  onChange={(value) => onTextChange("telegramLocationLink", value)}
+                  info={t("Ссылка на геолокацию, отправленную клиентом в Telegram")}
+                />
+              </section>
+
+              <section className="space-y-4 border-t border-dashed border-slate-200 pt-6">
+                <SectionTitle>{t("Контактные данные")}</SectionTitle>
+                <FieldInput label={t("Код")} value={form.code} onChange={(value) => onTextChange("code", value)} />
+
+                <div className="space-y-2">
+                  <span className="font-medium text-slate-700">
+                    {t("Номер телефона")} <span className="text-red-500">*</span>
+                  </span>
+                  {form.phones.map((phone, index) => (
+                    <div key={index} className="flex items-center gap-2 border-b border-slate-200 pb-2">
+                      <input
+                        type="tel"
+                        value={phone}
+                        required={index === 0}
+                        autoFocus={index === 0 && mode === "add"}
+                        onChange={(event) => onPhoneChange(index, event.target.value)}
+                        className="block w-full outline-none"
+                      />
+                      {index === form.phones.length - 1 ? (
+                        <button type="button" title={t("Добавить номер")} onClick={onPhoneAdd} className="shrink-0 text-[#5fb583] hover:text-[#4a9d6d]">
+                          <PlusCircle className="h-5 w-5" />
+                        </button>
+                      ) : (
+                        <button type="button" title={t("Удалить номер")} onClick={() => onPhoneRemove(index)} className="shrink-0 text-rose-400 hover:text-rose-600">
+                          <Minus className="h-5 w-5" />
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+
+                <FieldInput label={t("Контактное лицо")} value={form.contactPerson} onChange={(value) => onTextChange("contactPerson", value)} />
+                <FieldInput label={t("Заметка")} textarea value={form.note} onChange={(value) => onTextChange("note", value)} />
+              </section>
+
+              <section className="space-y-3 border-t border-dashed border-slate-200 pt-6">
+                <SectionTitle>{t("Настройки клиента")}</SectionTitle>
+                <ToggleRow label={t("Автоматическая доставка")} checked={form.autoDelivery} onChange={(value) => onToggleChange("autoDelivery", value)} />
+                <ToggleRow label={t("Неограниченный долг")} checked={form.unlimitedDebt} onChange={(value) => onToggleChange("unlimitedDebt", value)} />
+              </section>
+            </div>
           </div>
 
           {error && (
-            <p role="alert" className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            <p role="alert" className="mt-6 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
               {error}
             </p>
           )}
+        </div>
 
-          <div className="flex justify-end gap-3 border-t border-slate-100 pt-4">
-            <button
-              type="button"
-              onClick={onClose}
-              disabled={saving}
-              className="rounded-md border border-slate-200 px-5 py-2.5 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50 disabled:opacity-60"
-            >
-              {t("Отмена")}
-            </button>
-            <button
-              type="submit"
-              disabled={saving}
-              className="rounded-md bg-brand-green px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-brand-green-dark disabled:cursor-wait disabled:opacity-60"
-            >
-              {saving ? t("Сохранение...") : mode === "add" ? t("Добавить") : t("Сохранить")}
-            </button>
-          </div>
-        </form>
-      </div>
+        <footer className="flex items-center justify-end gap-3 border-t p-5">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={saving}
+            className="rounded border border-slate-200 px-5 py-2.5 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50 disabled:opacity-60"
+          >
+            {t("Отмена")}
+          </button>
+          <button
+            type="submit"
+            disabled={saving}
+            className="rounded bg-[#6ccd8b] px-6 py-2.5 text-sm font-semibold text-white transition-colors hover:brightness-95 disabled:cursor-wait disabled:opacity-60"
+          >
+            {saving ? t("Сохранение...") : mode === "add" ? t("Добавить") : t("Сохранить")}
+          </button>
+        </footer>
+      </form>
+
+      {addTypeOpen && (
+        <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/45 p-4" onMouseDown={(event) => event.stopPropagation()}>
+          <form onSubmit={saveNewType} className="w-full max-w-sm rounded bg-white p-6">
+            <div className="mb-4 flex items-center justify-between">
+              <b className="uppercase">{t("Добавить тип клиента")}</b>
+              <button type="button" onClick={() => setAddTypeOpen(false)} aria-label={t("Закрыть")}>
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <label className="block border-b border-slate-200 pb-2 text-sm font-medium">
+              {t("Наименование")} <span className="text-red-500">*</span>
+              <input autoFocus value={newTypeName} onChange={(event) => setNewTypeName(event.target.value)} className="mt-2 block w-full outline-none" />
+            </label>
+            <div className="mt-5 flex justify-end">
+              <button type="submit" disabled={savingType} className="rounded bg-[#6ccd8b] px-5 py-2.5 font-semibold text-white hover:brightness-95 disabled:opacity-60">
+                {savingType ? t("Сохранение...") : t("Сохранить")}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {locationPickerOpen && (
+        <LocationPicker
+          initialLat={form.locationLat ?? undefined}
+          initialLng={form.locationLng ?? undefined}
+          onCancel={() => setLocationPickerOpen(false)}
+          onConfirm={(lat, lng) => {
+            onLocationChange(lat, lng)
+            setLocationPickerOpen(false)
+          }}
+        />
+      )}
     </div>
   )
 }
 
-function ModalInput({
+function SectionTitle({ children }: { children: React.ReactNode }) {
+  return <h3 className="text-base font-bold text-[#4f70e7]">{children}</h3>
+}
+
+function FieldInput({
   label,
   value,
   onChange,
   type = "text",
   required = false,
   autoFocus = false,
+  textarea = false,
+  info,
+  listId,
+  listOptions,
 }: {
   label: string
   value: string
@@ -1160,22 +1441,104 @@ function ModalInput({
   type?: "text" | "tel" | "number"
   required?: boolean
   autoFocus?: boolean
+  textarea?: boolean
+  info?: string
+  listId?: string
+  listOptions?: string[]
 }) {
   return (
-    <label className="flex flex-col gap-1.5 text-sm font-semibold text-slate-700">
-      <span>
+    <label className="block border-b border-slate-200 pb-2 font-medium text-slate-700">
+      <span className="inline-flex items-center gap-1">
         {label}
-        {required && <span className="ml-1 text-red-500">*</span>}
+        {required && <span className="text-red-500">*</span>}
+        {info && (
+          <span title={info}>
+            <Info className="h-3.5 w-3.5 text-slate-400" />
+          </span>
+        )}
       </span>
-      <input
-        type={type}
+      {textarea ? (
+        <textarea
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          rows={2}
+          className="mt-2 block w-full resize-none outline-none"
+        />
+      ) : (
+        <input
+          type={type}
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          required={required}
+          autoFocus={autoFocus}
+          step={type === "number" ? "any" : undefined}
+          list={listId}
+          className="mt-2 block w-full outline-none"
+        />
+      )}
+      {listId && listOptions && (
+        <datalist id={listId}>
+          {listOptions.map((option) => (
+            <option key={option} value={option} />
+          ))}
+        </datalist>
+      )}
+    </label>
+  )
+}
+
+function FieldSelect({
+  label,
+  value,
+  onChange,
+  options,
+  optionLabels,
+  required = false,
+  placeholder = "Выберите...",
+  className,
+}: {
+  label: string
+  value: string
+  onChange: (value: string) => void
+  options: string[]
+  optionLabels?: Record<string, string>
+  required?: boolean
+  placeholder?: string
+  className?: string
+}) {
+  return (
+    <label className={`block border-b border-slate-200 pb-2 font-medium text-slate-700 ${className ?? ""}`}>
+      {label}
+      {required && <span className="ml-1 text-red-500">*</span>}
+      <select
         value={value}
-        onChange={(event) => onChange(event.target.value)}
         required={required}
-        autoFocus={autoFocus}
-        step={type === "number" ? "any" : undefined}
-        className="rounded-md border border-slate-200 px-3 py-2.5 font-normal outline-none transition-colors focus:border-brand-blue"
-      />
+        onChange={(event) => onChange(event.target.value)}
+        className="mt-2 block w-full bg-white outline-none"
+      >
+        <option value="">{placeholder}</option>
+        {options.map((option) => (
+          <option key={option} value={option}>
+            {optionLabels?.[option] ?? option}
+          </option>
+        ))}
+      </select>
+    </label>
+  )
+}
+
+function ToggleRow({ label, checked, onChange }: { label: string; checked: boolean; onChange: (value: boolean) => void }) {
+  return (
+    <label className="flex items-center justify-between gap-3 rounded bg-slate-50 p-3">
+      <span className="font-medium text-slate-800">{label}</span>
+      <button
+        type="button"
+        onClick={() => onChange(!checked)}
+        aria-pressed={checked}
+        className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${checked ? "bg-[#4f70e7]" : "bg-slate-300"}`}
+      >
+        <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${checked ? "translate-x-5" : "translate-x-0.5"}`} />
+      </button>
     </label>
   )
 }
@@ -1187,7 +1550,8 @@ function ClientDetail({ client, onClose }: { client: Client; onClose: () => void
   const [paymentOpen, setPaymentOpen] = useState(false)
   const [paymentAmount, setPaymentAmount] = useState("")
   const [paymentDone, setPaymentDone] = useState(false)
-  const hasPhone = client.phone && client.phone !== "-"
+  const primaryPhone = client.phone.split(",")[0]?.trim() ?? ""
+  const hasPhone = primaryPhone !== "" && primaryPhone !== "-"
   return (
     <>
       <button
@@ -1229,7 +1593,7 @@ function ClientDetail({ client, onClose }: { client: Client; onClose: () => void
           <button
             type="button"
             disabled={!hasPhone}
-            onClick={() => hasPhone && (window.location.href = `tel:${client.phone}`)}
+            onClick={() => hasPhone && (window.location.href = `tel:${primaryPhone}`)}
             className="rounded bg-[#6ccd8b] px-4 py-2 font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
           >
             {t("☎ Позвонить")}

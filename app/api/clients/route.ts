@@ -18,6 +18,19 @@ const clientSchema = z.object({
   collector: z.string().trim().optional(),
   balance: z.number().finite().optional(),
   tab: z.enum(["unconfirmed", "problem", "plan", "closing", "all"]).optional(),
+  branch: z.string().trim().optional(),
+  salesChannel: z.string().trim().optional(),
+  realizationBy: z.string().trim().optional(),
+  address: z.string().trim().optional(),
+  landmark: z.string().trim().optional(),
+  locationLat: z.number().finite().optional(),
+  locationLng: z.number().finite().optional(),
+  telegramLocationLink: z.string().trim().optional(),
+  code: z.string().trim().optional(),
+  contactPerson: z.string().trim().optional(),
+  note: z.string().trim().optional(),
+  autoDelivery: z.boolean().optional(),
+  unlimitedDebt: z.boolean().optional(),
 })
 
 export async function GET(request: NextRequest) {
@@ -47,6 +60,19 @@ export async function POST(request: NextRequest) {
     collector: parsed.data.collector || "Не указано",
     balance: parsed.data.balance,
     tab: parsed.data.tab ?? "all",
+    branch: parsed.data.branch,
+    salesChannel: parsed.data.salesChannel,
+    realizationBy: parsed.data.realizationBy,
+    address: parsed.data.address,
+    landmark: parsed.data.landmark,
+    locationLat: parsed.data.locationLat,
+    locationLng: parsed.data.locationLng,
+    telegramLocationLink: parsed.data.telegramLocationLink,
+    code: parsed.data.code,
+    contactPerson: parsed.data.contactPerson,
+    note: parsed.data.note,
+    autoDelivery: parsed.data.autoDelivery,
+    unlimitedDebt: parsed.data.unlimitedDebt,
   })
   return NextResponse.json(client, { status: 201 })
 }

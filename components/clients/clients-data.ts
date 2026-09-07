@@ -12,6 +12,19 @@ export type Client = {
   collector: string
   balance?: number
   tab: "unconfirmed" | "problem" | "plan" | "closing" | "all"
+  branch?: string
+  salesChannel?: string
+  realizationBy?: string
+  address?: string
+  landmark?: string
+  locationLat?: number
+  locationLng?: number
+  telegramLocationLink?: string
+  code?: string
+  contactPerson?: string
+  note?: string
+  autoDelivery?: boolean
+  unlimitedDebt?: boolean
 }
 
 export const clients: Client[] = [
