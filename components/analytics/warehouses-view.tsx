@@ -1,10 +1,11 @@
 "use client"
 
 import { ChevronLeft, ChevronRight, FileText, Pencil, Search, Trash2, X } from "lucide-react"
-import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react"
+import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react"
 
 import { downloadExcelTable } from "@/lib/excel-export"
 import { mapHeaderColumns, readExcelRows } from "@/lib/excel-import"
+import { WarehouseFormModal } from "./warehouse-form-modal"
 import { warehouseBranchPool as branchPool, warehouseManagerPool as managers, type Warehouse } from "./warehouses-data"
 
 const IMPORT_HEADER_ALIASES: Record<string, string> = {
@@ -12,10 +13,6 @@ const IMPORT_HEADER_ALIASES: Record<string, string> = {
   "адрес": "address", "address": "address",
   "филиал": "branch", "branch": "branch",
   "зав склад": "manager", "заведующий": "manager", "manager": "manager",
-}
-
-function emptyDraft() {
-  return { name: "", address: "", branch: branchPool[0], manager: managers[0], online: true }
 }
 
 export function WarehousesView({ embedded = false }: { embedded?: boolean }) {
@@ -26,9 +23,6 @@ export function WarehousesView({ embedded = false }: { embedded?: boolean }) {
   const [query, setQuery] = useState("")
   const [page, setPage] = useState(1)
   const [editing, setEditing] = useState<Warehouse | "new" | null>(null)
-  const [draft, setDraft] = useState(emptyDraft)
-  const [formError, setFormError] = useState("")
-  const [saving, setSaving] = useState(false)
   const [importOpen, setImportOpen] = useState(false)
   const [importFile, setImportFile] = useState<File | null>(null)
   const [importSaving, setImportSaving] = useState(false)
@@ -75,12 +69,10 @@ export function WarehousesView({ embedded = false }: { embedded?: boolean }) {
   }
 
   function openCreate() {
-    setDraft(emptyDraft())
     setEditing("new")
   }
 
   function openEdit(row: Warehouse) {
-    setDraft({ name: row.name, address: row.address, branch: row.branch, manager: row.manager, online: row.online })
     setEditing(row)
   }
 
@@ -96,41 +88,6 @@ export function WarehousesView({ embedded = false }: { embedded?: boolean }) {
       setRows((current) => current.filter((row) => row.id !== id))
     } catch {
       window.alert("Сервер недоступен, попробуйте ещё раз")
-    }
-  }
-
-  async function save(event: FormEvent) {
-    event.preventDefault()
-    if (!draft.name.trim() || !draft.address.trim()) return
-    setSaving(true)
-    setFormError("")
-    try {
-      const isEdit = editing !== "new" && editing !== null
-      const id = isEdit ? (editing as Warehouse).id : null
-      const response = await fetch(isEdit ? `/api/warehouses/${id}` : "/api/warehouses", {
-        method: isEdit ? "PUT" : "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: draft.name.trim(),
-          address: draft.address.trim(),
-          branch: draft.branch,
-          manager: draft.manager,
-          online: draft.online,
-          active: true,
-        }),
-      })
-      if (!response.ok) {
-        const data = await response.json().catch(() => ({}))
-        setFormError(data.error || "Не удалось сохранить склад")
-        return
-      }
-      const saved = (await response.json()) as Warehouse
-      setRows((current) => (isEdit ? current.map((row) => (row.id === id ? saved : row)) : [saved, ...current]))
-      setEditing(null)
-    } catch {
-      setFormError("Сервер недоступен, попробуйте ещё раз")
-    } finally {
-      setSaving(false)
     }
   }
 
@@ -301,48 +258,14 @@ export function WarehousesView({ embedded = false }: { embedded?: boolean }) {
       </table>
 
       {editing !== null && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
-          <form onSubmit={save} className="w-full max-w-lg rounded bg-white">
-            <header className="flex items-center justify-between border-b p-6">
-              <b className="uppercase">{editing === "new" ? "Добавить склад" : "Изменить склад"}</b>
-              <button type="button" onClick={() => setEditing(null)} aria-label="Закрыть">
-                <X className="h-5 w-5" />
-              </button>
-            </header>
-            <div className="space-y-5 p-8">
-              <label className="block border-b border-slate-200 pb-2 font-medium">
-                Наименование <span className="text-red-500">*</span>
-                <input autoFocus value={draft.name} onChange={(event) => setDraft((value) => ({ ...value, name: event.target.value }))} className="mt-2 block w-full outline-none" />
-              </label>
-              <label className="block border-b border-slate-200 pb-2 font-medium">
-                Адрес <span className="text-red-500">*</span>
-                <input value={draft.address} onChange={(event) => setDraft((value) => ({ ...value, address: event.target.value }))} className="mt-2 block w-full outline-none" />
-              </label>
-              <label className="block border-b border-slate-200 pb-2 font-medium">
-                Филиал
-                <select value={draft.branch} onChange={(event) => setDraft((value) => ({ ...value, branch: event.target.value }))} className="mt-2 block w-full bg-white outline-none">
-                  {branchPool.map((branch) => <option key={branch}>{branch}</option>)}
-                </select>
-              </label>
-              <label className="block border-b border-slate-200 pb-2 font-medium">
-                Зав. склад
-                <select value={draft.manager} onChange={(event) => setDraft((value) => ({ ...value, manager: event.target.value }))} className="mt-2 block w-full bg-white outline-none">
-                  {managers.map((manager) => <option key={manager}>{manager}</option>)}
-                </select>
-              </label>
-              <label className="flex items-center gap-2 font-medium">
-                <input type="checkbox" checked={draft.online} onChange={(event) => setDraft((value) => ({ ...value, online: event.target.checked }))} className="h-5 w-5" />
-                Вэнсел подключен
-              </label>
-              {formError && <p className="text-sm font-medium text-rose-600">{formError}</p>}
-            </div>
-            <footer className="flex justify-end border-t p-5">
-              <button type="submit" disabled={saving} className="rounded bg-[#6ccd8b] px-6 py-3 font-semibold text-white hover:brightness-95 disabled:opacity-60">
-                {saving ? "Сохранение..." : "Сохранить"}
-              </button>
-            </footer>
-          </form>
-        </div>
+        <WarehouseFormModal
+          warehouse={editing === "new" ? null : editing}
+          onClose={() => setEditing(null)}
+          onSaved={(saved) => {
+            setRows((current) => (editing !== "new" ? current.map((row) => (row.id === saved.id ? saved : row)) : [saved, ...current]))
+            setEditing(null)
+          }}
+        />
       )}
 
       {importOpen && (

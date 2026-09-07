@@ -24,7 +24,10 @@ import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
 import { downloadExcelTable } from "@/lib/excel-export"
 import { mapHeaderColumns, readExcelRows } from "@/lib/excel-import"
 import { useLanguage } from "@/lib/i18n/language-context"
+import { OrganizationFormModal } from "./organization-form-modal"
 import { returnBranches as branches, returnPaymentTypes as paymentTypes, type ReturnStatus as Status, type SupplierReturn } from "./supplier-returns-data"
+import { SupplierFormModal } from "./supplier-form-modal"
+import { WarehouseFormModal } from "./warehouse-form-modal"
 
 const ITEM_IMPORT_HEADER_ALIASES: Record<string, string> = {
   "товар": "product", "наименование": "product", "название": "product", "product": "product", "name": "product",
@@ -85,7 +88,6 @@ export function SupplierReturnsView({ embedded = false }: { embedded?: boolean }
   const [warehouseOptions, setWarehouseOptions] = useState<string[]>([])
   const [organizationOptions, setOrganizationOptions] = useState<string[]>([])
   const [priceListOptions, setPriceListOptions] = useState<string[]>([])
-  const [categoryOptions, setCategoryOptions] = useState<string[]>([])
   const [productOptions, setProductOptions] = useState<string[]>([])
   const [quickAddSupplierOpen, setQuickAddSupplierOpen] = useState(false)
   const [quickAddWarehouseOpen, setQuickAddWarehouseOpen] = useState(false)
@@ -120,12 +122,11 @@ export function SupplierReturnsView({ embedded = false }: { embedded?: boolean }
   useEffect(() => {
     let cancelled = false
     async function loadOptions() {
-      const [suppliersRes, warehousesRes, organizationsRes, priceListsRes, categoriesRes, productsRes] = await Promise.all([
+      const [suppliersRes, warehousesRes, organizationsRes, priceListsRes, productsRes] = await Promise.all([
         fetch("/api/suppliers").catch(() => null),
         fetch("/api/warehouses").catch(() => null),
         fetch("/api/organizations").catch(() => null),
         fetch("/api/price-lists").catch(() => null),
-        fetch("/api/supplier-categories").catch(() => null),
         fetch("/api/products").catch(() => null),
       ])
       if (cancelled) return
@@ -133,7 +134,6 @@ export function SupplierReturnsView({ embedded = false }: { embedded?: boolean }
       if (warehousesRes?.ok) setWarehouseOptions(((await warehousesRes.json()) as { name: string }[]).map((item) => item.name))
       if (organizationsRes?.ok) setOrganizationOptions(((await organizationsRes.json()) as { name: string }[]).map((item) => item.name))
       if (priceListsRes?.ok) setPriceListOptions(((await priceListsRes.json()) as { name: string }[]).map((item) => item.name))
-      if (categoriesRes?.ok) setCategoryOptions(((await categoriesRes.json()) as { name: string }[]).map((item) => item.name))
       if (productsRes?.ok) {
         const data = (await productsRes.json()) as { name: string }[]
         setProductOptions(Array.from(new Set(data.map((item) => item.name))).sort((a, b) => a.localeCompare(b, "ru")))
@@ -724,232 +724,37 @@ export function SupplierReturnsView({ embedded = false }: { embedded?: boolean }
       )}
 
       {quickAddSupplierOpen && (
-        <QuickAddSupplierModal
-          categoryOptions={categoryOptions}
+        <SupplierFormModal
           onClose={() => setQuickAddSupplierOpen(false)}
-          onCreated={(name) => {
-            setSupplierOptions((current) => (current.includes(name) ? current : [name, ...current]))
-            setDraft((value) => ({ ...value, supplier: name }))
+          onSaved={(created) => {
+            setSupplierOptions((current) => (current.includes(created.name) ? current : [created.name, ...current]))
+            setDraft((value) => ({ ...value, supplier: created.name }))
             setQuickAddSupplierOpen(false)
           }}
         />
       )}
 
       {quickAddWarehouseOpen && (
-        <QuickAddWarehouseModal
+        <WarehouseFormModal
           onClose={() => setQuickAddWarehouseOpen(false)}
-          onCreated={(name) => {
-            setWarehouseOptions((current) => (current.includes(name) ? current : [name, ...current]))
-            setDraft((value) => ({ ...value, warehouse: name }))
+          onSaved={(created) => {
+            setWarehouseOptions((current) => (current.includes(created.name) ? current : [created.name, ...current]))
+            setDraft((value) => ({ ...value, warehouse: created.name }))
             setQuickAddWarehouseOpen(false)
           }}
         />
       )}
 
       {quickAddOrganizationOpen && (
-        <QuickAddOrganizationModal
+        <OrganizationFormModal
           onClose={() => setQuickAddOrganizationOpen(false)}
-          onCreated={(name) => {
-            setOrganizationOptions((current) => (current.includes(name) ? current : [name, ...current]))
-            setDraft((value) => ({ ...value, organization: name }))
+          onSaved={(created) => {
+            setOrganizationOptions((current) => (current.includes(created.name) ? current : [created.name, ...current]))
+            setDraft((value) => ({ ...value, organization: created.name }))
             setQuickAddOrganizationOpen(false)
           }}
         />
       )}
     </main>
-  )
-}
-
-function QuickAddSupplierModal({
-  categoryOptions,
-  onClose,
-  onCreated,
-}: {
-  categoryOptions: string[]
-  onClose: () => void
-  onCreated: (name: string) => void
-}) {
-  const { t } = useLanguage()
-  const [name, setName] = useState("")
-  const [category, setCategory] = useState("")
-  const [address, setAddress] = useState("")
-  const [saving, setSaving] = useState(false)
-  const [touched, setTouched] = useState(false)
-
-  async function submit(event: FormEvent) {
-    event.preventDefault()
-    setTouched(true)
-    if (!name.trim() || !category.trim() || !address.trim()) return
-    setSaving(true)
-    try {
-      const response = await fetch("/api/suppliers", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: name.trim(), category: category.trim(), address: address.trim() }),
-      })
-      if (!response.ok) {
-        const data = await response.json().catch(() => ({}))
-        window.alert(data.error || t("Не удалось создать поставщика"))
-        return
-      }
-      const created = (await response.json()) as { name: string }
-      onCreated(created.name)
-    } catch {
-      window.alert(t("Сервер недоступен, попробуйте ещё раз"))
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  return (
-    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/45 p-4">
-      <form onSubmit={submit} className="w-full max-w-sm rounded bg-white p-6">
-        <div className="mb-4 flex items-center justify-between">
-          <b className="uppercase">{t("Новый поставщик")}</b>
-          <button type="button" onClick={onClose} aria-label={t("Закрыть")}><X className="h-5 w-5" /></button>
-        </div>
-        <div className="space-y-4">
-          <label className="block border-b border-slate-200 pb-2 font-medium">
-            {t("Наименование")} *
-            <input value={name} onChange={(event) => setName(event.target.value)} className="mt-2 block w-full outline-none" />
-            {touched && !name.trim() && <p className="mt-1 text-sm text-rose-500">{t("Обязательное поле")}</p>}
-          </label>
-          <label className="block border-b border-slate-200 pb-2 font-medium">
-            {t("Категория")} *
-            <input value={category} onChange={(event) => setCategory(event.target.value)} list="quick-add-return-supplier-categories" className="mt-2 block w-full outline-none" />
-            <datalist id="quick-add-return-supplier-categories">
-              {categoryOptions.map((item) => <option key={item} value={item} />)}
-            </datalist>
-            {touched && !category.trim() && <p className="mt-1 text-sm text-rose-500">{t("Обязательное поле")}</p>}
-          </label>
-          <label className="block border-b border-slate-200 pb-2 font-medium">
-            {t("Адрес")} *
-            <input value={address} onChange={(event) => setAddress(event.target.value)} className="mt-2 block w-full outline-none" />
-            {touched && !address.trim() && <p className="mt-1 text-sm text-rose-500">{t("Обязательное поле")}</p>}
-          </label>
-        </div>
-        <div className="mt-5 flex justify-end">
-          <button type="submit" disabled={saving} className="rounded bg-[#6ccd8b] px-4 py-2 font-semibold text-white disabled:opacity-60">
-            {saving ? t("Сохранение...") : t("Сохранить")}
-          </button>
-        </div>
-      </form>
-    </div>
-  )
-}
-
-function QuickAddWarehouseModal({ onClose, onCreated }: { onClose: () => void; onCreated: (name: string) => void }) {
-  const { t } = useLanguage()
-  const [name, setName] = useState("")
-  const [address, setAddress] = useState("")
-  const [saving, setSaving] = useState(false)
-  const [touched, setTouched] = useState(false)
-
-  async function submit(event: FormEvent) {
-    event.preventDefault()
-    setTouched(true)
-    if (!name.trim() || !address.trim()) return
-    setSaving(true)
-    try {
-      const response = await fetch("/api/warehouses", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: name.trim(), address: address.trim(), branch: "", manager: "", online: false }),
-      })
-      if (!response.ok) {
-        const data = await response.json().catch(() => ({}))
-        window.alert(data.error || t("Не удалось создать склад"))
-        return
-      }
-      const created = (await response.json()) as { name: string }
-      onCreated(created.name)
-    } catch {
-      window.alert(t("Сервер недоступен, попробуйте ещё раз"))
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  return (
-    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/45 p-4">
-      <form onSubmit={submit} className="w-full max-w-sm rounded bg-white p-6">
-        <div className="mb-4 flex items-center justify-between">
-          <b className="uppercase">{t("Новый склад")}</b>
-          <button type="button" onClick={onClose} aria-label={t("Закрыть")}><X className="h-5 w-5" /></button>
-        </div>
-        <div className="space-y-4">
-          <label className="block border-b border-slate-200 pb-2 font-medium">
-            {t("Наименование")} *
-            <input value={name} onChange={(event) => setName(event.target.value)} className="mt-2 block w-full outline-none" />
-            {touched && !name.trim() && <p className="mt-1 text-sm text-rose-500">{t("Обязательное поле")}</p>}
-          </label>
-          <label className="block border-b border-slate-200 pb-2 font-medium">
-            {t("Адрес")} *
-            <input value={address} onChange={(event) => setAddress(event.target.value)} className="mt-2 block w-full outline-none" />
-            {touched && !address.trim() && <p className="mt-1 text-sm text-rose-500">{t("Обязательное поле")}</p>}
-          </label>
-        </div>
-        <div className="mt-5 flex justify-end">
-          <button type="submit" disabled={saving} className="rounded bg-[#6ccd8b] px-4 py-2 font-semibold text-white disabled:opacity-60">
-            {saving ? t("Сохранение...") : t("Сохранить")}
-          </button>
-        </div>
-      </form>
-    </div>
-  )
-}
-
-function QuickAddOrganizationModal({ onClose, onCreated }: { onClose: () => void; onCreated: (name: string) => void }) {
-  const { t } = useLanguage()
-  const [name, setName] = useState("")
-  const [saving, setSaving] = useState(false)
-  const [touched, setTouched] = useState(false)
-
-  async function submit(event: FormEvent) {
-    event.preventDefault()
-    setTouched(true)
-    if (!name.trim()) return
-    setSaving(true)
-    try {
-      const response = await fetch("/api/organizations", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: name.trim() }),
-      })
-      if (!response.ok) {
-        const data = await response.json().catch(() => ({}))
-        window.alert(data.error || t("Не удалось создать организацию"))
-        return
-      }
-      const created = (await response.json()) as { name: string }
-      onCreated(created.name)
-    } catch {
-      window.alert(t("Сервер недоступен, попробуйте ещё раз"))
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  return (
-    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/45 p-4">
-      <form onSubmit={submit} className="w-full max-w-sm rounded bg-white p-6">
-        <div className="mb-4 flex items-center justify-between">
-          <b className="uppercase">{t("Новая организация")}</b>
-          <button type="button" onClick={onClose} aria-label={t("Закрыть")}><X className="h-5 w-5" /></button>
-        </div>
-        <div className="space-y-4">
-          <label className="block border-b border-slate-200 pb-2 font-medium">
-            {t("Наименование")} *
-            <input value={name} onChange={(event) => setName(event.target.value)} className="mt-2 block w-full outline-none" />
-            {touched && !name.trim() && <p className="mt-1 text-sm text-rose-500">{t("Обязательное поле")}</p>}
-          </label>
-        </div>
-        <div className="mt-5 flex justify-end">
-          <button type="submit" disabled={saving} className="rounded bg-[#6ccd8b] px-4 py-2 font-semibold text-white disabled:opacity-60">
-            {saving ? t("Сохранение...") : t("Сохранить")}
-          </button>
-        </div>
-      </form>
-    </div>
   )
 }

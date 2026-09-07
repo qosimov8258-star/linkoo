@@ -1,19 +1,16 @@
 "use client"
 
 import { ChevronLeft, ChevronRight, FileText, Pencil, Search, Trash2, X } from "lucide-react"
-import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react"
+import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react"
 
 import { downloadExcelTable } from "@/lib/excel-export"
 import { mapHeaderColumns, readExcelRows } from "@/lib/excel-import"
+import { OrganizationFormModal } from "./organization-form-modal"
 import type { Organization } from "./organization-data"
 
 const IMPORT_HEADER_ALIASES: Record<string, string> = {
   "наименование": "name", "название": "name", "name": "name",
   "ограничение по долгу": "limitByDebt", "ограничение по долгу клиента": "limitByDebt", "limit": "limitByDebt",
-}
-
-function emptyDraft() {
-  return { name: "", limitByDebt: false }
 }
 
 export function OrganizationView({ embedded = false }: { embedded?: boolean }) {
@@ -24,9 +21,6 @@ export function OrganizationView({ embedded = false }: { embedded?: boolean }) {
   const [page, setPage] = useState(1)
   const [modalOpen, setModalOpen] = useState(false)
   const [editingId, setEditingId] = useState<number | null>(null)
-  const [draft, setDraft] = useState(emptyDraft)
-  const [formError, setFormError] = useState("")
-  const [saving, setSaving] = useState(false)
   const [importOpen, setImportOpen] = useState(false)
   const [importFile, setImportFile] = useState<File | null>(null)
   const [importSaving, setImportSaving] = useState(false)
@@ -68,15 +62,11 @@ export function OrganizationView({ embedded = false }: { embedded?: boolean }) {
   const visible = filtered.slice((safePage - 1) * pageSize, safePage * pageSize)
 
   function openCreate() {
-    setDraft(emptyDraft())
-    setFormError("")
     setEditingId(null)
     setModalOpen(true)
   }
 
   function openEdit(organization: Organization) {
-    setDraft({ name: organization.name, limitByDebt: organization.limitByDebt })
-    setFormError("")
     setEditingId(organization.id)
     setModalOpen(true)
   }
@@ -93,36 +83,6 @@ export function OrganizationView({ embedded = false }: { embedded?: boolean }) {
       setOrganizations((current) => current.filter((organization) => organization.id !== id))
     } catch {
       window.alert("Сервер недоступен, попробуйте ещё раз")
-    }
-  }
-
-  async function save(event: FormEvent) {
-    event.preventDefault()
-    const name = draft.name.trim()
-    if (!name) return
-
-    setSaving(true)
-    setFormError("")
-    try {
-      const isEdit = editingId !== null
-      const response = await fetch(isEdit ? `/api/organizations/${editingId}` : "/api/organizations", {
-        method: isEdit ? "PUT" : "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, limitByDebt: draft.limitByDebt }),
-      })
-      if (!response.ok) {
-        const data = await response.json().catch(() => ({}))
-        setFormError(data.error || "Не удалось сохранить организацию")
-        return
-      }
-      const saved = (await response.json()) as Organization
-      setOrganizations((current) => (isEdit ? current.map((organization) => (organization.id === editingId ? saved : organization)) : [saved, ...current]))
-      setModalOpen(false)
-      setPage(1)
-    } catch {
-      setFormError("Сервер недоступен, попробуйте ещё раз")
-    } finally {
-      setSaving(false)
     }
   }
 
@@ -265,32 +225,15 @@ export function OrganizationView({ embedded = false }: { embedded?: boolean }) {
       </table>
 
       {modalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
-          <form onSubmit={save} className="w-full max-w-lg rounded bg-white">
-            <header className="flex items-center justify-between border-b p-6">
-              <b className="uppercase">{editingId !== null ? "Изменить организацию" : "Добавить организацию"}</b>
-              <button type="button" onClick={() => setModalOpen(false)} aria-label="Закрыть">
-                <X className="h-5 w-5" />
-              </button>
-            </header>
-            <div className="space-y-5 p-8">
-              <label className="block border-b border-slate-200 pb-2 font-medium">
-                Наименование <span className="text-red-500">*</span>
-                <input autoFocus value={draft.name} onChange={(event) => setDraft((value) => ({ ...value, name: event.target.value }))} className="mt-2 block w-full outline-none" />
-              </label>
-              <label className="flex items-center gap-2">
-                <input type="checkbox" checked={draft.limitByDebt} onChange={(event) => setDraft((value) => ({ ...value, limitByDebt: event.target.checked }))} className="h-4 w-4 accent-[#4f70e7]" />
-                Ограничить по долгу клиента
-              </label>
-              {formError && <p className="text-sm font-medium text-rose-600">{formError}</p>}
-            </div>
-            <footer className="flex justify-end border-t p-5">
-              <button type="submit" disabled={saving} className="rounded bg-[#6ccd8b] px-6 py-3 font-semibold text-white hover:brightness-95 disabled:opacity-60">
-                {saving ? "Сохранение..." : "Сохранить"}
-              </button>
-            </footer>
-          </form>
-        </div>
+        <OrganizationFormModal
+          organization={editingId !== null ? (organizations.find((organization) => organization.id === editingId) ?? null) : null}
+          onClose={() => setModalOpen(false)}
+          onSaved={(saved) => {
+            setOrganizations((current) => (editingId !== null ? current.map((organization) => (organization.id === editingId ? saved : organization)) : [saved, ...current]))
+            setModalOpen(false)
+            setPage(1)
+          }}
+        />
       )}
 
       {importOpen && (

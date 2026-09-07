@@ -1,19 +1,13 @@
 "use client"
 
-import { ChevronLeft, ChevronRight, Download, FileText, Minus, Pencil, Plus, PlusCircle, Search, Trash2, X } from "lucide-react"
-import { ChangeEvent, Fragment, FormEvent, useEffect, useMemo, useRef, useState } from "react"
+import { ChevronLeft, ChevronRight, Download, FileText, Pencil, Plus, PlusCircle, Search, Trash2, X } from "lucide-react"
+import { ChangeEvent, Fragment, useEffect, useMemo, useRef, useState } from "react"
 
 import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
 import { downloadExcelTable } from "@/lib/excel-export"
 import { mapHeaderColumns, readExcelRows } from "@/lib/excel-import"
-import {
-  supplierCategoryPool as categories,
-  supplierBranchPool as branches,
-  supplierOrganizationPool as organizations,
-  type Supplier,
-} from "./suppliers-data"
-
-type DraftContact = { id: number; name: string; email: string; phone: string }
+import { SupplierFormModal } from "./supplier-form-modal"
+import { supplierCategoryPool as categories, type Supplier } from "./suppliers-data"
 
 const IMPORT_HEADER_ALIASES: Record<string, string> = {
   "название": "name", "наименование": "name", "name": "name",
@@ -21,10 +15,6 @@ const IMPORT_HEADER_ALIASES: Record<string, string> = {
   "адрес": "address", "местоположение": "address", "address": "address",
   "филиал": "branch", "branch": "branch",
   "организация": "organization", "organization": "organization",
-}
-
-function emptyDraft() {
-  return { name: "", category: "", address: "", branch: "", organization: "" }
 }
 
 export function SuppliersView({ embedded = false }: { embedded?: boolean }) {
@@ -36,11 +26,6 @@ export function SuppliersView({ embedded = false }: { embedded?: boolean }) {
   const [expandedId, setExpandedId] = useState<number | null>(null)
   const [modalOpen, setModalOpen] = useState(false)
   const [editingId, setEditingId] = useState<number | null>(null)
-  const [draft, setDraft] = useState(emptyDraft)
-  const [draftContacts, setDraftContacts] = useState<DraftContact[]>([{ id: 1, name: "", email: "", phone: "" }])
-  const [categoryOptions, setCategoryOptions] = useState(categories)
-  const [categoryModalOpen, setCategoryModalOpen] = useState(false)
-  const [newCategoryName, setNewCategoryName] = useState("")
   const [importOpen, setImportOpen] = useState(false)
   const [importFile, setImportFile] = useState<File | null>(null)
   const [importSaving, setImportSaving] = useState(false)
@@ -84,15 +69,11 @@ export function SuppliersView({ embedded = false }: { embedded?: boolean }) {
   }
 
   function openCreate() {
-    setDraft(emptyDraft())
-    setDraftContacts([{ id: 1, name: "", email: "", phone: "" }])
     setEditingId(null)
     setModalOpen(true)
   }
 
   function openEdit(row: Supplier) {
-    setDraft({ name: row.name, category: row.category, address: row.address, branch: row.branch, organization: row.organization })
-    setDraftContacts(row.contacts.length ? row.contacts.map((contact) => ({ ...contact })) : [{ id: 1, name: "", email: "", phone: "" }])
     setEditingId(row.id)
     setModalOpen(true)
   }
@@ -110,73 +91,6 @@ export function SuppliersView({ embedded = false }: { embedded?: boolean }) {
       if (expandedId === row.id) setExpandedId(null)
     } catch {
       window.alert("Сервер недоступен, попробуйте ещё раз")
-    }
-  }
-
-  function addContact() {
-    setDraftContacts((current) => [...current, { id: Math.max(0, ...current.map((contact) => contact.id)) + 1, name: "", email: "", phone: "" }])
-  }
-
-  function removeContact(id: number) {
-    setDraftContacts((current) => (current.length > 1 ? current.filter((contact) => contact.id !== id) : current))
-  }
-
-  function updateContact(id: number, patch: Partial<DraftContact>) {
-    setDraftContacts((current) => current.map((contact) => (contact.id === id ? { ...contact, ...patch } : contact)))
-  }
-
-  async function saveCategory(event: FormEvent) {
-    event.preventDefault()
-    const trimmed = newCategoryName.trim()
-    if (!trimmed) return
-    try {
-      await fetch("/api/supplier-categories", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: trimmed }),
-      })
-    } catch {
-      // Category creation is best-effort here; the supplier form still uses it locally.
-    }
-    setCategoryOptions((current) => (current.includes(trimmed) ? current : [...current, trimmed]))
-    setDraft((current) => ({ ...current, category: trimmed }))
-    setNewCategoryName("")
-    setCategoryModalOpen(false)
-  }
-
-  const [saving, setSaving] = useState(false)
-
-  async function save(event: FormEvent) {
-    event.preventDefault()
-    if (!draft.name.trim() || !draft.category || !draft.address.trim()) return
-    const contacts = draftContacts.filter((contact) => contact.name.trim() || contact.phone.trim()).map((contact) => ({ ...contact }))
-    setSaving(true)
-    try {
-      const isEdit = editingId !== null
-      const response = await fetch(isEdit ? `/api/suppliers/${editingId}` : "/api/suppliers", {
-        method: isEdit ? "PUT" : "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: draft.name.trim(),
-          category: draft.category,
-          address: draft.address.trim(),
-          branch: draft.branch || "Не указано",
-          organization: draft.organization || "Не указано",
-          contacts,
-        }),
-      })
-      if (!response.ok) {
-        const data = await response.json().catch(() => ({}))
-        window.alert(data.error || "Не удалось сохранить поставщика")
-        return
-      }
-      const saved = (await response.json()) as Supplier
-      setRows((current) => (isEdit ? current.map((row) => (row.id === editingId ? saved : row)) : [saved, ...current]))
-      setModalOpen(false)
-    } catch {
-      window.alert("Сервер недоступен, попробуйте ещё раз")
-    } finally {
-      setSaving(false)
     }
   }
 
@@ -227,7 +141,7 @@ export function SuppliersView({ embedded = false }: { embedded?: boolean }) {
         if (!record.name) continue
         parsed.push({
           name: record.name,
-          category: record.category || categoryOptions[0] || "",
+          category: record.category || categories[0] || "",
           address: record.address || "Не указано",
           branch: record.branch || "Не указано",
           organization: record.organization || "Не указано",
@@ -419,111 +333,14 @@ export function SuppliersView({ embedded = false }: { embedded?: boolean }) {
       </section>
 
       {modalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
-          <form onSubmit={save} className="flex max-h-[90vh] w-full max-w-lg flex-col rounded bg-white">
-            <header className="flex items-center justify-between border-b p-6">
-              <b className="uppercase">{editingId !== null ? "Изменить поставщика" : "Добавление поставщика"}</b>
-              <button type="button" onClick={() => setModalOpen(false)} aria-label="Закрыть"><X className="h-5 w-5" /></button>
-            </header>
-
-            <div className="flex-1 space-y-5 overflow-y-auto p-8">
-              <label className="block border-b border-slate-200 pb-2 font-medium">
-                Название <span className="text-red-500">*</span>
-                <input autoFocus value={draft.name} onChange={(event) => setDraft((value) => ({ ...value, name: event.target.value }))} className="mt-2 block w-full outline-none" />
-              </label>
-
-              <div className="flex items-end gap-3">
-                <label className="block flex-1 border-b border-slate-200 pb-2 font-medium">
-                  Категория <span className="text-red-500">*</span>
-                  <select value={draft.category} onChange={(event) => setDraft((value) => ({ ...value, category: event.target.value }))} className="mt-2 block w-full bg-white outline-none">
-                    <option value="">Выберите...</option>
-                    {categoryOptions.map((item) => <option key={item}>{item}</option>)}
-                  </select>
-                </label>
-                <button type="button" onClick={() => setCategoryModalOpen(true)} aria-label="Добавить категорию" className="mb-2 text-emerald-500 hover:text-emerald-600">
-                  <PlusCircle className="h-6 w-6" />
-                </button>
-              </div>
-
-              <label className="block border-b border-slate-200 pb-2 font-medium">
-                Местоположение <span className="text-red-500">*</span>
-                <input value={draft.address} onChange={(event) => setDraft((value) => ({ ...value, address: event.target.value }))} className="mt-2 block w-full outline-none" />
-              </label>
-
-              <label className="block border-b border-slate-200 pb-2 font-medium">
-                Филиал
-                <select value={draft.branch} onChange={(event) => setDraft((value) => ({ ...value, branch: event.target.value }))} className="mt-2 block w-full bg-white outline-none">
-                  <option value="">Выберите...</option>
-                  {branches.map((item) => <option key={item}>{item}</option>)}
-                </select>
-              </label>
-
-              <label className="block border-b border-slate-200 pb-2 font-medium">
-                Организация
-                <select value={draft.organization} onChange={(event) => setDraft((value) => ({ ...value, organization: event.target.value }))} className="mt-2 block w-full bg-white outline-none">
-                  <option value="">Выберите...</option>
-                  {organizations.map((item) => <option key={item}>{item}</option>)}
-                </select>
-              </label>
-
-              <div className="rounded bg-slate-50 p-4">
-                <div className="mb-3 flex items-center justify-between">
-                  <p className="font-medium text-slate-500">Контактные данные</p>
-                  {draftContacts.length > 1 && (
-                    <button type="button" onClick={() => removeContact(draftContacts[draftContacts.length - 1].id)} aria-label="Убрать контакт" className="flex h-8 w-8 items-center justify-center rounded-full bg-rose-400 text-white hover:bg-rose-500">
-                      <Minus className="h-4 w-4" />
-                    </button>
-                  )}
-                </div>
-                {draftContacts.map((contact) => (
-                  <div key={contact.id} className="mb-4 space-y-3 border-b border-slate-200 pb-4 last:mb-0 last:border-b-0 last:pb-0">
-                    <label className="block border-b border-slate-200 pb-2 text-sm font-medium">
-                      Контактное лицо <span className="text-red-500">*</span>
-                      <input value={contact.name} onChange={(event) => updateContact(contact.id, { name: event.target.value })} className="mt-2 block w-full bg-transparent outline-none" />
-                    </label>
-                    <div className="grid grid-cols-2 gap-3">
-                      <label className="block border-b border-slate-200 pb-2 text-sm font-medium">
-                        Email
-                        <input value={contact.email} onChange={(event) => updateContact(contact.id, { email: event.target.value })} className="mt-2 block w-full bg-transparent outline-none" />
-                      </label>
-                      <label className="block border-b border-slate-200 pb-2 text-sm font-medium">
-                        Телефон номер <span className="text-red-500">*</span>
-                        <input value={contact.phone} onChange={(event) => updateContact(contact.id, { phone: event.target.value })} className="mt-2 block w-full bg-transparent outline-none" />
-                      </label>
-                    </div>
-                  </div>
-                ))}
-                <button type="button" onClick={addContact} className="mt-3 text-sm text-[#4f70e7] hover:underline">
-                  + добавить контакт
-                </button>
-              </div>
-            </div>
-
-            <footer className="flex justify-end border-t p-5">
-              <button type="submit" disabled={saving} className="rounded bg-[#6ccd8b] px-6 py-3 font-semibold text-white hover:brightness-95 disabled:opacity-60">
-                {saving ? "Сохранение..." : "Сохранить"}
-              </button>
-            </footer>
-          </form>
-        </div>
-      )}
-
-      {categoryModalOpen && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/45 p-4">
-          <form onSubmit={saveCategory} className="w-full max-w-sm rounded bg-white p-6">
-            <div className="mb-4 flex items-center justify-between">
-              <b className="uppercase">Добавить категорию</b>
-              <button type="button" onClick={() => setCategoryModalOpen(false)} aria-label="Закрыть"><X className="h-5 w-5" /></button>
-            </div>
-            <label className="block border-b border-slate-200 pb-2 text-sm font-medium">
-              Наименование категории <span className="text-red-500">*</span>
-              <input autoFocus value={newCategoryName} onChange={(event) => setNewCategoryName(event.target.value)} className="mt-2 block w-full outline-none" />
-            </label>
-            <div className="mt-5 flex justify-end">
-              <button type="submit" className="rounded bg-[#6ccd8b] px-5 py-2.5 font-semibold text-white hover:brightness-95">Сохранить</button>
-            </div>
-          </form>
-        </div>
+        <SupplierFormModal
+          supplier={editingId !== null ? (rows.find((row) => row.id === editingId) ?? null) : null}
+          onClose={() => setModalOpen(false)}
+          onSaved={(saved) => {
+            setRows((current) => (editingId !== null ? current.map((row) => (row.id === editingId ? saved : row)) : [saved, ...current]))
+            setModalOpen(false)
+          }}
+        />
       )}
 
       {importOpen && (
