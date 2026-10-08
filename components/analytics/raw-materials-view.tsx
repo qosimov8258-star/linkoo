@@ -6,10 +6,12 @@ import {
   ChevronLeft,
   ChevronRight,
   Image as ImageIcon,
+  Info,
   ListChecks,
   MoreVertical,
   Pencil,
   Plus,
+  PlusCircle,
   Search,
   Trash2,
   Upload,
@@ -21,12 +23,17 @@ import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
 import { downloadExcelTable } from "@/lib/excel-export"
 import { mapHeaderColumns, readExcelRows } from "@/lib/excel-import"
 import { useLanguage } from "@/lib/i18n/language-context"
+import { productCurrencies } from "./products-data"
 import {
   rawMaterialOrganizations as organizations,
-  rawMaterialPriceListOptions as priceListOptions,
-  rawMaterialUnits as units,
+  rawMaterialPriceListOptions as defaultPriceListNames,
+  rawMaterialUnits as defaultUnits,
+  rawMaterialVatOptions as vatOptions,
+  type PriceListEntry,
   type RawMaterial,
 } from "./raw-materials-data"
+
+type ToggleKey = "onlyMml" | "perfectStore" | "showAsInventory" | "groupOnly" | "showInBot" | "trackExpiry" | "markedProduct"
 
 // Maps flexible spreadsheet header text to raw-material fields so imports
 // work regardless of column order or which template produced the file.
@@ -41,35 +48,57 @@ const IMPORT_HEADER_ALIASES: Record<string, string> = {
   "доп мера": "subUnit", "sub unit": "subUnit",
   "бренд": "brand", "brand": "brand",
   "поставщик": "supplier", "supplier": "supplier",
+  "группа": "group", "group": "group",
   "мин остаток": "minStock", "минимальный остаток": "minStock", "min stock": "minStock",
   "цвет": "color", "color": "color",
   "вес": "mass", "масса": "mass", "weight": "mass",
   "чистый вес": "netWeight", "net weight": "netWeight",
   "объем": "volume", "объём": "volume", "volume": "volume",
+  "икпу": "ikpu", "ikpu": "ikpu",
+  "ндс": "vat", "vat": "vat",
   "описание": "description", "description": "description",
   "порядковый номер": "orderNumber", "order number": "orderNumber",
 }
 
 function emptyDraft() {
   return {
-    name: "", fullName: "", unit: units[0], type: "", supplier: "", brand: "", organization: organizations[0], orderNumber: "", minStock: "", color: "",
-    barcode: "", article: "", integrationCode: "", mass: "", netWeight: "", volume: "", description: "", subUnit: "",
-    canSell: true, onlyMml: false, showAsInventory: false, groupOnly: false, showInBot: true, trackExpiry: false, markedProduct: false,
-    priceList: priceListOptions[0], cashPrice: "", nonCashPrice: "",
+    name: "", fullName: "", barcodes: [""], article: "", integrationCode: "", type: "", supplier: "", brand: "",
+    organization: organizations[0], unit: defaultUnits[0], orderNumber: "", minStock: "", color: "", mass: "", netWeight: "", volume: "",
+    description: "", subUnit: "",
+    group: "", ikpu: "", invoiceUnitCode: "", vat: vatOptions[0], salePoints: "0",
+    canSell: true, onlyMml: false, perfectStore: false, showAsInventory: false, groupOnly: true, showInBot: true, trackExpiry: false, markedProduct: false,
+    limitPrice: false, priceMin: "", priceMax: "",
+    priceEntries: [{ name: defaultPriceListNames[0], cash: "", cashCurrency: "SUM", nonCash: "", nonCashCurrency: "SUM" }],
   }
 }
 
+type Draft = ReturnType<typeof emptyDraft>
+type DraftPriceEntry = Draft["priceEntries"][number]
 type RawMaterialInput = Omit<RawMaterial, "id" | "createdDate">
 
-function draftToInput(draft: ReturnType<typeof emptyDraft>): RawMaterialInput {
+function draftToInput(draft: Draft): RawMaterialInput {
+  const barcode = draft.barcodes.map((code) => code.trim()).filter(Boolean).join(", ") || "не установлен"
+  const priceLists: PriceListEntry[] = draft.priceEntries
+    .filter((entry) => entry.name && (entry.cash || entry.nonCash))
+    .map((entry) => ({
+      name: entry.name,
+      cash: Number(entry.cash) || 0,
+      nonCash: Number(entry.nonCash) || 0,
+      currency: entry.cashCurrency,
+      nonCashCurrency: entry.nonCashCurrency,
+      min: 0,
+      max: 0,
+    }))
+
   return {
     name: draft.name.trim(), fullName: draft.fullName.trim() || draft.name.trim(), unit: draft.unit, type: draft.type, subUnit: draft.subUnit,
     supplier: draft.supplier || "Не указано", brand: draft.brand || "No brand", organization: draft.organization, orderNumber: draft.orderNumber,
-    minStock: draft.minStock || "0", color: draft.color || "Не указано", barcode: draft.barcode || "не установлен", article: draft.article,
+    minStock: draft.minStock || "0", color: draft.color || "Не указано", barcode, article: draft.article,
     integrationCode: draft.integrationCode, mass: draft.mass || "0", netWeight: draft.netWeight || "0", volume: draft.volume || "Не указано",
-    description: draft.description || "Не указано", canSell: draft.canSell, onlyMml: draft.onlyMml, showAsInventory: draft.showAsInventory,
-    groupOnly: draft.groupOnly, showInBot: draft.showInBot, trackExpiry: draft.trackExpiry, markedProduct: draft.markedProduct,
-    priceList: draft.priceList, cashPrice: draft.cashPrice || "0", nonCashPrice: draft.nonCashPrice || "0",
+    description: draft.description || "Не указано", canSell: draft.canSell, onlyMml: draft.onlyMml, perfectStore: draft.perfectStore,
+    showAsInventory: draft.showAsInventory, groupOnly: draft.groupOnly, showInBot: draft.showInBot, trackExpiry: draft.trackExpiry,
+    markedProduct: draft.markedProduct, limitPrice: draft.limitPrice, group: draft.group, ikpu: draft.ikpu, invoiceUnitCode: draft.invoiceUnitCode,
+    vat: draft.vat, salePoints: draft.salePoints || "0", priceLists, priceMin: Number(draft.priceMin) || 0, priceMax: Number(draft.priceMax) || 0,
   }
 }
 
@@ -85,8 +114,14 @@ export function RawMaterialsView({ embedded = false }: { embedded?: boolean }) {
   const [openMenuId, setOpenMenuId] = useState<number | null>(null)
   const [modalOpen, setModalOpen] = useState(false)
   const [editingId, setEditingId] = useState<number | null>(null)
-  const [draft, setDraft] = useState(emptyDraft)
+  const [draft, setDraft] = useState<Draft>(emptyDraft)
+  const [groupOpen, setGroupOpen] = useState(false)
+  const [extraOpen, setExtraOpen] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [unitOptions, setUnitOptions] = useState<string[]>(defaultUnits)
+  const [typeOptions, setTypeOptions] = useState<string[]>([])
+  const [brandOptions, setBrandOptions] = useState<string[]>([])
+  const [priceListNameOptions, setPriceListNameOptions] = useState<string[]>(defaultPriceListNames)
   const importInputRef = useRef<HTMLInputElement>(null)
   const updateInputRef = useRef<HTMLInputElement>(null)
   const pageSize = 25
@@ -115,6 +150,12 @@ export function RawMaterialsView({ embedded = false }: { embedded?: boolean }) {
     }
   }, [])
 
+  useEffect(() => {
+    setUnitOptions((current) => Array.from(new Set([...current, ...rows.map((row) => row.unit).filter(Boolean)])))
+    setTypeOptions((current) => Array.from(new Set([...current, ...rows.map((row) => row.type).filter(Boolean)])))
+    setBrandOptions((current) => Array.from(new Set([...current, ...rows.map((row) => row.brand).filter((brand) => brand && brand !== "No brand")])))
+  }, [rows])
+
   const availableTypes = useMemo(() => Array.from(new Set(rows.map((row) => row.type))), [rows])
 
   const filtered = useMemo(() => {
@@ -131,21 +172,54 @@ export function RawMaterialsView({ embedded = false }: { embedded?: boolean }) {
 
   function openCreate() {
     setDraft(emptyDraft())
+    setGroupOpen(false)
+    setExtraOpen(false)
     setEditingId(null)
     setModalOpen(true)
   }
 
   function openEdit(row: RawMaterial) {
+    const rawBarcodes = row.barcode === "не установлен" ? [] : row.barcode.split(",").map((code) => code.trim()).filter(Boolean)
     setDraft({
-      name: row.name, fullName: row.fullName, unit: row.unit, type: row.type, subUnit: row.subUnit, supplier: row.supplier, brand: row.brand, organization: row.organization,
-      orderNumber: row.orderNumber, minStock: row.minStock, color: row.color, barcode: row.barcode === "не установлен" ? "" : row.barcode, article: row.article,
-      integrationCode: row.integrationCode, mass: row.mass, netWeight: row.netWeight, volume: row.volume, description: row.description,
-      canSell: row.canSell, onlyMml: row.onlyMml, showAsInventory: row.showAsInventory, groupOnly: row.groupOnly, showInBot: row.showInBot,
-      trackExpiry: row.trackExpiry, markedProduct: row.markedProduct, priceList: row.priceList, cashPrice: row.cashPrice, nonCashPrice: row.nonCashPrice,
+      name: row.name, fullName: row.fullName, barcodes: rawBarcodes.length ? rawBarcodes : [""], unit: row.unit, type: row.type, subUnit: row.subUnit,
+      supplier: row.supplier === "Не указано" ? "" : row.supplier, brand: row.brand === "No brand" ? "" : row.brand, organization: row.organization,
+      orderNumber: row.orderNumber, minStock: row.minStock, color: row.color === "Не указано" ? "" : row.color, article: row.article,
+      integrationCode: row.integrationCode, mass: row.mass, netWeight: row.netWeight, volume: row.volume,
+      description: row.description === "Не указано" ? "" : row.description,
+      canSell: row.canSell, onlyMml: row.onlyMml, perfectStore: row.perfectStore, showAsInventory: row.showAsInventory, groupOnly: row.groupOnly,
+      showInBot: row.showInBot, trackExpiry: row.trackExpiry, markedProduct: row.markedProduct, limitPrice: row.limitPrice,
+      group: row.group, ikpu: row.ikpu, invoiceUnitCode: row.invoiceUnitCode, vat: row.vat || vatOptions[0], salePoints: row.salePoints || "0",
+      priceMin: row.priceMin ? String(row.priceMin) : "", priceMax: row.priceMax ? String(row.priceMax) : "",
+      priceEntries: row.priceLists.length
+        ? row.priceLists.map((entry) => ({
+            name: entry.name, cash: entry.cash ? String(entry.cash) : "", cashCurrency: entry.currency || "SUM",
+            nonCash: entry.nonCash ? String(entry.nonCash) : "", nonCashCurrency: entry.nonCashCurrency || "SUM",
+          }))
+        : [{ name: priceListNameOptions[0], cash: "", cashCurrency: "SUM", nonCash: "", nonCashCurrency: "SUM" }],
     })
+    setGroupOpen(Boolean(row.group))
+    setExtraOpen(Boolean(row.ikpu || row.invoiceUnitCode || (row.vat && row.vat !== "Без НДС")))
     setEditingId(row.id)
     setModalOpen(true)
     setOpenMenuId(null)
+  }
+
+  function addPriceEntry() {
+    setDraft((value) => {
+      const unused = priceListNameOptions.find((name) => !value.priceEntries.some((entry) => entry.name === name))
+      return {
+        ...value,
+        priceEntries: [...value.priceEntries, { name: unused || priceListNameOptions[0], cash: "", cashCurrency: "SUM", nonCash: "", nonCashCurrency: "SUM" }],
+      }
+    })
+  }
+
+  function removePriceEntry(index: number) {
+    setDraft((value) => ({ ...value, priceEntries: value.priceEntries.filter((_, i) => i !== index) }))
+  }
+
+  function updatePriceEntry(index: number, patch: Partial<DraftPriceEntry>) {
+    setDraft((value) => ({ ...value, priceEntries: value.priceEntries.map((entry, i) => (i === index ? { ...entry, ...patch } : entry)) }))
   }
 
   async function remove(id: number) {
@@ -221,15 +295,18 @@ export function RawMaterialsView({ embedded = false }: { embedded?: boolean }) {
             ...emptyDraft(),
             name,
             fullName: record.fullName || name,
-            barcode: record.barcode || "",
+            barcodes: [record.barcode || ""],
             article: record.article || "",
             integrationCode: record.integrationCode || "",
             type: record.type || "Импорт",
             organization: record.organization || organizations[0],
-            unit: record.unit || units[0],
+            unit: record.unit || defaultUnits[0],
             subUnit: record.subUnit || "",
             brand: record.brand || "",
             supplier: record.supplier || "",
+            group: record.group || "",
+            ikpu: record.ikpu || "",
+            vat: record.vat || vatOptions[0],
             minStock: record.minStock || "",
             color: record.color || "",
             mass: record.mass || "",
@@ -407,39 +484,117 @@ export function RawMaterialsView({ embedded = false }: { embedded?: boolean }) {
 
       {modalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
-          <form onSubmit={save} className="flex max-h-[90vh] w-full max-w-5xl flex-col rounded bg-white">
+          <form onSubmit={save} className="flex max-h-[90vh] w-full max-w-6xl flex-col rounded bg-white">
             <header className="flex items-center justify-between border-b p-6">
               <b className="uppercase">{editingId !== null ? t("Изменить сырьё") : t("Добавить сырьё")}</b>
               <button type="button" onClick={() => setModalOpen(false)} aria-label={t("Закрыть")}><X className="h-5 w-5" /></button>
             </header>
 
             <div className="flex-1 overflow-y-auto p-8">
-              <div className="grid gap-8 md:grid-cols-3">
+              <div className="grid gap-8 lg:grid-cols-3">
+                {/* Left column */}
                 <div className="space-y-4">
                   <label className="block border-b border-slate-200 pb-2 font-medium">
                     {t("Наименование")} <span className="text-red-500">*</span>
-                    <input autoFocus value={draft.name} onChange={(event) => setDraft((value) => ({ ...value, name: event.target.value }))} className="mt-2 block w-full outline-none" />
+                    <input autoFocus required value={draft.name} onChange={(event) => setDraft((value) => ({ ...value, name: event.target.value }))} className="mt-2 block w-full outline-none" />
                   </label>
-                  <label className="block border-b border-slate-200 pb-2 font-medium">
-                    {t("Мера")} <span className="text-red-500">*</span>
-                    <select value={draft.unit} onChange={(event) => setDraft((value) => ({ ...value, unit: event.target.value }))} className="mt-2 block w-full bg-white outline-none">
-                      {units.map((unit) => <option key={unit}>{unit}</option>)}
-                    </select>
-                  </label>
-                  <label className="block border-b border-slate-200 pb-2 font-medium">
-                    {t("Тип продукта")}
-                    <input value={draft.type} onChange={(event) => setDraft((value) => ({ ...value, type: event.target.value }))} className="mt-2 block w-full outline-none" />
-                  </label>
-                  <div className="flex gap-4">
+
+                  <div className="flex items-end gap-2 border-b border-slate-200 pb-2">
+                    <label className="block flex-1 font-medium">
+                      {t("Мера")} <span className="text-red-500">*</span>
+                      <select value={draft.unit} onChange={(event) => setDraft((value) => ({ ...value, unit: event.target.value }))} className="mt-2 block w-full bg-white outline-none">
+                        {unitOptions.map((unit) => <option key={unit}>{unit}</option>)}
+                      </select>
+                    </label>
+                    <button
+                      type="button"
+                      title={t("Добавить меру")}
+                      onClick={() => {
+                        const value = window.prompt(t("Новая мера"))
+                        if (value?.trim()) {
+                          setUnitOptions((current) => Array.from(new Set([...current, value.trim()])))
+                          setDraft((current) => ({ ...current, unit: value.trim() }))
+                        }
+                      }}
+                      className="mb-1 text-[#5fb583] hover:text-[#4a9d6d]"
+                    >
+                      <PlusCircle className="h-5 w-5" />
+                    </button>
+                  </div>
+
+                  <div className="space-y-2 text-sm">
+                    <label className="flex items-center gap-2">
+                      <input type="checkbox" checked={groupOpen} onChange={(event) => setGroupOpen(event.target.checked)} className="h-4 w-4 rounded border-slate-300" />
+                      {t("Указать группу")}
+                    </label>
+                    {groupOpen && (
+                      <input
+                        value={draft.group}
+                        onChange={(event) => setDraft((value) => ({ ...value, group: event.target.value }))}
+                        placeholder={t("Группа")}
+                        className="block w-full border-b border-slate-200 pb-2 outline-none"
+                      />
+                    )}
+                    <label className="flex items-center gap-2">
+                      <input type="checkbox" checked={extraOpen} onChange={(event) => setExtraOpen(event.target.checked)} className="h-4 w-4 rounded border-slate-300" />
+                      {t("Доп. параметры")}
+                    </label>
+                  </div>
+
+                  <div className="flex items-end gap-2 border-b border-slate-200 pb-2">
+                    <label className="block flex-1 font-medium">
+                      {t("Тип продукта")}
+                      <select value={draft.type} onChange={(event) => setDraft((value) => ({ ...value, type: event.target.value }))} className="mt-2 block w-full bg-white outline-none">
+                        <option value="">{t("Не указано")}</option>
+                        {typeOptions.map((type) => <option key={type}>{type}</option>)}
+                      </select>
+                    </label>
+                    <button
+                      type="button"
+                      title={t("Добавить тип продукта")}
+                      onClick={() => {
+                        const value = window.prompt(t("Новый тип продукта"))
+                        if (value?.trim()) {
+                          setTypeOptions((current) => Array.from(new Set([...current, value.trim()])))
+                          setDraft((current) => ({ ...current, type: value.trim() }))
+                        }
+                      }}
+                      className="mb-1 text-[#5fb583] hover:text-[#4a9d6d]"
+                    >
+                      <PlusCircle className="h-5 w-5" />
+                    </button>
+                  </div>
+
+                  <div className="flex gap-3">
                     <label className="block flex-1 border-b border-slate-200 pb-2 font-medium">
                       {t("Поставщик")}
                       <input value={draft.supplier} onChange={(event) => setDraft((value) => ({ ...value, supplier: event.target.value }))} className="mt-2 block w-full outline-none" />
                     </label>
-                    <label className="block flex-1 border-b border-slate-200 pb-2 font-medium">
-                      {t("Бренд")}
-                      <input value={draft.brand} onChange={(event) => setDraft((value) => ({ ...value, brand: event.target.value }))} className="mt-2 block w-full outline-none" />
-                    </label>
+                    <div className="flex flex-1 items-end gap-2">
+                      <label className="block flex-1 border-b border-slate-200 pb-2 font-medium">
+                        {t("Бренд")}
+                        <select value={draft.brand} onChange={(event) => setDraft((value) => ({ ...value, brand: event.target.value }))} className="mt-2 block w-full bg-white outline-none">
+                          <option value="">No brand</option>
+                          {brandOptions.map((brand) => <option key={brand}>{brand}</option>)}
+                        </select>
+                      </label>
+                      <button
+                        type="button"
+                        title={t("Добавить бренд")}
+                        onClick={() => {
+                          const value = window.prompt(t("Новый бренд"))
+                          if (value?.trim()) {
+                            setBrandOptions((current) => Array.from(new Set([...current, value.trim()])))
+                            setDraft((current) => ({ ...current, brand: value.trim() }))
+                          }
+                        }}
+                        className="mb-1 text-[#5fb583] hover:text-[#4a9d6d]"
+                      >
+                        <PlusCircle className="h-5 w-5" />
+                      </button>
+                    </div>
                   </div>
+
                   <label className="block border-b border-slate-200 pb-2 font-medium">
                     {t("Организация")}
                     <select value={draft.organization} onChange={(event) => setDraft((value) => ({ ...value, organization: event.target.value }))} className="mt-2 block w-full bg-white outline-none">
@@ -447,11 +602,17 @@ export function RawMaterialsView({ embedded = false }: { embedded?: boolean }) {
                     </select>
                   </label>
                   <label className="block border-b border-slate-200 pb-2 font-medium">
-                    {t("Порядковый номер")}
+                    <span className="inline-flex items-center gap-1">
+                      {t("Порядковый номер")}
+                      <span title={t("Определяет позицию товара в списках")}><Info className="h-3.5 w-3.5 text-slate-400" /></span>
+                    </span>
                     <input value={draft.orderNumber} onChange={(event) => setDraft((value) => ({ ...value, orderNumber: event.target.value }))} className="mt-2 block w-full outline-none" />
                   </label>
                   <label className="block border-b border-slate-200 pb-2 font-medium">
-                    {t("Минимальный остаток")}
+                    <span className="inline-flex items-center gap-1">
+                      {t("Минимальный остаток")}
+                      <span title={t("Порог для уведомления о нехватке товара")}><Info className="h-3.5 w-3.5 text-slate-400" /></span>
+                    </span>
                     <input value={draft.minStock} onChange={(event) => setDraft((value) => ({ ...value, minStock: event.target.value }))} className="mt-2 block w-full outline-none" />
                   </label>
                   <label className="block border-b border-slate-200 pb-2 font-medium">
@@ -460,20 +621,54 @@ export function RawMaterialsView({ embedded = false }: { embedded?: boolean }) {
                   </label>
                 </div>
 
+                {/* Middle column */}
                 <div className="space-y-4">
                   <label className="block border-b border-slate-200 pb-2 font-medium">
                     {t("Полное наименование")}
                     <input value={draft.fullName} onChange={(event) => setDraft((value) => ({ ...value, fullName: event.target.value }))} className="mt-2 block w-full outline-none" />
                   </label>
-                  <label className="block border-b border-slate-200 pb-2 font-medium">
-                    {t("Штрих-код")}
-                    <div className="mt-2 flex items-center gap-3">
-                      <input value={draft.barcode} onChange={(event) => setDraft((value) => ({ ...value, barcode: event.target.value }))} className="block w-full outline-none" />
-                      <button type="button" onClick={() => setDraft((value) => ({ ...value, barcode: String(Date.now()).slice(-13) }))} className="whitespace-nowrap text-sm text-[#4f70e7] hover:underline">
-                        {t("Сгенерировать")}
-                      </button>
+
+                  <div className="border-b border-slate-200 pb-2">
+                    <span className="font-medium">{t("Штрих-код")}</span>
+                    <div className="mt-2 space-y-2">
+                      {draft.barcodes.map((code, index) => (
+                        <div key={index} className="flex items-center gap-2">
+                          <input
+                            value={code}
+                            onChange={(event) => setDraft((value) => ({ ...value, barcodes: value.barcodes.map((c, i) => (i === index ? event.target.value : c)) }))}
+                            className="block w-full outline-none"
+                          />
+                          {index === draft.barcodes.length - 1 ? (
+                            <button
+                              type="button"
+                              title={t("Добавить штрих-код")}
+                              onClick={() => setDraft((value) => ({ ...value, barcodes: [...value.barcodes, ""] }))}
+                              className="shrink-0 text-[#5fb583] hover:text-[#4a9d6d]"
+                            >
+                              <PlusCircle className="h-5 w-5" />
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              title={t("Удалить штрих-код")}
+                              onClick={() => setDraft((value) => ({ ...value, barcodes: value.barcodes.filter((_, i) => i !== index) }))}
+                              className="shrink-0 text-rose-400 hover:text-rose-600"
+                            >
+                              <X className="h-4 w-4" />
+                            </button>
+                          )}
+                        </div>
+                      ))}
                     </div>
-                  </label>
+                    <button
+                      type="button"
+                      onClick={() => setDraft((value) => ({ ...value, barcodes: [String(Date.now()).slice(-13), ...value.barcodes.slice(1)] }))}
+                      className="mt-2 text-sm text-[#4f70e7] hover:underline"
+                    >
+                      {t("Сгенерировать")}
+                    </button>
+                  </div>
+
                   <label className="block border-b border-slate-200 pb-2 font-medium">
                     {t("Артикул")}
                     <input value={draft.article} onChange={(event) => setDraft((value) => ({ ...value, article: event.target.value }))} className="mt-2 block w-full outline-none" />
@@ -495,25 +690,45 @@ export function RawMaterialsView({ embedded = false }: { embedded?: boolean }) {
                     <input value={draft.volume} onChange={(event) => setDraft((value) => ({ ...value, volume: event.target.value }))} className="mt-2 block w-full outline-none" />
                   </label>
 
-                  <div className="space-y-3 pt-2">
+                  {extraOpen && (
+                    <>
+                      <label className="block border-b border-slate-200 pb-2 font-medium">
+                        {t("Икпу")}
+                        <input value={draft.ikpu} onChange={(event) => setDraft((value) => ({ ...value, ikpu: event.target.value }))} className="mt-2 block w-full outline-none" />
+                      </label>
+                      <label className="block border-b border-slate-200 pb-2 font-medium">
+                        {t("Код ед.изм. в фактуре")}
+                        <input value={draft.invoiceUnitCode} onChange={(event) => setDraft((value) => ({ ...value, invoiceUnitCode: event.target.value }))} className="mt-2 block w-full outline-none" />
+                      </label>
+                      <label className="block border-b border-slate-200 pb-2 font-medium">
+                        {t("НДС")}
+                        <select value={draft.vat} onChange={(event) => setDraft((value) => ({ ...value, vat: event.target.value }))} className="mt-2 block w-full bg-white outline-none">
+                          {vatOptions.map((option) => <option key={option}>{option}</option>)}
+                        </select>
+                      </label>
+                    </>
+                  )}
+
+                  <div className="space-y-3 border-t border-slate-100 pt-3">
                     {(
                       [
                         ["onlyMml", "ММЛ продукт"],
+                        ["perfectStore", "Perfect Store продукт"],
                         ["showAsInventory", "Показывать этот товар в качестве тип инвентаря"],
                         ["groupOnly", "Продать только в группе"],
                         ["showInBot", "Показывать в боте"],
                         ["trackExpiry", "Учитывать срок годности"],
                         ["markedProduct", "Маркировочный товар"],
-                      ] as [keyof typeof draft, string][]
+                      ] as [ToggleKey, string][]
                     ).map(([key, label]) => (
                       <label key={key} className="flex items-center justify-between gap-3">
                         <span className="text-sm font-medium text-slate-700">{t(label)}</span>
                         <button
                           type="button"
                           onClick={() => setDraft((value) => ({ ...value, [key]: !value[key] }))}
-                          className={`relative h-6 w-11 rounded-full transition-colors ${draft[key] ? "bg-[#4f70e7]" : "bg-slate-300"}`}
+                          className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${draft[key] ? "bg-[#4f70e7]" : "bg-slate-300"}`}
                         >
-                          <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${draft[key] ? "translate-x-5" : "translate-x-0.5"}`} />
+                          <span className={`absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${draft[key] ? "translate-x-5" : "translate-x-0"}`} />
                         </button>
                       </label>
                     ))}
@@ -525,6 +740,7 @@ export function RawMaterialsView({ embedded = false }: { embedded?: boolean }) {
                   </label>
                 </div>
 
+                {/* Right column */}
                 <div className="space-y-4">
                   <label className="flex items-center justify-between gap-3 rounded bg-slate-50 p-3">
                     <span>
@@ -536,23 +752,106 @@ export function RawMaterialsView({ embedded = false }: { embedded?: boolean }) {
                       onClick={() => setDraft((value) => ({ ...value, canSell: !value.canSell }))}
                       className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${draft.canSell ? "bg-[#4f70e7]" : "bg-slate-300"}`}
                     >
-                      <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${draft.canSell ? "translate-x-5" : "translate-x-0.5"}`} />
+                      <span className={`absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${draft.canSell ? "translate-x-5" : "translate-x-0"}`} />
                     </button>
                   </label>
 
-                  <label className="block border-b border-slate-200 pb-2 font-medium">
-                    {t("Прайс лист")}
-                    <select value={draft.priceList} onChange={(event) => setDraft((value) => ({ ...value, priceList: event.target.value }))} className="mt-2 block w-full bg-white outline-none">
-                      {priceListOptions.map((item) => <option key={item}>{item}</option>)}
-                    </select>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-medium text-slate-800">{t("Продажная цена")}</span>
+                    <button type="button" onClick={addPriceEntry} className="inline-flex items-center gap-1 whitespace-nowrap rounded bg-[#4f70e7] px-3 py-1.5 text-sm font-semibold text-white hover:brightness-95">
+                      <Plus className="h-3.5 w-3.5" /> {t("Добавить новую цену")}
+                    </button>
+                  </div>
+
+                  <div className="space-y-4">
+                    {draft.priceEntries.map((entry, index) => (
+                      <div key={index} className="space-y-3 rounded border border-slate-200 p-3">
+                        {draft.priceEntries.length > 1 && (
+                          <div className="flex justify-end">
+                            <button type="button" title={t("Удалить цену")} onClick={() => removePriceEntry(index)} className="text-rose-400 hover:text-rose-600">
+                              <X className="h-4 w-4" />
+                            </button>
+                          </div>
+                        )}
+                        <div className="flex items-end gap-2">
+                          <label className="block flex-1 border-b border-slate-200 pb-2 font-medium">
+                            {t("Прайс лист")}
+                            <select value={entry.name} onChange={(event) => updatePriceEntry(index, { name: event.target.value })} className="mt-2 block w-full bg-white outline-none">
+                              {priceListNameOptions.map((name) => <option key={name}>{name}</option>)}
+                            </select>
+                          </label>
+                          <button
+                            type="button"
+                            title={t("Добавить прайс лист")}
+                            onClick={() => {
+                              const value = window.prompt(t("Название прайс листа"))
+                              if (value?.trim()) {
+                                setPriceListNameOptions((current) => Array.from(new Set([...current, value.trim()])))
+                                updatePriceEntry(index, { name: value.trim() })
+                              }
+                            }}
+                            className="mb-1 shrink-0 text-[#5fb583] hover:text-[#4a9d6d]"
+                          >
+                            <PlusCircle className="h-5 w-5" />
+                          </button>
+                        </div>
+                        <div className="flex gap-2">
+                          <label className="block flex-1 border-b border-slate-200 pb-2 font-medium">
+                            {t("Цена наличные")}
+                            <input type="number" value={entry.cash} onChange={(event) => updatePriceEntry(index, { cash: event.target.value })} className="mt-2 block w-full outline-none" />
+                          </label>
+                          <label className="block w-24 border-b border-slate-200 pb-2 font-medium">
+                            {t("Валюта")}
+                            <select value={entry.cashCurrency} onChange={(event) => updatePriceEntry(index, { cashCurrency: event.target.value })} className="mt-2 block w-full bg-white outline-none">
+                              {productCurrencies.map((code) => <option key={code}>{code}</option>)}
+                            </select>
+                          </label>
+                        </div>
+                        <div className="flex gap-2">
+                          <label className="block flex-1 border-b border-slate-200 pb-2 font-medium">
+                            {t("Цена безналичные")}
+                            <input type="number" value={entry.nonCash} onChange={(event) => updatePriceEntry(index, { nonCash: event.target.value })} className="mt-2 block w-full outline-none" />
+                          </label>
+                          <label className="block w-24 border-b border-slate-200 pb-2 font-medium">
+                            {t("Валюта")}
+                            <select value={entry.nonCashCurrency} onChange={(event) => updatePriceEntry(index, { nonCashCurrency: event.target.value })} className="mt-2 block w-full bg-white outline-none">
+                              {productCurrencies.map((code) => <option key={code}>{code}</option>)}
+                            </select>
+                          </label>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <label className="flex items-center justify-between gap-3">
+                    <span className="text-sm font-medium text-slate-700">{t("Установить минимальную и максимальную цену для продажи")}</span>
+                    <button
+                      type="button"
+                      onClick={() => setDraft((value) => ({ ...value, limitPrice: !value.limitPrice }))}
+                      className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${draft.limitPrice ? "bg-[#4f70e7]" : "bg-slate-300"}`}
+                    >
+                      <span className={`absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${draft.limitPrice ? "translate-x-5" : "translate-x-0"}`} />
+                    </button>
                   </label>
+                  {draft.limitPrice && (
+                    <div className="flex gap-2">
+                      <label className="block flex-1 border-b border-slate-200 pb-2 font-medium">
+                        {t("Мин")}
+                        <input type="number" value={draft.priceMin} onChange={(event) => setDraft((value) => ({ ...value, priceMin: event.target.value }))} className="mt-2 block w-full outline-none" />
+                      </label>
+                      <label className="block flex-1 border-b border-slate-200 pb-2 font-medium">
+                        {t("Макс")}
+                        <input type="number" value={draft.priceMax} onChange={(event) => setDraft((value) => ({ ...value, priceMax: event.target.value }))} className="mt-2 block w-full outline-none" />
+                      </label>
+                    </div>
+                  )}
+
                   <label className="block border-b border-slate-200 pb-2 font-medium">
-                    {t("Цена наличные")}
-                    <input type="number" value={draft.cashPrice} onChange={(event) => setDraft((value) => ({ ...value, cashPrice: event.target.value }))} className="mt-2 block w-full outline-none" />
-                  </label>
-                  <label className="block border-b border-slate-200 pb-2 font-medium">
-                    {t("Цена безналичные")}
-                    <input type="number" value={draft.nonCashPrice} onChange={(event) => setDraft((value) => ({ ...value, nonCashPrice: event.target.value }))} className="mt-2 block w-full outline-none" />
+                    <span className="inline-flex items-center gap-1">
+                      {t("Можно продать за кол-во балов")}
+                      <span title={t("Количество бонусных баллов, за которые можно продать товар")}><Info className="h-3.5 w-3.5 text-slate-400" /></span>
+                    </span>
+                    <input value={draft.salePoints} onChange={(event) => setDraft((value) => ({ ...value, salePoints: event.target.value }))} className="mt-2 block w-full outline-none" />
                   </label>
                 </div>
               </div>

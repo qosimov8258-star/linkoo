@@ -1,14 +1,51 @@
 "use client"
 
-import { Filter, Plus, Search, X } from "lucide-react"
+import { Download, Filter, Plus, Search, SlidersHorizontal, X } from "lucide-react"
 import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
 import { useMemo, useState } from "react"
 import { useLanguage } from "@/lib/i18n/language-context"
 
-type ReturnRow = { id: number; client: string; zone: string; warehouse: string; product: string; supplier: string; date: string; accepted?: boolean; amount: string; agent: string }
-const initial: ReturnRow[] = []
+type ReturnRow = {
+  id: number
+  client: string
+  zone: string
+  warehouse: string
+  organization: string
+  deliverer: string
+  date: string
+  acceptedDate?: string
+  creator: string
+  accepted?: boolean
+  amount: string
+  agent: string
+}
 
 const warehouses = ["05,08,2025(1)", "Andijon skladi", "Suhrob sklad", "toshkent", "123 test"]
+
+const initial: ReturnRow[] = [
+  { id: 222, client: "ЧЛ Ибраева Мадина", zone: "", warehouse: "Andijon skladi", organization: "NEW ORG", deliverer: "Admin Ritm", date: "17 июля 2026, 08:24", creator: "Admin Ritm", agent: "Хайрулло Доставщик", amount: "10 000 SUM" },
+  { id: 220, client: "klient 1", zone: "chilonzor", warehouse: "Andijon skladi", organization: "NEW ORG", deliverer: "Quvonchbek Admin", date: "16 мая 2026, 09:47", acceptedDate: "06 июня 2026, 11:20", creator: "Admin Ritm", agent: "Samandar Abdurahmonov", amount: "11 000 SUM", accepted: true },
+  { id: 219, client: "Бахт маркет", zone: "", warehouse: "05,08,2025(1)", organization: "Lalaku", deliverer: "Admin Ritm", date: "11 мая 2026, 09:44", acceptedDate: "09 мая 2026, 09:45", creator: "Admin Ritm", agent: "MrJakhon Ziyayev", amount: "66 SUM", accepted: true },
+  { id: 218, client: "loe messi", zone: "spark", warehouse: "Andijon skladi", organization: "energetik", deliverer: "N/A", date: "07 мая 2026, 13:09", creator: "Admin Ritm", agent: "Admin Ritm", amount: "1,6 USD" },
+  { id: 217, client: "new klient707", zone: "", warehouse: "toshkent", organization: "energetik", deliverer: "Temur Raupov", date: "28 мар. 2026, 17:28", creator: "Admin Ritm", agent: "Temur Raupov", amount: "86 910 120 SUM" },
+  { id: 216, client: "marketsavdo1", zone: "spark", warehouse: "Suhrob sklad", organization: "Lalaku", deliverer: "MrJakhon Ziyayev", date: "04 мар. 2026, 19:08", creator: "Admin Ritm", agent: "MrJakhon Ziyayev", amount: "360 000 SUM" },
+  { id: 210, client: "Asu market", zone: "", warehouse: "Suhrob sklad", organization: "Lalaku", deliverer: "Admin Ritm", date: "20 янв. 2026, 17:22", acceptedDate: "23 янв. 2026, 16:08", creator: "Admin Ritm", agent: "Temur Raupov", amount: "6 000 SUM", accepted: true },
+  { id: 205, client: "mustafo", zone: "spark", warehouse: "toshkent", organization: "energetik", deliverer: "Admin Ritm", date: "11 янв. 2026, 19:47", acceptedDate: "11 янв. 2026, 19:48", creator: "Admin Ritm", agent: "Admin Ritm", amount: "646 750 SUM", accepted: true },
+]
+
+function parseAmount(amount: string): { value: number; currency: string } {
+  const match = amount.trim().match(/^([\d\s.,]+)\s*(SUM|USD|Euro|EUR)$/i)
+  if (!match) return { value: 0, currency: "SUM" }
+  const value = Number(match[1].replace(/\s/g, "").replace(",", ".")) || 0
+  const currency = match[2].toUpperCase() === "EUR" ? "Euro" : match[2].toUpperCase() === "USD" ? "USD" : "SUM"
+  return { value, currency }
+}
+
+function formatTotal(value: number): string {
+  const [whole, fraction] = value.toFixed(3).replace(/\.?0+$/, "").split(".")
+  const grouped = whole.replace(/\B(?=(\d{3})+(?!\d))/g, " ")
+  return fraction ? `${grouped},${fraction}` : grouped
+}
 
 export function ReturnsView() {
   const { t } = useLanguage()
@@ -29,9 +66,18 @@ export function ReturnsView() {
     [rows, tab, query, warehouseFilter],
   )
 
+  const totals = useMemo(() => {
+    const sums: Record<string, number> = { SUM: 0, Euro: 0, USD: 0 }
+    for (const row of visible) {
+      const { value, currency } = parseAmount(row.amount)
+      sums[currency] = (sums[currency] ?? 0) + value
+    }
+    return sums
+  }, [visible])
+
   function addReturn(client: string) {
     const id = Math.max(0, ...rows.map((row) => row.id)) + 1
-    const row: ReturnRow = { id, client: client || "Новый клиент", zone: "", warehouse: warehouses[0], product: "—", supplier: "Admin Ritm", date: "06 авг. 2026, 12:00", amount: "0 SUM", agent: "Admin Ritm" }
+    const row: ReturnRow = { id, client: client || "Новый клиент", zone: "", warehouse: warehouses[0], organization: "—", deliverer: "Admin Ritm", date: "06 авг. 2026, 12:00", creator: "Admin Ritm", amount: "0 SUM", agent: "Admin Ritm" }
     setRows((current) => [row, ...current])
     setAddOpen(false)
   }
@@ -54,7 +100,9 @@ export function ReturnsView() {
       </div>
       <section className="mx-9 mt-1 bg-white shadow">
         <div className="grid grid-cols-3">{["Надо принять", "Принятые", "Все"].map((label) => <button key={label} onClick={() => setTab(label)} className={`py-4 text-center ${tab === label ? "border-b-4 border-[#586ce8]" : ""}`}>{t(label)}</button>)}</div>
-        <div className="bg-[#586ce8] px-2 py-2 font-semibold text-white">{t("Возвраты: 0 SUM , 0 Euro , 0 USD")}</div>
+        <div className="bg-[#586ce8] px-2 py-2 font-semibold text-white">
+          {t("Возвраты")}: {formatTotal(totals.SUM)} SUM , {formatTotal(totals.Euro)} Euro , {formatTotal(totals.USD)} USD
+        </div>
         <div className="relative flex items-center gap-5 px-5 py-3">
           <button type="button" onClick={() => setFilterOpen((value) => !value)} className="rounded bg-[#5271df] px-4 py-2 text-white"><Filter className="mr-2 inline h-4" />{t("Показать фильтр")}</button>
           {filterOpen && (
@@ -71,23 +119,34 @@ export function ReturnsView() {
           )}
           <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={t("Поиск")} className="ml-20 w-80 border-b border-slate-300 px-2 py-2 outline-none" />
           <Search className="-ml-12 text-slate-400" />
-          <span className="ml-auto">25　 1 - {visible.length} {t("из")} {visible.length}　 ◀ ▶　⌄　↓</span>
+          <span className="ml-auto flex items-center gap-3 text-slate-600">
+            25　 1 - {visible.length} {t("из")} {visible.length}　 ◀ ▶
+            <SlidersHorizontal className="h-4 w-4 cursor-pointer" />
+            <Download className="h-4 w-4 cursor-pointer" />
+          </span>
           <button onClick={() => setRows((rows) => rows.map((row) => (selected && row.id === selected.id ? { ...row, accepted: true } : row)))} className="rounded bg-[#70cf84] px-4 py-2 font-semibold text-white">{t("Принять на склад")}</button>
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[1450px] text-left">
-            <thead className="bg-[#626b7e] text-white"><tr>{["№", "От кого", "Склад", "Доставщик", "Дата возврата", "Создал", "Ответственный агент", "Сумма возврата"].map((h) => <th key={h} className="px-5 py-4">{t(h)}</th>)}</tr></thead>
+          <table className="w-full min-w-[1500px] text-left">
+            <thead className="bg-[#626b7e] text-white">
+              <tr>
+                {["№", "От кого", "Склад", "Доставщик", "Дата возврата", "Создал", "Ответственный агент"].map((h) => <th key={h} className="px-5 py-4">{t(h)}</th>)}
+                <th className="px-5 py-4 text-right">{t("Сумма возврата")}</th>
+                <th className="w-14" />
+              </tr>
+            </thead>
             <tbody>
               {visible.map((row) => (
                 <tr key={row.id} onClick={() => setSelected(row)} className="cursor-pointer border-b-2 border-dotted border-slate-200 hover:bg-blue-50">
                   <td className="px-5 py-3">{row.id}</td>
                   <td className="px-5">{t(row.client)}<br /><span className="text-[#5271df]">{row.zone}</span></td>
-                  <td className="px-5">{row.warehouse}<br /><span className="text-[#5271df]">{row.product}</span></td>
-                  <td className="px-5">{row.supplier}</td>
-                  <td className="px-5">{t(row.date)}<br /><span className="text-[#5271df]">{row.accepted ? t("08 янв. 2026, 10:38") : ""}</span></td>
-                  <td className="px-5">Admin Ritm</td>
+                  <td className="px-5">{row.warehouse}<br /><span className="text-[#5271df]">{row.organization}</span></td>
+                  <td className="px-5">{row.deliverer}</td>
+                  <td className="px-5">{t(row.date)}<br /><span className="text-[#5271df]">{row.acceptedDate ?? ""}</span></td>
+                  <td className="px-5">{row.creator}</td>
                   <td className="px-5">{row.agent}</td>
-                  <td className="px-5">{row.amount}<br /><span className={row.accepted ? "text-green-500" : "text-orange-400"}>{t(row.accepted ? "Принят" : "Ожидает")}</span>　<span className="rounded border border-[#5271df] px-1 text-[#5271df]">$</span></td>
+                  <td className="px-5 text-right">{row.amount}<br /><span className={row.accepted ? "text-green-500" : "text-orange-400"}>{t(row.accepted ? "Принят" : "Ожидает")}</span></td>
+                  <td className="px-3 text-center"><span className="inline-flex rounded border border-[#5271df] px-1.5 py-0.5 text-[#5271df]">$</span></td>
                 </tr>
               ))}
             </tbody>
@@ -131,17 +190,17 @@ function Detail({ row, close, onEdit, onCancelRequest }: { row: ReturnRow; close
       </div>
       <div className="grid grid-cols-[435px_1fr]">
         <aside className="border-r p-9 leading-8">
-          {t("Заказ №1423")}<br />
-          {t("Добавил")}: <b className="float-right">Admin Ritm</b><br />
+          {t("Возврат №")}{row.id}<br />
+          {t("Добавил")}: <b className="float-right">{row.creator}</b><br />
           {t("Клиент")}: <b className="float-right text-[#5271df]">{t(row.client)}</b><br />
           {t("Зона")}: <b className="float-right">{row.zone || t("Не указано")}</b><br />
-          {t("Дата возврата")}: <b className="float-right">{t("08 янв. 2026, 10:38")}</b><br />
-          {t("Доставщик")}: <b className="float-right">Admin Ritm</b><br />
-          {t("Ответственный агент")}: <b className="float-right">Admin Ritm</b>
+          {t("Дата возврата")}: <b className="float-right">{row.acceptedDate ?? row.date}</b><br />
+          {t("Доставщик")}: <b className="float-right">{row.deliverer}</b><br />
+          {t("Ответственный агент")}: <b className="float-right">{row.agent}</b>
           <hr className="my-5" />
           <b>{t("СКЛАД")}</b><br />
-          {t("Склад")}: <b className="float-right">Карим 2</b><br />
-          {t("Статус")}: <b className="float-right text-green-500">{t("Принят")}</b>
+          {t("Склад")}: <b className="float-right">{row.warehouse}</b><br />
+          {t("Статус")}: <b className={`float-right ${row.accepted ? "text-green-500" : "text-orange-400"}`}>{t(row.accepted ? "Принят" : "Ожидает")}</b>
         </aside>
         <div className="p-9">
           <div className="mb-5 flex justify-around border-b pb-4">

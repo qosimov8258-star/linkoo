@@ -326,7 +326,7 @@ export function ProductTypesView({ embedded = false }: { embedded?: boolean }) {
                   onClick={() => setDraft((value) => ({ ...value, showInBot: !value.showInBot }))}
                   className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${draft.showInBot ? "bg-[#4f70e7]" : "bg-slate-300"}`}
                 >
-                  <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${draft.showInBot ? "translate-x-5" : "translate-x-0.5"}`} />
+                  <span className={`absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${draft.showInBot ? "translate-x-5" : "translate-x-0"}`} />
                 </button>
               </label>
               {formError && <p className="text-sm font-medium text-rose-600">{formError}</p>}

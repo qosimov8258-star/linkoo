@@ -77,7 +77,7 @@ function emptyDraft() {
     orderNumber: "", supplier: "", brand: "", description: "", minStock: "", volume: "", weight: "", netWeight: "", color: "",
     group: "", ikpu: "", invoiceUnitCode: "", vat: productVatOptions[0], salePoints: "0",
     canSell: true, showInBot: true, markedProduct: false, limitPrice: false,
-    onlyMml: false, perfectStore: false, isInventory: false, groupOnly: false, trackExpiry: false,
+    onlyMml: false, perfectStore: false, isInventory: false, groupOnly: true, trackExpiry: false,
     priceMin: "", priceMax: "",
     priceEntries: [{ name: defaultPriceListNames[0], cash: "", cashCurrency: "SUM", nonCash: "", nonCashCurrency: "SUM" }],
   }
@@ -1070,7 +1070,7 @@ export function ProductsView({ embedded = false }: { embedded?: boolean }) {
                           onClick={() => setDraft((value) => ({ ...value, [key]: !value[key] }))}
                           className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${draft[key] ? "bg-[#4f70e7]" : "bg-slate-300"}`}
                         >
-                          <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${draft[key] ? "translate-x-5" : "translate-x-0.5"}`} />
+                          <span className={`absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${draft[key] ? "translate-x-5" : "translate-x-0"}`} />
                         </button>
                       </label>
                     ))}
@@ -1094,7 +1094,7 @@ export function ProductsView({ embedded = false }: { embedded?: boolean }) {
                       onClick={() => setDraft((value) => ({ ...value, canSell: !value.canSell }))}
                       className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${draft.canSell ? "bg-[#4f70e7]" : "bg-slate-300"}`}
                     >
-                      <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${draft.canSell ? "translate-x-5" : "translate-x-0.5"}`} />
+                      <span className={`absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${draft.canSell ? "translate-x-5" : "translate-x-0"}`} />
                     </button>
                   </label>
 
@@ -1172,7 +1172,7 @@ export function ProductsView({ embedded = false }: { embedded?: boolean }) {
                       onClick={() => setDraft((value) => ({ ...value, limitPrice: !value.limitPrice }))}
                       className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${draft.limitPrice ? "bg-[#4f70e7]" : "bg-slate-300"}`}
                     >
-                      <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${draft.limitPrice ? "translate-x-5" : "translate-x-0.5"}`} />
+                      <span className={`absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${draft.limitPrice ? "translate-x-5" : "translate-x-0"}`} />
                     </button>
                   </label>
                   {draft.limitPrice && (

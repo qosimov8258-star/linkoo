@@ -309,6 +309,15 @@ function Tabs({ labels, value, onChange }: { labels: string[]; value: string; on
   )
 }
 
+function Field({ label, value, valueClassName }: { label: string; value: ReactNode; valueClassName?: string }) {
+  return (
+    <div className="flex items-baseline justify-between gap-4 text-sm">
+      <span className="text-slate-500">{label}</span>
+      <b className={`text-right ${valueClassName ?? ""}`}>{value}</b>
+    </div>
+  )
+}
+
 function Button({ text, icon, onClick }: { text: string; icon?: ReactNode; onClick?: () => void }) {
   return (
     <button type="button" onClick={onClick} className="rounded-md bg-[#5271df] px-5 py-2.5 font-semibold text-white">
@@ -371,7 +380,8 @@ function OrderDetail({
   }
 
   return (
-    <section className="mx-4 mt-6 bg-white shadow-xl">
+    <div className="fixed inset-0 z-[100] flex items-start justify-center overflow-y-auto bg-black/45 p-4 py-8" onClick={close}>
+    <section onClick={(event) => event.stopPropagation()} className="w-full max-w-6xl bg-white shadow-xl">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b p-5">
         <h2 className="text-2xl">{t("Заказ №")}{order.id}</h2>
         <div className="flex flex-wrap gap-3">
@@ -383,43 +393,39 @@ function OrderDetail({
           <button onClick={close} aria-label={t("Закрыть")}><X /></button>
         </div>
       </div>
-      <div className="grid grid-cols-1 gap-5 p-5 leading-8 sm:grid-cols-3 sm:divide-x">
-        <div>
-          {t("Клиент:")} <b className="float-right text-[#5271df]">{order.client}</b><br />
-          {t("Транспорт:")} <b className="float-right">{t("Не указан")}</b><br />
-          {t("Филиал:")} <b className="float-right">{order.zone || "ddr"}</b><br />
-          {t("Склад:")} <b className="float-right">toshkent</b><br />
-          {t("Договор:")} <b className="float-right">{t("Не указан")}</b><br />
-          {t("Счет фактуры:")} <b className="float-right text-orange-400">{t("Не активный")}</b><br />
-          {t("Номер счет фактура:")} <b className="float-right">{t("Не указано")}</b><br />
-          {t("Дата счет фактуры:")} <b className="float-right">{t("Не указано")}</b>
+      <div className="grid grid-cols-1 gap-5 p-5 sm:grid-cols-3 sm:divide-x">
+        <div className="flex flex-col gap-2">
+          <Field label={t("Клиент:")} value={order.client} valueClassName="text-[#5271df]" />
+          <Field label={t("Транспорт:")} value={t("Не указан")} />
+          <Field label={t("Филиал:")} value={order.zone || "ddr"} />
+          <Field label={t("Склад:")} value="toshkent" />
+          <Field label={t("Договор:")} value={t("Не указан")} />
+          <Field label={t("Счет фактуры:")} value={t("Не активный")} valueClassName="text-orange-400" />
+          <Field label={t("Номер счет фактура:")} value={t("Не указано")} />
+          <Field label={t("Дата счет фактуры:")} value={t("Не указано")} />
         </div>
-        <div className="sm:px-5">
-          {t("Прайс-лист:")} <b className="float-right">donalik</b><br />
-          {t("Организация:")} <b className="float-right">energetik</b><br />
-          {t("Дата окончательной оплаты:")} <b className="float-right">{order.delivery}</b><br />
-          {t("Тип оплаты:")} <b className="float-right">{t("Наличные")}</b><br />
-          {t("Общая стоимость")} <b className="float-right">{order.amount}</b><br />
-          {order.discount && (
-            <>
-              {t("Скидка")} <b className="float-right text-[#278549]">{order.discount}</b><br />
-            </>
-          )}
-          {t("Оплачено:")} <b className="float-right">0 SUM</b><br />
-          {t("Остаток:")} <b className={`float-right ${order.negative ? "text-red-400" : "text-slate-700"}`}>{order.balance}</b><br />
-          {t("Оперативный долг клиента:")} <b className="float-right text-red-400">{order.negative ? order.balance : "0 SUM"}</b><br />
-          {t("Фактический долг клиента:")} <b className="float-right text-[#278549]">0 SUM</b>
+        <div className="flex flex-col gap-2 sm:px-5">
+          <Field label={t("Прайс-лист:")} value="donalik" />
+          <Field label={t("Организация:")} value="energetik" />
+          <Field label={t("Дата окончательной оплаты:")} value={order.delivery} />
+          <Field label={t("Тип оплаты:")} value={t("Наличные")} />
+          <Field label={t("Общая стоимость")} value={order.amount} />
+          {order.discount && <Field label={t("Скидка")} value={order.discount} valueClassName="text-[#278549]" />}
+          <Field label={t("Оплачено:")} value="0 SUM" />
+          <Field label={t("Остаток:")} value={order.balance} valueClassName={order.negative ? "text-red-400" : "text-slate-700"} />
+          <Field label={t("Оперативный долг клиента:")} value={order.negative ? order.balance : "0 SUM"} valueClassName="text-red-400" />
+          <Field label={t("Фактический долг клиента:")} value="0 SUM" valueClassName="text-[#278549]" />
         </div>
-        <div className="sm:pl-5">
-          {t("Создал:")} <b className="float-right">{order.agent}</b><br />
-          {t("Доставщик:")} <b className="float-right">{order.agent}</b><br />
-          {t("Экспедитор:")} <b className="float-right">{t("Не указано")}</b><br />
-          {t("Дата создания:")} <b className="float-right">{order.created}</b><br />
-          {t("Дата реализации:")} <b className="float-right">{order.status === "Доставлено" ? order.delivery : t("Не реализовано")}</b><br />
-          {t("Текущий статус:")} <b className="float-right text-orange-400">{t(order.status)}</b><br />
-          {t("Тип передачи:")} <b className="float-right">{t("Доставка")}</b><br />
-          {t("Дата доставки:")} <b className="float-right">{order.delivery}</b><br />
-          {t("Тип сделки:")} <b className="float-right">{t("Консигнация")}</b>
+        <div className="flex flex-col gap-2 sm:pl-5">
+          <Field label={t("Создал:")} value={order.agent} />
+          <Field label={t("Доставщик:")} value={order.agent} />
+          <Field label={t("Экспедитор:")} value={t("Не указано")} />
+          <Field label={t("Дата создания:")} value={order.created} />
+          <Field label={t("Дата реализации:")} value={order.status === "Доставлено" ? order.delivery : t("Не реализовано")} />
+          <Field label={t("Текущий статус:")} value={t(order.status)} valueClassName="text-orange-400" />
+          <Field label={t("Тип передачи:")} value={t("Доставка")} />
+          <Field label={t("Дата доставки:")} value={order.delivery} />
+          <Field label={t("Тип сделки:")} value={t("Консигнация")} />
         </div>
       </div>
       <div className="border-t">
@@ -489,6 +495,7 @@ function OrderDetail({
         </div>
       )}
     </section>
+    </div>
   )
 }
 
