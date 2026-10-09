@@ -1,19 +1,14 @@
 import { NextResponse } from "next/server"
-import { z } from "zod"
 
 import { getCurrentUser } from "@/lib/current-user"
 import { requireRole } from "@/lib/rbac"
 import { parseJsonBody } from "@/lib/validation"
-import { createAccountBulkPayment, listAccountBulkPayments } from "@/lib/account-bulk-payments-repo"
+import { accountBulkPaymentSchema, createAccountBulkPayment, listAccountBulkPayments, missingAccountClientIds } from "@/lib/account-bulk-payments-repo"
+import { todayIso } from "@/lib/finance/dates"
 
-const accountBulkPaymentSchema = z.object({
-  clientIds: z.array(z.number()).optional(),
-  currency: z.string().trim().optional(),
-  amount: z.coerce.number().positive(),
-  paymentDate: z.string().trim().optional(),
-  comment: z.string().trim().optional(),
-})
-
+// Legacy log of the old "Групповая оплата" (kept for existing rows, which the
+// finance ledger still counts). The Долги по счетам page posts to
+// /api/balances/group-payment instead — do not post the same payment to both.
 export async function GET() {
   const user = await getCurrentUser()
   if (!user) return NextResponse.json({ error: "Tizimga kirilmagan" }, { status: 401 })
@@ -27,11 +22,15 @@ export async function POST(request: Request) {
   const parsed = await parseJsonBody(request, accountBulkPaymentSchema)
   if (parsed.error) return parsed.error
 
+  // Duplicate ids would count the amount twice for the same client.
+  const clientIds = [...new Set(parsed.data.clientIds)]
+  if ((await missingAccountClientIds(clientIds)).length) return NextResponse.json({ error: "Клиент не найден" }, { status: 404 })
+
   const payment = await createAccountBulkPayment({
-    clientIds: parsed.data.clientIds ?? [],
+    clientIds,
     currency: parsed.data.currency || "sum",
     amount: parsed.data.amount,
-    paymentDate: parsed.data.paymentDate || new Date().toISOString().slice(0, 10),
+    paymentDate: parsed.data.paymentDate || todayIso(),
     comment: parsed.data.comment ?? "",
   })
   return NextResponse.json(payment, { status: 201 })

@@ -91,7 +91,7 @@ export async function createRepricing(input: RepricingInput): Promise<Repricing>
   const db = getDb()
   const result = (await db
       .prepare(
-        `INSERT INTO repricings (created_by, created_at_label, price_list_id, product_id, amount, currency, status, user)
+        `INSERT INTO repricings (created_by, created_at_label, price_list_id, product_id, amount, currency, status, "user")
        VALUES (@createdBy, @createdAtLabel, @priceListId, @productId, @amount, @currency, @status, @user)`,
       )
       .run({
@@ -112,7 +112,7 @@ export async function updateRepricing(id: number, input: RepricingInput): Promis
   const db = getDb()
   await db.prepare(
         `UPDATE repricings SET price_list_id = @priceListId, product_id = @productId, amount = @amount,
-       currency = @currency, status = @status, user = @user, updated_at = datetime('now')
+       currency = @currency, status = @status, "user" = @user, updated_at = datetime('now')
      WHERE id = @id`,
       ).run({ id, priceListId: input.priceListId, productId: input.productId, amount: input.amount, currency: input.currency, status: input.status, user: input.user })
   return (await getRepricing(id))

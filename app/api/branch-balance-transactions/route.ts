@@ -1,25 +1,18 @@
 import { NextResponse } from "next/server"
-import { z } from "zod"
 
 import { getCurrentUser } from "@/lib/current-user"
 import { requireRole } from "@/lib/rbac"
 import { parseJsonBody } from "@/lib/validation"
-import { createBranchBalanceTransaction, listBranchBalanceTransactions } from "@/lib/branch-balance-repo"
+import { branchBalanceTransactionSchema, createBranchBalanceTransaction, listBranchBalanceTransactions } from "@/lib/branch-balance-repo"
 
-const branchBalanceTransactionSchema = z.object({
-  branchId: z.coerce.number().finite().positive(),
-  branchName: z.string().trim().optional(),
-  kind: z.enum(["add", "expense"]).optional(),
-  currency: z.enum(["sum", "usd"]).optional(),
-  amount: z.coerce.number().finite().positive(),
-  date: z.string().trim().optional(),
-  comment: z.string().trim().optional(),
-})
-
-export async function GET() {
+// GET  /api/branch-balance-transactions[?branchId=N] → the manual branch ledger rows.
+// POST /api/branch-balance-transactions (manager+) → "Добавить" / "Добавить расход"
+// of the Баланс филиалов page (balances: GET /api/balances/branch).
+export async function GET(request: Request) {
   const user = await getCurrentUser()
   if (!user) return NextResponse.json({ error: "Tizimga kirilmagan" }, { status: 401 })
-  return NextResponse.json((await listBranchBalanceTransactions()))
+  const branchId = Number(new URL(request.url).searchParams.get("branchId"))
+  return NextResponse.json(await listBranchBalanceTransactions(Number.isInteger(branchId) && branchId > 0 ? branchId : undefined))
 }
 
 export async function POST(request: Request) {
@@ -29,14 +22,7 @@ export async function POST(request: Request) {
   const parsed = await parseJsonBody(request, branchBalanceTransactionSchema)
   if (parsed.error) return parsed.error
 
-  const transaction = await createBranchBalanceTransaction({
-    branchId: parsed.data.branchId,
-    branchName: parsed.data.branchName ?? "",
-    kind: parsed.data.kind ?? "add",
-    currency: parsed.data.currency ?? "sum",
-    amount: parsed.data.amount,
-    date: parsed.data.date || new Date().toISOString().slice(0, 10),
-    comment: parsed.data.comment ?? "",
-  })
+  const transaction = await createBranchBalanceTransaction(parsed.data, auth.user.displayName || auth.user.username)
+  if (!transaction) return NextResponse.json({ error: "Филиал не найден" }, { status: 404 })
   return NextResponse.json(transaction, { status: 201 })
 }

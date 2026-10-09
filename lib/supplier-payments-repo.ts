@@ -1,40 +1,18 @@
 import "server-only"
 
-import { getDb } from "@/lib/db"
-import type { SupplierPaymentRow } from "@/components/analytics/supplier-payments-data"
+import { listSupplierPaymentsPage, listSupplyPayments, paidBySupply, type SupplierPaymentsQuery } from "@/lib/cash/supplier-payments"
+import type { SupplierPaymentsResult } from "@/components/analytics/supplier-payments-data"
 
-type Row = {
-  id: number
-  supplier: string
-  created_by: string
-  paid_at: string
-  organization: string
-  amount: number
-  currency: "SUM" | "USD"
-  cash_amount: number
-  kassa: string
-  comment: string
-  icon: "cash" | "card"
+// "Оплаты поставщикам": supplier_payments are written only by the cash core
+// (lib/cash/write.ts — cash page «Расход» with a provider / supply category and
+// paid money requests); the read model lives in lib/cash/supplier-payments.ts.
+// This module keeps the historical import path for older callers.
+
+export type { SupplierPaymentsQuery }
+
+/** Live (not soft-deleted) supplier payments, paged and filtered, with the totals strip. */
+export async function listSupplierPayments(query: SupplierPaymentsQuery = {}): Promise<SupplierPaymentsResult> {
+  return listSupplierPaymentsPage(query)
 }
 
-function rowToPayment(row: Row): SupplierPaymentRow {
-  return {
-    id: row.id,
-    supplier: row.supplier,
-    createdBy: row.created_by,
-    paidAt: row.paid_at,
-    organization: row.organization,
-    amount: row.amount,
-    currency: row.currency,
-    cashAmount: row.cash_amount,
-    kassa: row.kassa,
-    comment: row.comment,
-    icon: row.icon,
-  }
-}
-
-export async function listSupplierPayments(): Promise<SupplierPaymentRow[]> {
-  const db = getDb()
-  const rows = (await db.prepare("SELECT * FROM supplier_payments ORDER BY id DESC").all()) as Row[]
-  return rows.map(rowToPayment)
-}
+export { listSupplyPayments, paidBySupply }

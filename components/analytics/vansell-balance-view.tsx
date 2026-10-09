@@ -1,130 +1,272 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
+import { Info, Loader2, Minus, Pencil, Plus, Search } from "lucide-react"
+
+import { BalanceSummaryCards, type SummaryBox } from "@/components/analytics/balance/summary-cards"
+import { BalanceTable, type BalanceColumnGroup } from "@/components/analytics/balance/balance-table"
+import { BalanceFilterChip, BalanceFilterDialog } from "@/components/analytics/balance/filter-bar"
+import { BalancePagination } from "@/components/analytics/balance/pagination"
+import { ExpandedOverlay, ExpandedViewButton } from "@/components/analytics/balance/expanded-view"
+import { useBalanceList, useFinanceCurrencies, useLookup } from "@/components/analytics/balance/use-balance"
+import { VansellDetailDialog } from "@/components/analytics/vansell-balance-detail"
 import {
-  ChevronDown,
-  Expand,
-  Filter,
-  Info,
-  MinusCircle,
-  Pencil,
-  PlusCircle,
-  Search,
-  X,
-} from "lucide-react"
+  VansellLimitDialog,
+  VansellMovementDialog,
+  VansellSnackbar,
+  VansellUsersSelect,
+  paymentHintLines,
+  type VansellEmployeeOption,
+} from "@/components/analytics/vansell-balance-dialogs"
 import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
+import { currencyLabel } from "@/lib/finance/currency"
+import { isIsoDay, monthEndIso, monthStartIso, todayIso } from "@/lib/finance/dates"
+import { MOVEMENT_LABELS, type BalanceRow } from "@/lib/finance/types"
+import { useLanguage } from "@/lib/i18n/language-context"
 
-type Money = { sum: number; usd: number; eur: number }
-type Vansel = {
-  id: number
-  name: string
-  opening: Money
-  transferToWarehouse: Money
-  transferReturn: Money
-  cash: Money
-  transferred: Money
+// "Баланс вансел" (demo #/ven-sell): per van-sell agent and currency the
+// balance at the start of the period, goods handed over / returned, money
+// accepted (cash / bank), "Отход", other incomes / expenses and the balance
+// at the end, from the shared finance ledger (GET /api/balances/vansell).
+// Manual movements and debt limits: /api/vansell-transactions/**.
+// State lives in the URL like the demo: fromDate, toDate, users (1-2-3),
+// search, page, pageSize, ordering, dynamicList (open detail).
+
+const GROUPS: BalanceColumnGroup[] = [
+  { field: "begin_balance", label: "Баланс на начало периода" },
+  ...Object.entries(MOVEMENT_LABELS.vansell).map(([field, label]) => ({ field, label })),
+  { field: "end_balance", label: "Баланс на конец" },
+]
+
+/** Demo ROUND_AMOUNT_FOR_CURRENCY. */
+const DIGITS = 3
+const DEFAULT_PAGE_SIZE = 25
+
+/** Demo serializer default: the whole current calendar month. */
+function defaultPeriod() {
+  const today = todayIso()
+  return { from: monthStartIso(today), to: monthEndIso(today) }
 }
 
-const zero: Money = { sum: 0, usd: 0, eur: 0 }
-
-const initialVansels: Vansel[] = []
-
-const number = (value: number) => new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 2 }).format(value)
-
-function addMoney(a: Money, b: Money): Money {
-  return { sum: a.sum + b.sum, usd: a.usd + b.usd, eur: a.eur + b.eur }
+type ViewState = {
+  /** null = default period (not counted as an active filter). */
+  period: { from: string; to: string } | null
+  users: string[]
+  search: string
+  page: number
+  pageSize: number
+  ordering: string[]
+  /** Open detail dialog (employee key). */
+  detail: string | null
 }
 
-function closingBalance(vansel: Vansel): Money {
-  return addMoney(addMoney(addMoney(vansel.opening, vansel.transferToWarehouse), vansel.cash), vansel.transferred)
+const INITIAL_STATE: ViewState = { period: null, users: [], search: "", page: 1, pageSize: DEFAULT_PAGE_SIZE, ordering: [], detail: null }
+
+function readUrlState(): ViewState {
+  const params = new URLSearchParams(window.location.search)
+  const fromDate = params.get("fromDate") ?? ""
+  const toDate = params.get("toDate") ?? ""
+  const fallback = defaultPeriod()
+  const from = isIsoDay(fromDate) ? fromDate : isIsoDay(toDate) ? monthStartIso(toDate) : ""
+  const to = isIsoDay(toDate) ? toDate : from ? (from > fallback.to ? monthEndIso(from) : fallback.to) : ""
+  const pageSize = Number(params.get("pageSize"))
+  const page = Number(params.get("page"))
+  const detail = params.get("dynamicList") ?? ""
+  return {
+    period: from && to ? (from <= to ? { from, to } : { from: to, to: from }) : null,
+    users: (params.get("users") ?? "").split("-").filter((id) => /^\d+$/.test(id)),
+    search: params.get("search") ?? "",
+    page: Number.isInteger(page) && page > 0 ? page : 1,
+    pageSize: Number.isInteger(pageSize) && pageSize > 0 ? pageSize : DEFAULT_PAGE_SIZE,
+    ordering: (params.get("ordering") ?? "").split(",").filter(Boolean),
+    detail: /^\d+$/.test(detail) && detail !== "0" ? detail : null,
+  }
 }
 
-function AmountCell({ value }: { value: number }) {
-  if (value > 0) return <span className="text-[#3aa76d]">{number(value)}</span>
-  if (value < 0) return <span className="text-[#e5484d]">{number(value)}</span>
-  return <span className="text-[#17233b]">0</span>
+function writeUrlState(state: ViewState) {
+  const params = new URLSearchParams(window.location.search)
+  const set = (name: string, value: string) => (value ? params.set(name, value) : params.delete(name))
+  set("fromDate", state.period?.from ?? "")
+  set("toDate", state.period?.to ?? "")
+  set("users", state.users.join("-"))
+  set("search", state.search)
+  set("page", state.page > 1 ? String(state.page) : "")
+  set("pageSize", String(state.pageSize))
+  set("ordering", state.ordering.join(","))
+  set("dynamicList", state.detail ?? "")
+  const query = params.toString()
+  const next = `${window.location.pathname}${query ? `?${query}` : ""}${window.location.hash}`
+  if (next !== `${window.location.pathname}${window.location.search}${window.location.hash}`) window.history.replaceState(window.history.state, "", next)
+}
+
+type LimitsResponse = { canUpdate: boolean; limits: Array<{ employeeId: number; limit: number }> }
+
+/** GET /api/vansell-transactions/limits (+ whether the user may write). */
+function useVansellLimits() {
+  const [data, setData] = useState<LimitsResponse | null>(null)
+  const [version, setVersion] = useState(0)
+  useEffect(() => {
+    const controller = new AbortController()
+    fetch("/api/vansell-transactions/limits", { signal: controller.signal, cache: "no-store" })
+      .then((response) => (response.ok ? (response.json() as Promise<LimitsResponse>) : null))
+      .then((body) => {
+        if (body) setData(body)
+      })
+      .catch(() => {})
+    return () => controller.abort()
+  }, [version])
+  const reload = useCallback(() => setVersion((value) => value + 1), [])
+  return { data, reload }
 }
 
 export function VansellBalanceView() {
-  const [vansels, setVansels] = useState(initialVansels)
-  const [loading, setLoading] = useState(true)
-  const [search, setSearch] = useState("")
+  const { t } = useLanguage()
+  const [state, setState] = useState<ViewState>(INITIAL_STATE)
+  const [hydrated, setHydrated] = useState(false)
+  const [searchInput, setSearchInput] = useState("")
+  const [selected, setSelected] = useState<Map<string, string>>(new Map())
   const [filterOpen, setFilterOpen] = useState(false)
-  const [selected, setSelected] = useState<Set<number>>(new Set())
-  const [pageSize, setPageSize] = useState(25)
-  const [page, setPage] = useState(1)
-  const [modal, setModal] = useState<{ type: "add" | "expense"; vanselId: number } | null>(null)
-  const [limitModalOpen, setLimitModalOpen] = useState(false)
+  const [draftUsers, setDraftUsers] = useState<string[]>([])
+  const [expanded, setExpanded] = useState(false)
+  const [movement, setMovement] = useState<{ kind: "add" | "expense"; employeeId: number } | null>(null)
+  const [limitOpen, setLimitOpen] = useState(false)
+  const [notice, setNotice] = useState("")
+  const hideNotice = useCallback(() => setNotice(""), [])
 
-  const filtered = useMemo(
-    () => vansels.filter((vansel) => vansel.name.toLocaleLowerCase("ru").includes(search.trim().toLocaleLowerCase("ru"))),
-    [search, vansels],
+  // URL → state once on mount (after hydration), then state → URL.
+  useEffect(() => {
+    const initial = readUrlState()
+    setState(initial)
+    setSearchInput(initial.search)
+    setHydrated(true)
+  }, [])
+  useEffect(() => {
+    if (hydrated) writeUrlState(state)
+  }, [hydrated, state])
+
+  // Demo search box: debounced 500 ms, server-side.
+  useEffect(() => {
+    if (!hydrated) return
+    const timer = window.setTimeout(() => {
+      setState((current) => (current.search === searchInput.trim() ? current : { ...current, search: searchInput.trim(), page: 1 }))
+    }, 500)
+    return () => window.clearTimeout(timer)
+  }, [hydrated, searchInput])
+
+  const period = state.period ?? defaultPeriod()
+  const list = useBalanceList("vansell", {
+    from: period.from,
+    to: period.to,
+    search: state.search,
+    key: state.users,
+    ordering: state.ordering,
+    page: state.page,
+    pageSize: state.pageSize,
+    totalsIgnoreSearch: true,
+  })
+  const limits = useVansellLimits()
+  const currencies = useFinanceCurrencies()
+  const employees = useLookup<VansellEmployeeOption>("/api/employees")
+
+  const data = list.data
+  const rows = useMemo(() => data?.rows ?? [], [data])
+  const visible = data?.visibleCurrencies ?? []
+  const canEdit = Boolean(limits.data?.canUpdate)
+  const limitMap = useMemo(() => new Map((limits.data?.limits ?? []).map((item) => [item.employeeId, item.limit])), [limits.data])
+  const currencyList = currencies.data?.currencies ?? data?.currencies ?? []
+  const filterCount = (state.period ? 1 : 0) + (state.users.length ? 1 : 0)
+
+  const update = (patch: Partial<ViewState>) => setState((current) => ({ ...current, ...patch }))
+  const reloadAll = () => {
+    list.reload()
+    limits.reload()
+  }
+  const saved = (message = "Успешно сохранено") => {
+    setNotice(message)
+    reloadAll()
+  }
+  const detailRow = state.detail ? rows.find((row) => row.key === state.detail) : undefined
+
+  const boxes: SummaryBox[] = [
+    {
+      metrics: [
+        { label: "Передача на склад", field: "stock_transfer_minus" },
+        { label: "Возврат передачи", field: "stock_transfer_plus" },
+      ],
+    },
+    {
+      metrics: [
+        {
+          label: "Принятие оплаты",
+          field: "payment_accepted",
+          value: (balance) => (balance.cash_transfer_plus ?? 0) + (balance.bank_transfer_plus ?? 0),
+          hint: (
+            <span className="group relative inline-flex">
+              <Info className="h-4 w-4 cursor-help text-[#9aa3b6]" aria-label={`${t("Перечисление")} / ${t("Наличные")}`} />
+              <span className="pointer-events-none absolute left-1/2 top-6 z-20 hidden -translate-x-1/2 whitespace-nowrap rounded bg-[#323232] px-3 py-2 text-[12px] font-normal leading-5 text-white shadow-lg group-hover:block">
+                {paymentHintLines(data?.totals ?? {}, visible, currencyLabel, t).map((line) => (
+                  <span key={line} className="block">
+                    {line}
+                  </span>
+                ))}
+              </span>
+            </span>
+          ),
+        },
+        { label: "Отход", field: "order_return_plus" },
+      ],
+    },
+    {
+      metrics: [
+        { label: "Прочие приходы", field: "none_type_plus" },
+        { label: "Прочие расходы", field: "none_type_minus" },
+      ],
+    },
+    {
+      align: "right",
+      metrics: [
+        { label: "Баланс на начало периода", field: "begin_balance" },
+        { label: "Баланс на конец периода", field: "end_balance" },
+      ],
+    },
+  ]
+
+  const nameCell = (row: BalanceRow) => (
+    <div className="flex items-center justify-between gap-3">
+      <button type="button" onClick={() => update({ detail: row.key })} className="text-left font-medium text-[#129fdd] hover:underline">
+        {row.name || t("Не указано")}
+      </button>
+      {canEdit && row.id !== null && (
+        <span className="flex shrink-0 items-center gap-1.5">
+          <button
+            type="button"
+            title={t("Добавить расход")}
+            aria-label={t("Добавить расход")}
+            onClick={() => setMovement({ kind: "expense", employeeId: row.id! })}
+            className="flex h-6 w-6 items-center justify-center rounded-full bg-[#ff584b] text-white hover:opacity-85"
+          >
+            <Minus className="h-4 w-4" />
+          </button>
+          <button
+            type="button"
+            title={t("Добавить")}
+            aria-label={t("Добавить")}
+            onClick={() => setMovement({ kind: "add", employeeId: row.id! })}
+            className="flex h-6 w-6 items-center justify-center rounded-full bg-[#8dc572] text-white hover:opacity-85"
+          >
+            <Plus className="h-4 w-4" />
+          </button>
+        </span>
+      )}
+    </div>
   )
 
-  const maxPage = Math.max(1, Math.ceil(filtered.length / pageSize))
-  const safePage = Math.min(page, maxPage)
-  const visible = filtered.slice((safePage - 1) * pageSize, safePage * pageSize)
-
-  const openingTotal = vansels.reduce((acc, vansel) => addMoney(acc, vansel.opening), zero)
-  const closingTotal = vansels.reduce((acc, vansel) => addMoney(acc, closingBalance(vansel)), zero)
-  const transferToWarehouseTotal = vansels.reduce((acc, vansel) => addMoney(acc, vansel.transferToWarehouse), zero)
-  const transferReturnTotal = vansels.reduce((acc, vansel) => addMoney(acc, vansel.transferReturn), zero)
-
-  const allSelected = visible.length > 0 && visible.every((vansel) => selected.has(vansel.id))
-  const toggleAll = () => {
+  const onSelectionChange = (next: Set<string>) => {
     setSelected((current) => {
-      if (allSelected) {
-        const next = new Set(current)
-        visible.forEach((vansel) => next.delete(vansel.id))
-        return next
-      }
-      const next = new Set(current)
-      visible.forEach((vansel) => next.add(vansel.id))
-      return next
+      const map = new Map<string, string>()
+      for (const key of next) map.set(key, rows.find((row) => row.key === key)?.name ?? current.get(key) ?? key)
+      return map
     })
-  }
-  const toggleOne = (id: number) => {
-    setSelected((current) => {
-      const next = new Set(current)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
-      return next
-    })
-  }
-
-  useEffect(() => {
-    let cancelled = false
-    setLoading(true)
-    fetch("/api/vansell-transactions")
-      .then(async (response) => {
-        if (!response.ok) throw new Error("Не удалось загрузить данные")
-        return (await response.json()) as Vansel[]
-      })
-      .then((data) => {
-        if (!cancelled) setVansels(data)
-      })
-      .catch(() => {})
-      .finally(() => {
-        if (!cancelled) setLoading(false)
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [])
-
-  const applyTransaction = async (vanselId: number, kind: "add" | "expense", currency: keyof Money, amount: number) => {
-    try {
-      const response = await fetch("/api/vansell-transactions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ vanselId, currency, amount, kind }),
-      })
-      if (!response.ok) return
-      const saved = (await response.json()) as Vansel
-      setVansels((current) => current.map((vansel) => (vansel.id === vanselId ? saved : vansel)))
-    } catch {
-      window.alert("Сервер недоступен, попробуйте ещё раз")
-    }
   }
 
   return (
@@ -133,283 +275,131 @@ export function VansellBalanceView() {
         <div className="flex items-center gap-3">
           <FavoritesButton className="flex items-center gap-3 text-2xl font-bold text-[#4f70e7]" />
           <span className="text-3xl font-light text-[#586174]">|</span>
-          <span className="text-2xl font-bold text-[#586174]">Баланс вансел</span>
+          <span className="text-2xl font-bold text-[#586174]">{t("Баланс вансел")}</span>
         </div>
       </header>
 
-      <section className="grid grid-cols-1 gap-6 border-b border-[#e1e5eb] bg-white px-6 py-6 sm:grid-cols-2 lg:grid-cols-4 md:px-9">
-        <div className="space-y-6">
-          <div>
-            <p className="text-[#586174]">Передача на склад</p>
-            <p className="font-semibold"><AmountCell value={transferToWarehouseTotal.eur} /> Euro</p>
-            <p className="font-semibold"><AmountCell value={transferToWarehouseTotal.sum} /> SUM</p>
-            <p className="font-semibold"><AmountCell value={transferToWarehouseTotal.usd} /> USD</p>
+      <div className="border-b border-[#e1e5eb] bg-white pt-6">
+        {data ? (
+          <BalanceSummaryCards boxes={boxes} totals={data.totals} currencies={visible} digits={DIGITS} loading={list.loading} />
+        ) : (
+          <div className="flex h-[150px] items-center justify-center pb-6">
+            {list.error ? <span className="text-[#e57373]">{t(list.error)}</span> : <Loader2 className="h-7 w-7 animate-spin text-[#4f70e7]" />}
           </div>
-          <div>
-            <p className="text-[#586174]">Возврат передачи</p>
-            <p className="font-semibold"><AmountCell value={transferReturnTotal.eur} /> Euro</p>
-            <p className="font-semibold"><AmountCell value={transferReturnTotal.sum} /> SUM</p>
-            <p className="font-semibold"><AmountCell value={transferReturnTotal.usd} /> USD</p>
-          </div>
-        </div>
+        )}
+      </div>
 
-        <div className="space-y-6">
-          <div>
-            <p className="text-[#586174]">Принятие оплаты</p>
-            <p className="flex items-center gap-1.5 font-semibold"><Info className="h-4 w-4 text-[#9aa3b6]" /> 0 Euro</p>
-            <p className="flex items-center gap-1.5 font-semibold"><Info className="h-4 w-4 text-[#9aa3b6]" /> 0 SUM</p>
-            <p className="flex items-center gap-1.5 font-semibold"><Info className="h-4 w-4 text-[#9aa3b6]" /> 0 USD</p>
-          </div>
-          <div>
-            <p className="text-[#586174]">Отход</p>
-            <p className="font-semibold">0 Euro</p>
-            <p className="font-semibold">0 SUM</p>
-            <p className="font-semibold">0 USD</p>
-          </div>
-        </div>
-
-        <div className="space-y-6">
-          <div>
-            <p className="text-[#586174]">Прочие приходы</p>
-            <p className="font-semibold">0 Euro</p>
-            <p className="font-semibold">0 SUM</p>
-            <p className="font-semibold">0 USD</p>
-          </div>
-          <div>
-            <p className="text-[#586174]">Прочие расходы</p>
-            <p className="font-semibold">0 Euro</p>
-            <p className="font-semibold">0 SUM</p>
-            <p className="font-semibold">0 USD</p>
-          </div>
-        </div>
-
-        <div className="space-y-6 lg:text-right">
-          <div>
-            <p className="text-[#586174]">Баланс на начало периода</p>
-            <p className="font-semibold"><AmountCell value={openingTotal.eur} /> Euro</p>
-            <p className="font-semibold"><AmountCell value={openingTotal.sum} /> SUM</p>
-            <p className="font-semibold"><AmountCell value={openingTotal.usd} /> USD</p>
-          </div>
-          <div>
-            <p className="text-[#586174]">Баланс на конец периода</p>
-            <p className="font-semibold"><AmountCell value={closingTotal.eur} /> Euro</p>
-            <p className="font-semibold"><AmountCell value={closingTotal.sum} /> SUM</p>
-            <p className="font-semibold"><AmountCell value={closingTotal.usd} /> USD</p>
-          </div>
-        </div>
-      </section>
-
-      <section className="flex flex-wrap items-center gap-5 border-b border-[#e1e5eb] bg-white px-6 py-3 md:px-9">
-        <button onClick={() => setFilterOpen((value) => !value)} className="flex items-center gap-1 font-medium text-[#4f70e7]">
-          <Filter className="h-4 w-4" /> Показать фильтр <ChevronDown className={`h-4 w-4 transition ${filterOpen ? "rotate-180" : ""}`} />
-        </button>
-
-        <label className="relative min-w-[220px] flex-1 border-b border-[#dbe0e8] pb-1.5">
-          <input value={search} onChange={(event) => { setSearch(event.target.value); setPage(1) }} placeholder="Поиск" className="w-full bg-transparent pr-7 text-[15px] outline-none placeholder:text-[#9aa3b6]" />
-          <Search className="pointer-events-none absolute right-0 top-0.5 h-5 w-5 text-[#9aa3b6]" />
-        </label>
-
-        <button onClick={() => setLimitModalOpen(true)} className="flex h-11 items-center gap-2 rounded-md bg-[#4f71dc] px-5 font-semibold text-white">
-          <Pencil className="h-5 w-5" /> Изменить лимит
-        </button>
-
-        <select value={pageSize} onChange={(event) => { setPageSize(Number(event.target.value)); setPage(1) }} className="h-9 bg-transparent text-[#586174]">
-          <option value={10}>10</option>
-          <option value={25}>25</option>
-          <option value={50}>50</option>
-        </select>
-
-        <span className="text-[#586174]">{filtered.length ? (safePage - 1) * pageSize + 1 : 0} - {Math.min(safePage * pageSize, filtered.length)} из {filtered.length}</span>
-
-        <button disabled={safePage === 1} onClick={() => setPage((value) => Math.max(1, value - 1))} className="rounded-full border border-[#dbe0e8] p-1 text-[#9aa3b6] disabled:opacity-40">
-          <ChevronDown className="h-5 w-5 rotate-90" />
-        </button>
-        <button disabled={safePage === maxPage} onClick={() => setPage((value) => Math.min(maxPage, value + 1))} className="rounded-full border border-[#4f70e7] p-1 text-[#4f70e7] disabled:opacity-40">
-          <ChevronDown className="h-5 w-5 -rotate-90" />
-        </button>
-        <button aria-label="Полный экран" onClick={() => document.documentElement.requestFullscreen?.()} className="text-[#586174]"><Expand className="h-5 w-5" /></button>
-      </section>
-
-      {filterOpen && (
-        <section className="grid grid-cols-1 gap-6 border-b border-[#e1e5eb] bg-white px-6 py-6 sm:grid-cols-3 md:px-9">
-          <label className="block border-b border-[#dbe0e8] pb-2 text-[15px] font-medium">
-            Вансел
-            <input placeholder="Введите имя..." className="mt-1 block w-full bg-transparent text-[15px] font-normal outline-none placeholder:text-[#9aa3b6]" onChange={(event) => setSearch(event.target.value)} value={search} />
+      <ExpandedOverlay expanded={expanded}>
+        <section className="flex flex-wrap items-center gap-x-5 gap-y-3 border-b border-[#e1e5eb] bg-white px-6 py-3 md:px-9">
+          <BalanceFilterChip
+            count={filterCount}
+            onOpen={() => {
+              setDraftUsers(state.users)
+              setFilterOpen(true)
+            }}
+            onClear={() => update({ period: null, users: [], page: 1 })}
+          />
+          <label className="relative min-w-[200px] flex-1 border-b border-[#dbe0e8] pb-1.5">
+            <input
+              value={searchInput}
+              onChange={(event) => setSearchInput(event.target.value)}
+              placeholder={t("Поиск")}
+              className="w-full bg-transparent pr-7 text-[15px] outline-none placeholder:text-[#9aa3b6]"
+            />
+            <Search className="pointer-events-none absolute right-0 top-0.5 h-5 w-5 text-[#9aa3b6]" />
           </label>
+          <div className="ml-auto flex flex-wrap items-center gap-5">
+            {canEdit && (
+              <button type="button" onClick={() => setLimitOpen(true)} className="flex h-10 items-center gap-2 rounded-md bg-[#4f71dc] px-4 font-semibold text-white">
+                <Pencil className="h-4 w-4" /> {t("Изменить лимит")}
+                {selected.size > 0 && <span className="rounded-full bg-white/25 px-2 text-[12px]">{selected.size}</span>}
+              </button>
+            )}
+            <BalancePagination page={state.page} pageSize={state.pageSize} count={data?.count ?? 0} onChange={(next) => update(next)} />
+            <ExpandedViewButton expanded={expanded} onToggle={() => setExpanded((value) => !value)} />
+          </div>
         </section>
+
+        {list.error && data && (
+          <div className="flex items-center justify-between gap-4 bg-[#fdecec] px-6 py-2 text-[14px] text-[#c62828] md:px-9">
+            <span>{t(list.error)}</span>
+            <button type="button" onClick={list.reload} className="font-semibold underline">
+              {t("Повторить")}
+            </button>
+          </div>
+        )}
+
+        <section className="bg-white pb-10">
+          <BalanceTable
+            rows={rows}
+            groups={GROUPS}
+            currencies={visible}
+            first={{ label: "Вансел", width: 220, sortKey: "name", render: nameCell }}
+            selection={{ selected: new Set(selected.keys()), onChange: onSelectionChange }}
+            ordering={state.ordering}
+            onOrderingChange={(ordering) => update({ ordering, page: 1 })}
+            sortCycle="asc-first"
+            digits={DIGITS}
+            loading={list.loading}
+          />
+        </section>
+      </ExpandedOverlay>
+
+      <BalanceFilterDialog
+        open={filterOpen}
+        onClose={() => setFilterOpen(false)}
+        from={period.from}
+        to={period.to}
+        dateLabel="Период создания"
+        onApply={(next) => {
+          // An untouched default period stays "not set" (the demo counts only a chosen period).
+          const unchanged = !state.period && next.from === period.from && next.to === period.to
+          update({ period: unchanged ? null : next, users: draftUsers, page: 1 })
+        }}
+      >
+        <VansellUsersSelect options={employees} value={draftUsers} onChange={setDraftUsers} />
+      </BalanceFilterDialog>
+
+      {state.detail && (
+        <VansellDetailDialog
+          key={state.detail}
+          entityKey={state.detail}
+          name={detailRow?.name ?? ""}
+          currencies={currencyList}
+          canEdit={canEdit}
+          onClose={() => update({ detail: null })}
+          onChanged={saved}
+        />
       )}
 
-      <section className="overflow-x-auto bg-white pb-10">
-        <table className="min-w-[1750px] w-full border-collapse text-[14px]">
-          <thead className="bg-[#edf2f7] text-[#253653]">
-            <tr>
-              <th className="border border-[#e1e5eb] px-4 py-2" />
-              <th className="border border-[#e1e5eb] px-2 py-2" />
-              <th colSpan={3} className="border border-[#e1e5eb] px-4 py-2 text-center font-medium">Баланс на начало периода</th>
-              <th colSpan={3} className="border border-[#e1e5eb] px-4 py-2 text-center font-medium">Передача на склад</th>
-              <th colSpan={3} className="border border-[#e1e5eb] px-4 py-2 text-center font-medium">Возврат передачи</th>
-              <th colSpan={3} className="border border-[#e1e5eb] px-4 py-2 text-center font-medium">Наличные</th>
-              <th colSpan={3} className="border border-[#e1e5eb] px-4 py-2 text-center font-medium">Перечисление</th>
-              <th colSpan={3} className="border border-[#e1e5eb] px-4 py-2 text-center font-medium">Баланс на конец периода</th>
-            </tr>
-            <tr>
-              <th className="border border-[#e1e5eb] px-4 py-2 text-left font-semibold">Вансел</th>
-              <th className="border border-[#e1e5eb] px-2 py-2"><input type="checkbox" checked={allSelected} onChange={toggleAll} className="h-4 w-4 accent-[#4f70e7]" /></th>
-              {Array.from({ length: 6 }).map((_, groupIndex) =>
-                ["SUM", "USD", "Euro"].map((currency) => (
-                  <th key={`${groupIndex}-${currency}`} className="border border-[#e1e5eb] px-4 py-2 font-semibold">{currency}</th>
-                )),
-              )}
-            </tr>
-          </thead>
-          <tbody>
-            {visible.map((vansel, index) => {
-              const closing = closingBalance(vansel)
-              return (
-                <tr key={vansel.id} className={index % 2 ? "bg-[#f6f9fc]" : "bg-white"}>
-                  <td className="border border-[#e1e5eb] px-4 py-4">
-                    <div className="flex items-center gap-2">
-                      <button aria-label="Добавить расход" onClick={() => setModal({ type: "expense", vanselId: vansel.id })} className="text-[#ff5d63] hover:text-[#e5484d]"><MinusCircle className="h-6 w-6 fill-[#ff5d63] text-white" /></button>
-                      <button aria-label="Добавить" onClick={() => setModal({ type: "add", vanselId: vansel.id })} className="text-[#39ca79] hover:text-[#2fb56b]"><PlusCircle className="h-6 w-6 fill-[#39ca79] text-white" /></button>
-                      <span>{vansel.name}</span>
-                    </div>
-                  </td>
-                  <td className="border border-[#e1e5eb] px-2 py-4 text-center">
-                    <input type="checkbox" checked={selected.has(vansel.id)} onChange={() => toggleOne(vansel.id)} className="h-4 w-4 accent-[#4f70e7]" />
-                  </td>
-                  <td className="border border-[#e1e5eb] px-4 py-4"><AmountCell value={vansel.opening.sum} /></td>
-                  <td className="border border-[#e1e5eb] px-4 py-4"><AmountCell value={vansel.opening.usd} /></td>
-                  <td className="border border-[#e1e5eb] px-4 py-4"><AmountCell value={vansel.opening.eur} /></td>
-                  <td className="border border-[#e1e5eb] px-4 py-4"><AmountCell value={vansel.transferToWarehouse.sum} /></td>
-                  <td className="border border-[#e1e5eb] px-4 py-4"><AmountCell value={vansel.transferToWarehouse.usd} /></td>
-                  <td className="border border-[#e1e5eb] px-4 py-4"><AmountCell value={vansel.transferToWarehouse.eur} /></td>
-                  <td className="border border-[#e1e5eb] px-4 py-4"><AmountCell value={vansel.transferReturn.sum} /></td>
-                  <td className="border border-[#e1e5eb] px-4 py-4"><AmountCell value={vansel.transferReturn.usd} /></td>
-                  <td className="border border-[#e1e5eb] px-4 py-4"><AmountCell value={vansel.transferReturn.eur} /></td>
-                  <td className="border border-[#e1e5eb] px-4 py-4"><AmountCell value={vansel.cash.sum} /></td>
-                  <td className="border border-[#e1e5eb] px-4 py-4"><AmountCell value={vansel.cash.usd} /></td>
-                  <td className="border border-[#e1e5eb] px-4 py-4"><AmountCell value={vansel.cash.eur} /></td>
-                  <td className="border border-[#e1e5eb] px-4 py-4"><AmountCell value={vansel.transferred.sum} /></td>
-                  <td className="border border-[#e1e5eb] px-4 py-4"><AmountCell value={vansel.transferred.usd} /></td>
-                  <td className="border border-[#e1e5eb] px-4 py-4"><AmountCell value={vansel.transferred.eur} /></td>
-                  <td className="border border-[#e1e5eb] px-4 py-4"><AmountCell value={closing.sum} /></td>
-                  <td className="border border-[#e1e5eb] px-4 py-4"><AmountCell value={closing.usd} /></td>
-                  <td className="border border-[#e1e5eb] px-4 py-4"><AmountCell value={closing.eur} /></td>
-                </tr>
-              )
-            })}
-            {visible.length === 0 && (
-              <tr><td colSpan={20} className="border border-[#e1e5eb] px-4 py-16 text-center text-[#9aa3b6]">Ничего не найдено</td></tr>
-            )}
-          </tbody>
-        </table>
-      </section>
-
-      {modal && (
-        <TransactionModal
-          vansel={vansels.find((item) => item.id === modal.vanselId)!}
-          type={modal.type}
-          onClose={() => setModal(null)}
-          onSave={(currency, amount) => {
-            applyTransaction(modal.vanselId, modal.type, currency, amount)
-            setModal(null)
+      {movement && (
+        <VansellMovementDialog
+          kind={movement.kind}
+          employeeId={movement.employeeId}
+          employees={employees}
+          currencies={currencyList}
+          onClose={() => setMovement(null)}
+          onSaved={() => {
+            setMovement(null)
+            saved()
           }}
         />
       )}
 
-      {limitModalOpen && <LimitModal count={selected.size || visible.length} onClose={() => setLimitModalOpen(false)} />}
+      {limitOpen && (
+        <VansellLimitDialog
+          rows={[...selected.entries()].map(([key, name]) => ({ id: Number(key), name }))}
+          limits={limitMap}
+          onClose={() => setLimitOpen(false)}
+          onSaved={() => {
+            setLimitOpen(false)
+            setSelected(new Map())
+            saved()
+          }}
+        />
+      )}
+
+      <VansellSnackbar text={notice} onHide={hideNotice} />
     </main>
-  )
-}
-
-function TransactionModal({
-  vansel,
-  type,
-  onClose,
-  onSave,
-}: {
-  vansel: Vansel
-  type: "add" | "expense"
-  onClose: () => void
-  onSave: (currency: keyof Money, amount: number) => void
-}) {
-  const [currency, setCurrency] = useState<keyof Money>("sum")
-  const [amount, setAmount] = useState("")
-  const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10))
-  const [comment, setComment] = useState("")
-
-  return (
-    <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/40" onClick={onClose}>
-      <div onClick={(event) => event.stopPropagation()} className="w-[600px] max-w-[92vw] rounded-md bg-white shadow-2xl">
-        <header className="flex items-center justify-between border-b px-8 py-6">
-          <h2 className="text-xl font-bold uppercase tracking-wide">{type === "add" ? "Добавить" : "Добавить расход"}</h2>
-          <button aria-label="Закрыть" onClick={onClose}><X className="h-6 w-6 text-slate-500" /></button>
-        </header>
-        <div className="space-y-7 px-8 py-7">
-          <label className="block border-b border-[#dbe0e8] pb-2 text-[13px] font-medium text-[#586174]">
-            Пользователь
-            <div className="mt-1 flex items-center justify-between text-[16px] font-semibold text-[#17233b]">
-              {vansel.name}
-              <span className="flex items-center gap-2 text-[#9aa3b6]"><X className="h-4 w-4" /><ChevronDown className="h-4 w-4" /></span>
-            </div>
-          </label>
-          <label className="relative block border-b border-[#dbe0e8] pb-2 text-[13px] font-medium text-[#586174]">
-            Валюта
-            <select value={currency} onChange={(event) => setCurrency(event.target.value as keyof Money)} className="mt-1 block w-full appearance-none bg-transparent pr-6 text-[16px] font-semibold text-[#17233b] outline-none">
-              <option value="sum">SUM</option>
-              <option value="usd">USD</option>
-              <option value="eur">Euro</option>
-            </select>
-            <ChevronDown className="pointer-events-none absolute right-0 top-7 h-4 w-4 text-[#9aa3b6]" />
-          </label>
-          <label className="block border-b border-[#dbe0e8] pb-2 text-[13px] font-medium text-[#586174]">
-            Сумма
-            <input type="number" value={amount} onChange={(event) => setAmount(event.target.value)} className="mt-1 block w-full bg-transparent text-[16px] font-semibold text-[#17233b] outline-none" />
-          </label>
-          <label className="block border-b border-[#dbe0e8] pb-2 text-[13px] font-medium text-[#586174]">
-            Дата создания
-            <input type="date" value={date} onChange={(event) => setDate(event.target.value)} className="mt-1 block w-full bg-transparent text-[16px] font-semibold text-[#17233b] outline-none" />
-          </label>
-          <label className="block border-b border-[#dbe0e8] pb-2 text-[13px] font-medium text-[#586174]">
-            <input placeholder="Оставить комментарий..." value={comment} onChange={(event) => setComment(event.target.value)} className="mt-1 block w-full bg-transparent text-[16px] outline-none placeholder:text-[#586174]" />
-          </label>
-        </div>
-        <footer className="flex justify-end border-t px-8 py-5">
-          <button
-            onClick={() => {
-              const value = Number(amount)
-              if (value > 0) onSave(currency, value)
-            }}
-            className="font-bold uppercase tracking-wide text-[#4f70e7]"
-          >
-            Сохранить
-          </button>
-        </footer>
-      </div>
-    </div>
-  )
-}
-
-function LimitModal({ count, onClose }: { count: number; onClose: () => void }) {
-  const [limit, setLimit] = useState("")
-  return (
-    <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/40" onClick={onClose}>
-      <div onClick={(event) => event.stopPropagation()} className="w-[460px] max-w-[92vw] rounded-md bg-white shadow-2xl">
-        <header className="flex items-center justify-between border-b px-8 py-6">
-          <h2 className="text-xl font-bold uppercase tracking-wide">Изменить лимит</h2>
-          <button aria-label="Закрыть" onClick={onClose}><X className="h-6 w-6 text-slate-500" /></button>
-        </header>
-        <div className="px-8 py-7">
-          <p className="mb-5 text-sm text-[#586174]">Будет применено к {count} {count === 1 ? "вансел" : "вансел(ам)"}</p>
-          <label className="block border-b border-[#dbe0e8] pb-2 text-[13px] font-medium text-[#586174]">
-            Новый лимит (SUM)
-            <input type="number" value={limit} onChange={(event) => setLimit(event.target.value)} className="mt-1 block w-full bg-transparent text-[16px] font-semibold text-[#17233b] outline-none" />
-          </label>
-        </div>
-        <footer className="flex justify-end border-t px-8 py-5">
-          <button onClick={onClose} className="font-bold uppercase tracking-wide text-[#4f70e7]">Сохранить</button>
-        </footer>
-      </div>
-    </div>
   )
 }

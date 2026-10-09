@@ -369,10 +369,28 @@ function OrderDetail({
   const { t } = useLanguage()
   const [editOpen, setEditOpen] = useState(false)
   const [editClient, setEditClient] = useState(order.client)
+  const [editPaymentDate, setEditPaymentDate] = useState(order.paymentDate ?? "")
+  const [editPaymentType, setEditPaymentType] = useState(order.paymentType ?? "")
+  const [editOrganization, setEditOrganization] = useState(order.organization ?? "")
+  const [organizations, setOrganizations] = useState<string[]>([])
   const [discountOpen, setDiscountOpen] = useState(false)
   const [discountValue, setDiscountValue] = useState("")
   const [tab, setTab] = useState("Список товаров")
   const detailTabs = ["Список товаров", "Серии", "Возврат", "Задействованные акции", "Логи"]
+
+  useEffect(() => {
+    if (!editOpen) return
+    let cancelled = false
+    fetch("/api/organizations")
+      .then((response) => (response.ok ? (response.json() as Promise<Array<{ name: string }>>) : []))
+      .then((rows) => {
+        if (!cancelled) setOrganizations(rows.map((row) => row.name).filter(Boolean))
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [editOpen])
 
   function cycleStatus() {
     const index = statuses.indexOf(order.status)
@@ -406,9 +424,9 @@ function OrderDetail({
         </div>
         <div className="flex flex-col gap-2 sm:px-5">
           <Field label={t("Прайс-лист:")} value="donalik" />
-          <Field label={t("Организация:")} value="energetik" />
-          <Field label={t("Дата окончательной оплаты:")} value={order.delivery} />
-          <Field label={t("Тип оплаты:")} value={t("Наличные")} />
+          <Field label={t("Организация:")} value={order.organization || t("Не указано")} />
+          <Field label={t("Дата окончательной оплаты:")} value={order.paymentDate ? order.paymentDate.split("-").reverse().join(".") : t("Не указано")} />
+          <Field label={t("Тип оплаты:")} value={order.paymentType === "bank" ? t("Перечисление") : order.paymentType === "cash" ? t("Наличные") : t("Не указано")} />
           <Field label={t("Общая стоимость")} value={order.amount} />
           {order.discount && <Field label={t("Скидка")} value={order.discount} valueClassName="text-[#278549]" />}
           <Field label={t("Оплачено:")} value="0 SUM" />
@@ -453,7 +471,12 @@ function OrderDetail({
           <form
             onSubmit={(event) => {
               event.preventDefault()
-              onUpdate(order.id, { client: editClient.trim() || order.client })
+              onUpdate(order.id, {
+                client: editClient.trim() || order.client,
+                paymentDate: editPaymentDate,
+                paymentType: editPaymentType,
+                organization: editOrganization,
+              })
               setEditOpen(false)
             }}
             className="w-full max-w-sm rounded-md bg-white p-6 shadow-xl"
@@ -465,6 +488,25 @@ function OrderDetail({
             <label className="mb-5 block border-b border-slate-200 pb-2 text-[13px] font-medium text-slate-500">
               {t("Клиент")}
               <input autoFocus value={editClient} onChange={(event) => setEditClient(event.target.value)} className="mt-1 block w-full bg-transparent text-[16px] font-semibold text-slate-900 outline-none" />
+            </label>
+            <label className="mb-5 block border-b border-slate-200 pb-2 text-[13px] font-medium text-slate-500">
+              {t("Дата оплаты")}
+              <input type="date" value={editPaymentDate} onChange={(event) => setEditPaymentDate(event.target.value)} className="mt-1 block w-full bg-transparent text-[16px] text-slate-900 outline-none" />
+            </label>
+            <label className="mb-5 block border-b border-slate-200 pb-2 text-[13px] font-medium text-slate-500">
+              {t("Тип оплаты")}
+              <select value={editPaymentType} onChange={(event) => setEditPaymentType(event.target.value)} className="mt-1 block w-full bg-white text-[16px] text-slate-900 outline-none">
+                <option value="">{t("Не указано")}</option>
+                <option value="cash">{t("Наличные")}</option>
+                <option value="bank">{t("Перечисление")}</option>
+              </select>
+            </label>
+            <label className="mb-5 block border-b border-slate-200 pb-2 text-[13px] font-medium text-slate-500">
+              {t("Организация")}
+              <select value={editOrganization} onChange={(event) => setEditOrganization(event.target.value)} className="mt-1 block w-full bg-white text-[16px] text-slate-900 outline-none">
+                <option value="">{t("Не указано")}</option>
+                {[...new Set([...organizations, editOrganization].filter(Boolean))].map((name) => <option key={name} value={name}>{name}</option>)}
+              </select>
             </label>
             <button type="submit" className="w-full rounded-md bg-[#5271df] py-3 font-semibold text-white">{t("Сохранить")}</button>
           </form>

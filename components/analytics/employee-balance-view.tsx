@@ -1,387 +1,443 @@
 "use client"
 
-import { useEffect, useMemo, useRef, useState } from "react"
-import { ChevronDown, Download, Expand, Filter, MoreVertical, Search, X } from "lucide-react"
+import { useCallback, useEffect, useMemo, useState } from "react"
+import { Download, Loader2, MoreVertical, Search } from "lucide-react"
+
+import { BalanceTable, type BalanceColumnGroup } from "@/components/analytics/balance/balance-table"
+import { balanceListExcelRows } from "@/components/analytics/balance/excel"
+import { ExpandedOverlay, ExpandedViewButton } from "@/components/analytics/balance/expanded-view"
+import { BalanceFilterChip, BalanceFilterDialog } from "@/components/analytics/balance/filter-bar"
+import { BalancePagination } from "@/components/analytics/balance/pagination"
+import { BalanceSummaryCards, type SummaryBox } from "@/components/analytics/balance/summary-cards"
+import { buildBalanceQuery, useBalanceList, useFinanceCurrencies, useLookup, type BalanceQuery } from "@/components/analytics/balance/use-balance"
+import { EmployeeActDialog } from "@/components/analytics/employee-balance-act"
+import {
+  EmployeeMovementDialog,
+  EmployeeSnackbar,
+  EmployeeUsersSelect,
+  MOVEMENT_ACTION_LABELS,
+  type EmployeeMovementAction,
+  type EmployeeOption,
+} from "@/components/analytics/employee-balance-dialogs"
 import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
 import { downloadExcelTable } from "@/lib/excel-export"
+import { isIsoDay, monthEndIso, monthStartIso, todayIso } from "@/lib/finance/dates"
+import { MOVEMENT_LABELS, type BalanceListResult, type BalanceRow } from "@/lib/finance/types"
+import { useLanguage } from "@/lib/i18n/language-context"
 
-type Money = { sum: number; usd: number; eur: number }
-type Employee = { id: number; name: string; opening: Money }
-type ApiEmployee = { id: number; name: string }
-type BalanceTransaction = {
-  id: number
-  employeeId: number
-  kind: "add" | "expense"
-  currency: keyof Money
-  amount: number
-  date: string
-  comment: string
+// "Баланс сотрудников" (demo #/statistics/employee-balance, a fork of the
+// van-sell page): per employee and currency the balance at the start of the
+// period, Зарплата / Зачислено KPI (credited salary plans), Введено с кассы,
+// Штрафы, Коректировки (manual "Зачислить" / "Списать") and the balance at the
+// end, from the shared finance ledger (GET /api/balances/employee). Positive =
+// the company owes the employee, negative = advance. Manual movements:
+// POST /api/employee-balance-transactions. State lives in the URL like the
+// demo: fromDate, toDate, users (1-2-3), search, page, pageSize, ordering,
+// dynamicList (open act), openAddDialog / openCreateDialog (open "Зачислить" /
+// "Списать" for an employee id, the van-sell dialog keys); the menu's
+// toggle/withProfit leftovers are ignored.
+
+const GROUPS: BalanceColumnGroup[] = [
+  { field: "begin_balance", label: "Баланс на начало периода" },
+  ...Object.entries(MOVEMENT_LABELS.employee).map(([field, label]) => ({ field, label })),
+  { field: "end_balance", label: "Баланс на конец периода" },
+]
+
+const BOXES: SummaryBox[] = [
+  {
+    metrics: [
+      { label: "Баланс на начало периода", field: "begin_balance" },
+      { label: "Зарплата", field: "monthly" },
+    ],
+  },
+  {
+    metrics: [
+      { label: "Зачислено KPI", field: "performance_bonus" },
+      { label: "Введено с кассы", field: "payment" },
+    ],
+  },
+  {
+    metrics: [
+      { label: "Штрафы", field: "penalty" },
+      { label: "Коректировки", field: "none_type" },
+    ],
+  },
+  { align: "right", metrics: [{ label: "Баланс на конец периода", field: "end_balance" }] },
+]
+
+/** Demo ROUND_AMOUNT_FOR_CURRENCY. */
+const DIGITS = 3
+const DEFAULT_PAGE_SIZE = 25
+
+/** Currency sub-columns: the demo rule (visibleCurrencies: non-zero totals,
+ * else the first) plus every currency that is non-zero on a returned row —
+ * otherwise opposite balances of two employees (+20 USD / −20 USD) that cancel
+ * out in the totals would be hidden. Ordered like the currency list. */
+function shownCurrencies(result: Pick<BalanceListResult, "currencies" | "visibleCurrencies" | "rows">): string[] {
+  const shown = new Set(result.visibleCurrencies)
+  for (const row of result.rows) {
+    for (const [code, balance] of Object.entries(row.currencies)) {
+      if (Object.values(balance).some((value) => typeof value === "number" && value !== 0)) shown.add(code)
+    }
+  }
+  const ordered = result.currencies.map((currency) => currency.code).filter((code) => shown.has(code))
+  return [...ordered, ...[...shown].filter((code) => !ordered.includes(code))]
 }
 
-const zero: Money = { sum: 0, usd: 0, eur: 0 }
-
-const groups = ["Баланс на начало периода", "Зарплата", "Зачислено KPI", "Введено с кассы", "Штрафы", "Коректировки", "Баланс на конец периода"] as const
-
-const money = (value: number) => new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 2 }).format(value)
-
-function AmountCell({ value }: { value: number }) {
-  if (value === 0) return <span>0</span>
-  const color = value > 0 ? "text-[#3aa76d]" : "text-[#e5484d]"
-  return <span className={`font-semibold ${color}`}>{money(value)}</span>
+/** Demo serializer default: the whole current calendar month. */
+function defaultPeriod() {
+  const today = todayIso()
+  return { from: monthStartIso(today), to: monthEndIso(today) }
 }
+
+type ViewState = {
+  /** null = default period (not counted as an active filter). */
+  period: { from: string; to: string } | null
+  users: string[]
+  search: string
+  page: number
+  pageSize: number
+  ordering: string[]
+  /** Open act (employee key). */
+  detail: string | null
+  /** Open "Зачислить" (add) / "Списать" (expense) dialog. */
+  movement: { action: EmployeeMovementAction; employeeId: number } | null
+}
+
+const INITIAL_STATE: ViewState = { period: null, users: [], search: "", page: 1, pageSize: DEFAULT_PAGE_SIZE, ordering: [], detail: null, movement: null }
+
+function positiveId(value: string | null): number | null {
+  const id = Number(value)
+  return Number.isInteger(id) && id > 0 ? id : null
+}
+
+function readUrlState(): ViewState {
+  const params = new URLSearchParams(window.location.search)
+  const fromDate = params.get("fromDate") ?? ""
+  const toDate = params.get("toDate") ?? ""
+  const fallback = defaultPeriod()
+  const from = isIsoDay(fromDate) ? fromDate : isIsoDay(toDate) ? monthStartIso(toDate) : ""
+  const to = isIsoDay(toDate) ? toDate : from ? (from > fallback.to ? monthEndIso(from) : fallback.to) : ""
+  const pageSize = Number(params.get("pageSize"))
+  const page = Number(params.get("page"))
+  const detail = params.get("dynamicList") ?? ""
+  const addId = positiveId(params.get("openAddDialog"))
+  const expenseId = positiveId(params.get("openCreateDialog"))
+  return {
+    period: from && to ? (from <= to ? { from, to } : { from: to, to: from }) : null,
+    users: (params.get("users") ?? "").split("-").filter((id) => /^\d+$/.test(id)),
+    search: params.get("search") ?? "",
+    page: Number.isInteger(page) && page > 0 ? page : 1,
+    pageSize: Number.isInteger(pageSize) && pageSize > 0 ? pageSize : DEFAULT_PAGE_SIZE,
+    ordering: (params.get("ordering") ?? "").split(",").filter(Boolean),
+    detail: /^\d+$/.test(detail) && detail !== "0" ? detail : null,
+    movement: addId ? { action: "add", employeeId: addId } : expenseId ? { action: "expense", employeeId: expenseId } : null,
+  }
+}
+
+function writeUrlState(state: ViewState) {
+  const params = new URLSearchParams(window.location.search)
+  const set = (name: string, value: string) => (value ? params.set(name, value) : params.delete(name))
+  set("fromDate", state.period?.from ?? "")
+  set("toDate", state.period?.to ?? "")
+  set("users", state.users.join("-"))
+  set("search", state.search)
+  set("page", state.page > 1 ? String(state.page) : "")
+  set("pageSize", String(state.pageSize))
+  set("ordering", state.ordering.join(","))
+  set("dynamicList", state.detail ?? "")
+  set("openAddDialog", state.movement?.action === "add" ? String(state.movement.employeeId) : "")
+  set("openCreateDialog", state.movement?.action === "expense" ? String(state.movement.employeeId) : "")
+  const query = params.toString()
+  const next = `${window.location.pathname}${query ? `?${query}` : ""}${window.location.hash}`
+  if (next !== `${window.location.pathname}${window.location.search}${window.location.hash}`) window.history.replaceState(window.history.state, "", next)
+}
+
+/** Whether the signed-in user may write (manager+), from /api/auth/me. */
+function useCanEdit(): boolean {
+  const [canEdit, setCanEdit] = useState(false)
+  useEffect(() => {
+    const controller = new AbortController()
+    fetch("/api/auth/me", { signal: controller.signal, cache: "no-store" })
+      .then((response) => (response.ok ? (response.json() as Promise<{ role?: string }>) : null))
+      .then((user) => setCanEdit(user?.role === "manager" || user?.role === "admin"))
+      .catch(() => {})
+    return () => controller.abort()
+  }, [])
+  return canEdit
+}
+
+type RowMenu = { employeeId: number; top: number; left: number }
 
 export function EmployeeBalanceView() {
-  const [employeesList, setEmployeesList] = useState<ApiEmployee[]>([])
-  const [transactions, setTransactions] = useState<BalanceTransaction[]>([])
-  const [search, setSearch] = useState("")
+  const { t } = useLanguage()
+  const [state, setState] = useState<ViewState>(INITIAL_STATE)
+  const [hydrated, setHydrated] = useState(false)
+  const [searchInput, setSearchInput] = useState("")
   const [filterOpen, setFilterOpen] = useState(false)
-  const [pageSize, setPageSize] = useState(25)
-  const [page, setPage] = useState(1)
-  const [menuOpenId, setMenuOpenId] = useState<number | null>(null)
-  const [modal, setModal] = useState<{ type: "add" | "expense"; employeeId: number } | null>(null)
-  const [saving, setSaving] = useState(false)
-  const menuRef = useRef<HTMLDivElement>(null)
+  const [draftUsers, setDraftUsers] = useState<string[]>([])
+  const [expanded, setExpanded] = useState(false)
+  const [menu, setMenu] = useState<RowMenu | null>(null)
+  const [downloading, setDownloading] = useState(false)
+  const [notice, setNotice] = useState("")
+  const hideNotice = useCallback(() => setNotice(""), [])
 
+  // URL → state once on mount (after hydration), then state → URL.
   useEffect(() => {
-    const closeMenu = (event: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(event.target as Node)) setMenuOpenId(null)
-    }
-    document.addEventListener("mousedown", closeMenu)
-    return () => document.removeEventListener("mousedown", closeMenu)
+    const initial = readUrlState()
+    setState(initial)
+    setSearchInput(initial.search)
+    setHydrated(true)
   }, [])
-
   useEffect(() => {
-    let cancelled = false
-    Promise.all([
-      fetch("/api/employees").then((response) => (response.ok ? response.json() : [])),
-      fetch("/api/employee-balance-transactions").then((response) => (response.ok ? response.json() : [])),
-    ])
-      .then(([employeesData, transactionsData]) => {
-        if (cancelled) return
-        setEmployeesList(Array.isArray(employeesData) ? employeesData : [])
-        setTransactions(Array.isArray(transactionsData) ? transactionsData : [])
-      })
-      .catch(() => {})
+    if (hydrated) writeUrlState(state)
+  }, [hydrated, state])
+
+  // Demo search box: debounced 500 ms, server-side.
+  useEffect(() => {
+    if (!hydrated) return
+    const timer = window.setTimeout(() => {
+      setState((current) => (current.search === searchInput.trim() ? current : { ...current, search: searchInput.trim(), page: 1 }))
+    }, 500)
+    return () => window.clearTimeout(timer)
+  }, [hydrated, searchInput])
+
+  // The row menu is a fixed popover: close it on outside click, scroll or resize.
+  useEffect(() => {
+    if (!menu) return
+    const close = () => setMenu(null)
+    const onDown = (event: MouseEvent) => {
+      if (!(event.target as Element | null)?.closest?.("[data-employee-menu]")) close()
+    }
+    document.addEventListener("mousedown", onDown)
+    window.addEventListener("scroll", close, true)
+    window.addEventListener("resize", close)
     return () => {
-      cancelled = true
+      document.removeEventListener("mousedown", onDown)
+      window.removeEventListener("scroll", close, true)
+      window.removeEventListener("resize", close)
     }
-  }, [])
+  }, [menu])
 
-  const rows = useMemo<Employee[]>(
-    () =>
-      employeesList.map((employee) => {
-        const opening = { ...zero }
-        transactions
-          .filter((transaction) => transaction.employeeId === employee.id)
-          .forEach((transaction) => {
-            const signed = transaction.kind === "add" ? transaction.amount : -transaction.amount
-            opening[transaction.currency] += signed
-          })
-        return { id: employee.id, name: employee.name, opening }
-      }),
-    [employeesList, transactions],
-  )
+  const period = state.period ?? defaultPeriod()
+  const query: BalanceQuery = {
+    from: period.from,
+    to: period.to,
+    search: state.search,
+    key: state.users,
+    ordering: state.ordering,
+    page: state.page,
+    pageSize: state.pageSize,
+    // Demo: the totals (cards) ignore search and the users filter.
+    totalsIgnoreSearch: true,
+  }
+  const list = useBalanceList("employee", query)
+  const currencies = useFinanceCurrencies()
+  const employees = useLookup<EmployeeOption>("/api/employees")
+  const canEdit = useCanEdit()
 
-  const TOTAL_EMPLOYEES = rows.length
-  const FIXED_TOTALS = useMemo(
-    () =>
-      rows.reduce(
-        (totals, employee) => ({
-          sum: totals.sum + employee.opening.sum,
-          usd: totals.usd + employee.opening.usd,
-          eur: totals.eur + employee.opening.eur,
-        }),
-        { sum: 0, usd: 0, eur: 0 },
-      ),
-    [rows],
-  )
+  const data = list.data
+  const rows = useMemo(() => data?.rows ?? [], [data])
+  const visible = useMemo(() => (data ? shownCurrencies(data) : []), [data])
+  const currencyList = currencies.data?.currencies ?? data?.currencies ?? []
+  const filterCount = (state.period ? 1 : 0) + (state.users.length ? 1 : 0)
 
-  const filtered = useMemo(
-    () => rows.filter((employee) => employee.name.toLocaleLowerCase("ru").includes(search.trim().toLocaleLowerCase("ru"))),
-    [rows, search],
-  )
+  const update = (patch: Partial<ViewState>) => setState((current) => ({ ...current, ...patch }))
 
-  const maxPage = Math.max(1, Math.ceil(filtered.length / pageSize))
-  const safePage = Math.min(page, maxPage)
-  const visible = filtered.slice((safePage - 1) * pageSize, safePage * pageSize)
-  const isDefaultView = !search.trim()
-  const totalLabel = isDefaultView ? TOTAL_EMPLOYEES : filtered.length
+  // A page past the end (rows removed, deep link ?page=99) falls back to the last page.
+  const lastPage = data && data.pageSize > 0 ? Math.max(1, Math.ceil(data.count / data.pageSize)) : 1
+  if (data && !list.loading && data.page === state.page && data.pageSize === state.pageSize && state.page > lastPage) {
+    setState({ ...state, page: lastPage })
+  }
+  const detailName = state.detail ? (rows.find((row) => row.key === state.detail)?.name ?? employees.find((item) => String(item.id) === state.detail)?.name ?? "") : ""
 
-  const applyTransaction = async (employeeId: number, kind: "add" | "expense", currency: keyof Money, amount: number, date: string, comment: string) => {
-    setSaving(true)
+  const downloadAll = async () => {
+    setDownloading(true)
     try {
-      const response = await fetch("/api/employee-balance-transactions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ employeeId, kind, currency, amount, date, comment }),
-      })
-      if (!response.ok) {
-        window.alert("Не удалось сохранить транзакцию")
-        return
-      }
-      const saved = (await response.json()) as BalanceTransaction
-      setTransactions((current) => [saved, ...current])
-      setModal(null)
-    } catch {
-      window.alert("Сервер недоступен, попробуйте ещё раз")
+      const response = await fetch(`/api/balances/employee?${buildBalanceQuery({ ...query, page: undefined, pageSize: 0 })}`, { cache: "no-store" })
+      const body = (await response.json().catch(() => null)) as (BalanceListResult & { error?: string }) | null
+      if (!response.ok || !body) throw new Error(body?.error || `HTTP ${response.status}`)
+      downloadExcelTable(
+        `${t("Баланс сотрудников")} ${period.from}_${period.to}`,
+        balanceListExcelRows({
+          rows: body.rows,
+          groups: GROUPS,
+          currencies: shownCurrencies(body),
+          leading: [{ label: "Пользователь", value: (row) => row.name }],
+          t,
+        }),
+      )
+    } catch (reason) {
+      setNotice(reason instanceof Error ? reason.message : String(reason))
     } finally {
-      setSaving(false)
+      setDownloading(false)
     }
   }
 
-  const downloadAll = () => {
-    const header = ["Пользователь", ...groups.flatMap((group) => [`${group} SUM`, `${group} USD`, `${group} Euro`])]
-    const body = filtered.map((employee) => {
-      const cells = groups.flatMap((group) =>
-        group === "Баланс на начало периода" || group === "Баланс на конец периода"
-          ? [employee.opening.sum, employee.opening.usd, employee.opening.eur]
-          : [0, 0, 0],
-      )
-      return [employee.name, ...cells]
-    })
-    downloadExcelTable("employee-balance.xls", [header, ...body])
-  }
+  const nameCell = (row: BalanceRow) => (
+    <div className="flex items-center gap-2">
+      {canEdit && row.id !== null && (
+        <button
+          type="button"
+          data-employee-menu
+          aria-label={t("Действия")}
+          onClick={(event) => {
+            const rect = event.currentTarget.getBoundingClientRect()
+            setMenu((current) => (current?.employeeId === row.id ? null : { employeeId: row.id!, top: rect.bottom + 4, left: rect.left }))
+          }}
+          className="shrink-0 rounded-full p-0.5 text-[#586174] hover:bg-[#f2f5f8] hover:text-[#17233b]"
+        >
+          <MoreVertical className="h-5 w-5" />
+        </button>
+      )}
+      <button type="button" onClick={() => update({ detail: row.key })} className="text-left font-medium text-[#129fdd] hover:underline">
+        {row.name || t("Не указано")}
+      </button>
+    </div>
+  )
 
   return (
-    <main className="min-h-screen bg-white text-[#17233b]">
+    <main className="min-h-screen bg-[#f1f4f8] text-[#17233b]">
       <header className="flex min-h-[76px] items-center border-b border-[#d8dee7] bg-[#f2f5f8] px-6 md:px-9">
         <div className="flex items-center gap-3">
           <FavoritesButton className="flex items-center gap-3 text-2xl font-bold text-[#4f70e7]" />
           <span className="text-3xl font-light text-[#586174]">|</span>
-          <span className="text-2xl font-bold text-[#586174]">Баланс сотрудников</span>
+          <span className="text-2xl font-bold text-[#586174]">{t("Баланс сотрудников")}</span>
         </div>
       </header>
 
-      <section className="grid grid-cols-1 gap-6 px-6 py-6 sm:grid-cols-2 lg:grid-cols-4 md:px-9">
-        <div>
-          <p className="text-[#586174]">Баланс на начало периода</p>
-          <p className="font-semibold"><AmountCell value={FIXED_TOTALS.eur} /> Euro</p>
-          <p className="font-semibold"><AmountCell value={FIXED_TOTALS.sum} /> SUM</p>
-          <p className="font-semibold"><AmountCell value={FIXED_TOTALS.usd} /> USD</p>
-        </div>
-        <div>
-          <p className="text-[#586174]">Зачислено KPI</p>
-          <p className="font-semibold">0 Euro</p>
-          <p className="font-semibold">0 SUM</p>
-          <p className="font-semibold">0 USD</p>
-        </div>
-        <div>
-          <p className="text-[#586174]">Штрафы</p>
-          <p className="font-semibold">0 Euro</p>
-          <p className="font-semibold">0 SUM</p>
-          <p className="font-semibold">0 USD</p>
-        </div>
-        <div className="lg:text-right">
-          <p className="text-[#586174]">Баланс на конец периода</p>
-          <p className="font-semibold"><AmountCell value={FIXED_TOTALS.eur} /> Euro</p>
-          <p className="font-semibold"><AmountCell value={FIXED_TOTALS.sum} /> SUM</p>
-          <p className="font-semibold"><AmountCell value={FIXED_TOTALS.usd} /> USD</p>
-        </div>
-        <div>
-          <p className="text-[#586174]">Зарплата</p>
-          <p className="font-semibold">0 Euro</p>
-          <p className="font-semibold">0 SUM</p>
-          <p className="font-semibold">0 USD</p>
-        </div>
-        <div>
-          <p className="text-[#586174]">Введено с кассы</p>
-          <p className="font-semibold">0 Euro</p>
-          <p className="font-semibold">0 SUM</p>
-          <p className="font-semibold">0 USD</p>
-        </div>
-        <div>
-          <p className="text-[#586174]">Коректировки</p>
-          <p className="font-semibold">0 Euro</p>
-          <p className="font-semibold">0 SUM</p>
-          <p className="font-semibold">0 USD</p>
-        </div>
-      </section>
+      <div className="border-b border-[#e1e5eb] bg-white pt-6">
+        {data ? (
+          <BalanceSummaryCards boxes={BOXES} totals={data.totals} currencies={visible} digits={DIGITS} loading={list.loading} />
+        ) : (
+          <div className="flex h-[150px] items-center justify-center gap-3 pb-6">
+            {list.error ? (
+              <>
+                <span className="text-[#e57373]">{t(list.error)}</span>
+                <button type="button" onClick={list.reload} className="font-semibold text-[#4f70e7] underline">
+                  {t("Повторить")}
+                </button>
+              </>
+            ) : (
+              <Loader2 className="h-7 w-7 animate-spin text-[#4f70e7]" />
+            )}
+          </div>
+        )}
+      </div>
 
-      <section className="flex flex-wrap items-center gap-4 border-t border-[#e1e5eb] bg-white px-6 py-3 md:px-9">
-        <button onClick={() => setFilterOpen((value) => !value)} className="flex h-11 items-center gap-2 rounded-md bg-[#4f70e7] px-5 font-semibold text-white">
-          <Filter className="h-4 w-4" /> Показать фильтр
-        </button>
-
-        <label className="relative min-w-[220px] flex-1 border-b border-[#dbe0e8] pb-1.5">
-          <input value={search} onChange={(event) => { setSearch(event.target.value); setPage(1) }} placeholder="Поиск" className="w-full bg-transparent pr-7 text-[15px] outline-none placeholder:text-[#9aa3b6]" />
-          <Search className="pointer-events-none absolute right-0 top-0.5 h-5 w-5 text-[#9aa3b6]" />
-        </label>
-
-        <button onClick={downloadAll} aria-label="Скачать" className="text-[#586174]"><Download className="h-5 w-5" /></button>
-
-        <select value={pageSize} onChange={(event) => { setPageSize(Number(event.target.value)); setPage(1) }} className="h-9 bg-transparent text-[#586174]">
-          <option value={10}>10</option>
-          <option value={25}>25</option>
-          <option value={50}>50</option>
-        </select>
-
-        <span className="text-[#586174]">{filtered.length ? (safePage - 1) * pageSize + 1 : 0} - {Math.min(safePage * pageSize, filtered.length)} из {totalLabel}</span>
-
-        <button disabled={safePage === 1} onClick={() => setPage((value) => Math.max(1, value - 1))} className="rounded-full border border-[#dbe0e8] p-1 text-[#9aa3b6] disabled:opacity-40">
-          <ChevronDown className="h-5 w-5 rotate-90" />
-        </button>
-        <button disabled={safePage === maxPage} onClick={() => setPage((value) => Math.min(maxPage, value + 1))} className="rounded-full border border-[#4f70e7] p-1 text-[#4f70e7] disabled:opacity-40">
-          <ChevronDown className="h-5 w-5 -rotate-90" />
-        </button>
-        <button aria-label="Полный экран" onClick={() => document.documentElement.requestFullscreen?.()} className="text-[#586174]"><Expand className="h-5 w-5" /></button>
-      </section>
-
-      {filterOpen && (
-        <section className="grid grid-cols-1 gap-6 border-b border-[#e1e5eb] bg-white px-6 py-6 sm:grid-cols-3 md:px-9">
-          <label className="block border-b border-[#dbe0e8] pb-2 text-[15px] font-medium">
-            Пользователь
-            <input placeholder="Введите имя..." className="mt-1 block w-full bg-transparent text-[15px] font-normal outline-none placeholder:text-[#9aa3b6]" onChange={(event) => setSearch(event.target.value)} value={search} />
+      <ExpandedOverlay expanded={expanded}>
+        <section className="flex flex-wrap items-center gap-x-5 gap-y-3 border-b border-[#e1e5eb] bg-white px-6 py-3 md:px-9">
+          <BalanceFilterChip
+            count={filterCount}
+            onOpen={() => {
+              setDraftUsers(state.users)
+              setFilterOpen(true)
+            }}
+            onClear={() => update({ period: null, users: [], page: 1 })}
+          />
+          <label className="relative min-w-[200px] flex-1 border-b border-[#dbe0e8] pb-1.5">
+            <input
+              value={searchInput}
+              onChange={(event) => setSearchInput(event.target.value)}
+              placeholder={t("Поиск")}
+              className="w-full bg-transparent pr-7 text-[15px] outline-none placeholder:text-[#9aa3b6]"
+            />
+            <Search className="pointer-events-none absolute right-0 top-0.5 h-5 w-5 text-[#9aa3b6]" />
           </label>
+          <div className="ml-auto flex flex-wrap items-center gap-5">
+            <button
+              type="button"
+              onClick={downloadAll}
+              disabled={!data || downloading}
+              title={t("Скачать")}
+              aria-label={t("Скачать")}
+              className="text-[#586174] hover:text-[#17233b] disabled:opacity-40"
+            >
+              {downloading ? <Loader2 className="h-5 w-5 animate-spin" /> : <Download className="h-5 w-5" />}
+            </button>
+            <BalancePagination page={state.page} pageSize={state.pageSize} count={data?.count ?? 0} onChange={(next) => update(next)} />
+            <ExpandedViewButton expanded={expanded} onToggle={() => setExpanded((value) => !value)} />
+          </div>
         </section>
+
+        {list.error && data && (
+          <div className="flex items-center justify-between gap-4 bg-[#fdecec] px-6 py-2 text-[14px] text-[#c62828] md:px-9">
+            <span>{t(list.error)}</span>
+            <button type="button" onClick={list.reload} className="font-semibold underline">
+              {t("Повторить")}
+            </button>
+          </div>
+        )}
+
+        <section className="bg-white pb-10">
+          <BalanceTable
+            rows={rows}
+            groups={GROUPS}
+            currencies={visible}
+            first={{ label: "Пользователь", width: 220, sortKey: "name", render: nameCell }}
+            ordering={state.ordering}
+            onOrderingChange={(ordering) => update({ ordering, page: 1 })}
+            sortCycle="asc-first"
+            digits={DIGITS}
+            loading={list.loading}
+          />
+        </section>
+      </ExpandedOverlay>
+
+      {menu && (
+        <div data-employee-menu className="fixed z-[95] w-48 rounded-sm bg-white py-1 shadow-xl" style={{ top: menu.top, left: menu.left }}>
+          {(Object.keys(MOVEMENT_ACTION_LABELS) as EmployeeMovementAction[]).map((action) => (
+            <button
+              key={action}
+              type="button"
+              onClick={() => {
+                update({ movement: { action, employeeId: menu.employeeId } })
+                setMenu(null)
+              }}
+              className={`block w-full px-4 py-2.5 text-left text-[14px] hover:bg-slate-50 ${action === "add" ? "text-[#48a34b]" : "text-[#E27676]"}`}
+            >
+              {t(MOVEMENT_ACTION_LABELS[action])}
+            </button>
+          ))}
+        </div>
       )}
 
-      <section className="overflow-x-auto bg-white pb-10">
-        <table className="min-w-[1900px] w-full border-collapse text-[14px]">
-          <thead>
-            <tr className="bg-white text-[#253653]">
-              <th className="border border-[#e1e5eb] px-4 py-2" />
-              {groups.map((group) => (
-                <th key={group} colSpan={3} className="border border-[#e1e5eb] px-4 py-2 text-center font-medium">{group}</th>
-              ))}
-            </tr>
-            <tr className="bg-white text-[#17233b]">
-              <th className="border-b border-[#e1e5eb] px-4 py-2 text-left font-semibold">Пользователь</th>
-              {groups.map((group) =>
-                ["SUM", "USD", "Euro"].map((currency) => (
-                  <th key={`${group}-${currency}`} className="border-b border-[#e1e5eb] px-4 py-2 font-semibold">{currency}</th>
-                )),
-              )}
-            </tr>
-          </thead>
-          <tbody>
-            {visible.map((employee, index) => (
-              <tr key={employee.id} className={`relative ${index % 2 ? "bg-[#f6f9fc]" : "bg-white"}`}>
-                <td className="relative border-b border-[#e1e5eb] px-4 py-3.5">
-                  <div className="flex items-center gap-2">
-                    <button
-                      aria-label="Действия"
-                      onClick={() => setMenuOpenId((current) => (current === employee.id ? null : employee.id))}
-                      className="text-[#586174] hover:text-[#17233b]"
-                    >
-                      <MoreVertical className="h-5 w-5" />
-                    </button>
-                    {employee.name}
-                  </div>
-                  {menuOpenId === employee.id && (
-                    <div ref={menuRef} className="absolute left-4 top-full z-20 w-44 rounded-sm bg-white py-1 shadow-xl">
-                      <button
-                        onClick={() => { setModal({ type: "add", employeeId: employee.id }); setMenuOpenId(null) }}
-                        className="block w-full px-4 py-2.5 text-left text-[14px] text-[#3aa76d] hover:bg-slate-50"
-                      >
-                        Зачислить
-                      </button>
-                      <button
-                        onClick={() => { setModal({ type: "expense", employeeId: employee.id }); setMenuOpenId(null) }}
-                        className="block w-full px-4 py-2.5 text-left text-[14px] text-[#e5484d] hover:bg-slate-50"
-                      >
-                        Списать
-                      </button>
-                    </div>
-                  )}
-                </td>
-                <td className="border-b border-[#e1e5eb] px-4 py-3.5"><AmountCell value={employee.opening.sum} /></td>
-                <td className="border-b border-[#e1e5eb] px-4 py-3.5"><AmountCell value={employee.opening.usd} /></td>
-                <td className="border-b border-[#e1e5eb] px-4 py-3.5"><AmountCell value={employee.opening.eur} /></td>
-                {Array.from({ length: 15 }).map((_, cellIndex) => (
-                  <td key={cellIndex} className="border-b border-[#e1e5eb] px-4 py-3.5">0</td>
-                ))}
-                <td className="border-b border-[#e1e5eb] px-4 py-3.5"><AmountCell value={employee.opening.sum} /></td>
-                <td className="border-b border-[#e1e5eb] px-4 py-3.5"><AmountCell value={employee.opening.usd} /></td>
-                <td className="border-b border-[#e1e5eb] px-4 py-3.5"><AmountCell value={employee.opening.eur} /></td>
-              </tr>
-            ))}
-            {visible.length === 0 && (
-              <tr><td colSpan={22} className="border-b border-[#e1e5eb] px-4 py-16 text-center text-[#9aa3b6]">Ничего не найдено</td></tr>
-            )}
-          </tbody>
-        </table>
-      </section>
+      <BalanceFilterDialog
+        open={filterOpen}
+        onClose={() => setFilterOpen(false)}
+        from={period.from}
+        to={period.to}
+        dateLabel="Период создания"
+        onApply={(next) => {
+          // An untouched default period stays "not set" (the demo counts only a chosen period).
+          const unchanged = !state.period && next.from === period.from && next.to === period.to
+          update({ period: unchanged ? null : next, users: draftUsers, page: 1 })
+        }}
+      >
+        <EmployeeUsersSelect options={employees} value={draftUsers} onChange={setDraftUsers} />
+      </BalanceFilterDialog>
 
-      {modal && (
-        <TransactionModal
-          employee={rows.find((item) => item.id === modal.employeeId)!}
-          type={modal.type}
-          saving={saving}
-          onClose={() => setModal(null)}
-          onSave={(currency, amount, date, comment) => {
-            void applyTransaction(modal.employeeId, modal.type, currency, amount, date, comment)
+      {state.detail && (
+        <EmployeeActDialog key={state.detail} entityKey={state.detail} name={detailName} from={period.from} to={period.to} onClose={() => update({ detail: null })} />
+      )}
+
+      {state.movement && canEdit && (
+        <EmployeeMovementDialog
+          key={`${state.movement.action}:${state.movement.employeeId}`}
+          action={state.movement.action}
+          employeeId={state.movement.employeeId}
+          employees={employees}
+          currencies={currencyList}
+          onClose={() => update({ movement: null })}
+          onSaved={() => {
+            update({ movement: null })
+            setNotice("Успешно сохранено")
+            list.reload()
           }}
         />
       )}
 
+      <EmployeeSnackbar text={notice} onHide={hideNotice} />
     </main>
-  )
-}
-
-function TransactionModal({
-  employee,
-  type,
-  saving,
-  onClose,
-  onSave,
-}: {
-  employee: Employee
-  type: "add" | "expense"
-  saving: boolean
-  onClose: () => void
-  onSave: (currency: keyof Money, amount: number, date: string, comment: string) => void
-}) {
-  const [currency, setCurrency] = useState<keyof Money>("sum")
-  const [amount, setAmount] = useState("")
-  const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10))
-  const [comment, setComment] = useState("")
-
-  return (
-    <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/40" onClick={onClose}>
-      <div onClick={(event) => event.stopPropagation()} className="w-[600px] max-w-[92vw] rounded-md bg-white shadow-2xl">
-        <header className="flex items-center justify-between border-b px-8 py-6">
-          <h2 className="text-xl font-bold uppercase tracking-wide">{type === "add" ? "Зачислить" : "Списать"}</h2>
-          <button aria-label="Закрыть" onClick={onClose}><X className="h-6 w-6 text-slate-500" /></button>
-        </header>
-        <div className="space-y-7 px-8 py-7">
-          <label className="block border-b border-[#dbe0e8] pb-2 text-[13px] font-medium text-[#586174]">
-            Пользователь
-            <div className="mt-1 text-[16px] font-semibold text-[#17233b]">{employee.name}</div>
-          </label>
-          <label className="relative block border-b border-[#dbe0e8] pb-2 text-[13px] font-medium text-[#586174]">
-            Валюта
-            <select value={currency} onChange={(event) => setCurrency(event.target.value as keyof Money)} className="mt-1 block w-full appearance-none bg-transparent pr-6 text-[16px] font-semibold text-[#17233b] outline-none">
-              <option value="sum">SUM</option>
-              <option value="usd">USD</option>
-              <option value="eur">Euro</option>
-            </select>
-            <ChevronDown className="pointer-events-none absolute right-0 top-7 h-4 w-4 text-[#9aa3b6]" />
-          </label>
-          <label className="block border-b border-[#dbe0e8] pb-2 text-[13px] font-medium text-[#586174]">
-            Сумма
-            <input type="number" value={amount} onChange={(event) => setAmount(event.target.value)} className="mt-1 block w-full bg-transparent text-[16px] font-semibold text-[#17233b] outline-none" />
-          </label>
-          <label className="block border-b border-[#dbe0e8] pb-2 text-[13px] font-medium text-[#586174]">
-            Дата создания
-            <input type="date" value={date} onChange={(event) => setDate(event.target.value)} className="mt-1 block w-full bg-transparent text-[16px] font-semibold text-[#17233b] outline-none" />
-          </label>
-          <label className="block border-b border-[#dbe0e8] pb-2 text-[13px] font-medium text-[#586174]">
-            <input placeholder="Оставить комментарий..." value={comment} onChange={(event) => setComment(event.target.value)} className="mt-1 block w-full bg-transparent text-[16px] outline-none placeholder:text-[#586174]" />
-          </label>
-        </div>
-        <footer className="flex justify-end border-t px-8 py-5">
-          <button
-            disabled={saving}
-            onClick={() => {
-              const value = Number(amount)
-              if (value > 0) onSave(currency, value, date, comment)
-            }}
-            className="font-bold uppercase tracking-wide text-[#4f70e7] disabled:opacity-50"
-          >
-            {saving ? "Сохранение..." : "Сохранить"}
-          </button>
-        </footer>
-      </div>
-    </div>
   )
 }

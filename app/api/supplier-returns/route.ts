@@ -35,5 +35,5 @@ export async function POST(request: NextRequest) {
   const input = parseSupplierReturnInput(parsed.data)
   if (!input) return NextResponse.json({ error: "Поставщик, склад и товары обязательны" }, { status: 400 })
 
-  return NextResponse.json((await createSupplierReturn(input)), { status: 201 })
+  return NextResponse.json(await createSupplierReturn(input, auth.user.displayName), { status: 201 })
 }

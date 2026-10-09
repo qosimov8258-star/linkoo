@@ -3,50 +3,24 @@ import { z } from "zod"
 
 import { requireRole } from "@/lib/rbac"
 import { parseJsonBody } from "@/lib/validation"
-import { applyIncomingMarkup, cancelIncoming, deleteIncoming, parseIncomingInput, updateIncoming } from "@/lib/supplier-incomings-repo"
+import { incomingChangeResponse, supplierIncomingSchema } from "@/lib/supplier-incomings-api"
+import { changeIncomingStatus, deleteIncoming, parseIncomingInput, updateIncoming } from "@/lib/supplier-incomings-repo"
 
-const supplierIncomingSchema = z.object({
-  supplier: z.string().trim().min(1),
-  warehouse: z.string().trim().min(1),
-  branch: z.string().optional(),
-  organization: z.string().optional(),
-  paymentType: z.string().optional(),
-  date: z.string().optional(),
-  contractNumber: z.string().optional(),
-  invoiceNumber: z.string().optional(),
-  comment: z.string().optional(),
-  items: z.array(z.record(z.string(), z.unknown())).min(1),
-})
-
-const supplierIncomingPatchSchema = z.object({
-  action: z.string(),
-  percent: z.union([z.number(), z.string()]).optional(),
-})
+const statusSchema = z.object({ action: z.enum(["accept", "unaccept", "cancel"]) })
 
 type RouteParams = { params: Promise<{ id: string }> }
 
+/** Status changes: accept onto the warehouse, undo the acceptance, cancel. */
 export async function PATCH(request: NextRequest, { params }: RouteParams) {
   const auth = await requireRole("manager")
   if ("error" in auth) return auth.error
 
   const id = Number((await params).id)
-  const parsed = await parseJsonBody(request, supplierIncomingPatchSchema)
+  const parsed = await parseJsonBody(request, statusSchema)
   if (parsed.error) return parsed.error
 
-  const { action, percent } = parsed.data
-  if (action === "cancel") {
-    const incoming = (await cancelIncoming(id))
-    if (!incoming) return NextResponse.json({ error: "Приемка не найдена" }, { status: 404 })
-    return NextResponse.json(incoming)
-  }
-  if (action === "markup") {
-    const percentValue = Number(percent)
-    if (!Number.isFinite(percentValue)) return NextResponse.json({ error: "Некорректный процент" }, { status: 400 })
-    const incoming = (await applyIncomingMarkup(id, percentValue))
-    if (!incoming) return NextResponse.json({ error: "Приемка не найдена" }, { status: 404 })
-    return NextResponse.json(incoming)
-  }
-  return NextResponse.json({ error: "Неизвестное действие" }, { status: 400 })
+  const result = await changeIncomingStatus(id, parsed.data.action, auth.user.displayName)
+  return incomingChangeResponse(result, "Действие недоступно для текущего статуса поставки")
 }
 
 export async function PUT(request: NextRequest, { params }: RouteParams) {
@@ -60,9 +34,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
   const input = parseIncomingInput(parsed.data)
   if (!input) return NextResponse.json({ error: "Поставщик, склад и товары обязательны" }, { status: 400 })
 
-  const incoming = (await updateIncoming(id, input))
-  if (!incoming) return NextResponse.json({ error: "Приемка не найдена" }, { status: 404 })
-  return NextResponse.json(incoming)
+  return incomingChangeResponse(await updateIncoming(id, input, auth.user.displayName), "Изменять можно только поставку в ожидании")
 }
 
 export async function DELETE(_request: NextRequest, { params }: RouteParams) {
@@ -70,7 +42,8 @@ export async function DELETE(_request: NextRequest, { params }: RouteParams) {
   if ("error" in auth) return auth.error
 
   const id = Number((await params).id)
-  const ok = (await deleteIncoming(id))
-  if (!ok) return NextResponse.json({ error: "Приемка не найдена" }, { status: 404 })
+  const result = await deleteIncoming(id)
+  if (result === "not_found") return NextResponse.json({ error: "Приемка не найдена" }, { status: 404 })
+  if (result === "locked") return NextResponse.json({ error: "Принятую поставку удалить нельзя" }, { status: 409 })
   return NextResponse.json({ ok: true })
 }

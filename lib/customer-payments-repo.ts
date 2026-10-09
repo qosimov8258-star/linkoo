@@ -2,6 +2,16 @@ import "server-only"
 
 import { getDb } from "@/lib/db"
 import type { PaymentRow } from "@/components/analytics/customer-payments-data"
+import { deleteCustomerPayment as softDeleteCustomerPayment } from "@/lib/cash/customer-payments"
+import { ensureCashSchema } from "@/lib/cash/schema"
+
+// Legacy flat API of customer_payments (/api/customer-payments). The page
+// "Оплаты от клиентов" now uses /api/cash/customer-payments (server paging,
+// filters, totals) and the cash core; this module only keeps the old routes
+// consistent with it: soft-deleted rows are hidden, deleting is soft (through
+// the cash core) and accepting into a cashbox is no longer possible here
+// (it must go through POST /api/cash/accept-cash so cashbox_id / accept_id /
+// the acceptance header are written).
 
 type Row = {
   id: number
@@ -13,13 +23,13 @@ type Row = {
   agent: string
   organization: string
   amount: number
-  currency: "SUM" | "USD"
+  currency: string
   amount_sum_equivalent: number | null
   cash_amount: number
   kassa: string
   accepted: number
   comment: string
-  icon: "cash" | "card"
+  icon: string
 }
 
 function rowToPayment(row: Row): PaymentRow {
@@ -32,57 +42,48 @@ function rowToPayment(row: Row): PaymentRow {
     acceptedAt: row.accepted_at,
     agent: row.agent,
     organization: row.organization,
-    amount: row.amount,
-    currency: row.currency,
+    amount: Number(row.amount),
+    currency: row.currency as PaymentRow["currency"],
     amountSumEquivalent: row.amount_sum_equivalent ?? undefined,
-    cashAmount: row.cash_amount,
+    cashAmount: Number(row.cash_amount),
     kassa: row.kassa,
     accepted: row.accepted === 1,
     comment: row.comment,
-    icon: row.icon,
+    icon: row.icon === "card" ? "card" : "cash",
   }
 }
 
-export type PaymentPatch = Partial<{
-  accepted: boolean
-  acceptedAt: string
-  kassa: string
-  comment: string
-}>
+export type PaymentPatch = Partial<{ comment: string }>
 
 export async function listCustomerPayments(): Promise<PaymentRow[]> {
   const db = getDb()
-  const rows = (await db.prepare("SELECT * FROM customer_payments ORDER BY id DESC").all()) as Row[]
+  await ensureCashSchema(db)
+  const rows = (await db.prepare("SELECT * FROM customer_payments WHERE is_deleted = 0 ORDER BY id DESC").all()) as Row[]
   return rows.map(rowToPayment)
 }
 
 export async function getCustomerPayment(id: number): Promise<PaymentRow | null> {
   const db = getDb()
-  const row = (await db.prepare("SELECT * FROM customer_payments WHERE id = ?").get(id)) as Row | undefined
+  await ensureCashSchema(db)
+  const row = (await db.prepare("SELECT * FROM customer_payments WHERE id = ? AND is_deleted = 0").get(id)) as Row | undefined
   return row ? rowToPayment(row) : null
 }
 
+/** Only the comment can be changed here (amounts: PUT /api/cash/customer-payments/[id]). */
 export async function updateCustomerPayment(id: number, patch: PaymentPatch): Promise<PaymentRow | null> {
-  const existing = (await getCustomerPayment(id))
+  const existing = await getCustomerPayment(id)
   if (!existing) return null
-
-  const merged = { ...existing, ...patch }
-  const db = getDb()
-  await db.prepare(
-        `UPDATE customer_payments SET accepted = @accepted, accepted_at = @acceptedAt, kassa = @kassa,
-       comment = @comment, updated_at = datetime('now') WHERE id = @id`,
-      ).run({
-        id,
-        accepted: merged.accepted ? 1 : 0,
-        acceptedAt: merged.acceptedAt,
-        kassa: merged.kassa,
-        comment: merged.comment,
-      })
-  return (await getCustomerPayment(id))
+  if (patch.comment !== undefined) {
+    await getDb()
+      .prepare("UPDATE customer_payments SET comment = @comment, updated_at = datetime('now') WHERE id = @id AND is_deleted = 0")
+      .run({ id, comment: patch.comment.trim() || "Не указано" })
+  }
+  return getCustomerPayment(id)
 }
 
-export async function deleteCustomerPayment(id: number): Promise<boolean> {
-  const db = getDb()
-  const result = (await db.prepare("DELETE FROM customer_payments WHERE id = ?").run(id))
-  return result.changes > 0
+/** Soft delete (is_deleted = 1) through the cash core; false when missing or already deleted. */
+export async function deleteCustomerPayment(id: number, user: string): Promise<boolean> {
+  const existing = await getCustomerPayment(id)
+  if (!existing) return false
+  return (await softDeleteCustomerPayment(id, user)).deleted
 }

@@ -1,6 +1,6 @@
 import "server-only"
 
-import { getDb } from "@/lib/db"
+import { getDb, withTransaction, type PgDb } from "@/lib/db"
 import type { ReturnItem, SupplierReturn } from "@/components/analytics/supplier-returns-data"
 
 type Row = {
@@ -18,8 +18,33 @@ type Row = {
   price_list: string
   branch: string
   transfer_time: string
+  transferred_by: string
+  cancelled_at: string
+  cancelled_by: string
   reason: string
   items: string
+}
+
+declare global {
+  var __linkoReturnsSchemaReady: Promise<void> | undefined
+}
+
+async function returnsDb(): Promise<PgDb> {
+  const db = getDb()
+  if (!globalThis.__linkoReturnsSchemaReady) {
+    globalThis.__linkoReturnsSchemaReady = db
+      .exec(`
+        ALTER TABLE supplier_returns ADD COLUMN IF NOT EXISTS transferred_by TEXT NOT NULL DEFAULT '';
+        ALTER TABLE supplier_returns ADD COLUMN IF NOT EXISTS cancelled_at TEXT NOT NULL DEFAULT '';
+        ALTER TABLE supplier_returns ADD COLUMN IF NOT EXISTS cancelled_by TEXT NOT NULL DEFAULT '';
+      `)
+      .catch((error) => {
+        globalThis.__linkoReturnsSchemaReady = undefined
+        throw error
+      })
+  }
+  await globalThis.__linkoReturnsSchemaReady
+  return db
 }
 
 function rowToReturn(row: Row): SupplierReturn {
@@ -38,6 +63,9 @@ function rowToReturn(row: Row): SupplierReturn {
     priceList: row.price_list,
     branch: row.branch,
     transferTime: row.transfer_time,
+    transferredBy: row.transferred_by,
+    cancelledAt: row.cancelled_at,
+    cancelledBy: row.cancelled_by,
     reason: row.reason,
     items: JSON.parse(row.items) as ReturnItem[],
   }
@@ -45,7 +73,7 @@ function rowToReturn(row: Row): SupplierReturn {
 
 function formatToday() {
   const date = new Date()
-  return date.toLocaleDateString("ru-RU", { day: "2-digit", month: "long", year: "numeric" })
+  return date.toLocaleDateString("ru-RU", { day: "2-digit", month: "long", year: "numeric" }).replace(" г.", "")
 }
 
 export type SupplierReturnInput = {
@@ -94,18 +122,18 @@ function amountOf(input: SupplierReturnInput) {
 }
 
 export async function listSupplierReturns(): Promise<SupplierReturn[]> {
-  const db = getDb()
+  const db = await returnsDb()
   return ((await db.prepare("SELECT * FROM supplier_returns ORDER BY id DESC").all()) as Row[]).map(rowToReturn)
 }
 
-export async function getSupplierReturn(id: number): Promise<SupplierReturn | null> {
-  const db = getDb()
+export async function getSupplierReturn(id: number, executor?: PgDb): Promise<SupplierReturn | null> {
+  const db = executor ?? (await returnsDb())
   const row = (await db.prepare("SELECT * FROM supplier_returns WHERE id = ?").get(id)) as Row | undefined
   return row ? rowToReturn(row) : null
 }
 
-export async function createSupplierReturn(input: SupplierReturnInput): Promise<SupplierReturn> {
-  const db = getDb()
+export async function createSupplierReturn(input: SupplierReturnInput, userName: string): Promise<SupplierReturn> {
+  const db = await returnsDb()
   const time = new Date().toTimeString().slice(0, 5)
   const result = (await db
       .prepare(
@@ -113,13 +141,14 @@ export async function createSupplierReturn(input: SupplierReturnInput): Promise<
         from_whom, warehouse, added_by, date, time, amount, status, organization, currency,
         payment_type, price_list, branch, transfer_time, reason, items, updated_at
       ) VALUES (
-        @fromWhom, @warehouse, 'Admin Ritm', @date, @time, @amount, 'в процессе', @organization, @currency,
-        @paymentType, @priceList, @branch, @transferTime, @reason, @items, datetime('now')
+        @fromWhom, @warehouse, @addedBy, @date, @time, @amount, 'в процессе', @organization, @currency,
+        @paymentType, @priceList, @branch, '', @reason, @items, datetime('now')
       )`,
       )
       .run({
         fromWhom: input.fromWhom,
         warehouse: input.warehouse,
+        addedBy: userName,
         date: input.date,
         time,
         amount: amountOf(input),
@@ -128,16 +157,20 @@ export async function createSupplierReturn(input: SupplierReturnInput): Promise<
         paymentType: input.paymentType,
         priceList: input.priceList,
         branch: input.branch,
-        transferTime: `${input.date}, ${time}`,
         reason: input.comment,
         items: JSON.stringify(input.items),
       }))
   return (await getSupplierReturn(Number(result.lastInsertRowid)))!
 }
 
-export async function updateSupplierReturn(id: number, input: SupplierReturnInput): Promise<SupplierReturn | null> {
-  const db = getDb()
-  if (!(await getSupplierReturn(id))) return null
+export type ReturnChange = SupplierReturn | "not_found" | "locked"
+
+/** Only a return that hasn't been handed over yet can be edited. */
+export async function updateSupplierReturn(id: number, input: SupplierReturnInput): Promise<ReturnChange> {
+  const db = await returnsDb()
+  const current = await getSupplierReturn(id, db)
+  if (!current) return "not_found"
+  if (current.status !== "в процессе") return "locked"
   await db.prepare(
         `UPDATE supplier_returns SET
        from_whom = @fromWhom, warehouse = @warehouse, date = @date, amount = @amount,
@@ -159,10 +192,39 @@ export async function updateSupplierReturn(id: number, input: SupplierReturnInpu
         reason: input.comment,
         items: JSON.stringify(input.items),
       })
-  return (await getSupplierReturn(id))
+  return (await getSupplierReturn(id, db))!
 }
 
-export async function deleteSupplierReturn(id: number): Promise<boolean> {
-  const db = getDb()
-  return (await db.prepare("DELETE FROM supplier_returns WHERE id = ?").run(id)).changes > 0
+export async function deleteSupplierReturn(id: number): Promise<"ok" | "not_found" | "locked"> {
+  const db = await returnsDb()
+  const current = await getSupplierReturn(id, db)
+  if (!current) return "not_found"
+  if (current.status === "завершен") return "locked"
+  await db.prepare("DELETE FROM supplier_returns WHERE id = ?").run(id)
+  return "ok"
+}
+
+/** "Передать" hands the goods over (they leave the warehouse); "Отменить"
+ * cancels a return that is in progress or undoes a completed one. */
+export async function changeSupplierReturnStatus(id: number, action: "give" | "cancel", userName: string): Promise<ReturnChange> {
+  await returnsDb()
+  return withTransaction(async (db) => {
+    const locked = (await db.prepare("SELECT id FROM supplier_returns WHERE id = ? FOR UPDATE").get(id)) as { id: number } | undefined
+    if (!locked) return "not_found"
+    const current = (await getSupplierReturn(id, db))!
+    const now = new Date()
+    const stamp = `${now.toLocaleDateString("ru-RU", { day: "2-digit", month: "long", year: "numeric" }).replace(" г.", "")}, ${now.toTimeString().slice(0, 5)}`
+    if (action === "give") {
+      if (current.status !== "в процессе") return "locked"
+      await db
+        .prepare("UPDATE supplier_returns SET status = 'завершен', transfer_time = ?, transferred_by = ?, updated_at = datetime('now') WHERE id = ?")
+        .run(stamp, userName, id)
+    } else {
+      if (current.status === "отменен") return "locked"
+      await db
+        .prepare("UPDATE supplier_returns SET status = 'отменен', cancelled_at = ?, cancelled_by = ?, updated_at = datetime('now') WHERE id = ?")
+        .run(stamp, userName, id)
+    }
+    return (await getSupplierReturn(id, db))!
+  })
 }

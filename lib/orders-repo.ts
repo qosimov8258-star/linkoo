@@ -17,6 +17,9 @@ type OrderRow = {
   negative: number
   status: string
   discount: string | null
+  payment_date: string | null
+  payment_type: string | null
+  organization: string | null
 }
 
 function rowToOrder(row: OrderRow): Order {
@@ -34,13 +37,35 @@ function rowToOrder(row: OrderRow): Order {
     negative: row.negative === 1,
     status: row.status,
     discount: row.discount ?? undefined,
+    paymentDate: row.payment_date ?? "",
+    paymentType: row.payment_type ?? "",
+    organization: row.organization ?? "",
   }
+}
+
+// Payment terms read by "Ожидаемые оплаты" (lib/cash/customer-payments.ts adds
+// the same columns; whichever module runs first creates them).
+let paymentColumnsReady: Promise<void> | undefined
+
+function ensurePaymentColumns(): Promise<void> {
+  paymentColumnsReady ??= getDb()
+    .exec(
+      `ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_date TEXT NOT NULL DEFAULT '';
+       ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_type TEXT NOT NULL DEFAULT '';
+       ALTER TABLE orders ADD COLUMN IF NOT EXISTS organization TEXT NOT NULL DEFAULT '';`,
+    )
+    .catch((error: unknown) => {
+      paymentColumnsReady = undefined
+      throw error
+    })
+  return paymentColumnsReady
 }
 
 export type OrderInput = Omit<Order, "id">
 export type OrderPatch = Partial<OrderInput>
 
 export async function listOrders(search?: string): Promise<Order[]> {
+  await ensurePaymentColumns()
   const db = getDb()
   const rows = search
     ? ((await db.prepare("SELECT * FROM orders WHERE client LIKE ? OR agent LIKE ? ORDER BY id DESC").all(
@@ -52,6 +77,7 @@ export async function listOrders(search?: string): Promise<Order[]> {
 }
 
 export async function getOrder(id: number): Promise<Order | null> {
+  await ensurePaymentColumns()
   const db = getDb()
   const row = (await db.prepare("SELECT * FROM orders WHERE id = ?").get(id)) as OrderRow | undefined
   return row ? rowToOrder(row) : null
@@ -80,13 +106,16 @@ const defaultOrder: OrderInput = {
 }
 
 export async function createOrder(input: Partial<OrderInput>): Promise<Order> {
+  await ensurePaymentColumns()
   const db = getDb()
   const cleaned = Object.fromEntries(Object.entries(input).filter(([, value]) => value !== undefined)) as Partial<OrderInput>
   const values = { ...defaultOrder, ...cleaned }
   const result = (await db
       .prepare(
-        `INSERT INTO orders (client, zone, type, product, created, delivery, agent, amount, balance, negative, status, discount)
-       VALUES (@client, @zone, @type, @product, @created, @delivery, @agent, @amount, @balance, @negative, @status, @discount)`,
+        `INSERT INTO orders (client, zone, type, product, created, delivery, agent, amount, balance, negative, status, discount,
+         payment_date, payment_type, organization)
+       VALUES (@client, @zone, @type, @product, @created, @delivery, @agent, @amount, @balance, @negative, @status, @discount,
+         @payment_date, @payment_type, @organization)`,
       )
       .run({
         client: values.client,
@@ -101,6 +130,9 @@ export async function createOrder(input: Partial<OrderInput>): Promise<Order> {
         negative: values.negative ? 1 : 0,
         status: values.status,
         discount: values.discount ?? null,
+        payment_date: values.paymentDate ?? "",
+        payment_type: values.paymentType ?? "",
+        organization: values.organization ?? "",
       }))
   return (await getOrder(Number(result.lastInsertRowid)))!
 }
@@ -114,7 +146,8 @@ export async function updateOrder(id: number, patch: OrderPatch): Promise<Order 
   await db.prepare(
         `UPDATE orders SET client = @client, zone = @zone, type = @type, product = @product, created = @created,
        delivery = @delivery, agent = @agent, amount = @amount, balance = @balance, negative = @negative,
-       status = @status, discount = @discount, updated_at = datetime('now')
+       status = @status, discount = @discount, payment_date = @payment_date, payment_type = @payment_type,
+       organization = @organization, updated_at = datetime('now')
      WHERE id = @id`,
       ).run({
         id,
@@ -130,6 +163,9 @@ export async function updateOrder(id: number, patch: OrderPatch): Promise<Order 
         negative: merged.negative ? 1 : 0,
         status: merged.status,
         discount: merged.discount ?? null,
+        payment_date: merged.paymentDate ?? "",
+        payment_type: merged.paymentType ?? "",
+        organization: merged.organization ?? "",
       })
   return (await getOrder(id))
 }

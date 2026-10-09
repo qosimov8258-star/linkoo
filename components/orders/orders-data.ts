@@ -12,6 +12,11 @@ export type Order = {
   negative?: boolean
   status: string
   discount?: string
+  /** Final payment date (YYYY-MM-DD) — "Ожидаемые оплаты" uses it as "Дата оплаты". */
+  paymentDate?: string
+  /** "cash" | "bank" */
+  paymentType?: string
+  organization?: string
 }
 
 export const statuses = ["Есть на складе", "В пути", "Доставлено", "Отменен"]

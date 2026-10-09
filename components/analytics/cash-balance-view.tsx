@@ -1,152 +1,150 @@
 "use client"
 
-import { useMemo, useState } from "react"
-import { BarChart, Calendar, ChevronsUpDown, Filter, X } from "lucide-react"
+import { Suspense, useMemo, useState } from "react"
+import { useSearchParams } from "next/navigation"
+import { CircleAlert, Loader2, SearchX } from "lucide-react"
+
+import { BalanceTable, type BalanceColumnGroup } from "@/components/analytics/balance/balance-table"
+import { BalanceDownloadMenu } from "@/components/analytics/balance/download-menu"
+import { balanceListExcelRows } from "@/components/analytics/balance/excel"
+import { BalanceFilterButton, BalanceFilterDialog, countActiveFilters } from "@/components/analytics/balance/filter-bar"
+import { useBalanceList } from "@/components/analytics/balance/use-balance"
+import { CASH_COLUMN_TYPES, CashBalanceDetail, DEFAULT_DETAIL_PAGE_SIZE, type CashDetailState } from "@/components/analytics/cash-balance-detail"
+import { CashBalanceSummary } from "@/components/analytics/cash-balance-summary"
 import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
 import { downloadExcelTable } from "@/lib/excel-export"
+import { currencyLabel } from "@/lib/finance/currency"
+import { defaultBalancePeriod, isIsoDay } from "@/lib/finance/dates"
+import { sortBalanceRows } from "@/lib/finance/rows"
+import { MOVEMENT_LABELS, type BalanceRow } from "@/lib/finance/types"
+import { useLanguage } from "@/lib/i18n/language-context"
 
-type Currency = "SUM" | "USD" | "Euro"
-type Register = {
-  id: number
-  name: string
-  openingAmount: number
-  openingCurrency: Currency
-  income: number
-  expense: number
-  transferIn: number
-  transferOut: number
-  cashier: string
-  type: "Наличными" | "Перечислением"
-}
+// "Баланс кассы" (demo #/statistics/cashbox): one row per cashbox in its own
+// currency — balance before the period, income / expenses / transfers inside
+// it and the closing balance — with per-currency totals on top. Clicking a
+// cell opens the cashbox detail (filtered by the clicked movement type).
+// Data: GET /api/balances/cashbox (the shared finance ledger). The period and
+// the open detail live in the URL (?fromDate&toDate&cashbox&type…), so the
+// management balance links and browser back work like the demo's hash routes.
 
-const registers: Register[] = [
-  { id: 1, name: "aaaa1", openingAmount: 20, openingCurrency: "Euro", income: 0, expense: 0, transferIn: 0, transferOut: 0, cashier: "Admin Ritm", type: "Наличными" },
-  { id: 2, name: "adaw", openingAmount: 223123, openingCurrency: "SUM", income: 0, expense: 0, transferIn: 0, transferOut: 0, cashier: "Admin Ritm", type: "Перечислением" },
-  { id: 3, name: "Агент", openingAmount: 0, openingCurrency: "SUM", income: 0, expense: 0, transferIn: 0, transferOut: 0, cashier: "Admin Ritm", type: "Перечислением" },
-  { id: 4, name: "Ahmad", openingAmount: 0, openingCurrency: "SUM", income: 0, expense: 0, transferIn: 0, transferOut: 0, cashier: "onec onec", type: "Перечислением" },
-  { id: 5, name: "Карим2", openingAmount: 23.36, openingCurrency: "USD", income: 0, expense: 0, transferIn: 0, transferOut: 0, cashier: "Admin Ritm", type: "Наличными" },
-  { id: 6, name: "Карим1", openingAmount: 191040, openingCurrency: "SUM", income: 0, expense: 0, transferIn: 0, transferOut: 0, cashier: "Admin Ritm", type: "Наличными" },
-  { id: 7, name: "kassa11", openingAmount: 500010000, openingCurrency: "SUM", income: 0, expense: 0, transferIn: 0, transferOut: 0, cashier: "Admin Ritm", type: "Перечислением" },
-  { id: 8, name: "naqd", openingAmount: 24973894819.94, openingCurrency: "SUM", income: 0, expense: 0, transferIn: 0, transferOut: 0, cashier: "Temur Raupov", type: "Перечислением" },
-  { id: 9, name: "ПРОФРЕШ", openingAmount: 131598640, openingCurrency: "SUM", income: 0, expense: 0, transferIn: 0, transferOut: 0, cashier: "Admin Ritm", type: "Наличными" },
-  { id: 10, name: "payme", openingAmount: 73985451.5, openingCurrency: "SUM", income: 0, expense: 0, transferIn: 0, transferOut: 0, cashier: "Админ 1", type: "Перечислением" },
-  { id: 11, name: "Salohiddin Kassa Tashkent", openingAmount: 56370751, openingCurrency: "SUM", income: 0, expense: 0, transferIn: 0, transferOut: 0, cashier: "Salohiddin Kassir Tashkent", type: "Наличными" },
-  { id: 12, name: "SUM", openingAmount: 55238744, openingCurrency: "SUM", income: 0, expense: 0, transferIn: 0, transferOut: 0, cashier: "Admin Ritm", type: "Наличными" },
-  { id: 13, name: "Xorazm kassasi", openingAmount: 21203400, openingCurrency: "SUM", income: 0, expense: 0, transferIn: 0, transferOut: 0, cashier: "universal kassir", type: "Наличными" },
-  { id: 14, name: "Salohiddin Kassa Farg'ona", openingAmount: 15325002, openingCurrency: "SUM", income: 0, expense: 0, transferIn: 0, transferOut: 0, cashier: "Salohiddin Kassir Farg'ona", type: "Наличными" },
-  { id: 15, name: "Pullar", openingAmount: 12432000, openingCurrency: "SUM", income: 0, expense: 0, transferIn: 0, transferOut: 0, cashier: "Admin Ritm", type: "Наличными" },
-  { id: 16, name: "novza", openingAmount: 10826200, openingCurrency: "SUM", income: 0, expense: 0, transferIn: 0, transferOut: 0, cashier: "test test", type: "Наличными" },
-  { id: 17, name: "05,08,2025", openingAmount: 9900000, openingCurrency: "SUM", income: 0, expense: 0, transferIn: 0, transferOut: 0, cashier: "Admin Ritm", type: "Наличными" },
-  { id: 18, name: "Касса Центральный — Наличные", openingAmount: 6800000, openingCurrency: "SUM", income: 0, expense: 0, transferIn: 0, transferOut: 0, cashier: "Шохрух Туляганов", type: "Наличными" },
-  { id: 19, name: "Orbit", openingAmount: 5853090, openingCurrency: "SUM", income: 0, expense: 0, transferIn: 0, transferOut: 0, cashier: "Тп 2 Алиса", type: "Наличными" },
-  { id: 20, name: "test_dilmurod_kassa", openingAmount: 5000000, openingCurrency: "USD", income: 0, expense: 0, transferIn: 0, transferOut: 0, cashier: "Admin Ritm", type: "Наличными" },
-  { id: 21, name: "Касса Центральный — Карта", openingAmount: 2100000, openingCurrency: "SUM", income: 0, expense: 0, transferIn: 0, transferOut: 0, cashier: "Шохрух Туляганов", type: "Перечислением" },
+const GROUPS: BalanceColumnGroup[] = [
+  { field: "begin_balance", label: "Баланс на начало периода" },
+  ...Object.entries(MOVEMENT_LABELS.cashbox).map(([field, label]) => ({ field, label })),
+  { field: "end_balance", label: "Баланс на конец периода" },
 ]
 
-const FIXED_TOTALS = { opening: { euro: 20, sum: 25884392057.44, usd: 6577793.296 }, closing: { euro: 20, sum: 25884392057.44, usd: 6577793.296 } }
+const cashierOf = (row: BalanceRow, t: (text: string) => string) => String(row.info.cashier || "") || t("Неизвестно")
+const typeOf = (row: BalanceRow, t: (text: string) => string) => (row.info.type === "bank" ? t("Перечислением") : t("Наличными"))
 
-const money = (value: number) => new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 2 }).format(value)
+type Period = { from: string; to: string }
 
-function pad(value: number) {
-  return String(value).padStart(2, "0")
+/** Period from ?fromDate&toDate (demo menu default: 1st of the month .. today). */
+function readPeriod(params: URLSearchParams): Period {
+  const fallback = defaultBalancePeriod()
+  const fromParam = params.get("fromDate")
+  const toParam = params.get("toDate")
+  const from = isIsoDay(fromParam) ? fromParam : fallback.from
+  const to = isIsoDay(toParam) ? toParam : from > fallback.to ? from : fallback.to
+  return from <= to ? { from, to } : { from: to, to: from }
 }
 
-function formatDate(date: Date) {
-  return `${pad(date.getDate())}.${pad(date.getMonth() + 1)}.${date.getFullYear()}`
+function readDetail(params: URLSearchParams): CashDetailState | null {
+  const key = params.get("cashbox")?.trim()
+  if (!key) return null
+  const type = params.get("type") ?? ""
+  const page = Number(params.get("page"))
+  const pageSize = Number(params.get("pageSize"))
+  return {
+    key,
+    type: ["1", "2", "4", "5"].includes(type) ? type : "",
+    category: params.get("categoryExpense") ?? "",
+    client: params.get("client") ?? "",
+    notAccepted: type === "1" && ["1", "true"].includes(params.get("notAcceptedTransfer") ?? ""),
+    search: params.get("search") ?? "",
+    page: Number.isInteger(page) && page > 0 ? page : 1,
+    pageSize: Number.isInteger(pageSize) && pageSize > 0 ? pageSize : DEFAULT_DETAIL_PAGE_SIZE,
+  }
 }
 
-function AmountCell({ amount, currency }: { amount: number; currency: Currency }) {
-  if (amount === 0) return <span>0</span>
-  const color = amount > 0 ? "text-[#3aa76d]" : "text-[#e5484d]"
-  return <span className={`font-semibold ${color}`}>{money(amount)} {currency}</span>
-}
-
-function ZeroCell() {
-  return <span>0</span>
-}
-
-type SortKey = "opening" | "income" | "expense" | "transferIn" | "transferOut" | "closing"
-type SortDir = "asc" | "desc"
-
-function SortableHeader({ label, sortKey, active, dir, onSort }: { label: string; sortKey: SortKey; active: boolean; dir: SortDir; onSort: (key: SortKey) => void }) {
-  return (
-    <th
-      role="button"
-      tabIndex={0}
-      onClick={() => onSort(sortKey)}
-      onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onSort(sortKey) } }}
-      className="cursor-pointer select-none whitespace-nowrap px-4 py-3 text-left font-semibold text-white hover:bg-[#4462d1]"
-    >
-      <span className="inline-flex items-center gap-1.5">
-        {label}
-        <ChevronsUpDown className={`h-3.5 w-3.5 transition ${active ? "text-white" : "text-white/60"} ${active && dir === "desc" ? "rotate-180" : ""}`} />
-      </span>
-    </th>
-  )
+/** Pushes a new URL state (the app router keeps useSearchParams in sync with history.pushState). */
+function pushState(period: Period, detail: CashDetailState | null) {
+  const params = new URLSearchParams({ fromDate: period.from, toDate: period.to })
+  if (detail) {
+    params.set("cashbox", detail.key)
+    if (detail.type) params.set("type", detail.type)
+    if (detail.category) params.set("categoryExpense", detail.category)
+    if (detail.client) params.set("client", detail.client)
+    if (detail.notAccepted && detail.type === "1") params.set("notAcceptedTransfer", "1")
+    if (detail.search) params.set("search", detail.search)
+    if (detail.page > 1) params.set("page", String(detail.page))
+    if (detail.pageSize !== DEFAULT_DETAIL_PAGE_SIZE) params.set("pageSize", String(detail.pageSize))
+  }
+  window.history.pushState(null, "", `${window.location.pathname}?${params.toString()}`)
 }
 
 export function CashBalanceView() {
+  return (
+    <Suspense fallback={null}>
+      <CashBalanceContent />
+    </Suspense>
+  )
+}
+
+function CashBalanceContent() {
+  const { t } = useLanguage()
+  const searchParams = useSearchParams()
+  const urlState = searchParams.toString()
+  const { period, detail } = useMemo(() => {
+    const params = new URLSearchParams(urlState)
+    return { period: readPeriod(params), detail: readDetail(params) }
+  }, [urlState])
+
   const [filterOpen, setFilterOpen] = useState(false)
-  const [sortKey, setSortKey] = useState<SortKey | null>(null)
-  const [sortDir, setSortDir] = useState<SortDir>("asc")
+  // Client-side multi-sort, as the demo (lodash orderBy over the loaded rows).
+  const [ordering, setOrdering] = useState<string[]>([])
 
-  const today = useMemo(() => new Date(), [])
-  const defaultFrom = useMemo(() => { const d = new Date(today); d.setDate(d.getDate() - 2); return d }, [today])
-  const [dateFrom, setDateFrom] = useState("")
-  const [dateTo, setDateTo] = useState("")
-  const [appliedFrom, setAppliedFrom] = useState(() => formatDate(defaultFrom))
-  const [appliedTo, setAppliedTo] = useState(() => formatDate(today))
+  const { data, loading, error, reload } = useBalanceList("cashbox", { from: period.from, to: period.to })
+  const rows = useMemo(() => sortBalanceRows([...(data?.rows ?? [])], ordering), [data, ordering])
 
-  const filterCount = appliedFrom && appliedTo ? 1 : 0
+  const changeOrdering = (next: string[]) => {
+    // Demo sort header: the clicked column moves to the end of the multi-sort list.
+    const changed = next.find((key) => !ordering.includes(key))
+    setOrdering(changed ? [...next.filter((key) => key !== changed), changed] : next)
+  }
 
-  const sorted = useMemo(() => {
-    if (!sortKey) return registers
-    const copy = [...registers]
-    copy.sort((a, b) => {
-      const valueOf = (row: Register) => {
-        if (sortKey === "opening") return row.openingAmount
-        if (sortKey === "closing") return row.openingAmount + row.income - row.expense + row.transferIn - row.transferOut
-        return row[sortKey]
-      }
-      const result = valueOf(a) - valueOf(b)
-      return sortDir === "asc" ? result : -result
+  const openDetail = (row: BalanceRow, field: string | null) =>
+    pushState(period, {
+      key: row.key,
+      type: (field && CASH_COLUMN_TYPES[field]) || "",
+      category: "",
+      client: "",
+      notAccepted: false,
+      search: "",
+      page: 1,
+      pageSize: DEFAULT_DETAIL_PAGE_SIZE,
     })
-    return copy
-  }, [sortDir, sortKey])
-
-  const toggleSort = (key: SortKey) => {
-    if (sortKey === key) {
-      setSortDir((direction) => (direction === "asc" ? "desc" : "asc"))
-    } else {
-      setSortKey(key)
-      setSortDir("asc")
-    }
-  }
-
-  const applyFilter = () => {
-    if (dateFrom) setAppliedFrom(formatDate(new Date(dateFrom)))
-    if (dateTo) setAppliedTo(formatDate(new Date(dateTo)))
-    setFilterOpen(false)
-  }
 
   const downloadAll = () => {
-    const header = ["Кассы", "Баланс на начало периода", "Приход за период", "Расход за период", "Перевод на кассу", "Перевод с кассы", "Баланс на конец периода", "Кассир", "Тип"]
-    const body = sorted.map((row) => {
-      const closing = row.openingAmount + row.income - row.expense + row.transferIn - row.transferOut
-      return [
-        row.name,
-        row.openingAmount === 0 ? "0" : `${money(row.openingAmount)} ${row.openingCurrency}`,
-        row.income,
-        row.expense,
-        row.transferIn,
-        row.transferOut,
-        closing === 0 ? "0" : `${money(closing)} ${row.openingCurrency}`,
-        row.cashier,
-        row.type,
-      ]
+    if (!data) return
+    const table = balanceListExcelRows({
+      rows,
+      groups: GROUPS,
+      currencies: data.visibleCurrencies,
+      leading: [
+        { label: "Кассы", value: (row) => row.name },
+        { label: "Валюта", value: (row) => currencyLabel(String(row.info.currency || data.baseCurrency)) },
+      ],
+      trailing: [
+        { label: "Кассир", value: (row) => cashierOf(row, t) },
+        { label: "Тип", value: (row) => typeOf(row, t) },
+      ],
+      totals: data.totals,
+      t,
     })
-    downloadExcelTable("cash-balance.xls", [header, ...body])
+    downloadExcelTable(`cash-balance-${period.from}-${period.to}`, table)
   }
+
+  const detailName = detail ? (data?.rows.find((row) => row.key === detail.key)?.name ?? "") : ""
 
   return (
     <main className="min-h-screen bg-white text-[#17233b]">
@@ -154,119 +152,75 @@ export function CashBalanceView() {
         <div className="flex items-center gap-3">
           <FavoritesButton className="flex items-center gap-3 text-2xl font-bold text-[#4f70e7]" />
           <span className="text-3xl font-light text-[#586174]">|</span>
-          <span className="text-2xl font-bold text-[#586174]">Баланс кассы</span>
+          <span className="text-2xl font-bold text-[#586174]">{t("Баланс кассы")}</span>
         </div>
       </header>
 
       <section className="flex flex-wrap items-center gap-4 px-6 py-4 md:px-9">
-        <button onClick={() => setFilterOpen(true)} className="flex h-11 items-center gap-2 rounded-md bg-[#4f70e7] px-5 font-semibold text-white">
-          <Filter className="h-4 w-4" /> Фильтр / {filterCount}
-        </button>
-        <span className="font-semibold text-[#4f70e7]">{appliedFrom} - {appliedTo}</span>
-        <span className="text-[#586174]">Во всей организации</span>
-        <button onClick={downloadAll} className="ml-auto flex h-11 items-center gap-2 rounded-md bg-[#4caf72] px-5 font-semibold text-white">
-          <BarChart className="h-5 w-5" /> Скачать
-        </button>
-      </section>
-
-      <section className="grid grid-cols-1 gap-6 px-6 pb-6 sm:grid-cols-2 lg:grid-cols-4 md:px-9">
-        <div>
-          <p className="text-[#586174]">Баланс на начало периода</p>
-          <p className="font-semibold">{FIXED_TOTALS.opening.euro} Euro</p>
-          <p className="font-semibold">{money(FIXED_TOTALS.opening.sum)} SUM</p>
-          <p className="font-semibold">{money(FIXED_TOTALS.opening.usd)} USD</p>
-        </div>
-        <div>
-          <p className="text-[#586174]">Приход за период</p>
-          <p className="font-semibold text-[#3aa76d]">0 Euro</p>
-          <p className="font-semibold text-[#3aa76d]">0 SUM</p>
-          <p className="font-semibold text-[#3aa76d]">0 USD</p>
-        </div>
-        <div>
-          <p className="text-[#586174]">Перевод на кассу</p>
-          <p className="font-semibold text-[#3aa76d]">0 Euro</p>
-          <p className="font-semibold text-[#3aa76d]">0 SUM</p>
-          <p className="font-semibold text-[#3aa76d]">0 USD</p>
-        </div>
-        <div className="lg:text-right">
-          <p className="text-[#586174]">Баланс на конец периода</p>
-          <p className="font-semibold">{FIXED_TOTALS.closing.euro} Euro</p>
-          <p className="font-semibold">{money(FIXED_TOTALS.closing.sum)} SUM</p>
-          <p className="font-semibold">{money(FIXED_TOTALS.closing.usd)} USD</p>
-        </div>
-        <div className="sm:col-start-2 lg:col-start-2">
-          <p className="text-[#586174]">Расход за период</p>
-          <p className="font-semibold text-[#e5484d]">0 Euro</p>
-          <p className="font-semibold text-[#e5484d]">0 SUM</p>
-          <p className="font-semibold text-[#e5484d]">0 USD</p>
-        </div>
-        <div>
-          <p className="text-[#586174]">Перевод с кассы</p>
-          <p className="font-semibold text-[#e5484d]">0 Euro</p>
-          <p className="font-semibold text-[#e5484d]">0 SUM</p>
-          <p className="font-semibold text-[#e5484d]">0 USD</p>
+        <BalanceFilterButton count={countActiveFilters({ toDate: period.to })} from={period.from} to={period.to} onOpen={() => setFilterOpen(true)} />
+        <div className="ml-auto">
+          <BalanceDownloadMenu disabled={!data?.rows.length} items={[{ label: "Скачать все", onClick: downloadAll }]} />
         </div>
       </section>
 
-      <section className="overflow-x-auto pb-10">
-        <table className="min-w-[1400px] w-full border-collapse text-[14px]">
-          <thead className="bg-[#4f70e7]">
-            <tr>
-              <th className="whitespace-nowrap px-4 py-3 text-left font-semibold text-white">Кассы</th>
-              <SortableHeader label="Баланс на начало периода" sortKey="opening" active={sortKey === "opening"} dir={sortDir} onSort={toggleSort} />
-              <SortableHeader label="Приход за период" sortKey="income" active={sortKey === "income"} dir={sortDir} onSort={toggleSort} />
-              <SortableHeader label="Расход за период" sortKey="expense" active={sortKey === "expense"} dir={sortDir} onSort={toggleSort} />
-              <SortableHeader label="Перевод на кассу" sortKey="transferIn" active={sortKey === "transferIn"} dir={sortDir} onSort={toggleSort} />
-              <SortableHeader label="Перевод с кассы" sortKey="transferOut" active={sortKey === "transferOut"} dir={sortDir} onSort={toggleSort} />
-              <SortableHeader label="Баланс на конец периода" sortKey="closing" active={sortKey === "closing"} dir={sortDir} onSort={toggleSort} />
-              <th className="whitespace-nowrap px-4 py-3 text-left font-semibold text-white">Кассир</th>
-              <th className="whitespace-nowrap px-4 py-3 text-left font-semibold text-white">Тип</th>
-            </tr>
-          </thead>
-          <tbody>
-            {sorted.map((row, index) => {
-              const closing = row.openingAmount + row.income - row.expense + row.transferIn - row.transferOut
-              return (
-                <tr key={row.id} className={index % 2 ? "bg-[#f6f9fc]" : "bg-white"}>
-                  <td className="border-t border-[#e1e5eb] px-4 py-4">{row.name}</td>
-                  <td className="border-t border-[#e1e5eb] px-4 py-4"><AmountCell amount={row.openingAmount} currency={row.openingCurrency} /></td>
-                  <td className="border-t border-[#e1e5eb] px-4 py-4"><ZeroCell /></td>
-                  <td className="border-t border-[#e1e5eb] px-4 py-4"><ZeroCell /></td>
-                  <td className="border-t border-[#e1e5eb] px-4 py-4"><ZeroCell /></td>
-                  <td className="border-t border-[#e1e5eb] px-4 py-4"><ZeroCell /></td>
-                  <td className="border-t border-[#e1e5eb] px-4 py-4"><AmountCell amount={closing} currency={row.openingCurrency} /></td>
-                  <td className="border-t border-[#e1e5eb] px-4 py-4">{row.cashier}</td>
-                  <td className="border-t border-[#e1e5eb] px-4 py-4">{row.type}</td>
-                </tr>
-              )
-            })}
-          </tbody>
-        </table>
-      </section>
-
-      {filterOpen && (
-        <div className="fixed inset-0 z-[100] flex items-start justify-center bg-black/30 pt-24" onClick={() => setFilterOpen(false)}>
-          <div onClick={(event) => event.stopPropagation()} className="w-[520px] max-w-[92vw] rounded-md bg-white shadow-2xl">
-            <header className="flex items-center justify-between border-b px-8 py-6">
-              <h2 className="text-lg font-semibold text-[#586174]">Фильтр</h2>
-              <button aria-label="Закрыть" onClick={() => setFilterOpen(false)}><X className="h-6 w-6 rounded-full border-2 border-[#9aa3b6] p-0.5 text-[#9aa3b6]" /></button>
-            </header>
-            <div className="px-8 py-7">
-              <div className="mb-2 flex items-center justify-between text-[13px] font-medium text-[#586174]">
-                <span>Диапазон дат</span>
-                <Calendar className="h-4 w-4 text-[#9aa3b6]" />
-              </div>
-              <div className="flex items-center gap-3 border-b border-[#dbe0e8] pb-2">
-                <input type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} placeholder="Укажите дату" className="w-full bg-transparent text-[15px] outline-none placeholder:text-[#9aa3b6]" />
-                <span className="text-[#9aa3b6]">—</span>
-                <input type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} placeholder="Укажите дату" className="w-full bg-transparent text-[15px] outline-none placeholder:text-[#9aa3b6]" />
-              </div>
-            </div>
-            <div className="px-8 pb-8">
-              <button onClick={applyFilter} className="block w-full rounded-md bg-[#6fcf97] py-3.5 text-center font-semibold text-white hover:bg-[#5fbf87]">Применить</button>
-            </div>
-          </div>
+      {!data && loading && (
+        <div className="flex items-center justify-center gap-2 py-24 text-[#586174]">
+          <Loader2 className="h-5 w-5 animate-spin" /> {t("Загрузка...")}
         </div>
+      )}
+      {error && (
+        <div className="flex flex-col items-center gap-3 py-10 text-center text-[#586174]">
+          <CircleAlert className="h-10 w-10 text-[#e57373]" />
+          <p>
+            {t("Не удалось выполнить запрос")}: {t(error)}
+          </p>
+          <button type="button" onClick={reload} className="rounded-md border border-[#4f70e7] px-4 py-2 font-semibold text-[#4f70e7]">
+            {t("Повторить")}
+          </button>
+        </div>
+      )}
+      {data && !rows.length && !error && (
+        <div className="flex flex-col items-center gap-3 py-24 text-center text-[13px] text-[#666]">
+          <SearchX className="h-12 w-12 text-[#999]" />
+          {loading ? t("Загрузка...") : t("По вашему запросу ничего не найдено")}
+        </div>
+      )}
+      {data && rows.length > 0 && (
+        <>
+          <CashBalanceSummary totals={data.totals} currencies={data.visibleCurrencies} loading={loading} />
+          <section className="pb-10">
+            <BalanceTable
+              rows={rows}
+              groups={GROUPS}
+              currencies={data.visibleCurrencies}
+              first={{ label: "Кассы", render: (row) => row.name }}
+              cellCurrency={(row) => String(row.info.currency || data.baseCurrency)}
+              trailing={[
+                { label: "Кассир", render: (row) => cashierOf(row, t) },
+                { label: "Тип", render: (row) => typeOf(row, t) },
+              ]}
+              ordering={ordering}
+              onOrderingChange={changeOrdering}
+              sortCycle="desc-first"
+              multiSort
+              onCellClick={openDetail}
+              headerTone="blue"
+              loading={loading}
+            />
+          </section>
+        </>
+      )}
+
+      <BalanceFilterDialog open={filterOpen} onClose={() => setFilterOpen(false)} from={period.from} to={period.to} onApply={(next) => pushState(next, null)} />
+
+      {detail && (
+        <CashBalanceDetail
+          period={period}
+          state={detail}
+          fallbackName={detailName}
+          onChange={(nextPeriod, nextState) => pushState(nextPeriod, nextState)}
+          onClose={() => pushState(period, null)}
+        />
       )}
     </main>
   )

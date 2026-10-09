@@ -1,0 +1,21 @@
+import { NextResponse } from "next/server"
+
+import { requireRole } from "@/lib/rbac"
+import { parseJsonBody } from "@/lib/validation"
+import { detachPayment } from "@/lib/cash/accept"
+import { cashErrorResponse, detachSchema } from "@/lib/cash/api"
+
+// POST /api/cash/acceptances/[id]/detach  { paymentId } → AcceptanceDetail (payment back to "not accepted").
+export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
+  const auth = await requireRole("manager")
+  if ("error" in auth) return auth.error
+  const id = Number((await params).id)
+  if (!Number.isInteger(id) || id <= 0) return NextResponse.json({ error: "Операция не найдена" }, { status: 404 })
+  const parsed = await parseJsonBody(request, detachSchema)
+  if (parsed.error) return parsed.error
+  try {
+    return NextResponse.json(await detachPayment(id, parsed.data.paymentId, auth.user.displayName))
+  } catch (error) {
+    return cashErrorResponse(error)
+  }
+}

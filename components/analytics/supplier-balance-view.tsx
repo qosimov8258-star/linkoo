@@ -1,178 +1,311 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
-import { ChevronDown, ChevronsRight, DollarSign, Filter, MinusCircle, PlusCircle, X } from "lucide-react"
+import { useCallback, useEffect, useState, type MouseEvent, type ReactNode } from "react"
+import { usePathname, useSearchParams } from "next/navigation"
+import { CircleMinus, CirclePlus, Filter, HandCoins, Search } from "lucide-react"
+
+import { BalanceTable, type BalanceColumnGroup } from "@/components/analytics/balance/balance-table"
+import { BalanceDownloadMenu } from "@/components/analytics/balance/download-menu"
+import { balanceListExcelRows } from "@/components/analytics/balance/excel"
+import { ExpandedOverlay, ExpandedViewButton } from "@/components/analytics/balance/expanded-view"
+import { BalanceFilterDialog, countActiveFilters } from "@/components/analytics/balance/filter-bar"
+import { BALANCE_PAGE_SIZES, BalancePagination } from "@/components/analytics/balance/pagination"
+import { BalanceSummaryCards, type SummaryBox } from "@/components/analytics/balance/summary-cards"
+import { buildBalanceQuery, useBalanceList, useBalanceStatement, useFinanceCurrencies, useLookup, type BalanceQuery } from "@/components/analytics/balance/use-balance"
+import { SupplierActDialog } from "@/components/analytics/supplier-balance-act"
+import {
+  MultiSelectField,
+  Snackbar,
+  SUPPLIER_PAYMENT_TYPES,
+  SupplierDeleteDialog,
+  SupplierRequestDialog,
+  SupplierTransactionDialog,
+  SupplierTransactionEditDialog,
+  type SnackbarMessage,
+} from "@/components/analytics/supplier-balance-dialogs"
 import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
 import { downloadExcelTable } from "@/lib/excel-export"
+import { formatDotDate, isIsoDay, monthEndIso, monthStartIso, todayIso } from "@/lib/finance/dates"
+import { MOVEMENT_LABELS, type BalanceListResult, type BalanceRow } from "@/lib/finance/types"
+import { useLanguage } from "@/lib/i18n/language-context"
 
-type Money = { sum: number; usd: number; eur: number }
-type Supplier = {
-  id: number
-  name: string
-  opening: Money
-  pendingRequest: Money
+// "Баланс поставщиков" (demo #/statistics/providers, StatProviderList):
+// filter popup (Диапазон дат / Организация / Тип оплаты) + "Скачать все",
+// 4 summary boxes, toggle "Баланс поставщиков" | "Запрос средств", server-side
+// search / sort / paging, the act modal (?openProvider) and the manual
+// приход / расход / запрос средств dialogs. Balances come from the shared
+// ledger (GET /api/balances/supplier[/statement]); manual entries are written
+// through /api/supplier-balance-transactions. As in the demo, every piece of
+// state lives in the URL query.
+
+type Toggle = "balance" | "request"
+type Named = { id: number; name: string }
+type FilterOptions = { organizations: string[]; branches: string[] }
+
+const TOGGLES: Array<{ id: Toggle; name: string }> = [
+  { id: "balance", name: "Баланс поставщиков" },
+  { id: "request", name: "Запрос средств" },
+]
+
+// supply_expense ("Расходы") is returned by the ledger but, as in the demo, not shown.
+const BALANCE_GROUPS: BalanceColumnGroup[] = [
+  { field: "begin_balance", label: "Баланс на начало периода" },
+  { field: "supply", label: MOVEMENT_LABELS.supplier.supply },
+  { field: "supply_return", label: MOVEMENT_LABELS.supplier.supply_return },
+  { field: "payment", label: MOVEMENT_LABELS.supplier.payment },
+  { field: "none_type_plus", label: MOVEMENT_LABELS.supplier.none_type_plus },
+  { field: "none_type_minus", label: MOVEMENT_LABELS.supplier.none_type_minus },
+  { field: "end_balance", label: "Баланс на конец" },
+]
+
+const REQUEST_GROUPS: BalanceColumnGroup[] = [
+  { field: "end_balance", label: "Баланс на конец периода" },
+  { field: "reserve", label: "Запас" },
+  { field: "remain", label: "Остаток" },
+  { field: "money_request", label: "Запросы в ожидании" },
+]
+
+const SUMMARY_BOXES: SummaryBox[] = [
+  {
+    metrics: [
+      { label: "Баланс на начало периода", field: "begin_balance" },
+      { label: MOVEMENT_LABELS.supplier.supply, field: "supply" },
+    ],
+  },
+  {
+    metrics: [
+      { label: MOVEMENT_LABELS.supplier.supply_return, field: "supply_return" },
+      { label: MOVEMENT_LABELS.supplier.payment, field: "payment" },
+    ],
+  },
+  {
+    metrics: [
+      { label: MOVEMENT_LABELS.supplier.none_type_plus, field: "none_type_plus" },
+      { label: MOVEMENT_LABELS.supplier.none_type_minus, field: "none_type_minus" },
+    ],
+  },
+  { align: "right", metrics: [{ label: "Баланс на конец периода", field: "end_balance" }] },
+]
+
+const BALANCE_TYPES = ["debtor", "creditor", "debtor_for_begin", "creditor_for_begin"]
+
+type UrlValue = string | number | string[] | null | undefined
+
+/** URL query state (demo hashHistory.push): pushState keeps Next's useSearchParams in sync without a server round trip. */
+function useUrlState() {
+  const searchParams = useSearchParams()
+  const pathname = usePathname()
+  const update = useCallback(
+    (changes: Record<string, UrlValue>) => {
+      const params = new URLSearchParams(window.location.search)
+      for (const [name, value] of Object.entries(changes)) {
+        params.delete(name)
+        if (Array.isArray(value)) value.filter(Boolean).forEach((item) => params.append(name, item))
+        else if (value !== null && value !== undefined && value !== "") params.set(name, String(value))
+      }
+      const query = params.toString()
+      window.history.pushState(null, "", query ? `${pathname}?${query}` : pathname)
+    },
+    [pathname],
+  )
+  return { searchParams, update }
 }
-type ApiSupplier = { id: number; name: string }
-type BalanceTransaction = {
-  id: number
-  supplierId: number
-  kind: "add" | "expense" | "fund_request"
-  currency: keyof Money
-  amount: number
-  date: string
-  comment: string
-}
 
-const zero: Money = { sum: 0, usd: 0, eur: 0 }
-
-const groups = ["Баланс на начало периода", "Поставки", "Возврат", "Оплачено", "Прочие приходы", "Прочие расходы", "Баланс на конец периода"] as const
-const requestGroups = ["Баланс на конец периода", "Запас", "Остаток", "Запросы в ожидании"] as const
-
-const money = (value: number) => new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 2 }).format(value)
-
-function AmountCell({ value }: { value: number }) {
-  if (value === 0) return <span>0</span>
-  const color = value > 0 ? "text-[#3aa76d]" : "text-[#e5484d]"
-  return <span className={`font-semibold ${color}`}>{money(value)}</span>
-}
-
-function pad(value: number) {
-  return String(value).padStart(2, "0")
-}
-
-export function SupplierBalanceView() {
-  const [tab, setTab] = useState<"balance" | "requests">("balance")
-  const [filterOpen, setFilterOpen] = useState(false)
-  const [organization, setOrganization] = useState("Все организации")
-  const [paymentType, setPaymentType] = useState("Любой")
-  const [search, setSearch] = useState("")
-  const [pageSize, setPageSize] = useState(25)
-  const [page, setPage] = useState(1)
-  const [modal, setModal] = useState<{ type: "add" | "expense"; supplierId: number } | null>(null)
-  const [requestModalId, setRequestModalId] = useState<number | null>(null)
-  const [suppliersList, setSuppliersList] = useState<ApiSupplier[]>([])
-  const [transactions, setTransactions] = useState<BalanceTransaction[]>([])
-  const [saving, setSaving] = useState(false)
-
+function useJsonObject<T>(url: string): T | null {
+  const [data, setData] = useState<T | null>(null)
   useEffect(() => {
     let cancelled = false
-    Promise.all([
-      fetch("/api/suppliers").then((response) => (response.ok ? response.json() : [])),
-      fetch("/api/supplier-balance-transactions").then((response) => (response.ok ? response.json() : [])),
-    ])
-      .then(([suppliersData, transactionsData]) => {
-        if (cancelled) return
-        setSuppliersList(Array.isArray(suppliersData) ? suppliersData : [])
-        setTransactions(Array.isArray(transactionsData) ? transactionsData : [])
+    fetch(url, { cache: "no-store" })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((body: T | null) => {
+        if (!cancelled) setData(body)
       })
       .catch(() => {})
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [url])
+  return data
+}
 
-  const rows = useMemo<Supplier[]>(
-    () =>
-      suppliersList.map((supplier) => {
-        const opening = { ...zero }
-        const pendingRequest = { ...zero }
-        transactions
-          .filter((transaction) => transaction.supplierId === supplier.id)
-          .forEach((transaction) => {
-            if (transaction.kind === "fund_request") {
-              pendingRequest[transaction.currency] += transaction.amount
-            } else {
-              const signed = transaction.kind === "add" ? transaction.amount : -transaction.amount
-              opening[transaction.currency] += signed
-            }
-          })
-        return { id: supplier.id, name: supplier.name, opening, pendingRequest }
-      }),
-    [suppliersList, transactions],
-  )
+const stop = (handler: () => void) => (event: MouseEvent) => {
+  event.stopPropagation()
+  handler()
+}
 
-  const TOTAL_SUPPLIERS = rows.length
-  const FIXED_TOTALS = useMemo(
-    () => ({
-      opening: rows.reduce(
-        (totals, supplier) => ({
-          sum: totals.sum + supplier.opening.sum,
-          usd: totals.usd + supplier.opening.usd,
-          eur: totals.eur + supplier.opening.eur,
-        }),
-        { sum: 0, usd: 0, eur: 0 },
-      ),
-    }),
-    [rows],
-  )
+export function SupplierBalanceView() {
+  const { t } = useLanguage()
+  const { searchParams, update } = useUrlState()
+  const get = (name: string) => searchParams.get(name) ?? ""
 
-  const today = useMemo(() => new Date(), [])
-  const monthStart = useMemo(() => new Date(today.getFullYear(), today.getMonth(), 1), [today])
-  const monthEnd = useMemo(() => new Date(today.getFullYear(), today.getMonth() + 1, 0), [today])
-  const toInputDate = (date: Date) => `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
-  const [rangeFrom, setRangeFrom] = useState(() => toInputDate(monthStart))
-  const [rangeTo, setRangeTo] = useState(() => toInputDate(monthEnd))
+  // --- URL state ------------------------------------------------------------------
+  const today = todayIso()
+  const urlFrom = isIsoDay(get("fromDate")) ? get("fromDate") : ""
+  const urlTo = isIsoDay(get("toDate")) ? get("toDate") : ""
+  // Demo default period: the whole current month.
+  const periodFrom = urlFrom || monthStartIso(today)
+  const periodTo = urlTo || monthEndIso(today)
+  const [from, to] = periodFrom <= periodTo ? [periodFrom, periodTo] : [periodTo, periodFrom]
+  const toggle: Toggle = get("toggle") === "request" ? "request" : "balance"
+  const search = get("search").trim()
+  const paymentType = get("paymentType") === "cash" || get("paymentType") === "bank" ? (get("paymentType") as "cash" | "bank") : ""
+  const balanceType = BALANCE_TYPES.includes(get("balanceType")) ? get("balanceType") : ""
+  const divisions = searchParams.getAll("division").filter(Boolean)
+  const branches = searchParams.getAll("branch").filter(Boolean)
+  const ordering = searchParams.getAll("ordering").filter(Boolean)
+  const page = Math.max(1, Math.floor(Number(get("page"))) || 1)
+  const pageSize = (BALANCE_PAGE_SIZES as readonly number[]).includes(Number(get("pageSize"))) ? Number(get("pageSize")) : 25
 
-  const filtered = useMemo(
-    () => rows.filter((supplier) => supplier.name.toLocaleLowerCase("ru").includes(search.trim().toLocaleLowerCase("ru"))),
-    [rows, search],
-  )
+  const openProvider = get("openProvider")
+  const actFrom = isIsoDay(get("fromProviderDate")) ? get("fromProviderDate") : from
+  const actTo = isIsoDay(get("toProviderDate")) ? get("toProviderDate") : to
+  const dialogSupplierId = Number(get("provider")) || null
+  const createMode = get("openAddDialog") === "true" ? "add" : get("openCreateDialog") === "true" ? "expense" : null
+  const requestOpen = get("openRequestCreateDialog") === "true"
+  const editId = Number(get("openBalanceUpdateDialog")) || null
+  const deleteId = Number(get("transId")) || null
 
-  const maxPage = Math.max(1, Math.ceil(filtered.length / pageSize))
-  const safePage = Math.min(page, maxPage)
-  const visible = filtered.slice((safePage - 1) * pageSize, safePage * pageSize)
-  const isDefaultView = !search.trim()
-  const totalLabel = isDefaultView ? TOTAL_SUPPLIERS : filtered.length
+  // --- data -----------------------------------------------------------------------
+  const listQuery: BalanceQuery = {
+    from,
+    to,
+    search,
+    organization: divisions,
+    paymentType,
+    branch: branches,
+    balanceType,
+    ordering,
+    page,
+    pageSize,
+    // Demo: the summary ignores search and paging.
+    totalsIgnoreSearch: true,
+  }
+  const list = useBalanceList("supplier", listQuery)
+  const statement = useBalanceStatement("supplier", openProvider || null, { from: actFrom, to: actTo })
+  const { data: currencyInfo } = useFinanceCurrencies()
+  const suppliers = useLookup<Named>("/api/suppliers")
+  const options = useJsonObject<FilterOptions>("/api/balances/supplier-balance/options")
+  const me = useJsonObject<{ role?: string }>("/api/auth/me")
+  const canEdit = me?.role === "manager" || me?.role === "admin"
 
-  const saveTransaction = async (
-    supplierId: number,
-    kind: "add" | "expense" | "fund_request",
-    currency: keyof Money,
-    amount: number,
-    date: string,
-    comment: string,
-  ) => {
-    setSaving(true)
+  const rows = list.data?.rows ?? []
+  const visible = list.data?.visibleCurrencies ?? []
+  const currencies = currencyInfo?.currencies ?? list.data?.currencies ?? []
+  const baseCurrency = list.data?.baseCurrency ?? currencyInfo?.base ?? "SUM"
+  const groups = toggle === "balance" ? BALANCE_GROUPS : REQUEST_GROUPS
+
+  // --- local UI state -------------------------------------------------------------
+  const [expanded, setExpanded] = useState(false)
+  const [filterOpen, setFilterOpen] = useState(false)
+  const [draftDivisions, setDraftDivisions] = useState<string[]>([])
+  const [draftPaymentType, setDraftPaymentType] = useState("")
+  const [searchDraft, setSearchDraft] = useState(search)
+  const [lastSearch, setLastSearch] = useState(search)
+  if (search !== lastSearch) {
+    // Back/forward navigation changed ?search.
+    setLastSearch(search)
+    setSearchDraft(search)
+  }
+  const [downloading, setDownloading] = useState(false)
+  const [message, setMessage] = useState<SnackbarMessage | null>(null)
+  const hideMessage = useCallback(() => setMessage(null), [setMessage])
+
+  // Demo counter: set filter keys except fromDate and search.
+  const filterCount = countActiveFilters({ toDate: urlTo, division: divisions, paymentType, balanceType, branch: branches, zone: get("zone") })
+  const scope = [...divisions, ...branches]
+
+  // --- actions --------------------------------------------------------------------
+  const openFilter = () => {
+    setDraftDivisions(divisions)
+    setDraftPaymentType(paymentType)
+    setFilterOpen(true)
+  }
+  const openAct = (row: BalanceRow) =>
+    update({ openProvider: row.key, providerName: toggle === "balance" ? row.name : null, fromProviderDate: null, toProviderDate: null })
+  const closeAct = () => update({ openProvider: null, providerName: null, fromProviderDate: null, toProviderDate: null })
+  const closeDialogs = () => update({ openAddDialog: null, openCreateDialog: null, openRequestCreateDialog: null, provider: null })
+  const refresh = () => {
+    list.reload()
+    statement.reload()
+  }
+  const saved = (changes: Record<string, UrlValue>) => {
+    update(changes)
+    setMessage({ text: "Успешно сохранено", tone: "success" })
+    refresh()
+  }
+
+  const downloadAll = async () => {
+    setDownloading(true)
     try {
-      const response = await fetch("/api/supplier-balance-transactions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ supplierId, kind, currency, amount, date, comment }),
-      })
-      if (!response.ok) {
-        window.alert("Не удалось сохранить транзакцию")
-        return false
-      }
-      const saved = (await response.json()) as BalanceTransaction
-      setTransactions((current) => [saved, ...current])
-      return true
-    } catch {
-      window.alert("Сервер недоступен, попробуйте ещё раз")
-      return false
+      const response = await fetch(`/api/balances/supplier?${buildBalanceQuery({ ...listQuery, page: undefined, pageSize: 0, totalsIgnoreSearch: false })}`, { cache: "no-store" })
+      const body = (await response.json().catch(() => null)) as (BalanceListResult & { error?: string }) | null
+      if (!response.ok || !body) throw new Error(body?.error || `HTTP ${response.status}`)
+      const codes = visible.length ? visible : body.visibleCurrencies
+      downloadExcelTable(
+        `${t(toggle === "balance" ? "Баланс поставщиков" : "Запрос средств")} ${formatDotDate(from)} - ${formatDotDate(to)}`,
+        balanceListExcelRows({ rows: body.rows, groups, currencies: codes, leading: [{ label: "Поставщик", value: (row) => row.name }], totals: body.totals, t }),
+      )
+    } catch (reason) {
+      setMessage({ text: reason instanceof Error ? reason.message : String(reason), tone: "error" })
     } finally {
-      setSaving(false)
+      setDownloading(false)
     }
   }
 
-  const applyFilter = () => {
-    setFilterOpen(false)
+  // --- cells ----------------------------------------------------------------------
+  const nameCell = (row: BalanceRow, actions: ReactNode) => (
+    <div className="flex items-center justify-between gap-3">
+      <span className="font-medium text-[#17233b] hover:text-[#4f70e7] hover:underline">{row.name}</span>
+      {actions && <span className="flex shrink-0 items-center gap-1">{actions}</span>}
+    </div>
+  )
+  const renderName = (row: BalanceRow) => {
+    const editable = canEdit && row.id !== null
+    if (toggle === "request") {
+      return nameCell(
+        row,
+        editable && (
+          <button
+            type="button"
+            title={t("Запрос средств")}
+            aria-label={t("Запрос средств")}
+            onClick={stop(() => update({ openRequestCreateDialog: "true", provider: row.id }))}
+            className="text-[#8dc572] hover:brightness-90"
+          >
+            <HandCoins className="h-5 w-5" />
+          </button>
+        ),
+      )
+    }
+    return nameCell(
+      row,
+      editable && (
+        <>
+          <button
+            type="button"
+            title={t("Добавить расход поставщику")}
+            aria-label={t("Добавить расход поставщику")}
+            onClick={stop(() => update({ openCreateDialog: "true", provider: row.id }))}
+          >
+            <CircleMinus className="h-6 w-6 fill-[#ff584b] text-white" />
+          </button>
+          <button
+            type="button"
+            title={t("Добавить приход поставщику")}
+            aria-label={t("Добавить приход поставщику")}
+            onClick={stop(() => update({ openAddDialog: "true", provider: row.id }))}
+          >
+            <CirclePlus className="h-6 w-6 fill-[#8dc572] text-white" />
+          </button>
+        </>
+      ),
+    )
   }
 
-  const downloadAll = () => {
-    const activeGroups = tab === "balance" ? groups : requestGroups
-    const header = ["Поставщик", ...activeGroups.flatMap((group) => [`${group} SUM`, `${group} USD`, `${group} Euro`])]
-    const body = filtered.map((supplier) => {
-      const cells = activeGroups.flatMap((group) => {
-        if (group === "Баланс на начало периода" || group === "Баланс на конец периода" || group === "Остаток") {
-          return [supplier.opening.sum, supplier.opening.usd, supplier.opening.eur]
-        }
-        if (group === "Запросы в ожидании") return [supplier.pendingRequest.sum, supplier.pendingRequest.usd, supplier.pendingRequest.eur]
-        return [0, 0, 0]
-      })
-      return [supplier.name, ...cells]
-    })
-    downloadExcelTable("supplier-balance.xls", [header, ...body])
-  }
+  const dialogRow = dialogSupplierId ? rows.find((row) => row.id === dialogSupplierId) : undefined
+  const dialogSupplier: Named | undefined = dialogSupplierId
+    ? (suppliers.find((item) => item.id === dialogSupplierId) ?? (dialogRow ? { id: dialogSupplierId, name: dialogRow.name } : undefined))
+    : undefined
 
   return (
     <main className="min-h-screen bg-white text-[#17233b]">
@@ -180,396 +313,185 @@ export function SupplierBalanceView() {
         <div className="flex items-center gap-3">
           <FavoritesButton className="flex items-center gap-3 text-2xl font-bold text-[#4f70e7]" />
           <span className="text-3xl font-light text-[#586174]">|</span>
-          <span className="text-2xl font-bold text-[#586174]">Баланс поставщиков</span>
+          <span className="text-2xl font-bold text-[#586174]">{t("Баланс поставщиков")}</span>
         </div>
       </header>
 
       <section className="flex flex-wrap items-center gap-4 px-6 py-4 md:px-9">
-        <button onClick={() => setFilterOpen(true)} className="flex h-11 items-center gap-2 rounded-md bg-[#4f70e7] px-5 font-semibold text-white">
-          <Filter className="h-4 w-4" /> Фильтр
+        <button type="button" onClick={openFilter} className="flex h-11 items-center gap-2 rounded-md bg-[#4f70e7] px-5 font-semibold text-white">
+          <Filter className="h-4 w-4" /> {t("Фильтр")}
+          {filterCount > 0 ? ` / ${filterCount}` : ""}
         </button>
-        <span className="font-semibold text-[#4f70e7]">Во всей организации</span>
-        <button onClick={downloadAll} className="ml-auto flex h-11 items-center gap-2 rounded-md bg-[#4caf72] px-5 font-semibold text-white">
-          <BarChart className="h-5 w-5" /> Скачать
-        </button>
-      </section>
-
-      <section className="grid grid-cols-1 gap-6 px-6 pb-6 sm:grid-cols-2 lg:grid-cols-4 md:px-9">
-        <div>
-          <p className="text-[#586174]">Баланс на начало периода</p>
-          <p className="font-semibold"><AmountCell value={FIXED_TOTALS.opening.eur} /></p>
-          <p className="font-semibold"><AmountCell value={FIXED_TOTALS.opening.sum} /></p>
-          <p className="font-semibold"><AmountCell value={FIXED_TOTALS.opening.usd} /></p>
-        </div>
-        <div>
-          <p className="text-[#586174]">Возврат</p>
-          <p className="font-semibold">0</p>
-          <p className="font-semibold">0</p>
-          <p className="font-semibold">0</p>
-        </div>
-        <div>
-          <p className="text-[#586174]">Прочие приходы</p>
-          <p className="font-semibold">0</p>
-          <p className="font-semibold">0</p>
-          <p className="font-semibold">0</p>
-        </div>
-        <div className="lg:text-right">
-          <p className="text-[#586174]">Баланс на конец периода</p>
-          <p className="font-semibold"><AmountCell value={FIXED_TOTALS.opening.eur} /></p>
-          <p className="font-semibold"><AmountCell value={FIXED_TOTALS.opening.sum} /></p>
-          <p className="font-semibold"><AmountCell value={FIXED_TOTALS.opening.usd} /></p>
-        </div>
-        <div className="sm:col-start-2 lg:col-start-2">
-          <p className="text-[#586174]">Поставки</p>
-          <p className="font-semibold">0</p>
-          <p className="font-semibold">0</p>
-          <p className="font-semibold">0</p>
-        </div>
-        <div>
-          <p className="text-[#586174]">Оплачено</p>
-          <p className="font-semibold">0</p>
-          <p className="font-semibold">0</p>
-          <p className="font-semibold">0</p>
-        </div>
-        <div>
-          <p className="text-[#586174]">Прочие расходы</p>
-          <p className="font-semibold">0</p>
-          <p className="font-semibold">0</p>
-          <p className="font-semibold">0</p>
-        </div>
-      </section>
-
-      <section className="flex flex-wrap items-center gap-3 border-t border-[#e1e5eb] px-6 py-4 md:px-9">
-        <div className="flex overflow-hidden rounded-sm">
-          <button
-            onClick={() => setTab("balance")}
-            className={`px-5 py-2.5 text-[13px] font-bold uppercase tracking-wide ${tab === "balance" ? "bg-[#4f70e7] text-white" : "border border-[#4f70e7] text-[#4f70e7]"}`}
-          >
-            Баланс поставщиков
-          </button>
-          <button
-            onClick={() => setTab("requests")}
-            className={`px-5 py-2.5 text-[13px] font-bold uppercase tracking-wide ${tab === "requests" ? "bg-[#4f70e7] text-white" : "border border-[#4f70e7] text-[#4f70e7]"}`}
-          >
-            Запрос средств
-          </button>
-        </div>
-
-        <label className="relative mx-auto min-w-[220px] border-b border-[#dbe0e8] pb-1.5 text-center">
-          <input
-            value={search}
-            onChange={(event) => { setSearch(event.target.value); setPage(1) }}
-            placeholder="Поиск"
-            className="w-full bg-transparent text-center text-[15px] font-medium outline-none placeholder:text-[#17233b]"
-          />
-        </label>
-
-        <select value={pageSize} onChange={(event) => { setPageSize(Number(event.target.value)); setPage(1) }} className="h-9 bg-transparent text-[#586174]">
-          <option value={10}>10</option>
-          <option value={25}>25</option>
-          <option value={50}>50</option>
-        </select>
-        <span className="text-[#586174]">{filtered.length ? (safePage - 1) * pageSize + 1 : 0} - {Math.min(safePage * pageSize, filtered.length)} из {totalLabel}</span>
-        <button disabled={safePage === 1} onClick={() => setPage((value) => Math.max(1, value - 1))} className="rounded-full border border-[#dbe0e8] p-1 text-[#9aa3b6] disabled:opacity-40">
-          <ChevronDown className="h-5 w-5 rotate-90" />
-        </button>
-        <button disabled={safePage === maxPage} onClick={() => setPage((value) => Math.min(maxPage, value + 1))} className="rounded-full border border-[#4f70e7] p-1 text-[#4f70e7] disabled:opacity-40">
-          <ChevronDown className="h-5 w-5 -rotate-90" />
-        </button>
-        <button aria-label="Полный экран" onClick={() => document.documentElement.requestFullscreen?.()} className="text-[#586174]"><ChevronsRight className="h-5 w-5 rotate-45" /></button>
-      </section>
-
-      <section className="overflow-x-auto pb-10">
-        {tab === "balance" ? (
-          <table className="min-w-[2300px] w-full border-collapse text-[14px]">
-            <thead>
-              <tr className="bg-[#edf2f7] text-[#253653]">
-                <th className="border border-[#e1e5eb] px-4 py-2" colSpan={3} />
-                {groups.map((group) => (
-                  <th key={group} colSpan={3} className="border border-[#e1e5eb] px-4 py-2 text-center font-medium">{group}</th>
-                ))}
-              </tr>
-              <tr className="bg-white text-[#17233b]">
-                <th className="border-b border-[#e1e5eb] px-4 py-2 text-left font-semibold" colSpan={3}>Поставщик</th>
-                {groups.map((group) =>
-                  ["SUM", "USD", "Euro"].map((currency) => (
-                    <th key={`${group}-${currency}`} className="border-b border-[#e1e5eb] px-4 py-2 font-semibold">{currency}</th>
-                  )),
-                )}
-              </tr>
-            </thead>
-            <tbody>
-              {visible.map((supplier, index) => (
-                <tr key={supplier.id} className={index % 2 ? "bg-[#f6f9fc]" : "bg-white"}>
-                  <td className="border-b border-[#e1e5eb] px-4 py-3.5">{supplier.name}</td>
-                  <td className="border-b border-[#e1e5eb] px-1 py-3.5">
-                    <button aria-label="Добавить расход" onClick={() => setModal({ type: "expense", supplierId: supplier.id })} className="text-[#e5484d]"><MinusCircle className="h-6 w-6 fill-[#ff5d63] text-white" /></button>
-                  </td>
-                  <td className="border-b border-[#e1e5eb] px-1 py-3.5">
-                    <button aria-label="Добавить" onClick={() => setModal({ type: "add", supplierId: supplier.id })} className="text-[#39ca79]"><PlusCircle className="h-6 w-6 fill-[#39ca79] text-white" /></button>
-                  </td>
-                  <td className="border-b border-[#e1e5eb] px-4 py-3.5"><AmountCell value={supplier.opening.sum} /></td>
-                  <td className="border-b border-[#e1e5eb] px-4 py-3.5"><AmountCell value={supplier.opening.usd} /></td>
-                  <td className="border-b border-[#e1e5eb] px-4 py-3.5"><AmountCell value={supplier.opening.eur} /></td>
-                  {Array.from({ length: 18 }).map((_, cellIndex) => (
-                    <td key={cellIndex} className="border-b border-[#e1e5eb] px-4 py-3.5">0</td>
-                  ))}
-                </tr>
-              ))}
-              {visible.length === 0 && (
-                <tr><td colSpan={24} className="border-b border-[#e1e5eb] px-4 py-16 text-center text-[#9aa3b6]">Ничего не найдено</td></tr>
-              )}
-            </tbody>
-          </table>
-        ) : (
-          <table className="min-w-[1700px] w-full border-collapse text-[14px]">
-            <thead>
-              <tr className="bg-[#edf2f7] text-[#253653]">
-                <th className="border border-[#e1e5eb] px-4 py-2" />
-                {requestGroups.map((group) => (
-                  <th key={group} colSpan={3} className="border border-[#e1e5eb] px-4 py-2 text-center font-medium">{group}</th>
-                ))}
-              </tr>
-              <tr className="bg-white text-[#17233b]">
-                <th className="border-b border-[#e1e5eb] px-4 py-2 text-left font-semibold">Поставщик</th>
-                {requestGroups.map((group) =>
-                  ["SUM", "USD", "Euro"].map((currency) => (
-                    <th key={`${group}-${currency}`} className="border-b border-[#e1e5eb] px-4 py-2 font-semibold">{currency}</th>
-                  )),
-                )}
-              </tr>
-            </thead>
-            <tbody>
-              {visible.map((supplier, index) => (
-                <tr key={supplier.id} className={index % 2 ? "bg-[#f6f9fc]" : "bg-white"}>
-                  <td className="border-b border-[#e1e5eb] px-4 py-3.5">
-                    <button aria-label="Запросить средства" onClick={() => setRequestModalId(supplier.id)} className="flex items-center gap-2 text-left">
-                      <DollarSign className="h-4 w-4 text-[#3aa76d]" /> {supplier.name}
-                    </button>
-                  </td>
-                  <td className="border-b border-[#e1e5eb] px-4 py-3.5"><AmountCell value={supplier.opening.sum} /></td>
-                  <td className="border-b border-[#e1e5eb] px-4 py-3.5"><AmountCell value={supplier.opening.usd} /></td>
-                  <td className="border-b border-[#e1e5eb] px-4 py-3.5"><AmountCell value={supplier.opening.eur} /></td>
-                  <td className="border-b border-[#e1e5eb] px-4 py-3.5">0</td>
-                  <td className="border-b border-[#e1e5eb] px-4 py-3.5">0</td>
-                  <td className="border-b border-[#e1e5eb] px-4 py-3.5">0</td>
-                  <td className="border-b border-[#e1e5eb] px-4 py-3.5"><AmountCell value={supplier.opening.sum} /></td>
-                  <td className="border-b border-[#e1e5eb] px-4 py-3.5"><AmountCell value={supplier.opening.usd} /></td>
-                  <td className="border-b border-[#e1e5eb] px-4 py-3.5"><AmountCell value={supplier.opening.eur} /></td>
-                  <td className="border-b border-[#e1e5eb] px-4 py-3.5"><AmountCell value={supplier.pendingRequest.sum} /></td>
-                  <td className="border-b border-[#e1e5eb] px-4 py-3.5"><AmountCell value={supplier.pendingRequest.usd} /></td>
-                  <td className="border-b border-[#e1e5eb] px-4 py-3.5"><AmountCell value={supplier.pendingRequest.eur} /></td>
-                </tr>
-              ))}
-              {visible.length === 0 && (
-                <tr><td colSpan={13} className="border-b border-[#e1e5eb] px-4 py-16 text-center text-[#9aa3b6]">Ничего не найдено</td></tr>
-              )}
-            </tbody>
-          </table>
+        {urlFrom && (
+          <span className="font-semibold text-[#4f70e7]">
+            {formatDotDate(from)} - {formatDotDate(to)}
+          </span>
         )}
+        <span className="text-[#4f70e7]">{scope.length ? scope.join(" ") : t("Во всей организации")}</span>
+        <div className="ml-auto">
+          <BalanceDownloadMenu disabled={downloading} items={[{ label: "Скачать все", onClick: downloadAll }]} />
+        </div>
       </section>
 
-      {filterOpen && (
-        <div className="fixed inset-0 z-[100] flex items-start justify-center bg-black/30 pt-24" onClick={() => setFilterOpen(false)}>
-          <div onClick={(event) => event.stopPropagation()} className="w-[900px] max-w-[94vw] rounded-md bg-white shadow-2xl">
-            <header className="flex items-center justify-between border-b px-8 py-6">
-              <h2 className="text-lg font-semibold text-[#586174]">Фильтр</h2>
-              <button aria-label="Закрыть" onClick={() => setFilterOpen(false)}><X className="h-6 w-6 rounded-full border-2 border-[#9aa3b6] p-0.5 text-[#9aa3b6]" /></button>
-            </header>
-            <div className="grid grid-cols-1 gap-8 px-8 py-7 sm:grid-cols-3">
-              <div>
-                <div className="mb-1 flex items-center justify-between text-[13px] font-medium text-[#586174]">
-                  <span>Диапазон дат</span>
-                </div>
-                <div className="flex items-center gap-2 border-b border-[#dbe0e8] pb-2 text-[15px]">
-                  <input type="date" value={rangeFrom} onChange={(event) => setRangeFrom(event.target.value)} className="w-full bg-transparent outline-none" />
-                  <span className="text-[#9aa3b6]">—</span>
-                  <input type="date" value={rangeTo} onChange={(event) => setRangeTo(event.target.value)} className="w-full bg-transparent outline-none" />
-                </div>
-              </div>
-              <label className="relative block border-b border-[#dbe0e8] pb-2 text-[15px] font-medium">
-                Организация
-                <select value={organization} onChange={(event) => setOrganization(event.target.value)} className="mt-1 block w-full appearance-none bg-transparent pr-6 text-[15px] font-normal outline-none">
-                  {["Все организации", "Linko"].map((option) => <option key={option}>{option}</option>)}
-                </select>
-                <ChevronDown className="pointer-events-none absolute right-0 top-7 h-4 w-4 text-[#9aa3b6]" />
-              </label>
-              <label className="relative block border-b border-[#dbe0e8] pb-2 text-[15px] font-medium">
-                Тип оплаты
-                <select value={paymentType} onChange={(event) => setPaymentType(event.target.value)} className="mt-1 block w-full appearance-none bg-transparent pr-6 text-[15px] font-normal outline-none">
-                  {["Любой", "Наличными", "Перечислением"].map((option) => <option key={option}>{option}</option>)}
-                </select>
-                <ChevronDown className="pointer-events-none absolute right-0 top-7 h-4 w-4 text-[#9aa3b6]" />
-              </label>
-            </div>
-            <div className="px-8 pb-8">
-              <button onClick={applyFilter} className="block w-full rounded-md bg-[#6fcf97] py-3.5 text-center font-semibold text-white hover:bg-[#5fbf87]">Применить</button>
-            </div>
+      {list.error && <p className="px-6 pb-4 text-[#e57373] md:px-9">{t(list.error)}</p>}
+
+      <BalanceSummaryCards boxes={SUMMARY_BOXES} totals={list.data?.totals ?? {}} currencies={visible} loading={list.loading} />
+
+      <ExpandedOverlay expanded={expanded}>
+        <section className="flex flex-wrap items-center gap-3 border-t border-[#e1e5eb] px-6 py-4 md:px-9">
+          <div className="flex overflow-hidden rounded-sm">
+            {TOGGLES.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => item.id !== toggle && update({ toggle: item.id === "balance" ? null : item.id, ordering: null, page: null })}
+                className={`px-5 py-2.5 text-[13px] font-bold uppercase tracking-wide ${
+                  toggle === item.id ? "bg-[#4f71dc] text-white" : "border border-[#4f71dc] bg-white text-[#4f71dc]"
+                }`}
+              >
+                {t(item.name)}
+              </button>
+            ))}
           </div>
+
+          <form
+            className="relative mx-auto flex min-w-[220px] items-center border-b border-[#dbe0e8] pb-1.5"
+            onSubmit={(event) => {
+              event.preventDefault()
+              update({ search: searchDraft.trim(), page: null })
+            }}
+          >
+            <input
+              value={searchDraft}
+              onChange={(event) => setSearchDraft(event.target.value)}
+              placeholder={t("Поиск")}
+              className="w-full bg-transparent text-center text-[15px] font-medium outline-none placeholder:text-[#17233b]"
+            />
+            <button type="submit" aria-label={t("Поиск")} className="text-[#9aa3b6] hover:text-[#4f70e7]">
+              <Search className="h-4 w-4" />
+            </button>
+          </form>
+
+          <div className="flex items-center gap-4">
+            <BalancePagination
+              page={page}
+              pageSize={pageSize}
+              count={list.data?.count ?? 0}
+              onChange={(next) => update({ page: next.page > 1 ? next.page : null, pageSize: next.pageSize })}
+            />
+            <ExpandedViewButton expanded={expanded} onToggle={() => setExpanded((value) => !value)} />
+          </div>
+        </section>
+
+        <div className="pb-10">
+          <BalanceTable
+            rows={rows}
+            groups={groups}
+            currencies={visible}
+            first={{ label: "Поставщик", width: 220, sortKey: "name", render: renderName }}
+            headerTone="blue"
+            ordering={ordering}
+            onOrderingChange={(next) => update({ ordering: next })}
+            sortCycle="asc-first"
+            onCellClick={(row) => openAct(row)}
+            loading={list.loading}
+          />
         </div>
+      </ExpandedOverlay>
+
+      <BalanceFilterDialog
+        open={filterOpen}
+        onClose={() => setFilterOpen(false)}
+        from={from}
+        to={to}
+        onApply={(period) => update({ fromDate: period.from, toDate: period.to, division: draftDivisions, paymentType: draftPaymentType, page: null })}
+      >
+        <MultiSelectField label={t("Организация")} options={options?.organizations ?? []} value={draftDivisions} onChange={setDraftDivisions} />
+        <label className="flex flex-col gap-1">
+          <span className="text-sm text-[#586174]">{t("Тип оплаты")}</span>
+          <select value={draftPaymentType} onChange={(event) => setDraftPaymentType(event.target.value)} className="h-10 rounded-md border border-[#dbe0e8] px-3 text-[#17233b]">
+            <option value="">{t("Все")}</option>
+            {SUPPLIER_PAYMENT_TYPES.map((item) => (
+              <option key={item.value} value={item.value}>
+                {t(item.label)}
+              </option>
+            ))}
+          </select>
+        </label>
+      </BalanceFilterDialog>
+
+      {openProvider && (
+        <SupplierActDialog
+          name={get("providerName")}
+          statement={statement.data && statement.data.key === openProvider ? statement.data : null}
+          loading={statement.loading}
+          error={statement.error}
+          from={actFrom}
+          to={actTo}
+          customPeriod={Boolean(get("fromProviderDate") || get("toProviderDate"))}
+          canEdit={canEdit}
+          onPeriodChange={(period) => update({ fromProviderDate: period.from, toProviderDate: period.to })}
+          onPeriodReset={() => update({ fromProviderDate: null, toProviderDate: null })}
+          onEdit={(row) => update({ openBalanceUpdateDialog: row.sourceId })}
+          onDelete={(row) => update({ transId: row.sourceId })}
+          onClose={closeAct}
+        />
       )}
 
-      {modal && (
-        <TransactionModal
-          supplier={rows.find((item) => item.id === modal.supplierId)!}
-          type={modal.type}
-          saving={saving}
-          onClose={() => setModal(null)}
-          onSave={async (currency, amount, date, comment) => {
-            const ok = await saveTransaction(modal.supplierId, modal.type, currency, amount, date, comment)
-            if (ok) setModal(null)
+      {createMode && dialogSupplier && (
+        <SupplierTransactionDialog
+          key={`${createMode}-${dialogSupplier.id}`}
+          mode={createMode}
+          supplier={dialogSupplier}
+          currencies={currencies}
+          baseCurrency={baseCurrency}
+          organizations={options?.organizations ?? []}
+          branches={options?.branches ?? []}
+          onClose={closeDialogs}
+          onSaved={() => saved({ openAddDialog: null, openCreateDialog: null, provider: null })}
+        />
+      )}
+
+      {requestOpen && (
+        <SupplierRequestDialog
+          key={dialogSupplierId ?? "new"}
+          supplierId={dialogSupplierId}
+          suppliers={suppliers}
+          currencies={currencies}
+          baseCurrency={baseCurrency}
+          onClose={closeDialogs}
+          onSaved={() => saved({ openRequestCreateDialog: null, provider: null })}
+        />
+      )}
+
+      {editId && (
+        <SupplierTransactionEditDialog
+          key={editId}
+          id={editId}
+          currencies={currencies}
+          organizations={options?.organizations ?? []}
+          onClose={() => update({ openBalanceUpdateDialog: null })}
+          onSaved={() => saved({ openBalanceUpdateDialog: null })}
+        />
+      )}
+
+      {deleteId && (
+        <SupplierDeleteDialog
+          id={deleteId}
+          onClose={() => update({ transId: null })}
+          onDeleted={() => {
+            update({ transId: null })
+            setMessage({ text: "Успешно удалено", tone: "success" })
+            refresh()
+          }}
+          onFailed={() => {
+            update({ transId: null })
+            setMessage({ text: "Удаление невозможно из-за связи с другими данными", tone: "error" })
           }}
         />
       )}
 
-      {requestModalId !== null && (
-        <RequestFundsModal
-          supplier={rows.find((item) => item.id === requestModalId)!}
-          saving={saving}
-          onClose={() => setRequestModalId(null)}
-          onSend={async (currency, amount, comment) => {
-            const ok = await saveTransaction(requestModalId, "fund_request", currency, amount, new Date().toISOString().slice(0, 10), comment)
-            if (ok) setRequestModalId(null)
-          }}
-        />
-      )}
+      <Snackbar message={message} onClose={hideMessage} />
     </main>
-  )
-}
-
-function BarChart({ className }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" className={className}>
-      <path d="M4 20V10M12 20V4M20 20v-7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  )
-}
-
-function TransactionModal({
-  supplier,
-  type,
-  saving,
-  onClose,
-  onSave,
-}: {
-  supplier: Supplier
-  type: "add" | "expense"
-  saving: boolean
-  onClose: () => void
-  onSave: (currency: keyof Money, amount: number, date: string, comment: string) => void
-}) {
-  const [currency, setCurrency] = useState<keyof Money>("sum")
-  const [amount, setAmount] = useState("")
-  const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10))
-  const [comment, setComment] = useState("")
-
-  return (
-    <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/40" onClick={onClose}>
-      <div onClick={(event) => event.stopPropagation()} className="w-[600px] max-w-[92vw] rounded-md bg-white shadow-2xl">
-        <header className="flex items-center justify-between border-b px-8 py-6">
-          <h2 className="text-xl font-bold uppercase tracking-wide">{type === "add" ? "Добавить" : "Добавить расход"}</h2>
-          <button aria-label="Закрыть" onClick={onClose}><X className="h-6 w-6 text-slate-500" /></button>
-        </header>
-        <div className="space-y-7 px-8 py-7">
-          <label className="block border-b border-[#dbe0e8] pb-2 text-[13px] font-medium text-[#586174]">
-            Поставщик
-            <div className="mt-1 text-[16px] font-semibold text-[#17233b]">{supplier.name}</div>
-          </label>
-          <label className="relative block border-b border-[#dbe0e8] pb-2 text-[13px] font-medium text-[#586174]">
-            Валюта
-            <select value={currency} onChange={(event) => setCurrency(event.target.value as keyof Money)} className="mt-1 block w-full appearance-none bg-transparent pr-6 text-[16px] font-semibold text-[#17233b] outline-none">
-              <option value="sum">SUM</option>
-              <option value="usd">USD</option>
-              <option value="eur">Euro</option>
-            </select>
-            <ChevronDown className="pointer-events-none absolute right-0 top-7 h-4 w-4 text-[#9aa3b6]" />
-          </label>
-          <label className="block border-b border-[#dbe0e8] pb-2 text-[13px] font-medium text-[#586174]">
-            Сумма
-            <input type="number" value={amount} onChange={(event) => setAmount(event.target.value)} className="mt-1 block w-full bg-transparent text-[16px] font-semibold text-[#17233b] outline-none" />
-          </label>
-          <label className="block border-b border-[#dbe0e8] pb-2 text-[13px] font-medium text-[#586174]">
-            Дата создания
-            <input type="date" value={date} onChange={(event) => setDate(event.target.value)} className="mt-1 block w-full bg-transparent text-[16px] font-semibold text-[#17233b] outline-none" />
-          </label>
-          <label className="block border-b border-[#dbe0e8] pb-2 text-[13px] font-medium text-[#586174]">
-            <input placeholder="Оставить комментарий..." value={comment} onChange={(event) => setComment(event.target.value)} className="mt-1 block w-full bg-transparent text-[16px] outline-none placeholder:text-[#586174]" />
-          </label>
-        </div>
-        <footer className="flex justify-end border-t px-8 py-5">
-          <button
-            disabled={saving}
-            onClick={() => {
-              const value = Number(amount)
-              if (value > 0) onSave(currency, value, date, comment)
-            }}
-            className="font-bold uppercase tracking-wide text-[#4f70e7] disabled:opacity-50"
-          >
-            {saving ? "Сохранение..." : "Сохранить"}
-          </button>
-        </footer>
-      </div>
-    </div>
-  )
-}
-
-function RequestFundsModal({
-  supplier,
-  saving,
-  onClose,
-  onSend,
-}: {
-  supplier: Supplier
-  saving: boolean
-  onClose: () => void
-  onSend: (currency: keyof Money, amount: number, comment: string) => void
-}) {
-  const [currency, setCurrency] = useState<keyof Money>("sum")
-  const [amount, setAmount] = useState("")
-  const [comment, setComment] = useState("")
-
-  return (
-    <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/40" onClick={onClose}>
-      <div onClick={(event) => event.stopPropagation()} className="w-[560px] max-w-[92vw] rounded-md bg-white shadow-2xl">
-        <header className="flex items-center justify-between border-b px-8 py-6">
-          <h2 className="text-xl font-bold uppercase tracking-wide">Запрос средств</h2>
-          <button aria-label="Закрыть" onClick={onClose}><X className="h-6 w-6 text-slate-500" /></button>
-        </header>
-        <div className="space-y-7 px-8 py-7">
-          <label className="block border-b border-[#dbe0e8] pb-2 text-[13px] font-medium text-[#586174]">
-            Поставщик
-            <div className="mt-1 text-[16px] font-semibold text-[#17233b]">{supplier.name}</div>
-          </label>
-          <label className="relative block border-b border-[#dbe0e8] pb-2 text-[13px] font-medium text-[#586174]">
-            Валюта
-            <select value={currency} onChange={(event) => setCurrency(event.target.value as keyof Money)} className="mt-1 block w-full appearance-none bg-transparent pr-6 text-[16px] font-semibold text-[#17233b] outline-none">
-              <option value="sum">SUM</option>
-              <option value="usd">USD</option>
-              <option value="eur">Euro</option>
-            </select>
-            <ChevronDown className="pointer-events-none absolute right-0 top-7 h-4 w-4 text-[#9aa3b6]" />
-          </label>
-          <label className="block border-b border-[#dbe0e8] pb-2 text-[13px] font-medium text-[#586174]">
-            Сумма
-            <input type="number" value={amount} onChange={(event) => setAmount(event.target.value)} className="mt-1 block w-full bg-transparent text-[16px] font-semibold text-[#17233b] outline-none" />
-          </label>
-          <label className="block border-b border-[#dbe0e8] pb-2 text-[13px] font-medium text-[#586174]">
-            <input placeholder="Оставить комментарий..." value={comment} onChange={(event) => setComment(event.target.value)} className="mt-1 block w-full bg-transparent text-[16px] outline-none placeholder:text-[#586174]" />
-          </label>
-        </div>
-        <footer className="flex justify-end border-t px-8 py-5">
-          <button
-            disabled={saving}
-            onClick={() => {
-              const value = Number(amount)
-              if (value > 0) onSend(currency, value, comment)
-            }}
-            className="font-bold uppercase tracking-wide text-[#4f70e7] disabled:opacity-50"
-          >
-            {saving ? "Отправка..." : "Отправить"}
-          </button>
-        </footer>
-      </div>
-    </div>
   )
 }

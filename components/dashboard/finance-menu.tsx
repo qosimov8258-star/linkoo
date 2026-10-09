@@ -65,7 +65,8 @@ const cashOperations: MenuItem[] = [
   { label: "Управления кассой", href: "/analytics/cash-management" },
   { label: "Оплаты от клиентов", href: "/analytics/customer-payments" },
   { label: "Оплаты поставщикам", href: "/analytics/supplier-payments" },
-  { label: "Ожидаемые расходы", href: "/analytics/expected-expenses" },
+  // Demo menu query {pageSize: 25, status: "pending"}; the reports catalog opens «Все» (no status).
+  { label: "Ожидаемые расходы", href: "/analytics/expected-expenses?pageSize=25&status=pending" },
   { label: "Ожидаемые оплаты", href: "/analytics/expected-payments" },
   { label: "Расходы по категориям", href: "/analytics/category-expenses" },
   { label: "Расходы на персонал", href: "/analytics/payroll-expenses" },

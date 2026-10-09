@@ -1,141 +1,266 @@
 "use client"
 
-import { useMemo, useRef, useState } from "react"
-import { BarChart, Calendar, ChevronDown, ChevronsRight, CreditCard, Filter, List, X } from "lucide-react"
-import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
-import { useLanguage } from "@/lib/i18n/language-context"
-import { downloadExcelTable } from "@/lib/excel-export"
+import { useCallback, useEffect, useMemo, useState } from "react"
+import { useSearchParams } from "next/navigation"
+import { ChevronDown, CreditCard, List } from "lucide-react"
 
-type Money = { sum: number; usd: number; eur: number }
-type Client = {
-  id: number
-  name: string
-  taxId?: string
-  type: string
-  opening: Money
+import { BalanceTable, type BalanceColumnGroup } from "@/components/analytics/balance/balance-table"
+import { ClientActDialog } from "@/components/analytics/balance/client-act-dialog"
+import { BalanceDownloadMenu } from "@/components/analytics/balance/download-menu"
+import { balanceListExcelRows, type ExcelColumn } from "@/components/analytics/balance/excel"
+import { ExpandedOverlay, ExpandedViewButton } from "@/components/analytics/balance/expanded-view"
+import { BalanceFilterDialog } from "@/components/analytics/balance/filter-bar"
+import { GroupPaymentDialog } from "@/components/analytics/balance/group-payment-dialog"
+import { BalancePagination } from "@/components/analytics/balance/pagination"
+import { BalanceSummaryCards, type SummaryBox } from "@/components/analytics/balance/summary-cards"
+import { buildBalanceQuery } from "@/components/analytics/balance/use-balance"
+import {
+  ClientBalanceFilterButton,
+  ClientBalanceFilterFields,
+  ClientBalancePeriodToggle,
+  clientBalanceQuery,
+  stateFromParams,
+  stateToSearch,
+  type ClientBalanceFilters,
+  type ClientBalanceMode,
+  type ClientBalanceState,
+} from "@/components/analytics/client-balance-filters"
+import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
+import { downloadExcelTable } from "@/lib/excel-export"
+import { formatDotDate } from "@/lib/finance/dates"
+import { MOVEMENT_LABELS, type BalanceListResult, type BalanceRow } from "@/lib/finance/types"
+import { NO_CLIENT_TYPE, type ClientBalanceOptions } from "@/lib/finance-client-balance-types"
+import { useLanguage } from "@/lib/i18n/language-context"
+
+// "Баланс клиентов" (demo #/statistics/market): per client and currency the
+// balance at the start of the period, sales, returns, payments, other
+// income/expense and the closing balance, from the shared finance ledger
+// (GET /api/balances/client-balance). Two period bases (creation /
+// realization), a client-type mode with drill-down, the demo filter popup,
+// the client act modal, "Групповая оплата" and Excel exports.
+
+const LIST_URL = "/api/balances/client-balance"
+
+const GROUPS: BalanceColumnGroup[] = [
+  { field: "begin_balance", label: "Баланс на начало периода" },
+  ...Object.entries(MOVEMENT_LABELS.client).map(([field, label]) => ({ field, label })),
+  { field: "end_balance", label: "Баланс на конец" },
+]
+
+const SUMMARY: SummaryBox[] = [
+  { metrics: [{ label: "Баланс на начало периода", field: "begin_balance" }, { label: "Продажи", field: "order" }] },
+  { metrics: [{ label: "Возврат", field: "order_return" }, { label: "Оплачено", field: "payment" }] },
+  { metrics: [{ label: "Прочие приходы", field: "none_type_plus" }, { label: "Прочие расходы", field: "none_type_minus" }] },
+  { align: "right", metrics: [{ label: "Баланс на конец периода", field: "end_balance" }] },
+]
+
+/** Demo group-payment dialog shows the end balance in SUM and USD. */
+const GROUP_PAYMENT_CURRENCIES = ["SUM", "USD"]
+
+async function fetchJson<T>(url: string): Promise<T> {
+  const response = await fetch(url, { cache: "no-store" })
+  const body = (await response.json().catch(() => null)) as (T & { error?: string }) | null
+  if (!response.ok || !body) throw new Error(body?.error || `HTTP ${response.status}`)
+  return body
 }
 
-const clients: Client[] = []
-
-const TOTAL_CLIENTS = 0
-const FIXED_TOTALS = { opening: { eur: 0, sum: 0, usd: 0 } }
-
-const typeAggregates: { type: string; balance: Money }[] = []
-
-const groups = ["Баланс на начало периода", "Продано", "Возврат", "Оплачено", "Прочие приходы", "Прочие расходы", "Баланс на конец периода"] as const
-
-const money = (value: number) => new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 2 }).format(value)
-
-function AmountCell({ value }: { value: number }) {
-  if (value === 0) return <span>0</span>
-  const color = value > 0 ? "text-[#3aa76d]" : "text-[#e5484d]"
-  return <span className={`font-semibold ${color}`}>{money(value)}</span>
+function useClientBalanceList(url: string) {
+  const [data, setData] = useState<BalanceListResult | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState("")
+  const [version, setVersion] = useState(0)
+  useEffect(() => {
+    const controller = new AbortController()
+    setLoading(true)
+    setError("")
+    fetch(url, { signal: controller.signal, cache: "no-store" })
+      .then(async (response) => {
+        const body = (await response.json().catch(() => null)) as (BalanceListResult & { error?: string }) | null
+        if (!response.ok || !body) throw new Error(body?.error || `HTTP ${response.status}`)
+        setData(body)
+      })
+      .catch((reason: unknown) => {
+        if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : String(reason))
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoading(false)
+      })
+    return () => controller.abort()
+  }, [url, version])
+  const reload = useCallback(() => setVersion((value) => value + 1), [])
+  return { data, loading, error, reload, version }
 }
 
 export function ClientBalanceView() {
   const { t } = useLanguage()
-  const [dateBasis, setDateBasis] = useState<"transaction" | "realization">("transaction")
+  const searchParams = useSearchParams()
+  const [state, setState] = useState<ClientBalanceState>(() => stateFromParams(searchParams))
   const [filterOpen, setFilterOpen] = useState(false)
-  const [groupPaymentOpen, setGroupPaymentOpen] = useState(false)
-  const [splitByCurrency, setSplitByCurrency] = useState(false)
-  const [byType, setByType] = useState(false)
-  const [typeFilter, setTypeFilter] = useState("Все типы")
-  const [selected, setSelected] = useState<Set<number>>(new Set())
-  const [pageSize, setPageSize] = useState(25)
-  const [page, setPage] = useState(1)
-  const tableRef = useRef<HTMLDivElement>(null)
+  const [draft, setDraft] = useState<ClientBalanceFilters>(state.filters)
+  const [searchDraft, setSearchDraft] = useState(state.search)
+  const [drilledType, setDrilledType] = useState<string | null>(null)
+  const [expanded, setExpanded] = useState(false)
+  const [groupOpen, setGroupOpen] = useState(false)
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [options, setOptions] = useState<ClientBalanceOptions | null>(null)
+  const [canGroupPay, setCanGroupPay] = useState(false)
+  const [notice, setNotice] = useState<{ text: string; error: boolean } | null>(null)
+  const [more, setMore] = useState<{ key: string; rows: BalanceRow[]; pages: number }>({ key: "", rows: [], pages: 0 })
+  const [moreLoading, setMoreLoading] = useState(false)
 
-  const [branch, setBranch] = useState("Все филиалы")
-  const [zone, setZone] = useState("Все зоны")
-  const [lastVisit, setLastVisit] = useState("Не важно")
-  const [organization, setOrganization] = useState("Все организации")
-  const [agentClients, setAgentClients] = useState("Все агенты")
-  const [supplier, setSupplier] = useState("Все поставщики")
-  const [balanceType, setBalanceType] = useState("Любой")
-  const [responsibleSupplier, setResponsibleSupplier] = useState("Не важно")
-  const [responsibleCollector, setResponsibleCollector] = useState("Не важно")
-  const [sinceOrderFrom, setSinceOrderFrom] = useState("")
-  const [sinceOrderTo, setSinceOrderTo] = useState("")
-  const [sincePaymentFrom, setSincePaymentFrom] = useState("")
-  const [sincePaymentTo, setSincePaymentTo] = useState("")
-  const [sinceRefusalFrom, setSinceRefusalFrom] = useState("")
-  const [sinceRefusalTo, setSinceRefusalTo] = useState("")
-  const [sinceVisitFrom, setSinceVisitFrom] = useState("")
-  const [sinceVisitTo, setSinceVisitTo] = useState("")
-  const [onlyRealized, setOnlyRealized] = useState(false)
-  const [onlyDelivered, setOnlyDelivered] = useState(false)
-  const [onlyInvoiced, setOnlyInvoiced] = useState(false)
-  const [excludeClosed, setExcludeClosed] = useState(false)
+  const isTypes = state.toggle === "types"
+  const query = useMemo(() => clientBalanceQuery(state), [state])
+  const queryString = buildBalanceQuery(query)
+  const { data, loading, error, reload, version } = useClientBalanceList(`${LIST_URL}?${queryString}`)
 
-  const today = useMemo(() => new Date(), [])
-  const defaultFrom = useMemo(() => { const d = new Date(today); d.setDate(d.getDate() - 2); return d }, [today])
-  const [transFrom, setTransFrom] = useState("")
-  const [transTo, setTransTo] = useState("")
-  const [clientFrom, setClientFrom] = useState("")
-  const [clientTo, setClientTo] = useState("")
-  const [appliedFrom, setAppliedFrom] = useState(() => formatDate(defaultFrom))
-  const [appliedTo, setAppliedTo] = useState(() => formatDate(today))
+  // Keep the URL in sync with the page state (demo keeps everything in the query).
+  useEffect(() => {
+    const search = stateToSearch(state)
+    if (window.location.search.slice(1) !== search) window.history.replaceState(window.history.state, "", `${window.location.pathname}?${search}`)
+  }, [state])
 
-  const filterCount = appliedFrom && appliedTo ? 1 : 0
+  useEffect(() => {
+    fetchJson<ClientBalanceOptions>(`${LIST_URL}/options`)
+      .then(setOptions)
+      .catch(() => setOptions(null))
+    // "Групповая оплата" needs the demo permission can_see_group_payment = manager or admin here (POST requires manager).
+    fetchJson<{ role?: string }>("/api/auth/me")
+      .then((user) => setCanGroupPay(user.role === "manager" || user.role === "admin"))
+      .catch(() => setCanGroupPay(false))
+  }, [])
 
-  const types = ["Все типы", ...new Set(clients.map((client) => client.type))]
+  useEffect(() => {
+    if (!notice) return
+    const timer = window.setTimeout(() => setNotice(null), 3500)
+    return () => window.clearTimeout(timer)
+  }, [notice])
 
-  const filteredClients = useMemo(
-    () => clients.filter((client) => typeFilter === "Все типы" || client.type === typeFilter),
-    [typeFilter],
-  )
+  const update = (patch: Partial<ClientBalanceState>) => setState((current) => ({ ...current, ...patch }))
 
-  const maxPage = Math.max(1, Math.ceil(filteredClients.length / pageSize))
-  const safePage = Math.min(page, maxPage)
-  const visibleClients = filteredClients.slice((safePage - 1) * pageSize, safePage * pageSize)
-
-  const allSelected = visibleClients.length > 0 && visibleClients.every((client) => selected.has(client.id))
-  const toggleAll = () => {
-    setSelected((current) => {
-      const next = new Set(current)
-      if (allSelected) visibleClients.forEach((client) => next.delete(client.id))
-      else visibleClients.forEach((client) => next.add(client.id))
-      return next
-    })
-  }
-  const toggleOne = (id: number) => {
-    setSelected((current) => {
-      const next = new Set(current)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
-      return next
-    })
+  // "Показать еще": next pages appended below the current one (reset when the list changes).
+  const moreKey = `${queryString}#${version}`
+  const extraPages = more.key === moreKey ? more.pages : 0
+  const rows = useMemo(() => (data ? [...data.rows, ...(more.key === moreKey ? more.rows : [])] : []), [data, more, moreKey])
+  const canLoadMore = Boolean(data && !loading && data.pageSize && (data.page + extraPages) * data.pageSize < data.count)
+  const loadMore = async () => {
+    if (!data) return
+    setMoreLoading(true)
+    try {
+      const next = await fetchJson<BalanceListResult>(`${LIST_URL}?${buildBalanceQuery({ ...query, page: data.page + extraPages + 1 })}`)
+      if (!next.rows.length) throw new Error("empty")
+      setMore((current) => ({ key: moreKey, rows: [...(current.key === moreKey ? current.rows : []), ...next.rows], pages: extraPages + 1 }))
+    } catch {
+      setNotice({ text: t("Вы уже загрузили весь лист"), error: true })
+    } finally {
+      setMoreLoading(false)
+    }
   }
 
-  const applyFilter = () => {
-    if (transFrom) setAppliedFrom(formatDate(new Date(transFrom)))
-    if (transTo) setAppliedTo(formatDate(new Date(transTo)))
-    setPage(1)
-    setFilterOpen(false)
+  const changeMode = (mode: ClientBalanceMode) => {
+    if (mode !== state.mode) update({ mode, page: 1 })
   }
 
-  const scrollTableToEnd = () => {
-    tableRef.current?.scrollTo({ left: tableRef.current.scrollWidth, behavior: "smooth" })
+  const openFilter = () => {
+    setDraft(state.filters)
+    setFilterOpen(true)
+  }
+  const applyFilter = (period: { from: string; to: string }) => {
+    const filters = { ...draft, ...period }
+    update({ filters, search: searchDraft.trim(), page: 1 })
   }
 
-  const drillIntoType = (type: string) => {
-    setByType(false)
-    setTypeFilter(type)
-    setPage(1)
+  const showClients = () => {
+    setDrilledType(null)
+    if (isTypes) update({ toggle: "clients", page: 1 })
+  }
+  const showTypes = () => {
+    setDrilledType(null)
+    update({ toggle: "types", page: 1, filters: { ...state.filters, clientType: [], subType: [] } })
+  }
+  const drillIntoType = (row: BalanceRow) => {
+    setDrilledType(row.name)
+    update({ toggle: "clients", page: 1, filters: { ...state.filters, clientType: [row.name || NO_CLIENT_TYPE], subType: [] } })
   }
 
-  const downloadAll = () => {
-    const header = [t("Клиент"), t("Тип"), ...groups.flatMap((group) => [`${t(group)} SUM`, `${t(group)} USD`, `${t(group)} Euro`])]
-    const body = filteredClients.map((client) => {
-      const cells = groups.flatMap((group) =>
-        group === "Баланс на начало периода" || group === "Баланс на конец периода"
-          ? [client.opening.sum, client.opening.usd, client.opening.eur]
-          : [0, 0, 0],
-      )
-      return [client.name, client.type, ...cells]
-    })
-    downloadExcelTable("client-balance.xls", [header, ...body])
+  // The "Отфильтровано по" banner stays only while the drilled type is the whole type filter.
+  const drilledValue = drilledType === null ? null : drilledType || NO_CLIENT_TYPE
+  const showDrilled = !isTypes && drilledValue !== null && state.filters.clientType.length === 1 && state.filters.clientType[0] === drilledValue
+
+  // A page number past the end (stale URL, rows removed) jumps to the last page.
+  useEffect(() => {
+    if (!data || loading || data.rows.length || state.page <= 1) return
+    const lastPage = Math.max(1, Math.ceil(data.count / Math.max(1, state.pageSize)))
+    if (state.page > lastPage) setState((current) => ({ ...current, page: lastPage }))
+  }, [data, loading, state.page, state.pageSize])
+
+  // Like the demo, the selection survives paging but the dialog lists only the selected rows that are loaded.
+  const selectedRows = useMemo(() => rows.filter((row) => selected.has(row.key)), [rows, selected])
+
+  const groupCurrencies = data ? GROUP_PAYMENT_CURRENCIES.filter((code) => data.currencies.some((currency) => currency.code === code)) : GROUP_PAYMENT_CURRENCIES
+  const visible = data?.visibleCurrencies ?? []
+  const period = `${formatDotDate(state.filters.from)} - ${formatDotDate(state.filters.to)}`
+
+  const download = async (simple: boolean) => {
+    try {
+      const all = await fetchJson<BalanceListResult>(`${LIST_URL}?${buildBalanceQuery({ ...query, page: undefined, pageSize: 0 })}`)
+      const leading: ExcelColumn<BalanceRow>[] = isTypes
+        ? [{ label: "Тип клиента", value: (row) => row.name || t("Не указано") }]
+        : [
+            { label: "№", value: (row) => row.id },
+            { label: "Клиент", value: (row) => row.name },
+          ]
+      const groups = simple ? [{ field: "end_balance", label: "Баланс на конец" }] : GROUPS
+      const sheet = balanceListExcelRows({ rows: all.rows, groups, currencies: all.visibleCurrencies, leading, totals: all.totals, t })
+      downloadExcelTable(`${t("Баланс клиентов")}${simple ? ` (${t("упрощенный")})` : ""} ${period}`, sheet)
+    } catch (reason) {
+      setNotice({ text: reason instanceof Error ? reason.message : t("Сервер недоступен, попробуйте ещё раз"), error: true })
+    }
   }
+
+  const firstColumn = isTypes
+    ? {
+        label: "Клиент",
+        width: 220,
+        sortKey: "name",
+        render: (row: BalanceRow) => (
+          <button type="button" onClick={() => drillIntoType(row)} className="flex w-full items-center justify-between gap-2 text-left text-[#333] hover:font-semibold hover:text-[#4f71dc]">
+            <span>{row.name || t("Не указано")}</span>
+            <List className="h-4 w-4 shrink-0 text-[#4f71dc]" />
+          </button>
+        ),
+      }
+    : {
+        label: "Клиент",
+        width: 220,
+        sortKey: "name",
+        render: (row: BalanceRow) => (
+          <button
+            type="button"
+            onClick={() => update({ openClient: { key: row.key, name: row.name } })}
+            className="text-left text-[#333] hover:font-semibold hover:text-[#4f71dc]"
+          >
+            {row.name || "No"}
+          </button>
+        ),
+      }
+
+  const footer = canLoadMore ? (
+    <tr>
+      <td colSpan={2 + GROUPS.length * Math.max(1, visible.length)} className="px-4 py-3">
+        <div className="flex justify-center">
+          <button
+            type="button"
+            disabled={moreLoading}
+            onClick={loadMore}
+            className="flex h-[30px] items-center gap-1.5 rounded-full bg-[#f0f4f8] px-8 text-[#5869f0] disabled:opacity-60"
+          >
+            {moreLoading ? t("Загрузка...") : t("Показать еще")}
+            <ChevronDown className="h-4 w-4" />
+          </button>
+        </div>
+      </td>
+    </tr>
+  ) : undefined
 
   return (
     <main className="min-h-screen bg-white text-[#17233b]">
@@ -145,372 +270,150 @@ export function ClientBalanceView() {
           <span className="text-3xl font-light text-[#586174]">|</span>
           <span className="text-2xl font-bold text-[#586174]">{t("Баланс клиентов")}</span>
         </div>
-        <div className="flex overflow-hidden rounded-md border border-[#dbe0e8] my-3">
-          <button
-            onClick={() => setDateBasis("transaction")}
-            className={`flex items-center gap-2 px-5 py-3 text-[15px] font-semibold ${dateBasis === "transaction" ? "bg-[#6fcf97] text-white" : "bg-white text-[#586174]"}`}
-          >
-            <Info className="h-4 w-4" /> {t("По дате создание транзакции")}
-          </button>
-          <button
-            onClick={() => setDateBasis("realization")}
-            className={`flex items-center gap-2 px-5 py-3 text-[15px] font-semibold ${dateBasis === "realization" ? "bg-[#6fcf97] text-white" : "bg-white text-[#586174]"}`}
-          >
-            <Info className="h-4 w-4" /> {t("По дате реализации")}
-          </button>
-        </div>
+        <ClientBalancePeriodToggle mode={state.mode} onChange={changeMode} />
       </header>
 
-      <section className="flex flex-wrap items-center gap-4 px-6 py-4 md:px-9">
-        <button onClick={() => setFilterOpen(true)} className="flex h-11 items-center gap-2 rounded-md bg-[#4f70e7] px-5 font-semibold text-white">
-          <Filter className="h-4 w-4" /> {t("Фильтр")} / {filterCount}
-        </button>
-        <span className="font-semibold text-[#4f70e7]">{appliedFrom} - {appliedTo}</span>
-        <span className="text-[#586174]">{t("Во всей организации")}</span>
-        <button onClick={() => setGroupPaymentOpen(true)} className="ml-auto flex h-11 items-center gap-2 rounded-md border border-[#4f70e7] px-5 font-semibold text-[#4f70e7]">
-          <CreditCard className="h-5 w-5" /> {t("Групповая оплата")}
-        </button>
-        <button onClick={downloadAll} className="flex h-11 items-center gap-2 rounded-md bg-[#4caf72] px-5 font-semibold text-white">
-          <BarChart className="h-5 w-5" /> {t("Скачать")}
-        </button>
-      </section>
-
-      <section className="grid grid-cols-1 gap-6 px-6 pb-6 sm:grid-cols-2 lg:grid-cols-4 md:px-9">
-        <div>
-          <p className="text-[#586174]">{t("Баланс на начало периода")}</p>
-          <p className="font-semibold"><AmountCell value={FIXED_TOTALS.opening.eur} /> Euro</p>
-          <p className="font-semibold"><AmountCell value={FIXED_TOTALS.opening.sum} /> SUM</p>
-          <p className="font-semibold"><AmountCell value={FIXED_TOTALS.opening.usd} /> USD</p>
-        </div>
-        <div>
-          <p className="text-[#586174]">{t("Возврат")}</p>
-          <p className="font-semibold">0 Euro</p>
-          <p className="font-semibold">0 SUM</p>
-          <p className="font-semibold">0 USD</p>
-        </div>
-        <div>
-          <p className="text-[#586174]">{t("Прочие приходы")}</p>
-          <p className="font-semibold">0 Euro</p>
-          <p className="font-semibold">0 SUM</p>
-          <p className="font-semibold">0 USD</p>
-        </div>
-        <div className="lg:text-right">
-          <p className="text-[#586174]">{t("Баланс на конец периода")}</p>
-          <p className="font-semibold"><AmountCell value={FIXED_TOTALS.opening.eur} /> Euro</p>
-          <p className="font-semibold"><AmountCell value={FIXED_TOTALS.opening.sum} /> SUM</p>
-          <p className="font-semibold"><AmountCell value={FIXED_TOTALS.opening.usd} /> USD</p>
-        </div>
-        <div className="sm:col-start-2 lg:col-start-2">
-          <p className="text-[#586174]">{t("Продажи")}</p>
-          <p className="font-semibold">0 Euro</p>
-          <p className="font-semibold">0 SUM</p>
-          <p className="font-semibold">0 USD</p>
-        </div>
-        <div>
-          <p className="text-[#586174]">{t("Оплачено")}</p>
-          <p className="font-semibold">0 Euro</p>
-          <p className="font-semibold">0 SUM</p>
-          <p className="font-semibold">0 USD</p>
-        </div>
-        <div>
-          <p className="text-[#586174]">{t("Прочие расходы")}</p>
-          <p className="font-semibold">0 Euro</p>
-          <p className="font-semibold">0 SUM</p>
-          <p className="font-semibold">0 USD</p>
+      <section className="flex flex-wrap items-center justify-between gap-4 px-6 py-4 md:px-9">
+        <ClientBalanceFilterButton state={state} onOpen={openFilter} />
+        <div className="flex items-center gap-3">
+          {!isTypes && canGroupPay && (
+            <button type="button" onClick={() => setGroupOpen(true)} className="flex h-11 items-center gap-2 rounded-md border border-[#4f70e7] px-5 font-semibold text-[#4f70e7]">
+              <CreditCard className="h-5 w-5" /> {t("Групповая оплата")}
+            </button>
+          )}
+          <BalanceDownloadMenu
+            disabled={!data}
+            items={[
+              { label: "Скачать все", onClick: () => void download(false) },
+              ...(isTypes ? [] : [{ label: "Скачать упрощенным", onClick: () => void download(true) }]),
+            ]}
+          />
         </div>
       </section>
 
-      <section className="flex flex-wrap items-center gap-3 border-t border-[#e1e5eb] px-6 py-4 md:px-9">
-        <button
-          onClick={() => setSplitByCurrency((value) => !value)}
-          className={`rounded-sm px-5 py-2.5 text-[13px] font-bold uppercase tracking-wide ${splitByCurrency ? "bg-[#4f70e7] text-white" : "border border-[#4f70e7] text-[#4f70e7]"}`}
-        >
-          {t("Разбить по валютам")}
-        </button>
-        <button
-          onClick={() => { setByType((value) => !value); setTypeFilter("Все типы"); setPage(1) }}
-          className={`rounded-sm px-5 py-2.5 text-[13px] font-bold uppercase tracking-wide ${byType ? "bg-[#4f70e7] text-white" : "border border-[#4f70e7] text-[#4f70e7]"}`}
-        >
-          {t("Показать по типам клиентов")}
-        </button>
+      <BalanceSummaryCards boxes={SUMMARY} totals={data?.totals ?? {}} currencies={visible} loading={loading} />
 
-        <span className="mx-auto text-[15px] font-medium text-[#17233b]">{byType ? t("Тип клиента") : t("Клиент")}</span>
-
-        <select value={pageSize} onChange={(event) => { setPageSize(Number(event.target.value)); setPage(1) }} className="h-9 bg-transparent text-[#586174]">
-          <option value={10}>10</option>
-          <option value={25}>25</option>
-          <option value={50}>50</option>
-        </select>
-        <span className="text-[#586174]">
-          {byType ? `1 - ${typeAggregates.length} ${t("из")} ${typeAggregates.length}` : `${filteredClients.length ? (safePage - 1) * pageSize + 1 : 0} - ${Math.min(safePage * pageSize, filteredClients.length)} ${t("из")} ${typeFilter === "Все типы" ? TOTAL_CLIENTS : filteredClients.length}`}
-        </span>
-        <button disabled={byType || safePage === 1} onClick={() => setPage((value) => Math.max(1, value - 1))} className="rounded-full border border-[#dbe0e8] p-1 text-[#9aa3b6] disabled:opacity-40">
-          <ChevronDown className="h-5 w-5 rotate-90" />
-        </button>
-        <button disabled={byType || safePage === maxPage} onClick={() => setPage((value) => Math.min(maxPage, value + 1))} className="rounded-full border border-[#4f70e7] p-1 text-[#4f70e7] disabled:opacity-40">
-          <ChevronDown className="h-5 w-5 -rotate-90" />
-        </button>
-        <button aria-label={t("Полный экран")} onClick={() => document.documentElement.requestFullscreen?.()} className="text-[#586174]"><ChevronsRight className="h-5 w-5 rotate-45" /></button>
-      </section>
-
-      <div className="relative">
-        <section ref={tableRef} className="overflow-x-auto pb-10">
-          <table className="min-w-[2600px] w-full border-collapse text-[14px]">
-            <thead>
-              <tr className="bg-[#edf2f7] text-[#253653]">
-                <th className="border border-[#e1e5eb] px-4 py-2" />
-                <th className="border border-[#e1e5eb] px-2 py-2" />
-                {groups.map((group) => (
-                  <th key={group} colSpan={3} className="border border-[#e1e5eb] px-4 py-2 text-center font-medium">{t(group)}</th>
-                ))}
-              </tr>
-              <tr className="bg-white text-[#17233b]">
-                <th className="border-b border-[#e1e5eb] px-4 py-2 text-left font-semibold">{byType ? t("Тип клиента") : t("Клиент")}</th>
-                <th className="border-b border-[#e1e5eb] px-2 py-2">
-                  {!byType && <input type="checkbox" checked={allSelected} onChange={toggleAll} className="h-4 w-4 accent-[#4f70e7]" />}
-                </th>
-                {groups.map((group) =>
-                  ["SUM", "USD", "Euro"].map((currency) => (
-                    <th key={`${group}-${currency}`} className="border-b border-[#e1e5eb] px-4 py-2 font-semibold">{currency}</th>
-                  )),
-                )}
-              </tr>
-            </thead>
-            <tbody>
-              {byType
-                ? typeAggregates.map((row, index) => (
-                    <tr key={row.type} className={index % 2 ? "bg-[#f6f9fc]" : "bg-white"}>
-                      <td className="border-b border-[#e1e5eb] px-4 py-3.5">
-                        <button onClick={() => drillIntoType(row.type)} className="flex items-center gap-2 text-left hover:text-[#4f70e7]">
-                          {row.type} <List className="h-4 w-4 text-[#4f70e7]" />
-                        </button>
-                      </td>
-                      <td className="border-b border-[#e1e5eb] px-2 py-3.5" />
-                      <td className="border-b border-[#e1e5eb] px-4 py-3.5"><AmountCell value={row.balance.sum} /></td>
-                      <td className="border-b border-[#e1e5eb] px-4 py-3.5"><AmountCell value={row.balance.usd} /></td>
-                      <td className="border-b border-[#e1e5eb] px-4 py-3.5"><AmountCell value={row.balance.eur} /></td>
-                      {Array.from({ length: 15 }).map((_, cellIndex) => (
-                        <td key={cellIndex} className="border-b border-[#e1e5eb] px-4 py-3.5">0</td>
-                      ))}
-                    </tr>
-                  ))
-                : visibleClients.map((client, index) => (
-                    <tr key={client.id} className={index % 2 ? "bg-[#f6f9fc]" : "bg-white"}>
-                      <td className="border-b border-[#e1e5eb] px-4 py-3.5">
-                        <div>{client.name}</div>
-                        {client.taxId && <div className="text-[13px] text-[#586174]">({client.taxId})</div>}
-                      </td>
-                      <td className="border-b border-[#e1e5eb] px-2 py-3.5 text-center">
-                        <input type="checkbox" checked={selected.has(client.id)} onChange={() => toggleOne(client.id)} className="h-4 w-4 accent-[#4f70e7]" />
-                      </td>
-                      <td className="border-b border-[#e1e5eb] px-4 py-3.5"><AmountCell value={client.opening.sum} /></td>
-                      <td className="border-b border-[#e1e5eb] px-4 py-3.5"><AmountCell value={client.opening.usd} /></td>
-                      <td className="border-b border-[#e1e5eb] px-4 py-3.5"><AmountCell value={client.opening.eur} /></td>
-                      {Array.from({ length: 15 }).map((_, cellIndex) => (
-                        <td key={cellIndex} className="border-b border-[#e1e5eb] px-4 py-3.5">0</td>
-                      ))}
-                    </tr>
-                  ))}
-              {!byType && visibleClients.length === 0 && (
-                <tr><td colSpan={23} className="border-b border-[#e1e5eb] px-4 py-16 text-center text-[#9aa3b6]">{t("Ничего не найдено")}</td></tr>
-              )}
-            </tbody>
-          </table>
-        </section>
-        <button
-          aria-label={t("Прокрутить таблицу вправо")}
-          onClick={scrollTableToEnd}
-          className="fixed right-0 top-1/2 z-10 flex h-14 w-9 -translate-y-1/2 items-center justify-center rounded-l-full bg-[#dfe4ea] text-[#586174] shadow-lg hover:bg-[#cfd6df]"
-        >
-          <ChevronsRight className="h-5 w-5" />
-        </button>
-      </div>
-
-      {filterOpen && (
-        <div className="fixed inset-0 z-[100] flex items-start justify-center overflow-y-auto bg-black/30 py-10" onClick={() => setFilterOpen(false)}>
-          <div onClick={(event) => event.stopPropagation()} className="w-[1100px] max-w-[94vw] rounded-md bg-white shadow-2xl">
-            <header className="flex items-center justify-between border-b px-8 py-6">
-              <h2 className="text-lg font-semibold text-[#586174]">{t("Фильтр")}</h2>
-              <button aria-label={t("Закрыть")} onClick={() => setFilterOpen(false)}><X className="h-6 w-6 rounded-full border-2 border-[#9aa3b6] p-0.5 text-[#9aa3b6]" /></button>
-            </header>
-
-            <div className="grid grid-cols-1 gap-x-10 gap-y-7 px-8 py-7 sm:grid-cols-2 lg:grid-cols-4">
-              <div>
-                <div className="mb-1 flex items-center justify-between text-[13px] font-medium text-[#586174]">
-                  <span>{t("Период создания транзакции")}</span>
-                  <Calendar className="h-4 w-4 text-[#9aa3b6]" />
-                </div>
-                <div className="flex items-center gap-2 border-b border-[#dbe0e8] pb-2 text-[15px]">
-                  <input type="date" value={transFrom} onChange={(event) => setTransFrom(event.target.value)} className="w-full bg-transparent outline-none" />
-                  <span className="text-[#9aa3b6]">—</span>
-                  <input type="date" value={transTo} onChange={(event) => setTransTo(event.target.value)} className="w-full bg-transparent outline-none" />
-                </div>
-              </div>
-
-              <SelectField label="Филиалы" value={branch} setter={setBranch} options={["Все филиалы", "Центральный", "Ташкент", "Фаргона"]} />
-              <SelectField label="Зона" value={zone} setter={setZone} options={["Все зоны", "Розничный", "Рабочий", "Не рабочий зона"]} />
-              <SelectField label="Последнее посещение" value={lastVisit} setter={setLastVisit} options={["Не важно", "Сегодня", "Неделя", "Месяц"]} />
-
-              <div>
-                <div className="mb-1 flex items-center justify-between text-[13px] font-medium text-[#586174]">
-                  <span>{t("Период создания клиента")}</span>
-                  <Calendar className="h-4 w-4 text-[#9aa3b6]" />
-                </div>
-                <div className="flex items-center gap-2 border-b border-[#dbe0e8] pb-2 text-[15px]">
-                  <input type="date" value={clientFrom} onChange={(event) => setClientFrom(event.target.value)} placeholder={t("Укажите дату")} className="w-full bg-transparent outline-none placeholder:text-[#9aa3b6]" />
-                  <span className="text-[#9aa3b6]">—</span>
-                  <input type="date" value={clientTo} onChange={(event) => setClientTo(event.target.value)} className="w-full bg-transparent outline-none" />
-                </div>
-              </div>
-
-              <RangeField label="Прошло дней с последнего заказа" from={sinceOrderFrom} to={sinceOrderTo} setFrom={setSinceOrderFrom} setTo={setSinceOrderTo} />
-              <RangeField label="Прошло дней с последней оплаты" from={sincePaymentFrom} to={sincePaymentTo} setFrom={setSincePaymentFrom} setTo={setSincePaymentTo} />
-              <RangeField label="Прошло дней с последнего отказа" from={sinceRefusalFrom} to={sinceRefusalTo} setFrom={setSinceRefusalFrom} setTo={setSinceRefusalTo} />
-
-              <RangeField label="Прошло дней с последнего визита" from={sinceVisitFrom} to={sinceVisitTo} setFrom={setSinceVisitFrom} setTo={setSinceVisitTo} />
-              <SelectField label="Организация" value={organization} setter={setOrganization} options={["Все организации", ...new Set(clients.map(() => "Linko"))]} />
-              <SelectField label="Тип клиента" value={typeFilter} setter={(value) => { setTypeFilter(value); setByType(false); setPage(1) }} options={types} />
-              <SelectField label="Клиенты агента" value={agentClients} setter={setAgentClients} options={["Все агенты", "Admin Ritm", "Temur Raupov", "Samandar Abdurahmonov"]} />
-
-              <SelectField label="Доставщик" value={supplier} setter={setSupplier} options={["Все поставщики", "Собственная доставка", "Партнёр"]} />
-              <SelectField label="Тип баланса" value={balanceType} setter={setBalanceType} options={["Любой", "Дебитор", "Кредитор", "Нулевой"]} />
-              <SelectField label="Ответственные доставщики" value={responsibleSupplier} setter={setResponsibleSupplier} options={["Не важно", "Admin Ritm", "Шохрух Туляганов"]} />
-              <SelectField label="Ответственный инкасатор" value={responsibleCollector} setter={setResponsibleCollector} options={["Не важно", "Admin Ritm", "Тп 2 Алиса"]} />
+      <ExpandedOverlay expanded={expanded}>
+        <section className="flex flex-wrap items-center gap-3 border-t border-[#e1e5eb] px-6 py-3 md:px-9">
+          {showDrilled && (
+            <div className="whitespace-nowrap text-[14px]">
+              {t("Отфильтровано по")}: <strong>{drilledType || t("Не указано")}</strong>
+              <button type="button" onClick={showTypes} className="block font-semibold text-[#4f71dc] hover:underline">
+                {t("Сбросить фильтр")}
+              </button>
             </div>
-
-            <div className="flex flex-wrap gap-x-10 gap-y-3 border-t px-8 py-6 text-[14px] text-[#17233b]">
-              <label className="flex items-center gap-2"><input type="checkbox" checked={onlyRealized} onChange={(event) => setOnlyRealized(event.target.checked)} className="h-4 w-4 accent-[#4f70e7]" /> {t("Учитывать только реализованных заказов")}</label>
-              <label className="flex items-center gap-2"><input type="checkbox" checked={onlyDelivered} onChange={(event) => setOnlyDelivered(event.target.checked)} className="h-4 w-4 accent-[#4f70e7]" /> {t("Только доставленные заказы")}</label>
-              <label className="flex items-center gap-2"><input type="checkbox" checked={onlyInvoiced} onChange={(event) => setOnlyInvoiced(event.target.checked)} className="h-4 w-4 accent-[#4f70e7]" /> {t("Только оплаты с счет фактурой")}</label>
-              <label className="flex items-center gap-2"><input type="checkbox" checked={excludeClosed} onChange={(event) => setExcludeClosed(event.target.checked)} className="h-4 w-4 accent-[#4f70e7]" /> {t("Исключить закрытие магазины")}</label>
-            </div>
-
-            <div className="px-8 pb-8">
-              <button onClick={applyFilter} className="block w-full rounded-md bg-[#6fcf97] py-3.5 text-center font-semibold text-white hover:bg-[#5fbf87]">{t("Применить")}</button>
-            </div>
+          )}
+          <div className="flex overflow-hidden rounded-sm shadow-[inset_0_0_0_1px_rgba(0,0,0,0.12)]">
+            {(
+              [
+                ["clients", "Разбить по валютам", showClients],
+                ["types", "Показать по типам клиентов", showTypes],
+              ] as const
+            ).map(([toggle, label, onClick]) => (
+              <button
+                key={toggle}
+                type="button"
+                onClick={onClick}
+                className={`h-8 px-4 text-[13px] font-semibold uppercase tracking-wide ${state.toggle === toggle ? "bg-[#4f71dc] text-white shadow" : "bg-white text-[#17233b]"}`}
+              >
+                {t(label)}
+              </button>
+            ))}
           </div>
-        </div>
+
+          <form
+            className="mx-auto flex min-w-[160px] flex-1 justify-center"
+            onSubmit={(event) => {
+              event.preventDefault()
+              update({ search: searchDraft.trim(), page: 1 })
+            }}
+          >
+            <input
+              value={searchDraft}
+              onChange={(event) => setSearchDraft(event.target.value)}
+              placeholder={isTypes ? t("Тип клиента") : t("Клиент")}
+              aria-label={isTypes ? t("Тип клиента") : t("Клиент")}
+              className="h-10 w-full max-w-[260px] border-b border-[#dbe0e8] bg-transparent px-1 text-[15px] outline-none focus:border-[#4f70e7]"
+            />
+          </form>
+
+          <BalancePagination
+            page={state.page}
+            pageSize={state.pageSize}
+            count={data?.count ?? 0}
+            onChange={({ page, pageSize }) => update({ page, pageSize })}
+          />
+          <ExpandedViewButton expanded={expanded} onToggle={() => setExpanded((value) => !value)} />
+        </section>
+
+        {error && (
+          <div className="flex items-center gap-3 px-6 py-3 text-[#e57373] md:px-9">
+            <span>
+              {t("Не удалось загрузить данные")}: {error}
+            </span>
+            <button type="button" onClick={reload} className="font-semibold text-[#4f70e7] hover:underline">
+              {t("Повторить")}
+            </button>
+          </div>
+        )}
+
+        <BalanceTable
+          rows={rows}
+          groups={GROUPS}
+          currencies={visible}
+          first={firstColumn}
+          selection={isTypes ? undefined : { selected, onChange: setSelected }}
+          ordering={state.ordering}
+          onOrderingChange={(ordering) => update({ ordering, page: 1 })}
+          sortCycle="asc-first"
+          loading={loading}
+          footer={footer}
+        />
+      </ExpandedOverlay>
+
+      <BalanceFilterDialog
+        open={filterOpen}
+        onClose={() => setFilterOpen(false)}
+        from={state.filters.from}
+        to={state.filters.to}
+        onApply={applyFilter}
+        dateLabel={state.mode === "realization" ? "Период реализации" : "Период создания транзакции"}
+      >
+        <ClientBalanceFilterFields draft={draft} onChange={setDraft} options={options} />
+      </BalanceFilterDialog>
+
+      {state.openClient && (
+        <ClientActDialog
+          key={state.openClient.key}
+          kind="client"
+          entityKey={state.openClient.key}
+          name={state.openClient.name || rows.find((row) => row.key === state.openClient?.key)?.name || ""}
+          from={state.filters.from}
+          to={state.filters.to}
+          mode={state.mode}
+          onClose={() => update({ openClient: null })}
+        />
       )}
 
-      {groupPaymentOpen && (
-        <GroupPaymentModal count={selected.size} clientIds={Array.from(selected)} onClose={() => setGroupPaymentOpen(false)} />
+      <GroupPaymentDialog
+        open={groupOpen}
+        rows={selectedRows}
+        currencies={groupCurrencies}
+        onClose={() => setGroupOpen(false)}
+        onSaved={() => {
+          reload()
+          setNotice({ text: t("Успешно сохранено"), error: false })
+        }}
+      />
+
+      {notice && (
+        <div
+          role="status"
+          className={`fixed bottom-6 left-1/2 z-[120] -translate-x-1/2 rounded-md px-5 py-3 font-semibold text-white shadow-lg ${notice.error ? "bg-[#e57373]" : "bg-[#48a34b]"}`}
+        >
+          {notice.text}
+        </div>
       )}
     </main>
   )
-}
-
-function Info({ className }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" className={className}>
-      <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2" />
-      <path d="M12 11v5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-      <circle cx="12" cy="8" r="1" fill="currentColor" />
-    </svg>
-  )
-}
-
-function SelectField({ label, value, setter, options }: { label: string; value: string; setter: (value: string) => void; options: string[] }) {
-  const { t } = useLanguage()
-  return (
-    <label className="relative block border-b border-[#dbe0e8] pb-2 text-[13px] font-medium text-[#586174]">
-      {t(label)}
-      <select value={value} onChange={(event) => setter(event.target.value)} className="mt-1 block w-full appearance-none bg-transparent pr-6 text-[15px] font-normal text-[#17233b] outline-none">
-        {options.map((option) => <option key={option} value={option}>{t(option)}</option>)}
-      </select>
-      <ChevronDown className="pointer-events-none absolute right-0 top-7 h-4 w-4 text-[#9aa3b6]" />
-    </label>
-  )
-}
-
-function RangeField({ label, from, to, setFrom, setTo }: { label: string; from: string; to: string; setFrom: (value: string) => void; setTo: (value: string) => void }) {
-  const { t } = useLanguage()
-  return (
-    <div>
-      <p className="mb-1 text-[13px] font-medium text-[#586174]">{t(label)}</p>
-      <div className="flex items-center gap-3">
-        <input value={from} onChange={(event) => setFrom(event.target.value)} type="number" placeholder={t("От (дней)")} className="w-full border-b border-[#dbe0e8] bg-transparent pb-2 text-[15px] outline-none placeholder:text-[#586174]" />
-        <input value={to} onChange={(event) => setTo(event.target.value)} type="number" placeholder={t("До (дней)")} className="w-full border-b border-[#dbe0e8] bg-transparent pb-2 text-[15px] outline-none placeholder:text-[#586174]" />
-      </div>
-    </div>
-  )
-}
-
-function GroupPaymentModal({ count, clientIds, onClose }: { count: number; clientIds: number[]; onClose: () => void }) {
-  const { t } = useLanguage()
-  const [currency, setCurrency] = useState<"sum" | "usd" | "eur">("sum")
-  const [amount, setAmount] = useState("")
-  const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10))
-  const [comment, setComment] = useState("")
-  const [saving, setSaving] = useState(false)
-
-  async function save() {
-    const numericAmount = Number(amount)
-    if (!Number.isFinite(numericAmount) || numericAmount <= 0) {
-      window.alert(t("Укажите сумму оплаты"))
-      return
-    }
-    setSaving(true)
-    try {
-      const response = await fetch("/api/client-bulk-payments", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ clientIds, currency, amount: numericAmount, paymentDate: date, comment }),
-      })
-      if (!response.ok) {
-        const data = await response.json().catch(() => ({}))
-        window.alert(data.error || t("Не удалось сохранить оплату"))
-        return
-      }
-      onClose()
-    } catch {
-      window.alert(t("Сервер недоступен, попробуйте ещё раз"))
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  return (
-    <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/40" onClick={onClose}>
-      <div onClick={(event) => event.stopPropagation()} className="w-[600px] max-w-[92vw] rounded-md bg-white shadow-2xl">
-        <header className="flex items-center justify-between border-b px-8 py-6">
-          <h2 className="text-xl font-bold uppercase tracking-wide">{t("Групповая оплата")}</h2>
-          <button aria-label={t("Закрыть")} onClick={onClose}><X className="h-6 w-6 text-slate-500" /></button>
-        </header>
-        <div className="space-y-7 px-8 py-7">
-          <p className="text-sm text-[#586174]">{t("Будет применено к")} {count || "0"} {count === 1 ? t("клиенту") : t("клиентам")}</p>
-          <label className="relative block border-b border-[#dbe0e8] pb-2 text-[13px] font-medium text-[#586174]">
-            {t("Валюта")}
-            <select value={currency} onChange={(event) => setCurrency(event.target.value as "sum" | "usd" | "eur")} className="mt-1 block w-full appearance-none bg-transparent pr-6 text-[16px] font-semibold text-[#17233b] outline-none">
-              <option value="sum">SUM</option>
-              <option value="usd">USD</option>
-              <option value="eur">Euro</option>
-            </select>
-            <ChevronDown className="pointer-events-none absolute right-0 top-7 h-4 w-4 text-[#9aa3b6]" />
-          </label>
-          <label className="block border-b border-[#dbe0e8] pb-2 text-[13px] font-medium text-[#586174]">
-            {t("Сумма")}
-            <input type="number" value={amount} onChange={(event) => setAmount(event.target.value)} className="mt-1 block w-full bg-transparent text-[16px] font-semibold text-[#17233b] outline-none" />
-          </label>
-          <label className="block border-b border-[#dbe0e8] pb-2 text-[13px] font-medium text-[#586174]">
-            {t("Дата создания")}
-            <input type="date" value={date} onChange={(event) => setDate(event.target.value)} className="mt-1 block w-full bg-transparent text-[16px] font-semibold text-[#17233b] outline-none" />
-          </label>
-          <label className="block border-b border-[#dbe0e8] pb-2 text-[13px] font-medium text-[#586174]">
-            <input placeholder={t("Оставить комментарий...")} value={comment} onChange={(event) => setComment(event.target.value)} className="mt-1 block w-full bg-transparent text-[16px] outline-none placeholder:text-[#586174]" />
-          </label>
-        </div>
-        <footer className="flex justify-end border-t px-8 py-5">
-          <button onClick={save} disabled={saving} className="font-bold uppercase tracking-wide text-[#4f70e7] disabled:opacity-60">{saving ? t("Сохранение...") : t("Сохранить")}</button>
-        </footer>
-      </div>
-    </div>
-  )
-}
-
-function pad(value: number) {
-  return String(value).padStart(2, "0")
-}
-
-function formatDate(date: Date) {
-  return `${pad(date.getDate())}.${pad(date.getMonth() + 1)}.${date.getFullYear()}`
 }

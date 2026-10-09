@@ -13,7 +13,6 @@ type Props = {
 }
 
 const items: MenuItem[] = [
-  { label: "Производство", href: "/analytics/production" },
   { label: "Партии", href: "/analytics/production-batches" },
   { label: "Этапы производства", href: "/analytics/production-stages" },
 ]

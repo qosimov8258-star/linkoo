@@ -1,28 +1,14 @@
 import { NextRequest, NextResponse } from "next/server"
-import { z } from "zod"
-
 import { getCurrentUser } from "@/lib/current-user"
 import { requireRole } from "@/lib/rbac"
 import { parseJsonBody } from "@/lib/validation"
+import { supplierIncomingSchema } from "@/lib/supplier-incomings-api"
 import { createIncoming, listIncomings, parseIncomingInput } from "@/lib/supplier-incomings-repo"
-
-const supplierIncomingSchema = z.object({
-  supplier: z.string().trim().min(1),
-  warehouse: z.string().trim().min(1),
-  branch: z.string().optional(),
-  organization: z.string().optional(),
-  paymentType: z.string().optional(),
-  date: z.string().optional(),
-  contractNumber: z.string().optional(),
-  invoiceNumber: z.string().optional(),
-  comment: z.string().optional(),
-  items: z.array(z.record(z.string(), z.unknown())).min(1),
-})
 
 export async function GET() {
   const user = await getCurrentUser()
   if (!user) return NextResponse.json({ error: "Tizimga kirilmagan" }, { status: 401 })
-  return NextResponse.json((await listIncomings()))
+  return NextResponse.json(await listIncomings())
 }
 
 export async function POST(request: NextRequest) {
@@ -35,5 +21,5 @@ export async function POST(request: NextRequest) {
   const input = parseIncomingInput(parsed.data)
   if (!input) return NextResponse.json({ error: "Поставщик, склад и товары обязательны" }, { status: 400 })
 
-  return NextResponse.json((await createIncoming(input)), { status: 201 })
+  return NextResponse.json(await createIncoming(input, auth.user.displayName), { status: 201 })
 }

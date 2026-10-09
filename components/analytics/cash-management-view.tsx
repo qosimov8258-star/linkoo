@@ -1,650 +1,581 @@
 "use client"
 
-import {
-  ArrowLeftRight,
-  ChevronDown,
-  ChevronLeft,
-  ChevronRight,
-  Clock,
-  CreditCard,
-  Download,
-  Minus,
-  MoreVertical,
-  Pencil,
-  Plus,
-  Printer,
-  Search,
-  Trash2,
-  Users,
-  X,
-} from "lucide-react"
-import { FormEvent, useEffect, useMemo, useState } from "react"
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react"
+import { usePathname, useSearchParams } from "next/navigation"
+import { ArrowDown, ArrowLeftRight, ArrowUp, Banknote, Clock, CreditCard, FileSpreadsheet, Filter, HandCoins, Loader2, Pencil, Search, X } from "lucide-react"
 
-import type { Cashbox as RawCashbox } from "@/components/analytics/cashboxes-data"
+import { BALANCE_PAGE_SIZES, BalancePagination } from "@/components/analytics/balance/pagination"
+import { buildCashQuery, cashMutate, useCashboxes, useCashOperations, useCashTotals, useUnverifiedCount } from "@/components/analytics/cash/use-cash"
+import { CashAcceptDialog } from "@/components/analytics/cash-management-accept-dialog"
+import { CashAcceptanceEditDialog, CashAcceptanceInfoDialog } from "@/components/analytics/cash-management-acceptance-dialog"
+import { OperationDetails, OperationPopupDialog, type DetailsPopup } from "@/components/analytics/cash-management-details"
+import { CashFilterPanel, EMPTY_FILTERS, countFilters, filtersToQuery, filtersToUrl, readFilters, type CashFilters } from "@/components/analytics/cash-management-filter"
+import { CashGroupIncomeDialog } from "@/components/analytics/cash-management-group-income-dialog"
+import { CashOperationDialog, type OperationDialogState } from "@/components/analytics/cash-management-operation-dialog"
+import { CashReceiptPrint } from "@/components/analytics/cash-management-receipt"
+import { CashRequestsDialog } from "@/components/analytics/cash-management-requests-dialog"
+import { CashRowMenu } from "@/components/analytics/cash-management-row-menu"
+import {
+  CASH_GREEN,
+  CASH_RED,
+  CashAmount,
+  CashSnackbar,
+  ConfirmDialog,
+  EmptyBlock,
+  ErrorBlock,
+  LoadingBlock,
+  excelDay,
+  excelTime,
+  formatCash,
+  formatCashDate,
+  mutationError,
+  useCanWrite,
+  type SnackbarMessage,
+} from "@/components/analytics/cash-management-shared"
+import { CashTransferDialog } from "@/components/analytics/cash-management-transfer-dialog"
+import { CashUnverifiedDialog } from "@/components/analytics/cash-management-unverified-dialog"
 import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
 import { downloadExcelTable } from "@/lib/excel-export"
+import { currencyLabel } from "@/lib/finance/currency"
+import type { CashboxWithBalance, CashListResult, CashOperation, MoneyRequest } from "@/lib/cash/types"
+import { useLanguage } from "@/lib/i18n/language-context"
 
-type Cashbox = { id: number; name: string; currency: string; balance: number }
-type LedgerEntry = {
-  id: number
-  cashboxId: number
-  description: string
-  category: string
-  clientName: string
-  branch: string
-  organization: string
-  comment: string
-  date: Date
-  amount: number
-}
-type ApiEntry = {
-  id: number
-  cashboxId: number
-  description: string
-  category: string
-  clientName: string
-  branch: string
-  organization: string
-  comment: string
-  date: string
-  amount: number
-}
+// "Управления кассой" (demo #/transaction, "Kassani boshqarish"): cashboxes
+// with their ledger balances on the left (= "Баланс кассы"), the operations of
+// the selected cashbox ("Общий объем" = all) on the right — server-side list
+// with filters, search, sorting, paging and per-currency totals — and every
+// cash dialog: Принять деньги, Груповой приход, Приход, Расход, Перевод,
+// Запрос средств, unverified transactions (clock badge, polled every 5 s), the
+// row menu (Изменить / Дублировать / Печать / Удалить) and the receipt.
+// Everything goes through the cash core (/api/cash/**, components/analytics/cash/use-cash.ts).
+// URL state as in the demo: ?cashboxId&currency, filter keys, search, ordering, page, pageSize.
 
-function apiToEntry(api: ApiEntry): LedgerEntry {
-  return { ...api, date: new Date(api.date) }
-}
-function entryToPayload(entry: Omit<LedgerEntry, "id">) {
-  return {
-    cashboxId: entry.cashboxId,
-    description: entry.description,
-    category: entry.category,
-    clientName: entry.clientName,
-    branch: entry.branch,
-    organization: entry.organization,
-    comment: entry.comment,
-    date: entry.date.toISOString(),
-    amount: entry.amount,
-  }
-}
-function withBalances(rawCashboxes: RawCashbox[], entries: LedgerEntry[]): Cashbox[] {
-  return rawCashboxes.map((box) => ({
-    id: box.id,
-    name: box.name,
-    currency: box.currency,
-    balance: entries.filter((entry) => entry.cashboxId === box.id).reduce((sum, entry) => sum + entry.amount, 0),
-  }))
+type UrlValue = string | number | string[] | null | undefined
+
+const PAGE_SIZES = BALANCE_PAGE_SIZES.filter((size) => size <= 500)
+const DEFAULT_PAGE_SIZE = 25
+const SORTABLE = ["id", "date", "amount"] as const
+
+/** URL query state (demo hashHistory.push); pushState keeps useSearchParams in sync without a server round trip. */
+function useUrlState() {
+  const searchParams = useSearchParams()
+  const pathname = usePathname()
+  const update = useCallback(
+    (changes: Record<string, UrlValue>, replaceAll = false) => {
+      const params = replaceAll ? new URLSearchParams() : new URLSearchParams(window.location.search)
+      for (const [name, value] of Object.entries(changes)) {
+        params.delete(name)
+        if (Array.isArray(value)) value.filter(Boolean).forEach((item) => params.append(name, item))
+        else if (value !== null && value !== undefined && value !== "") params.set(name, String(value))
+      }
+      const query = params.toString()
+      window.history.pushState(null, "", query ? `${pathname}?${query}` : pathname)
+    },
+    [pathname],
+  )
+  return { searchParams, update }
 }
 
-const monthNames = ["янв.", "февр.", "мар.", "апр.", "мая", "июня", "июля", "авг.", "сент.", "окт.", "нояб.", "дек."]
-function fmtDate(date: Date) {
-  return `${String(date.getDate()).padStart(2, "0")} ${monthNames[date.getMonth()]} ${date.getFullYear()}`
-}
-function fmtDateTime(date: Date) {
-  return `${fmtDate(date)}, ${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`
-}
-function fmtSum(value: number, currency = "SUM") {
-  return `${value.toLocaleString("ru-RU", { maximumFractionDigits: 2 })} ${currency}`
-}
-
-function emptyMoveDraft() {
-  return { clientName: "", branch: "", organization: "", amount: "" }
-}
-function emptyEntryDraft() {
-  return { description: "", category: "", branch: "", organization: "", amount: "" }
-}
-
-type ModalKind = "accept" | "bulk" | "income" | "expense" | "transfer" | "request" | null
+type TopDialog =
+  | { kind: "operation"; state: OperationDialogState }
+  | { kind: "transfer" }
+  | { kind: "group" }
+  | { kind: "acceptanceInfo"; id: number }
+  | { kind: "acceptanceEdit"; id: number }
+type Panel = "accept" | "requests" | "unverified"
 
 export function CashManagementView() {
-  const [rawCashboxes, setRawCashboxes] = useState<RawCashbox[]>([])
-  const [ledger, setLedger] = useState<LedgerEntry[]>([])
-  const cashboxes = useMemo(() => withBalances(rawCashboxes, ledger), [rawCashboxes, ledger])
-  const [selectedId, setSelectedId] = useState<number | "all">("all")
-  const [modal, setModal] = useState<ModalKind>(null)
-  const [notice, setNotice] = useState<string | null>(null)
-  const [historyOpen, setHistoryOpen] = useState(false)
-  const [periodFrom, setPeriodFrom] = useState("")
-  const [periodTo, setPeriodTo] = useState("")
+  return (
+    <Suspense fallback={null}>
+      <CashManagementContent />
+    </Suspense>
+  )
+}
 
-  const [query, setQuery] = useState("")
+function CashManagementContent() {
+  const { t, language } = useLanguage()
+  const { searchParams, update } = useUrlState()
+  const urlState = searchParams.toString()
+  const params = useMemo(() => new URLSearchParams(urlState), [urlState])
+  const get = (name: string) => params.get(name) ?? ""
+
+  // --- URL state ------------------------------------------------------------------
+  const selectedId = Math.max(0, Math.floor(Number(get("cashboxId"))) || 0)
+  const filters = useMemo(() => readFilters(params), [params])
+  const filterCount = countFilters(filters)
+  const search = get("search").trim()
+  const page = Math.max(1, Math.floor(Number(get("page"))) || 1)
+  const pageSize = (PAGE_SIZES as readonly number[]).includes(Number(get("pageSize"))) ? Number(get("pageSize")) : DEFAULT_PAGE_SIZE
+  const orderingParam = get("ordering")
+  const ordering = SORTABLE.some((field) => orderingParam === field || orderingParam === `-${field}`) ? orderingParam : "-id"
+
+  // --- data -----------------------------------------------------------------------
+  const canWrite = useCanWrite()
+  const cashboxesState = useCashboxes()
+  const cashboxes = useMemo(() => cashboxesState.data?.cashboxes ?? [], [cashboxesState.data])
+  const selected = cashboxes.find((box) => box.id === selectedId) ?? null
+  const baseQuery = useMemo(() => ({ ...filtersToQuery(filters), cashbox: selectedId ? [selectedId] : filters.cashbox, search }), [filters, selectedId, search])
+  const list = useCashOperations({ ...baseQuery, ordering, page, pageSize })
+  const totals = useCashTotals(baseQuery, filterCount > 0)
+  const unverified = useUnverifiedCount()
+  const rows = list.data?.rows ?? []
+
+  // --- local UI state ---------------------------------------------------------------
   const [filterOpen, setFilterOpen] = useState(false)
-  const [page, setPage] = useState(1)
-  const [menuId, setMenuId] = useState<number | null>(null)
-  const [editingId, setEditingId] = useState<number | null>(null)
-  const [editDraft, setEditDraft] = useState({ description: "", amount: "" })
-  const pageSize = 25
+  const [panel, setPanel] = useState<Panel | null>(null)
+  const [dialog, setDialog] = useState<TopDialog | null>(null)
+  const [popup, setPopup] = useState<DetailsPopup | null>(null)
+  const [printing, setPrinting] = useState<string | null>(null)
+  const [deleting, setDeleting] = useState<CashOperation | null>(null)
+  const [deleteBusy, setDeleteBusy] = useState(false)
+  const [deleteError, setDeleteError] = useState("")
+  const [snack, setSnack] = useState<SnackbarMessage | null>(null)
+  const [refreshToken, setRefreshToken] = useState(0)
+  const [exporting, setExporting] = useState(false)
 
-  const [acceptDraft, setAcceptDraft] = useState(emptyMoveDraft)
-  const [bulkRows, setBulkRows] = useState([{ clientName: "", amount: "" }])
-  const [entryDraft, setEntryDraft] = useState(emptyEntryDraft)
-
+  // Search box: local draft, pushed to the URL after a short pause.
+  const [searchDraft, setSearchDraft] = useState(search)
+  const [lastSearch, setLastSearch] = useState(search)
+  if (search !== lastSearch) {
+    setLastSearch(search)
+    setSearchDraft(search)
+  }
   useEffect(() => {
-    fetch("/api/cashboxes")
-      .then((response) => (response.ok ? (response.json() as Promise<RawCashbox[]>) : Promise.reject()))
-      .then(setRawCashboxes)
-      .catch(() => {})
-    fetch("/api/cash-management-entries")
-      .then((response) => (response.ok ? (response.json() as Promise<ApiEntry[]>) : Promise.reject()))
-      .then((rows) => setLedger(rows.map(apiToEntry)))
-      .catch(() => {})
-  }, [])
+    if (searchDraft.trim() === search) return
+    const timer = window.setTimeout(() => update({ search: searchDraft.trim() || null, page: null }), 400)
+    return () => window.clearTimeout(timer)
+  }, [searchDraft, search, update])
 
-  const selectedCashbox = selectedId === "all" ? null : cashboxes.find((box) => box.id === selectedId) ?? null
+  const closeSnack = useCallback(() => setSnack(null), [])
+  const notify = (text: string, tone: SnackbarMessage["tone"] = "success") => setSnack({ text, tone })
 
-  function flash(message: string) {
-    setNotice(message)
-    setTimeout(() => setNotice((current) => (current === message ? null : current)), 3000)
+  /** Demo: after every save the list and the cashbox balances are refetched. */
+  const reloadAll = () => {
+    list.reload()
+    cashboxesState.reload()
+    totals.reload()
+    unverified.reload()
+    setRefreshToken((value) => value + 1)
   }
 
-  const scopedLedger = useMemo(() => {
-    let list = selectedId === "all" ? ledger : ledger.filter((entry) => entry.cashboxId === selectedId)
-    if (periodFrom) list = list.filter((entry) => entry.date >= new Date(periodFrom))
-    if (periodTo) { const to = new Date(periodTo); to.setHours(23, 59, 59, 999); list = list.filter((entry) => entry.date <= to) }
-    if (query.trim()) {
-      const q = query.trim().toLowerCase()
-      list = list.filter((entry) => entry.description.toLowerCase().includes(q) || entry.clientName.toLowerCase().includes(q) || entry.organization.toLowerCase().includes(q))
+  // --- actions ---------------------------------------------------------------------
+  const selectCashbox = (box: CashboxWithBalance | null) => {
+    // Demo handleClickCashbox: the URL becomes ?cashboxId&currency, every other param is dropped.
+    setFilterOpen(false)
+    if (box) update({ cashboxId: box.id, currency: box.currency }, true)
+    else update({}, true)
+  }
+
+  const applyFilters = (next: CashFilters) => {
+    update({ ...filtersToUrl(next), page: null })
+    setFilterOpen(false)
+  }
+
+  const sortBy = (field: (typeof SORTABLE)[number]) => update({ ordering: ordering === `-${field}` ? field : `-${field}`, page: null })
+
+  const openOperation = (state: OperationDialogState) => setDialog({ kind: "operation", state })
+
+  const editOperation = (operation: CashOperation) => {
+    if (operation.type === 8) return setDialog({ kind: "acceptanceEdit", id: operation.id })
+    openOperation({ kind: operation.amount < 0 ? "expense" : "income", mode: "edit", operationKey: operation.key })
+  }
+
+  const duplicateOperation = (operation: CashOperation) => openOperation({ kind: operation.amount < 0 ? "expense" : "income", mode: "duplicate", operationKey: operation.key })
+
+  const payRequest = (request: MoneyRequest) => openOperation({ kind: "expense", mode: "pay", request })
+
+  const confirmDelete = async () => {
+    if (!deleting) return
+    setDeleteBusy(true)
+    const result = await cashMutate("DELETE", `/api/cash/operations/${encodeURIComponent(deleting.key)}`)
+    setDeleteBusy(false)
+    if (!result.ok) {
+      setDeleteError(result.status === 409 ? `${t("Удаление невозможно из-за связи с другими данными")}: ${mutationError(result, t)}` : mutationError(result, t))
+      return
     }
-    return [...list].sort((a, b) => b.date.getTime() - a.date.getTime())
-  }, [ledger, selectedId, query, periodFrom, periodTo])
+    setDeleting(null)
+    reloadAll()
+    notify("Успешно удалено")
+  }
 
-  const pageCount = Math.max(1, Math.ceil(scopedLedger.length / pageSize))
-  const safePage = Math.min(page, pageCount)
-  const visible = scopedLedger.slice((safePage - 1) * pageSize, safePage * pageSize)
-
-  async function pushEntry(entry: Omit<LedgerEntry, "id">): Promise<boolean> {
+  const exportExcel = async () => {
+    setExporting(true)
     try {
-      const response = await fetch("/api/cash-management-entries", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(entryToPayload(entry)),
+      const response = await fetch(`/api/cash/operations?${buildCashQuery({ ...baseQuery, ordering, page: 1, pageSize: 0 })}`, { cache: "no-store" })
+      const body = (await response.json().catch(() => null)) as CashListResult | null
+      if (!response.ok || !body) throw new Error((body as { error?: string } | null)?.error || `HTTP ${response.status}`)
+      const header = ["№", "Кассир", "Описание", "Филиал", "Организация", "Детали", "Указанная дата", "Время", "Дата создания", "Время", "Сумма", "Валюта", "Категория прихода", "Категория расхода", "Клиент", "Поставщик"].map((label) => t(label))
+      const lines = body.rows.map((row) => {
+        const categoryKind = row.category?.kind || (row.amount < 0 ? "expense" : "income")
+        return [
+          row.docNo,
+          row.cashbox.name,
+          excelDescription(row, t),
+          row.branch,
+          row.organization,
+          row.comment,
+          excelDay(row.date),
+          excelTime(row.date),
+          excelDay(row.createdAt),
+          excelTime(row.createdAt),
+          row.amount,
+          currencyLabel(row.currency),
+          categoryKind === "income" ? (row.category?.name ?? "") : "",
+          categoryKind === "expense" ? (row.category?.name ?? "") : "",
+          row.client?.name ?? "",
+          row.supplier?.name ?? "",
+        ]
       })
-      if (!response.ok) {
-        window.alert("Не удалось сохранить запись")
-        return false
-      }
-      const saved = (await response.json()) as ApiEntry
-      setLedger((current) => [apiToEntry(saved), ...current])
-      return true
-    } catch {
-      window.alert("Сервер недоступен, попробуйте ещё раз")
-      return false
+      downloadExcelTable(t("Транзакции"), [header, ...lines])
+    } catch (reason) {
+      notify(reason instanceof Error ? reason.message : String(reason), "error")
+    } finally {
+      setExporting(false)
     }
   }
 
-  async function submitAccept(event: FormEvent) {
-    event.preventDefault()
-    if (!selectedCashbox) return
-    const amount = Number(acceptDraft.amount)
-    if (!acceptDraft.clientName.trim() || !amount) return
-    const ok = await pushEntry({
-      cashboxId: selectedCashbox.id, description: `Приход на счет клиента ${acceptDraft.clientName.trim()}`, category: "Клиент",
-      clientName: acceptDraft.clientName.trim(), branch: acceptDraft.branch || "-", organization: acceptDraft.organization || "-", comment: "", date: new Date(), amount,
-    })
-    if (!ok) return
-    setAcceptDraft(emptyMoveDraft())
-    setModal(null)
-    flash("Деньги приняты")
-  }
-
-  async function submitBulk(event: FormEvent) {
-    event.preventDefault()
-    if (!selectedCashbox) return
-    let count = 0
-    for (const row of bulkRows) {
-      const amount = Number(row.amount)
-      if (!row.clientName.trim() || !amount) continue
-      const ok = await pushEntry({
-        cashboxId: selectedCashbox.id, description: `Приход на счет клиента ${row.clientName.trim()}`, category: "Клиент",
-        clientName: row.clientName.trim(), branch: "-", organization: "-", comment: "", date: new Date(), amount,
-      })
-      if (ok) count += 1
-    }
-    setBulkRows([{ clientName: "", amount: "" }])
-    setModal(null)
-    flash(`Групповой приход добавлен: ${count}`)
-  }
-
-  async function submitEntry(kind: "income" | "expense", event: FormEvent) {
-    event.preventDefault()
-    if (!selectedCashbox) return
-    const amount = Number(entryDraft.amount)
-    if (!entryDraft.description.trim() || !amount) return
-    const ok = await pushEntry({
-      cashboxId: selectedCashbox.id, description: entryDraft.description.trim(), category: entryDraft.category || "",
-      clientName: "", branch: entryDraft.branch || "-", organization: entryDraft.organization || "-", comment: "",
-      date: new Date(), amount: kind === "expense" ? -Math.abs(amount) : Math.abs(amount),
-    })
-    if (!ok) return
-    setEntryDraft(emptyEntryDraft())
-    setModal(null)
-    flash(kind === "expense" ? "Расход добавлен" : "Приход добавлен")
-  }
-
-  async function submitTransfer(event: FormEvent) {
-    event.preventDefault()
-    const form = new FormData(event.target as HTMLFormElement)
-    const to = Number(form.get("to"))
-    const amount = Number(form.get("amount"))
-    if (!selectedCashbox || !to || !amount || to === selectedCashbox.id) return
-    const toBox = cashboxes.find((box) => box.id === to)
-    const now = new Date()
-    const ok1 = await pushEntry({ cashboxId: selectedCashbox.id, description: `Перевод в ${toBox?.name ?? ""}`, category: "Перевод", clientName: "", branch: "-", organization: "-", comment: "", date: now, amount: -amount })
-    const ok2 = await pushEntry({ cashboxId: to, description: `Перевод из ${selectedCashbox.name}`, category: "Перевод", clientName: "", branch: "-", organization: "-", comment: "", date: now, amount })
-    if (!ok1 || !ok2) return
-    setModal(null)
-    flash("Перевод выполнен")
-  }
-
-  function submitRequest(event: FormEvent) {
-    event.preventDefault()
-    setModal(null)
-    flash("Запрос средств отправлен")
-  }
-
-  function openEditEntry(entry: LedgerEntry) {
-    setEditDraft({ description: entry.description, amount: String(entry.amount) })
-    setEditingId(entry.id)
-    setMenuId(null)
-  }
-  async function saveEditEntry(event: FormEvent) {
-    event.preventDefault()
-    const entry = ledger.find((item) => item.id === editingId)
-    if (!entry) return
-    const amount = Number(editDraft.amount)
-    if (!editDraft.description.trim() || Number.isNaN(amount)) return
-    try {
-      const response = await fetch(`/api/cash-management-entries/${entry.id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(entryToPayload({ ...entry, description: editDraft.description.trim(), amount })),
-      })
-      if (!response.ok) {
-        window.alert("Не удалось сохранить запись")
-        return
-      }
-      const saved = (await response.json()) as ApiEntry
-      setLedger((current) => current.map((item) => (item.id === editingId ? apiToEntry(saved) : item)))
-      setEditingId(null)
-    } catch {
-      window.alert("Сервер недоступен, попробуйте ещё раз")
-    }
-  }
-  async function removeEntry(entry: LedgerEntry) {
-    if (!window.confirm("Удалить запись?")) return
-    setMenuId(null)
-    try {
-      const response = await fetch(`/api/cash-management-entries/${entry.id}`, { method: "DELETE" })
-      if (!response.ok) {
-        window.alert("Не удалось удалить запись")
-        return
-      }
-      setLedger((current) => current.filter((item) => item.id !== entry.id))
-    } catch {
-      window.alert("Сервер недоступен, попробуйте ещё раз")
-    }
-  }
-  function printEntry(entry: LedgerEntry) {
-    setMenuId(null)
-    const win = window.open("", "_blank", "width=420,height=560")
-    if (!win) return
-    win.document.write(`<pre style="font-family:sans-serif;padding:24px">Описание: ${entry.description}\nФилиал: ${entry.branch}\nОрганизация: ${entry.organization}\nДата: ${fmtDateTime(entry.date)}\nСумма: ${fmtSum(entry.amount)}</pre>`)
-    win.document.close()
-    win.focus()
-    win.print()
-  }
-
-  function downloadList() {
-    const header = ["№", "Описание", "Категория", "Филиал", "Организация", "Дата", "Сумма"]
-    const rows = scopedLedger.map((entry) => [entry.id, entry.description, entry.category, entry.branch, entry.organization, fmtDateTime(entry.date), entry.amount])
-    downloadExcelTable("cash-management.xls", [header, ...rows])
-  }
+  const title = selected ? selected.name : selectedId && !cashboxesState.data ? "" : t("Общий объем")
+  const showCashbox = !selectedId
 
   return (
-    <main className="min-h-[calc(100vh-4rem)] bg-[#f1f4f8]">
-      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-white px-9 py-4">
-        <h1 className="flex items-center text-2xl font-bold text-slate-600">
-          <FavoritesButton className="flex items-center gap-2 text-2xl font-bold text-[#4f70e7]" /> <span className="mx-1 text-slate-400">|</span> Управления кассой
-        </h1>
-        {selectedCashbox && (
-          <div className="flex flex-wrap items-center gap-3">
-            <button type="button" onClick={() => setModal("accept")} className="inline-flex items-center gap-2 rounded bg-[#6ccd8b] px-4 py-2.5 font-semibold text-white hover:brightness-95">
-              <CreditCard className="h-4 w-4" /> Принять деньги
-            </button>
-            <button type="button" onClick={() => setModal("bulk")} className="inline-flex items-center gap-2 rounded bg-[#4f70e7] px-4 py-2.5 font-semibold text-white hover:brightness-95">
-              <Users className="h-4 w-4" /> Груповой приход
-            </button>
-            <button type="button" onClick={() => setModal("income")} className="inline-flex items-center gap-2 rounded bg-[#4f70e7] px-4 py-2.5 font-semibold text-white hover:brightness-95">
-              <Plus className="h-4 w-4" /> Приход
-            </button>
-            <button type="button" onClick={() => setModal("expense")} className="inline-flex items-center gap-2 rounded bg-rose-500 px-4 py-2.5 font-semibold text-white hover:brightness-95">
-              <Minus className="h-4 w-4" /> Расход
-            </button>
+    <main className="min-h-screen bg-[#f1f4f8] text-[#17233b]">
+      <header className="flex min-h-[76px] flex-wrap items-center gap-3 border-b border-[#d8dee7] bg-[#f2f5f8] px-4 py-3 md:px-9">
+        <div className="flex min-w-0 items-center gap-3">
+          <FavoritesButton className="flex items-center gap-3 text-2xl font-bold text-[#4f70e7]" />
+          <span className="text-3xl font-light text-[#586174]">|</span>
+          <h1 className="truncate text-xl font-bold text-[#586174] md:text-2xl">{t("Управления кассой")}</h1>
+        </div>
+        {canWrite && (
+          <div className="ml-auto flex flex-wrap items-center gap-2">
+            <HeaderButton tone="green" icon={Banknote} label={t("Принять деньги")} onClick={() => setPanel("accept")} />
+            <HeaderButton tone="blue" icon={CreditCard} label={t("Груповой приход")} onClick={() => setDialog({ kind: "group" })} />
+            <HeaderButton tone="blue" icon={CreditCard} label={t("Приход")} onClick={() => openOperation({ kind: "income", mode: "create" })} />
+            <HeaderButton tone="red" icon={CreditCard} label={t("Расход")} onClick={() => openOperation({ kind: "expense", mode: "create" })} />
           </div>
         )}
       </header>
 
-      {notice && (
-        <div className="mx-9 mt-4 rounded border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm font-medium text-emerald-700">{notice}</div>
-      )}
-
-      <div className="flex gap-5 px-9 py-5">
-        <aside className="w-72 shrink-0 overflow-hidden rounded bg-white shadow">
-          <p className="border-b border-slate-100 px-4 py-3 font-semibold text-slate-700">Кассы</p>
-          <button
-            type="button"
-            onClick={() => setSelectedId("all")}
-            className={`block w-full border-b border-slate-100 px-4 py-3 text-left hover:bg-slate-50 ${selectedId === "all" ? "bg-blue-50" : ""}`}
-          >
-            <span className="block font-medium text-slate-700">Общий объем</span>
-            <span className="block text-sm text-slate-400">во всех кассах</span>
-          </button>
-          {cashboxes.map((box) => (
-            <button
-              key={box.id}
-              type="button"
-              onClick={() => { setSelectedId(box.id); setPage(1) }}
-              className={`flex w-full items-center justify-between gap-2 border-b border-slate-100 px-4 py-3 text-left hover:bg-slate-50 ${selectedId === box.id ? "bg-blue-50" : ""}`}
-            >
-              <span>
-                <span className="block font-medium text-slate-700">{box.name}</span>
-                <span className="block text-sm text-emerald-600">{fmtSum(box.balance, box.currency)}</span>
-              </span>
-              <CreditCard className="h-4 w-4 shrink-0 text-slate-300" />
+      <div className="flex flex-col gap-5 px-4 py-5 md:flex-row md:gap-7 md:px-9">
+        {/* --- left: cashboxes --- */}
+        <aside className="w-full md:w-[250px] md:shrink-0">
+          <h2 className="mb-2 text-[15px] font-semibold text-[#586174]">{t("Кассы")}</h2>
+          <div className="max-h-[280px] overflow-y-auto rounded-md bg-white shadow-sm md:max-h-none">
+            <button type="button" onClick={() => selectCashbox(null)} className={`block w-full border-b border-[#eef1f5] px-4 py-3 text-left hover:bg-[#f2f5f8] ${!selectedId ? "bg-[#f2f5f8]" : ""}`}>
+              <span className="block font-bold text-[#17233b]">{t("Общий объем")}</span>
+              <span className="block text-[13px] text-[#9aa3b6]">{t("во всех кассах")}</span>
             </button>
-          ))}
+            {cashboxesState.loading && !cashboxesState.data && <LoadingBlock className="py-6" />}
+            {cashboxesState.error && <ErrorBlock error={cashboxesState.error} onRetry={cashboxesState.reload} className="py-4" />}
+            {cashboxes.map((box) => (
+              <button
+                key={box.id}
+                type="button"
+                onClick={() => selectCashbox(box)}
+                className={`block w-full border-b border-[#eef1f5] px-4 py-3 text-left hover:bg-[#f2f5f8] ${box.id === selectedId ? "bg-[#f2f5f8]" : ""}`}
+              >
+                <span className="flex items-start justify-between gap-2">
+                  <span className="max-w-[180px] truncate font-bold text-[#17233b]" title={box.name}>
+                    {box.name}
+                  </span>
+                  {box.type === "bank" ? (
+                    <span title={t("банковский счет")} aria-label={t("банковский счет")}>
+                      <CreditCard className="h-[18px] w-[18px] shrink-0 text-[#6261b0]" />
+                    </span>
+                  ) : (
+                    <span title={t("наличные")} aria-label={t("наличные")}>
+                      <Banknote className="h-[18px] w-[18px] shrink-0 text-[#4f71dc]" />
+                    </span>
+                  )}
+                </span>
+                <span className="mt-0.5 block text-[14px] font-semibold" style={{ color: box.balance < 0 ? CASH_RED : CASH_GREEN }}>
+                  {formatCash(box.balance, box.currency)}
+                </span>
+              </button>
+            ))}
+            {cashboxesState.data && !cashboxes.length && <p className="px-4 py-4 text-[13px] text-[#9aa3b6]">{t("Кассы не найдены")}</p>}
+          </div>
         </aside>
 
+        {/* --- right: operations --- */}
         <section className="min-w-0 flex-1">
-          <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-            <h2 className="text-lg font-semibold text-slate-700">{selectedId === "all" ? "Общий объем" : selectedCashbox?.name}</h2>
-            {selectedCashbox && (
-              <div className="flex items-center gap-3">
-                <button type="button" onClick={() => setModal("transfer")} className="rounded border border-[#4f70e7] px-4 py-2 text-sm font-semibold text-[#4f70e7] hover:bg-blue-50">
-                  <ArrowLeftRight className="mr-1.5 inline h-4 w-4" /> Перевод
-                </button>
-                <button type="button" onClick={() => setModal("request")} className="rounded border border-emerald-500 px-4 py-2 text-sm font-semibold text-emerald-600 hover:bg-emerald-50">
-                  Запрос средств
-                </button>
-                <button type="button" onClick={() => setHistoryOpen((value) => !value)} aria-label="История" className={`rounded-full border p-2 ${historyOpen ? "border-[#4f70e7] text-[#4f70e7]" : "border-slate-300 text-slate-500"}`}>
-                  <Clock className="h-4 w-4" />
-                </button>
-              </div>
+          <div className="mb-3 flex flex-wrap items-center gap-3">
+            <h2 className="mr-auto min-w-0 truncate text-[18px] font-semibold text-[#17233b]">{title}</h2>
+            {canWrite && (
+              <button type="button" disabled={cashboxes.length < 2} onClick={() => setDialog({ kind: "transfer" })} className="inline-flex items-center gap-1.5 text-[14px] font-semibold text-[#4f71dc] hover:underline disabled:opacity-40">
+                <ArrowLeftRight className="h-4 w-4" /> {t("Перевод")}
+              </button>
             )}
+            <button type="button" onClick={() => setPanel("requests")} className="inline-flex items-center gap-1.5 text-[14px] font-semibold text-[#8acb8d] hover:underline">
+              <HandCoins className="h-4 w-4" /> {t("Запрос средств")}
+            </button>
+            <button type="button" onClick={() => setPanel("unverified")} title={t("Неподтвержденные транзакции")} aria-label={t("Неподтвержденные транзакции")} className="relative rounded-full p-2 text-[#586174] hover:bg-white">
+              <Clock className="h-5 w-5" />
+              {(unverified.data?.count ?? 0) > 0 && (
+                <span className="absolute -right-1 -top-1 min-w-[20px] rounded-full bg-[#e57373] px-1.5 text-center text-[11px] font-bold leading-5 text-white">{unverified.data?.count}</span>
+              )}
+            </button>
           </div>
 
-          <section className="overflow-hidden rounded bg-white shadow">
-            <div className="flex flex-wrap items-center gap-4 px-5 py-3">
-              <button type="button" onClick={() => setFilterOpen((value) => !value)} className="inline-flex items-center gap-1 text-[#4f70e7] hover:underline">
-                Показать фильтр <ChevronDown className={`h-4 w-4 transition-transform ${filterOpen ? "rotate-180" : ""}`} />
-              </button>
-              <label className="relative w-64">
-                <input value={query} onChange={(event) => { setQuery(event.target.value); setPage(1) }} placeholder="Поиск" className="w-full border-b border-slate-300 py-2 pr-10 outline-none focus:border-[#4f70e7]" />
-                <Search className="absolute right-2 top-2 h-5 w-5 text-slate-300" />
-              </label>
-              <span className="ml-auto text-slate-500">25</span>
-              <span className="text-slate-500">
-                {scopedLedger.length ? (safePage - 1) * pageSize + 1 : 0} - {Math.min(safePage * pageSize, scopedLedger.length)} из {scopedLedger.length}
-              </span>
-              <button type="button" onClick={() => setPage((value) => Math.max(1, value - 1))} disabled={safePage <= 1} aria-label="Назад" className="disabled:opacity-30">
-                <ChevronLeft className="h-5 w-5 text-slate-400" />
-              </button>
-              <button type="button" onClick={() => setPage((value) => Math.min(pageCount, value + 1))} disabled={safePage >= pageCount} aria-label="Вперед" className="disabled:opacity-30">
-                <ChevronRight className="h-5 w-5 text-slate-400" />
-              </button>
-              <button type="button" onClick={downloadList} aria-label="Скачать" className="text-slate-500 hover:text-[#4f70e7]">
-                <Download className="h-5 w-5" />
-              </button>
-            </div>
-
-            {(filterOpen || historyOpen) && (
-              <div className="flex flex-wrap items-center gap-4 border-b border-slate-100 bg-slate-50 px-5 py-3">
-                <label className="text-sm text-slate-600">
-                  Период с:{" "}
-                  <input type="date" value={periodFrom} onChange={(event) => { setPeriodFrom(event.target.value); setPage(1) }} className="ml-1 rounded border border-slate-300 px-2 py-1" />
-                </label>
-                <label className="text-sm text-slate-600">
-                  по:{" "}
-                  <input type="date" value={periodTo} onChange={(event) => { setPeriodTo(event.target.value); setPage(1) }} className="ml-1 rounded border border-slate-300 px-2 py-1" />
-                </label>
+          <section className="rounded-md bg-white shadow-sm">
+            {filterCount > 0 && totals.data && totals.data.totals.length > 0 && (
+              <div className="flex flex-col gap-1 rounded-t-md bg-[#5869f0] px-4 py-2.5 text-[13px] text-white md:px-5">
+                {totals.data.totals.map((row) => (
+                  <div key={row.currency} className="flex flex-wrap gap-x-6 gap-y-0.5">
+                    <span>
+                      {t("Общая сумма")}: <b>{formatCash(row.total, row.currency)}</b>
+                    </span>
+                    <span>
+                      {t("Приход")}: <b>{formatCash(row.income, row.currency)}</b>
+                    </span>
+                    <span>
+                      {t("Расход")}: <b>{formatCash(row.outcome, row.currency)}</b>
+                    </span>
+                  </div>
+                ))}
               </div>
             )}
 
-            <table className="w-full text-left">
-              <thead className="bg-[#626b7e] text-white">
-                <tr>
-                  <th className="px-9 py-5">№</th>
-                  {selectedId === "all" && <th className="px-5 py-5">Касса</th>}
-                  <th className="px-5 py-5">Детали</th>
-                  <th className="px-5 py-5">Указанная дата</th>
-                  <th className="px-5 py-5 text-right">Сумма</th>
-                  <th className="w-12" />
-                </tr>
-              </thead>
-              <tbody>
-                {visible.map((entry) => (
-                  <tr key={entry.id} className="border-b border-dashed border-slate-300 hover:bg-slate-50">
-                    <td className="px-9 py-4 align-top">{entry.id}</td>
-                    {selectedId === "all" && <td className="px-5 py-4 align-top">{cashboxes.find((box) => box.id === entry.cashboxId)?.name}</td>}
-                    <td className="px-5 py-4 align-top text-sm">
-                      <p>
-                        Описание: {entry.description}
-                        {entry.category && <>, Категория: <span className="text-[#4f70e7]">{entry.category}</span></>}
-                        {`, Филиал: ${entry.branch}, Организация: ${entry.organization}`}
-                      </p>
-                      {entry.clientName ? <p>Клиент: <span className="text-[#4f70e7]">{entry.clientName}</span></p> : entry.comment ? <p>Комментарий: {entry.comment}</p> : null}
-                    </td>
-                    <td className="px-5 py-4 align-top whitespace-nowrap">{fmtDateTime(entry.date)}</td>
-                    <td className={`px-5 py-4 align-top text-right font-medium whitespace-nowrap ${entry.amount < 0 ? "text-rose-500" : "text-emerald-600"}`}>
-                      {entry.amount > 0 ? "+" : ""}{fmtSum(entry.amount, cashboxes.find((box) => box.id === entry.cashboxId)?.currency ?? "SUM")}
-                    </td>
-                    <td className="relative px-3 py-4 align-top text-right">
-                      <button type="button" onClick={() => setMenuId((current) => (current === entry.id ? null : entry.id))} aria-label="Ещё" className="text-slate-500 hover:text-slate-800">
-                        <MoreVertical className="h-5 w-5" />
-                      </button>
-                      {menuId === entry.id && (
-                        <div className="absolute right-3 top-12 z-30 w-40 rounded border border-slate-200 bg-white py-1 text-left shadow-xl">
-                          <button type="button" onClick={() => openEditEntry(entry)} className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm hover:bg-slate-50">
-                            <Pencil className="h-4 w-4" /> Изменить
-                          </button>
-                          <button type="button" onClick={() => printEntry(entry)} className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm hover:bg-slate-50">
-                            <Printer className="h-4 w-4" /> Печать
-                          </button>
-                          <button type="button" onClick={() => removeEntry(entry)} className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm text-rose-500 hover:bg-slate-50">
-                            <Trash2 className="h-4 w-4" /> Удалить
-                          </button>
-                        </div>
-                      )}
-                    </td>
+            <div className="flex flex-wrap items-center gap-3 border-b border-[#eef1f5] px-4 py-3 md:px-5">
+              {filterCount ? (
+                <span className="inline-flex h-9 items-center gap-3 rounded-md bg-[#eef1f5] px-3 text-[14px] font-semibold text-[#586174]">
+                  {t("Фильтр")}: {filterCount} {t("элемента")}
+                  <button type="button" onClick={() => setFilterOpen((value) => !value)} aria-label={t("Изменить")} className="text-[#4f70e7]">
+                    <Pencil className="h-4 w-4" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFilterOpen(false)
+                      update({ ...filtersToUrl(EMPTY_FILTERS), page: null })
+                    }}
+                    aria-label={t("Очистить")}
+                    className="text-[#e57373]"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </span>
+              ) : (
+                <button type="button" onClick={() => setFilterOpen((value) => !value)} className="inline-flex items-center gap-1.5 text-[14px] font-semibold text-[#4f70e7] hover:underline">
+                  <Filter className="h-4 w-4" /> {t("Показать фильтр")}
+                </button>
+              )}
+              <label className="relative w-full sm:w-64">
+                <input
+                  value={searchDraft}
+                  onChange={(event) => setSearchDraft(event.target.value)}
+                  placeholder={t("Поиск")}
+                  className="h-9 w-full border-b border-[#dbe0e8] bg-transparent pr-8 text-[14px] outline-none focus:border-[#4f70e7]"
+                />
+                <Search className="pointer-events-none absolute right-1 top-2 h-5 w-5 text-[#c4cbd6]" />
+              </label>
+              <div className="ml-auto flex flex-wrap items-center gap-3">
+                <BalancePagination page={page} pageSize={pageSize} count={list.data?.count ?? 0} sizes={PAGE_SIZES} onChange={(next) => update({ page: next.page > 1 ? next.page : null, pageSize: next.pageSize !== DEFAULT_PAGE_SIZE ? next.pageSize : null })} />
+                <button type="button" onClick={exportExcel} disabled={exporting || !list.data?.count} aria-label={t("Скачать Excel")} title={t("Скачать Excel")} className="text-[#4caf72] hover:brightness-90 disabled:opacity-40">
+                  {exporting ? <Loader2 className="h-6 w-6 animate-spin" /> : <FileSpreadsheet className="h-6 w-6" />}
+                </button>
+              </div>
+            </div>
+
+            {filterOpen && <CashFilterPanel value={filters} cashboxes={cashboxes} onApply={applyFilters} onClose={() => setFilterOpen(false)} />}
+
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[680px] text-left text-[14px]">
+                <thead>
+                  <tr className="border-b border-[#e1e5eb] text-[#586174]">
+                    <SortHeader label="№" field="id" ordering={ordering} onSort={sortBy} className="w-[10%] pl-4 md:pl-5" />
+                    <th className="w-[52%] px-3 py-3 font-semibold">{t("Детали")}</th>
+                    <SortHeader label={t("Указанная дата")} field="date" ordering={ordering} onSort={sortBy} className="w-[18%]" />
+                    <SortHeader label={t("Сумма")} field="amount" ordering={ordering} onSort={sortBy} className="w-[20%]" align="right" />
+                    <th className="w-12 px-2 py-3" />
                   </tr>
-                ))}
-                {visible.length === 0 && (
-                  <tr><td colSpan={selectedId === "all" ? 6 : 5} className="px-9 py-10 text-center text-slate-400">Ничего не найдено</td></tr>
-                )}
-              </tbody>
-            </table>
+                </thead>
+                <tbody className={list.loading && list.data ? "opacity-60" : ""}>
+                  {rows.map((operation) => (
+                    <tr
+                      key={operation.key}
+                      className={`border-b border-dashed border-[#d8dee7] align-top ${operation.isDeleted ? "bg-[#fffafa]" : "hover:bg-[#f2f5f8]"}`}
+                      style={operation.isDeleted ? { boxShadow: `inset 3px 0 0 ${CASH_RED}` } : undefined}
+                    >
+                      <td className={`py-3 pl-4 pr-3 font-semibold md:pl-5 ${operation.isDeleted ? "opacity-60" : ""}`}>{operation.docNo}</td>
+                      <td className={`px-3 py-3 ${operation.isDeleted ? "opacity-60" : ""}`}>
+                        <OperationDetails operation={operation} showCashbox={showCashbox} onOpenAcceptance={(row) => setDialog({ kind: "acceptanceInfo", id: row.id })} onPopup={setPopup} />
+                      </td>
+                      <td className={`px-3 py-3 whitespace-nowrap text-[13px] ${operation.isDeleted ? "opacity-60" : ""}`}>{formatCashDate(operation.date, language)}</td>
+                      <td className={`px-3 py-3 ${operation.isDeleted ? "opacity-60" : ""}`}>
+                        <CashAmount operation={operation} />
+                      </td>
+                      <td className="px-2 py-2 text-right">
+                        {!operation.isDeleted && (
+                          <CashRowMenu
+                            operation={operation}
+                            canWrite={canWrite}
+                            onEdit={() => editOperation(operation)}
+                            onDuplicate={() => duplicateOperation(operation)}
+                            onPrint={() => setPrinting(operation.key)}
+                            onDelete={() => {
+                              setDeleteError("")
+                              setDeleting(operation)
+                            }}
+                          />
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {list.loading && !list.data && <LoadingBlock />}
+            {list.error && <ErrorBlock error={list.error} onRetry={list.reload} />}
+            {list.data && !rows.length && !list.error && <EmptyBlock text={list.loading ? "Загрузка..." : "По вашему запросу ничего не найдено"} />}
           </section>
         </section>
       </div>
 
-      {editingId !== null && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
-          <form onSubmit={saveEditEntry} className="w-full max-w-md rounded bg-white">
-            <header className="flex items-center justify-between border-b p-6">
-              <b className="uppercase">Изменить запись</b>
-              <button type="button" onClick={() => setEditingId(null)} aria-label="Закрыть"><X className="h-5 w-5" /></button>
-            </header>
-            <div className="space-y-5 p-8">
-              <label className="block border-b border-slate-200 pb-2 font-medium">
-                Описание
-                <input autoFocus value={editDraft.description} onChange={(event) => setEditDraft((value) => ({ ...value, description: event.target.value }))} className="mt-2 block w-full outline-none" />
-              </label>
-              <label className="block border-b border-slate-200 pb-2 font-medium">
-                Сумма
-                <input type="number" value={editDraft.amount} onChange={(event) => setEditDraft((value) => ({ ...value, amount: event.target.value }))} className="mt-2 block w-full outline-none" />
-              </label>
-            </div>
-            <footer className="flex justify-end border-t p-5">
-              <button type="submit" className="rounded bg-[#6ccd8b] px-6 py-3 font-semibold text-white hover:brightness-95">Сохранить</button>
-            </footer>
-          </form>
-        </div>
+      {/* --- panels (can open a dialog on top) --- */}
+      {panel === "accept" && <CashAcceptDialog cashboxes={cashboxes} canWrite={canWrite} onClose={() => setPanel(null)} onSaved={(message) => {
+            reloadAll()
+            notify(message)
+          }} />}
+      {panel === "requests" && <CashRequestsDialog canWrite={canWrite} refreshToken={refreshToken} onClose={() => setPanel(null)} onPay={payRequest} onChanged={(message) => {
+            reloadAll()
+            notify(message)
+          }} />}
+      {panel === "unverified" && (
+        <CashUnverifiedDialog
+          canWrite={canWrite}
+          refreshToken={refreshToken}
+          onClose={() => setPanel(null)}
+          onEdit={editOperation}
+          onDelete={(operation) => {
+            setDeleteError("")
+            setDeleting(operation)
+          }}
+          onVerified={() => {
+            reloadAll()
+            notify("Транзакция успешно подтверждено")
+          }}
+          onPopup={setPopup}
+        />
       )}
 
-      {modal === "accept" && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
-          <form onSubmit={submitAccept} className="w-full max-w-md rounded bg-white">
-            <header className="flex items-center justify-between border-b p-6">
-              <b className="uppercase">Принять деньги</b>
-              <button type="button" onClick={() => setModal(null)} aria-label="Закрыть"><X className="h-5 w-5" /></button>
-            </header>
-            <div className="space-y-5 p-8">
-              <label className="block border-b border-slate-200 pb-2 font-medium">
-                Клиент <span className="text-red-500">*</span>
-                <input autoFocus value={acceptDraft.clientName} onChange={(event) => setAcceptDraft((value) => ({ ...value, clientName: event.target.value }))} className="mt-2 block w-full outline-none" />
-              </label>
-              <label className="block border-b border-slate-200 pb-2 font-medium">
-                Филиал
-                <input value={acceptDraft.branch} onChange={(event) => setAcceptDraft((value) => ({ ...value, branch: event.target.value }))} className="mt-2 block w-full outline-none" />
-              </label>
-              <label className="block border-b border-slate-200 pb-2 font-medium">
-                Организация
-                <input value={acceptDraft.organization} onChange={(event) => setAcceptDraft((value) => ({ ...value, organization: event.target.value }))} className="mt-2 block w-full outline-none" />
-              </label>
-              <label className="block border-b border-slate-200 pb-2 font-medium">
-                Сумма <span className="text-red-500">*</span>
-                <input type="number" value={acceptDraft.amount} onChange={(event) => setAcceptDraft((value) => ({ ...value, amount: event.target.value }))} className="mt-2 block w-full outline-none" />
-              </label>
-            </div>
-            <footer className="flex justify-end border-t p-5">
-              <button type="submit" className="rounded bg-[#6ccd8b] px-6 py-3 font-semibold text-white hover:brightness-95">Принять</button>
-            </footer>
-          </form>
-        </div>
+      {/* --- dialogs --- */}
+      {dialog?.kind === "operation" && (
+        <CashOperationDialog
+          key={`${dialog.state.mode}-${dialog.state.kind}-${dialog.state.operationKey ?? dialog.state.request?.id ?? ""}`}
+          state={dialog.state}
+          cashboxes={cashboxes}
+          onClose={() => setDialog(null)}
+          onSaved={() => {
+            setDialog(null)
+            reloadAll()
+            notify("Успешно сохранено")
+          }}
+        />
       )}
-
-      {modal === "bulk" && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
-          <form onSubmit={submitBulk} className="flex max-h-[85vh] w-full max-w-lg flex-col rounded bg-white">
-            <header className="flex items-center justify-between border-b p-6">
-              <b className="uppercase">Групповой приход</b>
-              <button type="button" onClick={() => setModal(null)} aria-label="Закрыть"><X className="h-5 w-5" /></button>
-            </header>
-            <div className="flex-1 space-y-4 overflow-y-auto p-8">
-              {bulkRows.map((row, index) => (
-                <div key={index} className="flex items-end gap-3">
-                  <label className="block flex-1 border-b border-slate-200 pb-2 font-medium">
-                    Клиент
-                    <input value={row.clientName} onChange={(event) => setBulkRows((current) => current.map((item, itemIndex) => (itemIndex === index ? { ...item, clientName: event.target.value } : item)))} className="mt-2 block w-full outline-none" />
-                  </label>
-                  <label className="block w-36 border-b border-slate-200 pb-2 font-medium">
-                    Сумма
-                    <input type="number" value={row.amount} onChange={(event) => setBulkRows((current) => current.map((item, itemIndex) => (itemIndex === index ? { ...item, amount: event.target.value } : item)))} className="mt-2 block w-full outline-none" />
-                  </label>
-                  {bulkRows.length > 1 && (
-                    <button type="button" onClick={() => setBulkRows((current) => current.filter((_, itemIndex) => itemIndex !== index))} aria-label="Удалить строку" className="mb-2 text-rose-500">
-                      <Trash2 className="h-5 w-5" />
-                    </button>
-                  )}
-                </div>
-              ))}
-              <button type="button" onClick={() => setBulkRows((current) => [...current, { clientName: "", amount: "" }])} className="text-sm text-[#4f70e7] hover:underline">
-                + добавить строку
-              </button>
-            </div>
-            <footer className="flex justify-end border-t p-5">
-              <button type="submit" className="rounded bg-[#6ccd8b] px-6 py-3 font-semibold text-white hover:brightness-95">Сохранить</button>
-            </footer>
-          </form>
-        </div>
+      {dialog?.kind === "transfer" && (
+        <CashTransferDialog
+          fromCashbox={selected}
+          cashboxes={cashboxes}
+          onClose={() => setDialog(null)}
+          onSaved={() => {
+            setDialog(null)
+            reloadAll()
+            notify("Успешно сохранено")
+          }}
+        />
       )}
-
-      {(modal === "income" || modal === "expense") && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
-          <form onSubmit={(event) => submitEntry(modal, event)} className="w-full max-w-md rounded bg-white">
-            <header className="flex items-center justify-between border-b p-6">
-              <b className="uppercase">{modal === "expense" ? "Расход" : "Приход"}</b>
-              <button type="button" onClick={() => setModal(null)} aria-label="Закрыть"><X className="h-5 w-5" /></button>
-            </header>
-            <div className="space-y-5 p-8">
-              <label className="block border-b border-slate-200 pb-2 font-medium">
-                Описание <span className="text-red-500">*</span>
-                <input autoFocus value={entryDraft.description} onChange={(event) => setEntryDraft((value) => ({ ...value, description: event.target.value }))} className="mt-2 block w-full outline-none" />
-              </label>
-              <label className="block border-b border-slate-200 pb-2 font-medium">
-                Категория
-                <input value={entryDraft.category} onChange={(event) => setEntryDraft((value) => ({ ...value, category: event.target.value }))} className="mt-2 block w-full outline-none" />
-              </label>
-              <label className="block border-b border-slate-200 pb-2 font-medium">
-                Филиал
-                <input value={entryDraft.branch} onChange={(event) => setEntryDraft((value) => ({ ...value, branch: event.target.value }))} className="mt-2 block w-full outline-none" />
-              </label>
-              <label className="block border-b border-slate-200 pb-2 font-medium">
-                Организация
-                <input value={entryDraft.organization} onChange={(event) => setEntryDraft((value) => ({ ...value, organization: event.target.value }))} className="mt-2 block w-full outline-none" />
-              </label>
-              <label className="block border-b border-slate-200 pb-2 font-medium">
-                Сумма <span className="text-red-500">*</span>
-                <input type="number" value={entryDraft.amount} onChange={(event) => setEntryDraft((value) => ({ ...value, amount: event.target.value }))} className="mt-2 block w-full outline-none" />
-              </label>
-            </div>
-            <footer className="flex justify-end border-t p-5">
-              <button type="submit" className={`rounded px-6 py-3 font-semibold text-white hover:brightness-95 ${modal === "expense" ? "bg-rose-500" : "bg-[#6ccd8b]"}`}>Сохранить</button>
-            </footer>
-          </form>
-        </div>
+      {dialog?.kind === "group" && (
+        <CashGroupIncomeDialog
+          cashboxes={cashboxes}
+          onClose={() => setDialog(null)}
+          onSaved={() => {
+            setDialog(null)
+            reloadAll()
+            notify("Успешно сохранено")
+          }}
+        />
       )}
-
-      {modal === "transfer" && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
-          <form onSubmit={submitTransfer} className="w-full max-w-md rounded bg-white">
-            <header className="flex items-center justify-between border-b p-6">
-              <b className="uppercase">Перевод</b>
-              <button type="button" onClick={() => setModal(null)} aria-label="Закрыть"><X className="h-5 w-5" /></button>
-            </header>
-            <div className="space-y-5 p-8">
-              <p className="text-sm text-slate-600">Из кассы: <span className="font-medium">{selectedCashbox?.name}</span></p>
-              <label className="block border-b border-slate-200 pb-2 font-medium">
-                В кассу <span className="text-red-500">*</span>
-                <select name="to" required className="mt-2 block w-full bg-white outline-none">
-                  {cashboxes.filter((box) => box.id !== selectedCashbox?.id).map((box) => <option key={box.id} value={box.id}>{box.name}</option>)}
-                </select>
-              </label>
-              <label className="block border-b border-slate-200 pb-2 font-medium">
-                Сумма <span className="text-red-500">*</span>
-                <input name="amount" type="number" required className="mt-2 block w-full outline-none" />
-              </label>
-            </div>
-            <footer className="flex justify-end border-t p-5">
-              <button type="submit" className="rounded bg-[#6ccd8b] px-6 py-3 font-semibold text-white hover:brightness-95">Перевести</button>
-            </footer>
-          </form>
-        </div>
+      {dialog?.kind === "acceptanceInfo" && <CashAcceptanceInfoDialog id={dialog.id} canWrite={canWrite} onClose={() => setDialog(null)} onChanged={(message) => {
+            reloadAll()
+            notify(message)
+          }} />}
+      {dialog?.kind === "acceptanceEdit" && (
+        <CashAcceptanceEditDialog
+          id={dialog.id}
+          cashboxes={cashboxes}
+          onClose={() => setDialog(null)}
+          onSaved={() => {
+            setDialog(null)
+            reloadAll()
+            notify("Успешно сохранено")
+          }}
+        />
       )}
-
-      {modal === "request" && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
-          <form onSubmit={submitRequest} className="w-full max-w-md rounded bg-white">
-            <header className="flex items-center justify-between border-b p-6">
-              <b className="uppercase">Запрос средств</b>
-              <button type="button" onClick={() => setModal(null)} aria-label="Закрыть"><X className="h-5 w-5" /></button>
-            </header>
-            <div className="space-y-5 p-8">
-              <p className="text-sm text-slate-600">Касса: <span className="font-medium">{selectedCashbox?.name}</span></p>
-              <label className="block border-b border-slate-200 pb-2 font-medium">
-                Сумма <span className="text-red-500">*</span>
-                <input name="amount" type="number" required className="mt-2 block w-full outline-none" />
-              </label>
-              <label className="block border-b border-slate-200 pb-2 font-medium">
-                Комментарий
-                <input name="comment" className="mt-2 block w-full outline-none" />
-              </label>
-            </div>
-            <footer className="flex justify-end border-t p-5">
-              <button type="submit" className="rounded bg-[#6ccd8b] px-6 py-3 font-semibold text-white hover:brightness-95">Отправить</button>
-            </footer>
-          </form>
-        </div>
+      {popup && <OperationPopupDialog popup={popup} onClose={() => setPopup(null)} />}
+      {deleting && (
+        <ConfirmDialog title={`${t("Транзакция")} №${deleting.docNo}`} text={t("Удалить транзакцию?")} busy={deleteBusy} error={deleteError} onConfirm={confirmDelete} onClose={() => setDeleting(null)} />
       )}
+      {printing && <CashReceiptPrint operationKey={printing} onClose={() => setPrinting(null)} />}
+      <CashSnackbar message={snack} onClose={closeSnack} />
     </main>
   )
+}
+
+function HeaderButton({ tone, icon: Icon, label, onClick }: { tone: "green" | "blue" | "red"; icon: typeof CreditCard; label: string; onClick: () => void }) {
+  const color = { green: "bg-[#71ce87]", blue: "bg-[#4f71dc]", red: "bg-[#fa8072]" }[tone]
+  return (
+    <button type="button" onClick={onClick} className={`inline-flex h-10 items-center gap-2 rounded-md px-3 text-[13px] font-semibold uppercase text-white hover:brightness-95 md:px-4 ${color}`}>
+      <Icon className="h-4 w-4" /> {label}
+    </button>
+  )
+}
+
+function SortHeader({
+  label,
+  field,
+  ordering,
+  onSort,
+  className = "",
+  align = "left",
+}: {
+  label: string
+  field: (typeof SORTABLE)[number]
+  ordering: string
+  onSort: (field: (typeof SORTABLE)[number]) => void
+  className?: string
+  align?: "left" | "right"
+}) {
+  const active = ordering === field || ordering === `-${field}`
+  const Icon = ordering === field ? ArrowUp : ArrowDown
+  return (
+    <th className={`px-3 py-3 font-semibold ${align === "right" ? "text-right" : ""} ${className}`}>
+      <button type="button" onClick={() => onSort(field)} className={`inline-flex items-center gap-1 hover:text-[#17233b] ${active ? "text-[#17233b]" : ""}`}>
+        {label}
+        <Icon className={`h-3.5 w-3.5 ${active ? "" : "opacity-0"}`} />
+      </button>
+    </th>
+  )
+}
+
+/** "Описание" column of the Excel export (demo 3840 excelFormatterPath). */
+function excelDescription(row: CashOperation, t: (text: string) => string): string {
+  const client = row.client?.name ?? ""
+  switch (row.type) {
+    case 1:
+      return t("Перевод с кассы")
+    case 2:
+      return `${t("Перевод с")} ${row.transfer?.otherCashbox ?? ""}`.trim()
+    case 3:
+      return `${client} ${t("Заказ")} № ${row.orderId ?? ""}`.trim()
+    case 6:
+      return `${t("Приход на счет клиента")} ${client}`.trim()
+    case 8:
+      return `${t("Приемка наличных с агента")} ${row.employee?.name ?? ""}`.trim()
+    case 22:
+      return `${t("Выдача денег для кэшбека")} ${client}`.trim()
+    case 9:
+      return t("Доп. расход")
+    default:
+      return t(row.title)
+  }
 }
