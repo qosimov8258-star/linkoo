@@ -1,281 +1,526 @@
 "use client"
 
-import { useMemo, useState } from "react"
-import { ChevronDown, ChevronsRight, Download, RefreshCw, X } from "lucide-react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import Link from "next/link"
+import { useRouter, useSearchParams } from "next/navigation"
+import { Download, Info, Loader2, Plus, RefreshCw } from "lucide-react"
+
+import { BalanceTable, type BalanceColumnGroup } from "@/components/analytics/balance/balance-table"
+import { balanceListExcelRows } from "@/components/analytics/balance/excel"
+import { BalanceFilterChip } from "@/components/analytics/balance/filter-bar"
+import { BalanceSummaryCards, type SummaryBox } from "@/components/analytics/balance/summary-cards"
+import { buildBalanceQuery, useBalanceList } from "@/components/analytics/balance/use-balance"
+import { DelivererActDialog, DelivererCorrectionDialog } from "@/components/analytics/deliverer-debts-dialogs"
+import {
+  countDelivererDebtsFilters,
+  DelivererDebtsFilterPanel,
+  EMPTY_FILTERS,
+  type DelivererDebtsFilters,
+  type DelivererDebtsTab,
+} from "@/components/analytics/deliverer-debts-filter"
 import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
 import { downloadExcelTable } from "@/lib/excel-export"
+import { isIsoDay, monthEndIso, monthStartIso, todayIso } from "@/lib/finance/dates"
+import { MOVEMENT_LABELS, type BalanceRow } from "@/lib/finance/types"
+import type { DelivererDebtsOptions } from "@/lib/finance-deliverer-debts-types"
+import { useLanguage } from "@/lib/i18n/language-context"
 
-type Money = { sum: number; usd: number; eur: number }
-type DebtRow = {
-  id: number
-  name: string
-  linkStyle?: boolean
-  opening: Money
-  shipment: Money
-  refund: Money
-  paid: Money
-  correction: Money
+// "Долги доставщиков" (demo #/planning/?toggleType=prediction, chunk 124):
+// - tab "prediction" — per delivery man and currency: balance at the start of
+//   the period, shipped orders, returns, payments, corrections and the balance
+//   at the end (GET /api/balances/deliverer: the client ledger attributed to
+//   the order's / payment's / client's deliverer + his corrections);
+// - tab "record" ("Долги агентов") — client balances by the clients'
+//   responsible agent (GET /api/balances/agent).
+// Period toggle Сегодня / Месяц / Своя Дата, filter popup, "Скачать" (Excel of
+// the loaded list), "Обновить список"; deliverer name → Баланс клиентов by
+// that deliverer (demo link), hover buttons → act ("Информация по балансу
+// доставщика") and "КОРРЕКТИРОВКА". State lives in the URL like the demo:
+// toggleType, typeCash, beginDate, endDate, division, paymentType, branch,
+// marketType, releasedOrders, orderingPrediction, ordering, openClient, openAddDialog.
+
+type PeriodType = "today" | "month" | "ownDate"
+
+type ViewState = {
+  tab: DelivererDebtsTab
+  typeCash: PeriodType
+  /** Own period ("Своя Дата"). */
+  own: { from: string; to: string }
+  filters: DelivererDebtsFilters
+  /** Deliverers tab sorting (demo orderingPrediction). */
+  orderingPrediction: string[]
+  /** Agents tab sorting (demo ordering: first_name). */
+  ordering: string[]
+  /** Open act dialog (deliverer row key). */
+  openClient: string | null
+  /** Open correction dialog (employees.id). */
+  openAddDialog: number | null
 }
 
-const zero: Money = { sum: 0, usd: 0, eur: 0 }
+const DELIVERER_GROUPS: BalanceColumnGroup[] = [
+  { field: "begin_balance", label: "Баланс на начало периода" },
+  ...Object.entries(MOVEMENT_LABELS.deliverer).map(([field, label]) => ({ field, label })),
+  { field: "end_balance", label: "Баланс на конец" },
+]
 
-const supplierRows: DebtRow[] = []
+const AGENT_GROUPS: BalanceColumnGroup[] = [
+  { field: "begin_balance", label: "Баланс на начало периода" },
+  ...Object.entries(MOVEMENT_LABELS.agent).map(([field, label]) => ({ field, label })),
+  { field: "end_balance", label: "Баланс на конец" },
+]
 
-const agentRows: DebtRow[] = []
+const DELIVERER_BOXES: SummaryBox[] = [
+  {
+    metrics: [
+      { label: "Баланс на начало периода", field: "begin_balance" },
+      { label: "Отгрузка (Заказы)", field: "order" },
+    ],
+  },
+  {
+    metrics: [
+      { label: "Возврат", field: "order_return" },
+      { label: "Оплачено", field: "payment" },
+    ],
+  },
+  {
+    align: "right",
+    metrics: [
+      { label: "Корректировка", field: "none_type" },
+      { label: "Баланс на конец периода", field: "end_balance" },
+    ],
+  },
+]
 
-const supplierTotals = { opening: { sum: 0, usd: 0, eur: 0 } }
-const agentTotals = { opening: { sum: 0, usd: 0, eur: 0 } }
+const AGENT_BOXES: SummaryBox[] = [
+  {
+    metrics: [
+      { label: "Баланс на начало периода", field: "begin_balance" },
+      { label: "Продажи", field: "order" },
+    ],
+  },
+  {
+    metrics: [
+      { label: "Возврат", field: "order_return" },
+      { label: "Оплачено", field: "payment" },
+    ],
+  },
+  {
+    metrics: [
+      { label: "Прочие приходы", field: "none_type_plus" },
+      { label: "Прочие расходы", field: "none_type_minus" },
+    ],
+  },
+  { align: "right", metrics: [{ label: "Баланс на конец периода", field: "end_balance" }] },
+]
 
-const TOTAL_SUPPLIERS = 0
-const TOTAL_AGENTS = 0
+const PERIODS: Array<{ key: PeriodType; label: string }> = [
+  { key: "today", label: "Сегодня" },
+  { key: "month", label: "Месяц" },
+  { key: "ownDate", label: "Своя Дата" },
+]
 
-const groups = ["Баланс на начало периода", "Отгрузка (Заказы)", "Возврат", "Оплачено", "Корректировка", "Баланс на конец периода"] as const
-type GroupKey = "opening" | "shipment" | "refund" | "paid" | "correction" | "closing"
-const groupKeys: GroupKey[] = ["opening", "shipment", "refund", "paid", "correction", "closing"]
+const TABS: Array<{ key: DelivererDebtsTab; label: string }> = [
+  { key: "prediction", label: "Долги доставщиков" },
+  { key: "record", label: "Долги агентов" },
+]
 
-const money = (value: number) => new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 2 }).format(value)
+type ParamReader = { get(name: string): string | null; getAll(name: string): string[] }
 
-function AmountCell({ value }: { value: number }) {
-  if (value === 0) return <span className="text-[#4f70e7]">0</span>
-  const color = value > 0 ? "text-[#3aa76d]" : "text-[#e5484d]"
-  return <span className={`font-semibold ${color}`}>{money(value)}</span>
+/** Page state from the URL (menu default: today, deliverers). */
+function readState(params: ParamReader): ViewState {
+  const today = todayIso()
+  const typeCash = params.get("typeCash")
+  const begin = params.get("beginDate") ?? ""
+  const end = params.get("endDate") ?? ""
+  let own = { from: isIsoDay(begin) ? begin : monthStartIso(today), to: isIsoDay(end) ? end : monthEndIso(today) }
+  if (own.from > own.to) own = { from: own.to, to: own.from }
+  const list = (name: string) => params.getAll(name).map((value) => value.trim()).filter(Boolean)
+  const paymentType = params.get("paymentType") ?? ""
+  const addDialog = Number(params.get("openAddDialog"))
+  const openClient = params.get("openClient") ?? ""
+  return {
+    tab: params.get("toggleType") === "record" ? "record" : "prediction",
+    typeCash: typeCash === "month" || typeCash === "ownDate" ? typeCash : "today",
+    own,
+    filters: {
+      division: list("division"),
+      paymentType: paymentType === "cash" || paymentType === "bank" ? paymentType : "",
+      branch: list("branch"),
+      marketType: list("marketType"),
+      releasedOrders: ["1", "true"].includes(params.get("releasedOrders") ?? ""),
+    },
+    orderingPrediction: (params.get("orderingPrediction") ?? "").split(",").filter(Boolean),
+    ordering: (params.get("ordering") ?? "").split(",").filter(Boolean),
+    openClient: openClient || null,
+    openAddDialog: Number.isInteger(addDialog) && addDialog > 0 ? addDialog : null,
+  }
 }
 
-function cellFor(row: DebtRow, key: GroupKey, currency: keyof Money): number {
-  if (key === "closing") return row.opening[currency] + row.shipment[currency] - row.refund[currency] - row.paid[currency] + row.correction[currency]
-  return row[key][currency]
+/** Demo listFilterSerializer: today = today..today, month = the current calendar month, ownDate = beginDate..endDate. */
+function periodOf(state: ViewState): { from: string; to: string } {
+  const today = todayIso()
+  if (state.typeCash === "today") return { from: today, to: today }
+  if (state.typeCash === "month") return { from: monthStartIso(today), to: monthEndIso(today) }
+  return state.own
+}
+
+function writeState(state: ViewState) {
+  const period = periodOf(state)
+  const params = new URLSearchParams()
+  params.set("beginDate", period.from)
+  params.set("endDate", period.to)
+  params.set("toggleType", state.tab)
+  if (state.typeCash !== "today") params.set("typeCash", state.typeCash)
+  const f = state.filters
+  f.division.forEach((value) => params.append("division", value))
+  if (f.paymentType) params.set("paymentType", f.paymentType)
+  f.branch.forEach((value) => params.append("branch", value))
+  f.marketType.forEach((value) => params.append("marketType", value))
+  if (f.releasedOrders) params.set("releasedOrders", "true")
+  if (state.orderingPrediction.length) params.set("orderingPrediction", state.orderingPrediction.join(","))
+  if (state.ordering.length) params.set("ordering", state.ordering.join(","))
+  if (state.openClient) params.set("openClient", state.openClient)
+  if (state.openAddDialog) params.set("openAddDialog", String(state.openAddDialog))
+  const next = `${window.location.pathname}?${params.toString()}`
+  if (next !== `${window.location.pathname}${window.location.search}`) window.history.replaceState(window.history.state, "", next)
+}
+
+function useOptions() {
+  const [options, setOptions] = useState<DelivererDebtsOptions | null>(null)
+  const [version, setVersion] = useState(0)
+  useEffect(() => {
+    const controller = new AbortController()
+    fetch("/api/balances/deliverer-debts/options", { signal: controller.signal, cache: "no-store" })
+      .then((response) => (response.ok ? (response.json() as Promise<DelivererDebtsOptions>) : null))
+      .then((body) => {
+        if (body) setOptions(body)
+      })
+      .catch(() => {})
+    return () => controller.abort()
+  }, [version])
+  const reload = useCallback(() => setVersion((value) => value + 1), [])
+  return { options, reload }
+}
+
+/** Download icon with the demo's one-item menu ("Доставки" / "Долги"). */
+function DownloadMenu({ label, disabled, onClick }: { label: string; disabled: boolean; onClick: () => void }) {
+  const { t } = useLanguage()
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!open) return
+    const close = (event: MouseEvent) => {
+      if (!ref.current?.contains(event.target as Node)) setOpen(false)
+    }
+    document.addEventListener("mousedown", close)
+    return () => document.removeEventListener("mousedown", close)
+  }, [open])
+  return (
+    <div ref={ref} className="relative">
+      <button type="button" onClick={() => setOpen((value) => !value)} title={t("Скачать")} aria-label={t("Скачать")} className="rounded-full p-2.5 text-[#666] hover:bg-[#f2f5f8]">
+        <Download className="h-5 w-5" />
+      </button>
+      {open && (
+        <div className="absolute right-0 z-[60] mt-1 min-w-[160px] overflow-hidden rounded-sm bg-white py-1 shadow-[0_2px_10px_rgba(0,0,0,0.2)]">
+          <button
+            type="button"
+            disabled={disabled}
+            onClick={() => {
+              setOpen(false)
+              onClick()
+            }}
+            className="block w-full px-4 py-2 text-left text-[13px] text-[#17233b] hover:bg-[#f2f5f8] disabled:text-[#9aa3b6]"
+          >
+            {t(label)}
+          </button>
+        </div>
+      )}
+    </div>
+  )
 }
 
 export function SupplierDebtsView() {
-  const [period, setPeriod] = useState<"today" | "month" | "custom">("today")
-  const [customFrom, setCustomFrom] = useState("")
-  const [customTo, setCustomTo] = useState("")
-  const [debtTab, setDebtTab] = useState<"suppliers" | "agents">("suppliers")
+  const { t } = useLanguage()
+  const router = useRouter()
+  const searchParams = useSearchParams()
+  const [state, setState] = useState<ViewState>(() => readState(searchParams))
   const [filterOpen, setFilterOpen] = useState(false)
-  const [organizationFilter, setOrganizationFilter] = useState("Все организации")
-  const [appliedOrganization, setAppliedOrganization] = useState("Все организации")
-  const [search, setSearch] = useState("")
-  const [cardsCollapsed, setCardsCollapsed] = useState(false)
-  const [refreshTick, setRefreshTick] = useState(0)
+  const [notice, setNotice] = useState("")
+  const { options, reload: reloadOptions } = useOptions()
 
-  const rows = debtTab === "suppliers" ? supplierRows : agentRows
-  const totals = debtTab === "suppliers" ? supplierTotals : agentTotals
-  const totalLabel = debtTab === "suppliers" ? TOTAL_SUPPLIERS : TOTAL_AGENTS
-  const nameColumnLabel = debtTab === "suppliers" ? "Доставщик" : "Агент"
+  useEffect(() => {
+    // Deferred: on the first render the app router replaces the history entry after the children's effects.
+    const timer = window.setTimeout(() => writeState(state))
+    return () => window.clearTimeout(timer)
+  }, [state])
+  useEffect(() => {
+    if (!notice) return
+    const timer = window.setTimeout(() => setNotice(""), 3500)
+    return () => window.clearTimeout(timer)
+  }, [notice])
 
-  const organizations = ["Все организации", "Linko", "NEW ORG", "energetik"]
+  const update = (patch: Partial<ViewState>) => setState((current) => ({ ...current, ...patch }))
+  const isAgents = state.tab === "record"
+  const period = periodOf(state)
+  const f = state.filters
+  const list = useBalanceList(
+    isAgents ? "agent" : "deliverer",
+    isAgents
+      ? {
+          from: period.from,
+          to: period.to,
+          organization: f.division,
+          paymentType: f.paymentType,
+          branch: f.branch,
+          clientType: f.marketType,
+          orderScope: f.releasedOrders ? "released" : undefined,
+          ordering: state.ordering,
+        }
+      : { from: period.from, to: period.to, organization: f.division, paymentType: f.paymentType, branch: f.branch, ordering: state.orderingPrediction },
+  )
+  // A switch of tab refetches with the other kind: never show the other tab's rows meanwhile.
+  const data = list.data?.kind === (isAgents ? "agent" : "deliverer") ? list.data : null
+  const rows = useMemo(() => data?.rows ?? [], [data])
+  // The demo lists every currency (cards and table), not only the non-zero ones.
+  const codes = useMemo(() => (data?.currencies ?? []).map((currency) => currency.code), [data])
+  const canEdit = Boolean(options?.canEdit)
+  const filterCount = countDelivererDebtsFilters(f)
 
-  const filtered = useMemo(() => {
-    return rows.filter((row) => {
-      if (search.trim() && !row.name.toLocaleLowerCase("ru").includes(search.trim().toLocaleLowerCase("ru"))) return false
-      return true
-    })
-  }, [rows, search])
-
-  const applyFilter = () => {
-    setAppliedOrganization(organizationFilter)
+  const switchTab = (tab: DelivererDebtsTab) => {
+    if (tab === state.tab) return
+    // Demo moreParams: branch, marketType, releasedOrders and the ordering are reset; division / paymentType stay.
+    update({ tab, filters: { ...f, branch: [], marketType: [], releasedOrders: false }, orderingPrediction: [], ordering: [] })
     setFilterOpen(false)
   }
 
-  const downloadExcel = () => {
-    const header = [nameColumnLabel, ...groups.flatMap((group) => [`${group} SUM`, `${group} USD`, `${group} Euro`])]
-    const body = filtered.map((row) => {
-      const cells = groupKeys.flatMap((key) => [
-        cellFor(row, key, "sum"),
-        cellFor(row, key, "usd"),
-        cellFor(row, key, "eur"),
-      ])
-      return [row.name, ...cells]
-    })
-    downloadExcelTable(debtTab === "suppliers" ? "supplier-debts.xls" : "agent-debts.xls", [header, ...body])
+  const refresh = () => {
+    list.reload()
+    reloadOptions()
   }
 
-  const refresh = () => {
-    setSearch("")
-    setOrganizationFilter("Все организации")
-    setAppliedOrganization("Все организации")
-    setRefreshTick((value) => value + 1)
+  const delivererName = (row: BalanceRow) => row.name || t("Не указано")
+
+  // Demo: the deliverer opens Баланс клиентов for the realization period, filtered by that delivery man.
+  const clientBalanceByDeliverer = (row: BalanceRow) =>
+    `/analytics/client-balance?${buildBalanceQuery({
+      periodType: "secondPeriod",
+      acceptedDateBegin: period.from,
+      acceptedDateEnd: period.to,
+      deliveryMan: row.name,
+      division: f.division,
+    })}`
+  // Agents: every amount opens Баланс клиентов of the agent's clients (demo user=<agent>).
+  const clientBalanceByAgent = (row: BalanceRow) => `/analytics/client-balance?${buildBalanceQuery({ fromDate: period.from, toDate: period.to, user: [row.name] })}`
+
+  const delivererCell = (row: BalanceRow) => (
+    <div className="group flex items-center justify-between gap-2">
+      {row.key === "none" ? (
+        <span className="text-[#586174]">{delivererName(row)}</span>
+      ) : (
+        <Link href={clientBalanceByDeliverer(row)} className="text-[#333] hover:font-semibold hover:text-[#4f70e7]">
+          {delivererName(row)}
+        </Link>
+      )}
+      <span className="flex shrink-0 items-center gap-1 opacity-0 transition-opacity duration-300 group-hover:opacity-100 focus-within:opacity-100">
+        <button
+          type="button"
+          onClick={() => update({ openClient: row.key })}
+          title={t("Информация по балансу доставщика")}
+          aria-label={t("Информация по балансу доставщика")}
+          className="rounded-full p-1 text-[#666] hover:bg-[#e8edf3]"
+        >
+          <Info className="h-4 w-4" />
+        </button>
+        {canEdit && row.id !== null && (
+          <button
+            type="button"
+            onClick={() => update({ openAddDialog: row.id })}
+            title={t("Корректировка")}
+            aria-label={t("Корректировка")}
+            className="flex h-5 w-5 items-center justify-center rounded-full bg-[#8dc572] text-white hover:opacity-85"
+          >
+            <Plus className="h-3.5 w-3.5" />
+          </button>
+        )}
+      </span>
+    </div>
+  )
+
+  const agentCell = (row: BalanceRow) =>
+    row.key === "none" ? (
+      <span className="text-[#586174]">{t("Не указано")}</span>
+    ) : (
+      <Link href={clientBalanceByAgent(row)} className="text-[#333] hover:font-semibold hover:text-[#4f70e7]">
+        {row.name}
+      </Link>
+    )
+
+  const downloadExcel = () => {
+    if (!data) return
+    const leading = [{ label: isAgents ? "Агенты" : "Доставщики", value: (row: BalanceRow) => (row.key === "none" ? t("Не указано") : row.name) }]
+    const groups = isAgents ? AGENT_GROUPS : DELIVERER_GROUPS
+    downloadExcelTable(t(isAgents ? "Долги" : "Доставки"), balanceListExcelRows({ rows, groups, currencies: codes, leading, totals: data.totals, t }))
   }
+
+  const correctionRow = state.openAddDialog ? rows.find((row) => row.id === state.openAddDialog) : undefined
+  const actRow = state.openClient ? rows.find((row) => row.key === state.openClient) : undefined
+
+  const toggleButton = (active: boolean) =>
+    `h-9 px-4 text-[13px] font-semibold uppercase tracking-wide transition-colors ${active ? "bg-[#4f71dc] text-white" : "bg-[#dadada] text-white hover:bg-[#c8c8c8]"}`
 
   return (
-    <main key={refreshTick} className="min-h-screen bg-white text-[#17233b]">
+    <main className="min-h-screen bg-[#f1f4f8] text-[#17233b]">
       <header className="flex min-h-[76px] items-center border-b border-[#d8dee7] bg-[#f2f5f8] px-6 md:px-9">
         <div className="flex items-center gap-3">
           <FavoritesButton className="flex items-center gap-3 text-2xl font-bold text-[#4f70e7]" />
           <span className="text-3xl font-light text-[#586174]">|</span>
-          <span className="text-2xl font-bold text-[#586174]">Долги доставщиков</span>
+          <span className="text-2xl font-bold text-[#586174]">{t("Долги доставщиков")}</span>
         </div>
       </header>
 
-      <section className="flex flex-wrap items-center gap-4 px-6 py-4 md:px-9">
-        <div className="flex overflow-hidden rounded-sm border border-[#4f70e7]">
-          {(
-            [
-              ["today", "Сегодня"],
-              ["month", "Месяц"],
-              ["custom", "Своя дата"],
-            ] as const
-          ).map(([key, label]) => (
-            <button
-              key={key}
-              onClick={() => setPeriod(key)}
-              className={`px-5 py-2.5 text-[13px] font-bold uppercase tracking-wide ${period === key ? "bg-[#4f70e7] text-white" : "text-[#4f70e7]"}`}
-            >
-              {label}
+      <section className="relative flex flex-wrap items-center gap-x-5 gap-y-3 border-b border-[#e1e5eb] bg-white px-6 py-3 shadow-[0_1px_4px_rgba(0,0,0,0.08)] md:px-9">
+        <div className="flex overflow-hidden rounded-sm">
+          {PERIODS.map((item) => (
+            <button key={item.key} type="button" onClick={() => update({ typeCash: item.key })} className={toggleButton(state.typeCash === item.key)}>
+              {t(item.label)}
             </button>
           ))}
         </div>
-
-        {period === "custom" && (
-          <div className="flex items-center gap-2 border-b border-[#dbe0e8] pb-1.5 text-[15px]">
-            <input type="date" value={customFrom} onChange={(event) => setCustomFrom(event.target.value)} className="bg-transparent outline-none" />
-            <span className="text-[#9aa3b6]">—</span>
-            <input type="date" value={customTo} onChange={(event) => setCustomTo(event.target.value)} className="bg-transparent outline-none" />
-          </div>
+        {state.typeCash === "ownDate" && (
+          <span className="flex items-center gap-2 text-[13px] font-bold text-[#4f70e7]">
+            <input
+              type="date"
+              value={state.own.from}
+              max={state.own.to}
+              onChange={(event) => isIsoDay(event.target.value) && update({ own: { ...state.own, from: event.target.value } })}
+              className="h-9 bg-transparent outline-none"
+            />
+            <span>—</span>
+            <input
+              type="date"
+              value={state.own.to}
+              min={state.own.from}
+              onChange={(event) => isIsoDay(event.target.value) && update({ own: { ...state.own, to: event.target.value } })}
+              className="h-9 bg-transparent outline-none"
+            />
+          </span>
         )}
 
-        <div className="ml-auto flex overflow-hidden rounded-sm border border-[#4f70e7]">
-          {(
-            [
-              ["suppliers", "Долги доставщиков"],
-              ["agents", "Долги агентов"],
-            ] as const
-          ).map(([key, label]) => (
-            <button
-              key={key}
-              onClick={() => { setDebtTab(key); setSearch("") }}
-              className={`px-5 py-2.5 text-[13px] font-bold uppercase tracking-wide ${debtTab === key ? "bg-[#4f70e7] text-white" : "text-[#4f70e7]"}`}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-
-        <button onClick={downloadExcel} aria-label="Скачать" className="text-[#586174] hover:text-[#17233b]"><Download className="h-5 w-5" /></button>
-        <button onClick={refresh} aria-label="Обновить" className="text-[#586174] hover:text-[#17233b]"><RefreshCw className="h-5 w-5" /></button>
-        <button onClick={() => setFilterOpen((value) => !value)} className="flex items-center gap-1 font-medium text-[#4f70e7]">
-          Показать фильтр <ChevronDown className={`h-4 w-4 transition ${filterOpen ? "rotate-180" : ""}`} />
-        </button>
-      </section>
-
-      {filterOpen && (
-        <section className="relative mx-6 mb-4 rounded-md border border-[#e1e5eb] bg-[#f6f9fc] px-6 py-6 md:mx-9">
-          <button onClick={() => setFilterOpen(false)} aria-label="Закрыть фильтр" className="absolute right-4 top-4 text-[#9aa3b6] hover:text-[#17233b]">
-            <X className="h-5 w-5" />
-          </button>
-          <div className="grid grid-cols-1 gap-6 sm:grid-cols-3">
-            <label className="relative block border-b border-[#dbe0e8] pb-2 text-[15px] font-medium">
-              Организация
-              <select value={organizationFilter} onChange={(event) => setOrganizationFilter(event.target.value)} className="mt-1 block w-full appearance-none bg-transparent pr-6 text-[15px] font-normal outline-none">
-                {organizations.map((option) => <option key={option}>{option}</option>)}
-              </select>
-              <ChevronDown className="pointer-events-none absolute right-0 top-6 h-4 w-4 text-[#9aa3b6]" />
-            </label>
-            <label className="relative min-w-[220px] border-b border-[#dbe0e8] pb-2 text-[15px] font-medium">
-              Поиск по имени
-              <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Введите имя" className="mt-1 block w-full bg-transparent text-[15px] font-normal outline-none placeholder:text-[#9aa3b6]" />
-            </label>
-          </div>
-          <button onClick={applyFilter} className="mt-6 rounded-md bg-[#6fcf97] px-8 py-2.5 text-sm font-semibold uppercase tracking-wide text-white hover:bg-[#5fbf87]">
-            Применить
-          </button>
-        </section>
-      )}
-
-      {appliedOrganization !== "Все организации" && (
-        <p className="mx-6 mb-2 text-sm text-[#586174] md:mx-9">Организация: <span className="font-semibold text-[#4f70e7]">{appliedOrganization}</span></p>
-      )}
-
-      {!cardsCollapsed && (
-        <section className="relative grid grid-cols-1 gap-6 px-6 pb-6 sm:grid-cols-3 md:px-9">
-          <div>
-            <p className="text-[#586174]">Баланс на начало периода</p>
-            <p className="font-semibold"><AmountCell value={totals.opening.eur} /> Euro</p>
-            <p className="font-semibold"><AmountCell value={totals.opening.sum} /> SUM</p>
-            <p className="font-semibold"><AmountCell value={totals.opening.usd} /> USD</p>
-            <p className="mt-4 text-[#586174]">Отгрузка (Заказы)</p>
-            <p className="font-semibold">0 Euro</p>
-            <p className="font-semibold">0 SUM</p>
-            <p className="font-semibold">0 USD</p>
-          </div>
-          <div>
-            <p className="text-[#586174]">Возврат</p>
-            <p className="font-semibold">0 Euro</p>
-            <p className="font-semibold">0 SUM</p>
-            <p className="font-semibold">0 USD</p>
-            <p className="mt-4 text-[#586174]">Оплачено</p>
-            <p className="font-semibold">0 Euro</p>
-            <p className="font-semibold">0 SUM</p>
-            <p className="font-semibold">0 USD</p>
-          </div>
-          <div className="sm:text-right">
-            <p className="text-[#586174]">Корректировка</p>
-            <p className="font-semibold">0 Euro</p>
-            <p className="font-semibold">0 SUM</p>
-            <p className="font-semibold">0 USD</p>
-            <p className="mt-4 text-[#586174]">Баланс на конец периода</p>
-            <p className="font-semibold"><AmountCell value={totals.opening.eur} /> Euro</p>
-            <p className="font-semibold"><AmountCell value={totals.opening.sum} /> SUM</p>
-            <p className="font-semibold"><AmountCell value={totals.opening.usd} /> USD</p>
-          </div>
-          <button
-            onClick={() => setCardsCollapsed(true)}
-            aria-label="Свернуть панель"
-            className="absolute -right-1 top-1/2 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full border border-[#e1e5eb] bg-white text-[#9aa3b6] shadow-md hover:text-[#17233b]"
-          >
-            <ChevronsRight className="h-5 w-5" />
-          </button>
-        </section>
-      )}
-      {cardsCollapsed && (
-        <div className="flex justify-end px-6 pb-4 md:px-9">
-          <button onClick={() => setCardsCollapsed(false)} aria-label="Показать панель" className="flex items-center gap-1 text-sm font-medium text-[#4f70e7]">
-            <ChevronsRight className="h-4 w-4 rotate-180" /> Показать итоги
-          </button>
-        </div>
-      )}
-
-      <section className="border-t border-[#e1e5eb] px-6 pt-4 text-sm text-[#586174] md:px-9">
-        {filtered.length} {debtTab === "suppliers" ? "доставщиков" : "агентов"} из {totalLabel}
-      </section>
-
-      <section className="overflow-x-auto pb-10">
-        <table className="min-w-[2300px] w-full border-collapse text-[14px]">
-          <thead>
-            <tr className="bg-[#edf2f7] text-[#253653]">
-              <th className="border border-[#e1e5eb] px-4 py-2" />
-              {groups.map((group) => (
-                <th key={group} colSpan={3} className="border border-[#e1e5eb] px-4 py-2 text-center font-medium">{group}</th>
-              ))}
-            </tr>
-            <tr className="bg-white text-[#17233b]">
-              <th className="border-b border-[#e1e5eb] px-4 py-2 text-left font-semibold">{nameColumnLabel}</th>
-              {groups.map((group) =>
-                ["SUM", "USD", "Euro"].map((currency) => (
-                  <th key={`${group}-${currency}`} className="border-b border-[#e1e5eb] px-4 py-2 font-semibold">{currency}</th>
-                )),
-              )}
-            </tr>
-          </thead>
-          <tbody>
-            {filtered.map((row, index) => (
-              <tr key={row.id} className={index % 2 ? "bg-[#f6f9fc]" : "bg-white"}>
-                <td className={`border-b border-[#e1e5eb] px-4 py-3.5 ${row.linkStyle ? "font-medium text-[#4f70e7] underline" : ""}`}>{row.name}</td>
-                {groupKeys.map((key) =>
-                  (["sum", "usd", "eur"] as const).map((currency) => (
-                    <td key={`${row.id}-${key}-${currency}`} className="border-b border-[#e1e5eb] px-4 py-3.5">
-                      <AmountCell value={cellFor(row, key, currency)} />
-                    </td>
-                  )),
-                )}
-              </tr>
+        <div className="ml-auto flex flex-wrap items-center gap-2">
+          <div className="flex overflow-hidden rounded-sm">
+            {TABS.map((item) => (
+              <button key={item.key} type="button" onClick={() => switchTab(item.key)} className={toggleButton(state.tab === item.key)}>
+                {t(item.label)}
+              </button>
             ))}
-            {filtered.length === 0 && (
-              <tr><td colSpan={1 + groups.length * 3} className="border-b border-[#e1e5eb] px-4 py-16 text-center text-[#9aa3b6]">Ничего не найдено</td></tr>
-            )}
-          </tbody>
-        </table>
+          </div>
+          <DownloadMenu label={isAgents ? "Долги" : "Доставки"} disabled={!data} onClick={downloadExcel} />
+          <button type="button" onClick={refresh} title={t("Обновить список")} aria-label={t("Обновить список")} className="rounded-full p-2.5 text-[#5d6474] hover:bg-[#f2f5f8]">
+            <RefreshCw className={`h-5 w-5 ${list.loading ? "animate-spin" : ""}`} />
+          </button>
+          <BalanceFilterChip count={filterCount} onOpen={() => setFilterOpen(true)} onClear={() => update({ filters: EMPTY_FILTERS })} />
+        </div>
+
+        {filterOpen && (
+          <DelivererDebtsFilterPanel
+            key={state.tab}
+            tab={state.tab}
+            value={f}
+            options={options}
+            onApply={(filters) => update({ filters })}
+            onClose={() => setFilterOpen(false)}
+          />
+        )}
       </section>
+
+      <div className="border-b border-[#e1e5eb] bg-white pt-6">
+        {data ? (
+          <BalanceSummaryCards boxes={isAgents ? AGENT_BOXES : DELIVERER_BOXES} totals={data.totals} currencies={codes} loading={list.loading} />
+        ) : (
+          <div className="flex h-[150px] items-center justify-center pb-6">
+            {list.error ? <span className="text-[#e57373]">{t(list.error)}</span> : <Loader2 className="h-7 w-7 animate-spin text-[#4f70e7]" />}
+          </div>
+        )}
+      </div>
+
+      {list.error && data && (
+        <div className="flex items-center justify-between gap-4 bg-[#fdecec] px-6 py-2 text-[14px] text-[#c62828] md:px-9">
+          <span>{t(list.error)}</span>
+          <button type="button" onClick={list.reload} className="font-semibold underline">
+            {t("Повторить")}
+          </button>
+        </div>
+      )}
+
+      <section className="bg-white pb-10">
+        {isAgents ? (
+          <BalanceTable
+            rows={rows}
+            groups={AGENT_GROUPS}
+            currencies={codes}
+            first={{ label: "Ответственные агенты клиентов", width: 260, sortKey: "name", render: agentCell }}
+            ordering={state.ordering}
+            onOrderingChange={(ordering) => update({ ordering })}
+            onCellClick={(row, field) => {
+              if (field && row.key !== "none") router.push(clientBalanceByAgent(row))
+            }}
+            loading={list.loading}
+            emptyText="Нет данных"
+          />
+        ) : (
+          <BalanceTable
+            rows={rows}
+            groups={DELIVERER_GROUPS}
+            currencies={codes}
+            first={{ label: "Доставщик", width: 220, sortKey: "name", render: delivererCell }}
+            ordering={state.orderingPrediction}
+            onOrderingChange={(orderingPrediction) => update({ orderingPrediction })}
+            loading={list.loading}
+            emptyText="Нет данных"
+          />
+        )}
+      </section>
+
+      {state.openClient && !isAgents && (
+        <DelivererActDialog
+          key={state.openClient}
+          entityKey={state.openClient}
+          name={actRow ? delivererName(actRow) : ""}
+          from={period.from}
+          to={period.to}
+          canEdit={canEdit}
+          onClose={() => update({ openClient: null })}
+          onChanged={(message) => {
+            setNotice(message)
+            list.reload()
+          }}
+        />
+      )}
+
+      {state.openAddDialog && !isAgents && (
+        <DelivererCorrectionDialog
+          key={state.openAddDialog}
+          employeeId={state.openAddDialog}
+          name={correctionRow ? delivererName(correctionRow) : `#${state.openAddDialog}`}
+          from={period.from}
+          to={period.to}
+          currencies={data?.currencies ?? []}
+          options={options}
+          onClose={() => update({ openAddDialog: null })}
+          onSaved={() => {
+            update({ openAddDialog: null })
+            setNotice("Успешно сохранено")
+            list.reload()
+            reloadOptions()
+          }}
+        />
+      )}
+
+      {notice && (
+        <div className="fixed bottom-6 left-1/2 z-[130] -translate-x-1/2 rounded bg-[#323232] px-6 py-3 text-[14px] text-white shadow-lg" role="status">
+          {t(notice)}
+        </div>
+      )}
     </main>
   )
 }

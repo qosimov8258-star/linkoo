@@ -108,7 +108,7 @@ export function OperationDescription({ operation, onOpenAcceptance }: { operatio
     case 22:
       return (
         <span>
-          {t("Выдача денег для кэшбека")} {client ? <Ext href={LOYALTY_HREF}>{client.name}</Ext> : null}
+          {t("Выдача денег для кэшбека")} {client ? <Ext href={`${LOYALTY_HREF}?search=${encodeURIComponent(client.name)}`}>{client.name}</Ext> : null}
         </span>
       )
     default:

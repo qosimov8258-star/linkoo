@@ -18,7 +18,7 @@ import { AbcAnalysisView } from "@/components/analytics/abc-analysis-view"
 import { SalesByAgentsView } from "@/components/analytics/sales-by-agents-view"
 import { SalesByProductsView } from "@/components/analytics/sales-by-products-view"
 import { ClientSalesPaymentsView } from "@/components/analytics/client-sales-payments-view"
-import { ClientDebtsView } from "@/components/analytics/client-debts-view"
+import { OrderDebtsView } from "@/components/analytics/order-debts-view"
 import { ClientDynamicsView } from "@/components/analytics/client-dynamics-view"
 import { CoverageAnalysisView } from "@/components/analytics/coverage-analysis-view"
 import { AttendanceView } from "@/components/analytics/attendance-view"
@@ -209,7 +209,7 @@ export default async function AnalyticsPage({ params }: PageProps) {
   }
 
   if (report.slug === "order-debts") {
-    return <ClientDebtsView />
+    return <OrderDebtsView />
   }
   if (report.slug === "client-dynamics") {
     return <ClientDynamicsView />
@@ -330,8 +330,12 @@ export default async function AnalyticsPage({ params }: PageProps) {
     return <ExpectedExpensesView />
   }
 
-  if (report.slug === "store-reconciliation-bot" || report.slug === "account-reconciliation") {
+  if (report.slug === "store-reconciliation-bot") {
     return <StoreReconciliationBotView />
+  }
+
+  if (report.slug === "account-reconciliation") {
+    return <StoreReconciliationBotView variant="account" />
   }
 
   if (report.slug === "loyalty-card") {

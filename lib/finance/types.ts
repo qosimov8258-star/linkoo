@@ -5,9 +5,9 @@
 // Server code lives in lib/finance/*.ts files marked "server-only"; client
 // components may import only this file, currency.ts and dates.ts.
 
-export type BalanceEntityKind = "cashbox" | "client" | "account" | "supplier" | "vansell" | "branch" | "employee"
+export type BalanceEntityKind = "cashbox" | "client" | "account" | "supplier" | "vansell" | "branch" | "employee" | "deliverer" | "agent"
 
-export const BALANCE_ENTITY_KINDS: readonly BalanceEntityKind[] = ["cashbox", "client", "account", "supplier", "vansell", "branch", "employee"]
+export const BALANCE_ENTITY_KINDS: readonly BalanceEntityKind[] = ["cashbox", "client", "account", "supplier", "vansell", "branch", "employee", "deliverer", "agent"]
 
 /** Movement columns per entity kind, in the demo's column order and with the
  * demo's field names. Sign of each column (see MOVEMENT_SIGNS) is the sign the
@@ -20,6 +20,10 @@ export const MOVEMENT_COLUMNS = {
   vansell: ["stock_transfer_minus", "stock_transfer_plus", "cash_transfer_plus", "bank_transfer_plus", "order_return_plus", "none_type_plus", "none_type_minus"],
   branch: ["stock_transfer_minus", "stock_transfer_plus", "payments", "none_type_plus", "none_type_minus"],
   employee: ["monthly", "performance_bonus", "payment", "penalty", "none_type"],
+  // "Долги доставщиков": the client ledger re-keyed by delivery man + his corrections.
+  deliverer: ["order", "order_return", "payment", "none_type"],
+  // "Долги агентов": client balances rolled up by the clients' responsible agent.
+  agent: ["order", "order_return", "payment", "none_type_plus", "none_type_minus"],
 } as const satisfies Record<BalanceEntityKind, readonly string[]>
 
 export type MovementColumn<K extends BalanceEntityKind = BalanceEntityKind> = (typeof MOVEMENT_COLUMNS)[K][number]
@@ -103,6 +107,19 @@ export const MOVEMENT_LABELS: { [K in BalanceEntityKind]: Record<MovementColumn<
     payment: "Введено с кассы",
     penalty: "Штрафы",
     none_type: "Коректировки",
+  },
+  deliverer: {
+    order: "Отгрузка (Заказы)",
+    order_return: "Возврат",
+    payment: "Оплачено",
+    none_type: "Корректировка",
+  },
+  agent: {
+    order: "Продано",
+    order_return: "Возврат",
+    payment: "Оплачено",
+    none_type_plus: "Прочие приходы",
+    none_type_minus: "Прочие расходы",
   },
 }
 

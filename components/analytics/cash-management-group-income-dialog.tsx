@@ -22,6 +22,7 @@ import {
   type PickOption,
 } from "@/components/analytics/cash-management-shared"
 import type { CashboxWithBalance } from "@/lib/cash/types"
+import type { ContractOption } from "@/lib/contracts-types"
 import { downloadExcelTable } from "@/lib/excel-export"
 import { currencyLabel, normCurrency } from "@/lib/finance/currency"
 import { nowLocalIso } from "@/lib/finance/dates"
@@ -37,7 +38,6 @@ import { useLanguage } from "@/lib/i18n/language-context"
 
 type Row = { key: number; clientId: number; clientName: string; contractId: string; contractLabel: string; amount: string; organization: string; date: string; comment: string }
 type NotFound = { key: number; client: string; amount: string; organization: string; date: string; comment: string; clientId: string; clientName: string }
-type Contract = { id: string; client: string; officialName: string; organization: string; year: string }
 type ClientLite = { id: number; name: string; agent?: string }
 
 const TEMPLATE_HEADERS = ["Клиент", "ИНН", "Код", "Сумма", "Организация", "Дата", "Комментарий"]
@@ -70,7 +70,6 @@ export function CashGroupIncomeDialog({ cashboxes, onClose, onSaved }: { cashbox
   const branches = useJsonList<Named>("/api/branches").items
   const organizations = useJsonList<Named>("/api/organizations").items
   const employees = useJsonList<Named>("/api/employees").items
-  const contracts = useJsonList<Contract>("/api/contracts").items
   const categoriesState = useCashJson<{ categories: CashCategory[] }>("/api/cash/categories?kind=income")
   const categories = useMemo(() => (categoriesState.data?.categories ?? []).filter((item) => item.options.includes("client")), [categoriesState.data])
 
@@ -93,6 +92,8 @@ export function CashGroupIncomeDialog({ cashboxes, onClose, onSaved }: { cashbox
   const [busy, setBusy] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
   const clients = useClientSearch(true)
+  // Active contracts of the entry's client (GET /api/contracts/options).
+  const contracts = useJsonList<ContractOption>(entry.clientId ? `/api/contracts/options?clientId=${entry.clientId}` : null).items
   const allClients = useJsonList<ClientLite>(agentOpen ? "/api/clients" : null)
 
   const cashbox = cashboxes.find((item) => String(item.id) === cashboxId)
@@ -102,16 +103,14 @@ export function CashGroupIncomeDialog({ cashboxes, onClose, onSaved }: { cashbox
   const categoryValue = categoryId || (categories[0] ? String(categories[0].id) : "")
 
   const contractOptions = (clientName: string): PickOption[] =>
-    contracts
-      .filter((contract) => contract.client.trim().toLowerCase() === clientName.trim().toLowerCase())
-      .map((contract) => ({ value: contract.id, label: `${t("Договор №")}: ${contract.id}`, hint: [contract.officialName, contract.organization, contract.year].filter(Boolean).join(" · ") }))
+    clientName ? contracts.map((contract) => ({ value: String(contract.id), label: `${t("Договор №")}: ${contract.fullNumber}`, hint: contract.hint })) : []
   const organizationOptions = organizations.map((item) => ({ value: item.name, label: item.name }))
   const agents = useMemo(() => [...new Set(allClients.items.map((client) => (client.agent ?? "").trim()).filter((agent) => agent && agent !== "Не указано"))].sort((a, b) => a.localeCompare(b, "ru")), [allClients.items])
 
   const applyEntry = () => {
     if (!entry.clientId) return setEntryError(t("Укажите клиента"))
     if (!(parseAmount(entry.amount) > 0)) return setEntryError(t("Укажите сумму"))
-    const contract = contracts.find((item) => item.id === entry.contractId)
+    const contract = contracts.find((item) => String(item.id) === entry.contractId)
     setRows((current) => [
       ...current,
       {
@@ -119,7 +118,7 @@ export function CashGroupIncomeDialog({ cashboxes, onClose, onSaved }: { cashbox
         clientId: Number(entry.clientId),
         clientName: entry.clientName,
         contractId: entry.contractId,
-        contractLabel: contract ? `№ ${contract.id}` : "",
+        contractLabel: contract ? `№ ${contract.fullNumber}` : "",
         amount: entry.amount,
         organization: entry.organization,
         date: entry.date,

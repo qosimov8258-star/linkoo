@@ -3,6 +3,7 @@ import "server-only"
 import type { PgDb } from "@/lib/db"
 import { normCurrency } from "@/lib/finance/currency"
 import type { FinanceSchema } from "@/lib/finance/schema"
+import { DELIVERER_CORRECTIONS_TABLE } from "@/lib/finance/sources"
 import type { BalanceEntityKind, BalanceInfoValue } from "@/lib/finance/types"
 
 // Entity lists (the rows of each balance page) with the attributes the pages
@@ -162,20 +163,70 @@ async function vansellAgents(db: PgDb, s: FinanceSchema): Promise<EntityRecord[]
     .map(employeeRecord)
 }
 
+/** Same pattern as the "Доставщик" options of Баланс клиентов (lib/finance-client-balance.ts). */
+const DELIVERY_POSITION = /достав|курьер|экспедит|водит|deliver|eltuv|yetkaz|haydov/i
+
+/** Every employee (any one may be named as a deliverer); info.is_deliverer = 1
+ * for the ones the page lists even without movements: a delivery position, or
+ * named as deliverer on a client / order / payment / correction. */
+async function deliverers(db: PgDb, s: FinanceSchema): Promise<EntityRecord[]> {
+  const rows = (await db
+    .prepare("SELECT id, first_name, last_name, position, branch, active FROM employees ORDER BY lower(first_name), lower(last_name), id")
+    .all()) as EmployeeRow[]
+  const values = async (sql: string, ok: boolean): Promise<unknown[]> => (ok ? ((await db.prepare(sql).all()) as Array<{ v: unknown }>).map((row) => row.v) : [])
+  const [clientNames, orderNames, paymentNames, paymentIds, correctionIds] = await Promise.all([
+    values("SELECT DISTINCT deliverer AS v FROM clients", s.col("clients", "deliverer")),
+    values("SELECT DISTINCT delivery_man AS v FROM orders", s.col("orders", "delivery_man")),
+    values("SELECT DISTINCT delivery_man AS v FROM customer_payments", s.col("customer_payments", "delivery_man")),
+    values("SELECT DISTINCT delivery_man_id AS v FROM customer_payments WHERE delivery_man_id IS NOT NULL", s.col("customer_payments", "delivery_man_id")),
+    values(`SELECT DISTINCT employee_id AS v FROM ${DELIVERER_CORRECTIONS_TABLE}`, s.has(DELIVERER_CORRECTIONS_TABLE)),
+  ])
+  const names = new Set([...clientNames, ...orderNames, ...paymentNames].map((value) => nameKey(placeName(value))).filter(Boolean))
+  const ids = new Set([...paymentIds, ...correctionIds].map(Number))
+  return rows.map((row) => {
+    const record = employeeRecord(row)
+    record.info.is_deliverer = DELIVERY_POSITION.test(row.position ?? "") || names.has(nameKey(record.name)) || ids.has(row.id) ? 1 : 0
+    return record
+  })
+}
+
+/** Employees by normalised full name (lowest id wins, like the ledger's emp_keys). */
+export async function loadEmployeesByName(db: PgDb): Promise<Map<string, EntityRecord>> {
+  const rows = (await db.prepare("SELECT id, first_name, last_name, position, branch, active FROM employees ORDER BY id").all()) as EmployeeRow[]
+  const byName = new Map<string, EntityRecord>()
+  for (const row of rows) {
+    const record = employeeRecord(row)
+    const key = nameKey(record.name)
+    if (key && !byName.has(key)) byName.set(key, record)
+  }
+  return byName
+}
+
+/** Row key of a person referenced by name (clients.agent …): the employee id,
+ * "name:<name>" when no employee has that name, "none" when empty. */
+export function personKey(name: unknown, employees: Map<string, EntityRecord>): string {
+  const key = nameKey(placeName(name))
+  if (!key) return "none"
+  const employee = employees.get(key)
+  return employee ? employee.key : `name:${key}`
+}
+
 async function branches(db: PgDb, s: FinanceSchema): Promise<EntityRecord[]> {
   if (!s.has("branches")) return []
   const rows = (await db.prepare("SELECT id, name, currency, is_main FROM branches ORDER BY id").all()) as Array<{ id: number; name: string; currency: string; is_main: number }>
   return rows.map((row) => ({ key: String(row.id), id: row.id, name: row.name, info: { currency: normCurrency(row.currency), is_main: row.is_main ? 1 : 0, branch: row.name } }))
 }
 
-/** Rows of a balance page before money is attached. `account` uses the
- * client list (accounts are built from clients in the ledger). */
+/** Rows of a balance page before money is attached. `account` and `agent`
+ * use the client list (accounts / agents are rolled up from clients in the
+ * ledger); `deliverer` returns every employee (see deliverers()). */
 export async function loadEntities(kind: BalanceEntityKind, db: PgDb, s: FinanceSchema): Promise<EntityRecord[]> {
   switch (kind) {
     case "cashbox":
       return cashboxes(db)
     case "client":
     case "account":
+    case "agent":
       return clients(db, s)
     case "supplier":
       return suppliers(db)
@@ -185,6 +236,8 @@ export async function loadEntities(kind: BalanceEntityKind, db: PgDb, s: Finance
       return branches(db, s)
     case "employee":
       return employees(db)
+    case "deliverer":
+      return deliverers(db, s)
   }
 }
 

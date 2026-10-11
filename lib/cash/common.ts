@@ -212,14 +212,16 @@ export type ContractInfo = { id: number; label: string }
 export async function loadContract(db: PgDb, id: number | null | undefined): Promise<ContractInfo | null> {
   if (!id) return null
   const exists = (await db.prepare("SELECT to_regclass('contracts') IS NOT NULL AS ok").get()) as { ok: boolean }
-  const row = exists.ok
-    ? ((await db.prepare("SELECT id, official_name, organization, year FROM contracts WHERE id = @id").get({ id })) as
-        | { id: number; official_name: string; organization: string; year: number | null }
-        | undefined)
+  // to_jsonb: the number/prefix/suffix columns are added lazily by lib/contracts-repo.ts.
+  const found = exists.ok
+    ? ((await db.prepare("SELECT to_jsonb(c) AS row FROM contracts c WHERE c.id = @id").get({ id })) as { row: Record<string, unknown> } | undefined)
     : undefined
-  if (!row) throw new CashError("Договор не найден", 404, "contract")
-  const label = [`№ ${row.id}`, row.official_name, row.organization, row.year ? String(row.year) : ""].filter(Boolean).join(" · ")
-  return { id: row.id, label }
+  if (!found) throw new CashError("Договор не найден", 404, "contract")
+  const row = found.row
+  const text = (value: unknown) => (value == null ? "" : String(value))
+  const number = `${text(row.contract_prefix)}${text(row.contract_number) || text(row.id)}${text(row.contract_suffix)}`
+  const label = [`№ ${number}`, text(row.official_name), text(row.organization), text(row.year)].filter(Boolean).join(" · ")
+  return { id: Number(row.id), label }
 }
 
 /** Currency context (base + current rates). */

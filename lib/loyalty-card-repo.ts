@@ -1,96 +1,431 @@
 import "server-only"
 
-import { getDb } from "@/lib/db"
+import { z } from "zod"
 
-export type Money = { euro: number; sum: number; usd: number }
-export type LoyaltyTransaction = { id: number; type: string; action: string; date: string; amount: number; currency: keyof Money }
-export type LoyaltyCardClient = { id: number; client: string; balance: Money; transactions: LoyaltyTransaction[] }
+import { getDb, withTransaction, type PgDb } from "@/lib/db"
+import { loyaltyCurrency } from "@/lib/cash/common"
+import { loadCurrencyContext, withSeenCodes, type CurrencyContext } from "@/lib/finance/context"
+import { currencyLabel, normCurrency, roundMoney } from "@/lib/finance/currency"
+import { parseAnyDate } from "@/lib/finance/dates"
+import { nameKey } from "@/lib/finance/entities"
+import { ensureFinanceSchema } from "@/lib/finance/schema"
+import type {
+  CashbackType,
+  LoyaltyCardDetail,
+  LoyaltyCardListResult,
+  LoyaltyCardOptions,
+  LoyaltyCardRow,
+  LoyaltyCurrency,
+  LoyaltyCurrencyTotal,
+  LoyaltyHistoryRow,
+  LoyaltyTransactionResult,
+} from "@/lib/loyalty-card-types"
 
-type TxRow = {
-  id: number
-  client_id: number
-  currency: string
-  amount: number
-  comment: string
-  created_at: string
-}
+// "Накопительная карта" (demo #/cumulative): every client's cashback balance
+// per currency, its movement history and manual accrual / write-off.
+//
+// Ledger = loyalty_card_transactions, one signed row per movement:
+//   manual "Добавить" / "Списать" (this page)        type 'additional', ±amount
+//   cash payout "Выдача денег для Кэшбек" / "Карта клиента"
+//     (lib/cash/write.ts, op 22)                      −amount, transaction_id = cash entry id
+// Balance(client, currency) = Σ amount grouped by client_id and
+// COALESCE(fin_cur(currency), base) — the expression the management balance
+// ("Кешбэк покупателей", lib/finance/management.ts) uses, so both agree.
+// Automatic accrual by cashback promotions (demo type 'payment') is not
+// modelled: this app has no promotions engine.
 
-type ClientRow = { id: number; name: string }
-
-async function ensureSchema(db: ReturnType<typeof getDb>) {
-  await db.exec(`
-    CREATE TABLE IF NOT EXISTS loyalty_card_transactions (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      client_id INTEGER NOT NULL,
-      currency TEXT NOT NULL DEFAULT 'sum',
-      amount REAL NOT NULL DEFAULT 0,
-      comment TEXT NOT NULL DEFAULT '',
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
-    );
-  `)
-}
-
-function formatDate(sqliteDate: string): string {
-  const isoLike = sqliteDate.includes("T") ? sqliteDate : `${sqliteDate.replace(" ", "T")}Z`
-  const date = new Date(isoLike)
-  if (Number.isNaN(date.getTime())) return sqliteDate
-  return new Intl.DateTimeFormat("ru-RU", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }).format(date)
-}
-
-function normalizeCurrency(value: unknown): keyof Money {
-  return value === "euro" || value === "usd" ? value : "sum"
-}
-
-export async function listLoyaltyCardClients(): Promise<LoyaltyCardClient[]> {
-  const db = getDb()
-  await ensureSchema(db)
-  const clients = (await db.prepare("SELECT id, name FROM clients ORDER BY id DESC").all()) as ClientRow[]
-  const allTx = (await db.prepare("SELECT * FROM loyalty_card_transactions ORDER BY id DESC").all()) as TxRow[]
-
-  const txByClient = new Map<number, TxRow[]>()
-  for (const tx of allTx) {
-    const list = txByClient.get(tx.client_id) ?? []
-    list.push(tx)
-    txByClient.set(tx.client_id, list)
+export class LoyaltyInputError extends Error {
+  constructor(
+    message: string,
+    readonly status = 400,
+  ) {
+    super(message)
   }
+}
 
-  return clients.map((client) => {
-    const txs = txByClient.get(client.id) ?? []
-    const balance: Money = { euro: 0, sum: 0, usd: 0 }
-    const transactions: LoyaltyTransaction[] = txs.map((tx) => {
-      const currency = normalizeCurrency(tx.currency)
-      balance[currency] += tx.amount
-      return {
-        id: tx.id,
-        type: tx.comment || "Не указано",
-        action: tx.amount >= 0 ? "Приход" : "Расход",
-        date: formatDate(tx.created_at),
-        amount: tx.amount,
-        currency,
-      }
-    })
-    return { id: client.id, client: client.name, balance, transactions }
+// ---------------------------------------------------------------------------
+// Schema
+// ---------------------------------------------------------------------------
+
+const LOYALTY_SCHEMA_VERSION = 1
+
+// The table is also created by lib/cash/schema.ts (same base columns); both
+// installers take the cash core's advisory lock so they never race.
+const DDL = `
+CREATE TABLE IF NOT EXISTS loyalty_card_transactions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  client_id INTEGER NOT NULL,
+  currency TEXT NOT NULL DEFAULT 'sum',
+  amount REAL NOT NULL DEFAULT 0,
+  comment TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+ALTER TABLE loyalty_card_transactions ADD COLUMN IF NOT EXISTS transaction_id INTEGER;
+ALTER TABLE loyalty_card_transactions ADD COLUMN IF NOT EXISTS type TEXT;
+ALTER TABLE loyalty_card_transactions ADD COLUMN IF NOT EXISTS created_by TEXT NOT NULL DEFAULT '';
+DO $$ BEGIN
+  IF (SELECT data_type FROM information_schema.columns
+      WHERE table_schema = current_schema() AND table_name = 'loyalty_card_transactions' AND column_name = 'amount') = 'real' THEN
+    -- REAL keeps ~7 significant digits (16 777 217 SUM is not representable).
+    ALTER TABLE loyalty_card_transactions ALTER COLUMN amount TYPE double precision;
+  END IF;
+END $$;
+CREATE INDEX IF NOT EXISTS loyalty_card_transactions_client_idx ON loyalty_card_transactions (client_id);
+CREATE INDEX IF NOT EXISTS loyalty_card_transactions_transaction_idx ON loyalty_card_transactions (transaction_id);
+`
+
+declare global {
+  var __linkoLoyaltySchema: { version: number; ready: Promise<void> } | undefined
+}
+
+async function install(): Promise<void> {
+  await withTransaction(async (tx) => {
+    await tx.exec("SELECT pg_advisory_xact_lock(72120902)")
+    await tx.exec(DDL)
   })
 }
 
-export type LoyaltyTransactionInput = {
-  clientId: number
-  currency: keyof Money
-  amount: number
-  kind: "add" | "expense"
-  comment: string
+/** Creates / upgrades loyalty_card_transactions once per process; returns the
+ * finance introspection (fin_cur / fin_ts SQL functions are installed by it). */
+export async function ensureLoyaltySchema(db: PgDb = getDb()) {
+  const cached = globalThis.__linkoLoyaltySchema
+  if (!cached || cached.version !== LOYALTY_SCHEMA_VERSION) {
+    const ready = install().catch((error: unknown) => {
+      globalThis.__linkoLoyaltySchema = undefined
+      throw error
+    })
+    globalThis.__linkoLoyaltySchema = { version: LOYALTY_SCHEMA_VERSION, ready }
+  }
+  await globalThis.__linkoLoyaltySchema!.ready
+  return ensureFinanceSchema(db)
 }
 
-export async function createLoyaltyCardTransaction(input: LoyaltyTransactionInput): Promise<LoyaltyCardClient | null> {
+// ---------------------------------------------------------------------------
+// Input schemas
+// ---------------------------------------------------------------------------
+
+const emptyToUndefined = (value: unknown) => (value === "" || value === null ? undefined : value)
+const text = (max: number) => z.preprocess(emptyToUndefined, z.string().trim().max(max).optional())
+const int = (min: number, max: number) => z.preprocess(emptyToUndefined, z.coerce.number().int().min(min).max(max).optional())
+
+export const loyaltyListQuerySchema = z.object({
+  search: text(200),
+  /** Client type name (demo marketTypeParent / marketType). */
+  clientType: text(200),
+  /** name | last_created | <CURRENCY CODE>, "-" prefix = descending. */
+  ordering: text(60),
+  page: int(1, 1_000_000),
+  /** 0 = every row. */
+  pageSize: int(0, 5000),
+})
+export type LoyaltyListQuery = z.infer<typeof loyaltyListQuerySchema>
+
+export const loyaltyDetailQuerySchema = z.object({
+  page: int(1, 1_000_000),
+  pageSize: int(1, 500),
+})
+export type LoyaltyDetailQuery = z.infer<typeof loyaltyDetailQuerySchema>
+
+/** Demo POST sales/cash_back/custom_price/ {price: ±price, currency, comment, client}. */
+export const loyaltyTransactionSchema = z.object({
+  clientId: z.coerce.number().int().positive(),
+  /** add = "Добавить" (приход), expense = "Списать" (расход). */
+  kind: z.enum(["add", "expense"]),
+  amount: z.coerce.number().finite().positive().max(1e13),
+  currency: z.string().trim().min(1).max(16),
+  comment: z.string().trim().max(500).optional(),
+})
+export type LoyaltyTransactionInput = z.infer<typeof loyaltyTransactionSchema>
+
+export function searchParamsObject(params: URLSearchParams): Record<string, string> {
+  const out: Record<string, string> = {}
+  for (const [key, value] of params) out[key] = value
+  // Demo URL names.
+  if (out.clientType === undefined && out.marketType !== undefined) out.clientType = out.marketType
+  return out
+}
+
+// ---------------------------------------------------------------------------
+// Reads
+// ---------------------------------------------------------------------------
+
+type BalanceRow = { client_id: number; cur: string; amount: number | null; last_created: string | null }
+type ClientRow = { id: number; name: string | null; type: string | null; phone: string | null; inn: string | null; code: string | null }
+
+/** Columns ordered by label as the demo prints them (Euro, SUM, USD). */
+function currencyColumns(cc: CurrencyContext): LoyaltyCurrency[] {
+  return cc.currencies
+    .map((currency) => ({ code: currency.code, label: currencyLabel(currency.code) }))
+    .sort((a, b) => a.label.localeCompare(b.label, "en"))
+}
+
+async function balanceRows(db: PgDb, base: string, clientId?: number): Promise<BalanceRow[]> {
+  const where = clientId ? "WHERE client_id = @clientId" : ""
+  const rows = (await db
+    .prepare(
+      `SELECT client_id, COALESCE(fin_cur(currency), @base) AS cur, SUM(amount::double precision) AS amount,
+              to_char(MAX(fin_ts(created_at, true)), 'YYYY-MM-DD"T"HH24:MI:SS') AS last_created
+       FROM loyalty_card_transactions ${where}
+       GROUP BY 1, 2`,
+    )
+    .all(clientId ? { base, clientId } : { base })) as BalanceRow[]
+  return rows.map((row) => ({ ...row, client_id: Number(row.client_id), amount: Number(row.amount ?? 0) }))
+}
+
+async function currencyContext(db: PgDb, balances: BalanceRow[]): Promise<CurrencyContext> {
+  return withSeenCodes(await loadCurrencyContext(db), balances.map((row) => row.cur))
+}
+
+type Entry = { row: LoyaltyCardRow; type: string; search: string }
+
+function sortEntries(entries: Entry[], ordering: string | undefined): void {
+  const token = (ordering ?? "").split(",")[0]?.trim() ?? ""
+  const desc = token.startsWith("-")
+  const field = token.replace(/^-/, "")
+  const byName = (a: Entry, b: Entry) => a.row.name.localeCompare(b.row.name, "ru") || a.row.id - b.row.id
+  const byId = (a: Entry, b: Entry) => b.row.id - a.row.id
+  if (!field) {
+    // Default (demo order as observed): newest cashback movement first, clients without movements last, newest client first.
+    entries.sort((a, b) => {
+      const left = a.row.lastCreated ?? ""
+      const right = b.row.lastCreated ?? ""
+      if (left === right) return byId(a, b)
+      if (!left) return 1
+      if (!right) return -1
+      return left > right ? -1 : 1
+    })
+    return
+  }
+  const sign = desc ? -1 : 1
+  if (field === "name") entries.sort((a, b) => sign * byName(a, b))
+  else if (field === "last_created" || field === "lastCreated") {
+    entries.sort((a, b) => {
+      const left = a.row.lastCreated ?? ""
+      const right = b.row.lastCreated ?? ""
+      return (left === right ? 0 : left < right ? -sign : sign) || byId(a, b)
+    })
+  } else {
+    const code = normCurrency(field)
+    entries.sort((a, b) => sign * ((a.row.balances[code] ?? 0) - (b.row.balances[code] ?? 0)) || byId(a, b))
+  }
+}
+
+/** GET /api/loyalty-card — demo GET sales/cash_back/. */
+export async function listLoyaltyCards(query: LoyaltyListQuery): Promise<LoyaltyCardListResult> {
   const db = getDb()
-  await ensureSchema(db)
-  const client = (await db.prepare("SELECT id, name FROM clients WHERE id = ?").get(input.clientId)) as ClientRow | undefined
-  if (!client) return null
+  const s = await ensureLoyaltySchema(db)
+  const base0 = (await loadCurrencyContext(db)).base
+  const balances = await balanceRows(db, base0)
+  const cc = await currencyContext(db, balances)
+  const clients = s.has("clients")
+    ? ((await db.prepare("SELECT id, name, type, phone, inn, code FROM clients").all()) as ClientRow[])
+    : []
 
-  const signedAmount = input.kind === "add" ? input.amount : -input.amount
-  await db.prepare(
-        `INSERT INTO loyalty_card_transactions (client_id, currency, amount, comment) VALUES (@clientId, @currency, @amount, @comment)`,
-      ).run({ clientId: input.clientId, currency: input.currency, amount: signedAmount, comment: input.comment })
+  const byClient = new Map<number, { balances: Record<string, number>; last: string | null }>()
+  for (const row of balances) {
+    const item = byClient.get(row.client_id) ?? { balances: {}, last: null }
+    item.balances[row.cur] = roundMoney((item.balances[row.cur] ?? 0) + Number(row.amount ?? 0))
+    if (row.last_created && (!item.last || row.last_created > item.last)) item.last = row.last_created
+    byClient.set(row.client_id, item)
+  }
 
-  return (await listLoyaltyCardClients()).find((item) => item.id === input.clientId) ?? null
+  const entries: Entry[] = []
+  const known = new Set<number>()
+  for (const client of clients) {
+    const id = Number(client.id)
+    known.add(id)
+    const item = byClient.get(id)
+    entries.push({
+      row: { id, name: String(client.name ?? ""), exists: true, lastCreated: item?.last ?? null, balances: item?.balances ?? {} },
+      type: nameKey(client.type),
+      search: [client.name, client.phone, client.inn, client.code].map((value) => nameKey(value)).join("\n"),
+    })
+  }
+  // Movements of deleted clients stay visible so the totals keep matching the management balance.
+  for (const [id, item] of byClient) {
+    if (known.has(id)) continue
+    entries.push({ row: { id, name: "", exists: false, lastCreated: item.last, balances: item.balances }, type: "", search: String(id) })
+  }
+
+  let filtered = entries
+  const wantedType = nameKey(query.clientType)
+  if (wantedType) filtered = filtered.filter((entry) => entry.type === wantedType)
+  const needle = nameKey(query.search)
+  if (needle) filtered = filtered.filter((entry) => entry.search.includes(needle) || String(entry.row.id) === needle)
+  sortEntries(filtered, query.ordering)
+
+  const totals: Record<string, LoyaltyCurrencyTotal> = {}
+  let cashbackBase = 0
+  const missing = new Set<string>()
+  for (const entry of filtered) {
+    for (const [code, value] of Object.entries(entry.row.balances)) {
+      const total = (totals[code] ??= { positive: 0, negative: 0, net: 0 })
+      if (value > 0) total.positive += value
+      else total.negative += value
+      total.net += value
+      if (value > 0) {
+        const rate = cc.rates[code]
+        if (rate) cashbackBase += value * rate
+        else missing.add(code)
+      }
+    }
+  }
+  for (const total of Object.values(totals)) {
+    total.positive = roundMoney(total.positive)
+    total.negative = roundMoney(total.negative)
+    total.net = roundMoney(total.net)
+  }
+
+  const pageSize = query.pageSize ?? 25
+  const page = query.page ?? 1
+  const rows = pageSize ? filtered.slice((page - 1) * pageSize, page * pageSize) : filtered
+  return {
+    count: filtered.length,
+    page,
+    pageSize,
+    rows: rows.map((entry) => entry.row),
+    currencies: currencyColumns(cc),
+    baseCurrency: cc.base,
+    totals,
+    cashbackBase: roundMoney(cashbackBase),
+    missingRates: [...missing].sort(),
+  }
+}
+
+/** GET /api/loyalty-card/options — filter / dialog lookups. */
+export async function loyaltyCardOptions(): Promise<LoyaltyCardOptions> {
+  const db = getDb()
+  const s = await ensureLoyaltySchema(db)
+  const names = new Map<string, string>()
+  const addName = (value: unknown) => {
+    const name = String(value ?? "").trim()
+    if (name && !names.has(nameKey(name))) names.set(nameKey(name), name)
+  }
+  if (s.has("client_types")) for (const row of (await db.prepare("SELECT name FROM client_types ORDER BY name").all()) as Array<{ name: string }>) addName(row.name)
+  if (s.has("clients")) for (const row of (await db.prepare("SELECT DISTINCT type FROM clients WHERE type IS NOT NULL").all()) as Array<{ type: string }>) addName(row.type)
+  const balances = await balanceRows(db, (await loadCurrencyContext(db)).base)
+  const cc = await currencyContext(db, balances)
+  return {
+    clientTypes: [...names.values()].sort((a, b) => a.localeCompare(b, "ru")),
+    currencies: currencyColumns(cc),
+    baseCurrency: cc.base,
+  }
+}
+
+async function loadClientName(db: PgDb, hasClients: boolean, id: number): Promise<{ id: number; name: string } | null> {
+  if (!hasClients) return null
+  const row = (await db.prepare("SELECT id, name FROM clients WHERE id = @id").get({ id })) as { id: number; name: string | null } | undefined
+  return row ? { id: Number(row.id), name: String(row.name ?? "") } : null
+}
+
+function balancesOf(rows: BalanceRow[]): Record<string, number> {
+  const out: Record<string, number> = {}
+  for (const row of rows) out[row.cur] = roundMoney((out[row.cur] ?? 0) + Number(row.amount ?? 0))
+  return out
+}
+
+type HistoryRow = {
+  id: number
+  cur: string
+  amount: number
+  comment: string | null
+  created_at: string | null
+  transaction_id: number | null
+  type: string | null
+  created_by: string | null
+  doc_no?: number | string | null
+  cash_created_by?: string | null
+  cashbox?: string | null
+}
+
+/** Stored type, else a cash payout (transaction_id) = "Снятие денег", else a legacy manual row. */
+function rowType(row: HistoryRow): CashbackType | null {
+  if (row.type === "payment" || row.type === "withdraw" || row.type === "additional") return row.type
+  if (row.type) return null
+  return row.transaction_id ? "withdraw" : "additional"
+}
+
+/** GET /api/loyalty-card/[id] — demo GET sales/cash_back/%d/detail (Тип | Акция | Дата | Сумма). */
+export async function getLoyaltyCardDetail(clientId: number, query: LoyaltyDetailQuery): Promise<LoyaltyCardDetail> {
+  const db = getDb()
+  const s = await ensureLoyaltySchema(db)
+  const base = (await loadCurrencyContext(db)).base
+  const client = await loadClientName(db, s.has("clients"), clientId)
+  const sums = await balanceRows(db, base, clientId)
+  if (!client && !sums.length) throw new LoyaltyInputError("Клиент не найден", 404)
+  const cc = await currencyContext(db, sums)
+
+  const pageSize = query.pageSize ?? 25
+  const page = query.page ?? 1
+  const count = Number(
+    ((await db.prepare("SELECT COUNT(*) AS n FROM loyalty_card_transactions WHERE client_id = @clientId").get({ clientId })) as { n: number | string }).n,
+  )
+  const joinCash = s.has("cash_management_entries") && s.col("cash_management_entries", "doc_no")
+  const joinCashbox = joinCash && s.has("cashboxes")
+  const rows = (await db
+    .prepare(
+      `SELECT l.id, COALESCE(fin_cur(l.currency), @base) AS cur, l.amount::double precision AS amount, l.comment, l.created_at,
+              l.transaction_id, l.type, l.created_by
+              ${joinCash ? ", e.doc_no, e.created_by AS cash_created_by" : ""}${joinCashbox ? ", cb.name AS cashbox" : ""}
+       FROM loyalty_card_transactions l
+       ${joinCash ? "LEFT JOIN cash_management_entries e ON e.id = l.transaction_id" : ""}
+       ${joinCashbox ? "LEFT JOIN cashboxes cb ON cb.id = e.cashbox_id" : ""}
+       WHERE l.client_id = @clientId
+       ORDER BY fin_ts(l.created_at, true) DESC NULLS LAST, l.id DESC
+       LIMIT @limit OFFSET @offset`,
+    )
+    .all({ base, clientId, limit: pageSize, offset: (page - 1) * pageSize })) as HistoryRow[]
+
+  const history: LoyaltyHistoryRow[] = rows.map((row) => ({
+    id: Number(row.id),
+    type: rowType(row),
+    promotion: "",
+    date: parseAnyDate(row.created_at, true),
+    amount: roundMoney(Number(row.amount ?? 0)),
+    currency: row.cur,
+    comment: String(row.comment ?? ""),
+    createdBy: String(row.created_by || row.cash_created_by || ""),
+    payout: row.transaction_id
+      ? { entryId: Number(row.transaction_id), docNo: row.doc_no === null || row.doc_no === undefined ? null : Number(row.doc_no), cashbox: String(row.cashbox ?? "") }
+      : null,
+  }))
+  return {
+    client: client ? { ...client, exists: true } : { id: clientId, name: "", exists: false },
+    balances: balancesOf(sums),
+    currencies: currencyColumns(cc),
+    count,
+    page,
+    pageSize,
+    rows: history,
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Writes
+// ---------------------------------------------------------------------------
+
+/** POST /api/loyalty-card — "Добавить" (приход) / "Списать" (расход) of one client's cashback
+ * (demo custom_price → type "additional", sign by the button). */
+export async function createLoyaltyCardTransaction(input: LoyaltyTransactionInput, createdBy: string): Promise<LoyaltyTransactionResult> {
+  const db = getDb()
+  const s = await ensureLoyaltySchema(db)
+  const client = await loadClientName(db, s.has("clients"), input.clientId)
+  if (!client) throw new LoyaltyInputError("Клиент не найден", 404)
+  const cc = await loadCurrencyContext(db)
+  const code = normCurrency(input.currency)
+  if (!cc.currencies.some((currency) => currency.code === code)) throw new LoyaltyInputError("Неизвестная валюта")
+  const amount = roundMoney(input.amount)
+  if (amount <= 0) throw new LoyaltyInputError("Укажите сумму")
+  const signed = input.kind === "expense" ? -amount : amount
+
+  return withTransaction(async (tx) => {
+    const inserted = await tx
+      .prepare(
+        `INSERT INTO loyalty_card_transactions (client_id, currency, amount, comment, type, created_by)
+         VALUES (@clientId, @currency, @amount, @comment, 'additional', @createdBy)`,
+      )
+      .run({ clientId: client.id, currency: loyaltyCurrency(code), amount: signed, comment: input.comment ?? "", createdBy })
+    const balances = balancesOf(await balanceRows(tx, cc.base, client.id))
+    return { id: Number(inserted.lastInsertRowid), clientId: client.id, amount: signed, currency: code, balances }
+  })
 }

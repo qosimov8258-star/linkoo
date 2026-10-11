@@ -7,6 +7,7 @@ import { PaymentModal } from "@/components/analytics/customer-payments-dialogs"
 import { convertMoney, rateOf, type RateMap } from "@/lib/cash/rates"
 import type { CustomerPaymentOptions, ExpectedOrderDetail } from "@/lib/cash/customer-payments-types"
 import type { CashWriteResult, CategoryOptionKey } from "@/lib/cash/types"
+import type { ContractOption } from "@/lib/contracts-types"
 import { currencyLabel, formatMoney } from "@/lib/finance/currency"
 import { useLanguage } from "@/lib/i18n/language-context"
 
@@ -56,6 +57,9 @@ export function ExpectedPaymentPayDialog({
   const detail = useCashJson<ExpectedOrderDetail>(`/api/cash/customer-payments/expected/${orderId}`)
   const categories = useCashJson<{ categories: Category[] }>("/api/cash/categories?kind=income")
   const order = detail.data
+  // Active contracts of the order's client (GET /api/contracts/options — also contracts covering several clients).
+  const contractParams = order ? new URLSearchParams({ ...(order.client.id ? { clientId: String(order.client.id) } : {}), client: order.client.name }).toString() : ""
+  const contracts = useCashJson<ContractOption[]>(order?.paymentType === "bank" ? `/api/contracts/options?${contractParams}` : null).data ?? []
   const part = order?.currencies.find((item) => item.currency === currency) ?? order?.currencies[0]
   const orderCurrency = part?.currency ?? currency
   const base = options?.baseCurrency ?? "SUM"
@@ -214,9 +218,10 @@ export function ExpectedPaymentPayDialog({
               <Label text={t("Контракт")}>
                 <select value={contractId} onChange={(event) => setContractId(event.target.value)} className={fieldClass}>
                   <option value="">{t("Не указано")}</option>
-                  {order.contracts.map((contract) => (
+                  {contracts.map((contract) => (
                     <option key={contract.id} value={contract.id}>
-                      {contract.label}
+                      {`№ ${contract.fullNumber}`}
+                      {contract.hint ? ` · ${contract.hint}` : ""}
                     </option>
                   ))}
                 </select>

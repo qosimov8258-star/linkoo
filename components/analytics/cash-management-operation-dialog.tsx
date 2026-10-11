@@ -24,6 +24,7 @@ import {
   type PickOption,
 } from "@/components/analytics/cash-management-shared"
 import { rateOf, type RateMap } from "@/lib/cash/rates"
+import type { ContractOption } from "@/lib/contracts-types"
 import { CATEGORY_OPTIONS, type CashboxWithBalance, type CashOperation, type CashOperationInput, type CashWriteResult, type CategoryOptionKey, type MoneyRequest } from "@/lib/cash/types"
 import { currencyLabel, formatMoney, normCurrency } from "@/lib/finance/currency"
 import { nowLocalIso } from "@/lib/finance/dates"
@@ -299,7 +300,12 @@ function OperationForm({
     showSupplyExpense && values.supplyId ? `/api/supplier-incomings/${values.supplyId}/expenses` : null,
   ).items
   const employees = useJsonList<Named & { active?: boolean }>(staffMode || showResponsible ? "/api/employees" : null).items
-  const contracts = useJsonList<{ id: string; client: string; officialName: string; organization: string; year: string; status: string }>(showContract ? "/api/contracts" : null).items
+  // Active contracts of the chosen client / the order's client (GET /api/contracts/options; the saved one stays listed).
+  const contractClient = (values.clientLabel || (values.orderLabel.split(" · ")[1] ?? "")).trim()
+  const contractQuery = values.clientId ? `clientId=${values.clientId}` : contractClient ? `client=${encodeURIComponent(contractClient)}` : ""
+  const contracts = useJsonList<ContractOption>(
+    showContract && contractQuery ? `/api/contracts/options?${contractQuery}${initial.contractId ? `&includeId=${initial.contractId}` : ""}` : null,
+  ).items
 
   const staffTotal = Object.values(values.staff).reduce((sum, value) => sum + Math.max(0, parseAmount(value)), 0)
   const childrenTotal = values.children.reduce((sum, row) => sum + Math.max(0, parseAmount(row.amount)), 0)
@@ -314,10 +320,7 @@ function OperationForm({
     .filter((supply) => supply.status !== "отменен" || String(supply.id) === values.supplyId)
     .filter((supply) => !values.supplierId || !has("provider") || supply.supplier.trim().toLowerCase() === supplierName.trim().toLowerCase())
     .map((supply) => ({ value: String(supply.id), label: `№ ${supply.id} · ${supply.supplier}`, hint: `${supply.date} · ${formatCash(supply.amount, supply.currency)}` }))
-  const contractClient = (values.clientLabel || (values.orderLabel.split(" · ")[1] ?? "")).trim().toLowerCase()
-  const contractOptions: PickOption[] = contracts
-    .filter((contract) => !contractClient || contract.client.trim().toLowerCase() === contractClient)
-    .map((contract) => ({ value: contract.id, label: `${t("Договор №")}: ${contract.id}`, hint: [contract.officialName, contract.organization, contract.year].filter(Boolean).join(" · ") }))
+  const contractOptions: PickOption[] = contracts.map((contract) => ({ value: String(contract.id), label: `${t("Договор №")}: ${contract.fullNumber}`, hint: contract.hint }))
 
   // --- submit ----------------------------------------------------------------------
   const validate = (): Errors => {

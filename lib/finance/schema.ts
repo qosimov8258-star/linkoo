@@ -286,6 +286,11 @@ const LEDGER_TABLES = [
   "organizations",
   // cash core (lib/cash): per-employee allocations of staff cash entries
   "cash_entry_staff",
+  // "Долги доставщиков" corrections (lib/finance-deliverer-debts.ts)
+  "deliverer_balance_transactions",
+  // client balance corrections ("Сверка магазина через бот": Списать / Добавить,
+  // "Установить долг с Excel"; lib/finance-store-reconciliation.ts)
+  "client_balance_corrections",
 ]
 
 export type FinanceSchema = {

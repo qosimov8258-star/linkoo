@@ -693,9 +693,9 @@ const toolReports: AnalyticsReport[] = [
   },
   {
     slug: "supplier-debts",
-    label: "Долги поставщиков",
+    label: "Долги доставщиков",
     href: "/analytics/supplier-debts",
-    description: "Отчет по задолженностям перед поставщиками.",
+    description: "Задолженности доставщиков и агентов по отгруженным заказам и оплатам.",
     group: "tools",
   },
   {

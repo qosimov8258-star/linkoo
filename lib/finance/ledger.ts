@@ -5,7 +5,7 @@ import { loadCurrencyContext, withSeenCodes, type CurrencyContext } from "@/lib/
 import { roundMoney, visibleCurrencyCodes } from "@/lib/finance/currency"
 import { todayIso } from "@/lib/finance/dates"
 import { sortBalanceRows } from "@/lib/finance/rows"
-import { innKey, loadContractNames, loadEntities, nameKey, type EntityRecord } from "@/lib/finance/entities"
+import { innKey, loadContractNames, loadEmployeesByName, loadEntities, nameKey, personKey, type EntityRecord } from "@/lib/finance/entities"
 import { ensureFinanceSchema, type FinanceSchema } from "@/lib/finance/schema"
 import { movementCte } from "@/lib/finance/sources"
 import {
@@ -102,8 +102,13 @@ type AggRow = Record<string, number | string | null> & { ek: string; cur: string
 
 const SUMMARY_FIELDS = ["begin_income", "begin_expense", "period_income", "period_expense"] as const
 
+/** Kinds whose rows are (built from) clients: client attribute filters, date modes, last order/payment. */
+function isClientKind(kind: BalanceEntityKind): boolean {
+  return kind === "client" || kind === "account" || kind === "agent"
+}
+
 function extraColumns(kind: BalanceEntityKind): string[] {
-  if (kind === "client" || kind === "account") return ["not_accepted_payment"]
+  if (isClientKind(kind)) return ["not_accepted_payment"]
   if (kind === "supplier") return ["money_request", "reserve", "remain"]
   return []
 }
@@ -139,7 +144,8 @@ const MOVEMENT_WHERE = `mv.ek IS NOT NULL
 const ENTITY_ROWS = `SELECT mv.* FROM mv WHERE ${MOVEMENT_WHERE} AND mv.col = ANY(@cols::text[]) AND (NOT mv.pending OR @countPending) OFFSET 0`
 
 function modeOf(kind: BalanceEntityKind, f: MovementFilters): BalanceDateMode {
-  return kind === "client" || kind === "account" ? (f.mode ?? "created") : "created"
+  // The deliverer ledger is the client ledger re-keyed, so it has both modes too.
+  return isClientKind(kind) || kind === "deliverer" ? (f.mode ?? "created") : "created"
 }
 
 async function aggregate(db: PgDb, kind: BalanceEntityKind, s: FinanceSchema, base: string, f: MovementFilters, keys: string[] = [], currency = ""): Promise<AggRow[]> {
@@ -157,7 +163,7 @@ async function aggregate(db: PgDb, kind: BalanceEntityKind, s: FinanceSchema, ba
     `SUM(m.amt) FILTER (WHERE ${movement} AND ${inPeriod} AND m.amt > 0) AS period_income`,
     `SUM(m.amt) FILTER (WHERE ${movement} AND ${inPeriod} AND m.amt < 0) AS period_expense`,
   ]
-  if (kind === "client" || kind === "account") {
+  if (isClientKind(kind)) {
     parts.push(`SUM(m.amt) FILTER (WHERE m.pending AND m.col = 'payment' AND ${inPeriod}) AS not_accepted_payment`)
     parts.push(`to_char(MAX(m.d) FILTER (WHERE m.col = 'order'), 'YYYY-MM-DD') AS last_order`)
     parts.push(`to_char(MAX(m.d) FILTER (WHERE m.col = 'payment' AND NOT m.pending), 'YYYY-MM-DD') AS last_payment`)
@@ -166,6 +172,7 @@ async function aggregate(db: PgDb, kind: BalanceEntityKind, s: FinanceSchema, ba
     parts.push("SUM(m.amt) FILTER (WHERE m.col = 'money_request') AS money_request")
     parts.push("MAX(m.nm) AS nm")
   }
+  if (kind === "deliverer") parts.push("MAX(m.nm) AS nm")
   const sql = `${cte}
     SELECT m.ek, m.cur, ${parts.join(",\n")}
     FROM (SELECT mv.*, mv.ts::date AS d FROM mv WHERE ${MOVEMENT_WHERE}) m
@@ -248,7 +255,7 @@ function indexAgg(agg: AggRow[], columns: string[], kind: BalanceEntityKind) {
     balance.begin_balance = num(row.begin_balance)
     balance.end_balance = num(row.end_balance)
     for (const column of MOVEMENT_COLUMNS[kind]) balance[column] = num(row[column])
-    if (kind === "client" || kind === "account") balance.not_accepted_payment = num(row.not_accepted_payment)
+    if (isClientKind(kind)) balance.not_accepted_payment = num(row.not_accepted_payment)
     if (kind === "supplier") balance.money_request = num(row.money_request)
     let currencies = byEntity.get(row.ek)
     if (!currencies) byEntity.set(row.ek, (currencies = new Map()))
@@ -296,6 +303,11 @@ function rollupAccounts(rows: WorkRow[], contractNames: Map<string, string>, cod
     }
     account.members!.push(row.id as number)
     account.info.clients = account.members!.length
+    // Last order / payment of an account = the latest of its clients (not the first client's).
+    for (const field of ["last_order", "last_payment"]) {
+      const value = row.info[field]
+      if (typeof value === "string" && value > String(account.info[field] ?? "")) account.info[field] = value
+    }
     for (const code of codes) addInto(account.currencies[code], row.currencies[code])
   }
   return [...accounts.values()]
@@ -318,6 +330,48 @@ function rollupTypes(rows: WorkRow[], codes: string[], columns: string[]): WorkR
   return [...groups.values()].sort((a, b) => a.name.localeCompare(b.name, "ru"))
 }
 
+/** Agent rows ("Долги агентов"): client rows summed by the client's responsible
+ * agent (clients.agent) — key = employees.id, "name:<agent>" for a name that
+ * no employee has, "none" for clients without an agent (listed last). */
+function rollupAgents(rows: WorkRow[], employees: Map<string, EntityRecord>, codes: string[], columns: string[]): WorkRow[] {
+  const agents = new Map<string, WorkRow>()
+  for (const row of rows) {
+    const key = personKey(row.info.agent, employees)
+    let agent = agents.get(key)
+    if (!agent) {
+      const employee = key === "none" || key.startsWith("name:") ? null : employees.get(nameKey(row.info.agent))
+      agent = {
+        key,
+        id: employee?.id ?? null,
+        name: employee?.name ?? String(row.info.agent ?? ""),
+        info: { first_name: employee?.info.first_name ?? "", last_name: employee?.info.last_name ?? "", position: employee?.info.position ?? "", branch: employee?.info.branch ?? "", clients: 0 },
+        currencies: Object.fromEntries(codes.map((code) => [code, emptyBalance(columns)])),
+        members: [],
+      }
+      agents.set(key, agent)
+    }
+    agent.members!.push(row.id as number)
+    agent.info.clients = agent.members!.length
+    for (const code of codes) addInto(agent.currencies[code], row.currencies[code])
+  }
+  const collator = new Intl.Collator("ru", { numeric: true, sensitivity: "base" })
+  return [...agents.values()].sort((a, b) => (a.key === "none" ? 1 : b.key === "none" ? -1 : collator.compare(a.name, b.name)))
+}
+
+/** Deliverer rows: the listed employees (info.is_deliverer) and every other
+ * key with movements — an employee, a name only ("name:<name>", e.g. a
+ * deliverer typed on a client card) or "none" (no deliverer, listed last). */
+function delivererEntities(entities: EntityRecord[], byEntity: Map<string, unknown>, meta: Map<string, { name: string }>): EntityRecord[] {
+  const listed = entities.filter((entity) => entity.info.is_deliverer || byEntity.has(entity.key))
+  const known = new Set(entities.map((entity) => entity.key))
+  const blank = { first_name: "", last_name: "", position: "", branch: "", active: 0, is_deliverer: 0 }
+  for (const key of byEntity.keys()) {
+    if (key.startsWith("name:") && !known.has(key)) listed.push({ key, id: null, name: meta.get(key)?.name || key.slice(5), info: { ...blank } })
+  }
+  if (byEntity.has("none")) listed.push({ key: "none", id: null, name: "", info: { ...blank } })
+  return listed
+}
+
 /** Balances of every entity of `kind` for [from, to] (see BalanceListParams). */
 export async function getBalanceList(kind: BalanceEntityKind, params: BalanceListParams, db: PgDb = getDb()): Promise<BalanceListResult> {
   const s = await ensureFinanceSchema(db)
@@ -333,7 +387,7 @@ export async function getBalanceList(kind: BalanceEntityKind, params: BalanceLis
   const columns = [...MOVEMENT_COLUMNS[kind], ...extraColumns(kind)]
   const { byEntity, meta } = indexAgg(agg, columns, kind)
 
-  const all = [...entities]
+  const all = kind === "deliverer" ? delivererEntities(entities, byEntity, meta) : [...entities]
   if (kind === "supplier") {
     // Suppliers that exist only as a name on supplies/returns/payments.
     const known = new Set(entities.map((entity) => entity.key))
@@ -344,7 +398,7 @@ export async function getBalanceList(kind: BalanceEntityKind, params: BalanceLis
 
   let rows: WorkRow[] = all.map((entity) => {
     const row = buildRow(entity, byEntity.get(entity.key), codes, columns)
-    if (kind === "client" || kind === "account") {
+    if (isClientKind(kind)) {
       row.info.last_order = meta.get(entity.key)?.lastOrder || null
       row.info.last_payment = meta.get(entity.key)?.lastPayment || null
     }
@@ -354,7 +408,7 @@ export async function getBalanceList(kind: BalanceEntityKind, params: BalanceLis
   // Entity attribute filters.
   const branches = normList(params.branches)
   if (branches.length) rows = rows.filter((row) => branches.includes(nameKey(row.info.branch)))
-  if (kind === "client" || kind === "account") {
+  if (isClientKind(kind)) {
     const attr = (field: string, values: string[] | undefined) => {
       const wanted = normList(values)
       if (wanted.length) rows = rows.filter((row) => wanted.includes(nameKey(row.info[field])))
@@ -393,6 +447,7 @@ export async function getBalanceList(kind: BalanceEntityKind, params: BalanceLis
       rows = [...byType.values()].flatMap((list) => rollupAccounts(list, contractNames, codes, columns))
     } else rows = rollupAccounts(rows, contractNames, codes, columns)
   }
+  if (kind === "agent") rows = rollupAgents(rows, await loadEmployeesByName(db), codes, columns)
   rows = rows.filter((row) => matchesBalanceType(row, params.balanceType, params.balanceCurrency))
 
   const beforeSearch = rows
@@ -460,6 +515,15 @@ async function resolveEntity(kind: BalanceEntityKind, key: string, db: PgDb, s: 
     const names = await loadContractNames(db, s)
     return { key, id: null, name: names.get(inn) || members[0].name, info: { ...members[0].info, clients: members.length }, keys: members.map((entity) => entity.key) }
   }
+  if (kind === "agent") {
+    // An agent row = the clients whose responsible agent it is.
+    const employees = await loadEmployeesByName(db)
+    const members = entities.filter((entity) => personKey(entity.info.agent, employees) === key)
+    if (!members.length) return null
+    const employee = key === "none" || key.startsWith("name:") ? null : employees.get(nameKey(members[0].info.agent))
+    return { key, id: employee?.id ?? null, name: employee?.name ?? String(members[0].info.agent ?? ""), info: { clients: members.length }, keys: members.map((entity) => entity.key) }
+  }
+  if (kind === "deliverer" && (key === "none" || key.startsWith("name:"))) return { key, id: null, name: key === "none" ? "" : key.slice(5), info: {}, keys: [key] }
   const entity = entities.find((item) => item.key === key)
   if (entity) return { key, id: entity.id, name: entity.name, info: entity.info, keys: [key] }
   if (kind === "supplier" && key.startsWith("name:")) return { key, id: null, name: key.slice(5), info: { category: "", branch: "", organization: "" }, keys: [key] }
@@ -486,11 +550,11 @@ export async function getStatement(kind: BalanceEntityKind, params: StatementPar
     WHERE mv.ts::date BETWEEN @from::date AND @to::date
     ORDER BY mv.ts, mv.src, mv.src_id`
   const dbRows = (await db.prepare(rowsSql).all(movementParams(kind, cc.base, params, { keys: entity.keys, cur: currency }))) as StatementDbRow[]
-  if (kind === "supplier" && entity.id === null) entity.name = agg.find((row) => row.nm)?.nm?.toString() || entity.name
+  if ((kind === "supplier" || kind === "deliverer") && entity.id === null) entity.name = agg.find((row) => row.nm)?.nm?.toString() || entity.name
 
   cc = withSeenCodes(cc, [...agg.map((row) => row.cur), ...dbRows.map((row) => row.cur)])
   const codes = cc.currencies.map((item) => item.code)
-  const columns = [...MOVEMENT_COLUMNS[kind], ...(kind === "client" || kind === "account" ? ["not_accepted_payment"] : [])]
+  const columns = [...MOVEMENT_COLUMNS[kind], ...(isClientKind(kind) ? ["not_accepted_payment"] : [])]
 
   const summary: Record<string, StatementSummary> = {}
   for (const code of codes) {

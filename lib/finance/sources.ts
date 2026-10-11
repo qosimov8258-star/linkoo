@@ -16,6 +16,7 @@ import { MOVEMENT_COLUMNS, type BalanceDateMode, type BalanceEntityKind } from "
 //   org/pt   organization name / payment type 'cash'|'bank'|'' (filters)
 //   nm       display name of name-only entities (supplier documents)
 //   + detail fields used by statements (src, src_id, title, doc, ...).
+// (deliverer: employees.id, 'name:<fin_key(name)>' or 'none'.)
 // Every SQL text here is static apart from schema-driven fragments; values
 // are always bound as @named parameters (and no SQL contains a question
 // mark, which the db shim would treat as a positional placeholder).
@@ -26,6 +27,8 @@ export type SourceOptions = {
   lean: boolean
   /** Client orders: 'released' = only В пути/Доставлено, 'delivered' = only Доставлено. */
   orderScope?: "released" | "delivered" | null
+  /** Lean rows also carry src / src_id (the deliverer ledger re-keys client movements by their document). */
+  withSource?: boolean
 }
 
 const FIELD_TYPES = {
@@ -90,7 +93,7 @@ export type SourceContext = {
 }
 
 function select(ctx: SourceContext, fields: Partial<Record<Field, string>>, from: string): string {
-  const names = ctx.o.lean ? LEAN_FIELDS : ALL_FIELDS
+  const names = ctx.o.lean ? (ctx.o.withSource ? [...LEAN_FIELDS, "src" as const, "src_id" as const] : LEAN_FIELDS) : ALL_FIELDS
   const list = names.map((name) => `(${fields[name] ?? DEFAULTS[name]})::${FIELD_TYPES[name]} AS ${name}`).join(", ")
   return `SELECT ${list} ${from}`
 }
@@ -477,6 +480,34 @@ function clientSources(ctx: SourceContext): string[] {
         : "FROM customer_payments p JOIN client_keys ck ON ck.k = fin_key(p.client) WHERE true") + ` AND ${alive(ctx, "p", "customer_payments")}`,
     ),
   )
+
+  // Manual client corrections (demo client transaction type 9 "Произвольный"):
+  // signed amount, created lazily by lib/finance-store-reconciliation.ts
+  // ("Списать" / "Добавить", "Установить долг с Excel").
+  if (ctx.s.has("client_balance_corrections")) {
+    out.push(
+      select(
+        ctx,
+        {
+          ek: "c.id",
+          cur: "COALESCE(fin_cur(k.currency), @base)",
+          ts: ts("fin_ts(k.correction_date)", utcTs("k.created_at")),
+          col: "CASE WHEN k.amount >= 0 THEN 'none_type_plus' ELSE 'none_type_minus' END",
+          amt: "k.amount",
+          org: "fin_place(k.organization)",
+          pt: "fin_pt(k.payment_type)",
+          src: "'client_correction'",
+          src_id: "k.id",
+          title: "'Корректировка'",
+          cmt: "k.comment",
+          cp: "c.name",
+          cby: "k.created_by",
+          href: "'/analytics/store-reconciliation-bot'",
+        },
+        "FROM client_balance_corrections k JOIN clients c ON c.id = k.client_id WHERE COALESCE(k.is_deleted, 0) = 0",
+      ),
+    )
+  }
   return out
 }
 
@@ -873,6 +904,143 @@ function employeeSources(ctx: SourceContext): string[] {
   return out
 }
 
+// --- delivery men ("Долги доставщиков") ---------------------------------------
+
+/** Manual corrections of a deliverer's balance ("Корректировка", demo client
+ * transaction type 9 with only delivery_man set); created lazily by
+ * lib/finance-deliverer-debts.ts. amount is signed. */
+export const DELIVERER_CORRECTIONS_TABLE = "deliverer_balance_transactions"
+
+/** Rows (id, dk, dn[, pass-through columns]) of a deliverer name column:
+ * dk = the employee with that full name (emp_keys, lowest id) or
+ * 'name:<fin_key(name)>', NULL when the name is empty / a placeholder (same
+ * list as fin_place); dn = the name. fin_key runs once per row (OFFSET 0
+ * keeps the inner query from being flattened) and emp_keys is hash-joined. */
+function delivererNames(alias: string, nameExpr: string, table: string, where: string, passThrough: string[] = []): string {
+  const extra = passThrough.map((column) => `, ${alias}.${column}`).join("")
+  return `SELECT x.id, CASE WHEN x.dn <> '' THEN COALESCE(ek.id::text, 'name:' || x.k) END AS dk, x.dn${passThrough.map((column) => `, x.${column}`).join("")}
+    FROM (SELECT z.*, CASE WHEN z.k IN ('', '-', '—', 'не указано', 'не указан', 'все', 'все филиалы', 'все организации') THEN '' ELSE btrim(z.name) END AS dn
+          FROM (SELECT ${alias}.id, ${nameExpr} AS name, fin_key(${nameExpr}) AS k${extra} FROM ${table} ${alias} WHERE ${where} OFFSET 0) z) x
+    LEFT JOIN emp_keys ek ON ek.k = x.k`
+}
+
+// The client ledger (every source of clientSources, same filters and dates)
+// re-keyed by the delivery man responsible for each movement: the order's
+// delivery_man, the payment's delivery_man_id / delivery_man, else the
+// client's deliverer (clients.deliverer — the fallback lib/cash uses for
+// orders); movements without any deliverer go to the 'none' row. Client
+// none_type_plus / none_type_minus become none_type. Orders also carry their
+// own organization / payment type here (the client ledger has none for
+// orders). Plus the deliverer's own corrections. Keys are resolved once per
+// client / order / payment (small CTEs), not per movement row.
+function delivererSources(ctx: SourceContext): string[] {
+  const inner: SourceContext = { s: ctx.s, o: { ...ctx.o, withSource: true }, ctes: ctx.ctes }
+  ctx.ctes.set("client_mv", clientSources(inner).join("\nUNION ALL\n"))
+  need(ctx, "emp_keys")
+  const CP = "customer_payments"
+  ctx.ctes.set("dlv_clients", delivererNames("c", "c.deliverer", "clients", "COALESCE(c.deliverer, '') <> ''"))
+
+  const orderName = ctx.s.col("orders", "delivery_man")
+  const orderOrg = ctx.s.col("orders", "organization")
+  const orderPt = ctx.s.col("orders", "payment_type")
+  const orderWhere = [orderName && "o.delivery_man <> ''", orderOrg && "o.organization <> ''", orderPt && "o.payment_type <> ''"].filter(Boolean)
+  const orderColumns = [orderOrg && "organization", orderPt && "payment_type"].filter((column): column is string => Boolean(column))
+  ctx.ctes.set(
+    "dlv_orders",
+    orderWhere.length
+      ? `SELECT n.id, n.dk, n.dn, ${orderOrg ? "fin_place(n.organization)" : "''"} AS org, ${orderPt ? "fin_pt(n.payment_type)" : "''"} AS pt
+         FROM (${delivererNames("o", orderName ? "o.delivery_man" : "''", "orders", orderWhere.join(" OR "), orderColumns)}) n`
+      : "SELECT NULL::int AS id, NULL::text AS dk, ''::text AS dn, ''::text AS org, ''::text AS pt WHERE false",
+  )
+
+  const payId = ctx.s.col(CP, "delivery_man_id")
+  const payName = ctx.s.col(CP, "delivery_man")
+  const payWhere = [payId && "p.delivery_man_id IS NOT NULL", payName && "p.delivery_man <> ''"].filter(Boolean)
+  ctx.ctes.set(
+    "dlv_payments",
+    payWhere.length
+      ? `SELECT n.id, COALESCE(${payId ? "pe.id::text" : "NULL::text"}, n.dk) AS dk, CASE WHEN ${payId ? "pe.id IS NOT NULL" : "false"} THEN '' ELSE n.dn END AS dn
+         FROM (${delivererNames("p", payName ? "p.delivery_man" : "''", CP, payWhere.join(" OR "), payId ? ["delivery_man_id"] : [])}) n
+         ${payId ? "LEFT JOIN employees pe ON pe.id = n.delivery_man_id" : ""}`
+      : "SELECT NULL::int AS id, NULL::text AS dk, ''::text AS dn WHERE false",
+  )
+  // Client balance corrections (Сверка магазина через бот: Списать / Добавить,
+  // "Установить долг с Excel") are not the deliverer's business: they count
+  // only for the delivery man written on the correction itself.
+  const CC = "client_balance_corrections"
+  ctx.ctes.set(
+    "dlv_client_corrections",
+    ctx.s.col(CC, "delivery_man")
+      ? delivererNames("k", "k.delivery_man", CC, "k.delivery_man <> ''")
+      : "SELECT NULL::int AS id, NULL::text AS dk, ''::text AS dn WHERE false",
+  )
+  const attributed = `SELECT m.*,
+      CASE WHEN m.src = 'client_correction' THEN dcc.dk ELSE COALESCE(dp.dk, dor.dk, dc.dk) END AS dk,
+      CASE WHEN m.src = 'client_correction' THEN dcc.dn WHEN dp.dk IS NOT NULL THEN dp.dn WHEN dor.dk IS NOT NULL THEN dor.dn ELSE COALESCE(dc.dn, '') END AS dn,
+      COALESCE(dor.org, '') AS order_org,
+      COALESCE(dor.pt, '') AS order_pt
+    FROM client_mv m
+    LEFT JOIN dlv_orders dor ON m.src = 'order' AND dor.id = m.src_id
+    LEFT JOIN dlv_payments dp ON m.src = 'customer_payment' AND dp.id = m.src_id
+    LEFT JOIN dlv_client_corrections dcc ON m.src = 'client_correction' AND dcc.id = m.src_id
+    LEFT JOIN dlv_clients dc ON dc.id = m.ek::int
+    WHERE m.src <> 'client_correction' OR dcc.dk IS NOT NULL`
+  const out = [
+    select(
+      ctx,
+      {
+        ek: "COALESCE(d.dk, 'none')",
+        nm: "d.dn",
+        cur: "d.cur",
+        ts: "d.ts",
+        col: "CASE WHEN d.col IN ('none_type_plus', 'none_type_minus') THEN 'none_type' ELSE d.col END",
+        amt: "d.amt",
+        pending: "d.pending",
+        org: "CASE WHEN d.order_org <> '' THEN d.order_org ELSE d.org END",
+        pt: "CASE WHEN d.order_pt <> '' THEN d.order_pt ELSE d.pt END",
+        src: "d.src",
+        src_id: "d.src_id",
+        title: "d.title",
+        doc: "d.doc",
+        descr: "d.descr",
+        cmt: "d.cmt",
+        cat: "d.cat",
+        cp: "d.cp",
+        br: "d.br",
+        cb: "d.cb",
+        cby: "d.cby",
+        href: "d.href",
+        editable: "false",
+      },
+      `FROM (${attributed}) d`,
+    ),
+  ]
+  if (ctx.s.has(DELIVERER_CORRECTIONS_TABLE)) {
+    out.push(
+      select(
+        ctx,
+        {
+          ek: "t.employee_id",
+          cur: "COALESCE(fin_cur(t.currency), @base)",
+          ts: ts("fin_ts(t.date)", utcTs("t.created_at")),
+          col: "'none_type'",
+          amt: "t.amount",
+          org: "fin_place(t.organization)",
+          pt: "fin_pt(t.payment_type)",
+          src: "'deliverer_manual'",
+          src_id: "t.id",
+          title: "'Корректировка'",
+          cmt: "t.comment",
+          cby: "t.created_by",
+          editable: "true",
+        },
+        `FROM ${DELIVERER_CORRECTIONS_TABLE} t`,
+      ),
+    )
+  }
+  return out
+}
+
 const BUILDERS: Record<BalanceEntityKind, (ctx: SourceContext) => string[]> = {
   cashbox: cashboxSources,
   client: clientSources,
@@ -881,6 +1049,9 @@ const BUILDERS: Record<BalanceEntityKind, (ctx: SourceContext) => string[]> = {
   vansell: vansellSources,
   branch: branchSources,
   employee: employeeSources,
+  deliverer: delivererSources,
+  // Client movements; the ledger rolls the client rows up by clients.agent.
+  agent: clientSources,
 }
 
 /** SQL prefix "WITH <ctes>, mv AS (<union>)" producing the movement rows of

@@ -73,7 +73,7 @@ const cashOperations: MenuItem[] = [
 ]
 
 const additional: MenuItem[] = [
-  { label: "Долги поставщиков", href: "/analytics/supplier-debts" },
+  { label: "Долги доставщиков", href: "/analytics/supplier-debts" },
   { label: "Долги с заказов", href: "/analytics/order-debts" },
   { label: "Сверка магазина через бот", href: "/analytics/store-reconciliation-bot" },
   { label: "Сверка счетов", href: "/analytics/account-reconciliation" },
