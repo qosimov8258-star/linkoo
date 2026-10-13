@@ -99,11 +99,11 @@ export function SessionsView({ embedded = false }: { embedded?: boolean }) {
   }
 
   return (
-    <main className={embedded ? "min-w-0 flex-1" : "min-h-[calc(100vh-4rem)] bg-[#f1f4f8] px-9 py-5"}>
+    <main className={embedded ? "min-w-0 flex-1" : "min-h-[calc(100vh-4rem)] bg-[#f2f5f8] px-7 pb-7"}>
       {!embedded && (
         <header className="mb-5">
           <h1 className="text-2xl font-bold text-slate-600">
-            <FavoritesButton className="inline-flex items-center gap-2 text-[#4f70e7]" />
+            <FavoritesButton className="inline-flex items-center gap-2 text-[#4f71dc]" />
             <span className="mx-2 text-slate-400">|</span> Сессия
           </h1>
         </header>
@@ -124,7 +124,7 @@ export function SessionsView({ embedded = false }: { embedded?: boolean }) {
         </div>
 
         <table className="w-full text-left">
-          <thead className="bg-[#626b7e] text-white">
+          <thead className="bg-[#5d6474] text-white">
             <tr>
               <th className="px-9 py-5">Устройство</th>
               <th className="px-5 py-5">IP-адрес</th>

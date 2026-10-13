@@ -68,13 +68,13 @@ export function IntegrationsView() {
   }
 
   return (
-    <main className="min-h-[calc(100vh-4rem)] bg-[#f1f4f8] px-9 py-5">
+    <main className="min-h-[calc(100vh-4rem)] bg-[#f2f5f8] px-7 pb-7">
       <header className="mb-5 flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-bold text-slate-600">
-          <FavoritesButton className="inline-flex items-center gap-2 text-[#4f70e7]" />
+          <FavoritesButton className="inline-flex items-center gap-2 text-[#4f71dc]" />
           <span className="mx-2 text-slate-400">|</span> {t("Интеграция")}
         </h1>
-        <button type="button" onClick={() => setImportOpen(true)} className="inline-flex items-center gap-2 rounded bg-[#4f70e7] px-5 py-2.5 font-semibold text-white hover:brightness-95">
+        <button type="button" onClick={() => setImportOpen(true)} className="inline-flex items-center gap-2 rounded bg-[#4f71dc] px-5 py-2.5 font-semibold text-white hover:brightness-95">
           <BarChart3 className="h-4 w-4" />
           {t("Импортировать")}
         </button>
@@ -82,12 +82,12 @@ export function IntegrationsView() {
 
       <section className="overflow-hidden rounded bg-white shadow">
         <div className="flex flex-wrap items-center gap-4 px-5 py-3">
-          <button type="button" onClick={() => setFilterOpen((value) => !value)} className="inline-flex items-center gap-2 rounded bg-[#4f70e7] px-5 py-3 font-semibold text-white hover:brightness-95">
+          <button type="button" onClick={() => setFilterOpen((value) => !value)} className="inline-flex items-center gap-2 rounded bg-[#4f71dc] px-5 py-3 font-semibold text-white hover:brightness-95">
             <Filter className="h-4 w-4" />
             {t("Показать фильтр")}
           </button>
           <label className="relative w-64">
-            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("Поиск")} className="w-full border-b border-slate-300 py-3 pr-10 outline-none focus:border-[#4f70e7]" />
+            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("Поиск")} className="w-full border-b border-slate-300 py-3 pr-10 outline-none focus:border-[#4f71dc]" />
             <Search className="absolute right-2 top-3 h-5 w-5 text-slate-300" />
           </label>
           <span className="ml-auto text-slate-500">25</span>
@@ -103,12 +103,12 @@ export function IntegrationsView() {
           <div className="flex flex-wrap items-end gap-4 border-t border-slate-200 bg-slate-50 px-5 py-4">
             <label className="text-sm font-medium text-slate-600">
               {t("Тип")}
-              <select className="mt-1 block w-56 border-0 border-b border-slate-300 bg-white px-0 py-2 outline-none focus:border-[#4f70e7]">
+              <select className="mt-1 block w-56 border-0 border-b border-slate-300 bg-white px-0 py-2 outline-none focus:border-[#4f71dc]">
                 <option>{t("Все типы")}</option>
                 <option>{t("Заказ")}</option>
               </select>
             </label>
-            <button type="button" onClick={() => setFilterOpen(false)} className="rounded bg-[#626b7e] px-5 py-2.5 font-semibold text-white hover:brightness-95">
+            <button type="button" onClick={() => setFilterOpen(false)} className="rounded bg-[#5d6474] px-5 py-2.5 font-semibold text-white hover:brightness-95">
               {t("Применить")}
             </button>
           </div>
@@ -116,7 +116,7 @@ export function IntegrationsView() {
 
         <div className="overflow-x-auto">
           <table className="w-full min-w-[1200px] text-left">
-            <thead className="bg-[#626b7e] text-white">
+            <thead className="bg-[#5d6474] text-white">
               <tr>
                 <th className="px-9 py-5">№</th>
                 <th className="px-5 py-5">{t("Тип")}</th>
@@ -136,17 +136,17 @@ export function IntegrationsView() {
                     <td className="px-5 py-4">{t(order.type)}</td>
                     <td className="px-5 py-4">
                       <p className="font-semibold text-slate-800">{t("Не указано")}</p>
-                      <p className="text-[#4f70e7]">{order.client}</p>
+                      <p className="text-[#4f71dc]">{order.client}</p>
                     </td>
                     <td className="px-5 py-4">{order.createdAt}</td>
                     <td className="px-5 py-4">
                       <p className="font-semibold text-slate-800">{t("Не указано")}</p>
-                      <p className="text-[#4f70e7]">{order.deliverer}</p>
+                      <p className="text-[#4f71dc]">{order.deliverer}</p>
                     </td>
                     <td className="px-5 py-4">{order.deliveryDate}</td>
                     <td className="px-5 py-4">
                       <p className="font-semibold text-slate-800">undefined undefined</p>
-                      <p className="text-[#4f70e7]">{order.agent}</p>
+                      <p className="text-[#4f71dc]">{order.agent}</p>
                     </td>
                     <td className="px-5 py-4">{formatSum(order.amount)}</td>
                   </tr>
@@ -197,7 +197,7 @@ export function IntegrationsView() {
                                 <tbody>
                                   {order.products.map((product, index) => (
                                     <tr key={product.name} className="border-b border-dashed border-slate-200">
-                                      <td className="py-3 pr-4 text-[#4f70e7]">{index + 1}</td>
+                                      <td className="py-3 pr-4 text-[#4f71dc]">{index + 1}</td>
                                       <td className="py-3 pr-4">{product.name}</td>
                                       <td className="py-3 pr-4">{product.quantity}</td>
                                       <td className="py-3">{new Intl.NumberFormat("ru-RU").format(product.sum)}</td>
@@ -262,7 +262,7 @@ export function IntegrationsView() {
                 <div className="space-y-3">
                   {importTypes.map((type) => (
                     <label key={type} className="flex items-center gap-3 text-slate-700">
-                      <input type="radio" name="import-type" checked={importType === type} onChange={() => setImportType(type)} className="h-5 w-5 accent-[#4f70e7]" />
+                      <input type="radio" name="import-type" checked={importType === type} onChange={() => setImportType(type)} className="h-5 w-5 accent-[#4f71dc]" />
                       {type}
                     </label>
                   ))}
@@ -272,14 +272,14 @@ export function IntegrationsView() {
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
-                className="flex w-full flex-col items-center justify-center gap-3 rounded border-2 border-dashed border-slate-300 py-10 text-slate-500 hover:border-[#4f70e7] hover:text-[#4f70e7]"
+                className="flex w-full flex-col items-center justify-center gap-3 rounded border-2 border-dashed border-slate-300 py-10 text-slate-500 hover:border-[#4f71dc] hover:text-[#4f71dc]"
               >
                 <FileText className="h-8 w-8" />
                 {importFile ? importFile.name : t("Добавьте файл Excel или нажмите для выбора")}
               </button>
             </div>
             <footer className="flex justify-end border-t p-5">
-              <button type="button" disabled={!importFile} onClick={saveImport} className="rounded bg-[#6ccd8b] px-5 py-3 font-semibold text-white hover:brightness-95 disabled:opacity-40">
+              <button type="button" disabled={!importFile} onClick={saveImport} className="rounded bg-[#71ce87] px-5 py-3 font-semibold text-white hover:brightness-95 disabled:opacity-40">
                 {t("Сохранить")}
               </button>
             </footer>

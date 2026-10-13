@@ -2,8 +2,6 @@
 
 import { useState } from "react"
 import Link from "next/link"
-import { LayoutGrid, ShoppingCart, Truck, Wallet } from "lucide-react"
-import type { LucideIcon } from "lucide-react"
 
 import {
   analyticsMenuGroups,
@@ -13,12 +11,13 @@ import {
 } from "@/lib/analytics-catalog"
 import { useLanguage } from "@/lib/i18n/language-context"
 
-const resourceIcons: Record<string, LucideIcon> = {
-  sales: ShoppingCart,
-  "warehouse-logistics": Truck,
-  "finance-cash": Wallet,
-  general: LayoutGrid,
+const resourceImages: Record<string, string> = {
+  sales: "/nav/menu-0.svg",
+  "warehouse-logistics": "/nav/menu-1.svg",
+  "finance-cash": "/nav/menu-2.svg",
+  general: "/nav/menu-3.svg",
 }
+
 
 type MenuEntry = {
   label: string
@@ -213,14 +212,14 @@ function LinkColumn({
   const { t } = useLanguage()
   return (
     <div className="min-w-0">
-      <h3 className="mb-3 ml-3 text-[13px] font-bold text-[#5868f5]">{t(title)}</h3>
+      <h3 className="mb-3 ml-3 text-[13px] font-bold text-[#5869f0]">{t(title)}</h3>
       <ul className="flex flex-col">
         {items.map((item) => (
-          <li key={`${item.href}-${item.label}`}>
+          <li key={`${item.href}-${item.label}`} className="rounded-[12px] border-b border-[#f1f1f1] py-[10px] pl-[5px]">
             <Link
               href={item.href}
               onClick={() => onSelect(item.label)}
-              className="block rounded-xl px-3 py-2.5 text-left text-[13px] font-semibold text-slate-700 transition-colors hover:bg-white hover:text-brand-blue focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-blue"
+              className="block w-full rounded-[5px] p-[5px] text-left font-[Arial,Helvetica,sans-serif] text-[13px] font-semibold leading-6 text-[#333] hover:bg-[#f2f5f8]"
             >
               {t(item.label)}
             </Link>
@@ -241,16 +240,15 @@ export function AnalyticsMenu({ onSelect, onMouseEnter, onMouseLeave }: Props) {
     <div
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
-      className="w-[1160px] max-w-[calc(100vw-1rem)] px-2"
+      className="w-[1160px] max-w-[calc(100vw-1rem)]"
     >
-      <div className="mt-1 grid grid-cols-[300px_minmax(0,1fr)] overflow-hidden rounded-xl border border-slate-200 bg-slate-50 text-slate-700 shadow-2xl duration-150 animate-in fade-in-0 slide-in-from-top-2">
-        <div className="bg-white px-5 py-5">
-          <h3 className="mb-3 px-3 text-[13px] font-bold text-[#5868f5]">Resources</h3>
+      <div className="mt-[7px] grid min-h-[550px] grid-cols-[320px_minmax(0,1fr)] overflow-hidden rounded-[10px] bg-[#f9fafb] font-sans text-[#333] shadow-[0_1px_3px_rgba(0,0,0,0.12),0_1px_2px_rgba(0,0,0,0.24)]">
+        <div className="bg-white px-5 pt-5">
+          <h3 className="mb-3 ml-3 text-[13px] font-bold text-[#5869f0]">Resources</h3>
           <ul className="flex flex-col">
             {analyticsResources
               .filter((resource) => resource.slug !== "production")
               .map((resource) => {
-                const Icon = resourceIcons[resource.slug] ?? LayoutGrid
                 const isActive = activeResource === resource.slug
 
                 return (
@@ -261,16 +259,17 @@ export function AnalyticsMenu({ onSelect, onMouseEnter, onMouseLeave }: Props) {
                       onFocus={() => setActiveResource(resource.slug)}
                       onClick={() => setActiveResource(resource.slug)}
                       aria-current={isActive ? "true" : undefined}
-                      className={`flex w-full items-start gap-3 rounded-[10px] px-3 py-3 text-left transition-colors ${
-                        isActive ? "bg-slate-100" : "hover:bg-slate-50"
+                      className={`flex w-full items-start gap-3 rounded-[10px] border-b border-[#f1f1f1] p-4 text-left transition-colors ${
+                        "hover:bg-[#f9fafb]"
                       } focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-blue`}
                     >
                       <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center text-slate-700">
-                        <Icon className="h-6 w-6" strokeWidth={1.8} />
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={resourceImages[resource.slug] ?? ""} alt="" className="h-6 w-6" />
                       </span>
                       <span className="flex flex-col">
-                        <span className="text-[13px] font-bold text-slate-900">{t(resource.title)}</span>
-                        <span className="mt-1 text-[12px] text-slate-500">
+                        <span className="text-[13px] font-bold text-black">{t(resource.title)}</span>
+                        <span className="text-[14px] leading-[21px] text-[#666]">
                           {t("Необходимо описание меню")}
                         </span>
                       </span>
@@ -283,7 +282,7 @@ export function AnalyticsMenu({ onSelect, onMouseEnter, onMouseLeave }: Props) {
 
         <div
           key={activeResource}
-          className="grid grid-cols-3 items-start gap-5 px-5 py-6 animate-in fade-in-0 duration-150"
+          className="grid grid-cols-[repeat(3,240px)] items-start gap-0 px-5 py-8 animate-in fade-in-0 duration-150"
         >
           {activeGroups.map((group) => (
             <LinkColumn

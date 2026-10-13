@@ -7,7 +7,7 @@ import { X } from "lucide-react"
 import { useLanguage } from "@/lib/i18n/language-context"
 
 const pinIcon = L.divIcon({
-  html: `<div style="width:18px;height:18px;border-radius:50% 50% 50% 0;background:#4f70e7;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4);transform:rotate(-45deg);"></div>`,
+  html: `<div style="width:18px;height:18px;border-radius:50% 50% 50% 0;background:#4f71dc;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4);transform:rotate(-45deg);"></div>`,
   className: "",
   iconSize: [18, 18],
   iconAnchor: [9, 18],
@@ -84,7 +84,7 @@ export function LocationPicker({ initialLat, initialLng, onCancel, onConfirm }: 
               type="button"
               disabled={!point}
               onClick={() => point && onConfirm(point.lat, point.lng)}
-              className="rounded bg-[#6ccd8b] px-5 py-2 font-semibold text-white hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-50"
+              className="rounded bg-[#71ce87] px-5 py-2 font-semibold text-white hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {t("Сохранить")}
             </button>

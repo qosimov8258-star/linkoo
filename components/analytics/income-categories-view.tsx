@@ -207,10 +207,10 @@ export function IncomeCategoriesView({ embedded = false }: { embedded?: boolean 
   return (
     <main className={embedded ? "min-w-0 flex-1" : "min-h-[calc(100vh-4rem)] bg-white px-9 py-5"}>
       <div className="mb-4 flex flex-wrap items-center gap-4">
-        <button type="button" onClick={openCreate} className="text-[16px] text-[#4f70e7] hover:underline">
+        <button type="button" onClick={openCreate} className="text-[16px] text-[#4f71dc] hover:underline">
           + добавить категорию приходов
         </button>
-        <button type="button" onClick={() => setImportOpen(true)} className="flex items-center gap-1 text-[16px] text-[#4f70e7] hover:underline">
+        <button type="button" onClick={() => setImportOpen(true)} className="flex items-center gap-1 text-[16px] text-[#4f71dc] hover:underline">
           <FileText className="h-4 w-4" /> Импорт с Excel
         </button>
         <label className="relative ml-auto w-64">
@@ -218,7 +218,7 @@ export function IncomeCategoriesView({ embedded = false }: { embedded?: boolean 
             value={query}
             onChange={(event) => { setQuery(event.target.value); setPage(1) }}
             placeholder="Поиск"
-            className="w-full border-b border-slate-300 py-2 pr-10 outline-none focus:border-[#4f70e7]"
+            className="w-full border-b border-slate-300 py-2 pr-10 outline-none focus:border-[#4f71dc]"
           />
           <Search className="absolute right-2 top-2 h-5 w-5 text-slate-300" />
         </label>
@@ -235,7 +235,7 @@ export function IncomeCategoriesView({ embedded = false }: { embedded?: boolean 
       </div>
 
       <table className="w-full text-left">
-        <thead className="bg-[#626b7e] text-white">
+        <thead className="bg-[#5d6474] text-white">
           <tr>
             <th className="px-9 py-5">Наименование</th>
             <th className="px-5 py-5">Параметры</th>
@@ -294,7 +294,7 @@ export function IncomeCategoriesView({ embedded = false }: { embedded?: boolean 
                 <input autoFocus value={draft.name} onChange={(event) => setDraft((value) => ({ ...value, name: event.target.value }))} className="mt-2 block w-full outline-none" />
               </label>
               <label className="flex items-center gap-2">
-                <input type="checkbox" checked={draft.hasParameter} onChange={(event) => setDraft((value) => ({ ...value, hasParameter: event.target.checked }))} className="h-4 w-4 accent-[#4f70e7]" />
+                <input type="checkbox" checked={draft.hasParameter} onChange={(event) => setDraft((value) => ({ ...value, hasParameter: event.target.checked }))} className="h-4 w-4 accent-[#4f71dc]" />
                 Дополнительные параметры
               </label>
               {draft.hasParameter && (
@@ -303,13 +303,13 @@ export function IncomeCategoriesView({ embedded = false }: { embedded?: boolean 
                 </select>
               )}
               <label className="flex items-center gap-2">
-                <input type="checkbox" checked={draft.otherIncome} onChange={(event) => setDraft((value) => ({ ...value, otherIncome: event.target.checked }))} className="h-4 w-4 accent-[#4f70e7]" />
+                <input type="checkbox" checked={draft.otherIncome} onChange={(event) => setDraft((value) => ({ ...value, otherIncome: event.target.checked }))} className="h-4 w-4 accent-[#4f71dc]" />
                 Прочий приход
               </label>
               {formError && <p className="text-sm font-medium text-rose-600">{formError}</p>}
             </div>
             <footer className="flex justify-end border-t p-5">
-              <button type="submit" disabled={saving} className="rounded bg-[#6ccd8b] px-6 py-3 font-semibold text-white hover:brightness-95 disabled:opacity-60">
+              <button type="submit" disabled={saving} className="rounded bg-[#71ce87] px-6 py-3 font-semibold text-white hover:brightness-95 disabled:opacity-60">
                 {saving ? "Сохранение..." : "Сохранить"}
               </button>
             </footer>
@@ -327,21 +327,21 @@ export function IncomeCategoriesView({ embedded = false }: { embedded?: boolean 
               </button>
             </header>
             <div className="p-8">
-              <button type="button" onClick={downloadTemplate} className="mb-4 font-semibold text-[#4f70e7] hover:underline">
+              <button type="button" onClick={downloadTemplate} className="mb-4 font-semibold text-[#4f71dc] hover:underline">
                 1. Скачать шаблон
               </button>
               <input ref={importInputRef} type="file" accept=".csv,.xls,.xlsx" onChange={pickImportFile} className="hidden" />
               <button
                 type="button"
                 onClick={() => importInputRef.current?.click()}
-                className="flex w-full flex-col items-center justify-center gap-3 rounded border-2 border-dashed border-slate-300 py-10 text-slate-500 hover:border-[#4f70e7] hover:text-[#4f70e7]"
+                className="flex w-full flex-col items-center justify-center gap-3 rounded border-2 border-dashed border-slate-300 py-10 text-slate-500 hover:border-[#4f71dc] hover:text-[#4f71dc]"
               >
                 <FileText className="h-8 w-8" />
                 {importFile ? importFile.name : "Добавьте файл Excel или нажмите для выбора"}
               </button>
             </div>
             <footer className="flex justify-end border-t p-5">
-              <button type="button" disabled={!importFile || importSaving} onClick={saveImport} className="rounded bg-[#6ccd8b] px-5 py-3 font-semibold text-white hover:brightness-95 disabled:opacity-40">
+              <button type="button" disabled={!importFile || importSaving} onClick={saveImport} className="rounded bg-[#71ce87] px-5 py-3 font-semibold text-white hover:brightness-95 disabled:opacity-40">
                 {importSaving ? "Импорт..." : "Сохранить"}
               </button>
             </footer>

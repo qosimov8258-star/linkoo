@@ -102,7 +102,7 @@ function ShareTable({ rows }: { rows: ShareRow[] }) {
         <tr>
           <th className="px-4 py-3 text-left font-semibold">{t("Тип магазина")}</th>
           <th className="px-4 py-3 text-left font-semibold">{t("Баланс на начало")}</th>
-          <th onClick={() => setSortDir((current) => (current === "asc" ? "desc" : "asc"))} className="cursor-pointer px-4 py-3 text-left font-semibold hover:text-[#4f70e7]">
+          <th onClick={() => setSortDir((current) => (current === "asc" ? "desc" : "asc"))} className="cursor-pointer px-4 py-3 text-left font-semibold hover:text-[#4f71dc]">
             <span className="inline-flex items-center gap-1">{t("Баланс на конец")}<ChevronDown className="h-3.5 w-3.5" /></span>
           </th>
           <th className="px-4 py-3 text-left font-semibold">{t("Разница")}</th>
@@ -159,7 +159,7 @@ export function BalanceTabView() {
     <main className="min-h-screen bg-white text-[#17233b]">
       <header className="flex flex-wrap items-center gap-4 border-b border-[#d8dee7] bg-[#f2f5f8] px-6 py-4 md:px-9">
         <div className="flex items-center gap-3">
-          <FavoritesButton className="flex items-center gap-2 text-xl font-bold text-[#4f70e7]" /><span className="text-2xl font-light text-[#586174]">|</span>
+          <FavoritesButton className="flex items-center gap-2 text-xl font-bold text-[#4f71dc]" /><span className="text-2xl font-light text-[#586174]">|</span>
           <span className="text-xl font-bold text-[#586174]">{t("Виджеты")}</span>
         </div>
         <nav className="ml-auto flex flex-wrap gap-2">
@@ -182,7 +182,7 @@ export function BalanceTabView() {
         </div>
         <strong className="ml-auto text-[#5470e8]">{t("01 Авг. 2026 - 31 Авг. 2026")}</strong>
         <div className="flex overflow-hidden rounded-md border border-[#e1e5eb]">
-          {["СЕГОДНЯ", "ВЧЕРА", "ПОСЛ. 7", "МЕСЯЦ", "СВОЯ"].map((item) => <button key={item} onClick={() => setPeriod(item)} className={`border-r border-[#e1e5eb] px-4 py-2 text-sm font-medium last:border-r-0 ${period === item ? "bg-[#4f70e7] text-white" : "bg-white hover:bg-slate-50"}`}>{t(item)}</button>)}
+          {["СЕГОДНЯ", "ВЧЕРА", "ПОСЛ. 7", "МЕСЯЦ", "СВОЯ"].map((item) => <button key={item} onClick={() => setPeriod(item)} className={`border-r border-[#e1e5eb] px-4 py-2 text-sm font-medium last:border-r-0 ${period === item ? "bg-[#4f71dc] text-white" : "bg-white hover:bg-slate-50"}`}>{t(item)}</button>)}
         </div>
       </section>
 
@@ -200,7 +200,7 @@ export function BalanceTabView() {
             setApplied(true)
             window.setTimeout(() => setApplied(false), 1800)
           }}
-          className="rounded-md bg-[#4f70e7] px-6 py-2.5 font-semibold text-white"
+          className="rounded-md bg-[#4f71dc] px-6 py-2.5 font-semibold text-white"
         >
           {applied ? t("Применено ✓") : t("Применить")}
         </button>
@@ -268,9 +268,9 @@ export function BalanceTabView() {
         <h2 className="mb-5 text-lg font-semibold">{t("Кассы")}</h2>
         <div className="mb-5 grid grid-cols-2 gap-4 sm:grid-cols-6">
           <div>
-            <p className="font-bold text-[#4f70e7]">{money(CASH_TOTALS.euro)} Euro,</p>
-            <p className="font-bold text-[#4f70e7]">{money(CASH_TOTALS.sum, 2)} SUM,</p>
-            <p className="font-bold text-[#4f70e7]">{money(CASH_TOTALS.usd, 3)} USD</p>
+            <p className="font-bold text-[#4f71dc]">{money(CASH_TOTALS.euro)} Euro,</p>
+            <p className="font-bold text-[#4f71dc]">{money(CASH_TOTALS.sum, 2)} SUM,</p>
+            <p className="font-bold text-[#4f71dc]">{money(CASH_TOTALS.usd, 3)} USD</p>
             <p className="text-[13px] text-[#586174]">{t("Баланс на начало периода")}</p>
           </div>
           <div><p className="font-bold text-[#3aa76d]">0 Euro, 0 SUM, 0 USD</p><p className="text-[13px] text-[#586174]">{t("Приход за период")}</p></div>
@@ -278,9 +278,9 @@ export function BalanceTabView() {
           <div><p className="font-bold text-[#3aa76d]">0 Euro, 0 SUM, 0 USD</p><p className="text-[13px] text-[#586174]">{t("Перевод в кассу")}</p></div>
           <div><p className="font-bold text-[#e5484d]">0 Euro, 0 SUM, 0 USD</p><p className="text-[13px] text-[#586174]">{t("Перевод с кассы")}</p></div>
           <div>
-            <p className="font-bold text-[#4f70e7]">{money(CASH_TOTALS.euro)} Euro,</p>
-            <p className="font-bold text-[#4f70e7]">{money(CASH_TOTALS.sum, 2)} SUM,</p>
-            <p className="font-bold text-[#4f70e7]">{money(CASH_TOTALS.usd, 3)} USD</p>
+            <p className="font-bold text-[#4f71dc]">{money(CASH_TOTALS.euro)} Euro,</p>
+            <p className="font-bold text-[#4f71dc]">{money(CASH_TOTALS.sum, 2)} SUM,</p>
+            <p className="font-bold text-[#4f71dc]">{money(CASH_TOTALS.usd, 3)} USD</p>
             <p className="text-[13px] text-[#586174]">{t("Баланс на конец периода")}</p>
           </div>
         </div>
@@ -428,9 +428,9 @@ export function BalanceTabView() {
         </div>
         <div className="mb-6 grid grid-cols-2 gap-4 sm:grid-cols-6">
           <div>
-            <p className="font-bold text-[#4f70e7]">{money(CASH_TOTALS.euro)} Euro,</p>
-            <p className="font-bold text-[#4f70e7]">{money(CASH_TOTALS.sum, 2)} SUM,</p>
-            <p className="font-bold text-[#4f70e7]">{money(CASH_TOTALS.usd, 3)} USD</p>
+            <p className="font-bold text-[#4f71dc]">{money(CASH_TOTALS.euro)} Euro,</p>
+            <p className="font-bold text-[#4f71dc]">{money(CASH_TOTALS.sum, 2)} SUM,</p>
+            <p className="font-bold text-[#4f71dc]">{money(CASH_TOTALS.usd, 3)} USD</p>
             <p className="text-[13px] text-[#586174]">{t("Баланс на начало периода")}</p>
           </div>
           <div><p className="font-bold text-[#3aa76d]">0 Euro, 0 SUM, 0 USD</p><p className="text-[13px] text-[#586174]">{t("Приход за период")}</p></div>
@@ -438,9 +438,9 @@ export function BalanceTabView() {
           <div><p className="font-bold text-[#3aa76d]">0 Euro, 0 SUM, 0 USD</p><p className="text-[13px] text-[#586174]">{t("Перевод в кассу")}</p></div>
           <div><p className="font-bold text-[#e5484d]">0 Euro, 0 SUM, 0 USD</p><p className="text-[13px] text-[#586174]">{t("Перевод с кассы")}</p></div>
           <div>
-            <p className="font-bold text-[#4f70e7]">{money(CASH_TOTALS.euro)} Euro,</p>
-            <p className="font-bold text-[#4f70e7]">{money(CASH_TOTALS.sum, 2)} SUM,</p>
-            <p className="font-bold text-[#4f70e7]">{money(CASH_TOTALS.usd, 3)} USD</p>
+            <p className="font-bold text-[#4f71dc]">{money(CASH_TOTALS.euro)} Euro,</p>
+            <p className="font-bold text-[#4f71dc]">{money(CASH_TOTALS.sum, 2)} SUM,</p>
+            <p className="font-bold text-[#4f71dc]">{money(CASH_TOTALS.usd, 3)} USD</p>
             <p className="text-[13px] text-[#586174]">{t("Баланс на конец периода")}</p>
           </div>
         </div>
@@ -470,8 +470,8 @@ export function BalanceTabView() {
 
       <section className="mx-6 mb-10 rounded-md bg-white p-6 shadow-sm md:mx-9">
         <div className="mb-6 flex overflow-hidden rounded-sm">
-          <button onClick={() => setWarehouseTab("cost")} className={`px-5 py-2.5 text-[13px] font-bold uppercase tracking-wide ${warehouseTab === "cost" ? "bg-[#4f70e7] text-white" : "border border-[#4f70e7] text-[#4f70e7]"}`}>{t("Себестоимость")}</button>
-          <button onClick={() => setWarehouseTab("priceList")} className={`px-5 py-2.5 text-[13px] font-bold uppercase tracking-wide ${warehouseTab === "priceList" ? "bg-[#4f70e7] text-white" : "border border-[#4f70e7] text-[#4f70e7]"}`}>{t("Прайс лист")}</button>
+          <button onClick={() => setWarehouseTab("cost")} className={`px-5 py-2.5 text-[13px] font-bold uppercase tracking-wide ${warehouseTab === "cost" ? "bg-[#4f71dc] text-white" : "border border-[#4f71dc] text-[#4f71dc]"}`}>{t("Себестоимость")}</button>
+          <button onClick={() => setWarehouseTab("priceList")} className={`px-5 py-2.5 text-[13px] font-bold uppercase tracking-wide ${warehouseTab === "priceList" ? "bg-[#4f71dc] text-white" : "border border-[#4f71dc] text-[#4f71dc]"}`}>{t("Прайс лист")}</button>
         </div>
         <div className="grid grid-cols-1 gap-8 lg:grid-cols-[320px_1fr]">
           <div className="mx-auto flex h-[260px] w-[260px] items-center justify-center rounded-full" style={{ background: `conic-gradient(${warehouses.reduce<{ acc: number; parts: string[] }>((state, row, index) => { const colors = ["#3b82f6", "#22c55e", "#ef4444", "#8b5cf6", "#f59e0b", "#06b6d4", "#ec4899", "#84cc16"]; const start = state.acc; const end = start + row.sharePercent; return { acc: end, parts: [...state.parts, `${colors[index % colors.length]} ${start}% ${end}%`] } }, { acc: 0, parts: [] }).parts.join(", ")})` }}>

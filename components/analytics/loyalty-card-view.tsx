@@ -84,14 +84,14 @@ export function LoyaltyCardView() {
     <main className="min-h-screen bg-white text-[#17233b]">
       <header className="flex min-h-[76px] items-center border-b border-[#d8dee7] bg-[#f2f5f8] px-6 md:px-9">
         <div className="flex items-center gap-3">
-          <FavoritesButton className="flex items-center gap-3 text-2xl font-bold text-[#4f70e7]" />
+          <FavoritesButton className="flex items-center gap-3 text-2xl font-bold text-[#4f71dc]" />
           <span className="text-3xl font-light text-[#586174]">|</span>
           <span className="text-2xl font-bold text-[#586174]">Накопительная карта</span>
         </div>
       </header>
 
       <section className="flex flex-wrap items-center gap-4 px-6 py-4 md:px-9">
-        <button onClick={() => setFilterOpen((value) => !value)} className="flex items-center gap-1 font-medium text-[#4f70e7]">
+        <button onClick={() => setFilterOpen((value) => !value)} className="flex items-center gap-1 font-medium text-[#4f71dc]">
           Показать фильтр <ChevronDown className={`h-4 w-4 transition ${filterOpen ? "rotate-180" : ""}`} />
         </button>
         <label className="relative min-w-[220px] flex-1 border-b border-[#dbe0e8] pb-1.5">
@@ -107,7 +107,7 @@ export function LoyaltyCardView() {
         <button disabled={safePage === 1} onClick={() => setPage((value) => Math.max(1, value - 1))} className="rounded-full border border-[#dbe0e8] p-1 text-[#9aa3b6] disabled:opacity-40">
           <ChevronDown className="h-5 w-5 rotate-90" />
         </button>
-        <button disabled={safePage === maxPage} onClick={() => setPage((value) => Math.min(maxPage, value + 1))} className="rounded-full border border-[#4f70e7] p-1 text-[#4f70e7] disabled:opacity-40">
+        <button disabled={safePage === maxPage} onClick={() => setPage((value) => Math.min(maxPage, value + 1))} className="rounded-full border border-[#4f71dc] p-1 text-[#4f71dc] disabled:opacity-40">
           <ChevronDown className="h-5 w-5 -rotate-90" />
         </button>
         <button aria-label="Полный экран" onClick={() => document.documentElement.requestFullscreen?.()} className="text-[#586174]"><Expand className="h-5 w-5" /></button>
@@ -139,7 +139,7 @@ export function LoyaltyCardView() {
                   <div className="flex items-center gap-2">
                     <button aria-label="Добавить расход" onClick={() => setModal({ type: "expense", clientId: row.id })} className="text-[#e5484d]"><MinusCircle className="h-6 w-6 fill-[#ff5d63] text-white" /></button>
                     <button aria-label="Добавить" onClick={() => setModal({ type: "add", clientId: row.id })} className="text-[#39ca79]"><PlusCircle className="h-6 w-6 fill-[#39ca79] text-white" /></button>
-                    <button onClick={() => setInfoTarget(row)} className="text-[#4f70e7] hover:underline">{row.client}</button>
+                    <button onClick={() => setInfoTarget(row)} className="text-[#4f71dc] hover:underline">{row.client}</button>
                   </div>
                 </td>
                 <td className="border-b border-[#e1e5eb] px-4 py-3.5"><AmountText value={row.balance.euro} /></td>
@@ -257,7 +257,7 @@ function TransactionModal({
               const value = Number(amount)
               if (value > 0) onSave(currency, value, comment)
             }}
-            className="font-bold uppercase tracking-wide text-[#4f70e7]"
+            className="font-bold uppercase tracking-wide text-[#4f71dc]"
           >
             Сохранить
           </button>

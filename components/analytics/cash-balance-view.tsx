@@ -152,17 +152,17 @@ export function CashBalanceView() {
     <main className="min-h-screen bg-white text-[#17233b]">
       <header className="flex min-h-[76px] items-center border-b border-[#d8dee7] bg-[#f2f5f8] px-6 md:px-9">
         <div className="flex items-center gap-3">
-          <FavoritesButton className="flex items-center gap-3 text-2xl font-bold text-[#4f70e7]" />
+          <FavoritesButton className="flex items-center gap-3 text-2xl font-bold text-[#4f71dc]" />
           <span className="text-3xl font-light text-[#586174]">|</span>
           <span className="text-2xl font-bold text-[#586174]">Баланс кассы</span>
         </div>
       </header>
 
       <section className="flex flex-wrap items-center gap-4 px-6 py-4 md:px-9">
-        <button onClick={() => setFilterOpen(true)} className="flex h-11 items-center gap-2 rounded-md bg-[#4f70e7] px-5 font-semibold text-white">
+        <button onClick={() => setFilterOpen(true)} className="flex h-11 items-center gap-2 rounded-md bg-[#4f71dc] px-5 font-semibold text-white">
           <Filter className="h-4 w-4" /> Фильтр / {filterCount}
         </button>
-        <span className="font-semibold text-[#4f70e7]">{appliedFrom} - {appliedTo}</span>
+        <span className="font-semibold text-[#4f71dc]">{appliedFrom} - {appliedTo}</span>
         <span className="text-[#586174]">Во всей организации</span>
         <button onClick={downloadAll} className="ml-auto flex h-11 items-center gap-2 rounded-md bg-[#4caf72] px-5 font-semibold text-white">
           <BarChart className="h-5 w-5" /> Скачать
@@ -210,7 +210,7 @@ export function CashBalanceView() {
 
       <section className="overflow-x-auto pb-10">
         <table className="min-w-[1400px] w-full border-collapse text-[14px]">
-          <thead className="bg-[#4f70e7]">
+          <thead className="bg-[#4f71dc]">
             <tr>
               <th className="whitespace-nowrap px-4 py-3 text-left font-semibold text-white">Кассы</th>
               <SortableHeader label="Баланс на начало периода" sortKey="opening" active={sortKey === "opening"} dir={sortDir} onSort={toggleSort} />

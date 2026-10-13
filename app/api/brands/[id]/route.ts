@@ -8,7 +8,7 @@ import { deleteBrand, updateBrand } from "@/lib/brands-repo"
 const brandSchema = z.object({
   name: z.string().trim().min(1),
   organization: z.string().trim().min(1),
-  photoUrl: z.string().optional(),
+  photoUrl: z.string().nullable().optional(),
 })
 
 type RouteParams = { params: Promise<{ id: string }> }

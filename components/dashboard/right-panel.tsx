@@ -2,6 +2,7 @@
 
 import { useState } from "react"
 import { SelectField } from "./select-field"
+import { CARD_CLASS } from "./stat-cards"
 import type { DashboardSummary } from "@/lib/dashboard-summary-repo"
 import { useLanguage } from "@/lib/i18n/language-context"
 
@@ -23,16 +24,15 @@ export function RightPanel({ summary }: { summary: DashboardSummary | null }) {
   const total = measure === "Факт АКБ" ? (summary?.akb ?? 0) : (summary?.sales.value ?? 0)
 
   return (
-    <div className="flex flex-col rounded-lg bg-white p-5 shadow-sm">
-      <div className="grid grid-cols-2 gap-4">
+    <div className={`${CARD_CLASS} flex min-h-[450px] flex-col gap-[10px] p-[10px]`}>
+      <div className={`${CARD_CLASS} grid h-[70px] grid-cols-2 gap-5 px-[10px] pt-[10px]`}>
         <SelectField label={t("Группировка")} options={GROUPINGS} value={grouping} onChange={setGrouping} />
         <SelectField label={t("Измерять")} options={MEASURES} value={measure} onChange={setMeasure} />
       </div>
 
-      {/* Empty chart area */}
-      <div className="flex flex-1 flex-col items-center justify-center py-16">
-        <span className="text-2xl font-bold text-slate-700">{total.toLocaleString("ru-RU")}</span>
-        <span className="mt-1 text-sm uppercase tracking-wide text-slate-500">{t("итого")}</span>
+      <div className={`${CARD_CLASS} flex flex-1 flex-col items-center justify-center`}>
+        <span className="text-[12px] font-semibold leading-4">{total.toLocaleString("ru-RU")}</span>
+        <span className="text-[13px]">{t("итого")}</span>
       </div>
     </div>
   )

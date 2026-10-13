@@ -178,18 +178,18 @@ export function SuppliersView({ embedded = false }: { embedded?: boolean }) {
   }
 
   return (
-    <main className={embedded ? "min-w-0 flex-1" : "min-h-[calc(100vh-4rem)] bg-[#f1f4f8] px-9 py-5"}>
+    <main className={embedded ? "min-w-0 flex-1" : "min-h-[calc(100vh-4rem)] bg-[#f2f5f8] px-7 pb-7"}>
       {!embedded && (
         <header className="mb-5 flex items-center justify-between">
           <h1 className="flex items-center text-2xl font-bold text-slate-600">
-            <FavoritesButton className="inline-flex items-center gap-2 text-[#4f70e7]" />
+            <FavoritesButton className="inline-flex items-center gap-2 text-[#4f71dc]" />
             <span className="mx-2 text-slate-400">|</span> Поставщики
           </h1>
           <div className="flex items-center gap-3">
-            <button type="button" onClick={() => setImportOpen(true)} className="inline-flex items-center gap-2 rounded bg-[#4f70e7] px-5 py-2.5 font-semibold text-white hover:brightness-95">
+            <button type="button" onClick={() => setImportOpen(true)} className="inline-flex items-center gap-2 rounded bg-[#4f71dc] px-5 py-2.5 font-semibold text-white hover:brightness-95">
               <FileText className="h-4 w-4" /> Импорт с Excel
             </button>
-            <button type="button" onClick={openCreate} className="inline-flex items-center gap-2 rounded bg-[#6ccd8b] px-5 py-2.5 font-semibold text-white hover:brightness-95">
+            <button type="button" onClick={openCreate} className="inline-flex items-center gap-2 rounded bg-[#71ce87] px-5 py-2.5 font-semibold text-white hover:brightness-95">
               <Plus className="h-4 w-4" /> Добавить
             </button>
           </div>
@@ -199,7 +199,7 @@ export function SuppliersView({ embedded = false }: { embedded?: boolean }) {
       <section className="overflow-hidden rounded bg-white shadow">
         <div className="flex flex-wrap items-center gap-4 px-5 py-3">
           <label className="relative w-64">
-            <input value={query} onChange={(event) => { setQuery(event.target.value); setPage(1) }} placeholder="Поиск" className="w-full border-b border-slate-300 py-2 pr-10 outline-none focus:border-[#4f70e7]" />
+            <input value={query} onChange={(event) => { setQuery(event.target.value); setPage(1) }} placeholder="Поиск" className="w-full border-b border-slate-300 py-2 pr-10 outline-none focus:border-[#4f71dc]" />
             <Search className="absolute right-2 top-2 h-5 w-5 text-slate-300" />
           </label>
           <span className="ml-auto text-slate-500">25</span>
@@ -212,15 +212,15 @@ export function SuppliersView({ embedded = false }: { embedded?: boolean }) {
           <button type="button" onClick={() => setPage((value) => Math.min(pageCount, value + 1))} disabled={safePage >= pageCount} aria-label="Вперед" className="disabled:opacity-30">
             <ChevronRight className="h-5 w-5 text-slate-400" />
           </button>
-          <button type="button" onClick={downloadList} aria-label="Скачать" className="text-slate-500 hover:text-[#4f70e7]">
+          <button type="button" onClick={downloadList} aria-label="Скачать" className="text-slate-500 hover:text-[#4f71dc]">
             <Download className="h-5 w-5" />
           </button>
           {embedded && (
             <>
-              <button type="button" onClick={() => setImportOpen(true)} className="inline-flex items-center gap-2 rounded bg-[#4f70e7] px-4 py-2 text-sm font-semibold text-white hover:brightness-95">
+              <button type="button" onClick={() => setImportOpen(true)} className="inline-flex items-center gap-2 rounded bg-[#4f71dc] px-4 py-2 text-sm font-semibold text-white hover:brightness-95">
                 <FileText className="h-4 w-4" /> Импорт с Excel
               </button>
-              <button type="button" onClick={openCreate} className="inline-flex items-center gap-2 rounded bg-[#6ccd8b] px-4 py-2 text-sm font-semibold text-white hover:brightness-95">
+              <button type="button" onClick={openCreate} className="inline-flex items-center gap-2 rounded bg-[#71ce87] px-4 py-2 text-sm font-semibold text-white hover:brightness-95">
                 <Plus className="h-4 w-4" /> Добавить
               </button>
             </>
@@ -228,7 +228,7 @@ export function SuppliersView({ embedded = false }: { embedded?: boolean }) {
         </div>
 
         <table className="w-full text-left">
-          <thead className="bg-[#626b7e] text-white">
+          <thead className="bg-[#5d6474] text-white">
             <tr>
               <th className="px-9 py-5">Id</th>
               <th className="px-5 py-5">Наименование</th>
@@ -245,7 +245,7 @@ export function SuppliersView({ embedded = false }: { embedded?: boolean }) {
               <Fragment key={row.id}>
                 <tr onClick={() => toggleExpand(row)} className="cursor-pointer border-b border-dashed border-slate-300 hover:bg-slate-50">
                   <td className="px-9 py-4">{row.id}</td>
-                  <td className="px-5 py-4 text-[#4f70e7]">{row.name}</td>
+                  <td className="px-5 py-4 text-[#4f71dc]">{row.name}</td>
                   <td className="px-5 py-4">{row.category}</td>
                   <td className="px-5 py-4">{row.createdDate}</td>
                 </tr>
@@ -260,7 +260,7 @@ export function SuppliersView({ embedded = false }: { embedded?: boolean }) {
                             <button type="button" aria-label="Добавить продукт" className="text-emerald-500 hover:text-emerald-600">
                               <PlusCircle className="h-6 w-6" />
                             </button>
-                            <button type="button" onClick={() => openEdit(row)} aria-label="Изменить" className="hover:text-[#4f70e7]">
+                            <button type="button" onClick={() => openEdit(row)} aria-label="Изменить" className="hover:text-[#4f71dc]">
                               <Pencil className="h-5 w-5" />
                             </button>
                             <button type="button" onClick={() => removeRow(row)} aria-label="Удалить" className="hover:text-rose-500">
@@ -272,17 +272,17 @@ export function SuppliersView({ embedded = false }: { embedded?: boolean }) {
                         <div className="grid gap-6 sm:grid-cols-[1fr_2fr]">
                           <div>
                             <dl className="space-y-2 text-sm">
-                              <div className="flex justify-between gap-4"><dt className="text-slate-500">Адрес</dt><dd className="font-medium text-[#4f70e7]">{row.address}</dd></div>
-                              <div className="flex justify-between gap-4"><dt className="text-slate-500">Категория</dt><dd className="font-medium text-[#4f70e7]">{row.category}</dd></div>
-                              <div className="flex justify-between gap-4"><dt className="text-slate-500">Филиал</dt><dd className="font-medium text-[#4f70e7]">{row.branch}</dd></div>
-                              <div className="flex justify-between gap-4"><dt className="text-slate-500">Организация</dt><dd className="font-medium text-[#4f70e7]">{row.organization}</dd></div>
-                              <div className="flex justify-between gap-4"><dt className="text-slate-500">Дата добавления</dt><dd className="font-medium text-[#4f70e7]">{row.createdDate}</dd></div>
+                              <div className="flex justify-between gap-4"><dt className="text-slate-500">Адрес</dt><dd className="font-medium text-[#4f71dc]">{row.address}</dd></div>
+                              <div className="flex justify-between gap-4"><dt className="text-slate-500">Категория</dt><dd className="font-medium text-[#4f71dc]">{row.category}</dd></div>
+                              <div className="flex justify-between gap-4"><dt className="text-slate-500">Филиал</dt><dd className="font-medium text-[#4f71dc]">{row.branch}</dd></div>
+                              <div className="flex justify-between gap-4"><dt className="text-slate-500">Организация</dt><dd className="font-medium text-[#4f71dc]">{row.organization}</dd></div>
+                              <div className="flex justify-between gap-4"><dt className="text-slate-500">Дата добавления</dt><dd className="font-medium text-[#4f71dc]">{row.createdDate}</dd></div>
                             </dl>
                             <p className="mb-2 mt-5 font-medium text-slate-800">Контакты</p>
                             {row.contacts.length === 0 && <p className="text-sm text-slate-400">Не указано</p>}
                             {row.contacts.map((contact) => (
                               <div key={contact.id} className="flex justify-between gap-4 border-b border-dashed border-slate-200 py-1.5 text-sm">
-                                <span className="text-[#4f70e7]">{contact.name}</span>
+                                <span className="text-[#4f71dc]">{contact.name}</span>
                                 <span>{contact.phone}</span>
                               </div>
                             ))}
@@ -353,21 +353,21 @@ export function SuppliersView({ embedded = false }: { embedded?: boolean }) {
               </button>
             </header>
             <div className="p-8">
-              <button type="button" onClick={downloadTemplate} className="mb-4 font-semibold text-[#4f70e7] hover:underline">
+              <button type="button" onClick={downloadTemplate} className="mb-4 font-semibold text-[#4f71dc] hover:underline">
                 1. Скачать шаблон
               </button>
               <input ref={importInputRef} type="file" accept=".csv,.xls,.xlsx" onChange={pickImportFile} className="hidden" />
               <button
                 type="button"
                 onClick={() => importInputRef.current?.click()}
-                className="flex w-full flex-col items-center justify-center gap-3 rounded border-2 border-dashed border-slate-300 py-10 text-slate-500 hover:border-[#4f70e7] hover:text-[#4f70e7]"
+                className="flex w-full flex-col items-center justify-center gap-3 rounded border-2 border-dashed border-slate-300 py-10 text-slate-500 hover:border-[#4f71dc] hover:text-[#4f71dc]"
               >
                 <FileText className="h-8 w-8" />
                 {importFile ? importFile.name : "Добавьте файл Excel или нажмите для выбора"}
               </button>
             </div>
             <footer className="flex justify-end border-t p-5">
-              <button type="button" disabled={!importFile || importSaving} onClick={saveImport} className="rounded bg-[#6ccd8b] px-5 py-3 font-semibold text-white hover:brightness-95 disabled:opacity-40">
+              <button type="button" disabled={!importFile || importSaving} onClick={saveImport} className="rounded bg-[#71ce87] px-5 py-3 font-semibold text-white hover:brightness-95 disabled:opacity-40">
                 {importSaving ? "Импорт..." : "Сохранить"}
               </button>
             </footer>

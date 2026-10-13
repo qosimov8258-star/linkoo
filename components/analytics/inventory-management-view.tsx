@@ -314,7 +314,7 @@ export function InventoryManagementView() {
     <main className="min-h-screen bg-white text-[#17233b]">
       <header className="flex flex-wrap items-center justify-between gap-4 border-b border-[#e1e5eb] px-6 py-5 md:px-9">
         <div className="flex items-center gap-3">
-          <FavoritesButton className="flex items-center gap-3 text-2xl font-bold text-[#4f70e7]" />
+          <FavoritesButton className="flex items-center gap-3 text-2xl font-bold text-[#4f71dc]" />
           <span className="text-3xl font-light text-[#586174]">|</span>
           <span className="text-2xl font-bold text-[#586174]">{t("Работа с инвентарем")}</span>
         </div>
@@ -332,7 +332,7 @@ export function InventoryManagementView() {
           <button
             key={key}
             onClick={() => { setTab(key); setPage(1); setExpandedId(null) }}
-            className={`flex-1 border-b-2 py-4 text-[15px] font-medium ${tab === key ? "border-[#4f70e7] text-[#17233b]" : "border-transparent text-[#586174]"}`}
+            className={`flex-1 border-b-2 py-4 text-[15px] font-medium ${tab === key ? "border-[#4f71dc] text-[#17233b]" : "border-transparent text-[#586174]"}`}
           >
             {t(label)}
           </button>
@@ -353,14 +353,14 @@ export function InventoryManagementView() {
               <button
                 key={key}
                 onClick={() => setRequestSubTab(key)}
-                className={`border-b-2 py-4 text-[15px] font-medium ${requestSubTab === key ? "border-[#4f70e7] text-[#17233b]" : "border-transparent text-[#586174]"}`}
+                className={`border-b-2 py-4 text-[15px] font-medium ${requestSubTab === key ? "border-[#4f71dc] text-[#17233b]" : "border-transparent text-[#586174]"}`}
               >
                 {t(label)}
               </button>
             ))}
           </section>
           <section className="flex flex-wrap items-center gap-5 px-6 py-4 md:px-9">
-            <span className="flex items-center gap-2 text-[#4f70e7]">{t("Фильтр: 1 элемента")} <Pencil className="h-4 w-4" /> <button type="button" onClick={() => setSearch("")} aria-label={t("Сбросить фильтр")}><X className="h-5 w-5 rounded-full border-2 border-[#9aa3b6] p-0.5 text-[#9aa3b6]" /></button></span>
+            <span className="flex items-center gap-2 text-[#4f71dc]">{t("Фильтр: 1 элемента")} <Pencil className="h-4 w-4" /> <button type="button" onClick={() => setSearch("")} aria-label={t("Сбросить фильтр")}><X className="h-5 w-5 rounded-full border-2 border-[#9aa3b6] p-0.5 text-[#9aa3b6]" /></button></span>
             <label className="relative min-w-[220px] flex-1 border-b border-[#dbe0e8] pb-1.5">
               <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={t("Поиск")} className="w-full bg-transparent pr-7 text-[15px] outline-none placeholder:text-[#9aa3b6]" />
               <Search className="pointer-events-none absolute right-0 top-0.5 h-5 w-5 text-[#9aa3b6]" />
@@ -373,7 +373,7 @@ export function InventoryManagementView() {
             <ChevronRight className="h-5 w-5 text-[#9aa3b6]" />
           </section>
           <table className="w-full border-collapse text-[15px]">
-            <thead className="bg-[#626b7e] text-white">
+            <thead className="bg-[#5d6474] text-white">
               <tr>
                 {["№", "Тип", "Клиент", "Тип инвентаря", "Инвентарь", "Запросил", "Дата запроса", "Обработал", "Дата обработки", "Статус"].map((title) => (
                   <th key={title} className="px-4 py-4 text-left font-semibold">{t(title)}</th>
@@ -404,7 +404,7 @@ export function InventoryManagementView() {
           </div>
 
           <section className="flex flex-wrap items-center gap-5 px-6 py-4 md:px-9">
-            <button onClick={() => setFilterOpen((value) => !value)} className="flex items-center gap-1 font-medium text-[#4f70e7]">
+            <button onClick={() => setFilterOpen((value) => !value)} className="flex items-center gap-1 font-medium text-[#4f71dc]">
               <Filter className="h-4 w-4" /> {t("Показать фильтр")} <ChevronDown className={`h-4 w-4 transition ${filterOpen ? "rotate-180" : ""}`} />
             </button>
             <label className="relative min-w-[220px] flex-1 border-b border-[#dbe0e8] pb-1.5">
@@ -416,7 +416,7 @@ export function InventoryManagementView() {
             </select>
             <span className="text-[#586174]">{filtered.length ? (safePage - 1) * pageSize + 1 : 0} - {Math.min(safePage * pageSize, filtered.length)} {t("из")} {filtered.length}</span>
             <button disabled={safePage === 1} onClick={() => setPage((value) => Math.max(1, value - 1))} className="rounded-full border border-[#dbe0e8] p-1 text-[#9aa3b6] disabled:opacity-40"><ChevronLeft className="h-5 w-5" /></button>
-            <button disabled={safePage === maxPage} onClick={() => setPage((value) => Math.min(maxPage, value + 1))} className="rounded-full border border-[#4f70e7] p-1 text-[#4f70e7] disabled:opacity-40"><ChevronRight className="h-5 w-5" /></button>
+            <button disabled={safePage === maxPage} onClick={() => setPage((value) => Math.min(maxPage, value + 1))} className="rounded-full border border-[#4f71dc] p-1 text-[#4f71dc] disabled:opacity-40"><ChevronRight className="h-5 w-5" /></button>
           </section>
 
           {filterOpen && (
@@ -435,7 +435,7 @@ export function InventoryManagementView() {
           )}
 
           <table className="w-full border-collapse text-[15px]">
-            <thead className="bg-[#626b7e] text-white">
+            <thead className="bg-[#5d6474] text-white">
               <tr>
                 <th className="px-4 py-4 text-left font-semibold">{t("№")}</th>
                 <th className="px-4 py-4 text-left font-semibold">{t("Серийный №")}</th>
@@ -455,10 +455,10 @@ export function InventoryManagementView() {
                   >
                     <td className="px-4 py-4">{item.id}</td>
                     <td className="px-4 py-4">{item.serialNumber}</td>
-                    <td className="px-4 py-4 text-[#4f70e7]">{item.client}</td>
+                    <td className="px-4 py-4 text-[#4f71dc]">{item.client}</td>
                     <td className="px-4 py-4">
                       <div>{item.inventoryType}</div>
-                      {item.inventoryCode && <div className="text-[#4f70e7]">{item.inventoryCode}</div>}
+                      {item.inventoryCode && <div className="text-[#4f71dc]">{item.inventoryCode}</div>}
                     </td>
                     <td className="px-4 py-4">{item.warehouse}</td>
                     <td className="px-4 py-4">{item.attachDate}</td>
@@ -487,12 +487,12 @@ export function InventoryManagementView() {
                                     [item.warehouse, item.inventoryType, item.condition, item.client || "—", item.serialNumber || "—", item.inventoryCode || "—", item.attachDate, item.createdDate, item.responsible, item.approved ? t("Да") : t("Нет")],
                                   ])
                                 }
-                                className="flex items-center gap-2 rounded-md bg-[#4f70e7] px-4 py-2 font-semibold text-white"
+                                className="flex items-center gap-2 rounded-md bg-[#4f71dc] px-4 py-2 font-semibold text-white"
                               >
                                 <Eye className="h-4 w-4" /> {t("Просмотреть")}
                               </button>
-                              <button onClick={() => setTransferItem(item)} className="flex items-center gap-2 rounded-md bg-[#4f70e7] px-4 py-2 font-semibold text-white"><ArrowLeftRight className="h-4 w-4" /> {t("Передача / Изъятие")}</button>
-                              <button onClick={() => setEditItem(item)} className="flex items-center gap-2 rounded-md bg-[#4f70e7] px-4 py-2 font-semibold text-white"><Pencil className="h-4 w-4" /> {t("Изменить")}</button>
+                              <button onClick={() => setTransferItem(item)} className="flex items-center gap-2 rounded-md bg-[#4f71dc] px-4 py-2 font-semibold text-white"><ArrowLeftRight className="h-4 w-4" /> {t("Передача / Изъятие")}</button>
+                              <button onClick={() => setEditItem(item)} className="flex items-center gap-2 rounded-md bg-[#4f71dc] px-4 py-2 font-semibold text-white"><Pencil className="h-4 w-4" /> {t("Изменить")}</button>
                               <button aria-label={item.approved ? t("Одобрено") : t("Не одобрено")} onClick={() => toggleApproved(item.id)}>
                                 {item.approved ? <CheckCircle2 className="h-6 w-6 text-[#39ca79]" /> : <XCircle className="h-6 w-6 text-[#9aa3b6]" />}
                               </button>
@@ -536,7 +536,7 @@ export function InventoryManagementView() {
       {tab === "movements" && (
         <>
           <section className="flex flex-wrap items-center gap-5 px-6 py-4 md:px-9">
-            <button onClick={() => setFilterOpen((value) => !value)} className="flex items-center gap-1 font-medium text-[#4f70e7]"><Filter className="h-4 w-4" /> {t("Показать фильтр")}</button>
+            <button onClick={() => setFilterOpen((value) => !value)} className="flex items-center gap-1 font-medium text-[#4f71dc]"><Filter className="h-4 w-4" /> {t("Показать фильтр")}</button>
             <label className="relative min-w-[220px] flex-1 border-b border-[#dbe0e8] pb-1.5">
               <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={t("Поиск")} className="w-full bg-transparent pr-7 text-[15px] outline-none placeholder:text-[#9aa3b6]" />
               <Search className="pointer-events-none absolute right-0 top-0.5 h-5 w-5 text-[#9aa3b6]" />
@@ -545,10 +545,10 @@ export function InventoryManagementView() {
               <option value={10}>10</option><option value={25}>25</option><option value={50}>50</option>
             </select>
             <span className="text-[#586174]">{movementLogs.length ? 1 : 0} - {movementLogs.length} {t("из")} {movementLogs.length}</span>
-            <ChevronLeft className="h-5 w-5 text-[#9aa3b6]" /><ChevronRight className="h-5 w-5 text-[#4f70e7]" />
+            <ChevronLeft className="h-5 w-5 text-[#9aa3b6]" /><ChevronRight className="h-5 w-5 text-[#4f71dc]" />
           </section>
           <table className="w-full border-collapse text-[15px]">
-            <thead className="bg-[#626b7e] text-white">
+            <thead className="bg-[#5d6474] text-white">
               <tr>{["Инвентарь", "Дата создания", "Дата движения", "Клиент", "Склад", "Состояние", "Тип"].map((title) => <th key={title} className="px-4 py-4 text-left font-semibold">{t(title)}</th>)}</tr>
             </thead>
             <tbody>
@@ -560,7 +560,7 @@ export function InventoryManagementView() {
                   </td>
                   <td className="px-4 py-4">{log.createdAt}</td>
                   <td className="px-4 py-4">{log.movementDate}</td>
-                  <td className="px-4 py-4 text-[#4f70e7]">{log.client}</td>
+                  <td className="px-4 py-4 text-[#4f71dc]">{log.client}</td>
                   <td className="px-4 py-4">{log.warehouse}</td>
                   <td className="px-4 py-4">{log.condition}</td>
                   <td className="px-4 py-4">{t(log.type)}</td>
@@ -574,7 +574,7 @@ export function InventoryManagementView() {
       {tab === "checks" && (
         <>
           <section className="flex flex-wrap items-center gap-5 px-6 py-4 md:px-9">
-            <button onClick={() => setFilterOpen((value) => !value)} className="flex items-center gap-1 font-medium text-[#4f70e7]"><Filter className="h-4 w-4" /> {t("Показать фильтр")}</button>
+            <button onClick={() => setFilterOpen((value) => !value)} className="flex items-center gap-1 font-medium text-[#4f71dc]"><Filter className="h-4 w-4" /> {t("Показать фильтр")}</button>
             <label className="relative min-w-[220px] flex-1 border-b border-[#dbe0e8] pb-1.5">
               <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={t("Поиск")} className="w-full bg-transparent pr-7 text-[15px] outline-none placeholder:text-[#9aa3b6]" />
               <Search className="pointer-events-none absolute right-0 top-0.5 h-5 w-5 text-[#9aa3b6]" />
@@ -586,13 +586,13 @@ export function InventoryManagementView() {
             <ChevronLeft className="h-5 w-5 text-[#9aa3b6]" /><ChevronRight className="h-5 w-5 text-[#9aa3b6]" />
           </section>
           <table className="w-full border-collapse text-[15px]">
-            <thead className="bg-[#626b7e] text-white">
+            <thead className="bg-[#5d6474] text-white">
               <tr>{["№", "Клиент", "Создал", "Дата проверки", "Инвентарь", "Изображений"].map((title) => <th key={title} className="px-4 py-4 text-left font-semibold">{t(title)}</th>)}</tr>
             </thead>
             <tbody>
               {checkLogs.filter((log) => !search.trim() || log.client.toLocaleLowerCase("ru").includes(search.trim().toLocaleLowerCase("ru"))).map((log, index) => (
                 <tr key={log.id} className={`border-b border-dashed border-slate-200 ${index % 2 ? "bg-[#f6f9fc]" : "bg-white"}`}>
-                  <td className="px-4 py-4">{log.id} <span className="block text-xs text-[#4f70e7]">{t("(ком.)")}</span></td>
+                  <td className="px-4 py-4">{log.id} <span className="block text-xs text-[#4f71dc]">{t("(ком.)")}</span></td>
                   <td className="px-4 py-4">{log.client}</td>
                   <td className="px-4 py-4">{log.createdBy}</td>
                   <td className="px-4 py-4">{log.checkDate}</td>
@@ -718,7 +718,7 @@ function InventoryFormModal({
           </div>
         </div>
         <div className="col-span-full flex justify-end border-t px-8 py-5">
-          <button onClick={submit} className="font-bold uppercase tracking-wide text-[#4f70e7]">{t("Сохранить")}</button>
+          <button onClick={submit} className="font-bold uppercase tracking-wide text-[#4f71dc]">{t("Сохранить")}</button>
         </div>
       </div>
     </div>
@@ -865,7 +865,7 @@ function ImportModal({ onClose, onImport }: { onClose: () => void; onImport: (fi
           <button
             type="button"
             onClick={() => downloadExcelTable("inventory-import-template.xls", [[t("Серийный номер"), t("Клиент"), t("Тип инвентаря"), t("Инвентарный номер"), t("Склад"), t("Состояние"), t("Ответственный")]])}
-            className="block w-full text-center font-semibold text-[#4f70e7]"
+            className="block w-full text-center font-semibold text-[#4f71dc]"
           >
             1. {t("Скачать шаблон")}
           </button>
@@ -882,7 +882,7 @@ function ImportModal({ onClose, onImport }: { onClose: () => void; onImport: (fi
             className="flex h-40 w-full cursor-pointer flex-col items-center justify-center gap-2 rounded border-2 border-dashed border-[#dbe0e8] text-center text-sm text-[#586174]"
           >
             <FileText className="h-8 w-8" />
-            <span>{importFile ? importFile.name : <>{t("Добавьте файл Excel или")} <span className="text-[#4f70e7]">{t("нажмите для выбора")}</span></>}</span>
+            <span>{importFile ? importFile.name : <>{t("Добавьте файл Excel или")} <span className="text-[#4f71dc]">{t("нажмите для выбора")}</span></>}</span>
           </button>
         </div>
         <footer className="flex justify-end border-t px-8 py-5">

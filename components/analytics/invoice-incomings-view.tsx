@@ -135,28 +135,28 @@ export function InvoiceIncomingsView() {
   }
 
   return (
-    <main className="min-h-[calc(100vh-4rem)] bg-[#f1f4f8] px-9 py-5">
+    <main className="min-h-[calc(100vh-4rem)] bg-[#f2f5f8] px-7 pb-7">
       <header className="mb-5">
         <h1 className="text-2xl font-bold text-slate-600">
-          <FavoritesButton className="inline-flex items-center gap-2 text-[#4f70e7]" />
+          <FavoritesButton className="inline-flex items-center gap-2 text-[#4f71dc]" />
           <span className="mx-2 text-slate-400">|</span> Входящие счет фактуры
         </h1>
       </header>
 
       <section className="overflow-hidden rounded bg-white shadow">
         <div className="flex flex-wrap items-center gap-4 px-5 py-4">
-          <button type="button" onClick={() => open()} className="text-[17px] text-[#4f70e7] hover:underline">
+          <button type="button" onClick={() => open()} className="text-[17px] text-[#4f71dc] hover:underline">
             + добавить
           </button>
           <label className="relative ml-4 w-72">
-            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Поиск" className="w-full border-b border-slate-300 py-2 pr-10 outline-none focus:border-[#4f70e7]" />
+            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Поиск" className="w-full border-b border-slate-300 py-2 pr-10 outline-none focus:border-[#4f71dc]" />
             <Search className="absolute right-2 top-2 h-5 w-5 text-slate-300" />
           </label>
           <span className="ml-auto text-slate-500">Итого: {formatSum(total)}</span>
         </div>
 
         <table className="w-full text-left">
-          <thead className="bg-[#626b7e] text-white">
+          <thead className="bg-[#5d6474] text-white">
             <tr>
               <th className="px-9 py-5">№ документа</th>
               <th className="px-5 py-5">Поставщик</th>

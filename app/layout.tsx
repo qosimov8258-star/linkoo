@@ -29,9 +29,17 @@ export default async function RootLayout({
 
   return (
     <html lang={language} className="bg-background">
+      <head>
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+        <link
+          rel="stylesheet"
+          href="https://fonts.googleapis.com/css2?family=Open+Sans:wght@300;400;500;600;700&subset=cyrillic,latin&display=swap"
+        />
+      </head>
       <body className="font-sans antialiased">
         <LanguageProvider initialLanguage={language}>
-          <div className="min-h-screen bg-slate-100">
+          <div className="min-h-screen bg-[#f2f5f8]">
             <TopNav />
             {children}
             <BrandCornerLogo />

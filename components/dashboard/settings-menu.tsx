@@ -41,9 +41,9 @@ const sections: SettingsSection[] = [
       { label: "Типы продуктов", href: "/analytics/product-types" },
       { label: "Измерения", href: "/analytics/units-of-measure" },
       { label: "Бренд", href: "/analytics/brands" },
-      { label: "Атрибуты" },
-      { label: "Значение атрибута" },
-      { label: "Продукты конкурентов" },
+      { label: "Атрибуты", href: "/analytics/product-attributes" },
+      { label: "Значение атрибута", href: "/analytics/product-attribute-values" },
+      { label: "Продукты конкурентов", href: "/analytics/rival-products" },
     ],
   },
   {
@@ -52,7 +52,7 @@ const sections: SettingsSection[] = [
       { label: "Типы клиентов", href: "/clients/client-types" },
       { label: "Атрибуты", href: "/clients/attributes" },
       { label: "Значение атрибута", href: "/clients/attribute-values" },
-      { label: "Категория магазина" },
+      { label: "Категория магазина", href: "/analytics/store-categories" },
     ],
   },
   {
@@ -108,84 +108,78 @@ export function SettingsMenu({ onClose }: SettingsMenuProps) {
   const { language, setLanguage, t } = useLanguage()
 
   return (
-    <div className="absolute right-0 top-full z-50 w-[340px] max-w-[92vw] overflow-hidden rounded-b-md bg-white text-foreground shadow-2xl">
-      <div className="flex items-start justify-between px-6 py-5">
-        <div>
-          <h2 className="text-lg font-bold text-slate-900">{t("Настройки")}</h2>
-          <p className="mt-1 text-[13px] text-slate-500">{t("Версия")}: 7.1.58 (API: 147)</p>
-        </div>
-        <button type="button" onClick={onClose} aria-label={t("Закрыть")} className="text-slate-500 hover:text-slate-900">
-          <X className="h-6 w-6" />
-        </button>
-      </div>
-
-      <div className="border-t border-slate-100 px-6 py-5 text-center">
-        <a href="tel:+998785555525" className="text-[15px] font-semibold text-brand-blue hover:underline">
-          {t("Онлайн техподдержка")}
-        </a>
-        <p className="mt-1 text-lg font-bold text-slate-900">+998 78 555-55-25</p>
-      </div>
-
-      <div className="flex gap-2 border-t border-slate-100 px-6 py-4">
-        {languages.map(({ code, label }) => (
-          <button
-            key={code}
-            type="button"
-            onClick={() => setLanguage(code)}
-            className={`flex-1 rounded-md border px-3 py-2 text-sm font-semibold transition-colors ${
-              language === code
-                ? "border-emerald-500 bg-emerald-500 text-white"
-                : "border-slate-200 text-slate-700 hover:bg-slate-50"
-            }`}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
-
-      <div className="border-t border-slate-100 px-6 py-4">
-        <Link
-          href="/analytics/knowledge-base"
-          onClick={onClose}
-          className="flex items-center gap-3 rounded-md bg-gradient-to-r from-[#5c6df3] to-[#7b6cf6] px-4 py-3 font-semibold text-white transition-opacity hover:opacity-90"
-        >
-          <Lightbulb className="h-5 w-5 shrink-0 text-amber-300" />
-          <span className="flex-1">{t("База знаний")}</span>
-          <ChevronRight className="h-5 w-5 shrink-0" />
-        </Link>
-      </div>
-
-      <div className="max-h-[420px] overflow-y-auto border-t border-slate-100 px-6 py-4">
-        {sections.map((section, index) => (
-          <div key={section.title} className={index > 0 ? "mt-5" : ""}>
-            <h3 className="text-[15px] font-bold text-slate-900">{t(section.title)}</h3>
-            <ul className="mt-2">
-              {section.items.map((item) =>
-                item.href ? (
-                  <li key={item.label}>
-                    <Link
-                      href={item.href}
-                      onClick={onClose}
-                      className="block py-2 text-[15px] text-slate-600 transition-colors hover:text-brand-blue"
-                    >
-                      {t(item.label)}
-                    </Link>
-                  </li>
-                ) : (
-                  <li key={item.label}>
-                    <span
-                      className="block cursor-not-allowed py-2 text-[15px] text-slate-400"
-                      title={t("Скоро будет доступно")}
-                    >
-                      {t(item.label)}
-                    </span>
-                  </li>
-                ),
-              )}
-            </ul>
+    <>
+      <div aria-hidden onClick={onClose} className="fixed inset-0 z-[1200] bg-black/[0.54]" />
+      <div className="fixed right-0 top-0 z-[1300] flex h-full w-[340px] max-w-full flex-col bg-white font-sans text-[13px] text-[#333] shadow-[0_3px_10px_rgba(0,0,0,0.16),0_3px_10px_rgba(0,0,0,0.23)]">
+        <div className="flex items-start justify-between border-b border-[#efefef] px-[30px] py-[15px]">
+          <div>
+            <h2 className="text-[15px] font-semibold leading-5 text-black">{t("Настройки")}</h2>
+            <p className="text-[13px] text-[#333]">{t("Версия")}: 7.1.59 (API: 147)</p>
           </div>
-        ))}
+          <button type="button" onClick={onClose} aria-label={t("Закрыть")} className="mt-1 text-[#333]">
+            <X className="h-6 w-6" />
+          </button>
+        </div>
+
+        <div className="px-[30px] pb-[10px] pt-[10px] text-center">
+          <a href="tel:+998785555525" className="text-[15px] font-semibold text-[#0a9ddb] hover:underline">
+            {t("Онлайн техподдержка")}
+          </a>
+          <p className="text-[20px] font-bold leading-7 text-[#333]">+998 78 555-55-25</p>
+        </div>
+
+        <div className="flex border-b border-[#efefef] px-[25px] pb-[14px]">
+          {languages.map(({ code, label }) => (
+            <button
+              key={code}
+              type="button"
+              onClick={() => setLanguage(code)}
+              className={`h-[30px] flex-1 border text-[13px] font-semibold ${
+                language === code ? "border-[#38c172] bg-[#38c172] text-white" : "border-[#e0e0e0] bg-white text-[#333] hover:bg-[#f5f5f5]"
+              } rounded-[3px]`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
+        <div className="border-b border-[#efefef] px-[15px] py-[10px]">
+          <Link
+            href="/analytics/knowledge-base"
+            onClick={onClose}
+            className="flex h-[50px] items-center gap-3 rounded-[10px] bg-gradient-to-r from-[#4658f2] to-[#5a6cf5] px-[14px] text-[18px] font-semibold text-white hover:opacity-90"
+          >
+            <Lightbulb className="h-7 w-7 shrink-0 text-amber-300" />
+            <span className="flex-1">{t("База знаний")}</span>
+            <ChevronRight className="h-5 w-5 shrink-0" />
+          </Link>
+        </div>
+
+        <div className="min-h-0 flex-1 overflow-y-auto px-[30px] py-[15px]">
+          {sections.map((section, index) => (
+            <div key={section.title} className={index > 0 ? "mt-[22px]" : ""}>
+              <h3 className="text-[13px] font-bold text-black">{t(section.title)}</h3>
+              <ul className="mt-[8px] pl-[20px]">
+                {section.items.map((item) =>
+                  item.href ? (
+                    <li key={item.label}>
+                      <Link href={item.href} onClick={onClose} className="block py-[6.5px] text-[13px] text-[#333] hover:text-[#4f71dc]">
+                        {t(item.label)}
+                      </Link>
+                    </li>
+                  ) : (
+                    <li key={item.label}>
+                      <span className="block cursor-not-allowed py-[6.5px] text-[13px] text-[#999]" title={t("Скоро будет доступно")}>
+                        {t(item.label)}
+                      </span>
+                    </li>
+                  ),
+                )}
+              </ul>
+            </div>
+          ))}
+        </div>
       </div>
-    </div>
+    </>
   )
 }

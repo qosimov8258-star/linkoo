@@ -2,6 +2,8 @@
 
 import Link from "next/link"
 
+import { MENU_BOX, MENU_COLUMN, MENU_HEADING, MENU_ITEM, MENU_LINK } from "./menu-style"
+
 import { useLanguage } from "@/lib/i18n/language-context"
 
 type Props = {
@@ -52,15 +54,15 @@ export function SalesMenu({ onSelect, onMouseEnter, onMouseLeave }: Props) {
   const { t } = useLanguage()
 
   return (
-    <div onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave} className="w-[700px] max-w-[calc(100vw-1rem)]">
-      <div className="grid grid-cols-3 overflow-hidden rounded-b-xl border border-slate-200 bg-white shadow-xl">
+    <div onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave} className="w-max">
+      <div className={MENU_BOX}>
         {columns.map((column, index) => (
-          <section key={column.title} className={`px-4 py-4 ${index ? "border-l border-slate-200" : ""}`}>
-            <h3 className="mb-3 text-[13px] font-bold text-[#5a70e6]">{t(column.title)}</h3>
+          <section key={column.title} className={MENU_COLUMN} data-i={index}>
+            <h3 className={MENU_HEADING}>{t(column.title)}</h3>
             <ul>
               {column.items.map(([label, href]) => (
-                <li key={label}>
-                  <Link href={href} onClick={() => onSelect(label)} className="block border-b border-slate-200 py-2.5 text-[13px] font-semibold text-slate-700 last:border-b-0 hover:text-[#5870e8]">
+                <li key={label} className={MENU_ITEM}>
+                  <Link href={href} onClick={() => onSelect(label)} className={MENU_LINK}>
                     {t(label)}
                   </Link>
                 </li>

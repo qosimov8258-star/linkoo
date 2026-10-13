@@ -366,20 +366,20 @@ export function CashboxesView({ embedded = false }: { embedded?: boolean }) {
 
   if (managing) {
     return (
-      <main className={embedded ? "min-w-0 flex-1" : "min-h-[calc(100vh-4rem)] bg-[#f1f4f8] px-9 py-5"}>
+      <main className={embedded ? "min-w-0 flex-1" : "min-h-[calc(100vh-4rem)] bg-[#f2f5f8] px-7 pb-7"}>
         <header className="mb-5 flex flex-wrap items-center justify-between gap-3">
           <h1 className="text-2xl font-bold text-slate-600">{t("Управление кассами")}</h1>
           <div className="flex flex-wrap items-center gap-3">
-            <button type="button" onClick={() => setAcceptOpen(true)} className="rounded border border-[#4f70e7] px-4 py-2.5 font-semibold text-[#4f70e7] hover:bg-blue-50">
+            <button type="button" onClick={() => setAcceptOpen(true)} className="rounded border border-[#4f71dc] px-4 py-2.5 font-semibold text-[#4f71dc] hover:bg-blue-50">
               {t("Принять наличные")}{pending.length > 0 ? ` (${pending.length})` : ""}
             </button>
-            <button type="button" onClick={() => setTransferOpen(true)} className="inline-flex items-center gap-2 rounded border border-[#4f70e7] px-4 py-2.5 font-semibold text-[#4f70e7] hover:bg-blue-50">
+            <button type="button" onClick={() => setTransferOpen(true)} className="inline-flex items-center gap-2 rounded border border-[#4f71dc] px-4 py-2.5 font-semibold text-[#4f71dc] hover:bg-blue-50">
               <ArrowLeftRight className="h-4 w-4" /> {t("Перевод")}
             </button>
-            <button type="button" onClick={() => setRequestOpen(true)} className="rounded bg-[#6ccd8b] px-4 py-2.5 font-semibold text-white hover:brightness-95">
+            <button type="button" onClick={() => setRequestOpen(true)} className="rounded bg-[#71ce87] px-4 py-2.5 font-semibold text-white hover:brightness-95">
               {t("Запрос средств")}
             </button>
-            <button type="button" onClick={() => setManaging(false)} className="rounded bg-[#4f70e7] px-4 py-2.5 font-semibold text-white hover:brightness-95">
+            <button type="button" onClick={() => setManaging(false)} className="rounded bg-[#4f71dc] px-4 py-2.5 font-semibold text-white hover:brightness-95">
               {t("К кассам")}
             </button>
           </div>
@@ -390,7 +390,7 @@ export function CashboxesView({ embedded = false }: { embedded?: boolean }) {
             const balance = balances.get(box.name)
             return (
               <div key={box.id} className="flex items-center gap-3 rounded bg-white p-4 shadow">
-                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-blue-50 text-[#4f70e7]"><Wallet className="h-5 w-5" /></span>
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-blue-50 text-[#4f71dc]"><Wallet className="h-5 w-5" /></span>
                 <div className="min-w-0">
                   <p className="truncate text-sm text-slate-500">{box.name}</p>
                   <p className="font-semibold text-slate-700">{fmtSum(balance?.amount ?? 0, balance?.currency ?? box.currency)}</p>
@@ -402,11 +402,11 @@ export function CashboxesView({ embedded = false }: { embedded?: boolean }) {
 
         <section className="overflow-hidden rounded bg-white shadow">
           <div className="flex flex-wrap items-center gap-4 px-5 py-3">
-            <button type="button" onClick={() => setLedgerFilterOpen((value) => !value)} className="inline-flex items-center gap-1 text-[#4f70e7] hover:underline">
+            <button type="button" onClick={() => setLedgerFilterOpen((value) => !value)} className="inline-flex items-center gap-1 text-[#4f71dc] hover:underline">
               {t("Показать фильтр")} <ChevronDown className={`h-4 w-4 transition-transform ${ledgerFilterOpen ? "rotate-180" : ""}`} />
             </button>
             <label className="relative w-64">
-              <input value={ledgerQuery} onChange={(event) => { setLedgerQuery(event.target.value); setLedgerPage(1) }} placeholder={t("Поиск")} className="w-full border-b border-slate-300 py-2 pr-10 outline-none focus:border-[#4f70e7]" />
+              <input value={ledgerQuery} onChange={(event) => { setLedgerQuery(event.target.value); setLedgerPage(1) }} placeholder={t("Поиск")} className="w-full border-b border-slate-300 py-2 pr-10 outline-none focus:border-[#4f71dc]" />
               <Search className="absolute right-2 top-2 h-5 w-5 text-slate-300" />
             </label>
             <span className="ml-auto text-slate-500">25</span>
@@ -434,7 +434,7 @@ export function CashboxesView({ embedded = false }: { embedded?: boolean }) {
           )}
 
           <table className="w-full text-left">
-            <thead className="bg-[#626b7e] text-white">
+            <thead className="bg-[#5d6474] text-white">
               <tr>
                 <th className="px-9 py-5">№</th>
                 <th className="px-5 py-5">{t("Детали")}</th>
@@ -448,11 +448,11 @@ export function CashboxesView({ embedded = false }: { embedded?: boolean }) {
                 <tr key={entry.id} className="border-b border-dashed border-slate-300 hover:bg-slate-50">
                   <td className="px-9 py-4 align-top">{entry.id}</td>
                   <td className="px-5 py-4 align-top text-sm">
-                    <p>{t("Касса")}: <span className="text-[#4f70e7]">{entry.cashboxName}</span></p>
+                    <p>{t("Касса")}: <span className="text-[#4f71dc]">{entry.cashboxName}</span></p>
                     <p>
                       {t("Описание")}: {entry.description}
-                      {entry.clientName && <> <span className="text-[#4f70e7]">{entry.clientName}</span></>}
-                      {entry.category && <>, {t("Категория")}: <span className="text-[#4f70e7]">{entry.category}</span></>}
+                      {entry.clientName && <> <span className="text-[#4f71dc]">{entry.clientName}</span></>}
+                      {entry.category && <>, {t("Категория")}: <span className="text-[#4f71dc]">{entry.category}</span></>}
                     </p>
                     <p>
                       {t("Филиал")}: {entry.branch}, {t("Организация")}: {entry.organization}
@@ -510,7 +510,7 @@ export function CashboxesView({ embedded = false }: { embedded?: boolean }) {
                 </label>
               </div>
               <footer className="flex justify-end border-t p-5">
-                <button type="submit" className="rounded bg-[#6ccd8b] px-6 py-3 font-semibold text-white hover:brightness-95">{t("Сохранить")}</button>
+                <button type="submit" className="rounded bg-[#71ce87] px-6 py-3 font-semibold text-white hover:brightness-95">{t("Сохранить")}</button>
               </footer>
             </form>
           </div>
@@ -542,7 +542,7 @@ export function CashboxesView({ embedded = false }: { embedded?: boolean }) {
                 </label>
               </div>
               <footer className="flex justify-end border-t p-5">
-                <button type="submit" className="rounded bg-[#6ccd8b] px-6 py-3 font-semibold text-white hover:brightness-95">{t("Перевести")}</button>
+                <button type="submit" className="rounded bg-[#71ce87] px-6 py-3 font-semibold text-white hover:brightness-95">{t("Перевести")}</button>
               </footer>
             </form>
           </div>
@@ -578,7 +578,7 @@ export function CashboxesView({ embedded = false }: { embedded?: boolean }) {
                 </label>
               </div>
               <footer className="flex justify-end border-t p-5">
-                <button type="submit" className="rounded bg-[#6ccd8b] px-6 py-3 font-semibold text-white hover:brightness-95">{t("Отправить")}</button>
+                <button type="submit" className="rounded bg-[#71ce87] px-6 py-3 font-semibold text-white hover:brightness-95">{t("Отправить")}</button>
               </footer>
             </form>
           </div>
@@ -610,9 +610,9 @@ export function CashboxesView({ embedded = false }: { embedded?: boolean }) {
                         <td className="py-3 pr-4">{request.cashboxName}</td>
                         <td className="py-3 pr-4">{request.branch}</td>
                         <td className="py-3 pr-4">{request.organization}</td>
-                        <td className="py-3 pr-4 text-[#4f70e7]">{fmtSum(request.amount)}</td>
+                        <td className="py-3 pr-4 text-[#4f71dc]">{fmtSum(request.amount)}</td>
                         <td className="py-3">
-                          <button type="button" onClick={() => acceptRequest(request)} className="inline-flex items-center gap-2 rounded bg-[#6ccd8b] px-4 py-2 text-xs font-semibold text-white hover:brightness-95">
+                          <button type="button" onClick={() => acceptRequest(request)} className="inline-flex items-center gap-2 rounded bg-[#71ce87] px-4 py-2 text-xs font-semibold text-white hover:brightness-95">
                             <Coins className="h-4 w-4" /> {t("Принять")}
                           </button>
                         </td>
@@ -624,7 +624,7 @@ export function CashboxesView({ embedded = false }: { embedded?: boolean }) {
                   </tbody>
                 </table>
                 {pending.length > 0 && (
-                  <p className="mt-4 text-sm">{t("Общая сумма")}: <span className="font-semibold text-[#4f70e7]">{fmtSum(pendingTotal)}</span></p>
+                  <p className="mt-4 text-sm">{t("Общая сумма")}: <span className="font-semibold text-[#4f71dc]">{fmtSum(pendingTotal)}</span></p>
                 )}
               </div>
             </div>
@@ -635,17 +635,17 @@ export function CashboxesView({ embedded = false }: { embedded?: boolean }) {
   }
 
   return (
-    <main className={embedded ? "min-w-0 flex-1" : "min-h-[calc(100vh-4rem)] bg-[#f1f4f8] px-9 py-5"}>
+    <main className={embedded ? "min-w-0 flex-1" : "min-h-[calc(100vh-4rem)] bg-[#f2f5f8] px-7 pb-7"}>
       <section className="overflow-hidden rounded bg-white shadow">
         <div className="flex flex-wrap items-center gap-4 px-5 py-4">
-          <button type="button" onClick={openCreate} className="inline-flex items-center gap-2 rounded bg-[#4f70e7] px-4 py-2.5 font-semibold text-white hover:brightness-95">
+          <button type="button" onClick={openCreate} className="inline-flex items-center gap-2 rounded bg-[#4f71dc] px-4 py-2.5 font-semibold text-white hover:brightness-95">
             <Plus className="h-4 w-4" /> {t("Добавить кассу")}
           </button>
-          <button type="button" onClick={() => setImportOpen(true)} className="inline-flex items-center gap-2 rounded bg-[#4f70e7] px-4 py-2.5 font-semibold text-white hover:brightness-95">
+          <button type="button" onClick={() => setImportOpen(true)} className="inline-flex items-center gap-2 rounded bg-[#4f71dc] px-4 py-2.5 font-semibold text-white hover:brightness-95">
             <FileText className="h-4 w-4" /> {t("Импорт с Excel")}
           </button>
           <label className="relative w-64">
-            <input value={query} onChange={(event) => { setQuery(event.target.value); setPage(1) }} placeholder={t("Поиск")} className="w-full border-b border-slate-300 py-2 pr-10 outline-none focus:border-[#4f70e7]" />
+            <input value={query} onChange={(event) => { setQuery(event.target.value); setPage(1) }} placeholder={t("Поиск")} className="w-full border-b border-slate-300 py-2 pr-10 outline-none focus:border-[#4f71dc]" />
             <Search className="absolute right-2 top-2 h-5 w-5 text-slate-300" />
           </label>
           <span className="text-slate-500">25</span>
@@ -658,13 +658,13 @@ export function CashboxesView({ embedded = false }: { embedded?: boolean }) {
           <button type="button" onClick={() => setPage((value) => Math.min(pageCount, value + 1))} disabled={safePage >= pageCount} aria-label={t("Вперед")} className="disabled:opacity-30">
             <ChevronRight className="h-5 w-5 text-slate-400" />
           </button>
-          <button type="button" onClick={() => setManaging(true)} className="ml-auto inline-flex items-center gap-2 rounded bg-[#6ccd8b] px-4 py-2.5 font-semibold text-white hover:brightness-95">
+          <button type="button" onClick={() => setManaging(true)} className="ml-auto inline-flex items-center gap-2 rounded bg-[#71ce87] px-4 py-2.5 font-semibold text-white hover:brightness-95">
             <ArrowLeftRight className="h-4 w-4" /> {t("Управлять кассами")}
           </button>
         </div>
 
         <table className="w-full text-left">
-          <thead className="bg-[#626b7e] text-white">
+          <thead className="bg-[#5d6474] text-white">
             <tr>
               <th className="px-9 py-5">Id</th>
               <th className="px-5 py-5">{t("Наименование")}</th>
@@ -684,7 +684,7 @@ export function CashboxesView({ embedded = false }: { embedded?: boolean }) {
             ) : visible.map((box) => (
               <tr key={box.id} className="group border-b border-dashed border-slate-300 hover:bg-slate-50">
                 <td className="px-9 py-4">{box.id}</td>
-                <td className="px-5 py-4 text-[#4f70e7]">{box.name}</td>
+                <td className="px-5 py-4 text-[#4f71dc]">{box.name}</td>
                 <td className="px-5 py-4">{box.currency}</td>
                 <td className="px-5 py-4">{t(box.cashier)}</td>
                 <td className="px-5 py-4">{t(box.paymentType)}</td>
@@ -747,7 +747,7 @@ export function CashboxesView({ embedded = false }: { embedded?: boolean }) {
                 </select>
               </label>
               <label className="flex items-center gap-2">
-                <input type="checkbox" checked={draft.vansell} onChange={(event) => setDraft((value) => ({ ...value, vansell: event.target.checked }))} className="h-4 w-4 accent-[#4f70e7]" />
+                <input type="checkbox" checked={draft.vansell} onChange={(event) => setDraft((value) => ({ ...value, vansell: event.target.checked }))} className="h-4 w-4 accent-[#4f71dc]" />
                 {t("Вэнсел")}
               </label>
               <label className="block border-b border-slate-200 pb-2 font-medium">
@@ -757,7 +757,7 @@ export function CashboxesView({ embedded = false }: { embedded?: boolean }) {
               {formError && <p className="text-sm font-medium text-rose-600">{formError}</p>}
             </div>
             <footer className="flex justify-end border-t p-5">
-              <button type="submit" disabled={saving} className="rounded bg-[#6ccd8b] px-6 py-3 font-semibold text-white hover:brightness-95 disabled:opacity-60">
+              <button type="submit" disabled={saving} className="rounded bg-[#71ce87] px-6 py-3 font-semibold text-white hover:brightness-95 disabled:opacity-60">
                 {saving ? t("Сохранение...") : t("Сохранить")}
               </button>
             </footer>
@@ -775,21 +775,21 @@ export function CashboxesView({ embedded = false }: { embedded?: boolean }) {
               </button>
             </header>
             <div className="p-8">
-              <button type="button" onClick={downloadTemplate} className="mb-4 font-semibold text-[#4f70e7] hover:underline">
+              <button type="button" onClick={downloadTemplate} className="mb-4 font-semibold text-[#4f71dc] hover:underline">
                 {t("1. Скачать шаблон")}
               </button>
               <input ref={importInputRef} type="file" accept=".csv,.xls,.xlsx" onChange={pickImportFile} className="hidden" />
               <button
                 type="button"
                 onClick={() => importInputRef.current?.click()}
-                className="flex w-full flex-col items-center justify-center gap-3 rounded border-2 border-dashed border-slate-300 py-10 text-slate-500 hover:border-[#4f70e7] hover:text-[#4f70e7]"
+                className="flex w-full flex-col items-center justify-center gap-3 rounded border-2 border-dashed border-slate-300 py-10 text-slate-500 hover:border-[#4f71dc] hover:text-[#4f71dc]"
               >
                 <FileText className="h-8 w-8" />
                 {importFile ? importFile.name : t("Добавьте файл Excel или нажмите для выбора")}
               </button>
             </div>
             <footer className="flex justify-end border-t p-5">
-              <button type="button" disabled={!importFile || importSaving} onClick={saveImport} className="rounded bg-[#6ccd8b] px-5 py-3 font-semibold text-white hover:brightness-95 disabled:opacity-40">
+              <button type="button" disabled={!importFile || importSaving} onClick={saveImport} className="rounded bg-[#71ce87] px-5 py-3 font-semibold text-white hover:brightness-95 disabled:opacity-40">
                 {importSaving ? t("Импорт...") : t("Сохранить")}
               </button>
             </footer>

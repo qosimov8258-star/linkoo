@@ -140,7 +140,7 @@ export function ActivityView() {
                   ))}
                 </select>
               </label>
-              <button type="button" onClick={applyFilters} className="rounded bg-[#626b7e] px-6 py-3 font-semibold uppercase text-white hover:brightness-95">
+              <button type="button" onClick={applyFilters} className="rounded bg-[#5d6474] px-6 py-3 font-semibold uppercase text-white hover:brightness-95">
                 Применить
               </button>
             </div>

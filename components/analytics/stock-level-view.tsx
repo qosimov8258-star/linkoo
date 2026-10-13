@@ -138,10 +138,10 @@ export function StockLevelView() {
   }
 
   return (
-    <main className="min-h-screen bg-[#f1f4f8] text-[#17233d]">
+    <main className="min-h-screen bg-[#f2f5f8] text-[#17233d]">
       <header className="flex min-h-[76px] items-center justify-between border-b border-[#d7dde7] bg-[#f4f6f9] px-5 md:px-10">
         <div className="flex items-center gap-3 text-left">
-          <FavoritesButton className="flex items-center gap-3 text-2xl font-bold text-[#4f70e7]" />
+          <FavoritesButton className="flex items-center gap-3 text-2xl font-bold text-[#4f71dc]" />
           <span className="text-3xl font-light text-[#586174]">|</span>
           <span className="text-2xl font-bold text-[#586174]">Остаток</span>
         </div>
@@ -152,7 +152,7 @@ export function StockLevelView() {
           <button onClick={() => setShowFilter(true)} className="flex h-11 items-center gap-3 rounded-md bg-[#4f70df] px-5 font-semibold text-white shadow">
             <Filter className="h-5 w-5" /> Фильтр
           </button>
-          <button onClick={() => { setWarehouse("Все склады"); setType("Все типы товаров"); setPage(1) }} className="font-semibold text-[#4f70e7]">
+          <button onClick={() => { setWarehouse("Все склады"); setType("Все типы товаров"); setPage(1) }} className="font-semibold text-[#4f71dc]">
             Во всей организации
           </button>
           <button onClick={() => downloadExcel(filtered)} className="ml-auto flex h-11 items-center gap-3 rounded-md bg-[#69cd87] px-5 font-semibold text-white">
@@ -170,7 +170,7 @@ export function StockLevelView() {
         <div className="mt-8 flex flex-wrap items-end gap-4">
           <div className="flex">
             {([["quantity", "КОЛ-ВО"], ["cost", "СЕБЕСТОИМОСТЬ"], ["price", "ПРАЙС ЛИСТ"]] as const).map(([key, label]) => (
-              <button key={key} onClick={() => setMode(key)} className={`h-10 border px-5 ${mode === key ? "border-[#4f70e7] bg-[#4f70e7] text-white shadow" : "border-[#d8dde5] bg-white text-black"} first:rounded-l-md last:rounded-r-md`}>
+              <button key={key} onClick={() => setMode(key)} className={`h-10 border px-5 ${mode === key ? "border-[#4f71dc] bg-[#4f71dc] text-white shadow" : "border-[#d8dde5] bg-white text-black"} first:rounded-l-md last:rounded-r-md`}>
                 {label}
               </button>
             ))}

@@ -1,10 +1,10 @@
 "use client"
 
-import { FileText, Pencil, Plus, Trash2, X } from "lucide-react"
-import { ChangeEvent, FormEvent, useEffect, useRef, useState } from "react"
+import { ChangeEvent, FormEvent, useEffect, useState } from "react"
 
 import { downloadExcelTable } from "@/lib/excel-export"
 import { mapHeaderColumns, readExcelRows } from "@/lib/excel-import"
+import { EmptyState, HoverActions, ImportDialog, LineField, ListToolbar, Modal, SaveButton, grayHead, listRow } from "@/components/analytics/catalog-ui"
 import { useLanguage } from "@/lib/i18n/language-context"
 
 type ClientType = { id: number; name: string; supplier: string; date: string }
@@ -29,7 +29,6 @@ export function ClientTypesView({ embedded = false }: { embedded?: boolean }) {
   const [importOpen, setImportOpen] = useState(false)
   const [importFile, setImportFile] = useState<File | null>(null)
   const [importSaving, setImportSaving] = useState(false)
-  const importInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -155,32 +154,42 @@ export function ClientTypesView({ embedded = false }: { embedded?: boolean }) {
     }
   }
 
-  return <main className={embedded ? "min-w-0 flex-1" : "min-h-screen bg-white text-slate-800"}>
-    <div className="px-7 py-5"><div className="flex items-center justify-between"><div className="flex items-center gap-4"><button onClick={openAdd} className="text-[17px] text-[#5474e6] hover:underline">+ {t("добавить тип клиента")}</button><button type="button" onClick={() => setImportOpen(true)} className="inline-flex items-center gap-2 rounded bg-[#4f70e7] px-4 py-2 text-sm font-semibold text-white hover:brightness-95"><FileText className="h-4 w-4" /> {t("Импорт с Excel")}</button></div><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("Поиск")} className="w-56 border-b border-slate-300 px-2 py-2 outline-none focus:border-[#5474e6]" /></div></div>
-    <div className="overflow-x-auto"><table className="w-full min-w-[800px] border-collapse text-[16px]"><thead className="bg-[#626b7e] text-left text-white"><tr><th className="px-9 py-5">{t("Наименование")}</th><th className="px-8 py-5">{t("Доставщик")}</th><th className="px-8 py-5">{t("Дата создания")}</th><th className="w-28 px-5 py-5" /></tr></thead><tbody>{visible.map((item) => <tr key={item.id} className="group border-b border-dashed border-slate-300 hover:bg-slate-50"><td className="px-9 py-[18px] font-medium">{item.name}</td><td className="px-8 py-[18px]">{item.supplier}</td><td className="px-8 py-[18px]">{item.date}</td><td className="px-4 py-[18px]"><div className="hidden justify-end gap-3 text-slate-500 group-hover:flex"><button onClick={() => openEdit(item)} aria-label={t("Изменить")}><Pencil className="h-5 w-5" /></button><button onClick={() => void remove(item.id)} aria-label={t("Удалить")}><Trash2 className="h-5 w-5" /></button></div></td></tr>)}</tbody></table></div>
-    {editing && <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 p-4"><form onSubmit={save} className="w-full max-w-md rounded-lg bg-white p-6 shadow-xl"><div className="mb-6 flex items-center justify-between"><h2 className="text-xl font-bold">{editing.id ? t("Изменить тип клиента") : t("Добавить тип клиента")}</h2><button type="button" onClick={() => setEditing(null)}><X /></button></div><label className="mb-2 block font-medium">{t("Наименование")}</label><input autoFocus value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} className="mb-4 w-full rounded border border-slate-300 px-3 py-2.5" /><label className="mb-2 block font-medium">{t("Доставщик")}</label><input value={draft.supplier} onChange={(event) => setDraft({ ...draft, supplier: event.target.value })} className="w-full rounded border border-slate-300 px-3 py-2.5" /><div className="mt-6 flex justify-end gap-3"><button type="button" onClick={() => setEditing(null)} className="rounded border px-4 py-2">{t("Отмена")}</button><button className="inline-flex items-center gap-2 rounded bg-[#5474e6] px-4 py-2 font-semibold text-white"><Plus className="h-4 w-4" />{t("Сохранить")}</button></div></form></div>}
-    {importOpen && (
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
-        <div className="w-full max-w-md rounded bg-white">
-          <header className="flex items-center justify-between border-b p-6">
-            <b className="uppercase">{t("Импорт с Excel")}</b>
-            <button type="button" onClick={() => { setImportOpen(false); setImportFile(null) }} aria-label={t("Закрыть")}><X className="h-5 w-5" /></button>
-          </header>
-          <div className="p-8">
-            <button type="button" onClick={downloadTemplate} className="mb-4 font-semibold text-[#4f70e7] hover:underline">1. {t("Скачать шаблон")}</button>
-            <input ref={importInputRef} type="file" accept=".csv,.xls,.xlsx" onChange={pickImportFile} className="hidden" />
-            <button type="button" onClick={() => importInputRef.current?.click()} className="flex w-full flex-col items-center justify-center gap-3 rounded border-2 border-dashed border-slate-300 py-10 text-slate-500 hover:border-[#4f70e7] hover:text-[#4f70e7]">
-              <FileText className="h-8 w-8" />
-              {importFile ? importFile.name : t("Добавьте файл Excel или нажмите для выбора")}
-            </button>
-          </div>
-          <footer className="flex justify-end border-t p-5">
-            <button type="button" disabled={!importFile || importSaving} onClick={saveImport} className="rounded bg-[#6ccd8b] px-5 py-3 font-semibold text-white hover:brightness-95 disabled:opacity-40">
-              {importSaving ? t("Импорт...") : t("Сохранить")}
-            </button>
-          </footer>
-        </div>
+  void embedded
+  const gridCols = "grid-cols-[456px_336px_1fr]"
+  return (
+    <div className="min-h-[calc(100vh-50px)] min-w-0 flex-1 bg-white text-[13px] text-[#333]">
+      <ListToolbar
+        addLabel={t("добавить тип клиента")}
+        onAdd={openAdd}
+        query={query}
+        onQuery={setQuery}
+        extra={<button type="button" onClick={() => setImportOpen(true)} className="ml-[24px] pt-[8px] text-[13px] text-[#4f71dc] hover:underline">{t("Импорт с Excel")}</button>}
+      />
+      <div className={`${grayHead} ${gridCols}`}>
+        <span>{t("Наименование")}</span><span>{t("Доставщик")}</span><span>{t("Дата создания")}</span>
       </div>
-    )}
-  </main>
+      {visible.map((item) => (
+        <div key={item.id} onClick={() => openEdit(item)} className={`${listRow} ${gridCols}`}>
+          <span className="pr-4 font-bold">{item.name}</span>
+          <span>{item.supplier}</span>
+          <span>{item.date.replace(/\s*г\.$/, "")}</span>
+          <HoverActions offset={70} onEdit={() => openEdit(item)} onDelete={() => void remove(item.id)} />
+        </div>
+      ))}
+      {visible.length === 0 && <EmptyState />}
+
+      {editing && (
+        <Modal
+          title={editing.id ? t("Изменить тип клиента") : t("Добавить тип клиента")}
+          onClose={() => setEditing(null)}
+          footer={<SaveButton disabled={!draft.name.trim()} onClick={() => void save({ preventDefault() {} } as FormEvent)}>{t("Сохранить")}</SaveButton>}
+        >
+          <LineField label={t("Наименование")} required value={draft.name} onChange={(value) => setDraft({ ...draft, name: value })} />
+          <div className="mt-[27px]"><LineField label={t("Доставщик")} value={draft.supplier} onChange={(value) => setDraft({ ...draft, supplier: value })} /></div>
+        </Modal>
+      )}
+
+      {importOpen && <ImportDialog file={importFile} onFile={setImportFile} onTemplate={downloadTemplate} onSave={saveImport} saving={importSaving} onClose={() => { setImportOpen(false); setImportFile(null) }} />}
+    </div>
+  )
 }

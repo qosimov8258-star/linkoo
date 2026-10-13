@@ -260,7 +260,7 @@ export function StoreReconciliationBotView() {
     <main className="min-h-screen bg-white text-[#17233b]">
       <header className="flex flex-wrap items-center gap-4 border-b border-[#d8dee7] bg-[#f2f5f8] px-6 py-4 md:px-9">
         <div className="flex items-center gap-3">
-          <FavoritesButton className="flex items-center gap-3 text-2xl font-bold text-[#4f70e7]" />
+          <FavoritesButton className="flex items-center gap-3 text-2xl font-bold text-[#4f71dc]" />
           <span className="text-3xl font-light text-[#586174]">|</span>
           <span className="text-2xl font-bold text-[#586174]">Сверка счетов</span>
         </div>
@@ -292,7 +292,7 @@ export function StoreReconciliationBotView() {
       </section>
 
       <section className="flex flex-wrap items-center gap-4 px-6 py-4 md:px-9">
-        <button onClick={() => setFilterOpen((value) => !value)} className="flex items-center gap-1 font-medium text-[#4f70e7]">
+        <button onClick={() => setFilterOpen((value) => !value)} className="flex items-center gap-1 font-medium text-[#4f71dc]">
           Показать фильтр <ChevronDown className={`h-4 w-4 transition ${filterOpen ? "rotate-180" : ""}`} />
         </button>
         <label className="relative min-w-[220px] flex-1 border-b border-[#dbe0e8] pb-1.5">
@@ -311,7 +311,7 @@ export function StoreReconciliationBotView() {
         <button disabled={safePage === 1} onClick={() => setPage((value) => Math.max(1, value - 1))} className="rounded-full border border-[#dbe0e8] p-1 text-[#9aa3b6] disabled:opacity-40">
           <ChevronDown className="h-5 w-5 rotate-90" />
         </button>
-        <button disabled={safePage === maxPage} onClick={() => setPage((value) => Math.min(maxPage, value + 1))} className="rounded-full border border-[#4f70e7] p-1 text-[#4f70e7] disabled:opacity-40">
+        <button disabled={safePage === maxPage} onClick={() => setPage((value) => Math.min(maxPage, value + 1))} className="rounded-full border border-[#4f71dc] p-1 text-[#4f71dc] disabled:opacity-40">
           <ChevronDown className="h-5 w-5 -rotate-90" />
         </button>
         <button aria-label="Полный экран" onClick={() => document.documentElement.requestFullscreen?.()} className="text-[#586174]"><Expand className="h-5 w-5" /></button>
@@ -345,13 +345,13 @@ export function StoreReconciliationBotView() {
                     <div className="group-hover:invisible">{row.client}</div>
                     <div className="invisible absolute inset-0 flex items-center gap-3 px-4 group-hover:visible">
                       <button aria-label="Редактировать" onClick={() => startEdit(row)} className="text-[#586174] hover:text-[#17233b]"><Pencil className="h-4 w-4" /></button>
-                      <button aria-label="Телеграм" title="Телеграм" onClick={() => setConnectTarget(row)} className="text-[#4f70e7] hover:text-[#3a5bd0]"><Send className="h-4 w-4" /></button>
+                      <button aria-label="Телеграм" title="Телеграм" onClick={() => setConnectTarget(row)} className="text-[#4f71dc] hover:text-[#3a5bd0]"><Send className="h-4 w-4" /></button>
                       <button aria-label="Удалить" onClick={() => removeRow(row.id)} className="text-[#e5484d] hover:text-[#c53238]"><MinusCircle className="h-4 w-4" /></button>
                       <button aria-label="Добавить" title="Дублировать" onClick={() => duplicateRow(row)} className="text-[#3aa76d] hover:text-[#2c8f5a]"><PlusCircle className="h-4 w-4" /></button>
                     </div>
                   </td>
                   <td className="border border-[#e1e5eb] px-4 py-3.5">
-                    <button onClick={() => setConnectTarget(row)} className={row.connected ? "text-[#3aa76d]" : "text-[#4f70e7]"}>
+                    <button onClick={() => setConnectTarget(row)} className={row.connected ? "text-[#3aa76d]" : "text-[#4f71dc]"}>
                       {row.connected ? "Подключен" : "Не подключен"}
                     </button>
                   </td>
@@ -379,7 +379,7 @@ export function StoreReconciliationBotView() {
       {connectTarget && (
         <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/40" onClick={() => setConnectTarget(null)}>
           <div onClick={(event) => event.stopPropagation()} className="w-[440px] max-w-[92vw] rounded-md bg-white p-7 shadow-2xl">
-            <h2 className="mb-4 flex items-center gap-2 text-lg font-bold"><Send className="h-5 w-5 text-[#4f70e7]" /> Подключение через Telegram-бот</h2>
+            <h2 className="mb-4 flex items-center gap-2 text-lg font-bold"><Send className="h-5 w-5 text-[#4f71dc]" /> Подключение через Telegram-бот</h2>
             <p className="mb-6 text-[#586174]">
               {connectTarget.connected
                 ? <>Клиент <b>{connectTarget.client}</b> подключен к боту сверки. Отключить?</>
@@ -387,7 +387,7 @@ export function StoreReconciliationBotView() {
             </p>
             <div className="flex justify-end gap-3">
               <button onClick={() => setConnectTarget(null)} className="rounded-md border border-[#dbe0e8] px-5 py-2.5 font-semibold text-[#586174]">Отмена</button>
-              <button onClick={() => toggleConnection(connectTarget.id)} className="rounded-md bg-[#4f70e7] px-5 py-2.5 font-semibold text-white">
+              <button onClick={() => toggleConnection(connectTarget.id)} className="rounded-md bg-[#4f71dc] px-5 py-2.5 font-semibold text-white">
                 {connectTarget.connected ? "Отключить" : "Отправить"}
               </button>
             </div>
@@ -405,7 +405,7 @@ export function StoreReconciliationBotView() {
             </label>
             <div className="flex justify-end gap-3">
               <button onClick={() => setEditTarget(null)} className="rounded-md border border-[#dbe0e8] px-5 py-2.5 font-semibold text-[#586174]">Отмена</button>
-              <button onClick={saveEdit} className="rounded-md bg-[#4f70e7] px-5 py-2.5 font-semibold text-white">Сохранить</button>
+              <button onClick={saveEdit} className="rounded-md bg-[#4f71dc] px-5 py-2.5 font-semibold text-white">Сохранить</button>
             </div>
           </div>
         </div>

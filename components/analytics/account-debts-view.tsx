@@ -138,7 +138,7 @@ export function AccountDebtsView() {
     <main className="min-h-screen bg-white text-[#17233b]">
       <header className="flex min-h-[76px] flex-wrap items-center justify-between gap-4 border-b border-[#d8dee7] bg-[#f2f5f8] px-6 md:px-9">
         <div className="flex items-center gap-3">
-          <FavoritesButton className="flex items-center gap-3 text-2xl font-bold text-[#4f70e7]" />
+          <FavoritesButton className="flex items-center gap-3 text-2xl font-bold text-[#4f71dc]" />
           <span className="text-3xl font-light text-[#586174]">|</span>
           <span className="text-2xl font-bold text-[#586174]">Долги по счетам</span>
         </div>
@@ -159,12 +159,12 @@ export function AccountDebtsView() {
       </header>
 
       <section className="flex flex-wrap items-center gap-4 px-6 py-4 md:px-9">
-        <button onClick={() => setFilterOpen(true)} className="flex h-11 items-center gap-2 rounded-md bg-[#4f70e7] px-5 font-semibold text-white">
+        <button onClick={() => setFilterOpen(true)} className="flex h-11 items-center gap-2 rounded-md bg-[#4f71dc] px-5 font-semibold text-white">
           <Filter className="h-4 w-4" /> Фильтр / {filterCount}
         </button>
-        <span className="font-semibold text-[#4f70e7]">{appliedFrom} - {appliedTo}</span>
+        <span className="font-semibold text-[#4f71dc]">{appliedFrom} - {appliedTo}</span>
         <span className="text-[#586174]">Во всей организации</span>
-        <button onClick={() => setGroupPaymentOpen(true)} className="ml-auto flex h-11 items-center gap-2 rounded-md border border-[#4f70e7] px-5 font-semibold text-[#4f70e7]">
+        <button onClick={() => setGroupPaymentOpen(true)} className="ml-auto flex h-11 items-center gap-2 rounded-md border border-[#4f71dc] px-5 font-semibold text-[#4f71dc]">
           <CreditCard className="h-5 w-5" /> Групповая оплата
         </button>
         <button onClick={downloadAll} className="flex h-11 items-center gap-2 rounded-md bg-[#4caf72] px-5 font-semibold text-white">
@@ -220,13 +220,13 @@ export function AccountDebtsView() {
       <section className="flex flex-wrap items-center gap-3 border-t border-[#e1e5eb] px-6 py-4 md:px-9">
         <button
           onClick={() => setSplitByCurrency((value) => !value)}
-          className={`rounded-sm px-5 py-2.5 text-[13px] font-bold uppercase tracking-wide ${splitByCurrency ? "bg-[#4f70e7] text-white" : "border border-[#4f70e7] text-[#4f70e7]"}`}
+          className={`rounded-sm px-5 py-2.5 text-[13px] font-bold uppercase tracking-wide ${splitByCurrency ? "bg-[#4f71dc] text-white" : "border border-[#4f71dc] text-[#4f71dc]"}`}
         >
           Разбить по валютам
         </button>
         <button
           onClick={() => { setByType((value) => !value); setTypeFilter("Все типы"); setPage(1) }}
-          className={`rounded-sm px-5 py-2.5 text-[13px] font-bold uppercase tracking-wide ${byType ? "bg-[#4f70e7] text-white" : "border border-[#4f70e7] text-[#4f70e7]"}`}
+          className={`rounded-sm px-5 py-2.5 text-[13px] font-bold uppercase tracking-wide ${byType ? "bg-[#4f71dc] text-white" : "border border-[#4f71dc] text-[#4f71dc]"}`}
         >
           Показать по типам клиентов
         </button>
@@ -244,7 +244,7 @@ export function AccountDebtsView() {
         <button disabled={byType || safePage === 1} onClick={() => setPage((value) => Math.max(1, value - 1))} className="rounded-full border border-[#dbe0e8] p-1 text-[#9aa3b6] disabled:opacity-40">
           <ChevronDown className="h-5 w-5 rotate-90" />
         </button>
-        <button disabled={byType || safePage === maxPage} onClick={() => setPage((value) => Math.min(maxPage, value + 1))} className="rounded-full border border-[#4f70e7] p-1 text-[#4f70e7] disabled:opacity-40">
+        <button disabled={byType || safePage === maxPage} onClick={() => setPage((value) => Math.min(maxPage, value + 1))} className="rounded-full border border-[#4f71dc] p-1 text-[#4f71dc] disabled:opacity-40">
           <ChevronDown className="h-5 w-5 -rotate-90" />
         </button>
         <button aria-label="Полный экран" onClick={() => document.documentElement.requestFullscreen?.()} className="text-[#586174]"><ChevronsRight className="h-5 w-5 rotate-45" /></button>
@@ -264,7 +264,7 @@ export function AccountDebtsView() {
               <tr className="bg-white text-[#17233b]">
                 <th className="border-b border-[#e1e5eb] px-4 py-2 text-left font-semibold">{byType ? "Тип клиента" : "Клиент"}</th>
                 <th className="border-b border-[#e1e5eb] px-2 py-2">
-                  {!byType && <input type="checkbox" checked={allSelected} onChange={toggleAll} className="h-4 w-4 accent-[#4f70e7]" />}
+                  {!byType && <input type="checkbox" checked={allSelected} onChange={toggleAll} className="h-4 w-4 accent-[#4f71dc]" />}
                 </th>
                 {groups.map((group) =>
                   ["SUM", "USD", "Euro"].map((currency) => (
@@ -278,8 +278,8 @@ export function AccountDebtsView() {
                 ? typeAggregates.map((row, index) => (
                     <tr key={row.type} className={index % 2 ? "bg-[#f6f9fc]" : "bg-white"}>
                       <td className="border-b border-[#e1e5eb] px-4 py-3.5">
-                        <button onClick={() => drillIntoType(row.type)} className="flex items-center gap-2 text-left hover:text-[#4f70e7]">
-                          {row.type} <List className="h-4 w-4 text-[#4f70e7]" />
+                        <button onClick={() => drillIntoType(row.type)} className="flex items-center gap-2 text-left hover:text-[#4f71dc]">
+                          {row.type} <List className="h-4 w-4 text-[#4f71dc]" />
                         </button>
                       </td>
                       <td className="border-b border-[#e1e5eb] px-2 py-3.5" />
@@ -298,7 +298,7 @@ export function AccountDebtsView() {
                         {row.taxId && <div className="text-[13px] text-[#586174]">({row.taxId})</div>}
                       </td>
                       <td className="border-b border-[#e1e5eb] px-2 py-3.5 text-center">
-                        <input type="checkbox" checked={selected.has(row.id)} onChange={() => toggleOne(row.id)} className="h-4 w-4 accent-[#4f70e7]" />
+                        <input type="checkbox" checked={selected.has(row.id)} onChange={() => toggleOne(row.id)} className="h-4 w-4 accent-[#4f71dc]" />
                       </td>
                       <td className="border-b border-[#e1e5eb] px-4 py-3.5"><AmountCell value={row.opening.sum} /></td>
                       <td className="border-b border-[#e1e5eb] px-4 py-3.5"><AmountCell value={row.opening.usd} /></td>
@@ -361,10 +361,10 @@ export function AccountDebtsView() {
             </div>
 
             <div className="flex flex-wrap gap-x-10 gap-y-3 border-t px-8 py-6 text-[14px] text-[#17233b]">
-              <label className="flex items-center gap-2"><input type="checkbox" checked={onlyRealized} onChange={(event) => setOnlyRealized(event.target.checked)} className="h-4 w-4 accent-[#4f70e7]" /> Учитывать только реализованных заказов</label>
-              <label className="flex items-center gap-2"><input type="checkbox" checked={onlyDelivered} onChange={(event) => setOnlyDelivered(event.target.checked)} className="h-4 w-4 accent-[#4f70e7]" /> Только доставленные заказы</label>
-              <label className="flex items-center gap-2"><input type="checkbox" checked={onlyOverdue} onChange={(event) => setOnlyOverdue(event.target.checked)} className="h-4 w-4 accent-[#4f70e7]" /> Только просроченные долги</label>
-              <label className="flex items-center gap-2"><input type="checkbox" checked={excludeClosed} onChange={(event) => setExcludeClosed(event.target.checked)} className="h-4 w-4 accent-[#4f70e7]" /> Исключить закрытие магазины</label>
+              <label className="flex items-center gap-2"><input type="checkbox" checked={onlyRealized} onChange={(event) => setOnlyRealized(event.target.checked)} className="h-4 w-4 accent-[#4f71dc]" /> Учитывать только реализованных заказов</label>
+              <label className="flex items-center gap-2"><input type="checkbox" checked={onlyDelivered} onChange={(event) => setOnlyDelivered(event.target.checked)} className="h-4 w-4 accent-[#4f71dc]" /> Только доставленные заказы</label>
+              <label className="flex items-center gap-2"><input type="checkbox" checked={onlyOverdue} onChange={(event) => setOnlyOverdue(event.target.checked)} className="h-4 w-4 accent-[#4f71dc]" /> Только просроченные долги</label>
+              <label className="flex items-center gap-2"><input type="checkbox" checked={excludeClosed} onChange={(event) => setExcludeClosed(event.target.checked)} className="h-4 w-4 accent-[#4f71dc]" /> Исключить закрытие магазины</label>
             </div>
 
             <div className="px-8 pb-8">
@@ -469,7 +469,7 @@ function GroupPaymentModal({ clientIds, onClose }: { clientIds: number[]; onClos
           </label>
         </div>
         <footer className="flex justify-end border-t px-8 py-5">
-          <button onClick={save} disabled={saving || !amount} className="font-bold uppercase tracking-wide text-[#4f70e7] disabled:opacity-40">{saving ? "Сохранение..." : "Сохранить"}</button>
+          <button onClick={save} disabled={saving || !amount} className="font-bold uppercase tracking-wide text-[#4f71dc] disabled:opacity-40">{saving ? "Сохранение..." : "Сохранить"}</button>
         </footer>
       </div>
     </div>

@@ -343,21 +343,21 @@ export function RawMaterialsView({ embedded = false }: { embedded?: boolean }) {
   }
 
   return (
-    <main className={embedded ? "min-w-0 flex-1" : "min-h-[calc(100vh-4rem)] bg-[#f1f4f8] px-9 py-5"}>
+    <main className={embedded ? "min-w-0 flex-1" : "min-h-[calc(100vh-4rem)] bg-[#f2f5f8] px-7 pb-7"}>
       {!embedded && (
         <header className="mb-5 flex items-center justify-between">
           <h1 className="flex items-center text-2xl font-bold text-slate-600">
-            <FavoritesButton className="inline-flex items-center gap-2 text-[#4f70e7]" />
+            <FavoritesButton className="inline-flex items-center gap-2 text-[#4f71dc]" />
             <span className="mx-2 text-slate-400">|</span> {t("Сырье")}
           </h1>
           <div className="flex items-center gap-3">
-            <button type="button" onClick={() => importInputRef.current?.click()} className="inline-flex items-center gap-2 rounded bg-[#4f70e7] px-4 py-2.5 font-semibold text-white hover:brightness-95">
+            <button type="button" onClick={() => importInputRef.current?.click()} className="inline-flex items-center gap-2 rounded bg-[#4f71dc] px-4 py-2.5 font-semibold text-white hover:brightness-95">
               <BarChart3 className="h-4 w-4" /> {t("Импортировать")}
             </button>
-            <button type="button" onClick={() => updateInputRef.current?.click()} className="inline-flex items-center gap-2 rounded bg-[#4f70e7] px-4 py-2.5 font-semibold text-white hover:brightness-95">
+            <button type="button" onClick={() => updateInputRef.current?.click()} className="inline-flex items-center gap-2 rounded bg-[#4f71dc] px-4 py-2.5 font-semibold text-white hover:brightness-95">
               <BarChart3 className="h-4 w-4" /> {t("Обновить с excel")}
             </button>
-            <button type="button" onClick={openCreate} className="inline-flex items-center gap-2 rounded bg-[#6ccd8b] px-5 py-2.5 font-semibold text-white hover:brightness-95">
+            <button type="button" onClick={openCreate} className="inline-flex items-center gap-2 rounded bg-[#71ce87] px-5 py-2.5 font-semibold text-white hover:brightness-95">
               <Plus className="h-4 w-4" /> {t("Добавить")}
             </button>
             <input ref={importInputRef} type="file" accept=".csv,.xls,.xlsx,text/csv" onChange={parseImport} className="hidden" />
@@ -368,7 +368,7 @@ export function RawMaterialsView({ embedded = false }: { embedded?: boolean }) {
 
       <section className="overflow-hidden rounded bg-white shadow">
         <div className="flex flex-wrap items-center gap-4 px-5 py-3">
-          <button type="button" onClick={() => setFilterOpen((value) => !value)} className="inline-flex items-center gap-1 text-[#4f70e7] hover:underline">
+          <button type="button" onClick={() => setFilterOpen((value) => !value)} className="inline-flex items-center gap-1 text-[#4f71dc] hover:underline">
             {t("Показать фильтр")} <ChevronDown className={`h-4 w-4 transition-transform ${filterOpen ? "rotate-180" : ""}`} />
           </button>
         </div>
@@ -387,7 +387,7 @@ export function RawMaterialsView({ embedded = false }: { embedded?: boolean }) {
 
         <div className="flex flex-wrap items-center gap-4 px-5 py-3">
           <label className="relative w-64">
-            <input value={query} onChange={(event) => { setQuery(event.target.value); setPage(1) }} placeholder={t("Поиск")} className="w-full border-b border-slate-300 py-2 pr-10 outline-none focus:border-[#4f70e7]" />
+            <input value={query} onChange={(event) => { setQuery(event.target.value); setPage(1) }} placeholder={t("Поиск")} className="w-full border-b border-slate-300 py-2 pr-10 outline-none focus:border-[#4f71dc]" />
             <Search className="absolute right-2 top-2 h-5 w-5 text-slate-300" />
           </label>
           <span className="ml-auto text-slate-500">25</span>
@@ -401,18 +401,18 @@ export function RawMaterialsView({ embedded = false }: { embedded?: boolean }) {
             <ChevronRight className="h-5 w-5 text-slate-400" />
           </button>
           <ListChecks className="h-5 w-5 text-slate-400" />
-          <button type="button" onClick={downloadList} aria-label={t("Скачать")} className="text-slate-500 hover:text-[#4f70e7]">
+          <button type="button" onClick={downloadList} aria-label={t("Скачать")} className="text-slate-500 hover:text-[#4f71dc]">
             <Upload className="h-5 w-5 rotate-180" />
           </button>
           {embedded && (
-            <button type="button" onClick={openCreate} className="inline-flex items-center gap-2 rounded bg-[#6ccd8b] px-4 py-2 text-sm font-semibold text-white hover:brightness-95">
+            <button type="button" onClick={openCreate} className="inline-flex items-center gap-2 rounded bg-[#71ce87] px-4 py-2 text-sm font-semibold text-white hover:brightness-95">
               <Plus className="h-4 w-4" /> {t("Добавить")}
             </button>
           )}
         </div>
 
         <table className="w-full text-left">
-          <thead className="bg-[#626b7e] text-white">
+          <thead className="bg-[#5d6474] text-white">
             <tr>
               <th className="px-9 py-5">{t("Наименование")}</th>
               <th className="px-5 py-5">{t("Штрих - код товара")}</th>
@@ -445,7 +445,7 @@ export function RawMaterialsView({ embedded = false }: { embedded?: boolean }) {
                   <td className="px-5 py-4">{row.organization}</td>
                   <td className="px-5 py-4">
                     {row.unit}
-                    {row.subUnit && <span className="block text-[#4f70e7]">{row.subUnit}</span>}
+                    {row.subUnit && <span className="block text-[#4f71dc]">{row.subUnit}</span>}
                   </td>
                   <td className="px-5 py-4">{row.createdDate}</td>
                   <td className="px-5 py-4">{row.orderNumber}</td>
@@ -663,7 +663,7 @@ export function RawMaterialsView({ embedded = false }: { embedded?: boolean }) {
                     <button
                       type="button"
                       onClick={() => setDraft((value) => ({ ...value, barcodes: [String(Date.now()).slice(-13), ...value.barcodes.slice(1)] }))}
-                      className="mt-2 text-sm text-[#4f70e7] hover:underline"
+                      className="mt-2 text-sm text-[#4f71dc] hover:underline"
                     >
                       {t("Сгенерировать")}
                     </button>
@@ -726,7 +726,7 @@ export function RawMaterialsView({ embedded = false }: { embedded?: boolean }) {
                         <button
                           type="button"
                           onClick={() => setDraft((value) => ({ ...value, [key]: !value[key] }))}
-                          className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${draft[key] ? "bg-[#4f70e7]" : "bg-slate-300"}`}
+                          className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${draft[key] ? "bg-[#4f71dc]" : "bg-slate-300"}`}
                         >
                           <span className={`absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${draft[key] ? "translate-x-5" : "translate-x-0"}`} />
                         </button>
@@ -750,7 +750,7 @@ export function RawMaterialsView({ embedded = false }: { embedded?: boolean }) {
                     <button
                       type="button"
                       onClick={() => setDraft((value) => ({ ...value, canSell: !value.canSell }))}
-                      className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${draft.canSell ? "bg-[#4f70e7]" : "bg-slate-300"}`}
+                      className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${draft.canSell ? "bg-[#4f71dc]" : "bg-slate-300"}`}
                     >
                       <span className={`absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${draft.canSell ? "translate-x-5" : "translate-x-0"}`} />
                     </button>
@@ -758,7 +758,7 @@ export function RawMaterialsView({ embedded = false }: { embedded?: boolean }) {
 
                   <div className="flex items-center justify-between gap-2">
                     <span className="font-medium text-slate-800">{t("Продажная цена")}</span>
-                    <button type="button" onClick={addPriceEntry} className="inline-flex items-center gap-1 whitespace-nowrap rounded bg-[#4f70e7] px-3 py-1.5 text-sm font-semibold text-white hover:brightness-95">
+                    <button type="button" onClick={addPriceEntry} className="inline-flex items-center gap-1 whitespace-nowrap rounded bg-[#4f71dc] px-3 py-1.5 text-sm font-semibold text-white hover:brightness-95">
                       <Plus className="h-3.5 w-3.5" /> {t("Добавить новую цену")}
                     </button>
                   </div>
@@ -828,7 +828,7 @@ export function RawMaterialsView({ embedded = false }: { embedded?: boolean }) {
                     <button
                       type="button"
                       onClick={() => setDraft((value) => ({ ...value, limitPrice: !value.limitPrice }))}
-                      className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${draft.limitPrice ? "bg-[#4f70e7]" : "bg-slate-300"}`}
+                      className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${draft.limitPrice ? "bg-[#4f71dc]" : "bg-slate-300"}`}
                     >
                       <span className={`absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${draft.limitPrice ? "translate-x-5" : "translate-x-0"}`} />
                     </button>
@@ -858,7 +858,7 @@ export function RawMaterialsView({ embedded = false }: { embedded?: boolean }) {
             </div>
 
             <footer className="flex justify-end border-t p-5">
-              <button type="submit" disabled={saving} className="rounded bg-[#6ccd8b] px-6 py-3 font-semibold text-white hover:brightness-95 disabled:opacity-60">
+              <button type="submit" disabled={saving} className="rounded bg-[#71ce87] px-6 py-3 font-semibold text-white hover:brightness-95 disabled:opacity-60">
                 {saving ? t("Сохранение...") : t("Сохранить изменение")}
               </button>
             </footer>

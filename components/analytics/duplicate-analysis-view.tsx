@@ -208,7 +208,7 @@ export function DuplicateAnalysisView() {
 
           <div className="overflow-x-auto">
             <table className="w-full min-w-[850px] border-collapse text-[16px]">
-              <thead className="bg-[#626b7e] text-left text-white">
+              <thead className="bg-[#5d6474] text-left text-white">
                 <tr>
                   <th className="w-[14%] px-12 py-5">№</th>
                   <th className="w-[19%] px-6 py-5">Наименование</th>

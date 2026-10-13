@@ -281,7 +281,7 @@ export function ProductionBatchesView() {
 
         <div className="overflow-x-auto">
           <table className="w-full min-w-[1100px] border-collapse">
-            <thead className="bg-[#626b7e] text-left text-white">
+            <thead className="bg-[#5d6474] text-left text-white">
               <tr>
                 {["№", "Дата начала", "Дата завершения", "Дата партии", "Этап производства", "Пользователь", "Статус"].map((header) => <th key={header} className="px-10 py-5 font-semibold">{header}</th>)}
               </tr>
@@ -332,7 +332,7 @@ export function ProductionBatchesView() {
               </button>
             </header>
             <div className="p-8">
-              <button type="button" onClick={downloadTemplate} className="mb-4 font-semibold text-[#4f70e7] hover:underline">
+              <button type="button" onClick={downloadTemplate} className="mb-4 font-semibold text-[#4f71dc] hover:underline">
                 1. Скачать шаблон
               </button>
               <input ref={importInputRef} type="file" accept=".csv,.xls,.xlsx" onChange={pickImportFile} className="hidden" />

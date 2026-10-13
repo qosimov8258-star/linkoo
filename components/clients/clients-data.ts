@@ -25,6 +25,7 @@ export type Client = {
   note?: string
   autoDelivery?: boolean
   unlimitedDebt?: boolean
+  attributes?: Record<string, string>
 }
 
 export const clients: Client[] = [

@@ -158,10 +158,10 @@ export function OrganizationView({ embedded = false }: { embedded?: boolean }) {
   return (
     <main className={embedded ? "min-w-0 flex-1" : "min-h-[calc(100vh-4rem)] bg-white px-9 py-5"}>
       <div className="mb-4 flex flex-wrap items-center gap-4">
-        <button type="button" onClick={openCreate} className="text-[16px] text-[#4f70e7] hover:underline">
+        <button type="button" onClick={openCreate} className="text-[16px] text-[#4f71dc] hover:underline">
           + добавить организацию
         </button>
-        <button type="button" onClick={() => setImportOpen(true)} className="inline-flex items-center gap-2 rounded bg-[#4f70e7] px-5 py-2.5 font-semibold text-white hover:brightness-95">
+        <button type="button" onClick={() => setImportOpen(true)} className="inline-flex items-center gap-2 rounded bg-[#4f71dc] px-5 py-2.5 font-semibold text-white hover:brightness-95">
           <FileText className="h-4 w-4" /> Импорт с Excel
         </button>
         <label className="relative ml-auto w-64">
@@ -169,7 +169,7 @@ export function OrganizationView({ embedded = false }: { embedded?: boolean }) {
             value={query}
             onChange={(event) => { setQuery(event.target.value); setPage(1) }}
             placeholder="Поиск"
-            className="w-full border-b border-slate-300 py-2 pr-10 outline-none focus:border-[#4f70e7]"
+            className="w-full border-b border-slate-300 py-2 pr-10 outline-none focus:border-[#4f71dc]"
           />
           <Search className="absolute right-2 top-2 h-5 w-5 text-slate-300" />
         </label>
@@ -186,7 +186,7 @@ export function OrganizationView({ embedded = false }: { embedded?: boolean }) {
       </div>
 
       <table className="w-full text-left">
-        <thead className="bg-[#626b7e] text-white">
+        <thead className="bg-[#5d6474] text-white">
           <tr>
             <th className="px-9 py-5">Наименование</th>
             <th className="px-5 py-5">Ограничение по долгу клиента</th>
@@ -200,7 +200,7 @@ export function OrganizationView({ embedded = false }: { embedded?: boolean }) {
             <tr><td colSpan={3} className="px-9 py-10 text-center text-red-600">{loadError}</td></tr>
           ) : visible.map((organization) => (
             <tr key={organization.id} className="group border-b border-dashed border-slate-300 hover:bg-slate-50">
-              <td className="px-9 py-4 font-medium text-[#4f70e7]">{organization.name}</td>
+              <td className="px-9 py-4 font-medium text-[#4f71dc]">{organization.name}</td>
               <td className="px-5 py-4">{organization.limitByDebt ? "С ограничением" : "Без ограничения"}</td>
               <td className="px-5 py-4">
                 <div className="hidden items-center justify-end gap-3 text-slate-500 group-hover:flex">
@@ -246,21 +246,21 @@ export function OrganizationView({ embedded = false }: { embedded?: boolean }) {
               </button>
             </header>
             <div className="p-8">
-              <button type="button" onClick={downloadTemplate} className="mb-4 font-semibold text-[#4f70e7] hover:underline">
+              <button type="button" onClick={downloadTemplate} className="mb-4 font-semibold text-[#4f71dc] hover:underline">
                 1. Скачать шаблон
               </button>
               <input ref={importInputRef} type="file" accept=".csv,.xls,.xlsx" onChange={pickImportFile} className="hidden" />
               <button
                 type="button"
                 onClick={() => importInputRef.current?.click()}
-                className="flex w-full flex-col items-center justify-center gap-3 rounded border-2 border-dashed border-slate-300 py-10 text-slate-500 hover:border-[#4f70e7] hover:text-[#4f70e7]"
+                className="flex w-full flex-col items-center justify-center gap-3 rounded border-2 border-dashed border-slate-300 py-10 text-slate-500 hover:border-[#4f71dc] hover:text-[#4f71dc]"
               >
                 <FileText className="h-8 w-8" />
                 {importFile ? importFile.name : "Добавьте файл Excel или нажмите для выбора"}
               </button>
             </div>
             <footer className="flex justify-end border-t p-5">
-              <button type="button" disabled={!importFile || importSaving} onClick={saveImport} className="rounded bg-[#6ccd8b] px-5 py-3 font-semibold text-white hover:brightness-95 disabled:opacity-40">
+              <button type="button" disabled={!importFile || importSaving} onClick={saveImport} className="rounded bg-[#71ce87] px-5 py-3 font-semibold text-white hover:brightness-95 disabled:opacity-40">
                 {importSaving ? "Импорт..." : "Сохранить"}
               </button>
             </footer>

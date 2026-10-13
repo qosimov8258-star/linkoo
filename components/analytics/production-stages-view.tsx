@@ -459,7 +459,7 @@ export function ProductionStagesView() {
                 )}
 
                 <table className="w-full table-fixed border-collapse">
-                  <thead className="bg-[#626b7e] text-left text-white">
+                  <thead className="bg-[#5d6474] text-left text-white">
                     <tr>
                       <th className="px-9 py-5">Наименование</th>
                       <th className="px-9 py-5">{tab === "products" ? "Тип товара" : tab === "operations" ? "Тип товара" : "Тип / роль"}</th>

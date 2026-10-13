@@ -54,7 +54,7 @@ export type PgDb = {
 
 // Tables whose primary key is not a serial `id` column, so `.run()` must not
 // auto-append `RETURNING id` for their INSERT statements.
-const NO_ID_RETURNING = new Set(["telegram_bot_pages", "user_sessions"])
+const NO_ID_RETURNING = new Set(["telegram_bot_pages", "user_sessions", "product_attribute_assignments"])
 
 function translateParams(sql: string, args: unknown[]): { text: string; values: unknown[] } {
   const singleObjectArg = args.length === 1 && typeof args[0] === "object" && args[0] !== null && !Array.isArray(args[0])

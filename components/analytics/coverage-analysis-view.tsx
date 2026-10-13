@@ -223,7 +223,7 @@ export function CoverageAnalysisView() {
         <div className="flex items-center gap-3 text-lg font-semibold"><span className="flex h-10 w-10 items-center justify-center rounded-full bg-slate-500 text-white">A</span>Admin Ritm <small className="text-slate-400">Сервер: (https://time3.linko.uz)</small></div>
         <strong className="ml-auto text-[#5470e8]">{formatDate(from)} - {formatDate(to)}</strong>
         <div className="flex flex-wrap overflow-hidden rounded shadow">{["СЕГОДНЯ", "ВЧЕРА", "ПОСЛ. 7", "МЕСЯЦ", "СВОЯ"].map((item) => <button key={item} type="button" onClick={() => item === "СВОЯ" ? setDateOpen(true) : changePeriod(item)} className={`border px-5 py-2 ${period === item ? "bg-[#5470e8] text-white" : "bg-white"}`}>{item}</button>)}</div>
-        <button type="button" onClick={() => setTerritoryOpen(true)} className="rounded bg-[#6ccd8b] px-5 py-2 font-bold text-white">Изменить территории</button>
+        <button type="button" onClick={() => setTerritoryOpen(true)} className="rounded bg-[#71ce87] px-5 py-2 font-bold text-white">Изменить территории</button>
         <button type="button" onClick={() => setDateOpen(true)} className="rounded bg-[#5470e8] px-5 py-2 font-bold text-white">Изменить сроки</button>
       </section>
 
@@ -255,7 +255,7 @@ export function CoverageAnalysisView() {
 }
 
 function Ring({ value, label }: { value: number; label: string }) { const shown = Math.min(100, value); return <div className="mx-auto flex h-40 w-40 flex-col items-center justify-center rounded-full border-[10px] border-slate-100 text-center shadow-[inset_0_0_12px_#aaa,0_0_12px_#aaa]" style={{ background: `conic-gradient(#18c8a0 ${shown}%, transparent ${shown}%)` }}><div className="flex h-28 w-28 flex-col items-center justify-center rounded-full bg-white"><strong className="text-3xl">{value.toFixed(1).replace(".", ",")} %</strong><small>{label}</small></div></div> }
-function Metric({ value, label, red, green }: { value: number; label: string; red?: boolean; green?: boolean }) { return <div className="border-b border-r px-3 py-5 text-center"><strong className={`text-2xl ${red ? "text-[#ef7373]" : green ? "text-[#6ccd8b]" : "text-sky-500"}`}>{format(value)}</strong><p className="mt-1 text-slate-600">{label}</p></div> }
+function Metric({ value, label, red, green }: { value: number; label: string; red?: boolean; green?: boolean }) { return <div className="border-b border-r px-3 py-5 text-center"><strong className={`text-2xl ${red ? "text-[#ef7373]" : green ? "text-[#71ce87]" : "text-sky-500"}`}>{format(value)}</strong><p className="mt-1 text-slate-600">{label}</p></div> }
 const CHART_COLORS = {
   factSotuv: "#4d7cfe", // Fakt sotuv (=ОКБ) — ko'k
   akb: "#3ecf8e", // АКБ — yashil

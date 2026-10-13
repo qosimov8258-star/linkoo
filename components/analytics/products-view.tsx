@@ -1,30 +1,13 @@
 "use client"
 
-import {
-  BarChart3,
-  Check,
-  ChevronDown,
-  ChevronLeft,
-  ChevronRight,
-  FileText,
-  Image as ImageIcon,
-  Info,
-  ListChecks,
-  MoreVertical,
-  Pencil,
-  Plus,
-  PlusCircle,
-  Search,
-  Trash2,
-  Upload,
-  X,
-} from "lucide-react"
-import { ChangeEvent, DragEvent, Fragment, FormEvent, useEffect, useMemo, useRef, useState } from "react"
+import { Check, ChevronDown, ChevronLeft, ChevronRight, EyeOff, Search, X } from "lucide-react"
+import { ChangeEvent, DragEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react"
 
 import { downloadExcelTable } from "@/lib/excel-export"
 import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
 import { mapHeaderColumns, readExcelRows } from "@/lib/excel-import"
 import { useLanguage } from "@/lib/i18n/language-context"
+import { ProductFormDialog, type ProductAttributeDef, type ProductDraft, type ProductTypeNode } from "./product-form-dialog"
 import {
   defaultPriceLists,
   productCurrencies,
@@ -36,7 +19,6 @@ import {
 } from "./products-data"
 
 type Tab = "sellable" | "inventory" | "delisted" | "all" | "deleted"
-type ToggleKey = "onlyMml" | "perfectStore" | "isInventory" | "groupOnly" | "showInBot" | "trackExpiry" | "markedProduct"
 
 const defaultPriceListNames = defaultPriceLists().map((entry) => entry.name)
 
@@ -71,20 +53,20 @@ const IMPORT_HEADER_ALIASES: Record<string, string> = {
   "порядковый номер": "orderNumber", "order number": "orderNumber",
 }
 
-function emptyDraft() {
+function emptyDraft(): ProductDraft {
   return {
-    name: "", fullName: "", barcodes: [""], article: "", integrationCode: "", type: "", organization: organizations[0], unit: units[0],
+    name: "", fullName: "", barcodes: [""], article: "", integrationCode: "", type: "", organization: "", unit: "",
     orderNumber: "", supplier: "", brand: "", description: "", minStock: "", volume: "", weight: "", netWeight: "", color: "",
-    group: "", ikpu: "", invoiceUnitCode: "", vat: productVatOptions[0], salePoints: "0",
+    group: "", ikpu: "", invoiceUnitCode: "", vat: "", salePoints: "",
     canSell: true, showInBot: true, markedProduct: false, limitPrice: false,
-    onlyMml: false, perfectStore: false, isInventory: false, groupOnly: true, trackExpiry: false,
+    onlyMml: false, perfectStore: false, isInventory: false, groupOnly: false, trackExpiry: false,
     priceMin: "", priceMax: "",
-    priceEntries: [{ name: defaultPriceListNames[0], cash: "", cashCurrency: "SUM", nonCash: "", nonCashCurrency: "SUM" }],
+    priceEntries: [{ name: "", cash: "", cashCurrency: "", nonCash: "", nonCashCurrency: "" }],
+    subcategory: "", attributes: {},
   }
 }
 
-type Draft = ReturnType<typeof emptyDraft>
-type DraftPriceEntry = Draft["priceEntries"][number]
+type Draft = ProductDraft
 
 function toProductInput(product: Product): Omit<Product, "id" | "createdDate"> {
   const { id: _id, createdDate: _createdDate, ...rest } = product
@@ -100,8 +82,8 @@ function buildProductInput(draft: Draft, base?: Product): Omit<Product, "id" | "
       name: entry.name,
       cash: Number(entry.cash) || 0,
       nonCash: Number(entry.nonCash) || 0,
-      currency: entry.cashCurrency,
-      nonCashCurrency: entry.nonCashCurrency,
+      currency: entry.cashCurrency || "SUM",
+      nonCashCurrency: entry.nonCashCurrency || "SUM",
       min: 0,
       max: 0,
     }))
@@ -112,8 +94,8 @@ function buildProductInput(draft: Draft, base?: Product): Omit<Product, "id" | "
     barcode,
     article: draft.article,
     type: draft.type || "Не указано",
-    organization: draft.organization,
-    unit: draft.unit,
+    organization: draft.organization || organizations[0],
+    unit: draft.unit || units[0],
     subUnit: base?.subUnit ?? "",
     orderNumber: draft.orderNumber,
     hasPhoto: base?.hasPhoto ?? false,
@@ -133,9 +115,9 @@ function buildProductInput(draft: Draft, base?: Product): Omit<Product, "id" | "
     group: draft.group,
     ikpu: draft.ikpu,
     invoiceUnitCode: draft.invoiceUnitCode,
-    vat: draft.vat,
+    vat: draft.vat || productVatOptions[0],
     salePoints: draft.salePoints || "0",
-    subcategory: draft.type || base?.subcategory || "Не указано",
+    subcategory: draft.subcategory || draft.type || base?.subcategory || "Не указано",
     brand: draft.brand || "No brand",
     minStock: draft.minStock || "0 шт.",
     description: draft.description || "Не указано",
@@ -158,12 +140,15 @@ export function ProductsView({ embedded = false }: { embedded?: boolean }) {
   const [products, setProducts] = useState<Product[]>([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState("")
-  const [tab, setTab] = useState<Tab>("sellable")
+  const [tab, setTab] = useState<Tab>("all")
   const [query, setQuery] = useState("")
   const [page, setPage] = useState(1)
   const [filterOpen, setFilterOpen] = useState(false)
-  const [typeFilter, setTypeFilter] = useState("all")
-  const [organizationFilter, setOrganizationFilter] = useState("all")
+  const emptyFilters = { type: "", showOnly: "", unit: "", brand: "", supplier: "", color: "", supply: "", organization: "", onlyMml: false, inventory: false, perfectStore: false }
+  const [filters, setFilters] = useState(emptyFilters)
+  const [filterDraft, setFilterDraft] = useState(emptyFilters)
+  const [selectMode, setSelectMode] = useState(false)
+  const [checked, setChecked] = useState<number[]>([])
   const [expandedId, setExpandedId] = useState<number | null>(null)
   const [openMenuId, setOpenMenuId] = useState<number | null>(null)
   const [modalOpen, setModalOpen] = useState(false)
@@ -183,6 +168,11 @@ export function ProductsView({ embedded = false }: { embedded?: boolean }) {
   const updateInputRef = useRef<HTMLInputElement>(null)
   const modalFileInputRef = useRef<HTMLInputElement>(null)
   const [pageSize, setPageSize] = useState(25)
+  const [pageSizeOpen, setPageSizeOpen] = useState(false)
+  const [typeTree, setTypeTree] = useState<ProductTypeNode[]>([])
+  const [attributeDefs, setAttributeDefs] = useState<ProductAttributeDef[]>([])
+  const [attributeValues, setAttributeValues] = useState<Record<string, string[]>>({})
+  const [supplies, setSupplies] = useState<{ id: number; supplier: string; contractNumber: string; items: { product: string }[] }[]>([])
 
   useEffect(() => {
     let cancelled = false
@@ -231,7 +221,6 @@ export function ProductsView({ embedded = false }: { embedded?: boolean }) {
     }
   }, [products, tab, query])
 
-  const availableTypes = useMemo(() => Array.from(new Set(scoped.map((product) => product.type))).slice(0, 40), [scoped])
 
   const filtered = useMemo(() => {
     const needle = query.trim().toLowerCase()
@@ -244,23 +233,36 @@ export function ProductsView({ embedded = false }: { embedded?: boolean }) {
         !product.integrationCode.toLowerCase().includes(needle)
       )
         return false
-      if (typeFilter !== "all" && product.type !== typeFilter) return false
-      if (organizationFilter !== "all" && product.organization !== organizationFilter) return false
+      if (filters.type && product.type !== filters.type) return false
+      if (filters.showOnly === "sell" && !product.canSell) return false
+      if (filters.showOnly === "nosell" && product.canSell) return false
+      if (filters.unit && product.unit !== filters.unit) return false
+      if (filters.brand && product.brand !== filters.brand) return false
+      if (filters.supplier && product.supplier !== filters.supplier) return false
+      if (filters.color && product.color !== filters.color) return false
+      if (filters.organization && product.organization !== filters.organization) return false
+      if (filters.supply) {
+        const supply = supplies.find((row) => String(row.id) === filters.supply)
+        if (supply && !supply.items.some((item) => item.product === product.name)) return false
+      }
+      if (filters.onlyMml && !product.onlyMml) return false
+      if (filters.inventory && !product.isInventory) return false
+      if (filters.perfectStore && !product.perfectStore) return false
       return true
     })
-  }, [scoped, query, typeFilter, organizationFilter])
+  }, [scoped, query, filters, supplies])
 
   const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize))
   const safePage = Math.min(page, pageCount)
   const visible = filtered.slice((safePage - 1) * pageSize, safePage * pageSize)
-  const expanded = products.find((product) => product.id === expandedId) ?? null
 
   function changeTab(next: Tab) {
     setTab(next)
     setQuery("")
     setPage(1)
-    setTypeFilter("all")
-    setOrganizationFilter("all")
+    setFilters(emptyFilters)
+    setFilterDraft(emptyFilters)
+    setChecked([])
     setExpandedId(null)
     setOpenMenuId(null)
   }
@@ -296,16 +298,7 @@ export function ProductsView({ embedded = false }: { embedded?: boolean }) {
     void patchProduct(product.id, { [key]: !product[key] } as Partial<Product>)
   }
 
-  function delist(product: Product) {
-    void patchProduct(product.id, { canSell: false })
-    setOpenMenuId(null)
-  }
 
-  function restore(product: Product) {
-    void patchProduct(product.id, { canSell: true, deleted: false })
-    setOpenMenuId(null)
-    setExpandedId(null)
-  }
 
   function softDelete(product: Product) {
     if (!window.confirm(`${t("Удалить")} «${product.name}»?`)) return
@@ -343,7 +336,10 @@ export function ProductsView({ embedded = false }: { embedded?: boolean }) {
             nonCash: entry.nonCash ? String(entry.nonCash) : "", nonCashCurrency: entry.nonCashCurrency || "SUM",
           }))
         : [{ name: priceListNameOptions[0], cash: "", cashCurrency: "SUM", nonCash: "", nonCashCurrency: "SUM" }],
+      subcategory: product.subcategory && product.subcategory !== product.type && product.subcategory !== "Не указано" ? product.subcategory : "",
+      attributes: {},
     })
+    void fetch(`/api/product-attribute-assignments/${product.id}`).then((response) => (response.ok ? response.json() : {})).then((values: Record<string, string>) => setDraft((current) => ({ ...current, attributes: values })))
     setGroupOpen(Boolean(product.group))
     setExtraOpen(Boolean(product.ikpu || product.invoiceUnitCode || (product.vat && product.vat !== "Без НДС")))
     setEditingId(product.id)
@@ -351,27 +347,22 @@ export function ProductsView({ embedded = false }: { embedded?: boolean }) {
     setOpenMenuId(null)
   }
 
-  function addPriceEntry() {
-    setDraft((value) => {
-      const unused = priceListNameOptions.find((name) => !value.priceEntries.some((entry) => entry.name === name))
-      return {
-        ...value,
-        priceEntries: [...value.priceEntries, { name: unused || priceListNameOptions[0], cash: "", cashCurrency: "SUM", nonCash: "", nonCashCurrency: "SUM" }],
-      }
-    })
-  }
 
-  function removePriceEntry(index: number) {
-    setDraft((value) => ({ ...value, priceEntries: value.priceEntries.filter((_, i) => i !== index) }))
-  }
 
-  function updatePriceEntry(index: number, patch: Partial<DraftPriceEntry>) {
-    setDraft((value) => ({ ...value, priceEntries: value.priceEntries.map((entry, i) => (i === index ? { ...entry, ...patch } : entry)) }))
+
+  async function saveAttributes(productId: number) {
+    const values = Object.fromEntries(Object.entries(draft.attributes).filter(([, value]) => value !== ""))
+    if (!Object.keys(values).length && editingId === null) return
+    await fetch(`/api/product-attribute-assignments/${productId}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ values }),
+    }).catch(() => undefined)
   }
 
   async function save(event: FormEvent) {
     event.preventDefault()
-    if (!draft.name.trim()) return
+    if (!draft.name.trim() || !draft.unit) return
     setSaving(true)
     try {
       if (editingId !== null) {
@@ -389,6 +380,7 @@ export function ProductsView({ embedded = false }: { embedded?: boolean }) {
         }
         const saved = (await response.json()) as Product
         setProducts((curr) => curr.map((product) => (product.id === editingId ? saved : product)))
+        await saveAttributes(saved.id)
       } else {
         const input = buildProductInput(draft)
         const response = await fetch("/api/products", {
@@ -403,6 +395,7 @@ export function ProductsView({ embedded = false }: { embedded?: boolean }) {
         }
         const saved = (await response.json()) as Product
         setProducts((current) => [saved, ...current])
+        await saveAttributes(saved.id)
       }
       setModalOpen(false)
     } catch {
@@ -525,6 +518,41 @@ export function ProductsView({ embedded = false }: { embedded?: boolean }) {
     ])
   }
 
+  useEffect(() => {
+    if (!modalOpen) return
+    const load = (url: string) => fetch(url).then((response) => (response.ok ? response.json() : []))
+    load("/api/product-types").then((rows: ProductTypeNode[]) => setTypeTree(rows))
+    load("/api/product-attributes").then((rows: ProductAttributeDef[]) => setAttributeDefs(rows))
+    load("/api/product-attribute-values").then((rows: { attribute: string; values: string[] }[]) => setAttributeValues(Object.fromEntries(rows.map((row) => [row.attribute, row.values]))))
+  }, [modalOpen])
+  useEffect(() => {
+    if (!filterOpen) return
+    fetch("/api/supplier-incomings").then((response) => (response.ok ? response.json() : [])).then(setSupplies)
+  }, [filterOpen])
+
+  const [baseline, setBaseline] = useState("")
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    if (modalOpen) setBaseline(JSON.stringify(draft))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [modalOpen])
+  const canSubmit = Boolean(draft.name.trim() && draft.unit) && (editingId === null || JSON.stringify(draft) !== baseline)
+
+  const uniq = (pick: (product: Product) => string | undefined) =>
+    Array.from(new Set(products.map(pick).filter((value): value is string => Boolean(value) && value !== "Не указано" && value !== "No brand"))).sort()
+  const filterOptions = useMemo(
+    () => ({
+      type: uniq((product) => product.type),
+      unit: uniq((product) => product.unit),
+      brand: uniq((product) => product.brand),
+      supplier: uniq((product) => product.supplier),
+      color: uniq((product) => product.color),
+      organization: uniq((product) => product.organization),
+    }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [products],
+  )
+
   const tabs: { id: Tab; label: string }[] = [
     { id: "sellable", label: t("Можно продавать") },
     { id: "inventory", label: t("Инвентари") },
@@ -533,725 +561,245 @@ export function ProductsView({ embedded = false }: { embedded?: boolean }) {
     { id: "deleted", label: t("Удалённые") },
   ]
 
+  const gridCols = selectMode
+    ? "grid-cols-[52px_372px_repeat(7,146.3px)_1fr]"
+    : "grid-cols-[409px_repeat(7,148.5px)_1fr]"
+  const headCols = [t("Штрих - код товара"), t("Артикул"), t("Тип товара"), t("Организация"), t("Мера"), t("Дата создания"), t("Порядковый номер")]
+  const allChecked = visible.length > 0 && visible.every((product) => checked.includes(product.id))
+  const headerButton = "flex h-[30px] items-center gap-[8px] rounded-[3px] px-[14px] text-[13px] font-bold text-white hover:brightness-95"
+
   return (
-    <main className={embedded ? "min-w-0 flex-1" : "min-h-[calc(100vh-4rem)] bg-[#f1f4f8] px-9 py-5"}>
+    <main className={embedded ? "min-w-0 flex-1 text-[13px] text-[#333]" : "min-h-[calc(100vh-50px)] bg-[#f2f5f8] px-[28px] pb-10 pt-[18px] text-[13px] text-[#333]"}>
       {!embedded && (
-        <header className="mb-5 flex items-center justify-between">
-          <h1 className="flex items-center text-2xl font-bold text-slate-600">
-            <FavoritesButton className="inline-flex items-center gap-2 text-[#4f70e7]" />
-            <span className="mx-2 text-slate-400">|</span> {t("Продукты")}
+        <header className="mb-[18px] flex h-[24px] items-center justify-between">
+          <h1 className="flex items-center gap-[7px] text-[18px] font-bold text-[#5d6474]">
+            <FavoritesButton className="flex items-center gap-[7px] text-[#4a6ee0]" />
+            <span className="font-normal">|</span>
+            {t("Продукты")}
           </h1>
-          <div className="flex items-center gap-3">
-            <button type="button" onClick={() => setImportModalOpen(true)} className="inline-flex items-center gap-2 rounded bg-[#4f70e7] px-4 py-2.5 font-semibold text-white hover:brightness-95">
-              <BarChart3 className="h-4 w-4" /> {t("Импортировать")}
+          <div className="flex items-center gap-[10px]">
+            <button type="button" onClick={() => setImportModalOpen(true)} className={`${headerButton} bg-[#4f71dc]`}>
+              <BarsIcon /> {t("Импортировать")}
             </button>
-            <button type="button" onClick={() => updateInputRef.current?.click()} className="inline-flex items-center gap-2 rounded bg-[#4f70e7] px-4 py-2.5 font-semibold text-white hover:brightness-95">
-              <BarChart3 className="h-4 w-4" /> {t("Обновить с excel")}
+            <button type="button" onClick={() => updateInputRef.current?.click()} className={`${headerButton} bg-[#4f71dc]`}>
+              <BarsIcon /> {t("Обновить с excel")}
             </button>
-            <button type="button" onClick={openCreate} className="inline-flex items-center gap-2 rounded bg-[#6ccd8b] px-5 py-2.5 font-semibold text-white hover:brightness-95">
-              <Plus className="h-4 w-4" /> {t("Добавить")}
+            <button type="button" onClick={openCreate} className={`${headerButton} bg-[#71ce87]`}>
+              <svg viewBox="0 0 24 24" className="h-[18px] w-[18px] fill-white"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm5 11h-4v4h-2v-4H7v-2h4V7h2v4h4v2z" /></svg>
+              {t("Добавить")}
             </button>
             <input ref={updateInputRef} type="file" accept=".csv,.xls,.xlsx,text/csv" onChange={parseImport} className="hidden" />
           </div>
         </header>
       )}
 
-      <section className="overflow-hidden rounded bg-white shadow">
-        <div className="flex overflow-x-auto text-center">
+      <section className="relative bg-white shadow-[0_1px_4px_rgba(0,0,0,0.08)]">
+        <div className="grid grid-cols-5">
           {tabs.map((item) => (
             <button
               key={item.id}
               type="button"
               onClick={() => changeTab(item.id)}
-              className={`flex-1 whitespace-nowrap border-b-2 px-4 py-4 text-[15px] font-medium ${tab === item.id ? "border-[#4f70e7] text-[#4f70e7]" : "border-transparent text-slate-600 hover:text-slate-800"}`}
+              className={`relative h-10 text-center text-[13px] text-black ${tab === item.id ? "after:absolute after:inset-x-0 after:bottom-0 after:h-[3px] after:bg-[#4c6dd4] after:shadow-[0_-4px_8px_rgba(76,109,212,0.25)]" : ""}`}
             >
               {item.label}
             </button>
           ))}
         </div>
 
-        <div className="flex flex-wrap items-center gap-4 px-5 py-3">
-          <button type="button" onClick={() => setFilterOpen((value) => !value)} className="inline-flex items-center gap-1 text-[#4f70e7] hover:underline">
-            {t("Показать фильтр")} <ChevronDown className={`h-4 w-4 transition-transform ${filterOpen ? "rotate-180" : ""}`} />
+        <div className="relative flex h-[50px] items-center whitespace-nowrap border-t border-[#eef0f4] pb-[2px] pr-[16px]">
+          <button type="button" onClick={() => { setFilterDraft(filters); setFilterOpen(true) }} className="absolute left-[5px] flex items-center gap-[3px] text-[13px] text-[#4f71dc]">
+            {t("Показать фильтр")} <ChevronDown className="h-3 w-3" />
+          </button>
+          <label className="absolute left-[402px] top-[10px] w-[300px]">
+            <input value={query} onChange={(event) => { setQuery(event.target.value); setPage(1) }} placeholder={t("Поиск")} className="h-[30px] w-full border-b border-[#dfe3ea] bg-transparent pr-8 text-[13px] outline-none placeholder:text-[#b9c0cc] focus:border-[#4c6dd4]" />
+            <Search className="absolute right-2 top-1.5 h-[18px] w-[18px] text-[#c4cad4]" />
+          </label>
+
+          <div className="relative ml-auto shrink-0">
+            <button type="button" onClick={() => setPageSizeOpen((open) => !open)} className="flex items-center gap-1 text-[13px]">
+              {pageSize}<ChevronDown className="h-3.5 w-3.5 text-slate-300" />
+            </button>
+            {pageSizeOpen && (
+              <ul className="absolute left-0 top-7 z-20 w-16 bg-white py-1 shadow-[0_2px_10px_rgba(0,0,0,0.2)]">
+                {[25, 50, 100, 250].map((size) => (
+                  <li key={size}>
+                    <button type="button" onClick={() => { setPageSize(size); setPage(1); setPageSizeOpen(false) }} className={`block w-full px-3 py-1.5 text-left font-semibold ${size === pageSize ? "bg-[#e3effd]" : "text-slate-500 hover:bg-slate-50"}`}>{size}</button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+          <span className="ml-[34px] shrink-0 text-[13px]">
+            {(safePage - 1) * pageSize + 1} - {Math.min(safePage * pageSize, filtered.length)} {t("из")} {filtered.length}
+          </span>
+          <button type="button" onClick={() => setPage(Math.max(1, safePage - 1))} disabled={safePage <= 1} aria-label={t("Назад")} className="ml-[12px] flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-slate-300 text-slate-500 disabled:opacity-40"><ChevronLeft className="h-4 w-4" /></button>
+          <button type="button" onClick={() => setPage(Math.min(pageCount, safePage + 1))} disabled={safePage >= pageCount} aria-label={t("Вперед")} className="ml-[9px] flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-slate-700 text-slate-700 disabled:opacity-40"><ChevronRight className="h-4 w-4" /></button>
+          <div className="group relative ml-[33px] shrink-0">
+            <button type="button" onClick={() => { setSelectMode((current) => !current); setChecked([]) }} aria-label={t("Выбрать из списка")} className="flex h-6 w-6 items-center justify-center text-slate-700">
+              {selectMode ? <EyeOff className="h-6 w-6" /> : <svg viewBox="0 0 24 24" className="h-6 w-6 fill-current"><path d="M14 10H2v2h12v-2zm0-4H2v2h12V6zM2 16h8v-2H2v2zm19.5-4.5L23 13l-6.99 7-4.51-4.5L13 14l3.01 3 5.49-5.5z" /></svg>}
+            </button>
+            <span className="pointer-events-none absolute right-[calc(100%+26px)] top-[-6px] hidden whitespace-nowrap rounded-[3px] bg-[#3a3f4a] px-5 py-[9px] text-[13px] font-semibold leading-4 text-white group-hover:block">{t("Выбрать из списка")}</span>
+          </div>
+          <button type="button" onClick={downloadList} aria-label={t("Скачать")} className="ml-[24px] flex h-6 w-6 shrink-0 items-center justify-center text-slate-700">
+            <svg viewBox="0 0 24 24" className="h-6 w-6 fill-current"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z" /></svg>
           </button>
         </div>
 
         {filterOpen && (
-          <div className="flex flex-wrap items-center gap-4 border-b border-slate-100 bg-slate-50 px-5 py-3">
-            <label className="text-sm text-slate-600">
-              {t("Тип товара:")}{" "}
-              <select value={typeFilter} onChange={(event) => { setTypeFilter(event.target.value); setPage(1) }} className="ml-1 rounded border border-slate-300 px-2 py-1">
-                <option value="all">{t("Все")}</option>
-                {availableTypes.map((type) => <option key={type} value={type}>{type}</option>)}
-              </select>
-            </label>
-            <label className="text-sm text-slate-600">
-              {t("Организация:")}{" "}
-              <select value={organizationFilter} onChange={(event) => { setOrganizationFilter(event.target.value); setPage(1) }} className="ml-1 rounded border border-slate-300 px-2 py-1">
-                <option value="all">{t("Все")}</option>
-                {organizations.map((org) => <option key={org} value={org}>{org}</option>)}
-              </select>
-            </label>
-          </div>
+          <FilterPanel
+            draft={filterDraft}
+            setDraft={setFilterDraft}
+            options={filterOptions}
+            supplies={supplies}
+            onClose={() => setFilterOpen(false)}
+            onApply={() => { setFilters(filterDraft); setPage(1); setFilterOpen(false) }}
+          />
         )}
 
-        <div className="flex flex-wrap items-center gap-4 px-5 py-3">
-          <label className="relative w-64">
-            <input value={query} onChange={(event) => { setQuery(event.target.value); setPage(1) }} placeholder={t("Поиск")} className="w-full border-b border-slate-300 py-2 pr-10 outline-none focus:border-[#4f70e7]" />
-            <Search className="absolute right-2 top-2 h-5 w-5 text-slate-300" />
-          </label>
-          <select
-            value={pageSize}
-            onChange={(event) => { setPageSize(Number(event.target.value)); setPage(1) }}
-            className="ml-auto rounded border border-slate-300 bg-white px-2 py-1 text-slate-600"
-          >
-            <option value={25}>25</option>
-            <option value={50}>50</option>
-            <option value={100}>100</option>
-            <option value={250}>250</option>
-          </select>
-          <span className="text-slate-500">
-            {filtered.length ? (safePage - 1) * pageSize + 1 : 0} - {Math.min(safePage * pageSize, filtered.length)} {t("из")} {filtered.length}
-          </span>
-          <button type="button" onClick={() => setPage((value) => Math.max(1, value - 1))} disabled={safePage <= 1} aria-label={t("Назад")} className="disabled:opacity-30">
-            <ChevronLeft className="h-5 w-5 text-slate-400" />
-          </button>
-          <button type="button" onClick={() => setPage((value) => Math.min(pageCount, value + 1))} disabled={safePage >= pageCount} aria-label={t("Вперед")} className="disabled:opacity-30">
-            <ChevronRight className="h-5 w-5 text-slate-400" />
-          </button>
-          <ListChecks className="h-5 w-5 text-slate-400" />
-          <button type="button" onClick={downloadList} aria-label={t("Скачать")} className="text-slate-500 hover:text-[#4f70e7]">
-            <Upload className="h-5 w-5 rotate-180" />
-          </button>
-          {embedded && (
-            <button type="button" onClick={openCreate} className="inline-flex items-center gap-2 rounded bg-[#6ccd8b] px-4 py-2 text-sm font-semibold text-white hover:brightness-95">
-              <Plus className="h-4 w-4" /> {t("Добавить")}
+        <div className={`grid h-[50px] items-center bg-[#5d6474] font-bold leading-[18px] text-white ${gridCols}`}>
+          {selectMode && (
+            <button type="button" onClick={() => setChecked(allChecked ? [] : visible.map((product) => product.id))} aria-label={t("Выбрать все")} className="flex h-full items-center justify-end pr-[10px]">
+              <span className="flex h-[18px] w-[18px] items-center justify-center rounded-[2px] border-2 border-dotted border-white"><span className="h-[8px] w-[8px] bg-white" /></span>
             </button>
           )}
+          <span className={selectMode ? "pl-[9px]" : "pl-[38px]"}>{t("Наименование")}</span>
+          {headCols.map((label) => <span key={label} className="pr-[20px]">{label}</span>)}
+          <span />
         </div>
 
-        <table className="w-full text-left">
-          <thead className="bg-[#626b7e] text-white">
-            <tr>
-              <th className="px-9 py-5">{t("Наименование")}</th>
-              <th className="px-5 py-5">{t("Штрих - код товара")}</th>
-              <th className="px-5 py-5">{t("Артикул")}</th>
-              <th className="px-5 py-5">{t("Тип товара")}</th>
-              <th className="px-5 py-5">{t("Организация")}</th>
-              <th className="px-5 py-5">{t("Мера")}</th>
-              <th className="px-5 py-5">{t("Дата создания")}</th>
-              <th className="px-5 py-5">{t("Порядковый номер")}</th>
-              <th className="w-12" />
-            </tr>
-          </thead>
-          <tbody>
-            {loading ? (
-              <tr><td colSpan={9} className="px-9 py-10 text-center text-slate-400">{t("Загрузка продуктов...")}</td></tr>
-            ) : loadError ? (
-              <tr><td colSpan={9} className="px-9 py-10 text-center text-red-600">{loadError}</td></tr>
-            ) : visible.map((product) => (
-              <Fragment key={product.id}>
-                <tr onClick={() => toggleExpand(product)} className="cursor-pointer border-b border-dashed border-slate-300 hover:bg-slate-50">
-                  <td className="px-9 py-4">
-                    <span className="flex items-center gap-3">
-                      <ImageIcon className="h-5 w-5 shrink-0 text-slate-300" />
-                      <span className={product.canSell ? "text-[#4f70e7]" : ""}>{product.name}</span>
+        {loading ? (
+          <p className="py-16 text-center text-slate-400">{t("Загрузка продуктов...")}</p>
+        ) : loadError ? (
+          <p className="py-16 text-center text-red-600">{loadError}</p>
+        ) : (
+          visible.map((product) =>
+            expandedId === product.id ? (
+              <ProductDetail
+                key={product.id}
+                product={product}
+                onEdit={() => openEdit(product)}
+                onDelete={() => softDelete(product)}
+                onToggle={(key) => toggleFlag(product, key)}
+              />
+            ) : (
+              <div key={product.id} onClick={() => toggleExpand(product)} className={`relative grid min-h-[50px] cursor-pointer items-center border-b border-dashed border-[#d7dee3] py-[6px] hover:bg-[#f5f6f8] ${gridCols}`}>
+                {selectMode && (
+                  <label onClick={(event) => event.stopPropagation()} className="flex h-full cursor-pointer items-center justify-end pr-[10px]">
+                    <span className={`flex h-[18px] w-[18px] items-center justify-center rounded-[2px] border-2 ${checked.includes(product.id) ? "border-[#5d6474] bg-[#5d6474]" : "border-[#333]"}`}>
+                      {checked.includes(product.id) && <Check className="h-3 w-3 stroke-[3] text-white" />}
+                      <input type="checkbox" checked={checked.includes(product.id)} onChange={() => setChecked((current) => (current.includes(product.id) ? current.filter((id) => id !== product.id) : [...current, product.id]))} className="sr-only" />
                     </span>
-                  </td>
-                  <td className="px-5 py-4">{product.barcode}</td>
-                  <td className="px-5 py-4">{product.article}</td>
-                  <td className="px-5 py-4">{product.type}</td>
-                  <td className="px-5 py-4">{product.organization}</td>
-                  <td className="px-5 py-4">
-                    {product.unit}
-                    {product.subUnit && <span className="block text-[#4f70e7]">{product.subUnit}</span>}
-                  </td>
-                  <td className="px-5 py-4">{product.createdDate}</td>
-                  <td className="px-5 py-4">{product.orderNumber}</td>
-                  <td className="relative px-3 py-4 text-right">
-                    <button
-                      type="button"
-                      onClick={(event) => { event.stopPropagation(); setOpenMenuId((current) => (current === product.id ? null : product.id)) }}
-                      aria-label={t("Ещё")}
-                      className="text-slate-500 hover:text-slate-800"
-                    >
-                      <MoreVertical className="h-5 w-5" />
-                    </button>
-                    {openMenuId === product.id && (
-                      <div onClick={(event) => event.stopPropagation()} className="absolute right-3 top-12 z-30 w-52 rounded border border-slate-200 bg-white py-1 text-left shadow-xl">
-                        <button type="button" onClick={() => openEdit(product)} className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm hover:bg-slate-50">
-                          <Pencil className="h-4 w-4" /> {t("Изменить")}
-                        </button>
-                        {product.deleted ? (
-                          <button type="button" onClick={() => restore(product)} className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm hover:bg-slate-50">
-                            <Check className="h-4 w-4" /> {t("Восстановить")}
-                          </button>
-                        ) : product.canSell ? (
-                          <button type="button" onClick={() => delist(product)} className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm hover:bg-slate-50">
-                            <X className="h-4 w-4" /> {t("Снять с продажи")}
-                          </button>
-                        ) : (
-                          <button type="button" onClick={() => restore(product)} className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm hover:bg-slate-50">
-                            <Check className="h-4 w-4" /> {t("Восстановить")}
-                          </button>
-                        )}
-                      </div>
-                    )}
-                  </td>
-                </tr>
-
-                {expandedId === product.id && expanded && (
-                  <tr>
-                    <td colSpan={9} className="bg-slate-50 p-0">
-                      <div className="m-4 rounded border border-slate-200 bg-white p-6 shadow-sm">
-                        <div className="mb-6 flex items-center justify-between">
-                          <h2 className="text-xl font-bold text-slate-700">{expanded.name}</h2>
-                          <div className="flex items-center gap-4 text-slate-500">
-                            <button type="button" onClick={() => openEdit(expanded)} aria-label={t("Изменить")} className="hover:text-[#4f70e7]">
-                              <Pencil className="h-5 w-5" />
-                            </button>
-                            <button type="button" onClick={() => softDelete(expanded)} aria-label={t("Удалить")} className="hover:text-rose-500">
-                              <Trash2 className="h-5 w-5" />
-                            </button>
-                          </div>
-                        </div>
-
-                        <div className="grid gap-8 lg:grid-cols-[220px_1.4fr_1.4fr]">
-                          <div>
-                            <div className="mb-4 flex h-40 flex-col items-center justify-center gap-1 rounded border border-dashed border-slate-300 text-center text-sm text-slate-400">
-                              {expanded.hasPhoto ? <ImageIcon className="h-10 w-10" /> : <span>{t("Фото отсутствует")}</span>}
-                              <button type="button" className="text-[#4f70e7] hover:underline">{t("добавить фото")}</button>
-                            </div>
-                            <ul className="space-y-2 text-sm">
-                              {(
-                                [
-                                  ["canSell", t("Можно продавать")],
-                                  ["onlyMml", t("Только ММЛ продукты")],
-                                  ["isInventory", t("Инвентарь")],
-                                  ["perfectStore", "Perfect store"],
-                                  ["groupOnly", t("Продать только в группе")],
-                                  ["trackExpiry", t("Учитывать срок годности")],
-                                  ["manualDiscount", t("Можно дать ручную скидку")],
-                                  ["hideFromAgent", t("Скрыть из списка заказов для агента")],
-                                  ["trackSeries", t("Учитывать серии")],
-                                  ["showInBot", t("Показывать в боте")],
-                                  ["markedProduct", t("Маркировочный товар")],
-                                ] as [keyof Product, string][]
-                              ).map(([key, label]) => (
-                                <li key={key} className="flex items-center justify-between gap-2">
-                                  <span className="text-slate-600">{label}:</span>
-                                  <button type="button" onClick={() => toggleFlag(expanded, key)} aria-label={label}>
-                                    {expanded[key] ? <Check className="h-5 w-5 text-emerald-500" /> : <X className="h-5 w-5 text-rose-500" />}
-                                  </button>
-                                </li>
-                              ))}
-                            </ul>
-                          </div>
-
-                          <div>
-                            <p className="mb-3 font-medium text-slate-800">{t("Товар")}:</p>
-                            <dl className="space-y-2 text-sm">
-                              <div className="flex justify-between gap-4"><dt className="text-slate-500">{t("Наименование")}:</dt><dd className="text-right font-medium">{expanded.name}</dd></div>
-                              <div className="flex justify-between gap-4"><dt className="shrink-0 text-slate-500">{t("Полное наименование")}:</dt><dd className="text-right font-medium">{expanded.fullName}</dd></div>
-                              <div className="flex justify-between gap-4"><dt className="text-slate-500">{t("Мера")}:</dt><dd className="font-medium">{expanded.unit}</dd></div>
-                              <div className="flex justify-between gap-4"><dt className="text-slate-500">{t("Группа")}:</dt><dd className="font-medium">{expanded.group || t("Не указано")}</dd></div>
-                              <div className="flex justify-between gap-4"><dt className="text-slate-500">{t("Подкатегория")}:</dt><dd className="font-medium">{expanded.subcategory}</dd></div>
-                              <div className="flex justify-between gap-4"><dt className="text-slate-500">{t("Бренд")}:</dt><dd className="font-medium">{expanded.brand}</dd></div>
-                              <div className="flex justify-between gap-4"><dt className="text-slate-500">{t("Организация")}:</dt><dd className="font-medium">{expanded.organization}</dd></div>
-                              <div className="flex justify-between gap-4"><dt className="text-slate-500">{t("Порядковый номер")}:</dt><dd className="font-medium">{expanded.orderNumber || t("Не указано")}</dd></div>
-                              <div className="flex justify-between gap-4"><dt className="text-slate-500">{t("Минимальный остаток")}:</dt><dd className="font-medium">{expanded.minStock}</dd></div>
-                              <div className="flex justify-between gap-4"><dt className="text-slate-500">{t("Описание")}:</dt><dd className="font-medium">{expanded.description}</dd></div>
-                              <div className="flex justify-between gap-4"><dt className="text-slate-500">{t("Штрих-коды товара")}:</dt><dd className="font-medium">{expanded.barcode === "не установлен" ? t("Не указано") : expanded.barcode}</dd></div>
-                              <div className="flex justify-between gap-4"><dt className="text-slate-500">{t("Артикул")}:</dt><dd className="font-medium">{expanded.article || t("Не указано")}</dd></div>
-                              <div className="flex justify-between gap-4"><dt className="text-slate-500">{t("Поставщик")}:</dt><dd className="font-medium">{expanded.supplier}</dd></div>
-                              <div className="flex justify-between gap-4"><dt className="text-slate-500">{t("Код для интеграции")}:</dt><dd className="font-medium">{expanded.integrationCode || t("Не указано")}</dd></div>
-                              <div className="flex justify-between gap-4"><dt className="text-slate-500">{t("Икпу")}:</dt><dd className="font-medium">{expanded.ikpu || t("Не указано")}</dd></div>
-                              <div className="flex justify-between gap-4"><dt className="shrink-0 text-slate-500">{t("Код ед.изм. в фактуре")}:</dt><dd className="font-medium">{expanded.invoiceUnitCode || t("Не указано")}</dd></div>
-                              <div className="flex justify-between gap-4"><dt className="text-slate-500">{t("НДС")}:</dt><dd className="font-medium">{expanded.vat || t("Без НДС")}</dd></div>
-                              <div className="flex justify-between gap-4"><dt className="text-slate-500">{t("Масса - кг")}:</dt><dd className="font-medium">{expanded.weight}</dd></div>
-                              <div className="flex justify-between gap-4"><dt className="text-slate-500">{t("Вес нетто")}:</dt><dd className="font-medium">{expanded.netWeight}</dd></div>
-                              <div className="flex justify-between gap-4"><dt className="text-slate-500">{t("Объем")}:</dt><dd className="font-medium">{expanded.volume}</dd></div>
-                              <div className="flex justify-between gap-4"><dt className="text-slate-500">{t("Цвет")}:</dt><dd className="font-medium">{expanded.color}</dd></div>
-                            </dl>
-                          </div>
-
-                          <div>
-                            <table className="w-full text-left text-sm">
-                              <thead>
-                                <tr className="text-slate-500">
-                                  <th className="py-2 pr-4">{t("Прайс лист")}</th>
-                                  <th className="py-2 pr-4">{t("Нал")}</th>
-                                  <th className="py-2 pr-4">{t("Безнал")}</th>
-                                  <th className="py-2 pr-4">{t("Мин")}</th>
-                                  <th className="py-2 pr-4">{t("Макс")}</th>
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {expanded.priceLists.map((entry) => (
-                                  <tr key={entry.name} className="border-t border-slate-100 align-top">
-                                    <td className="max-w-[220px] break-words py-2 pr-4">{entry.name}</td>
-                                    <td className="py-2 pr-4">{entry.cash.toLocaleString("ru-RU")} {entry.currency || "SUM"}</td>
-                                    <td className="py-2 pr-4">{entry.nonCash.toLocaleString("ru-RU")} {entry.nonCashCurrency || "SUM"}</td>
-                                    <td className="py-2 pr-4">{entry.min} SUM</td>
-                                    <td className="py-2 pr-4">{entry.max} SUM</td>
-                                  </tr>
-                                ))}
-                              </tbody>
-                            </table>
-                            {expanded.limitPrice && (
-                              <p className="mt-3 text-sm text-slate-600">
-                                <b>{t("Мин/Макс цена продажи")}:</b> {expanded.priceMin.toLocaleString("ru-RU")} — {expanded.priceMax.toLocaleString("ru-RU")} SUM
-                              </p>
-                            )}
-                            <p className="mb-2 mt-5 font-medium text-slate-800">{t("Характеристика")}:</p>
-                            <p className="text-sm text-slate-600"><b>{t("Балл")}:</b> {expanded.salePoints && expanded.salePoints !== "0" ? expanded.salePoints : t("Неизвестно")}</p>
-                            <p className="text-sm text-slate-500">{t("Лимиты для агентов отсутствуют")}</p>
-                          </div>
-                        </div>
-                      </div>
-                    </td>
-                  </tr>
+                  </label>
                 )}
-              </Fragment>
-            ))}
-          </tbody>
-        </table>
+                <span className={`flex items-center gap-[20px] ${selectMode ? "pl-[9px]" : "pl-[43px]"}`}>
+                  {product.hasPhoto ? (
+                    <span className="flex h-[22px] w-[22px] shrink-0 items-center justify-center border border-[#c9ced6]"><LandscapeIcon /></span>
+                  ) : (
+                    <LandscapeIcon />
+                  )}
+                  <span className="pr-[20px] leading-4">{product.name}</span>
+                </span>
+                <span className="pr-[12px] leading-4">{product.barcode}</span>
+                <span className="pr-[12px] leading-4">{product.article}</span>
+                <span className="pr-[12px] leading-4">{product.type}</span>
+                <span className="pr-[12px] leading-4">{product.organization}</span>
+                <span className="font-bold">{product.unit}</span>
+                <span>{product.createdDate}</span>
+                <span>{product.orderNumber}</span>
+                <span className="relative flex justify-start pl-[21px]">
+                  <button
+                    type="button"
+                    onClick={(event) => { event.stopPropagation(); setOpenMenuId((current) => (current === product.id ? null : product.id)) }}
+                    aria-label={t("Ещё")}
+                    className="flex h-6 w-6 items-center justify-center text-[#555]"
+                  >
+                    <svg viewBox="0 0 24 24" className="h-6 w-6 fill-current"><path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z" /></svg>
+                  </button>
+                  {openMenuId === product.id && (
+                    <>
+                      <span className="fixed inset-0 z-20" onClick={(event) => { event.stopPropagation(); setOpenMenuId(null) }} />
+                      <div onClick={(event) => event.stopPropagation()} className="absolute left-[-111px] top-[-8px] z-30 w-[168px] bg-white py-[2px] text-left shadow-[0_2px_12px_rgba(0,0,0,0.22)]">
+                        <button type="button" onClick={() => openEdit(product)} className="flex h-[48px] w-full items-center gap-[20px] pl-[22px] text-[13px] font-semibold text-[#444] hover:bg-slate-50">
+                          <svg viewBox="0 0 24 24" className="h-5 w-5 fill-[#757575]"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a.996.996 0 000-1.41l-2.34-2.34a.996.996 0 00-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z" /></svg>
+                          {t("Изменить")}
+                        </button>
+                        <button type="button" onClick={() => softDelete(product)} className="flex h-[48px] w-full items-center gap-[20px] pl-[22px] text-[13px] font-semibold text-[#444] hover:bg-slate-50">
+                          <svg viewBox="0 0 24 24" className="h-5 w-5 fill-[#757575]"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z" /></svg>
+                          {t("Удалить")}
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </span>
+              </div>
+            ),
+          )
+        )}
 
         {!loading && !loadError && visible.length === 0 && (
-          <div className="flex min-h-[240px] flex-col items-center justify-center gap-3 py-10">
-            <p className="text-lg text-slate-400">{t("По вашему запросу ничего не найдено")}</p>
+          <div className="flex h-[276px] flex-col items-center pt-[58px]">
+            <img src="/robot-empty.png" alt="" className="h-[162px] w-[162px] object-contain" />
+            <p className="mt-[8px] text-[13px] text-[#6b7280]">{t("По вашему запросу ничего не найдено")}</p>
           </div>
         )}
       </section>
 
       {modalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
-          <form onSubmit={save} className="flex max-h-[90vh] w-full max-w-6xl flex-col rounded bg-white">
-            <header className="flex items-center justify-between border-b p-6">
-              <b className="uppercase">{editingId !== null ? t("Изменить продукт") : t("Добавить продукт")}</b>
-              <button type="button" onClick={() => setModalOpen(false)} aria-label={t("Закрыть")}><X className="h-5 w-5" /></button>
-            </header>
-
-            <div className="flex-1 overflow-y-auto p-8">
-              <div className="grid gap-8 lg:grid-cols-3">
-                {/* Left column */}
-                <div className="space-y-4">
-                  <label className="block border-b border-slate-200 pb-2 font-medium">
-                    {t("Наименование")} <span className="text-red-500">*</span>
-                    <input autoFocus required value={draft.name} onChange={(event) => setDraft((value) => ({ ...value, name: event.target.value }))} className="mt-2 block w-full outline-none" />
-                  </label>
-
-                  <div className="flex items-end gap-2 border-b border-slate-200 pb-2">
-                    <label className="block flex-1 font-medium">
-                      {t("Мера")} <span className="text-red-500">*</span>
-                      <select value={draft.unit} onChange={(event) => setDraft((value) => ({ ...value, unit: event.target.value }))} className="mt-2 block w-full bg-white outline-none">
-                        {unitOptions.map((unit) => <option key={unit}>{unit}</option>)}
-                      </select>
-                    </label>
-                    <button
-                      type="button"
-                      title={t("Добавить меру")}
-                      onClick={() => {
-                        const value = window.prompt(t("Новая мера"))
-                        if (value?.trim()) {
-                          setUnitOptions((current) => Array.from(new Set([...current, value.trim()])))
-                          setDraft((current) => ({ ...current, unit: value.trim() }))
-                        }
-                      }}
-                      className="mb-1 text-[#5fb583] hover:text-[#4a9d6d]"
-                    >
-                      <PlusCircle className="h-5 w-5" />
-                    </button>
-                  </div>
-
-                  <div className="space-y-2 text-sm">
-                    <label className="flex items-center gap-2">
-                      <input type="checkbox" checked={groupOpen} onChange={(event) => setGroupOpen(event.target.checked)} className="h-4 w-4 rounded border-slate-300" />
-                      {t("Указать группу")}
-                    </label>
-                    {groupOpen && (
-                      <input
-                        value={draft.group}
-                        onChange={(event) => setDraft((value) => ({ ...value, group: event.target.value }))}
-                        placeholder={t("Группа")}
-                        className="block w-full border-b border-slate-200 pb-2 outline-none"
-                      />
-                    )}
-                    <label className="flex items-center gap-2">
-                      <input type="checkbox" checked={extraOpen} onChange={(event) => setExtraOpen(event.target.checked)} className="h-4 w-4 rounded border-slate-300" />
-                      {t("Доп. параметры")}
-                    </label>
-                  </div>
-
-                  <div className="flex items-end gap-2 border-b border-slate-200 pb-2">
-                    <label className="block flex-1 font-medium">
-                      {t("Тип продукта")}
-                      <select value={draft.type} onChange={(event) => setDraft((value) => ({ ...value, type: event.target.value }))} className="mt-2 block w-full bg-white outline-none">
-                        <option value="">{t("Не указано")}</option>
-                        {typeOptions.map((type) => <option key={type}>{type}</option>)}
-                      </select>
-                    </label>
-                    <button
-                      type="button"
-                      title={t("Добавить тип продукта")}
-                      onClick={() => {
-                        const value = window.prompt(t("Новый тип продукта"))
-                        if (value?.trim()) {
-                          setTypeOptions((current) => Array.from(new Set([...current, value.trim()])))
-                          setDraft((current) => ({ ...current, type: value.trim() }))
-                        }
-                      }}
-                      className="mb-1 text-[#5fb583] hover:text-[#4a9d6d]"
-                    >
-                      <PlusCircle className="h-5 w-5" />
-                    </button>
-                  </div>
-
-                  <div className="flex gap-3">
-                    <label className="block flex-1 border-b border-slate-200 pb-2 font-medium">
-                      {t("Поставщик")}
-                      <input value={draft.supplier} onChange={(event) => setDraft((value) => ({ ...value, supplier: event.target.value }))} className="mt-2 block w-full outline-none" />
-                    </label>
-                    <div className="flex flex-1 items-end gap-2">
-                      <label className="block flex-1 border-b border-slate-200 pb-2 font-medium">
-                        {t("Бренд")}
-                        <select value={draft.brand} onChange={(event) => setDraft((value) => ({ ...value, brand: event.target.value }))} className="mt-2 block w-full bg-white outline-none">
-                          <option value="">No brand</option>
-                          {brandOptions.map((brand) => <option key={brand}>{brand}</option>)}
-                        </select>
-                      </label>
-                      <button
-                        type="button"
-                        title={t("Добавить бренд")}
-                        onClick={() => {
-                          const value = window.prompt(t("Новый бренд"))
-                          if (value?.trim()) {
-                            setBrandOptions((current) => Array.from(new Set([...current, value.trim()])))
-                            setDraft((current) => ({ ...current, brand: value.trim() }))
-                          }
-                        }}
-                        className="mb-1 text-[#5fb583] hover:text-[#4a9d6d]"
-                      >
-                        <PlusCircle className="h-5 w-5" />
-                      </button>
-                    </div>
-                  </div>
-
-                  <label className="block border-b border-slate-200 pb-2 font-medium">
-                    {t("Организация")}
-                    <select value={draft.organization} onChange={(event) => setDraft((value) => ({ ...value, organization: event.target.value }))} className="mt-2 block w-full bg-white outline-none">
-                      {organizations.map((org) => <option key={org}>{org}</option>)}
-                    </select>
-                  </label>
-                  <label className="block border-b border-slate-200 pb-2 font-medium">
-                    <span className="inline-flex items-center gap-1">
-                      {t("Порядковый номер")}
-                      <span title={t("Определяет позицию товара в списках")}><Info className="h-3.5 w-3.5 text-slate-400" /></span>
-                    </span>
-                    <input value={draft.orderNumber} onChange={(event) => setDraft((value) => ({ ...value, orderNumber: event.target.value }))} className="mt-2 block w-full outline-none" />
-                  </label>
-                  <label className="block border-b border-slate-200 pb-2 font-medium">
-                    <span className="inline-flex items-center gap-1">
-                      {t("Минимальный остаток")}
-                      <span title={t("Порог для уведомления о нехватке товара")}><Info className="h-3.5 w-3.5 text-slate-400" /></span>
-                    </span>
-                    <input value={draft.minStock} onChange={(event) => setDraft((value) => ({ ...value, minStock: event.target.value }))} className="mt-2 block w-full outline-none" />
-                  </label>
-                  <label className="block border-b border-slate-200 pb-2 font-medium">
-                    {t("Цвет")}
-                    <input value={draft.color} onChange={(event) => setDraft((value) => ({ ...value, color: event.target.value }))} className="mt-2 block w-full outline-none" />
-                  </label>
-                </div>
-
-                {/* Middle column */}
-                <div className="space-y-4">
-                  <label className="block border-b border-slate-200 pb-2 font-medium">
-                    {t("Полное наименование")}
-                    <input value={draft.fullName} onChange={(event) => setDraft((value) => ({ ...value, fullName: event.target.value }))} className="mt-2 block w-full outline-none" />
-                  </label>
-
-                  <div className="border-b border-slate-200 pb-2">
-                    <span className="font-medium">{t("Штрих-код")}</span>
-                    <div className="mt-2 space-y-2">
-                      {draft.barcodes.map((code, index) => (
-                        <div key={index} className="flex items-center gap-2">
-                          <input
-                            value={code}
-                            onChange={(event) => setDraft((value) => ({ ...value, barcodes: value.barcodes.map((c, i) => (i === index ? event.target.value : c)) }))}
-                            className="block w-full outline-none"
-                          />
-                          {index === draft.barcodes.length - 1 ? (
-                            <button
-                              type="button"
-                              title={t("Добавить штрих-код")}
-                              onClick={() => setDraft((value) => ({ ...value, barcodes: [...value.barcodes, ""] }))}
-                              className="shrink-0 text-[#5fb583] hover:text-[#4a9d6d]"
-                            >
-                              <PlusCircle className="h-5 w-5" />
-                            </button>
-                          ) : (
-                            <button
-                              type="button"
-                              title={t("Удалить штрих-код")}
-                              onClick={() => setDraft((value) => ({ ...value, barcodes: value.barcodes.filter((_, i) => i !== index) }))}
-                              className="shrink-0 text-rose-400 hover:text-rose-600"
-                            >
-                              <X className="h-4 w-4" />
-                            </button>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => setDraft((value) => ({ ...value, barcodes: [String(Date.now()).slice(-13), ...value.barcodes.slice(1)] }))}
-                      className="mt-2 text-sm text-[#4f70e7] hover:underline"
-                    >
-                      {t("Сгенерировать")}
-                    </button>
-                  </div>
-
-                  <label className="block border-b border-slate-200 pb-2 font-medium">
-                    {t("Артикул")}
-                    <input value={draft.article} onChange={(event) => setDraft((value) => ({ ...value, article: event.target.value }))} className="mt-2 block w-full outline-none" />
-                  </label>
-                  <label className="block border-b border-slate-200 pb-2 font-medium">
-                    {t("Код для интеграции")}
-                    <input value={draft.integrationCode} onChange={(event) => setDraft((value) => ({ ...value, integrationCode: event.target.value }))} className="mt-2 block w-full outline-none" />
-                  </label>
-                  <label className="block border-b border-slate-200 pb-2 font-medium">
-                    {t("Масса - кг")}
-                    <input value={draft.weight} onChange={(event) => setDraft((value) => ({ ...value, weight: event.target.value }))} className="mt-2 block w-full outline-none" />
-                  </label>
-                  <label className="block border-b border-slate-200 pb-2 font-medium">
-                    {t("Вес нетто")}
-                    <input value={draft.netWeight} onChange={(event) => setDraft((value) => ({ ...value, netWeight: event.target.value }))} className="mt-2 block w-full outline-none" />
-                  </label>
-                  <label className="block border-b border-slate-200 pb-2 font-medium">
-                    {t("Объем")}
-                    <input value={draft.volume} onChange={(event) => setDraft((value) => ({ ...value, volume: event.target.value }))} className="mt-2 block w-full outline-none" />
-                  </label>
-
-                  {extraOpen && (
-                    <>
-                      <label className="block border-b border-slate-200 pb-2 font-medium">
-                        {t("Икпу")}
-                        <input value={draft.ikpu} onChange={(event) => setDraft((value) => ({ ...value, ikpu: event.target.value }))} className="mt-2 block w-full outline-none" />
-                      </label>
-                      <label className="block border-b border-slate-200 pb-2 font-medium">
-                        {t("Код ед.изм. в фактуре")}
-                        <input value={draft.invoiceUnitCode} onChange={(event) => setDraft((value) => ({ ...value, invoiceUnitCode: event.target.value }))} className="mt-2 block w-full outline-none" />
-                      </label>
-                      <label className="block border-b border-slate-200 pb-2 font-medium">
-                        {t("НДС")}
-                        <select value={draft.vat} onChange={(event) => setDraft((value) => ({ ...value, vat: event.target.value }))} className="mt-2 block w-full bg-white outline-none">
-                          {productVatOptions.map((option) => <option key={option}>{option}</option>)}
-                        </select>
-                      </label>
-                    </>
-                  )}
-
-                  <div className="space-y-3 border-t border-slate-100 pt-3">
-                    {(
-                      [
-                        ["onlyMml", "ММЛ продукт"],
-                        ["perfectStore", "Perfect Store продукт"],
-                        ["isInventory", "Показывать этот товар в качестве тип инвентаря"],
-                        ["groupOnly", "Продать только в группе"],
-                        ["showInBot", "Показывать в боте"],
-                        ["trackExpiry", "Учитывать срок годности"],
-                        ["markedProduct", "Маркировочный товар"],
-                      ] as [ToggleKey, string][]
-                    ).map(([key, label]) => (
-                      <label key={key} className="flex items-center justify-between gap-3">
-                        <span className="text-sm font-medium text-slate-700">{t(label)}</span>
-                        <button
-                          type="button"
-                          onClick={() => setDraft((value) => ({ ...value, [key]: !value[key] }))}
-                          className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${draft[key] ? "bg-[#4f70e7]" : "bg-slate-300"}`}
-                        >
-                          <span className={`absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${draft[key] ? "translate-x-5" : "translate-x-0"}`} />
-                        </button>
-                      </label>
-                    ))}
-                  </div>
-
-                  <label className="block border-b border-slate-200 pb-2 pt-2 font-medium">
-                    {t("Описание")}
-                    <textarea value={draft.description} onChange={(event) => setDraft((value) => ({ ...value, description: event.target.value }))} rows={2} className="mt-2 block w-full resize-none outline-none" />
-                  </label>
-                </div>
-
-                {/* Right column */}
-                <div className="space-y-4">
-                  <label className="flex items-center justify-between gap-3 rounded bg-slate-50 p-3">
-                    <span>
-                      <span className="block font-medium text-slate-800">{t("Можно продавать")}</span>
-                      <span className="block text-xs text-slate-500">{t("Агенты могут продать этот товар")}</span>
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => setDraft((value) => ({ ...value, canSell: !value.canSell }))}
-                      className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${draft.canSell ? "bg-[#4f70e7]" : "bg-slate-300"}`}
-                    >
-                      <span className={`absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${draft.canSell ? "translate-x-5" : "translate-x-0"}`} />
-                    </button>
-                  </label>
-
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="font-medium text-slate-800">{t("Продажная цена")}</span>
-                    <button type="button" onClick={addPriceEntry} className="inline-flex items-center gap-1 whitespace-nowrap rounded bg-[#4f70e7] px-3 py-1.5 text-sm font-semibold text-white hover:brightness-95">
-                      <Plus className="h-3.5 w-3.5" /> {t("Добавить новую цену")}
-                    </button>
-                  </div>
-
-                  <div className="space-y-4">
-                    {draft.priceEntries.map((entry, index) => (
-                      <div key={index} className="space-y-3 rounded border border-slate-200 p-3">
-                        {draft.priceEntries.length > 1 && (
-                          <div className="flex justify-end">
-                            <button type="button" title={t("Удалить цену")} onClick={() => removePriceEntry(index)} className="text-rose-400 hover:text-rose-600">
-                              <X className="h-4 w-4" />
-                            </button>
-                          </div>
-                        )}
-                        <div className="flex items-end gap-2">
-                          <label className="block flex-1 border-b border-slate-200 pb-2 font-medium">
-                            {t("Прайс лист")}
-                            <select value={entry.name} onChange={(event) => updatePriceEntry(index, { name: event.target.value })} className="mt-2 block w-full bg-white outline-none">
-                              {priceListNameOptions.map((name) => <option key={name}>{name}</option>)}
-                            </select>
-                          </label>
-                          <button
-                            type="button"
-                            title={t("Добавить прайс лист")}
-                            onClick={() => {
-                              const value = window.prompt(t("Название прайс листа"))
-                              if (value?.trim()) {
-                                setPriceListNameOptions((current) => Array.from(new Set([...current, value.trim()])))
-                                updatePriceEntry(index, { name: value.trim() })
-                              }
-                            }}
-                            className="mb-1 shrink-0 text-[#5fb583] hover:text-[#4a9d6d]"
-                          >
-                            <PlusCircle className="h-5 w-5" />
-                          </button>
-                        </div>
-                        <div className="flex gap-2">
-                          <label className="block flex-1 border-b border-slate-200 pb-2 font-medium">
-                            {t("Цена наличные")}
-                            <input type="number" value={entry.cash} onChange={(event) => updatePriceEntry(index, { cash: event.target.value })} className="mt-2 block w-full outline-none" />
-                          </label>
-                          <label className="block w-24 border-b border-slate-200 pb-2 font-medium">
-                            {t("Валюта")}
-                            <select value={entry.cashCurrency} onChange={(event) => updatePriceEntry(index, { cashCurrency: event.target.value })} className="mt-2 block w-full bg-white outline-none">
-                              {productCurrencies.map((code) => <option key={code}>{code}</option>)}
-                            </select>
-                          </label>
-                        </div>
-                        <div className="flex gap-2">
-                          <label className="block flex-1 border-b border-slate-200 pb-2 font-medium">
-                            {t("Цена безналичные")}
-                            <input type="number" value={entry.nonCash} onChange={(event) => updatePriceEntry(index, { nonCash: event.target.value })} className="mt-2 block w-full outline-none" />
-                          </label>
-                          <label className="block w-24 border-b border-slate-200 pb-2 font-medium">
-                            {t("Валюта")}
-                            <select value={entry.nonCashCurrency} onChange={(event) => updatePriceEntry(index, { nonCashCurrency: event.target.value })} className="mt-2 block w-full bg-white outline-none">
-                              {productCurrencies.map((code) => <option key={code}>{code}</option>)}
-                            </select>
-                          </label>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-
-                  <label className="flex items-center justify-between gap-3">
-                    <span className="text-sm font-medium text-slate-700">{t("Установить минимальную и максимальную цену для продажи")}</span>
-                    <button
-                      type="button"
-                      onClick={() => setDraft((value) => ({ ...value, limitPrice: !value.limitPrice }))}
-                      className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${draft.limitPrice ? "bg-[#4f70e7]" : "bg-slate-300"}`}
-                    >
-                      <span className={`absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${draft.limitPrice ? "translate-x-5" : "translate-x-0"}`} />
-                    </button>
-                  </label>
-                  {draft.limitPrice && (
-                    <div className="flex gap-2">
-                      <label className="block flex-1 border-b border-slate-200 pb-2 font-medium">
-                        {t("Мин")}
-                        <input type="number" value={draft.priceMin} onChange={(event) => setDraft((value) => ({ ...value, priceMin: event.target.value }))} className="mt-2 block w-full outline-none" />
-                      </label>
-                      <label className="block flex-1 border-b border-slate-200 pb-2 font-medium">
-                        {t("Макс")}
-                        <input type="number" value={draft.priceMax} onChange={(event) => setDraft((value) => ({ ...value, priceMax: event.target.value }))} className="mt-2 block w-full outline-none" />
-                      </label>
-                    </div>
-                  )}
-
-                  <label className="block border-b border-slate-200 pb-2 font-medium">
-                    <span className="inline-flex items-center gap-1">
-                      {t("Можно продать за кол-во балов")}
-                      <span title={t("Количество бонусных баллов, за которые можно продать товар")}><Info className="h-3.5 w-3.5 text-slate-400" /></span>
-                    </span>
-                    <input value={draft.salePoints} onChange={(event) => setDraft((value) => ({ ...value, salePoints: event.target.value }))} className="mt-2 block w-full outline-none" />
-                  </label>
-                </div>
-              </div>
-            </div>
-
-            <footer className="flex justify-end border-t p-5">
-              <button type="submit" disabled={saving} className="rounded bg-[#6ccd8b] px-6 py-3 font-semibold text-white hover:brightness-95 disabled:opacity-60">
-                {saving ? t("Сохранение...") : t("Сохранить изменение")}
-              </button>
-            </footer>
-          </form>
-        </div>
+        <ProductFormDialog
+          editing={editingId !== null}
+          draft={draft}
+          setDraft={(update) => setDraft(update)}
+          saving={saving}
+          canSubmit={canSubmit}
+          units={unitOptions}
+          types={typeOptions}
+          brands={brandOptions}
+          organizations={organizations}
+          vatOptions={productVatOptions}
+          priceListNames={priceListNameOptions}
+          currencies={productCurrencies}
+          typeTree={typeTree}
+          attributeDefs={attributeDefs}
+          attributeValues={attributeValues}
+          groupOpen={groupOpen}
+          setGroupOpen={setGroupOpen}
+          extraOpen={extraOpen}
+          setExtraOpen={setExtraOpen}
+          onAddUnit={(value) => { setUnitOptions((current) => Array.from(new Set([...current, value]))); setDraft((current) => ({ ...current, unit: value })) }}
+          onAddType={(value) => { setTypeOptions((current) => Array.from(new Set([...current, value]))); setDraft((current) => ({ ...current, type: value })) }}
+          onAddBrand={(value) => { setBrandOptions((current) => Array.from(new Set([...current, value]))); setDraft((current) => ({ ...current, brand: value })) }}
+          onAddPriceList={(value) => setPriceListNameOptions((current) => Array.from(new Set([...current, value])))}
+          onSubmit={save}
+          onClose={() => setModalOpen(false)}
+        />
       )}
 
       {importModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
-          <div className="w-full max-w-md rounded bg-white">
-            <header className="flex items-center justify-between border-b p-6">
-              <b className="uppercase">{t("Импорт с excel")}</b>
-              <button type="button" onClick={() => { setImportModalOpen(false); setImportFile(null) }} aria-label={t("Закрыть")}><X className="h-5 w-5" /></button>
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50">
+          <div className="w-[400px] bg-white shadow-xl">
+            <header className="flex h-[60px] items-center justify-between border-b border-[#e8ebf0] pl-[30px] pr-[27px]">
+              <h3 className="text-[13px] font-bold uppercase">{t("Импорт с excel")}</h3>
+              <button type="button" onClick={() => { setImportModalOpen(false); setImportFile(null) }} aria-label={t("Закрыть")} className="text-slate-500 hover:text-slate-800"><X className="h-6 w-6" /></button>
             </header>
-            <div className="p-6">
-              <button type="button" onClick={downloadImportTemplate} className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-700 hover:text-[#4f70e7]">
-                {t("1. Скачать шаблон")}
-              </button>
-              <div
-                onClick={() => modalFileInputRef.current?.click()}
-                onDragOver={(event) => { event.preventDefault(); setImportDragOver(true) }}
-                onDragLeave={() => setImportDragOver(false)}
-                onDrop={handleImportDrop}
-                className={`flex h-40 cursor-pointer flex-col items-center justify-center gap-2 rounded border-2 border-dashed text-center text-sm transition-colors ${importDragOver ? "border-[#4f70e7] bg-blue-50" : "border-slate-300"}`}
-              >
-                <FileText className="h-8 w-8 text-slate-400" />
-                {importFile ? (
-                  <span className="px-4 font-medium text-slate-700">{importFile.name}</span>
-                ) : (
-                  <span className="px-4 text-slate-500">{t("Добавьте файл Excel или нажмите для выбора")}</span>
-                )}
+            <div className="p-[30px]">
+              <div className="border border-[#e8ebf0] px-[20px] pb-[20px] pt-[18px]">
+                <button type="button" onClick={downloadImportTemplate} className="block w-full text-center text-[13px] uppercase hover:text-[#4f71dc]">{t("1. Скачать шаблон")}</button>
+                <div
+                  onClick={() => modalFileInputRef.current?.click()}
+                  onDragOver={(event) => { event.preventDefault(); setImportDragOver(true) }}
+                  onDragLeave={() => setImportDragOver(false)}
+                  onDrop={handleImportDrop}
+                  className={`mt-[10px] flex h-[200px] cursor-pointer flex-col items-center justify-center gap-[10px] border border-dashed text-center ${importDragOver ? "border-[#4f71dc] bg-blue-50" : "border-[#c9ced6]"}`}
+                >
+                  <svg viewBox="0 0 24 24" className="h-5 w-5 fill-black"><path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm-1 7V3.5L18.5 9H13z" /></svg>
+                  <span className="whitespace-nowrap text-[13px]">{importFile ? importFile.name : t("Добавьте файл Excel или нажмите для выбора")}</span>
+                </div>
+                <input ref={modalFileInputRef} type="file" accept=".csv,.xls,.xlsx,text/csv" onChange={(event) => { const file = event.target.files?.[0]; if (file) setImportFile(file); event.target.value = "" }} className="hidden" />
               </div>
-              <input
-                ref={modalFileInputRef}
-                type="file"
-                accept=".csv,.xls,.xlsx,text/csv"
-                onChange={(event) => {
-                  const file = event.target.files?.[0]
-                  if (file) setImportFile(file)
-                  event.target.value = ""
-                }}
-                className="hidden"
-              />
             </div>
-            <footer className="flex justify-end border-t p-5">
-              <button
-                type="button"
-                onClick={saveImportModal}
-                disabled={!importFile || importSaving}
-                className="rounded bg-[#6ccd8b] px-6 py-3 font-semibold text-white hover:brightness-95 disabled:opacity-50"
-              >
+            <footer className="flex h-[57px] items-center justify-end border-t border-[#e8ebf0] pr-[10px]">
+              <button type="button" onClick={saveImportModal} disabled={!importFile || importSaving} className="h-9 rounded-[3px] bg-[#71ce87] px-[16px] text-[12px] font-bold uppercase text-white hover:brightness-95 disabled:bg-[#ade3b9]">
                 {importSaving ? t("Импорт...") : t("Сохранить")}
               </button>
             </footer>
@@ -1259,5 +807,195 @@ export function ProductsView({ embedded = false }: { embedded?: boolean }) {
         </div>
       )}
     </main>
+  )
+}
+
+function BarsIcon() {
+  return <svg viewBox="0 0 24 24" className="h-[18px] w-[18px] fill-white"><path d="M5 9.2h3V19H5zM10.6 5h2.8v14h-2.8zm5.6 8H19v6h-2.8z" /></svg>
+}
+
+function LandscapeIcon() {
+  return <svg viewBox="0 0 24 24" className="h-[22px] w-[22px] shrink-0 fill-[#b5bbc6]"><path d="M14 6l-3.75 5 2.85 3.8-1.6 1.2C9.81 13.75 7 10 7 10l-6 8h22L14 6z" /></svg>
+}
+
+type FilterState = { type: string; showOnly: string; unit: string; brand: string; supplier: string; color: string; supply: string; organization: string; onlyMml: boolean; inventory: boolean; perfectStore: boolean }
+
+function FilterPanel({
+  draft,
+  setDraft,
+  options,
+  supplies,
+  onClose,
+  onApply,
+}: {
+  draft: FilterState
+  setDraft: (value: FilterState) => void
+  options: { type: string[]; unit: string[]; brand: string[]; supplier: string[]; color: string[]; organization: string[] }
+  supplies: { id: number; supplier: string; contractNumber: string }[]
+  onClose: () => void
+  onApply: () => void
+}) {
+  const { t } = useLanguage()
+  const rows: { key: keyof FilterState; label: string; options: { value: string; label: string }[] }[] = [
+    { key: "type", label: t("Тип продукта"), options: options.type.map((value) => ({ value, label: value })) },
+    { key: "showOnly", label: t("Показать только"), options: [{ value: "sell", label: t("Можно продать") }, { value: "nosell", label: t("Нельзя продать") }] },
+    { key: "unit", label: t("Мера"), options: options.unit.map((value) => ({ value, label: value })) },
+    { key: "brand", label: t("Бренд"), options: options.brand.map((value) => ({ value, label: value })) },
+    { key: "supplier", label: t("Поставщик"), options: options.supplier.map((value) => ({ value, label: value })) },
+    { key: "color", label: t("Цвет"), options: options.color.map((value) => ({ value, label: value })) },
+    { key: "supply", label: t("Поставка"), options: supplies.map((row) => ({ value: String(row.id), label: `${t("Поставка")} №${row.id}\n${t("Поставщик")}: ${row.supplier}\n${t("Номер договора")}: ${row.contractNumber || "-"}` })) },
+    { key: "organization", label: t("Организации"), options: options.organization.map((value) => ({ value, label: value })) },
+  ]
+  const checks: { key: "onlyMml" | "inventory" | "perfectStore"; label: string }[] = [
+    { key: "onlyMml", label: t("Только ММЛ продукты") },
+    { key: "inventory", label: t("Инвентари") },
+    { key: "perfectStore", label: t("Только Perfect Store продукты") },
+  ]
+  const [openKey, setOpenKey] = useState<string | null>(null)
+
+  return (
+    <div className="absolute left-0 top-[40px] z-40 w-[310px] bg-white pb-[18px] shadow-[0_2px_14px_rgba(0,0,0,0.25)]">
+      <div className="flex h-[70px] items-center justify-between px-[20px]">
+        <span className="text-[15px] text-[#6b7280]">{t("Фильтр")}</span>
+        <button type="button" onClick={onClose} aria-label={t("Закрыть")} className="text-[#9aa3b0] hover:text-slate-700"><svg viewBox="0 0 24 24" className="h-6 w-6 fill-current"><path d="M12 2C6.47 2 2 6.47 2 12s4.47 10 10 10 10-4.47 10-10S17.53 2 12 2zm5 13.59L15.59 17 12 13.41 8.41 17 7 15.59 10.59 12 7 8.41 8.41 7 12 10.59 15.59 7 17 8.41 13.41 12 17 15.59z" /></svg></button>
+      </div>
+      <div className="px-[20px]">
+        {rows.map((row, index) => {
+          const selected = row.options.find((option) => option.value === draft[row.key])
+          return (
+            <div key={row.key} className={`relative ${index === 0 ? "mt-[10px]" : "mt-[22px]"}`}>
+              <button type="button" onClick={() => setOpenKey(openKey === row.key ? null : row.key)} className="flex h-[40px] w-full items-end justify-between border-b border-[#d5dae1] pb-[6px] text-left">
+                <span className={selected ? "" : "font-bold"}>{selected ? <><span className="mb-[2px] block text-[10px] font-semibold leading-3">{row.label}</span>{selected.label.split("\n")[0]}</> : row.label}</span>
+                <span className="flex items-center gap-2 text-[#8a8f98]">
+                  {selected && <span role="button" aria-label="clear" onClick={(event) => { event.stopPropagation(); setDraft({ ...draft, [row.key]: "" }) }}><X className="h-3.5 w-3.5" /></span>}
+                  <ChevronDown className="h-4 w-4 fill-current" />
+                </span>
+              </button>
+              {openKey === row.key && (
+                <ul className="absolute left-0 right-0 z-10 mt-0.5 max-h-60 overflow-y-auto bg-white py-1 shadow-[0_2px_10px_rgba(0,0,0,0.2)]">
+                  {row.options.length === 0 ? (
+                    <li className="px-3 py-2 font-semibold text-slate-400">—</li>
+                  ) : (
+                    row.options.map((option, index) => (
+                      <li key={`${option.value}-${index}`}>
+                        <button type="button" onClick={() => { setDraft({ ...draft, [row.key]: option.value }); setOpenKey(null) }} className={`block w-full whitespace-pre-line px-3 py-2 text-left font-semibold ${option.value === draft[row.key] ? "bg-[#e3effd] text-slate-800" : "text-slate-500 hover:bg-slate-50"}`}>{option.label}</button>
+                      </li>
+                    ))
+                  )}
+                </ul>
+              )}
+            </div>
+          )
+        })}
+        <div className="mt-[12px] space-y-[12px]">
+          {checks.map((item) => (
+            <label key={item.key} className="flex cursor-pointer items-center gap-[10px] font-semibold">
+              <span className={`flex h-[16px] w-[16px] items-center justify-center rounded-[2px] border-2 ${draft[item.key] ? "border-[#5d6474] bg-[#5d6474]" : "border-[#555]"}`}>
+                {draft[item.key] && <svg viewBox="0 0 12 12" className="h-3 w-3"><path d="M2 6.5l2.5 2.5L10 3.5" fill="none" stroke="#fff" strokeWidth="2" /></svg>}
+                <input type="checkbox" checked={draft[item.key]} onChange={(event) => setDraft({ ...draft, [item.key]: event.target.checked })} className="sr-only" />
+              </span>
+              {item.label}
+            </label>
+          ))}
+        </div>
+        <button type="button" onClick={onApply} className="mt-[22px] h-[36px] rounded-[3px] bg-[#5d6474] px-[16px] text-[13px] uppercase text-white hover:brightness-110">{t("Применить")}</button>
+      </div>
+    </div>
+  )
+}
+
+function ProductDetail({ product, onEdit, onDelete, onToggle }: { product: Product; onEdit: () => void; onDelete: () => void; onToggle: (key: keyof Product) => void }) {
+  const { t } = useLanguage()
+  const flags: [keyof Product, string][] = [
+    ["canSell", t("Можно продавать")],
+    ["onlyMml", t("Только ММЛ продукты")],
+    ["isInventory", t("Инвентарь")],
+    ["perfectStore", "Perfect store"],
+    ["groupOnly", t("Продать только в группе")],
+    ["trackExpiry", t("Учитывать срок годности")],
+    ["manualDiscount", t("Можно дать ручную скидку")],
+    ["hideFromAgent", t("Скрыть из списка заказов для агента")],
+    ["trackSeries", t("Учитывать серии")],
+  ]
+  const unset = t("Не указано")
+  const info: [string, string][] = [
+    [t("Наименование"), product.name],
+    [t("Полное наименование"), product.fullName === product.name ? unset : product.fullName || unset],
+    [t("Мера"), product.unit],
+    [t("Подкатегория"), product.subcategory || unset],
+    [t("Брeнд"), product.brand === "No brand" ? unset : product.brand],
+    [t("Организация"), product.organization],
+    [t("Порядковый номер"), product.orderNumber || unset],
+    [t("Минимальный остаток"), product.minStock],
+    [t("Описание"), product.description],
+    [t("Штрих - коды товара"), product.barcode === "не установлен" ? unset : product.barcode],
+    [t("Артикул"), product.article || unset],
+    [t("Поставщик"), product.supplier],
+    [t("Код для интеграции"), product.integrationCode || unset],
+    [t("Объем"), product.volume],
+    [t("Вес"), product.weight],
+    [t("Вес нетто"), product.netWeight],
+    [t("Цвет"), product.color],
+  ]
+  const money = (value: number, currency?: string) => `${value.toLocaleString("ru-RU")} ${currency || "SUM"}`
+
+  return (
+    <div className="mx-[-15px] my-[20px] bg-white shadow-[0_2px_10px_rgba(0,0,0,0.2)]">
+      <div className="flex h-[66px] items-center justify-between border-b border-[#e8ebf0] pl-[30px] pr-[44px]">
+        <h2 className="text-[18px] font-bold">{product.name}</h2>
+        <div className="flex items-center gap-[28px]">
+          <button type="button" onClick={onEdit} aria-label={t("Изменить")} className="text-[#757575]"><svg viewBox="0 0 24 24" className="h-5 w-5 fill-current"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a.996.996 0 000-1.41l-2.34-2.34a.996.996 0 00-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z" /></svg></button>
+          <button type="button" onClick={onDelete} aria-label={t("Удалить")} className="text-[#757575]"><svg viewBox="0 0 24 24" className="h-5 w-5 fill-current"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z" /></svg></button>
+        </div>
+      </div>
+      <div className="grid grid-cols-[322px_465px_1fr]">
+        <div className="px-[30px] pb-[24px] pt-[20px]">
+          <div className="flex h-[230px] flex-col items-center justify-center border border-dashed border-[#e9ebed] bg-[#f2f5f8] text-center">
+            {product.hasPhoto ? <LandscapeIcon /> : <><span className="text-[11px] text-[#9aa3b0]">{t("Фото")}<br />{t("отсутствует")}</span><span className="my-[8px] h-px w-[60px] bg-[#d5dae1]" /></>}
+            <button type="button" className="text-[11px] text-[#0a9bd9] hover:underline">{t("добавить фото")}</button>
+          </div>
+          <ul className="mt-[12px] space-y-[5px]">
+            {flags.map(([key, label]) => (
+              <li key={key} className="flex h-[20px] items-center gap-[4px]">
+                <span>{label}:</span>
+                <button type="button" onClick={() => onToggle(key)} aria-label={label} className="flex h-5 w-5 items-center justify-center">
+                  {product[key] ? (
+                    <svg viewBox="0 0 24 24" className="h-5 w-5"><circle cx="12" cy="12" r="10" fill="#8acb8d" /><path d="M7 12.5l3.2 3.2L17 9" fill="none" stroke="#fff" strokeWidth="2.4" /></svg>
+                  ) : (
+                    <svg viewBox="0 0 24 24" className="h-5 w-5"><path d="M5 5l14 14M19 5L5 19" stroke="#e57373" strokeWidth="2" fill="none" /></svg>
+                  )}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+        <div className="border-x border-[#e8ebf0] px-[30px] pb-[20px] pt-[20px]">
+          <p className="mb-[10px] font-bold">{t("Товар")}:</p>
+          <dl className="space-y-[6px] leading-[19px]">
+            {info.map(([label, value]) => (
+              <div key={label}><dt className="inline">{label}: </dt><dd className="inline font-bold">{value}</dd></div>
+            ))}
+          </dl>
+        </div>
+        <div className="px-[30px] pb-[20px] pt-[20px]">
+          <div className="grid grid-cols-[190px_121px_121px_121px_1fr] pb-[16px] font-bold"><span>{t("Прайс лист")}</span><span>{t("Нал")}</span><span>{t("Безнал")}</span><span>{t("Мин")}</span><span>{t("Макс")}</span></div>
+          {product.priceLists.map((entry) => (
+            <div key={entry.name} className="grid h-[40px] grid-cols-[190px_121px_121px_121px_1fr] items-center border-b border-dashed border-[#d7dee3]">
+              <span className="pr-2">{entry.name}</span>
+              <span>{money(entry.cash, entry.currency)}</span>
+              <span>{money(entry.nonCash, entry.nonCashCurrency)}</span>
+              <span>{money(entry.min, entry.currency)}</span>
+              <span>{money(entry.max, entry.currency)}</span>
+            </div>
+          ))}
+          <p className="mb-[8px] mt-[22px] font-bold">{t("Характеристика")}:</p>
+          <p className="leading-[18px]">{t("Балл")}: <b>{product.salePoints && product.salePoints !== "0" ? product.salePoints : t("Неизвестно")}</b></p>
+          <p className="leading-[18px]">{t("Лимиты для агентов отсутствуют")}</p>
+          <p className="leading-[18px]">{t("Дополнительные параметры")}</p>
+          <div className="mt-[14px] grid grid-cols-3 font-bold"><span>{t("Ширина")}</span><span>{t("Высота")}</span><span>{t("Длина")}</span></div>
+          <div className="mt-[14px] grid h-[40px] grid-cols-3 items-center border-b border-dashed border-[#d7dee3]"><span>0</span><span>0</span><span>0</span></div>
+        </div>
+      </div>
+    </div>
   )
 }

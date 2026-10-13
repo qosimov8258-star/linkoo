@@ -128,10 +128,10 @@ export function VansellBalanceView() {
   }
 
   return (
-    <main className="min-h-screen bg-[#f1f4f8] text-[#17233b]">
+    <main className="min-h-screen bg-[#f2f5f8] text-[#17233b]">
       <header className="flex min-h-[76px] items-center border-b border-[#d8dee7] bg-[#f2f5f8] px-6 md:px-9">
         <div className="flex items-center gap-3">
-          <FavoritesButton className="flex items-center gap-3 text-2xl font-bold text-[#4f70e7]" />
+          <FavoritesButton className="flex items-center gap-3 text-2xl font-bold text-[#4f71dc]" />
           <span className="text-3xl font-light text-[#586174]">|</span>
           <span className="text-2xl font-bold text-[#586174]">Баланс вансел</span>
         </div>
@@ -200,7 +200,7 @@ export function VansellBalanceView() {
       </section>
 
       <section className="flex flex-wrap items-center gap-5 border-b border-[#e1e5eb] bg-white px-6 py-3 md:px-9">
-        <button onClick={() => setFilterOpen((value) => !value)} className="flex items-center gap-1 font-medium text-[#4f70e7]">
+        <button onClick={() => setFilterOpen((value) => !value)} className="flex items-center gap-1 font-medium text-[#4f71dc]">
           <Filter className="h-4 w-4" /> Показать фильтр <ChevronDown className={`h-4 w-4 transition ${filterOpen ? "rotate-180" : ""}`} />
         </button>
 
@@ -224,7 +224,7 @@ export function VansellBalanceView() {
         <button disabled={safePage === 1} onClick={() => setPage((value) => Math.max(1, value - 1))} className="rounded-full border border-[#dbe0e8] p-1 text-[#9aa3b6] disabled:opacity-40">
           <ChevronDown className="h-5 w-5 rotate-90" />
         </button>
-        <button disabled={safePage === maxPage} onClick={() => setPage((value) => Math.min(maxPage, value + 1))} className="rounded-full border border-[#4f70e7] p-1 text-[#4f70e7] disabled:opacity-40">
+        <button disabled={safePage === maxPage} onClick={() => setPage((value) => Math.min(maxPage, value + 1))} className="rounded-full border border-[#4f71dc] p-1 text-[#4f71dc] disabled:opacity-40">
           <ChevronDown className="h-5 w-5 -rotate-90" />
         </button>
         <button aria-label="Полный экран" onClick={() => document.documentElement.requestFullscreen?.()} className="text-[#586174]"><Expand className="h-5 w-5" /></button>
@@ -254,7 +254,7 @@ export function VansellBalanceView() {
             </tr>
             <tr>
               <th className="border border-[#e1e5eb] px-4 py-2 text-left font-semibold">Вансел</th>
-              <th className="border border-[#e1e5eb] px-2 py-2"><input type="checkbox" checked={allSelected} onChange={toggleAll} className="h-4 w-4 accent-[#4f70e7]" /></th>
+              <th className="border border-[#e1e5eb] px-2 py-2"><input type="checkbox" checked={allSelected} onChange={toggleAll} className="h-4 w-4 accent-[#4f71dc]" /></th>
               {Array.from({ length: 6 }).map((_, groupIndex) =>
                 ["SUM", "USD", "Euro"].map((currency) => (
                   <th key={`${groupIndex}-${currency}`} className="border border-[#e1e5eb] px-4 py-2 font-semibold">{currency}</th>
@@ -275,7 +275,7 @@ export function VansellBalanceView() {
                     </div>
                   </td>
                   <td className="border border-[#e1e5eb] px-2 py-4 text-center">
-                    <input type="checkbox" checked={selected.has(vansel.id)} onChange={() => toggleOne(vansel.id)} className="h-4 w-4 accent-[#4f70e7]" />
+                    <input type="checkbox" checked={selected.has(vansel.id)} onChange={() => toggleOne(vansel.id)} className="h-4 w-4 accent-[#4f71dc]" />
                   </td>
                   <td className="border border-[#e1e5eb] px-4 py-4"><AmountCell value={vansel.opening.sum} /></td>
                   <td className="border border-[#e1e5eb] px-4 py-4"><AmountCell value={vansel.opening.usd} /></td>
@@ -380,7 +380,7 @@ function TransactionModal({
               const value = Number(amount)
               if (value > 0) onSave(currency, value)
             }}
-            className="font-bold uppercase tracking-wide text-[#4f70e7]"
+            className="font-bold uppercase tracking-wide text-[#4f71dc]"
           >
             Сохранить
           </button>
@@ -407,7 +407,7 @@ function LimitModal({ count, onClose }: { count: number; onClose: () => void }) 
           </label>
         </div>
         <footer className="flex justify-end border-t px-8 py-5">
-          <button onClick={onClose} className="font-bold uppercase tracking-wide text-[#4f70e7]">Сохранить</button>
+          <button onClick={onClose} className="font-bold uppercase tracking-wide text-[#4f71dc]">Сохранить</button>
         </footer>
       </div>
     </div>

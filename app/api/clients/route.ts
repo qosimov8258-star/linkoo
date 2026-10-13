@@ -31,6 +31,7 @@ const clientSchema = z.object({
   note: z.string().trim().optional(),
   autoDelivery: z.boolean().optional(),
   unlimitedDebt: z.boolean().optional(),
+  attributes: z.record(z.string(), z.string()).optional(),
 })
 
 export async function GET(request: NextRequest) {
@@ -73,6 +74,7 @@ export async function POST(request: NextRequest) {
     note: parsed.data.note,
     autoDelivery: parsed.data.autoDelivery,
     unlimitedDebt: parsed.data.unlimitedDebt,
+    attributes: parsed.data.attributes,
   })
   return NextResponse.json(client, { status: 201 })
 }

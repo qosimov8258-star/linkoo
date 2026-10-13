@@ -135,6 +135,9 @@
   }
   body {
     @apply bg-background text-foreground;
+    /* The reference app renders everything on a 13px base. */
+    font-size: 13px;
+    color: #333;
   }
 }
 
@@ -172,3 +175,71 @@
 .leaflet-control-zoom a:last-child {
   border-bottom: none !important;
 }
+
+
+/* ---- Reference look for legacy pages (title row, header band, tables) ---- */
+[data-ref-title],
+[data-ref-title] > span,
+[data-ref-title] > h1,
+[data-ref-title] h1 {
+  font-size: 18px !important;
+  line-height: 22px !important;
+  font-weight: 700 !important;
+  color: #5d6474;
+}
+[data-ref-title] > button { color: #4f71dc; }
+[data-ref-header] {
+  background: transparent !important;
+  border-bottom: 0 !important;
+  min-height: 60px !important;
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+  align-items: center;
+}
+main { background-color: transparent !important; }
+thead.text-white th,
+thead[class*="bg-[#5d6474]"] th {
+  font-size: 13px;
+  font-weight: 600;
+}
+tbody tr { border-bottom-style: dotted; }
+
+/* Legacy list tables: 50px header, 50px rows, 16px cell padding, dotted separators. */
+table:has(> thead.text-white) > thead > tr > th {
+  height: 50px;
+  padding: 0 16px !important;
+  vertical-align: middle;
+}
+table:has(> thead.text-white) > tbody > tr > td {
+  padding: 7px 16px !important;
+  min-height: 50px;
+  height: 50px;
+  line-height: 16.25px;
+}
+table:has(> thead.text-white) > tbody > tr {
+  border-bottom: 1px dotted #d6d6d6 !important;
+  background: #fff;
+}
+table:has(> thead.text-white) > tbody > tr:hover { background: #f2f5f8; }
+[data-ref-header] { margin-bottom: 0 !important; }
+section.shadow, section.shadow-sm { box-shadow: 0 1px 6px rgba(0,0,0,.12), 0 1px 4px rgba(0,0,0,.12); border-radius: 2px; }
+
+/* Legacy toolbars (filter link / search / pager) */
+section > div.flex.flex-wrap.items-center.gap-4.px-5.py-3,
+section > div.flex.flex-wrap.items-center.gap-4.px-5.py-3.border-b {
+  min-height: 50px;
+  padding: 0 10px !important;
+  gap: 16px;
+  font-size: 13px;
+  color: #5d6474;
+  border-bottom: 0;
+}
+section > div.flex.flex-wrap.items-center.gap-4.px-5.py-3 input {
+  border-color: #e0e0e0;
+  height: 48px;
+  padding-top: 0;
+  padding-bottom: 0;
+  font-size: 13px;
+}
+section > div.flex.flex-wrap.items-center.gap-4.px-5.py-3 input::placeholder { color: rgba(0,0,0,.3); }
+section > div.flex.flex-wrap.items-center.gap-4.px-5.py-3 svg.h-5 { width: 24px; height: 24px; }

@@ -1,22 +1,13 @@
 "use client"
 
-import {
-  ChevronLeft,
-  ChevronRight,
-  FileText,
-  ImagePlus,
-  MoreVertical,
-  Pencil,
-  Plus,
-  Search,
-  Trash2,
-  X,
-} from "lucide-react"
+import { ImagePlus, X } from "lucide-react"
 import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react"
 
 import { downloadExcelTable } from "@/lib/excel-export"
 import { mapHeaderColumns, readExcelRows } from "@/lib/excel-import"
+import { useLanguage } from "@/lib/i18n/language-context"
 import { brandOrganizations as organizations, type Brand } from "./brands-data"
+import { EmptyState, ImportDialog, LineField, LineSelect, ListToolbar, Modal, SaveButton, grayHead, listRow } from "./catalog-ui"
 
 const IMPORT_HEADER_ALIASES: Record<string, string> = {
   "наименование": "name", "название": "name", "name": "name",
@@ -28,6 +19,8 @@ function emptyDraft() {
 }
 
 export function BrandsView({ embedded = false }: { embedded?: boolean }) {
+  void embedded
+  const { t } = useLanguage()
   const [brands, setBrands] = useState<Brand[]>([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState("")
@@ -215,195 +208,108 @@ export function BrandsView({ embedded = false }: { embedded?: boolean }) {
     }
   }
 
+  const total = filtered.length
+  const gridCols = "grid-cols-[118px_219px_329px_328px_1fr]"
+
   return (
-    <main className={embedded ? "min-w-0 flex-1" : "min-h-[calc(100vh-4rem)] bg-[#f1f4f8] px-9 py-5"}>
-      {!embedded && (
-        <header className="mb-5 flex items-center justify-between">
-          <h1 className="text-2xl font-bold text-slate-600">Бренд</h1>
-        </header>
-      )}
+    <div className="min-h-[calc(100vh-50px)] min-w-0 flex-1 bg-white text-[13px] text-[#333]">
+      <ListToolbar
+        addLabel={t("Добавить бренд")}
+        bigPlus
+        onAdd={openCreate}
+        query={query}
+        onQuery={(value) => { setQuery(value); setPage(1) }}
+        pageSize={pageSize}
+        from={total ? (safePage - 1) * pageSize + 1 : 0}
+        to={Math.min(safePage * pageSize, total)}
+        total={total}
+        onPrev={safePage > 1 ? () => setPage(safePage - 1) : undefined}
+        onNext={safePage < pageCount ? () => setPage(safePage + 1) : undefined}
+        extra={<button type="button" onClick={() => setImportOpen(true)} className="ml-[24px] pt-[8px] text-[13px] text-[#4f71dc] hover:underline">{t("Импорт с Excel")}</button>}
+      />
 
-      <section className="overflow-hidden rounded bg-white shadow">
-        <div className="flex flex-wrap items-center gap-4 px-5 py-4">
-          <button type="button" onClick={openCreate} className="inline-flex items-center gap-2 text-[16px] font-medium text-[#4f70e7] hover:underline">
-            <Plus className="h-4 w-4" /> Добавить бренд
-          </button>
-          <button type="button" onClick={() => setImportOpen(true)} className="inline-flex items-center gap-2 rounded bg-[#4f70e7] px-5 py-2.5 font-semibold text-white hover:brightness-95">
-            <FileText className="h-4 w-4" /> Импорт с Excel
-          </button>
-          <label className="relative ml-auto w-64">
-            <input
-              value={query}
-              onChange={(event) => { setQuery(event.target.value); setPage(1) }}
-              placeholder="Поиск"
-              className="w-full border-b border-slate-300 py-2 pr-10 outline-none focus:border-[#4f70e7]"
-            />
-            <Search className="absolute right-2 top-2 h-5 w-5 text-slate-300" />
-          </label>
-          <span className="text-slate-500">25</span>
-          <span className="text-slate-500">
-            {filtered.length ? (safePage - 1) * pageSize + 1 : 0} - {Math.min(safePage * pageSize, filtered.length)} из {filtered.length}
-          </span>
-          <button type="button" onClick={() => setPage((value) => Math.max(1, value - 1))} disabled={safePage <= 1} aria-label="Назад" className="disabled:opacity-30">
-            <ChevronLeft className="h-5 w-5 text-slate-400" />
-          </button>
-          <button type="button" onClick={() => setPage((value) => Math.min(pageCount, value + 1))} disabled={safePage >= pageCount} aria-label="Вперед" className="disabled:opacity-30">
-            <ChevronRight className="h-5 w-5 text-slate-400" />
-          </button>
-        </div>
+      <div className={`${grayHead} ${gridCols}`}>
+        <span>Id</span><span>{t("Фото")}</span><span>{t("Наименование")}</span><span>{t("Организация")}</span><span>{t("Дата создания")}</span>
+      </div>
 
-        <table className="w-full text-left">
-          <thead className="bg-[#626b7e] text-white">
-            <tr>
-              <th className="px-9 py-5">Id</th>
-              <th className="px-5 py-5">Фото</th>
-              <th className="px-5 py-5">Наименование</th>
-              <th className="px-5 py-5">Организация</th>
-              <th className="px-5 py-5">Дата создания</th>
-              <th className="w-12" />
-            </tr>
-          </thead>
-          <tbody>
-            {loading ? (
-              <tr><td colSpan={6} className="px-9 py-10 text-center text-slate-400">Загрузка брендов...</td></tr>
-            ) : loadError ? (
-              <tr><td colSpan={6} className="px-9 py-10 text-center text-red-600">{loadError}</td></tr>
-            ) : visible.map((brand) => (
-              <tr key={brand.id} onClick={() => openEdit(brand)} className="cursor-pointer border-b border-dashed border-slate-300 hover:bg-slate-50">
-                <td className="px-9 py-4">{brand.id}</td>
-                <td className="px-5 py-4">
-                  {brand.photoUrl && brand.photoUrl !== "brand" && (
-                    <img src={brand.photoUrl} alt={brand.name} className="h-9 w-9 rounded object-cover" />
-                  )}
-                  {brand.photoUrl === "brand" && (
-                    <span className="flex h-9 w-9 items-center justify-center rounded border border-slate-200 bg-slate-50 text-slate-300">
-                      <ImagePlus className="h-4 w-4" />
-                    </span>
-                  )}
-                </td>
-                <td className="px-5 py-4 text-[#4f70e7]">{brand.name}</td>
-                <td className="px-5 py-4">{brand.organization}</td>
-                <td className="px-5 py-4">{brand.createdDate}</td>
-                <td className="relative px-3 py-4 text-right">
-                  <button
-                    type="button"
-                    onClick={(event) => { event.stopPropagation(); setOpenMenuId((current) => (current === brand.id ? null : brand.id)) }}
-                    aria-label="Ещё"
-                    className="text-slate-500 hover:text-slate-800"
-                  >
-                    <MoreVertical className="h-5 w-5" />
-                  </button>
-                  {openMenuId === brand.id && (
-                    <div onClick={(event) => event.stopPropagation()} className="absolute right-3 top-12 z-30 w-44 rounded border border-slate-200 bg-white py-1 text-left shadow-xl">
-                      <button type="button" onClick={() => openEdit(brand)} className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm hover:bg-slate-50">
-                        <Pencil className="h-4 w-4" /> Изменить
-                      </button>
-                      <button type="button" onClick={() => remove(brand.id)} className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm text-rose-500 hover:bg-slate-50">
-                        <Trash2 className="h-4 w-4" /> Удалить
-                      </button>
-                    </div>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-
-        {!loading && !loadError && visible.length === 0 && (
-          <div className="flex min-h-[240px] flex-col items-center justify-center gap-3 py-10">
-            <p className="text-lg text-slate-400">По вашему запросу ничего не найдено</p>
-          </div>
-        )}
-      </section>
-
-      {modalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
-          <form onSubmit={save} className="flex max-h-[90vh] w-full max-w-lg flex-col rounded bg-white">
-            <header className="flex items-center justify-between border-b p-6">
-              <b className="uppercase">{editingId !== null ? "Изменить бренд" : "Добавить бренд"}</b>
-              <button type="button" onClick={() => setModalOpen(false)} aria-label="Закрыть"><X className="h-5 w-5" /></button>
-            </header>
-            <div className="flex-1 space-y-5 overflow-y-auto p-8">
-              <label className="block border-b border-slate-200 pb-2 font-medium">
-                Наименование <span className="text-red-500">*</span>
-                <input autoFocus value={draft.name} onChange={(event) => setDraft((value) => ({ ...value, name: event.target.value }))} className="mt-2 block w-full outline-none" />
-              </label>
-              <label className="block border-b border-slate-200 pb-2 font-medium">
-                Организация <span className="text-red-500">*</span>
-                <select value={draft.organization} onChange={(event) => setDraft((value) => ({ ...value, organization: event.target.value }))} className="mt-2 block w-full bg-white outline-none">
-                  <option value="" disabled>Выберите организацию</option>
-                  {organizations.map((org) => <option key={org} value={org}>{org}</option>)}
-                </select>
-              </label>
-
-              <input ref={fileInputRef} type="file" accept="image/*" onChange={pickPhoto} className="hidden" />
-              {draft.photoUrl ? (
-                <div className="relative mx-auto w-fit">
-                  <img src={draft.photoUrl} alt="Фото бренда" className="h-40 w-40 rounded object-cover" />
-                  <button
-                    type="button"
-                    onClick={() => setDraft((value) => ({ ...value, photoUrl: null }))}
-                    aria-label="Удалить фото"
-                    className="absolute -right-2 -top-2 rounded-full bg-white p-1 text-slate-500 shadow hover:text-rose-500"
-                  >
-                    <X className="h-4 w-4" />
-                  </button>
-                  <button type="button" onClick={() => fileInputRef.current?.click()} className="mt-2 block w-full text-center text-sm text-[#4f70e7] hover:underline">
-                    Заменить фото
-                  </button>
-                </div>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  className="mx-auto flex h-40 w-40 flex-col items-center justify-center gap-2 rounded border-2 border-dashed border-slate-300 text-slate-500 hover:border-[#4f70e7] hover:text-[#4f70e7]"
-                >
-                  <ImagePlus className="h-8 w-8" />
-                  Добавьте фото
-                </button>
+      {loading ? (
+        <p className="py-16 text-center text-slate-400">{t("Загрузка брендов...")}</p>
+      ) : loadError ? (
+        <p className="py-16 text-center text-red-600">{loadError}</p>
+      ) : (
+        visible.map((brand) => (
+          <div key={brand.id} onClick={() => openEdit(brand)} className={`${listRow} ${gridCols}`}>
+            <span>{brand.id}</span>
+            <span>
+              {brand.photoUrl && brand.photoUrl !== "brand" && (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={brand.photoUrl} alt={brand.name} className="h-[20px] w-[40px] object-cover" />
               )}
-              {formError && <p className="text-sm font-medium text-rose-600">{formError}</p>}
-            </div>
-            <footer className="flex justify-end border-t p-5">
-              <button type="submit" disabled={saving} className="rounded bg-[#6ccd8b] px-6 py-3 font-semibold text-white hover:brightness-95 disabled:opacity-60">
-                {saving ? "Сохранение..." : "Сохранить"}
-              </button>
-            </footer>
-          </form>
-        </div>
-      )}
-
-      {importOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
-          <div className="w-full max-w-md rounded bg-white">
-            <header className="flex items-center justify-between border-b p-6">
-              <b className="uppercase">Импорт с Excel</b>
-              <button type="button" onClick={() => { setImportOpen(false); setImportFile(null) }} aria-label="Закрыть">
-                <X className="h-5 w-5" />
-              </button>
-            </header>
-            <div className="p-8">
-              <button type="button" onClick={downloadTemplate} className="mb-4 font-semibold text-[#4f70e7] hover:underline">
-                1. Скачать шаблон
-              </button>
-              <input ref={importInputRef} type="file" accept=".csv,.xls,.xlsx" onChange={pickImportFile} className="hidden" />
+              {brand.photoUrl === "brand" && <span className="inline-block h-[20px] w-[40px] border border-[#c9ced6]" />}
+            </span>
+            <span className="pr-4">{brand.name}</span>
+            <span className="pr-4">{brand.organization}</span>
+            <span>{brand.createdDate.replace(/\s*г\.$/, "")}</span>
+            <>
               <button
                 type="button"
-                onClick={() => importInputRef.current?.click()}
-                className="flex w-full flex-col items-center justify-center gap-3 rounded border-2 border-dashed border-slate-300 py-10 text-slate-500 hover:border-[#4f70e7] hover:text-[#4f70e7]"
+                onClick={(event) => { event.stopPropagation(); setOpenMenuId((current) => (current === brand.id ? null : brand.id)) }}
+                aria-label={t("Ещё")}
+                className="absolute right-[41px] top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center text-[#333]"
               >
-                <FileText className="h-8 w-8" />
-                {importFile ? importFile.name : "Добавьте файл Excel или нажмите для выбора"}
+                <svg viewBox="0 0 24 24" className="h-6 w-6 fill-current"><path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z" /></svg>
               </button>
-            </div>
-            <footer className="flex justify-end border-t p-5">
-              <button type="button" disabled={!importFile || importSaving} onClick={saveImport} className="rounded bg-[#6ccd8b] px-5 py-3 font-semibold text-white hover:brightness-95 disabled:opacity-40">
-                {importSaving ? "Импорт..." : "Сохранить"}
-              </button>
-            </footer>
+              {openMenuId === brand.id && (
+                <>
+                  <span className="fixed inset-0 z-20" onClick={(event) => { event.stopPropagation(); setOpenMenuId(null) }} />
+                  <div onClick={(event) => event.stopPropagation()} className="absolute right-[60px] top-[-8px] z-30 w-[168px] bg-white py-[2px] text-left shadow-[0_2px_12px_rgba(0,0,0,0.22)]">
+                    <button type="button" onClick={() => openEdit(brand)} className="flex h-[48px] w-full items-center gap-[20px] pl-[22px] text-[13px] font-semibold text-[#444] hover:bg-slate-50">
+                      <svg viewBox="0 0 24 24" className="h-5 w-5 fill-[#757575]"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a.996.996 0 000-1.41l-2.34-2.34a.996.996 0 00-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z" /></svg>
+                      {t("Изменить")}
+                    </button>
+                    <button type="button" onClick={() => remove(brand.id)} className="flex h-[48px] w-full items-center gap-[20px] pl-[22px] text-[13px] font-semibold text-[#444] hover:bg-slate-50">
+                      <svg viewBox="0 0 24 24" className="h-5 w-5 fill-[#757575]"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z" /></svg>
+                      {t("Удалить")}
+                    </button>
+                  </div>
+                </>
+              )}
+            </>
           </div>
-        </div>
+        ))
       )}
-    </main>
+
+      {!loading && !loadError && visible.length === 0 && <EmptyState />}
+
+      {modalOpen && (
+        <Modal
+          title={editingId !== null ? t("Изменить бренд") : t("Добавить бренд")}
+          onClose={() => setModalOpen(false)}
+          footer={<SaveButton disabled={saving || !draft.name.trim() || !draft.organization} onClick={() => void save({ preventDefault() {} } as FormEvent)}>{saving ? t("Сохранение...") : t("Сохранить")}</SaveButton>}
+        >
+          <LineField label={t("Наименование")} required value={draft.name} onChange={(value) => setDraft((current) => ({ ...current, name: value }))} />
+          <div className="mt-[27px]"><LineSelect label={t("Организация")} required value={draft.organization} onChange={(value) => setDraft((current) => ({ ...current, organization: value }))} options={organizations} onClear={() => setDraft((current) => ({ ...current, organization: "" }))} /></div>
+          <input ref={fileInputRef} type="file" accept="image/*" onChange={pickPhoto} className="hidden" />
+          <div className="mt-[30px] flex items-start gap-[20px]">
+            {draft.photoUrl ? (
+              <div className="relative">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={draft.photoUrl} alt={t("Фото бренда")} className="h-[110px] w-[110px] object-cover" />
+                <button type="button" onClick={() => setDraft((current) => ({ ...current, photoUrl: null }))} aria-label={t("Удалить фото")} className="absolute -right-2 -top-2 rounded-full bg-white p-1 text-slate-500 shadow hover:text-rose-500"><X className="h-4 w-4" /></button>
+              </div>
+            ) : (
+              <button type="button" onClick={() => fileInputRef.current?.click()} className="flex h-[110px] w-[110px] flex-col items-center justify-center gap-2 border border-dashed border-[#c9ced6] text-[#9aa3b0] hover:text-[#4f71dc]">
+                <ImagePlus className="h-7 w-7" />
+                {t("Добавьте фото")}
+              </button>
+            )}
+            {draft.photoUrl && <button type="button" onClick={() => fileInputRef.current?.click()} className="text-[13px] text-[#4f71dc] hover:underline">{t("Заменить фото")}</button>}
+          </div>
+          {formError && <p className="mt-4 text-[13px] font-semibold text-rose-600">{formError}</p>}
+        </Modal>
+      )}
+
+      {importOpen && <ImportDialog file={importFile} onFile={setImportFile} onTemplate={downloadTemplate} onSave={saveImport} saving={importSaving} onClose={() => { setImportOpen(false); setImportFile(null) }} />}
+    </div>
   )
 }

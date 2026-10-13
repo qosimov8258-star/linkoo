@@ -197,13 +197,13 @@ export function ReorderLevelView() {
     <main className="min-h-screen bg-white text-[#17233b]">
       <header className="flex min-h-[76px] items-center border-b border-[#d8dee7] bg-[#f2f5f8] px-6 md:px-9">
         <div className="flex items-center gap-3">
-          <FavoritesButton className="flex items-center gap-2 text-2xl font-bold text-[#4f70e7]" /><span className="text-3xl font-light text-[#586174]">|</span>
+          <FavoritesButton className="flex items-center gap-2 text-2xl font-bold text-[#4f71dc]" /><span className="text-3xl font-light text-[#586174]">|</span>
           <span className="text-2xl font-bold text-[#586174]">Рекомендованный запас</span>
         </div>
       </header>
 
       <section className="flex flex-wrap items-center gap-5 px-6 py-4 md:px-9">
-        <button onClick={() => setFilterOpen(true)} className="flex items-center gap-1 font-medium text-[#4f70e7]">
+        <button onClick={() => setFilterOpen(true)} className="flex items-center gap-1 font-medium text-[#4f71dc]">
           <Filter className="h-4 w-4" /> Показать фильтр <ChevronDown className="h-4 w-4" />
         </button>
 
@@ -212,7 +212,7 @@ export function ReorderLevelView() {
           <Search className="pointer-events-none absolute right-0 top-0.5 h-5 w-5 text-[#9aa3b6]" />
         </label>
 
-        <span className="font-semibold text-[#4f70e7]">{dateFrom} - {dateTo}</span>
+        <span className="font-semibold text-[#4f71dc]">{dateFrom} - {dateTo}</span>
 
         <div className="relative">
           <button onClick={() => setUnitOpen((value) => !value)} className="flex h-11 w-56 items-center justify-between rounded-sm border border-[#dbe0e8] px-4 text-[15px] font-medium text-[#17233b]">
@@ -224,7 +224,7 @@ export function ReorderLevelView() {
                 <button
                   key={option}
                   onClick={() => { setUnit(option); setUnitOpen(false) }}
-                  className={`block w-full px-4 py-2.5 text-left text-[15px] ${unit === option ? "bg-[#eaf0fd] text-[#4f70e7]" : "text-[#586174] hover:bg-slate-50"}`}
+                  className={`block w-full px-4 py-2.5 text-left text-[15px] ${unit === option ? "bg-[#eaf0fd] text-[#4f71dc]" : "text-[#586174] hover:bg-slate-50"}`}
                 >
                   {option}
                 </button>

@@ -47,7 +47,7 @@ function InfoModal({ title, onClose }: { title: string; onClose: () => void }) {
         <button
           type="button"
           onClick={onClose}
-          className="mt-5 w-full rounded-md bg-[#4f70e7] py-2.5 text-sm font-semibold text-white hover:opacity-90"
+          className="mt-5 w-full rounded-md bg-[#4f71dc] py-2.5 text-sm font-semibold text-white hover:opacity-90"
         >
           {t("Понятно")}
         </button>
@@ -253,7 +253,7 @@ export default function LoginPage() {
             <div className="inline-flex flex-col items-start">
               <span className="h-3 w-16 rounded-t-full border-t-[5px] border-[#4f37c8]" />
               <span className="-mt-px text-4xl font-extrabold tracking-tight text-[#1c2758]">
-                l<span className="text-[#4f70e7]">i</span>nko
+                l<span className="text-[#4f71dc]">i</span>nko
               </span>
             </div>
 

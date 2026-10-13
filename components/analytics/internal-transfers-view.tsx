@@ -136,7 +136,7 @@ export function InternalTransfersView() {
     <main className="min-h-screen bg-white text-[#17233b]">
       <header className="flex flex-wrap items-center justify-between gap-4 border-b border-[#e1e5eb] px-6 py-5 md:px-9">
         <div className="flex items-center gap-3">
-          <FavoritesButton className="flex items-center gap-3 text-2xl font-bold text-[#4f70e7]" />
+          <FavoritesButton className="flex items-center gap-3 text-2xl font-bold text-[#4f71dc]" />
           <span className="text-3xl font-light text-[#586174]">|</span>
           <span className="text-2xl font-bold text-[#586174]">Передачи между складами</span>
         </div>
@@ -146,7 +146,7 @@ export function InternalTransfersView() {
       </header>
 
       <section className="flex flex-wrap items-center gap-5 px-6 py-4 md:px-9">
-        <button onClick={() => setFilterOpen((value) => !value)} className="flex items-center gap-1 font-medium text-[#4f70e7]">
+        <button onClick={() => setFilterOpen((value) => !value)} className="flex items-center gap-1 font-medium text-[#4f71dc]">
           <Filter className="h-4 w-4" /> Показать фильтр <ChevronDown className={`h-4 w-4 transition ${filterOpen ? "rotate-180" : ""}`} />
         </button>
 
@@ -166,7 +166,7 @@ export function InternalTransfersView() {
         <button disabled={safePage === 1} onClick={() => setPage((value) => Math.max(1, value - 1))} className="rounded-full border border-[#dbe0e8] p-1 text-[#9aa3b6] disabled:opacity-40">
           <ChevronLeft className="h-5 w-5" />
         </button>
-        <button disabled={safePage === maxPage} onClick={() => setPage((value) => Math.min(maxPage, value + 1))} className="rounded-full border border-[#4f70e7] p-1 text-[#4f70e7] disabled:opacity-40">
+        <button disabled={safePage === maxPage} onClick={() => setPage((value) => Math.min(maxPage, value + 1))} className="rounded-full border border-[#4f71dc] p-1 text-[#4f71dc] disabled:opacity-40">
           <ChevronRight className="h-5 w-5" />
         </button>
         <ListChecks className="h-5 w-5 text-[#586174]" />
@@ -205,7 +205,7 @@ export function InternalTransfersView() {
 
       <section className="overflow-x-auto">
         <table className="min-w-[1300px] w-full border-collapse text-[15px]">
-          <thead className="bg-[#626b7e] text-white">
+          <thead className="bg-[#5d6474] text-white">
             <tr>
               <th className="px-4 py-4 text-left font-semibold">№</th>
               <th className="px-4 py-4 text-left font-semibold">Со склада</th>
@@ -229,14 +229,14 @@ export function InternalTransfersView() {
                   className={`cursor-pointer border-b border-dashed border-slate-200 hover:bg-[#eef2fb] ${index % 2 ? "bg-[#f6f9fc]" : "bg-white"}`}
                 >
                   <td className="px-4 py-4">{transfer.id}</td>
-                  <td className="px-4 py-4 text-[#4f70e7]">{transfer.fromWarehouse}</td>
-                  <td className="px-4 py-4 text-[#4f70e7]">{transfer.toWarehouse}</td>
+                  <td className="px-4 py-4 text-[#4f71dc]">{transfer.fromWarehouse}</td>
+                  <td className="px-4 py-4 text-[#4f71dc]">{transfer.toWarehouse}</td>
                   <td className="px-4 py-4">{transfer.createdBy}</td>
                   <td className="px-4 py-4">{transfer.createdAt}</td>
                   <td className="px-4 py-4">{transfer.deliveredAt}</td>
                   <td className="px-4 py-4">
                     <div>{number(transfer.amount)}</div>
-                    <div className="text-[#4f70e7]">{number(transfer.weight)} кг</div>
+                    <div className="text-[#4f71dc]">{number(transfer.weight)} кг</div>
                   </td>
                   <td className="px-4 py-4">
                     <span className="inline-flex items-center gap-2">
@@ -301,11 +301,11 @@ function TransferDetail({
         <h3 className="text-xl font-semibold">Передача № {transfer.id}</h3>
         <div className="flex items-center gap-5 text-[#586174]">
           <Clock className="h-5 w-5" />
-          <ListChecks className="h-5 w-5 text-[#4f70e7]" />
+          <ListChecks className="h-5 w-5 text-[#4f71dc]" />
           <RefreshCw className="h-5 w-5" />
           <Download className="h-5 w-5" />
           <Printer className="h-5 w-5" />
-          <button onClick={onEdit} className="flex items-center gap-2 rounded-md bg-[#4f70e7] px-4 py-2 font-semibold text-white"><Pencil className="h-4 w-4" /> Изменить</button>
+          <button onClick={onEdit} className="flex items-center gap-2 rounded-md bg-[#4f71dc] px-4 py-2 font-semibold text-white"><Pencil className="h-4 w-4" /> Изменить</button>
           <button onClick={onDelete} className="flex items-center gap-2 rounded-md bg-[#f28b82] px-4 py-2 font-semibold text-white"><Trash2 className="h-4 w-4" /> Удалить</button>
         </div>
       </div>
@@ -323,7 +323,7 @@ function TransferDetail({
           <Row label="Водитель:" value={transfer.driver || "Не указано"} />
         </dl>
         <dl className="space-y-3 text-[15px]">
-          <Row label="Статус:" value={transfer.status === "принят" ? "Принят" : transfer.status === "потвержден" ? "Потвержден" : "Отменен"} valueClass="text-[#4f70e7]" />
+          <Row label="Статус:" value={transfer.status === "принят" ? "Принят" : transfer.status === "потвержден" ? "Потвержден" : "Отменен"} valueClass="text-[#4f71dc]" />
           <Row label="Дата доставки:" value={transfer.deliveredAt} />
           <Row label="Дата создания:" value={transfer.createdAt} />
           <Row label="Дата приемки:" value="Не указано" />
@@ -333,8 +333,8 @@ function TransferDetail({
       </div>
 
       <div className="mb-4 flex gap-8 border-b border-[#e1e5eb]">
-        <button onClick={() => onTabChange("items")} className={`border-b-2 pb-3 font-medium ${tab === "items" ? "border-[#4f70e7] text-[#17233b]" : "border-transparent text-[#9aa3b6]"}`}>Товары</button>
-        <button onClick={() => onTabChange("logs")} className={`border-b-2 pb-3 font-medium ${tab === "logs" ? "border-[#4f70e7] text-[#17233b]" : "border-transparent text-[#9aa3b6]"}`}>Логи</button>
+        <button onClick={() => onTabChange("items")} className={`border-b-2 pb-3 font-medium ${tab === "items" ? "border-[#4f71dc] text-[#17233b]" : "border-transparent text-[#9aa3b6]"}`}>Товары</button>
+        <button onClick={() => onTabChange("logs")} className={`border-b-2 pb-3 font-medium ${tab === "logs" ? "border-[#4f71dc] text-[#17233b]" : "border-transparent text-[#9aa3b6]"}`}>Логи</button>
       </div>
 
       {tab === "items" ? (
@@ -560,9 +560,9 @@ function TransferFormModal({
       <footer className="flex items-center justify-between border-t px-9 py-5">
         <div className="flex items-center gap-6 text-[15px]">
           <span className="text-[#586174]">Сумма: <b className="text-[#17233b]">{number(totalSum)}</b></span>
-          <span className="text-[#586174]">Общее кол-во: <b className="text-[#4f70e7]">{number(totalQuantity)} ед</b></span>
+          <span className="text-[#586174]">Общее кол-во: <b className="text-[#4f71dc]">{number(totalQuantity)} ед</b></span>
         </div>
-        <button onClick={submit} className="font-bold uppercase tracking-wide text-[#4f70e7]">Добавить</button>
+        <button onClick={submit} className="font-bold uppercase tracking-wide text-[#4f71dc]">Добавить</button>
       </footer>
     </div>
   )

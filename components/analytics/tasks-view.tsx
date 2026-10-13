@@ -191,18 +191,18 @@ export function TasksView() {
   ]
 
   return (
-    <main className="min-h-[calc(100vh-4rem)] bg-[#f1f4f8] px-9 py-5">
+    <main className="min-h-[calc(100vh-4rem)] bg-[#f2f5f8] px-7 pb-7">
       <header className="mb-5 flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-bold text-slate-600">
-          <FavoritesButton className="inline-flex items-center gap-2 text-[#4f70e7]" />
+          <FavoritesButton className="inline-flex items-center gap-2 text-[#4f71dc]" />
           <span className="mx-2 text-slate-400">|</span> Задачи
         </h1>
         <div className="flex items-center gap-3">
           <input ref={importInputRef} type="file" accept=".csv,.xls,.xlsx" onChange={pickImportFile} className="hidden" />
-          <button type="button" onClick={() => setImportOpen(true)} className="inline-flex items-center gap-2 rounded bg-[#4f70e7] px-5 py-2.5 font-semibold text-white hover:brightness-95">
+          <button type="button" onClick={() => setImportOpen(true)} className="inline-flex items-center gap-2 rounded bg-[#4f71dc] px-5 py-2.5 font-semibold text-white hover:brightness-95">
             <BarChart3 className="h-4 w-4" /> Импортировать
           </button>
-          <button type="button" onClick={() => { setDraft(emptyDraft()); setEditing("new") }} className="inline-flex items-center gap-2 rounded bg-[#6ccd8b] px-5 py-2.5 font-semibold text-white hover:brightness-95">
+          <button type="button" onClick={() => { setDraft(emptyDraft()); setEditing("new") }} className="inline-flex items-center gap-2 rounded bg-[#71ce87] px-5 py-2.5 font-semibold text-white hover:brightness-95">
             <PlusCircle className="h-4 w-4" /> Добавить
           </button>
         </div>
@@ -215,7 +215,7 @@ export function TasksView() {
               key={item.key}
               type="button"
               onClick={() => { setTab(item.key); setPage(1) }}
-              className={`flex-1 border-b-2 py-4 text-[15px] font-medium ${tab === item.key ? "border-[#4f70e7] text-[#4f70e7]" : "border-transparent text-slate-600 hover:text-slate-800"}`}
+              className={`flex-1 border-b-2 py-4 text-[15px] font-medium ${tab === item.key ? "border-[#4f71dc] text-[#4f71dc]" : "border-transparent text-slate-600 hover:text-slate-800"}`}
             >
               {item.label}
             </button>
@@ -226,7 +226,7 @@ export function TasksView() {
           {filterActive ? (
             <div className="flex items-center gap-2 rounded-md bg-[#f6f9fc] px-4 py-2 text-[#586174]">
               Фильтр: 1 элемента
-              <button type="button" onClick={() => setFilterEditOpen((value) => !value)} aria-label="Изменить фильтр"><Pencil className="h-4 w-4 text-[#9aa3b6] hover:text-[#4f70e7]" /></button>
+              <button type="button" onClick={() => setFilterEditOpen((value) => !value)} aria-label="Изменить фильтр"><Pencil className="h-4 w-4 text-[#9aa3b6] hover:text-[#4f71dc]" /></button>
               <button type="button" onClick={() => setFilterActive(false)} aria-label="Очистить фильтр"><X className="h-5 w-5 rounded-full border border-[#9aa3b6] p-0.5 text-[#9aa3b6] hover:text-[#e5484d]" /></button>
               {filterEditOpen && (
                 <div className="absolute left-5 top-full z-20 mt-2 w-64 border border-slate-200 bg-white p-4 shadow-xl">
@@ -237,15 +237,15 @@ export function TasksView() {
                       {stores.map((item) => <option key={item}>{item}</option>)}
                     </select>
                   </label>
-                  <button type="button" onClick={() => setFilterEditOpen(false)} className="mt-4 w-full rounded bg-[#626b7e] py-2 text-sm font-semibold text-white">Применить</button>
+                  <button type="button" onClick={() => setFilterEditOpen(false)} className="mt-4 w-full rounded bg-[#5d6474] py-2 text-sm font-semibold text-white">Применить</button>
                 </div>
               )}
             </div>
           ) : (
-            <button type="button" onClick={() => setFilterActive(true)} className="text-[#4f70e7]">Показать фильтр⌄</button>
+            <button type="button" onClick={() => setFilterActive(true)} className="text-[#4f71dc]">Показать фильтр⌄</button>
           )}
           <label className="relative ml-auto w-64">
-            <input value={query} onChange={(event) => { setQuery(event.target.value); setPage(1) }} placeholder="Поиск" className="w-full border-b border-slate-300 py-2 pr-10 outline-none focus:border-[#4f70e7]" />
+            <input value={query} onChange={(event) => { setQuery(event.target.value); setPage(1) }} placeholder="Поиск" className="w-full border-b border-slate-300 py-2 pr-10 outline-none focus:border-[#4f71dc]" />
             <Search className="absolute right-2 top-2 h-5 w-5 text-slate-300" />
           </label>
           <span className="text-slate-500">25</span>
@@ -263,7 +263,7 @@ export function TasksView() {
         {loadError && <p className="px-5 pb-3 text-sm text-red-500">{loadError}</p>}
 
         <table className="w-full text-left">
-          <thead className="bg-[#626b7e] text-white">
+          <thead className="bg-[#5d6474] text-white">
             <tr>
               <th className="px-9 py-5">№</th>
               <th className="px-5 py-5">Ответственный</th>
@@ -277,7 +277,7 @@ export function TasksView() {
             {visible.map((task) => (
               <tr key={task.id} className="border-b border-dashed border-slate-300 hover:bg-slate-50">
                 <td className="px-9 py-4">{task.id}</td>
-                <td className="px-5 py-4 text-[#4f70e7]">{task.responsible}</td>
+                <td className="px-5 py-4 text-[#4f71dc]">{task.responsible}</td>
                 <td className="px-5 py-4">{task.date}</td>
                 <td className="px-5 py-4">{task.store}</td>
                 <td className="px-5 py-4">{task.description}</td>
@@ -287,7 +287,7 @@ export function TasksView() {
                     onClick={() => cycleStatus(task.id)}
                     aria-label={`Статус: ${statusLabels[task.status]}`}
                     title={statusLabels[task.status]}
-                    className={task.status === "in_progress" ? "text-amber-500" : task.status === "fulfilled" ? "text-[#6ccd8b]" : "text-slate-400"}
+                    className={task.status === "in_progress" ? "text-amber-500" : task.status === "fulfilled" ? "text-[#71ce87]" : "text-slate-400"}
                   >
                     <Clock3 className="h-5 w-5" />
                   </button>
@@ -350,14 +350,14 @@ export function TasksView() {
               <button
                 type="button"
                 onClick={() => importInputRef.current?.click()}
-                className="flex w-full flex-col items-center justify-center gap-3 rounded border-2 border-dashed border-slate-300 py-10 text-slate-500 hover:border-[#4f70e7] hover:text-[#4f70e7]"
+                className="flex w-full flex-col items-center justify-center gap-3 rounded border-2 border-dashed border-slate-300 py-10 text-slate-500 hover:border-[#4f71dc] hover:text-[#4f71dc]"
               >
                 <FileText className="h-8 w-8" />
                 {importFile ? importFile.name : "Добавьте файл Excel или нажмите для выбора"}
               </button>
             </div>
             <footer className="flex justify-end border-t p-5">
-              <button type="button" disabled={!importFile || importSaving} onClick={saveImport} className="rounded bg-[#6ccd8b] px-5 py-3 font-semibold text-white hover:brightness-95 disabled:opacity-40">
+              <button type="button" disabled={!importFile || importSaving} onClick={saveImport} className="rounded bg-[#71ce87] px-5 py-3 font-semibold text-white hover:brightness-95 disabled:opacity-40">
                 {importSaving ? "Импорт..." : "Сохранить"}
               </button>
             </footer>

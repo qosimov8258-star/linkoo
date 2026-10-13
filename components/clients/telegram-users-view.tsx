@@ -1,7 +1,45 @@
 "use client"
-import { Download, ListFilter, Search, ChevronLeft, ChevronRight, MinusCircle } from "lucide-react"
-import { useMemo, useState } from "react"
-import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
+
+import { useState } from "react"
+
+import { RI, RefIconButton, SimpleListPage } from "@/components/ref/list-kit"
 import { useLanguage } from "@/lib/i18n/language-context"
-const users: string[][] = []
-export function TelegramUsersView(){const {t}=useLanguage();const[q,setQ]=useState("");const[filters,setFilters]=useState(false);const[list,setList]=useState(users);const rows=useMemo(()=>list.filter(x=>x[1].toLowerCase().includes(q.toLowerCase())||x[2].toLowerCase().includes(q.toLowerCase())),[list,q]);const download=()=>{const a=document.createElement("a");a.href="data:text/csv;charset=utf-8,"+encodeURIComponent(rows.map(x=>x.join(";")).join("\n"));a.download="telegram-users.csv";a.click()};return <main className="min-h-[calc(100vh-4rem)] bg-[#f1f4f8] px-9 py-5"><h1 className="mb-5 text-2xl font-bold text-slate-600"><FavoritesButton className="text-[#4f70e7]" /> <span className="mx-2">|</span> {t("Пользователи Телеграм бота")}</h1><section className="overflow-hidden rounded bg-white shadow"><div className="flex items-center gap-5 px-2 py-3"><button onClick={()=>setFilters(!filters)} className="rounded bg-[#4f70e7] px-5 py-3 font-semibold text-white"><ListFilter className="mr-2 inline h-4 w-4"/>{t("Показать фильтр")}</button><label className="relative ml-56 w-[375px]"><input value={q} onChange={e=>setQ(e.target.value)} placeholder={t("Поиск")} className="w-full border-b py-3 pr-10 outline-none"/><Search className="absolute right-2 top-3 text-slate-300"/></label><span className="ml-auto">25</span><span>1 - {rows.length} {t("из")} {rows.length}</span><ChevronLeft/><ChevronRight/><button onClick={download}><Download/></button></div>{filters&&<div className="flex gap-4 border-t bg-slate-50 p-5"><input placeholder={t("Клиент")} className="border p-2"/><button onClick={()=>setFilters(false)} className="bg-[#626b7e] px-4 text-white">{t("Применить")}</button></div>}<table className="w-full text-left"><thead className="bg-[#626b7e] text-white"><tr>{["№","Пользователь","Клиент","Телефон","Язык пользователя","Первое обращение","Последнее обращение",""] .map(h=><th key={h} className="px-9 py-4">{t(h)}</th>)}</tr></thead><tbody>{rows.map((u,i)=><tr key={u[0]} className="border-b border-dashed border-slate-300"><td className="px-9 py-3">{u[0]}</td><td className="px-5 py-3"><b>{u[1]}</b><span className="block text-[#4f70e7]">{u[2]}</span></td><td className="px-5 py-3 text-[#4f70e7]">{u[3]}</td><td className="px-5 py-3">{u[4]}</td><td className="px-5 py-3">{u[5]}</td><td className="px-5 py-3">{u[6]}</td><td className="px-5 py-3">{u[7]}</td><td className="px-5 py-3">{i===1&&<button onClick={()=>setList(x=>x.filter(y=>y[0]!==u[0]))}><MinusCircle className="text-red-400"/></button>}</td></tr>)}</tbody></table></section></main>}
+
+type TgUser = { id: string; name: string; handle: string; client: string; phone: string; lang: string; first: string; last: string }
+
+export function TelegramUsersView() {
+  const { t } = useLanguage()
+  const [list, setList] = useState<TgUser[]>([])
+
+  function download() {
+    const a = document.createElement("a")
+    a.href = "data:text/csv;charset=utf-8," + encodeURIComponent(list.map((u) => [u.id, u.name, u.handle, u.client, u.phone, u.lang, u.first, u.last].join(";")).join("\n"))
+    a.download = "telegram-users.csv"
+    a.click()
+  }
+
+  return (
+    <SimpleListPage
+      title={t("Пользователи Телеграм бота")}
+      cols="minmax(0,120fr) minmax(0,180fr) minmax(0,150fr) minmax(0,140fr) minmax(0,110fr) minmax(0,150fr) minmax(0,150fr) minmax(0,40fr)"
+      heads={[t("№"), t("Пользователь"), t("Клиент"), t("Телефон"), t("Язык пользователя"), t("Первое обращение"), t("Последнее обращение"), ""]}
+      rows={list}
+      rowKey={(u) => u.id}
+      searchText={(u) => `${u.name} ${u.handle} ${u.client}`}
+      filterPanel={<div className="w-64 border border-slate-200 bg-white p-4 text-[13px] shadow-xl">{t("Используйте поиск для фильтрации")}</div>}
+      icons={<RefIconButton path={RI.download} label={t("Скачать")} onClick={download} />}
+      render={(u) => [
+        u.id,
+        <><b className="font-semibold">{u.name}</b><br /><span className="text-[#4f71dc]">{u.handle}</span></>,
+        <span key="c" className="text-[#4f71dc]">{u.client}</span>,
+        u.phone,
+        u.lang,
+        u.first,
+        u.last,
+        <button key="d" aria-label={t("Удалить")} onClick={() => setList((current) => current.filter((x) => x.id !== u.id))}>
+          <svg viewBox="0 0 24 24" className="h-5 w-5 fill-[#ef5350]"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm5 11H7v-2h10v2z" /></svg>
+        </button>,
+      ]}
+    />
+  )
+}

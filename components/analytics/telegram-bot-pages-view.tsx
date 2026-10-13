@@ -84,10 +84,10 @@ export function TelegramBotPagesView() {
   }
 
   return (
-    <main className="min-h-[calc(100vh-4rem)] bg-[#f1f4f8] px-9 py-5">
+    <main className="min-h-[calc(100vh-4rem)] bg-[#f2f5f8] px-7 pb-7">
       <header className="mb-5">
         <h1 className="text-2xl font-bold text-slate-600">
-          <FavoritesButton className="inline-flex items-center gap-2 text-[#4f70e7]" />
+          <FavoritesButton className="inline-flex items-center gap-2 text-[#4f71dc]" />
           <span className="mx-2 text-slate-400">|</span> Страницы телеграм бота
         </h1>
       </header>
@@ -95,7 +95,7 @@ export function TelegramBotPagesView() {
       <section className="overflow-hidden rounded bg-white shadow">
         <div className="flex flex-wrap items-center gap-4 px-5 py-3">
           <label className="relative w-64">
-            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Поиск" className="w-full border-b border-slate-300 py-3 pr-10 outline-none focus:border-[#4f70e7]" />
+            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Поиск" className="w-full border-b border-slate-300 py-3 pr-10 outline-none focus:border-[#4f71dc]" />
             <Search className="absolute right-2 top-3 h-5 w-5 text-slate-300" />
           </label>
           <span className="ml-auto text-slate-500">25</span>
@@ -107,7 +107,7 @@ export function TelegramBotPagesView() {
         </div>
 
         <table className="w-full text-left">
-          <thead className="bg-[#626b7e] text-white">
+          <thead className="bg-[#5d6474] text-white">
             <tr>
               <th className="px-9 py-5">Ключ</th>
               <th className="px-5 py-5">Заголовок</th>
@@ -130,7 +130,7 @@ export function TelegramBotPagesView() {
                       <div className="p-8">
                         <div className="mb-6 flex items-center justify-between">
                           <h2 className="text-2xl font-semibold text-slate-800">{page.title}</h2>
-                          <button type="button" onClick={() => openEdit(page)} aria-label="Изменить" className="text-slate-500 hover:text-[#4f70e7]">
+                          <button type="button" onClick={() => openEdit(page)} aria-label="Изменить" className="text-slate-500 hover:text-[#4f71dc]">
                             <Pencil className="h-5 w-5" />
                           </button>
                         </div>
@@ -140,7 +140,7 @@ export function TelegramBotPagesView() {
                               key={tab.key}
                               type="button"
                               onClick={() => setLang(tab.key)}
-                              className={`border-b-2 pb-3 text-base font-medium ${lang === tab.key ? "border-[#4f70e7] text-[#4f70e7]" : "border-transparent text-slate-500 hover:text-slate-700"}`}
+                              className={`border-b-2 pb-3 text-base font-medium ${lang === tab.key ? "border-[#4f71dc] text-[#4f71dc]" : "border-transparent text-slate-500 hover:text-slate-700"}`}
                             >
                               {tab.label}
                             </button>
@@ -159,7 +159,7 @@ export function TelegramBotPagesView() {
                           </div>
                           <div>
                             <p className="mb-2 font-semibold text-slate-800">Содержание:</p>
-                            <p className="whitespace-pre-line text-[#4f70e7]">{page.content[lang]}</p>
+                            <p className="whitespace-pre-line text-[#4f71dc]">{page.content[lang]}</p>
                           </div>
                         </div>
                       </div>
@@ -210,7 +210,7 @@ export function TelegramBotPagesView() {
               ))}
             </div>
             <footer className="flex justify-end border-t p-5">
-              <button type="submit" disabled={saving} className="rounded bg-[#6ccd8b] px-5 py-3 font-semibold text-white hover:brightness-95 disabled:opacity-60">
+              <button type="submit" disabled={saving} className="rounded bg-[#71ce87] px-5 py-3 font-semibold text-white hover:brightness-95 disabled:opacity-60">
                 {saving ? "Сохранение..." : "Сохранить"}
               </button>
             </footer>

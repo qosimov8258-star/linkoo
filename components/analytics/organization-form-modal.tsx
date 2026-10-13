@@ -76,13 +76,13 @@ export function OrganizationFormModal({
             {touched && !draft.name.trim() && <p className="mt-1 text-sm text-rose-500">{t("Обязательное поле")}</p>}
           </label>
           <label className="flex items-center gap-2">
-            <input type="checkbox" checked={draft.limitByDebt} onChange={(event) => setDraft((value) => ({ ...value, limitByDebt: event.target.checked }))} className="h-4 w-4 accent-[#4f70e7]" />
+            <input type="checkbox" checked={draft.limitByDebt} onChange={(event) => setDraft((value) => ({ ...value, limitByDebt: event.target.checked }))} className="h-4 w-4 accent-[#4f71dc]" />
             {t("Ограничить по долгу клиента")}
           </label>
           {error && <p className="text-sm font-medium text-rose-600">{error}</p>}
         </div>
         <footer className="flex justify-end border-t p-5">
-          <button type="submit" disabled={saving} className="rounded bg-[#6ccd8b] px-6 py-3 font-semibold text-white hover:brightness-95 disabled:opacity-60">
+          <button type="submit" disabled={saving} className="rounded bg-[#71ce87] px-6 py-3 font-semibold text-white hover:brightness-95 disabled:opacity-60">
             {saving ? t("Сохранение...") : t("Сохранить")}
           </button>
         </footer>

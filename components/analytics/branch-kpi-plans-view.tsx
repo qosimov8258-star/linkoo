@@ -139,7 +139,7 @@ export function BranchKpiPlansView() {
             setRecalculating(true)
             window.setTimeout(() => setRecalculating(false), 600)
           }}
-          className="rounded-md bg-[#6ccd8b] px-6 py-2.5 font-bold text-white"
+          className="rounded-md bg-[#71ce87] px-6 py-2.5 font-bold text-white"
         >
           <RefreshCw className={`mr-2 inline h-5 w-5 ${recalculating ? "animate-spin" : ""}`} />
           Перерасчет KPI
@@ -198,7 +198,7 @@ export function BranchKpiPlansView() {
         </div>
 
         <table className="w-full text-left">
-          <thead className="bg-[#626b7e] text-white">
+          <thead className="bg-[#5d6474] text-white">
             <tr>
               {selectMode && <th className="w-10 px-5 py-5" />}
               <th className="px-9 py-5">Филиал</th>
@@ -245,7 +245,7 @@ export function BranchKpiPlansView() {
                         </div>
                         <div className="overflow-x-auto">
                           <table className="w-full min-w-[1000px] text-left text-sm">
-                            <thead className="bg-[#4f70e7] text-white">
+                            <thead className="bg-[#4f71dc] text-white">
                               <tr>
                                 {kpiColumns.map((column) => (
                                   <th key={column} className="px-4 py-3 font-semibold">

@@ -208,7 +208,7 @@ export function SupplierFormModal({
                 </div>
               </div>
             ))}
-            <button type="button" onClick={addContact} className="mt-3 text-sm text-[#4f70e7] hover:underline">
+            <button type="button" onClick={addContact} className="mt-3 text-sm text-[#4f71dc] hover:underline">
               + {t("добавить контакт")}
             </button>
           </div>
@@ -217,7 +217,7 @@ export function SupplierFormModal({
         </div>
 
         <footer className="flex justify-end border-t p-5">
-          <button type="submit" disabled={saving} className="rounded bg-[#6ccd8b] px-6 py-3 font-semibold text-white hover:brightness-95 disabled:opacity-60">
+          <button type="submit" disabled={saving} className="rounded bg-[#71ce87] px-6 py-3 font-semibold text-white hover:brightness-95 disabled:opacity-60">
             {saving ? t("Сохранение...") : t("Сохранить")}
           </button>
         </footer>
@@ -235,7 +235,7 @@ export function SupplierFormModal({
               <input autoFocus value={newCategoryName} onChange={(event) => setNewCategoryName(event.target.value)} className="mt-2 block w-full outline-none" />
             </label>
             <div className="mt-5 flex justify-end">
-              <button type="submit" className="rounded bg-[#6ccd8b] px-5 py-2.5 font-semibold text-white hover:brightness-95">{t("Сохранить")}</button>
+              <button type="submit" className="rounded bg-[#71ce87] px-5 py-2.5 font-semibold text-white hover:brightness-95">{t("Сохранить")}</button>
             </div>
           </form>
         </div>

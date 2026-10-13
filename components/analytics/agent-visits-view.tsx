@@ -185,7 +185,7 @@ export function AgentVisitsView({ supervisorMode = false }: { supervisorMode?: b
           <button
             type="button"
             onClick={downloadCsv}
-            className="inline-flex items-center gap-2 rounded-md bg-[#6ccd8b] px-5 py-2.5 font-semibold text-white hover:brightness-95"
+            className="inline-flex items-center gap-2 rounded-md bg-[#71ce87] px-5 py-2.5 font-semibold text-white hover:brightness-95"
           >
             <Download className="h-5 w-5" />
             Скачать Excel
@@ -228,7 +228,7 @@ export function AgentVisitsView({ supervisorMode = false }: { supervisorMode?: b
           <button
             type="submit"
             disabled={draftFrom > draftTo}
-            className="mt-3 w-full rounded-md bg-[#6ccd8b] py-3 font-bold text-white hover:brightness-95 disabled:opacity-50"
+            className="mt-3 w-full rounded-md bg-[#71ce87] py-3 font-bold text-white hover:brightness-95 disabled:opacity-50"
           >
             Применить
           </button>

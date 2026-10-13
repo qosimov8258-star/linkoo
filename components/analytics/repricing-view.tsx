@@ -87,7 +87,7 @@ export function RepricingView() {
     <main className="min-h-screen bg-white text-[#17233b]">
       <header className="flex flex-wrap items-center justify-between gap-4 border-b border-[#e1e5eb] px-6 py-5 md:px-9">
         <div className="flex items-center gap-3">
-          <FavoritesButton className="flex items-center gap-3 text-2xl font-bold text-[#4f70e7]" />
+          <FavoritesButton className="flex items-center gap-3 text-2xl font-bold text-[#4f71dc]" />
           <span className="text-3xl font-light text-[#586174]">|</span>
           <span className="text-2xl font-bold text-[#586174]">Переоценка</span>
         </div>
@@ -122,7 +122,7 @@ export function RepricingView() {
         <button disabled={safePage === 1} onClick={() => setPage((value) => Math.max(1, value - 1))} className="rounded-full border border-[#dbe0e8] p-1 text-[#9aa3b6] disabled:opacity-40">
           <ChevronLeft className="h-5 w-5" />
         </button>
-        <button disabled={safePage === maxPage} onClick={() => setPage((value) => Math.min(maxPage, value + 1))} className="rounded-full border border-[#4f70e7] p-1 text-[#4f70e7] disabled:opacity-40">
+        <button disabled={safePage === maxPage} onClick={() => setPage((value) => Math.min(maxPage, value + 1))} className="rounded-full border border-[#4f71dc] p-1 text-[#4f71dc] disabled:opacity-40">
           <ChevronRight className="h-5 w-5" />
         </button>
       </section>
@@ -157,7 +157,7 @@ export function RepricingView() {
 
       <section className="overflow-x-auto">
         <table className="min-w-[1200px] w-full border-collapse text-[15px]">
-          <thead className="bg-[#626b7e] text-white">
+          <thead className="bg-[#5d6474] text-white">
             <tr>
               <th className="px-4 py-4 text-left font-semibold">№</th>
               <th className="px-4 py-4 text-left font-semibold">Создал</th>
@@ -178,7 +178,7 @@ export function RepricingView() {
                   <td className="px-4 py-4">{row.id}</td>
                   <td className="px-4 py-4">{row.createdBy}</td>
                   <td className="px-4 py-4">{row.createdAt}</td>
-                  <td className="px-4 py-4 font-medium text-[#4f70e7]">{row.priceList}</td>
+                  <td className="px-4 py-4 font-medium text-[#4f71dc]">{row.priceList}</td>
                   <td className="px-4 py-4 font-medium text-[#a35933]">{number(row.amount)} {row.currency}</td>
                   <td className="px-4 py-4">
                     <span className="inline-flex items-center gap-2">
@@ -364,7 +364,7 @@ function AddRevaluationModal({
           <div className="mb-4 flex items-center justify-between">
             <h3 className="font-medium text-[#586174]">Список товаров</h3>
             <input ref={importInputRef} type="file" accept=".csv,.xls,.xlsx" onChange={importFromExcel} className="hidden" />
-            <button type="button" onClick={() => importInputRef.current?.click()} className="text-sm font-medium text-[#4f70e7]"><Upload className="mr-1 inline h-4 w-4" />импортировать с excel</button>
+            <button type="button" onClick={() => importInputRef.current?.click()} className="text-sm font-medium text-[#4f71dc]"><Upload className="mr-1 inline h-4 w-4" />импортировать с excel</button>
           </div>
           <div className="rounded bg-[#f2f5f8]">
             <div className="grid grid-cols-[1fr_240px_60px] items-center gap-6 px-4 py-3 text-sm font-medium text-[#586174]">
@@ -388,14 +388,14 @@ function AddRevaluationModal({
                   placeholder="0"
                   className="border-b border-[#dbe0e8] bg-transparent py-1 text-[15px] outline-none"
                 />
-                <span className={`text-lg ${item.productId && item.price ? "text-[#4f70e7]" : "text-[#c7ccd6]"}`}>✓</span>
+                <span className={`text-lg ${item.productId && item.price ? "text-[#4f71dc]" : "text-[#c7ccd6]"}`}>✓</span>
               </div>
             ))}
           </div>
         </div>
       </div>
       <footer className="flex justify-end border-t px-9 py-5">
-        <button type="button" disabled={saving} onClick={() => void save()} className="font-bold uppercase tracking-wide text-[#4f70e7] disabled:opacity-60">
+        <button type="button" disabled={saving} onClick={() => void save()} className="font-bold uppercase tracking-wide text-[#4f71dc] disabled:opacity-60">
           {saving ? "Сохранение..." : "Сохранить"}
         </button>
       </footer>

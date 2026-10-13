@@ -299,21 +299,21 @@ export function PriceFormationView({ embedded = false }: { embedded?: boolean })
   }
 
   return (
-    <main className={embedded ? "min-w-0 flex-1" : "min-h-[calc(100vh-4rem)] bg-[#f1f4f8] px-9 py-5"}>
+    <main className={embedded ? "min-w-0 flex-1" : "min-h-[calc(100vh-4rem)] bg-[#f2f5f8] px-7 pb-7"}>
       {!embedded && (
         <header className="mb-5 flex items-center justify-between">
           <h1 className="flex items-center text-2xl font-bold text-slate-600">
-            <FavoritesButton className="inline-flex items-center gap-2 text-[#4f70e7]" />
+            <FavoritesButton className="inline-flex items-center gap-2 text-[#4f71dc]" />
             <span className="mx-2 text-slate-400">|</span> {t("Формирование цен")}
           </h1>
           <div className="flex items-center gap-3">
-            <button type="button" onClick={downloadView2} className="inline-flex items-center gap-2 rounded bg-[#4f70e7] px-4 py-2.5 font-semibold text-white hover:brightness-95">
+            <button type="button" onClick={downloadView2} className="inline-flex items-center gap-2 rounded bg-[#4f71dc] px-4 py-2.5 font-semibold text-white hover:brightness-95">
               <BarChart3 className="h-4 w-4" /> {t("Скачать вид 2")}
             </button>
-            <button type="button" onClick={downloadList} className="inline-flex items-center gap-2 rounded bg-[#4f70e7] px-4 py-2.5 font-semibold text-white hover:brightness-95">
+            <button type="button" onClick={downloadList} className="inline-flex items-center gap-2 rounded bg-[#4f71dc] px-4 py-2.5 font-semibold text-white hover:brightness-95">
               <BarChart3 className="h-4 w-4" /> {t("Скачать")}
             </button>
-            <button type="button" onClick={openAddPrice} className="inline-flex items-center gap-2 rounded bg-[#6ccd8b] px-5 py-2.5 font-semibold text-white hover:brightness-95">
+            <button type="button" onClick={openAddPrice} className="inline-flex items-center gap-2 rounded bg-[#71ce87] px-5 py-2.5 font-semibold text-white hover:brightness-95">
               <DollarSign className="h-4 w-4" /> {t("Добавить цену")}
             </button>
           </div>
@@ -322,7 +322,7 @@ export function PriceFormationView({ embedded = false }: { embedded?: boolean })
 
       <section className="overflow-hidden rounded bg-white shadow">
         <div className="flex flex-wrap items-center gap-4 px-5 py-3">
-          <button type="button" onClick={() => setFilterOpen((value) => !value)} className="inline-flex items-center gap-1 text-[#4f70e7] hover:underline">
+          <button type="button" onClick={() => setFilterOpen((value) => !value)} className="inline-flex items-center gap-1 text-[#4f71dc] hover:underline">
             {t("Показать фильтр")} <ChevronDown className={`h-4 w-4 transition-transform ${filterOpen ? "rotate-180" : ""}`} />
           </button>
         </div>
@@ -374,7 +374,7 @@ export function PriceFormationView({ embedded = false }: { embedded?: boolean })
 
         <div className="flex flex-wrap items-center gap-4 px-5 py-3">
           <label className="relative w-64">
-            <input value={query} onChange={(event) => { setQuery(event.target.value); setPage(1) }} placeholder={t("Поиск")} className="w-full border-b border-slate-300 py-2 pr-10 outline-none focus:border-[#4f70e7]" />
+            <input value={query} onChange={(event) => { setQuery(event.target.value); setPage(1) }} placeholder={t("Поиск")} className="w-full border-b border-slate-300 py-2 pr-10 outline-none focus:border-[#4f71dc]" />
             <Search className="absolute right-2 top-2 h-5 w-5 text-slate-300" />
           </label>
           <span className="ml-auto text-slate-500">25</span>
@@ -387,18 +387,18 @@ export function PriceFormationView({ embedded = false }: { embedded?: boolean })
           <button type="button" onClick={() => setPage((value) => Math.min(pageCount, value + 1))} disabled={safePage >= pageCount} aria-label={t("Вперед")} className="disabled:opacity-30">
             <ChevronRight className="h-5 w-5 text-slate-400" />
           </button>
-          <button type="button" onClick={downloadList} aria-label={t("Скачать")} className="text-slate-500 hover:text-[#4f70e7]">
+          <button type="button" onClick={downloadList} aria-label={t("Скачать")} className="text-slate-500 hover:text-[#4f71dc]">
             <Upload className="h-5 w-5 rotate-180" />
           </button>
           {embedded && (
-            <button type="button" onClick={openAddPrice} className="inline-flex items-center gap-2 rounded bg-[#6ccd8b] px-4 py-2 text-sm font-semibold text-white hover:brightness-95">
+            <button type="button" onClick={openAddPrice} className="inline-flex items-center gap-2 rounded bg-[#71ce87] px-4 py-2 text-sm font-semibold text-white hover:brightness-95">
               <DollarSign className="h-4 w-4" /> {t("Добавить цену")}
             </button>
           )}
         </div>
 
         <table className="w-full text-left">
-          <thead className="bg-[#626b7e] text-white">
+          <thead className="bg-[#5d6474] text-white">
             <tr>
               <th className="px-9 py-5">Название</th>
               <th className="px-5 py-5">Штрих - код товара</th>
@@ -416,7 +416,7 @@ export function PriceFormationView({ embedded = false }: { embedded?: boolean })
             ) : visible.map((row) => (
               <Fragment key={row.id}>
                 <tr onClick={() => toggleExpand(row)} className="cursor-pointer border-b border-dashed border-slate-300 hover:bg-slate-50">
-                  <td className="px-9 py-4 text-[#4f70e7]">{row.name}</td>
+                  <td className="px-9 py-4 text-[#4f71dc]">{row.name}</td>
                   <td className="px-5 py-4">{row.barcode}</td>
                   <td className="px-5 py-4">{formatMoney(row.cost)}</td>
                   <td className="px-5 py-4">{formatMoney(row.priceMin)}</td>
@@ -443,7 +443,7 @@ export function PriceFormationView({ embedded = false }: { embedded?: boolean })
                                 <span className="text-slate-600">Себестоимость по умолчанию:</span>
                                 <span className="flex items-center gap-2">
                                   <input autoFocus type="number" value={defaultCostDraft} onChange={(event) => setDefaultCostDraft(event.target.value)} className="w-28 border-b border-slate-300 text-right outline-none" />
-                                  <button type="submit" className="text-sm font-semibold text-[#4f70e7]">OK</button>
+                                  <button type="submit" className="text-sm font-semibold text-[#4f71dc]">OK</button>
                                 </span>
                               </form>
                             ) : (
@@ -451,7 +451,7 @@ export function PriceFormationView({ embedded = false }: { embedded?: boolean })
                                 <span className="text-slate-600">Себестоимость по умолчанию:</span>
                                 <span className="flex items-center gap-2 font-medium">
                                   {formatMoney(expanded.cost)}
-                                  <button type="button" onClick={startEditDefaultCost} aria-label="Изменить себестоимость" className="text-slate-400 hover:text-[#4f70e7]">
+                                  <button type="button" onClick={startEditDefaultCost} aria-label="Изменить себестоимость" className="text-slate-400 hover:text-[#4f71dc]">
                                     <Pencil className="h-4 w-4" />
                                   </button>
                                 </span>
@@ -474,7 +474,7 @@ export function PriceFormationView({ embedded = false }: { embedded?: boolean })
                                 </span>
                               </p>
                               {!editingPrices && (
-                                <button type="button" onClick={startEditPrices} aria-label="Изменить цены" className="text-slate-400 hover:text-[#4f70e7]">
+                                <button type="button" onClick={startEditPrices} aria-label="Изменить цены" className="text-slate-400 hover:text-[#4f71dc]">
                                   <Pencil className="h-5 w-5" />
                                 </button>
                               )}
@@ -506,7 +506,7 @@ export function PriceFormationView({ embedded = false }: { embedded?: boolean })
                                 </table>
                                 <div className="mt-3 flex justify-end gap-3">
                                   <button type="button" onClick={() => setEditingPrices(false)} className="rounded border px-4 py-2 text-sm">Отмена</button>
-                                  <button type="submit" className="rounded bg-[#4f70e7] px-4 py-2 text-sm font-semibold text-white">Сохранить</button>
+                                  <button type="submit" className="rounded bg-[#4f71dc] px-4 py-2 text-sm font-semibold text-white">Сохранить</button>
                                 </div>
                               </form>
                             ) : (
@@ -570,13 +570,13 @@ export function PriceFormationView({ embedded = false }: { embedded?: boolean })
                 </select>
               </label>
               <label className="relative ml-auto w-72">
-                <input value={pickQuery} onChange={(event) => setPickQuery(event.target.value)} placeholder="Поиск товаров..." className="w-full border-b border-slate-300 py-2 pr-10 outline-none focus:border-[#4f70e7]" />
+                <input value={pickQuery} onChange={(event) => setPickQuery(event.target.value)} placeholder="Поиск товаров..." className="w-full border-b border-slate-300 py-2 pr-10 outline-none focus:border-[#4f71dc]" />
                 <Search className="absolute right-2 top-2 h-5 w-5 text-slate-300" />
               </label>
             </div>
             <div className="flex-1 overflow-y-auto">
               <table className="w-full text-left text-sm">
-                <thead className="sticky top-0 bg-[#626b7e] text-white">
+                <thead className="sticky top-0 bg-[#5d6474] text-white">
                   <tr>
                     <th className="px-6 py-3">Название</th>
                     <th className="px-6 py-3">Тип</th>
@@ -586,7 +586,7 @@ export function PriceFormationView({ embedded = false }: { embedded?: boolean })
                 <tbody>
                   {pickResults.slice(0, 200).map((product) => (
                     <tr key={product.id} onClick={() => pickProduct(product)} className="cursor-pointer border-t border-slate-100 hover:bg-slate-50">
-                      <td className="px-6 py-3 text-[#4f70e7]">{product.name}</td>
+                      <td className="px-6 py-3 text-[#4f71dc]">{product.name}</td>
                       <td className="px-6 py-3">{product.type}</td>
                       <td className="px-6 py-3">{product.brand}</td>
                     </tr>
@@ -625,7 +625,7 @@ export function PriceFormationView({ embedded = false }: { embedded?: boolean })
                 <input type="radio" checked={importMode === "excel"} onChange={() => setImportMode("excel")} /> Импортировать с excel
               </label>
               {importMode === "excel" && (
-                <button type="button" onClick={downloadPriceImportTemplate} className="ml-6 text-sm font-semibold text-[#4f70e7] hover:underline">
+                <button type="button" onClick={downloadPriceImportTemplate} className="ml-6 text-sm font-semibold text-[#4f71dc] hover:underline">
                   Скачать шаблон
                 </button>
               )}
@@ -635,8 +635,8 @@ export function PriceFormationView({ embedded = false }: { embedded?: boolean })
             </div>
             <input ref={importInputRef} type="file" accept=".csv,.xls,.xlsx,text/csv" onChange={importPricesFromExcel} className="hidden" />
             <div className="flex justify-end gap-4">
-              <button type="button" onClick={() => setAddStage(null)} className="font-semibold text-[#4f70e7]">Отмена</button>
-              <button type="submit" className="font-semibold text-[#4f70e7]">Далее</button>
+              <button type="button" onClick={() => setAddStage(null)} className="font-semibold text-[#4f71dc]">Отмена</button>
+              <button type="submit" className="font-semibold text-[#4f71dc]">Далее</button>
             </div>
           </form>
         </div>
@@ -660,7 +660,7 @@ export function PriceFormationView({ embedded = false }: { embedded?: boolean })
               </label>
             )}
             <div className="mt-6 flex justify-end">
-              <button type="submit" className="rounded bg-[#6ccd8b] px-6 py-3 font-semibold text-white hover:brightness-95">Сохранить</button>
+              <button type="submit" className="rounded bg-[#71ce87] px-6 py-3 font-semibold text-white hover:brightness-95">Сохранить</button>
             </div>
           </form>
         </div>

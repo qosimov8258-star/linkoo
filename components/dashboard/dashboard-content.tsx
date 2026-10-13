@@ -16,11 +16,9 @@ import { HOME_WIDGETS, loadSelectedHomeWidgets, saveSelectedHomeWidgets } from "
 import {
   MONTHS_NOMINATIVE,
   type PeriodKey,
-  endOfMonth,
   formatRangeLabel,
   parseISODate,
   rangeForPeriod,
-  startOfMonth,
   toISODate,
 } from "@/lib/dashboard-date-range"
 import type { DashboardSummary } from "@/lib/dashboard-summary-repo"
@@ -33,11 +31,11 @@ export function DashboardContent() {
   const urlEnd = searchParams.get("endDate")
   const hasUrlCustomRange = searchParams.get("typeDate") === "ownDate" && !!urlBegin && !!urlEnd
 
-  const [period, setPeriod] = useState<PeriodKey>(hasUrlCustomRange ? "СВОЯ" : "МЕСЯЦ")
+  const [period, setPeriod] = useState<PeriodKey>("СВОЯ")
   const [customBegin, setCustomBegin] = useState<Date>(() =>
-    urlBegin ? parseISODate(urlBegin) : startOfMonth(today),
+    urlBegin && hasUrlCustomRange ? parseISODate(urlBegin) : today,
   )
-  const [customEnd, setCustomEnd] = useState<Date>(() => (urlEnd ? parseISODate(urlEnd) : endOfMonth(today)))
+  const [customEnd, setCustomEnd] = useState<Date>(() => (urlEnd && hasUrlCustomRange ? parseISODate(urlEnd) : today))
 
   const { begin, end } = rangeForPeriod(period, today, { begin: customBegin, end: customEnd })
   const label = formatRangeLabel(begin, end)
@@ -86,7 +84,7 @@ export function DashboardContent() {
   }
 
   const placeholderWidgets = HOME_WIDGETS.filter(
-    (widget) => widget.kind === "placeholder" && visibleWidgets.has(widget.key),
+    (widget) => widget.kind === "placeholder" && visibleWidgets.has(widget.key) && !["agentSales", "akbTrend", "couriers"].includes(widget.key),
   )
 
   return (
@@ -95,13 +93,20 @@ export function DashboardContent() {
         period={period}
         onPeriodChange={setPeriod}
         label={label}
+        begin={beginISO}
+        end={endISO}
+        onCustomRange={(from, to) => {
+          setCustomBegin(parseISODate(from))
+          setCustomEnd(parseISODate(to))
+          setPeriod("СВОЯ")
+        }}
         selectedWidgets={selectedWidgets}
         onWidgetsChange={handleWidgetsChange}
       />
       <StatCards begin={begin} end={end} summary={summary} visible={visibleWidgets} />
       <UnitStatCards begin={begin} end={end} visible={visibleWidgets} />
 
-      <div className="grid grid-cols-1 gap-6 px-3 py-4 sm:px-6 sm:py-6 xl:grid-cols-3">
+      <div className="mt-5 grid grid-cols-1 items-start gap-4 xl:grid-cols-3">
         <LeftPanel
           month={MONTHS_NOMINATIVE[customBegin.getMonth()]}
           year={String(customBegin.getFullYear())}
@@ -112,25 +117,27 @@ export function DashboardContent() {
           summary={summary}
           showAttendance={visibleWidgets.has("visitsDelivery")}
           showKpi={visibleWidgets.has("kpi")}
+          begin={beginISO}
+          end={endISO}
         />
         {visibleWidgets.has("productCategory") && <RightPanel summary={summary} />}
       </div>
 
       {visibleWidgets.has("agentBranchVisits") && (
-        <div className="px-3 pb-4 sm:px-6 sm:pb-6">
-          <AgentBranchVisitsWidget />
+        <div className="mt-5">
+          <AgentBranchVisitsWidget showTrends={visibleWidgets.has("agentSales") || visibleWidgets.has("akbTrend")} showCouriers={visibleWidgets.has("couriers")} />
         </div>
       )}
 
       {visibleWidgets.has("cashboxes") && (
-        <div className="px-3 pb-4 sm:px-6 sm:pb-6">
+        <div className="mt-5">
           <CashboxesSummaryWidget />
         </div>
       )}
 
       {placeholderWidgets.length > 0 && (
-        <div className="px-3 pb-6 sm:px-6">
-          <div className="divide-y divide-slate-100 rounded-lg bg-white shadow-sm">
+        <div className="mt-5 pb-5">
+          <div className="space-y-5">
             {placeholderWidgets.map((widget) => (
               <ReportListRow key={widget.key} title={widget.label} />
             ))}

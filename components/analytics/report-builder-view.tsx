@@ -253,10 +253,10 @@ export function ReportBuilderView() {
   const organizationOptions = ["Все организации", ...new Set(rows.map((row) => row.organization))]
 
   return (
-    <main className="min-h-screen bg-[#f1f4f8] text-[#17233b]">
+    <main className="min-h-screen bg-[#f2f5f8] text-[#17233b]">
       <header className="flex min-h-[76px] items-center justify-between border-b border-[#d8dee7] bg-[#f2f5f8] px-6 md:px-9">
         <div className="flex items-center gap-3">
-          <FavoritesButton className="flex items-center gap-2 text-2xl font-bold text-[#4f70e7]" /><span className="text-3xl font-light text-[#586174]">|</span>
+          <FavoritesButton className="flex items-center gap-2 text-2xl font-bold text-[#4f71dc]" /><span className="text-3xl font-light text-[#586174]">|</span>
           <span className="text-2xl font-bold text-[#586174]">Конструктор</span>
         </div>
 

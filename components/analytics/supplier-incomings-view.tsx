@@ -390,25 +390,20 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
   ]
 
   return (
-    <main className={embedded ? "min-w-0 flex-1" : "min-h-[calc(100vh-4rem)] bg-[#f1f4f8] px-9 py-5"}>
+    <main className={embedded ? "min-w-0 flex-1" : "min-h-[calc(100vh-4rem)] bg-[#f2f5f8] px-7 pb-7"}>
       {!embedded && (
         <header className="mb-5 flex items-center justify-between">
           <h1 className="flex items-center text-2xl font-bold text-slate-600">
-            <FavoritesButton className="inline-flex items-center gap-2 text-[#4f70e7]" />
+            <FavoritesButton className="inline-flex items-center gap-2 text-[#4f71dc]" />
             <span className="mx-2 text-slate-400">|</span> {t("Приход от поставщиков")}
           </h1>
-          <button type="button" onClick={openCreate} className="inline-flex items-center gap-2 rounded bg-[#6ccd8b] px-5 py-2.5 font-semibold text-white hover:brightness-95">
+          <button type="button" onClick={openCreate} className="inline-flex items-center gap-2 rounded bg-[#71ce87] px-5 py-2.5 font-semibold text-white hover:brightness-95">
             <Plus className="h-4 w-4" /> {t("Добавить")}
           </button>
         </header>
       )}
 
       <section className="overflow-hidden rounded bg-white shadow">
-        <div className="flex flex-wrap items-center gap-4 border-b border-slate-100 px-5 py-3">
-          <button type="button" onClick={() => setFilterOpen((value) => !value)} className="inline-flex items-center gap-1 text-[#4f70e7] hover:underline">
-            {t("Показать фильтр")} <ChevronDown className={`h-4 w-4 transition-transform ${filterOpen ? "rotate-180" : ""}`} />
-          </button>
-        </div>
 
         {filterOpen && (
           <div className="flex flex-wrap items-center gap-4 border-b border-slate-100 bg-slate-50 px-5 py-3">
@@ -433,9 +428,14 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
           </div>
         )}
 
-        <div className="flex flex-wrap items-center gap-4 px-5 py-3">
-          <label className="relative w-64">
-            <input value={query} onChange={(event) => { setQuery(event.target.value); setPage(1) }} placeholder={t("Поиск")} className="w-full border-b border-slate-300 py-2 pr-10 outline-none focus:border-[#4f70e7]" />
+        <div className="flex h-[50px] flex-wrap items-center gap-4 px-[10px]">
+          <div className="w-[308px] shrink-0">
+          <button type="button" onClick={() => setFilterOpen((value) => !value)} className="inline-flex items-center gap-1 text-[#4f71dc] hover:underline">
+            {t("Показать фильтр")} <ChevronDown className={`h-4 w-4 transition-transform ${filterOpen ? "rotate-180" : ""}`} />
+          </button>
+          </div>
+          <label className="relative w-[248px]">
+            <input value={query} onChange={(event) => { setQuery(event.target.value); setPage(1) }} placeholder={t("Поиск")} className="w-full border-b border-slate-300 py-2 pr-10 outline-none focus:border-[#4f71dc]" />
             <Search className="absolute right-2 top-2 h-5 w-5 text-slate-300" />
           </label>
           <span className="ml-auto text-slate-500">25</span>
@@ -448,18 +448,18 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
           <button type="button" onClick={() => setPage((value) => Math.min(pageCount, value + 1))} disabled={safePage >= pageCount} aria-label={t("Вперед")} className="disabled:opacity-30">
             <ChevronRight className="h-5 w-5 text-slate-400" />
           </button>
-          <button type="button" onClick={downloadList} aria-label={t("Скачать")} className="text-slate-500 hover:text-[#4f70e7]">
+          <button type="button" onClick={downloadList} aria-label={t("Скачать")} className="text-slate-500 hover:text-[#4f71dc]">
             <Download className="h-5 w-5" />
           </button>
           {embedded && (
-            <button type="button" onClick={openCreate} className="inline-flex items-center gap-2 rounded bg-[#6ccd8b] px-4 py-2 text-sm font-semibold text-white hover:brightness-95">
+            <button type="button" onClick={openCreate} className="inline-flex items-center gap-2 rounded bg-[#71ce87] px-4 py-2 text-sm font-semibold text-white hover:brightness-95">
               <Plus className="h-4 w-4" /> {t("Добавить")}
             </button>
           )}
         </div>
 
         <table className="w-full text-left">
-          <thead className="bg-[#626b7e] text-white">
+          <thead className="bg-[#5d6474] text-white">
             <tr>
               <th className="px-9 py-5">{t("№")}</th>
               <th className="px-5 py-5">{t("Поставщик")}</th>
@@ -478,7 +478,7 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
                 {expandedId !== row.id && (
                   <tr onClick={() => toggleExpand(row)} className="cursor-pointer border-b border-dashed border-slate-300 hover:bg-slate-50">
                     <td className="px-9 py-4">{row.id}</td>
-                    <td className="px-5 py-4 text-[#4f70e7]">{row.supplier}</td>
+                    <td className="px-5 py-4 text-[#4f71dc]">{row.supplier}</td>
                     <td className="px-5 py-4">{row.warehouse}</td>
                     <td className="px-5 py-4">{row.date}</td>
                     <td className="px-5 py-4">{row.paymentType}</td>
@@ -503,13 +503,13 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
                             <span className="font-medium text-emerald-500">{row.supplier}</span>
                           </div>
                           <div className="flex items-center gap-2">
-                            <button type="button" onClick={() => setMarkupTarget(row)} className="inline-flex items-center gap-2 rounded bg-[#4f70e7] px-4 py-2 text-sm font-semibold text-white hover:brightness-95">
+                            <button type="button" onClick={() => setMarkupTarget(row)} className="inline-flex items-center gap-2 rounded bg-[#4f71dc] px-4 py-2 text-sm font-semibold text-white hover:brightness-95">
                               <Percent className="h-4 w-4" /> {t("Наценка")}
                             </button>
-                            <button type="button" onClick={() => openEdit(row)} className="inline-flex items-center gap-2 rounded bg-[#4f70e7] px-4 py-2 text-sm font-semibold text-white hover:brightness-95">
+                            <button type="button" onClick={() => openEdit(row)} className="inline-flex items-center gap-2 rounded bg-[#4f71dc] px-4 py-2 text-sm font-semibold text-white hover:brightness-95">
                               <Pencil className="h-4 w-4" /> {t("Изменить")}
                             </button>
-                            <button type="button" onClick={() => downloadRow(row)} className="inline-flex items-center gap-2 rounded bg-[#4f70e7] px-4 py-2 text-sm font-semibold text-white hover:brightness-95">
+                            <button type="button" onClick={() => downloadRow(row)} className="inline-flex items-center gap-2 rounded bg-[#4f71dc] px-4 py-2 text-sm font-semibold text-white hover:brightness-95">
                               <Download className="h-4 w-4" /> {t("Скачать")}
                             </button>
                             <button
@@ -520,10 +520,10 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
                             >
                               <Ban className="h-4 w-4" /> {t("Отменить приёмку")}
                             </button>
-                            <button type="button" onClick={() => window.print()} aria-label={t("Печать")} className="text-slate-500 hover:text-[#4f70e7]">
+                            <button type="button" onClick={() => window.print()} aria-label={t("Печать")} className="text-slate-500 hover:text-[#4f71dc]">
                               <Printer className="h-5 w-5" />
                             </button>
-                            <button type="button" onClick={() => toggleExpand(row)} aria-label={t("Свернуть")} className="text-slate-500 hover:text-[#4f70e7]">
+                            <button type="button" onClick={() => toggleExpand(row)} aria-label={t("Свернуть")} className="text-slate-500 hover:text-[#4f71dc]">
                               <X className="h-5 w-5" />
                             </button>
                           </div>
@@ -572,7 +572,7 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
                               key={tab.id}
                               type="button"
                               onClick={() => setDetailTab(tab.id)}
-                              className={`border-b-2 pb-2 text-sm font-medium ${detailTab === tab.id ? "border-[#4f70e7] text-[#4f70e7]" : "border-transparent text-slate-500 hover:text-slate-700"}`}
+                              className={`border-b-2 pb-2 text-sm font-medium ${detailTab === tab.id ? "border-[#4f71dc] text-[#4f71dc]" : "border-transparent text-slate-500 hover:text-slate-700"}`}
                             >
                               {t(tab.label)}
                             </button>
@@ -686,7 +686,7 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
             </label>
             <div className="mt-5 flex justify-end gap-3">
               <button type="button" onClick={() => setMarkupTarget(null)} className="rounded border px-4 py-2">{t("Отмена")}</button>
-              <button type="submit" className="rounded bg-[#4f70e7] px-4 py-2 font-semibold text-white">{t("Применить")}</button>
+              <button type="submit" className="rounded bg-[#4f71dc] px-4 py-2 font-semibold text-white">{t("Применить")}</button>
             </div>
           </form>
         </div>
@@ -710,7 +710,7 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
                         {supplierOptions.map((item) => <option key={item}>{item}</option>)}
                       </select>
                     </label>
-                    <button type="button" onClick={() => setQuickAddSupplierOpen(true)} className="whitespace-nowrap pb-2 text-sm font-semibold text-[#4f70e7] hover:underline">
+                    <button type="button" onClick={() => setQuickAddSupplierOpen(true)} className="whitespace-nowrap pb-2 text-sm font-semibold text-[#4f71dc] hover:underline">
                       {t("+добавить")}
                     </button>
                   </div>
@@ -728,7 +728,7 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
                         {warehouseOptions.map((item) => <option key={item}>{item}</option>)}
                       </select>
                     </label>
-                    <button type="button" onClick={() => setQuickAddWarehouseOpen(true)} className="whitespace-nowrap pb-2 text-sm font-semibold text-[#4f70e7] hover:underline">
+                    <button type="button" onClick={() => setQuickAddWarehouseOpen(true)} className="whitespace-nowrap pb-2 text-sm font-semibold text-[#4f71dc] hover:underline">
                       {t("+добавить")}
                     </button>
                   </div>
@@ -747,7 +747,7 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
                         {organizationOptions.map((item) => <option key={item}>{item}</option>)}
                       </select>
                     </label>
-                    <button type="button" onClick={() => setQuickAddOrganizationOpen(true)} className="whitespace-nowrap pb-2 text-sm font-semibold text-[#4f70e7] hover:underline">
+                    <button type="button" onClick={() => setQuickAddOrganizationOpen(true)} className="whitespace-nowrap pb-2 text-sm font-semibold text-[#4f71dc] hover:underline">
                       {t("+добавить")}
                     </button>
                   </div>
@@ -799,13 +799,13 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
                 <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
                   <p className="font-medium text-slate-800">{t("Список товаров")}</p>
                   <div className="flex items-center gap-4 text-sm">
-                    <button type="button" onClick={addBlankItem} className="inline-flex items-center gap-1 text-[#4f70e7] hover:underline">
+                    <button type="button" onClick={addBlankItem} className="inline-flex items-center gap-1 text-[#4f71dc] hover:underline">
                       <Plus className="h-4 w-4" /> {t("добавить товар")}
                     </button>
-                    <button type="button" onClick={() => { setPickerQuery(""); setPickerOpen(true) }} className="inline-flex items-center gap-1 text-[#4f70e7] hover:underline">
+                    <button type="button" onClick={() => { setPickerQuery(""); setPickerOpen(true) }} className="inline-flex items-center gap-1 text-[#4f71dc] hover:underline">
                       <ListPlus className="h-4 w-4" /> {t("добавить из списка")}
                     </button>
-                    <button type="button" onClick={() => importInputRef.current?.click()} className="inline-flex items-center gap-1 text-[#4f70e7] hover:underline">
+                    <button type="button" onClick={() => importInputRef.current?.click()} className="inline-flex items-center gap-1 text-[#4f71dc] hover:underline">
                       <Upload className="h-4 w-4" /> {t("импортировать с excel")}
                     </button>
                     <input ref={importInputRef} type="file" accept=".csv,.xls,.xlsx,text/csv" onChange={importFromExcel} className="hidden" />
@@ -817,7 +817,7 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
                     <FileSpreadsheet className="h-12 w-12" />
                     <p>
                       {t("Вы еще не выбрали ни одного товара.")}{" "}
-                      <button type="button" onClick={addBlankItem} className="text-[#4f70e7] hover:underline">
+                      <button type="button" onClick={addBlankItem} className="text-[#4f71dc] hover:underline">
                         {t("Добавить товар?")}
                       </button>
                     </p>
@@ -886,7 +886,7 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
               value={pickerQuery}
               onChange={(event) => setPickerQuery(event.target.value)}
               placeholder={t("Поиск товара...")}
-              className="mb-3 w-full border-b border-slate-300 py-2 outline-none focus:border-[#4f70e7]"
+              className="mb-3 w-full border-b border-slate-300 py-2 outline-none focus:border-[#4f71dc]"
             />
             <div className="space-y-2 overflow-y-auto">
               {productOptions.length === 0 && <p className="text-sm text-slate-400">{t("Каталог продуктов пуст")}</p>}
@@ -901,7 +901,7 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
                 ))}
             </div>
             <div className="mt-5 flex justify-end">
-              <button type="button" onClick={() => setPickerOpen(false)} className="rounded bg-[#4f70e7] px-4 py-2 font-semibold text-white">{t("Готово")}</button>
+              <button type="button" onClick={() => setPickerOpen(false)} className="rounded bg-[#4f71dc] px-4 py-2 font-semibold text-white">{t("Готово")}</button>
             </div>
           </div>
         </div>

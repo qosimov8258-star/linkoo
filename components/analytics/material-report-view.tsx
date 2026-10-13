@@ -90,7 +90,7 @@ function SortableHeader({ label, sortKey, active, dir, onSort, className = "" }:
     >
       <span className="inline-flex items-center gap-1">
         {t(label)}
-        <span className={`text-[10px] ${active ? "text-[#4f70e7]" : "text-transparent"}`}>{dir === "asc" ? "▲" : "▼"}</span>
+        <span className={`text-[10px] ${active ? "text-[#4f71dc]" : "text-transparent"}`}>{dir === "asc" ? "▲" : "▼"}</span>
       </span>
     </th>
   )
@@ -251,10 +251,10 @@ export function MaterialReportView() {
   }
 
   return (
-    <main className="min-h-screen bg-[#f1f4f8] text-[#15223a]">
+    <main className="min-h-screen bg-[#f2f5f8] text-[#15223a]">
       <header className="flex min-h-[78px] items-center border-b border-[#d8dee7] bg-[#f4f6f9] px-5 md:px-10">
         <div className="flex items-center gap-3">
-          <FavoritesButton className="flex items-center gap-2 text-2xl font-bold text-[#4f70e7]" /><span className="text-3xl font-light text-[#586174]">|</span>
+          <FavoritesButton className="flex items-center gap-2 text-2xl font-bold text-[#4f71dc]" /><span className="text-3xl font-light text-[#586174]">|</span>
           <span className="text-2xl font-bold text-[#586174]">{t("Остаток на определенную дату")}</span>
         </div>
       </header>
@@ -262,7 +262,7 @@ export function MaterialReportView() {
       <section className="bg-white px-5 py-6 md:px-10">
         <div className="flex gap-4">
           <button onClick={() => setFilterOpen(true)} className="flex h-11 items-center gap-3 rounded-md bg-[#4f70df] px-5 font-semibold text-white"><Filter className="h-5 w-5" /> {t("Фильтр")}</button>
-          <button onClick={resetFilters} className="font-semibold text-[#4f70e7]">{t("Во всей организации")}</button>
+          <button onClick={resetFilters} className="font-semibold text-[#4f71dc]">{t("Во всей организации")}</button>
           <button onClick={doExport} className="ml-auto flex h-11 items-center gap-3 rounded-md bg-[#69cd87] px-5 font-semibold text-white"><BarChart className="h-5 w-5" /> {t("Скачать")}</button>
         </div>
 
@@ -276,7 +276,7 @@ export function MaterialReportView() {
 
         <div className="mt-5 flex flex-wrap items-end gap-4">
           <div className="flex">
-            {([["quantity", "КОЛ-ВО"], ["cost", "СЕБЕСТОИМОСТЬ"], ["price", "ПРАЙС ЛИСТ"]] as const).map(([key, label]) => <button key={key} onClick={() => setMode(key)} className={`h-10 border px-5 ${mode === key ? "border-[#4f70e7] bg-[#4f70e7] text-white shadow" : "border-[#d8dde5] bg-white text-black"} first:rounded-l-md last:rounded-r-md`}>{t(label)}</button>)}
+            {([["quantity", "КОЛ-ВО"], ["cost", "СЕБЕСТОИМОСТЬ"], ["price", "ПРАЙС ЛИСТ"]] as const).map(([key, label]) => <button key={key} onClick={() => setMode(key)} className={`h-10 border px-5 ${mode === key ? "border-[#4f71dc] bg-[#4f71dc] text-white shadow" : "border-[#d8dde5] bg-white text-black"} first:rounded-l-md last:rounded-r-md`}>{t(label)}</button>)}
           </div>
           {mode === "price" && (
             <div className="relative self-center">

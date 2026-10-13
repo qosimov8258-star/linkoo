@@ -1,7 +1,7 @@
 "use client"
 
-import { Download, Filter, Plus, Search, SlidersHorizontal, X } from "lucide-react"
-import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
+import { X } from "lucide-react"
+import { RI, RefBand, RefButton, RefCard, RefHeader, RefIconButton, RefPage, RefTable, RefTabs, RefToolbar, usePaging } from "@/components/ref/list-kit"
 import { useMemo, useState } from "react"
 import { useLanguage } from "@/lib/i18n/language-context"
 
@@ -18,6 +18,7 @@ type ReturnRow = {
   accepted?: boolean
   amount: string
   agent: string
+  comment?: string
 }
 
 const warehouses = ["05,08,2025(1)", "Andijon skladi", "Suhrob sklad", "toshkent", "123 test"]
@@ -28,7 +29,7 @@ const initial: ReturnRow[] = [
   { id: 219, client: "Бахт маркет", zone: "", warehouse: "05,08,2025(1)", organization: "Lalaku", deliverer: "Admin Ritm", date: "11 мая 2026, 09:44", acceptedDate: "09 мая 2026, 09:45", creator: "Admin Ritm", agent: "MrJakhon Ziyayev", amount: "66 SUM", accepted: true },
   { id: 218, client: "loe messi", zone: "spark", warehouse: "Andijon skladi", organization: "energetik", deliverer: "N/A", date: "07 мая 2026, 13:09", creator: "Admin Ritm", agent: "Admin Ritm", amount: "1,6 USD" },
   { id: 217, client: "new klient707", zone: "", warehouse: "toshkent", organization: "energetik", deliverer: "Temur Raupov", date: "28 мар. 2026, 17:28", creator: "Admin Ritm", agent: "Temur Raupov", amount: "86 910 120 SUM" },
-  { id: 216, client: "marketsavdo1", zone: "spark", warehouse: "Suhrob sklad", organization: "Lalaku", deliverer: "MrJakhon Ziyayev", date: "04 мар. 2026, 19:08", creator: "Admin Ritm", agent: "MrJakhon Ziyayev", amount: "360 000 SUM" },
+  { id: 216, client: "marketsavdo1", zone: "spark", warehouse: "Suhrob sklad", organization: "Lalaku", deliverer: "MrJakhon Ziyayev", date: "04 мар. 2026, 19:08", creator: "Admin Ritm", agent: "MrJakhon Ziyayev", amount: "360 000 SUM", comment: "тест" },
   { id: 210, client: "Asu market", zone: "", warehouse: "Suhrob sklad", organization: "Lalaku", deliverer: "Admin Ritm", date: "20 янв. 2026, 17:22", acceptedDate: "23 янв. 2026, 16:08", creator: "Admin Ritm", agent: "Temur Raupov", amount: "6 000 SUM", accepted: true },
   { id: 205, client: "mustafo", zone: "spark", warehouse: "toshkent", organization: "energetik", deliverer: "Admin Ritm", date: "11 янв. 2026, 19:47", acceptedDate: "11 янв. 2026, 19:48", creator: "Admin Ritm", agent: "Admin Ritm", amount: "646 750 SUM", accepted: true },
 ]
@@ -56,6 +57,8 @@ export function ReturnsView() {
   const [addOpen, setAddOpen] = useState(false)
   const [filterOpen, setFilterOpen] = useState(false)
   const [warehouseFilter, setWarehouseFilter] = useState("Все склады")
+  const [selectMode, setSelectMode] = useState(false)
+  const [checked, setChecked] = useState<number[]>([])
 
   const visible = useMemo(
     () =>
@@ -65,6 +68,8 @@ export function ReturnsView() {
         .filter((row) => `${row.id} ${row.client}`.toLowerCase().includes(query.toLowerCase())),
     [rows, tab, query, warehouseFilter],
   )
+  const paging = usePaging(visible.length)
+  const pageRows = visible.slice(paging.start, paging.end)
 
   const totals = useMemo(() => {
     const sums: Record<string, number> = { SUM: 0, Euro: 0, USD: 0 }
@@ -92,84 +97,112 @@ export function ReturnsView() {
     setSelected(null)
   }
 
+  function acceptChecked() {
+    const ids = checked.length ? checked : selected ? [selected.id] : []
+    if (!ids.length) {
+      setSelectMode(true)
+      return
+    }
+    setRows((current) => current.map((row) => (ids.includes(row.id) ? { ...row, accepted: true, acceptedDate: row.acceptedDate ?? "06 авг. 2026, 12:00" } : row)))
+    setChecked([])
+  }
+
   return (
-    <main className="min-h-screen bg-slate-100 pb-8 text-slate-800">
-      <div className="flex items-center justify-between bg-slate-50 px-10 py-4">
-        <h1 className="text-[27px] font-bold text-slate-600"><FavoritesButton className="text-[#5271df]" /> <span className="font-normal">|</span> {t("Возвраты")}</h1>
-        <button type="button" onClick={() => setAddOpen(true)} className="rounded-md bg-[#70cf84] px-5 py-2.5 font-semibold text-white"><Plus className="mr-2 inline h-5" />{t("Добавить")}</button>
-      </div>
-      <section className="mx-9 mt-1 bg-white shadow">
-        <div className="grid grid-cols-3">{["Надо принять", "Принятые", "Все"].map((label) => <button key={label} onClick={() => setTab(label)} className={`py-4 text-center ${tab === label ? "border-b-4 border-[#586ce8]" : ""}`}>{t(label)}</button>)}</div>
-        <div className="bg-[#586ce8] px-2 py-2 font-semibold text-white">
-          {t("Возвраты")}: {formatTotal(totals.SUM)} SUM , {formatTotal(totals.Euro)} Euro , {formatTotal(totals.USD)} USD
-        </div>
-        <div className="relative flex items-center gap-5 px-5 py-3">
-          <button type="button" onClick={() => setFilterOpen((value) => !value)} className="rounded bg-[#5271df] px-4 py-2 text-white"><Filter className="mr-2 inline h-4" />{t("Показать фильтр")}</button>
-          {filterOpen && (
-            <div className="absolute left-5 top-full z-20 mt-2 w-64 border border-slate-200 bg-white p-4 shadow-xl">
-              <label className="block text-xs font-medium text-slate-500">
+    <RefPage>
+      <RefHeader title={t("Возвраты")}>
+        <RefButton icon={RI.add} green label={t("Добавить")} onClick={() => setAddOpen(true)} />
+      </RefHeader>
+      <RefCard>
+        <RefTabs labels={["Надо принять", "Принятые", "Все"]} value={tab} onChange={(value) => { setTab(value); paging.setPage(1) }} />
+        <RefBand>
+          <span>
+            {t("Возвраты")} : {formatTotal(totals.SUM)} SUM , {formatTotal(totals.Euro)} Euro , {formatTotal(totals.USD)} USD
+          </span>
+        </RefBand>
+        <RefToolbar
+          filterOpen={filterOpen}
+          onToggleFilter={() => setFilterOpen((value) => !value)}
+          filterPanel={
+            <div className="w-64 border border-slate-200 bg-white p-4 shadow-xl">
+              <label className="block text-[10px] font-bold">
                 {t("Склад")}
-                <select value={warehouseFilter} onChange={(event) => setWarehouseFilter(event.target.value)} className="mt-1 block w-full border-b border-slate-300 bg-white py-2 text-sm outline-none">
+                <select value={warehouseFilter} onChange={(event) => setWarehouseFilter(event.target.value)} className="mt-1 block w-full border-b border-[#e0e0e0] bg-white py-2 text-[13px] outline-none">
                   <option value="Все склады">{t("Все склады")}</option>
                   {warehouses.map((item) => <option key={item}>{item}</option>)}
                 </select>
               </label>
-              <button type="button" onClick={() => setFilterOpen(false)} className="mt-4 w-full rounded bg-[#5271df] py-2 text-sm font-semibold text-white">{t("Применить")}</button>
+              <button type="button" onClick={() => setFilterOpen(false)} className="mt-4 h-[30px] w-full rounded-[5px] bg-[#4f71dc] text-[13px] font-semibold text-white">{t("Применить")}</button>
             </div>
-          )}
-          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={t("Поиск")} className="ml-20 w-80 border-b border-slate-300 px-2 py-2 outline-none" />
-          <Search className="-ml-12 text-slate-400" />
-          <span className="ml-auto flex items-center gap-3 text-slate-600">
-            25　 1 - {visible.length} {t("из")} {visible.length}　 ◀ ▶
-            <SlidersHorizontal className="h-4 w-4 cursor-pointer" />
-            <Download className="h-4 w-4 cursor-pointer" />
-          </span>
-          <button onClick={() => setRows((rows) => rows.map((row) => (selected && row.id === selected.id ? { ...row, accepted: true } : row)))} className="rounded bg-[#70cf84] px-4 py-2 font-semibold text-white">{t("Принять на склад")}</button>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[1500px] text-left">
-            <thead className="bg-[#626b7e] text-white">
-              <tr>
-                {["№", "От кого", "Склад", "Доставщик", "Дата возврата", "Создал", "Ответственный агент"].map((h) => <th key={h} className="px-5 py-4">{t(h)}</th>)}
-                <th className="px-5 py-4 text-right">{t("Сумма возврата")}</th>
-                <th className="w-14" />
-              </tr>
-            </thead>
-            <tbody>
-              {visible.map((row) => (
-                <tr key={row.id} onClick={() => setSelected(row)} className="cursor-pointer border-b-2 border-dotted border-slate-200 hover:bg-blue-50">
-                  <td className="px-5 py-3">{row.id}</td>
-                  <td className="px-5">{t(row.client)}<br /><span className="text-[#5271df]">{row.zone}</span></td>
-                  <td className="px-5">{row.warehouse}<br /><span className="text-[#5271df]">{row.organization}</span></td>
-                  <td className="px-5">{row.deliverer}</td>
-                  <td className="px-5">{t(row.date)}<br /><span className="text-[#5271df]">{row.acceptedDate ?? ""}</span></td>
-                  <td className="px-5">{row.creator}</td>
-                  <td className="px-5">{row.agent}</td>
-                  <td className="px-5 text-right">{row.amount}<br /><span className={row.accepted ? "text-green-500" : "text-orange-400"}>{t(row.accepted ? "Принят" : "Ожидает")}</span></td>
-                  <td className="px-3 text-center"><span className="inline-flex rounded border border-[#5271df] px-1.5 py-0.5 text-[#5271df]">$</span></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </section>
+          }
+          query={query}
+          onQuery={(value) => { setQuery(value); paging.setPage(1) }}
+          pageSize={paging.pageSize}
+          onPageSize={paging.setPageSize}
+          from={visible.length ? paging.start + 1 : 0}
+          to={paging.end}
+          total={visible.length}
+          page={paging.page}
+          pageCount={paging.pageCount}
+          onPage={paging.setPage}
+          icons={
+            <>
+              <RefIconButton path={RI.checklist} label={t("Выбрать")} color="#5d6474" active={selectMode} onClick={() => setSelectMode((value) => !value)} />
+              <RefIconButton path={RI.download} label={t("Экспортировать")} onClick={() => window.print()} />
+            </>
+          }
+          extra={<RefButton green label={t("Принять на склад")} onClick={acceptChecked} />}
+        />
+        <RefTable
+          cols="minmax(0,50fr) minmax(0,170fr) minmax(0,130fr) minmax(0,110fr) minmax(0,145fr) minmax(0,90fr) minmax(0,130fr) minmax(0,100fr) minmax(0,125fr) minmax(0,40fr)"
+          heads={[t("№"), t("От кого"), t("Склад"), t("Доставщик"), t("Дата возврата"), t("Создал"), t("Ответственный агент"), t("Комментарий"), t("Сумма возврата"), ""]}
+          rows={pageRows}
+          rowKey={(row) => row.id}
+          onRowClick={(row) => setSelected(selected?.id === row.id ? null : row)}
+          rowClass={(row) => (selected?.id === row.id ? "bg-[#e8efff]" : "")}
+          empty={t("Ничего не найдено")}
+          render={(row) => [
+            <span key="id" className="flex items-center gap-2">
+              {selectMode && (
+                <input
+                  type="checkbox"
+                  checked={checked.includes(row.id)}
+                  onClick={(event) => event.stopPropagation()}
+                  onChange={() => setChecked((current) => (current.includes(row.id) ? current.filter((id) => id !== row.id) : [...current, row.id]))}
+                />
+              )}
+              {row.id}
+            </span>,
+            <>{t(row.client)}<br /><span className="text-[#4f71dc]">{row.zone}</span></>,
+            <>{row.warehouse}<br /><span className="text-[#4f71dc]">{row.organization}</span></>,
+            row.deliverer,
+            <>{t(row.date)}<br /><span className="text-[#4f71dc]">{row.acceptedDate ?? ""}</span></>,
+            row.creator,
+            row.agent,
+            row.comment ?? "-",
+            <span key="sum" className="block text-right">{row.amount}<br /><span className={row.accepted ? "text-[#48a34b]" : "text-[#f0ad4e]"}>{t(row.accepted ? "Принят" : "Ожидает")}</span></span>,
+            <span key="icon" className="inline-flex h-5 w-5 items-center justify-center rounded border border-[#4f71dc] text-[11px] text-[#4f71dc]">$</span>,
+          ]}
+        />
+      </RefCard>
       {selected && <Detail row={selected} close={() => setSelected(null)} onEdit={updateClient} onCancelRequest={cancelReturn} />}
       {addOpen && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/45 p-4">
-          <form onSubmit={(event) => { event.preventDefault(); addReturn((new FormData(event.currentTarget).get("client") as string)?.trim()) }} className="w-full max-w-sm rounded-md bg-white p-6 shadow-xl">
-            <div className="mb-5 flex items-center justify-between">
-              <h3 className="text-lg font-bold">{t("Добавить возврат")}</h3>
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/[0.54] p-4">
+          <form onSubmit={(event) => { event.preventDefault(); addReturn((new FormData(event.currentTarget).get("client") as string)?.trim()) }} className="w-full max-w-[500px] bg-white font-sans text-[13px] shadow-xl">
+            <div className="flex items-center justify-between border-b border-[#efefef] px-[30px] py-5">
+              <h3 className="text-[13px] font-bold uppercase">{t("Добавить возврат")}</h3>
               <button type="button" onClick={() => setAddOpen(false)} aria-label={t("Закрыть")}><X className="h-5 w-5" /></button>
             </div>
-            <label className="mb-5 block border-b border-slate-200 pb-2 text-[13px] font-medium text-slate-500">
+            <label className="m-[30px] block border-b border-[#e0e0e0] pb-2 text-[10px] font-bold">
               {t("Клиент")}
-              <input autoFocus name="client" className="mt-1 block w-full bg-transparent text-[16px] font-semibold text-slate-900 outline-none" />
+              <input autoFocus name="client" className="mt-1 block w-full bg-transparent text-[13px] font-semibold outline-none" />
             </label>
-            <button type="submit" className="w-full rounded-md bg-[#70cf84] py-3 font-semibold text-white">{t("Создать")}</button>
+            <div className="flex justify-end border-t border-[#efefef] px-[30px] py-4">
+              <button type="submit" className="text-[13px] font-semibold uppercase text-[#0a9ddb]">{t("Создать")}</button>
+            </div>
           </form>
         </div>
       )}
-    </main>
+    </RefPage>
   )
 }
 
@@ -179,20 +212,20 @@ function Detail({ row, close, onEdit, onCancelRequest }: { row: ReturnRow; close
   const [editClient, setEditClient] = useState(row.client)
 
   return (
-    <section className="mx-4 mt-6 bg-white shadow-xl">
-      <div className="flex items-center justify-between border-b p-5">
-        <h2 className="text-2xl">{t("Возврат №")}{row.id}</h2>
+    <section className="mt-5 bg-white font-sans text-[13px] shadow-[0_1px_6px_rgba(0,0,0,0.2),0_1px_4px_rgba(0,0,0,0.2)]">
+      <div className="flex h-[65px] items-center justify-between border-b border-[#efefef] px-[30px]">
+        <h2 className="text-[18px] font-semibold">{t("Возврат №")}{row.id}</h2>
         <div className="flex gap-3">
-          <button type="button" onClick={() => setEditOpen(true)} className="rounded bg-[#5271df] px-5 py-2 font-semibold text-white">✎　{t("Изменить")}</button>
-          <button type="button" onClick={() => onCancelRequest(row.id)} className="rounded bg-[#f4827a] px-5 py-2 font-semibold text-white">⊖　{t("Отменить запрос")}</button>
+          <button type="button" onClick={() => setEditOpen(true)} className="h-[30px] rounded-[5px] bg-[#4f71dc] px-4 text-[13px] font-semibold text-white">✎　{t("Изменить")}</button>
+          <button type="button" onClick={() => onCancelRequest(row.id)} className="h-[30px] rounded-[5px] bg-[#fa8072] px-4 text-[13px] font-semibold text-white">⊖　{t("Отменить запрос")}</button>
           <button onClick={close} aria-label={t("Закрыть")}><X /></button>
         </div>
       </div>
       <div className="grid grid-cols-[435px_1fr]">
-        <aside className="border-r p-9 leading-8">
+        <aside className="border-r border-[#efefef] p-[30px] leading-[25px]">
           {t("Возврат №")}{row.id}<br />
           {t("Добавил")}: <b className="float-right">{row.creator}</b><br />
-          {t("Клиент")}: <b className="float-right text-[#5271df]">{t(row.client)}</b><br />
+          {t("Клиент")}: <b className="float-right text-[#4f71dc]">{t(row.client)}</b><br />
           {t("Зона")}: <b className="float-right">{row.zone || t("Не указано")}</b><br />
           {t("Дата возврата")}: <b className="float-right">{row.acceptedDate ?? row.date}</b><br />
           {t("Доставщик")}: <b className="float-right">{row.deliverer}</b><br />
@@ -200,18 +233,18 @@ function Detail({ row, close, onEdit, onCancelRequest }: { row: ReturnRow; close
           <hr className="my-5" />
           <b>{t("СКЛАД")}</b><br />
           {t("Склад")}: <b className="float-right">{row.warehouse}</b><br />
-          {t("Статус")}: <b className={`float-right ${row.accepted ? "text-green-500" : "text-orange-400"}`}>{t(row.accepted ? "Принят" : "Ожидает")}</b>
+          {t("Статус")}: <b className={`float-right ${row.accepted ? "text-[#48a34b]" : "text-[#f0ad4e]"}`}>{t(row.accepted ? "Принят" : "Ожидает")}</b>
         </aside>
-        <div className="p-9">
+        <div className="p-[30px]">
           <div className="mb-5 flex justify-around border-b pb-4">
-            <span className="border-b-2 border-[#5271df] pb-4">{t("Список товаров")}</span>
+            <span className="border-b-2 border-[#4f71dc] pb-4">{t("Список товаров")}</span>
             <span>{t("Серии")}</span>
             <span>{t("Логи")}</span>
           </div>
           <table className="w-full">
             <thead><tr className="border-b border-dotted"><th className="p-3 text-left">{t("Заказ")}</th><th>{t("№")}</th><th className="text-left">{t("Товар")}</th><th>{t("Количество")}</th><th>{t("Блок")}</th><th>{t("Цена (SUM)")}</th><th>{t("Сумма (SUM)")}</th></tr></thead>
             <tbody>
-              <tr><td className="p-4 text-[#5271df]">1423</td><td>1</td><td>Cola 0.35<br />{t("Заказ: 1423 от 08 янв.")}</td><td>{t("10 шт")}</td><td>{t("1 блок")}</td><td>4 477,5</td><td>44 775</td></tr>
+              <tr><td className="p-4 text-[#4f71dc]">1423</td><td>1</td><td>Cola 0.35<br />{t("Заказ: 1423 от 08 янв.")}</td><td>{t("10 шт")}</td><td>{t("1 блок")}</td><td>4 477,5</td><td>44 775</td></tr>
               <tr className="border-t"><td className="p-4 font-bold">{t("Итого:")}</td><td /><td /><td className="font-bold">{t("10шт")}</td><td /><td /><td className="font-bold">44 775</td></tr>
             </tbody>
           </table>
@@ -236,7 +269,7 @@ function Detail({ row, close, onEdit, onCancelRequest }: { row: ReturnRow; close
               {t("Клиент")}
               <input autoFocus value={editClient} onChange={(event) => setEditClient(event.target.value)} className="mt-1 block w-full bg-transparent text-[16px] font-semibold text-slate-900 outline-none" />
             </label>
-            <button type="submit" className="w-full rounded-md bg-[#5271df] py-3 font-semibold text-white">{t("Сохранить")}</button>
+            <button type="submit" className="w-full rounded-md bg-[#4f71dc] py-3 font-semibold text-white">{t("Сохранить")}</button>
           </form>
         </div>
       )}

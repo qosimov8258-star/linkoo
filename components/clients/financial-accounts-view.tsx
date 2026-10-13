@@ -1,7 +1,56 @@
 "use client"
-import { Download, ListFilter, Search, ChevronLeft, ChevronRight } from "lucide-react"
-import { useMemo, useState } from "react"
-import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
+
+import { useEffect, useState } from "react"
+
+import { RI, RefIconButton, RefTabs, SimpleListPage } from "@/components/ref/list-kit"
 import { useLanguage } from "@/lib/i18n/language-context"
-const rows: readonly (readonly [number, string, string, string])[] = []
-export function FinancialAccountsView() { const {t}=useLanguage();const [tab,setTab]=useState("Все");const [query,setQuery]=useState("");const [filters,setFilters]=useState(false);const filtered=useMemo(()=>rows.filter(x=>x[1].toLowerCase().includes(query.toLowerCase())),[query]);const save=()=>{const a=document.createElement("a");a.href="data:text/csv;charset=utf-8,"+encodeURIComponent("№;Наименование;Адрес;Дата добавления\n"+filtered.map(x=>x.join(";")).join("\n"));a.download="financial-accounts.csv";a.click()};return <main className="min-h-[calc(100vh-4rem)] bg-[#f1f4f8] px-9 py-5"><header className="mb-5"><h1 className="text-2xl font-bold text-slate-600"><FavoritesButton className="text-[#4f70e7]" /> <span className="mx-2">|</span> {t("Финансовые счета")}</h1></header><section className="rounded bg-white shadow"><nav className="flex border-b">{["Один счет","Несколько счетов","Все"].map(x=><button key={x} onClick={()=>setTab(x)} className={`flex-1 py-5 text-center ${tab===x?"border-b-4 border-[#4f70e7]":""}`}>{t(x)}</button>)}</nav><div className="flex items-center gap-5 px-2 py-3"><button onClick={()=>setFilters(!filters)} className="rounded bg-[#4f70e7] px-5 py-3 font-semibold text-white"><ListFilter className="mr-2 inline h-4 w-4"/>{t("Показать Фильтр")}</button><label className="relative ml-56 w-[375px]"><input value={query} onChange={e=>setQuery(e.target.value)} placeholder={t("Поиск")} className="w-full border-b py-3 pr-10 outline-none"/><Search className="absolute right-2 top-3 text-slate-300"/></label><span className="ml-auto">25</span><span>1 - {Math.min(25,filtered.length)} {t("из")} {filtered.length}</span><ChevronLeft/><ChevronRight/><button onClick={save}><Download/></button></div>{filters&&<div className="grid grid-cols-3 gap-4 border-t bg-slate-50 p-5"><input placeholder={t("Наименование")} className="border p-3"/><input placeholder={t("Адрес")} className="border p-3"/><button onClick={()=>setFilters(false)} className="rounded bg-[#626b7e] px-4 py-2 text-white">{t("Применить")}</button></div>}<table className="w-full text-left"><thead className="bg-[#626b7e] text-white"><tr><th className="px-9 py-5">№</th><th className="px-5 py-5">{t("Наименование")}</th><th className="px-5 py-5">{t("Адрес")}</th><th className="px-5 py-5">{t("Дата добавления")}</th></tr></thead><tbody>{filtered.map(([id,name,address,date])=><tr key={id} className="border-b border-dashed border-slate-300 hover:bg-slate-50"><td className="px-9 py-5">{id}</td><td className="px-5 py-5">{name}</td><td className="px-5 py-5">{address}</td><td className="px-5 py-5">{date}</td></tr>)}</tbody></table></section></main> }
+
+type Account = { id: number; name: string; address: string; date: string }
+
+export function FinancialAccountsView() {
+  const { t } = useLanguage()
+  const [tab, setTab] = useState("Все")
+  const [rows, setRows] = useState<Account[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    let cancelled = false
+    fetch("/api/clients")
+      .then((response) => (response.ok ? response.json() : []))
+      .then((clients: { id: number; name: string; address?: string }[]) => {
+        if (cancelled || !Array.isArray(clients)) return
+        setRows(clients.slice().sort((a, b) => b.id - a.id).map((client) => ({ id: client.id, name: client.name, address: client.address || "Не указано", date: "24 мая 2026" })))
+      })
+      .catch(() => {})
+      .finally(() => !cancelled && setLoading(false))
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const shown = tab === "Все" ? rows : tab === "Один счет" ? rows : []
+
+  function download() {
+    const csv = ["№;Наименование;Адрес;Дата добавления", ...shown.map((row) => `${row.id};${row.name};${row.address};${row.date}`)].join("\n")
+    const a = document.createElement("a")
+    a.href = "data:text/csv;charset=utf-8," + encodeURIComponent(csv)
+    a.download = "financial-accounts.csv"
+    a.click()
+  }
+
+  return (
+    <SimpleListPage
+      title={t("Финансовые счета")}
+      tabs={<RefTabs labels={["Один счет", "Несколько счетов", "Все"]} value={tab} onChange={setTab} />}
+      loading={loading}
+      cols="minmax(0,90fr) minmax(0,300fr) minmax(0,300fr) minmax(0,200fr)"
+      heads={[t("№"), t("Наименование"), t("Адрес"), t("Дата добавления")]}
+      rows={shown}
+      rowKey={(row) => row.id}
+      searchText={(row) => `${row.id} ${row.name} ${row.address}`}
+      filterPanel={<div className="w-64 border border-slate-200 bg-white p-4 text-[13px] shadow-xl">{t("Используйте поиск для фильтрации")}</div>}
+      icons={<RefIconButton path={RI.download} label={t("Скачать")} onClick={download} />}
+      render={(row) => [row.id, row.name, row.address, row.date]}
+    />
+  )
+}

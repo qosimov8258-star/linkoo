@@ -285,7 +285,7 @@ export function TrackingView({ view = "agents" }: TrackingViewProps) {
         <TrackingMap showAgents={showAgents} showClients={showClients} showZones={showZones} />
 
         <div className="absolute left-20 top-5 z-[500] flex items-center gap-3">
-          <FavoritesButton className="flex items-center gap-3 text-xl font-bold text-[#4f70e7]" />
+          <FavoritesButton className="flex items-center gap-3 text-xl font-bold text-[#4f71dc]" />
           <span className="text-2xl font-light text-slate-400">|</span>
           <span className="text-xl font-bold text-slate-700">{t("Отслеживание")}</span>
         </div>

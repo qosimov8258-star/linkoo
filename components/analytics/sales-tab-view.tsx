@@ -47,7 +47,7 @@ function SortableTh({ label, sortKey, active, onSort }: { label: string; sortKey
       tabIndex={0}
       onClick={() => onSort(sortKey)}
       onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onSort(sortKey) } }}
-      className={`cursor-pointer select-none whitespace-nowrap px-4 py-3 text-left font-semibold ${active ? "text-[#4f70e7]" : "text-[#586174]"} hover:text-[#4f70e7]`}
+      className={`cursor-pointer select-none whitespace-nowrap px-4 py-3 text-left font-semibold ${active ? "text-[#4f71dc]" : "text-[#586174]"} hover:text-[#4f71dc]`}
     >
       <span className="inline-flex items-center gap-1.5">{label}<ChevronDown className="h-3.5 w-3.5" /></span>
     </th>
@@ -72,7 +72,7 @@ export function SalesTabView() {
     <main className="min-h-screen bg-white text-[#17233b]">
       <header className="flex flex-wrap items-center gap-4 border-b border-[#d8dee7] bg-[#f2f5f8] px-6 py-4 md:px-9">
         <div className="flex items-center gap-3">
-          <FavoritesButton className="flex items-center gap-3 text-xl font-bold text-[#4f70e7]" />
+          <FavoritesButton className="flex items-center gap-3 text-xl font-bold text-[#4f71dc]" />
           <span className="text-2xl font-light text-[#586174]">|</span>
           <span className="text-xl font-bold text-[#586174]">Виджеты</span>
         </div>
@@ -115,7 +115,7 @@ export function SalesTabView() {
         {filterActive && (
           <div className="relative ml-auto flex items-center gap-2 rounded-md bg-[#f6f9fc] px-4 py-2 text-[#586174]">
             Фильтр: {filterLabel}
-            <button type="button" onClick={() => setFilterEditOpen((value) => !value)} aria-label="Изменить фильтр"><Pencil className="h-4 w-4 text-[#9aa3b6] hover:text-[#4f70e7]" /></button>
+            <button type="button" onClick={() => setFilterEditOpen((value) => !value)} aria-label="Изменить фильтр"><Pencil className="h-4 w-4 text-[#9aa3b6] hover:text-[#4f71dc]" /></button>
             <button type="button" aria-label="Очистить фильтр" onClick={() => setFilterActive(false)}><X className="h-5 w-5 rounded-full border border-[#9aa3b6] p-0.5 text-[#9aa3b6] hover:text-[#e5484d]" /></button>
             {filterEditOpen && (
               <div className="absolute right-0 top-full z-20 mt-2 w-64 border border-[#e1e5eb] bg-white p-4 shadow-xl">

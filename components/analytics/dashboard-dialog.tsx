@@ -178,14 +178,14 @@ export function DashboardDialog({
             <button
               type="button"
               onClick={() => setPickerType("employees")}
-              className={`flex-1 px-3 py-2 text-sm font-semibold ${pickerType === "employees" ? "bg-[#4f70e7] text-white" : "text-slate-500 hover:bg-slate-50"}`}
+              className={`flex-1 px-3 py-2 text-sm font-semibold ${pickerType === "employees" ? "bg-[#4f71dc] text-white" : "text-slate-500 hover:bg-slate-50"}`}
             >
               Сотрудники
             </button>
             <button
               type="button"
               onClick={() => setPickerType("access")}
-              className={`flex-1 px-3 py-2 text-sm font-semibold ${pickerType === "access" ? "bg-[#4f70e7] text-white" : "text-slate-500 hover:bg-slate-50"}`}
+              className={`flex-1 px-3 py-2 text-sm font-semibold ${pickerType === "access" ? "bg-[#4f71dc] text-white" : "text-slate-500 hover:bg-slate-50"}`}
             >
               Доступы
             </button>
@@ -195,12 +195,12 @@ export function DashboardDialog({
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
                 placeholder="Поиск"
-                className="min-w-[140px] flex-1 border-b border-slate-300 py-1.5 text-sm outline-none focus:border-[#4f70e7]"
+                className="min-w-[140px] flex-1 border-b border-slate-300 py-1.5 text-sm outline-none focus:border-[#4f71dc]"
               />
-              <button type="button" onClick={toggleAll} className="text-sm font-semibold text-[#4f70e7] hover:underline">
+              <button type="button" onClick={toggleAll} className="text-sm font-semibold text-[#4f71dc] hover:underline">
                 {selectedIds.length === filtered.length && filtered.length > 0 ? "Снять всё" : "Выбрать всё"}
               </button>
-              <button type="button" onClick={downloadTemplate} className="text-sm font-semibold text-[#4f70e7] hover:underline">
+              <button type="button" onClick={downloadTemplate} className="text-sm font-semibold text-[#4f71dc] hover:underline">
                 Скачать шаблон
               </button>
               <input ref={importInputRef} type="file" accept=".csv,.xls,.xlsx" onChange={pickImportFile} className="hidden" />
@@ -208,7 +208,7 @@ export function DashboardDialog({
                 type="button"
                 onClick={() => importInputRef.current?.click()}
                 disabled={importing}
-                className="inline-flex items-center gap-2 rounded bg-[#4f70e7] px-3 py-1.5 text-sm font-semibold text-white hover:brightness-95 disabled:opacity-60"
+                className="inline-flex items-center gap-2 rounded bg-[#4f71dc] px-3 py-1.5 text-sm font-semibold text-white hover:brightness-95 disabled:opacity-60"
               >
                 <FileText className="h-4 w-4" /> {importing ? "Импорт..." : "Импорт с Excel"}
               </button>

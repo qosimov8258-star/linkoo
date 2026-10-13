@@ -170,12 +170,12 @@ export function SurveyPlanView() {
     <main className="min-h-[calc(100vh-4rem)] bg-slate-100 px-4 pb-8 sm:px-9">
       <header className="flex flex-wrap items-center justify-between gap-3 py-4">
         <h1 className="text-2xl font-bold text-slate-600">
-          <FavoritesButton className="inline-flex items-center gap-2 text-[#4f70e7]" />
+          <FavoritesButton className="inline-flex items-center gap-2 text-[#4f71dc]" />
           <span className="mx-2 text-slate-400">|</span> План опроса
         </h1>
         <div className="flex items-center gap-3">
           <input ref={fileInputRef} type="file" accept=".csv,.xls,.xlsx,text/csv" onChange={handleImport} className="hidden" />
-          <button type="button" onClick={() => fileInputRef.current?.click()} className="inline-flex items-center gap-2 rounded bg-[#4f70e7] px-5 py-2.5 font-semibold text-white hover:brightness-95">
+          <button type="button" onClick={() => fileInputRef.current?.click()} className="inline-flex items-center gap-2 rounded bg-[#4f71dc] px-5 py-2.5 font-semibold text-white hover:brightness-95">
             <RefreshCw className="h-4 w-4" />
             Установить с EXCEL
           </button>
@@ -206,7 +206,7 @@ export function SurveyPlanView() {
             </select>
           </label>
           <label className="relative w-64">
-            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Поиск" className="w-full border-b border-slate-300 py-3 pr-10 outline-none focus:border-[#4f70e7]" />
+            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Поиск" className="w-full border-b border-slate-300 py-3 pr-10 outline-none focus:border-[#4f71dc]" />
             <Search className="absolute right-2 top-3 h-5 w-5 text-slate-300" />
           </label>
           <div className="ml-auto flex flex-wrap items-center gap-4">
@@ -216,10 +216,10 @@ export function SurveyPlanView() {
             </span>
             <ChevronLeft className="h-5 w-5 text-slate-300" />
             <ChevronRight className="h-5 w-5 text-slate-300" />
-            <button type="button" onClick={() => setGrouped((value) => !value)} aria-pressed={grouped} aria-label="Группировать по опросу" className={`rounded p-2 ${grouped ? "bg-[#4f70e7] text-white" : "text-slate-500 hover:bg-slate-100"}`}>
+            <button type="button" onClick={() => setGrouped((value) => !value)} aria-pressed={grouped} aria-label="Группировать по опросу" className={`rounded p-2 ${grouped ? "bg-[#4f71dc] text-white" : "text-slate-500 hover:bg-slate-100"}`}>
               <ListChecks className="h-5 w-5" />
             </button>
-            <button type="button" onClick={openEdit} className="inline-flex items-center gap-2 rounded bg-[#4f70e7] px-5 py-2.5 font-semibold text-white hover:brightness-95">
+            <button type="button" onClick={openEdit} className="inline-flex items-center gap-2 rounded bg-[#4f71dc] px-5 py-2.5 font-semibold text-white hover:brightness-95">
               <Pencil className="h-4 w-4" />
               Изменить планы
             </button>
@@ -242,7 +242,7 @@ export function SurveyPlanView() {
                       ))}
                     </select>
                   </div>
-                  <button type="button" onClick={copyPlan} className="mt-4 w-full rounded bg-[#6ccd8b] py-2 text-sm font-semibold text-white hover:brightness-95">
+                  <button type="button" onClick={copyPlan} className="mt-4 w-full rounded bg-[#71ce87] py-2 text-sm font-semibold text-white hover:brightness-95">
                     {copyDone ? "Скопировано ✓" : "Скопировать"}
                   </button>
                 </div>
@@ -252,7 +252,7 @@ export function SurveyPlanView() {
         </div>
 
         <table className="w-full text-left">
-          <thead className="bg-[#626b7e] text-white">
+          <thead className="bg-[#5d6474] text-white">
             <tr>
               <th className="px-9 py-5">Сотрудник</th>
               <th className="px-5 py-5">Опрос</th>
@@ -263,14 +263,14 @@ export function SurveyPlanView() {
               rows.map((row, index) => (
                 <tr key={`${row.employee}-${index}`} className="border-b border-dashed border-slate-300 hover:bg-slate-50">
                   <td className="px-9 py-4">{row.employee}</td>
-                  <td className="px-5 py-4 text-[#4f70e7]">{row.survey}</td>
+                  <td className="px-5 py-4 text-[#4f71dc]">{row.survey}</td>
                 </tr>
               ))}
             {grouped &&
               grouping?.map(([survey, names]) => (
                 <tr key={survey} className="border-b border-dashed border-slate-300 hover:bg-slate-50">
                   <td className="px-9 py-4">{names.join(", ")}</td>
-                  <td className="px-5 py-4 text-[#4f70e7]">{survey}</td>
+                  <td className="px-5 py-4 text-[#4f71dc]">{survey}</td>
                 </tr>
               ))}
           </tbody>
@@ -313,7 +313,7 @@ export function SurveyPlanView() {
                   </button>
                 </div>
               ))}
-              <button type="button" onClick={addDraftRow} className="flex items-center gap-2 text-[#4f70e7] hover:underline">
+              <button type="button" onClick={addDraftRow} className="flex items-center gap-2 text-[#4f71dc] hover:underline">
                 <PlusCircle className="h-5 w-5" />
                 Добавить сотрудника
               </button>
@@ -322,7 +322,7 @@ export function SurveyPlanView() {
               <button type="button" onClick={() => setEditing(false)} className="rounded border border-slate-300 px-5 py-2.5 font-semibold text-slate-600">
                 Отмена
               </button>
-              <button type="button" onClick={saveEdit} className="rounded bg-[#6ccd8b] px-5 py-2.5 font-semibold text-white hover:brightness-95">
+              <button type="button" onClick={saveEdit} className="rounded bg-[#71ce87] px-5 py-2.5 font-semibold text-white hover:brightness-95">
                 Сохранить
               </button>
             </footer>

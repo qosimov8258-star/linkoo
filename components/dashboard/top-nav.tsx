@@ -6,12 +6,9 @@ import {
   BarChart3,
   Bell,
   BriefcaseBusiness,
-  ChevronDown,
-  ChevronUp,
   Factory,
   Menu,
   Settings,
-  User,
   UserRound,
   Users,
   Video,
@@ -56,6 +53,16 @@ function matchesHrefs(pathname: string, hrefs: string[]): boolean {
     const base = href.split("?")[0]
     return pathname === base || pathname.startsWith(`${base}/`)
   })
+}
+
+const NAV_ICONS: Record<string, string> = {
+  "Аналитика": "/nav/analytics.svg",
+  "Клиенты": "/nav/clients.svg",
+  "Продажи": "/nav/sales.svg",
+  "Персонал": "/nav/personnel.svg",
+  "Склад": "/nav/warehouse.svg",
+  "Финансы": "/nav/finance.svg",
+  "Производство": "/nav/production.svg",
 }
 
 const navItems: NavItem[] = [
@@ -159,7 +166,11 @@ export function TopNav() {
       const buttonRect = button.getBoundingClientRect()
       const margin = 8
       const maxLeft = Math.max(margin, headerRect.width - wrapper.offsetWidth - margin)
-      const left = Math.min(Math.max(buttonRect.left - headerRect.left, margin), maxLeft)
+      // Wide menus sit centred under the bar, narrow ones hang off their own button.
+      let desired = (headerRect.width - wrapper.offsetWidth) / 2
+      if (openMenu === "Клиенты") desired = buttonRect.left - headerRect.left - 19
+      if (openMenu === "Производство") desired = buttonRect.right - headerRect.left - wrapper.offsetWidth
+      const left = Math.min(Math.max(desired, margin), maxLeft)
       setMenuLeft(left)
     }
 
@@ -247,8 +258,8 @@ export function TopNav() {
   if (pathname === "/login" || pathname.startsWith("/login/")) return null
 
   return (
-    <header ref={headerRef} className="relative z-40 bg-[#272780] text-white shadow-[0_6px_14px_rgba(30,41,90,0.24)]">
-      <div className="flex h-[50px] items-center gap-3 px-4 xl:px-6">
+    <header ref={headerRef} className="sticky top-0 z-40 bg-[#272780] text-white shadow-[0_6px_14px_rgba(30,41,90,0.24)]">
+      <div className="flex h-[50px] items-center px-4 xl:pl-6 xl:pr-[30px]">
         <div ref={brandRef} className="relative mr-auto shrink-0 lg:mr-3">
           <button
             type="button"
@@ -259,11 +270,13 @@ export function TopNav() {
             aria-label="Linko menyusi"
           >
             <span className="flex flex-col text-left leading-none">
-              <span className="text-xl font-bold tracking-tight lg:text-2xl">
-                l<span className="text-brand-sky">i</span>nko
-                <span className="ml-1 text-sm font-normal opacity-80">▾</span>
+              <span className="flex items-center">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src="/nav/logo.svg" alt="linko" className="h-7 w-[55px]" />
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src="/nav/caret.svg" alt="" className="h-5 w-5" />
               </span>
-              <span className="text-[11px] font-light tracking-wide opacity-80">
+              <span className="mt-[3px] text-[10px] font-normal leading-[12.5px]">
                 {workspace === "distribution"
                   ? t("Дистрибуция")
                   : workspace === "store"
@@ -295,9 +308,8 @@ export function TopNav() {
           )}
         </div>
 
-        <nav ref={navRef} className="hidden h-full min-w-0 shrink-0 items-stretch lg:flex">
-          {navItems.map(({ label, icon: Icon }) => {
-            const isActive = activeItem?.label === label
+        <nav ref={navRef} className="ml-[91px] hidden h-full min-w-0 shrink-0 items-stretch border-l border-white/[0.12] lg:flex">
+          {navItems.map(({ label }) => {
             const isOpen = openMenu === label
 
             return (
@@ -319,13 +331,14 @@ export function TopNav() {
                 onFocus={() => setOpenMenu(label)}
                 aria-haspopup="menu"
                 aria-expanded={isOpen}
-                className={`flex h-full shrink-0 items-center gap-[5px] py-0 pl-[18px] pr-[25px] text-[13px] font-normal transition-colors ${
-                  isActive || isOpen
+                className={`flex h-full shrink-0 items-center gap-[4px] border-r border-white/[0.12] pl-[18px] pr-[26px] font-[Arial,Helvetica,sans-serif] text-[13px] font-normal transition-colors ${
+                  isOpen
                     ? "bg-[#5c6df3] hover:bg-[#5c6df3]"
                     : "hover:bg-[#3a3897]"
                 } focus-visible:z-10 focus-visible:outline-2 focus-visible:outline-inset focus-visible:outline-white`}
               >
-                <Icon className="h-4 w-4" strokeWidth={2.2} />
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={NAV_ICONS[label]} alt="" className={`w-[25px] ${label === "Производство" ? "h-5" : "h-6"}`} />
                 <span>{t(label)}</span>
               </button>
             )
@@ -344,7 +357,8 @@ export function TopNav() {
 
         <div className="flex-1" />
 
-        <div ref={accountRef} className="hidden shrink-0 items-center gap-1 lg:flex xl:gap-2">
+        <div ref={accountRef} className="hidden h-full shrink-0 items-center lg:flex">
+          <div className="flex h-full items-center border-l border-white/[0.12]">
           <div ref={notificationsRef}>
             <button
               type="button"
@@ -354,10 +368,11 @@ export function TopNav() {
               }}
               aria-haspopup="menu"
               aria-expanded={notificationsOpen}
-              className="relative rounded-full p-2 transition-colors hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-white"
+              className="relative flex h-10 w-[50px] items-center justify-center transition-colors hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-white"
               aria-label={t("Уведомления")}
             >
-              <Bell className="h-5 w-5" />
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/nav/bell.svg" alt="" className="h-6 w-6" />
               {notificationsBadge > 0 && (
                 <span className="absolute right-0 top-0 flex h-4 min-w-4 items-center justify-center rounded-full bg-brand-red px-1 text-[10px] font-bold">
                   {notificationsBadge}
@@ -374,26 +389,32 @@ export function TopNav() {
               onClick={() => setSettingsOpen((current) => !current)}
               aria-haspopup="menu"
               aria-expanded={settingsOpen}
-              className="rounded-full p-2 transition-colors hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-white"
+              className="flex h-10 w-[50px] items-center justify-center transition-colors hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-white"
               aria-label={t("Настройки")}
             >
-              <Settings className="h-5 w-5" />
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/nav/gear.svg" alt="" className="h-6 w-6" />
             </button>
             {settingsOpen && <SettingsMenu onClose={() => setSettingsOpen(false)} />}
+          </div>
           </div>
           <button
             type="button"
             onClick={() => setAccountOpen((current) => !current)}
             aria-expanded={accountOpen}
             aria-haspopup="menu"
-            className="flex items-center gap-2 rounded-md py-1 pl-2 pr-3 text-left transition-colors hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-white"
+            className="ml-[5px] flex h-10 items-center text-left transition-colors hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-white"
           >
-            <User className="h-7 w-7 rounded-full border border-white/40 p-0.5" />
-            <span className="hidden flex-col leading-tight xl:flex">
-              <span className="text-sm font-bold">{displayName}</span>
-              <span className="max-w-28 truncate text-xs opacity-80">{t(branch)}</span>
+            <span className="flex h-10 w-[50px] items-center justify-center">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/nav/user.svg" alt="" className="h-6 w-[25px]" />
             </span>
-            {accountOpen ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+            <span className="hidden w-[145px] flex-col xl:flex">
+              <span className="text-[14px] font-medium leading-[18px]">{displayName}</span>
+              <span className="truncate text-[12px] font-normal leading-[18px]">{t(branch)}</span>
+            </span>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/nav/chevron.svg" alt="" className={`h-6 w-6 transition-transform ${accountOpen ? "rotate-180" : ""}`} />
           </button>
 
           {accountOpen && (
@@ -509,7 +530,7 @@ export function TopNav() {
                   setNewServerName("")
                   setCreateServerOpen(false)
                 }}
-                className="rounded-md bg-[#4f70e7] px-5 py-2.5 font-semibold text-white"
+                className="rounded-md bg-[#4f71dc] px-5 py-2.5 font-semibold text-white"
               >
                 {t("Создать")}
               </button>

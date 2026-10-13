@@ -54,7 +54,7 @@ const TOTAL_COMPLETED = 0
 
 const statusMeta: Record<Status, { label: string; dot: string; text: string }> = {
   active: { label: "Активный", dot: "bg-[#3aca6a]", text: "text-[#3aa76d]" },
-  completed: { label: "Завершен", dot: "bg-[#4f70e7]", text: "text-[#4f70e7]" },
+  completed: { label: "Завершен", dot: "bg-[#4f71dc]", text: "text-[#4f71dc]" },
   cancelled: { label: "Отменен", dot: "bg-[#e5484d]", text: "text-[#e5484d]" },
 }
 
@@ -275,10 +275,10 @@ export function ContractsView() {
   }
 
   return (
-    <main className="min-h-screen bg-[#f1f4f8] text-[#17233b]">
+    <main className="min-h-screen bg-[#f2f5f8] text-[#17233b]">
       <header className="flex min-h-[76px] items-center justify-between border-b border-[#d8dee7] bg-[#f2f5f8] px-6 md:px-9">
         <div className="flex items-center gap-3">
-          <FavoritesButton className="flex items-center gap-2 text-2xl font-bold text-[#4f70e7]" /><span className="text-3xl font-light text-[#586174]">|</span>
+          <FavoritesButton className="flex items-center gap-2 text-2xl font-bold text-[#4f71dc]" /><span className="text-3xl font-light text-[#586174]">|</span>
           <span className="text-2xl font-bold text-[#586174]">{t("Договоры")}</span>
         </div>
         <div className="relative flex items-center gap-3">
@@ -289,10 +289,10 @@ export function ContractsView() {
               <button onClick={() => { clearFilters(); setMenuOpen(false) }} className="block w-full px-4 py-2 text-left text-sm hover:bg-[#f6f9fc]">{t("Сбросить фильтры")}</button>
             </div>
           )}
-          <button onClick={() => setAddOpen(true)} aria-label={t("Добавить договор")} className="flex h-11 w-11 items-center justify-center rounded-md bg-[#4f70e7] text-white hover:bg-[#3f5fd0]">
+          <button onClick={() => setAddOpen(true)} aria-label={t("Добавить договор")} className="flex h-11 w-11 items-center justify-center rounded-md bg-[#4f71dc] text-white hover:bg-[#3f5fd0]">
             <Plus className="h-6 w-6" />
           </button>
-          <button onClick={() => setImportOpen(true)} aria-label={t("Импорт с Excel")} title={t("Импорт с Excel")} className="flex h-11 w-11 items-center justify-center rounded-md bg-[#4f70e7] text-white hover:bg-[#3f5fd0]">
+          <button onClick={() => setImportOpen(true)} aria-label={t("Импорт с Excel")} title={t("Импорт с Excel")} className="flex h-11 w-11 items-center justify-center rounded-md bg-[#4f71dc] text-white hover:bg-[#3f5fd0]">
             <FileText className="h-6 w-6" />
           </button>
         </div>
@@ -327,7 +327,7 @@ export function ContractsView() {
               <button onClick={clearFilters} aria-label={t("Очистить фильтр")} className="text-[#586174] hover:text-[#17233b]"><X className="h-5 w-5 rounded-full border border-current p-0.5" /></button>
             </div>
           ) : (
-            <button onClick={() => setFilterOpen((value) => !value)} className="flex items-center gap-1 font-medium text-[#4f70e7]">
+            <button onClick={() => setFilterOpen((value) => !value)} className="flex items-center gap-1 font-medium text-[#4f71dc]">
               {t("Показать фильтр")} <ChevronDown className={`h-4 w-4 transition ${filterOpen ? "rotate-180" : ""}`} />
             </button>
           )}
@@ -348,7 +348,7 @@ export function ContractsView() {
           <button disabled={safePage === 1} onClick={() => setPage((value) => Math.max(1, value - 1))} className="rounded-full border border-[#dbe0e8] p-1 text-[#9aa3b6] disabled:opacity-40">
             <ChevronDown className="h-5 w-5 rotate-90" />
           </button>
-          <button disabled={safePage === maxPage} onClick={() => setPage((value) => Math.min(maxPage, value + 1))} className="rounded-full border border-[#4f70e7] p-1 text-[#4f70e7] disabled:opacity-40">
+          <button disabled={safePage === maxPage} onClick={() => setPage((value) => Math.min(maxPage, value + 1))} className="rounded-full border border-[#4f71dc] p-1 text-[#4f71dc] disabled:opacity-40">
             <ChevronDown className="h-5 w-5 -rotate-90" />
           </button>
 
@@ -381,7 +381,7 @@ export function ContractsView() {
 
         <div className="overflow-x-auto pb-2">
           <table className="w-full min-w-[1100px] border-collapse text-[14px]">
-            <thead className="bg-[#626b7e] text-white">
+            <thead className="bg-[#5d6474] text-white">
               <tr>
                 {["№", "Дата создания", "Клиент", "Зона", "Агент", "ИНН", "Статус"].map((title) => (
                   <th key={title} className="whitespace-nowrap px-4 py-4 text-left font-semibold">{t(title)}</th>
@@ -399,7 +399,7 @@ export function ContractsView() {
                     <td className="px-4 py-4 align-top">{row.createdAt}</td>
                     <td className="px-4 py-4 align-top">
                       <span className="inline-flex items-center gap-2">
-                        {row.hasInfo && <Info className="h-4 w-4 text-[#4f70e7]" />}
+                        {row.hasInfo && <Info className="h-4 w-4 text-[#4f71dc]" />}
                         {row.client}
                       </span>
                     </td>
@@ -482,21 +482,21 @@ export function ContractsView() {
               </button>
             </header>
             <div className="p-8">
-              <button type="button" onClick={downloadTemplate} className="mb-4 font-semibold text-[#4f70e7] hover:underline">
+              <button type="button" onClick={downloadTemplate} className="mb-4 font-semibold text-[#4f71dc] hover:underline">
                 {t("1. Скачать шаблон")}
               </button>
               <input ref={importInputRef} type="file" accept=".csv,.xls,.xlsx" onChange={pickImportFile} className="hidden" />
               <button
                 type="button"
                 onClick={() => importInputRef.current?.click()}
-                className="flex w-full flex-col items-center justify-center gap-3 rounded border-2 border-dashed border-slate-300 py-10 text-slate-500 hover:border-[#4f70e7] hover:text-[#4f70e7]"
+                className="flex w-full flex-col items-center justify-center gap-3 rounded border-2 border-dashed border-slate-300 py-10 text-slate-500 hover:border-[#4f71dc] hover:text-[#4f71dc]"
               >
                 <FileText className="h-8 w-8" />
                 {importFile ? importFile.name : t("Добавьте файл Excel или нажмите для выбора")}
               </button>
             </div>
             <footer className="flex justify-end border-t p-5">
-              <button type="button" disabled={!importFile || importSaving} onClick={saveImport} className="rounded bg-[#6ccd8b] px-5 py-3 font-semibold text-white hover:brightness-95 disabled:opacity-40">
+              <button type="button" disabled={!importFile || importSaving} onClick={saveImport} className="rounded bg-[#71ce87] px-5 py-3 font-semibold text-white hover:brightness-95 disabled:opacity-40">
                 {importSaving ? t("Импорт...") : t("Сохранить")}
               </button>
             </footer>
@@ -514,7 +514,7 @@ export function ContractsView() {
             </label>
             <div className="flex justify-end gap-3">
               <button onClick={() => setEditTarget(null)} className="rounded-md border border-[#dbe0e8] px-5 py-2.5 font-semibold text-[#586174]">{t("Отмена")}</button>
-              <button onClick={saveEdit} className="rounded-md bg-[#4f70e7] px-5 py-2.5 font-semibold text-white">{t("Сохранить")}</button>
+              <button onClick={saveEdit} className="rounded-md bg-[#4f71dc] px-5 py-2.5 font-semibold text-white">{t("Сохранить")}</button>
             </div>
           </div>
         </div>
@@ -576,7 +576,7 @@ function AddContractModal({
         </div>
         <footer className="flex justify-end gap-3 border-t px-8 py-5">
           <button onClick={onClose} className="rounded-md border border-[#dbe0e8] px-5 py-2.5 font-semibold text-[#586174]">{t("Отмена")}</button>
-          <button onClick={() => onSave({ client, agent, zone, inn, organization, comment })} className="rounded-md bg-[#4f70e7] px-5 py-2.5 font-semibold text-white">{t("Сохранить")}</button>
+          <button onClick={() => onSave({ client, agent, zone, inn, organization, comment })} className="rounded-md bg-[#4f71dc] px-5 py-2.5 font-semibold text-white">{t("Сохранить")}</button>
         </footer>
       </div>
     </div>

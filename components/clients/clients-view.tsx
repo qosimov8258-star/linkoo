@@ -4,20 +4,11 @@ import { useEffect, useMemo, useRef, useState, type FormEvent } from "react"
 import { useRouter } from "next/navigation"
 import dynamic from "next/dynamic"
 import {
-  BarChart3,
-  ListFilter,
-  Import,
   RefreshCw,
-  Plus,
-  MoreVertical,
   Search,
   ChevronLeft,
   ChevronRight,
   ChevronDown,
-  ListChecks,
-  AlignJustify,
-  Pencil,
-  TrendingUp,
   X,
   Download,
   CheckCircle2,
@@ -29,6 +20,8 @@ import {
 import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
 import { mapHeaderColumns, readExcelRows } from "@/lib/excel-import"
 import { useLanguage } from "@/lib/i18n/language-context"
+
+import { AddOrderDialog } from "@/components/orders/add-order-dialog"
 
 import { clientTabs, type Client } from "./clients-data"
 
@@ -92,11 +85,12 @@ type ClientForm = {
   note: string
   autoDelivery: boolean
   unlimitedDebt: boolean
+  attributes: Record<string, string>
 }
 
 type ClientTextField = Exclude<
   keyof ClientForm,
-  "tab" | "phones" | "locationLat" | "locationLng" | "autoDelivery" | "unlimitedDebt"
+  "tab" | "phones" | "locationLat" | "locationLng" | "autoDelivery" | "unlimitedDebt" | "attributes"
 >
 
 const emptyClientForm: ClientForm = {
@@ -105,10 +99,10 @@ const emptyClientForm: ClientForm = {
   inn: "",
   type: "",
   zone: "",
-  zoneAgent: "Не указано",
-  agent: "Не указано",
-  deliverer: "Не указано",
-  collector: "Не указано",
+  zoneAgent: "",
+  agent: "",
+  deliverer: "",
+  collector: "",
   balance: "",
   tab: "all",
   branch: "",
@@ -124,6 +118,7 @@ const emptyClientForm: ClientForm = {
   note: "",
   autoDelivery: false,
   unlimitedDebt: false,
+  attributes: {},
 }
 
 function formatBalance(value: number) {
@@ -159,6 +154,7 @@ function formFromClient(client: Client): ClientForm {
     note: client.note ?? "",
     autoDelivery: client.autoDelivery ?? false,
     unlimitedDebt: client.unlimitedDebt ?? false,
+    attributes: client.attributes ?? {},
   }
 }
 
@@ -226,6 +222,7 @@ export function ClientsView() {
   const [typeFilter, setTypeFilter] = useState("all")
   const [zoneFilter, setZoneFilter] = useState("all")
   const [viewMode, setViewMode] = useState<ViewMode>("comfortable")
+  const [selectMode, setSelectMode] = useState(false)
   const [actionMenu, setActionMenu] = useState<ActionMenu>(null)
   const [notice, setNotice] = useState<Notice | null>(null)
   const [modalMode, setModalMode] = useState<ModalMode>(null)
@@ -307,6 +304,16 @@ export function ClientsView() {
   const rangeStart = total === 0 ? 0 : start + 1
   const rangeEnd = Math.min(start + pageSize, total)
 
+  // Deep link from an order card: /clients?openClient=<name>
+  useEffect(() => {
+    if (loading || detailClient) return
+    const name = new URLSearchParams(window.location.search).get("openClient")
+    if (!name) return
+    const match = clients.find((client) => client.name === name)
+    if (match) setDetailClient(match)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, clients])
+
   const allSelected = pageRows.length > 0 && pageRows.every((r) => selected.includes(r.id))
   const selectedClients = clients.filter((client) => selected.includes(client.id))
   const activeFilterCount = Number(typeFilter !== "all") + Number(zoneFilter !== "all")
@@ -342,10 +349,28 @@ export function ClientsView() {
 
   function openEditModal() {
     if (selectedClients.length !== 1) return
-    setForm(formFromClient(selectedClients[0]))
+    openEditModalFor(selectedClients[0])
+  }
+
+  function openEditModalFor(client: Client) {
+    setForm(formFromClient(client))
     setFormError("")
-    setEditingId(selectedClients[0].id)
+    setEditingId(client.id)
     setModalMode("edit")
+  }
+
+  async function deleteClient(client: Client) {
+    if (!window.confirm(`${t("Удалить клиента")} «${client.name}»?`)) return
+    try {
+      const response = await fetch(`/api/clients/${client.id}`, { method: "DELETE" })
+      if (!response.ok) throw new Error("delete failed")
+      setClients((current) => current.filter((item) => item.id !== client.id))
+      setSelected((current) => current.filter((id) => id !== client.id))
+      setDetailClient(null)
+      setNotice({ tone: "success", message: `${t("Клиент")} «${client.name}» ${t("удалён")}` })
+    } catch {
+      setNotice({ tone: "info", message: t("Не удалось удалить клиента") })
+    }
   }
 
   function updateFormField(field: ClientTextField, value: string) {
@@ -424,6 +449,7 @@ export function ClientsView() {
       note: form.note.trim() || undefined,
       autoDelivery: form.autoDelivery,
       unlimitedDebt: form.unlimitedDebt,
+      attributes: form.attributes,
     }
 
     setSaving(true)
@@ -567,47 +593,21 @@ export function ClientsView() {
   }
 
   return (
-    <div className="px-4 pb-10">
+    <div className="bg-[#f2f5f8] px-7 pb-7 font-sans text-[13px] text-[#333]">
       {/* Header row */}
-      <div className="flex flex-wrap items-center justify-between gap-4 py-5">
-        <div className="flex items-center gap-3">
-          <FavoritesButton className="flex items-center gap-3 text-2xl font-bold text-link" />
-          <span className="text-slate-300">|</span>
-          <span className="text-2xl font-bold text-slate-700">{t("Клиенты")}</span>
-        </div>
+      <div className="flex h-[60px] items-center justify-between">
+        <h1 className="flex items-center text-[18px] font-bold text-[#5d6474]">
+          <FavoritesButton className="flex items-center gap-[5px] text-[18px] font-bold text-[#4f71dc]" />
+          <span className="mx-[11px] h-[21px] w-[2px] bg-[#5d6474]" />
+          {t("Клиенты")}
+        </h1>
 
-        <div className="flex flex-wrap items-center gap-3">
-          <HeaderButton
-            icon={BarChart3}
-            label={t("Импортировать акции")}
-            onClick={() => promotionInputRef.current?.click()}
-          />
-          <HeaderButton
-            icon={ListFilter}
-            label={t("Показать на карте")}
-            onClick={() => router.push("/tracking?view=clients")}
-          />
-          <HeaderButton
-            icon={Import}
-            label={importingClients ? t("Импорт…") : t("Импортировать")}
-            onClick={() => importInputRef.current?.click()}
-            disabled={importingClients}
-          />
-          <HeaderButton
-            icon={RefreshCw}
-            label={importingClients ? t("Импорт…") : t("Обновить с excel")}
-            onClick={refreshFromExcel}
-            disabled={importingClients}
-            iconClassName={importingClients ? "animate-spin" : undefined}
-          />
-          <button
-            type="button"
-            onClick={openAddModal}
-            className="flex items-center gap-2 rounded-md bg-brand-green px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-brand-green-dark"
-          >
-            <Plus className="h-4 w-4" strokeWidth={3} />
-            {t("Добавить")}
-          </button>
+        <div className="flex items-center gap-[10px]">
+          <TopButton icon={CI.chart} label={t("Импортировать акции")} onClick={() => promotionInputRef.current?.click()} />
+          <TopButton icon={CI.filter} label={t("Показать на карте")} onClick={() => router.push("/tracking?view=clients")} />
+          <TopButton icon={CI.chart} label={importingClients ? t("Импорт…") : t("Импортировать")} onClick={() => importInputRef.current?.click()} disabled={importingClients} />
+          <TopButton icon={CI.sync} label={importingClients ? t("Импорт…") : t("Обновить с excel")} onClick={refreshFromExcel} disabled={importingClients} spin={importingClients} />
+          <TopButton icon={CI.add} label={t("Добавить")} onClick={openAddModal} green />
           <div className="relative">
             <button
               type="button"
@@ -617,34 +617,19 @@ export function ClientsView() {
               }}
               aria-label={t("Дополнительные действия с клиентами")}
               aria-expanded={actionMenu === "header"}
-              className="rounded-md p-2 text-slate-500 transition-colors hover:bg-slate-100"
+              className="flex h-12 w-12 items-center justify-center"
             >
-              <MoreVertical className="h-5 w-5" />
+              <svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#333]"><path d={CI.more} /></svg>
             </button>
             {actionMenu === "header" && (
               <>
                 <div className="fixed inset-0 z-20" onClick={() => setActionMenu(null)} />
-                <div
-                  role="menu"
-                  className="absolute right-0 top-full z-30 mt-2 w-56 overflow-hidden rounded-md border border-slate-200 bg-white py-1 shadow-lg"
-                >
-                  <button
-                    type="button"
-                    role="menuitem"
-                    onClick={() => exportClients(clients)}
-                    disabled={clients.length === 0}
-                    className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
-                  >
+                <div role="menu" className="absolute right-0 top-full z-30 w-56 overflow-hidden rounded-[2px] bg-white py-1 shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
+                  <button type="button" role="menuitem" onClick={() => exportClients(clients)} disabled={clients.length === 0} className="flex w-full items-center gap-2 px-4 py-3 text-left text-[13px] hover:bg-[#f2f5f8] disabled:opacity-40">
                     <Download className="h-4 w-4" />
                     {t("Экспортировать CSV")}
                   </button>
-                  <button
-                    type="button"
-                    role="menuitem"
-                    onClick={resetFilters}
-                    disabled={activeTab === "all" && query === "" && activeFilterCount === 0}
-                    className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
-                  >
+                  <button type="button" role="menuitem" onClick={resetFilters} disabled={activeTab === "all" && query === "" && activeFilterCount === 0} className="flex w-full items-center gap-2 px-4 py-3 text-left text-[13px] hover:bg-[#f2f5f8] disabled:opacity-40">
                     <RefreshCw className="h-4 w-4" />
                     {t("Сбросить фильтры")}
                   </button>
@@ -679,10 +664,8 @@ export function ClientsView() {
       {notice && (
         <div
           role="status"
-          className={`mb-4 flex items-center gap-3 rounded-md border px-4 py-3 text-sm shadow-sm ${
-            notice.tone === "success"
-              ? "border-emerald-200 bg-emerald-50 text-emerald-800"
-              : "border-blue-200 bg-blue-50 text-blue-800"
+          className={`mb-3 flex items-center gap-3 rounded px-4 py-3 text-[13px] ${
+            notice.tone === "success" ? "bg-[#e9f8ed] text-[#278549]" : "bg-[#e8efff] text-[#2f4fb8]"
           }`}
         >
           {notice.tone === "success" ? (
@@ -691,353 +674,303 @@ export function ClientsView() {
             <RefreshCw className={`h-5 w-5 shrink-0 ${importingClients ? "animate-spin" : ""}`} />
           )}
           <span className="flex-1">{notice.message}</span>
-          <button
-            type="button"
-            onClick={() => setNotice(null)}
-            aria-label={t("Закрыть уведомление")}
-            className="rounded p-1 transition-colors hover:bg-black/5"
-          >
+          <button type="button" onClick={() => setNotice(null)} aria-label={t("Закрыть уведомление")} className="rounded p-1 hover:bg-black/5">
             <X className="h-4 w-4" />
           </button>
         </div>
       )}
 
       {/* Card */}
-      <div className="overflow-hidden rounded-lg bg-white shadow-sm">
+      <div className="shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
         {/* Tabs */}
-        <div className="flex flex-wrap border-b border-slate-200">
+        <div className="relative flex h-10 rounded-[2px] bg-white">
           {clientTabs.map((tab) => (
             <button
               key={tab.id}
+              type="button"
               onClick={() => {
                 setActiveTab(tab.id)
                 setPage(1)
               }}
-              className={`relative flex-1 whitespace-nowrap px-4 py-4 text-center text-[15px] font-medium transition-colors ${
-                activeTab === tab.id ? "text-link" : "text-slate-600 hover:text-slate-900"
-              }`}
+              className="h-10 w-1/5 whitespace-nowrap text-center text-[13px] font-medium text-black"
             >
               {t(tab.label)}
-              {activeTab === tab.id && (
-                <span className="absolute inset-x-0 bottom-0 h-1 rounded-t bg-link" />
-              )}
             </button>
           ))}
+          <span
+            className="absolute -bottom-[2px] left-0 h-[3px] w-1/5 bg-[#4f71dc] shadow-[0_-3px_10px_0_#5869f0] transition-transform duration-300"
+            style={{ transform: `translateX(${clientTabs.findIndex((tab) => tab.id === activeTab) * 100}%)` }}
+          />
         </div>
 
         {/* Toolbar */}
-        <div className="flex flex-wrap items-center gap-3 px-4 py-3">
-          <button
-            type="button"
-            onClick={() => setFiltersOpen((open) => !open)}
-            aria-expanded={filtersOpen}
-            className={`flex items-center gap-2 rounded-md px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:brightness-95 ${
-              filtersOpen || activeFilterCount > 0 ? "bg-link" : "bg-brand-blue"
-            }`}
-          >
-            <ListFilter className="h-4 w-4" />
-            {filtersOpen ? t("Скрыть фильтр") : t("Показать фильтр")}
-            {activeFilterCount > 0 && (
-              <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-white px-1 text-xs text-link">
-                {activeFilterCount}
-              </span>
-            )}
-          </button>
+        <div className="relative bg-white">
+          <div className="flex h-[50px] items-center px-[5px]">
+            <div className="w-[318px] shrink-0">
+              <button
+                type="button"
+                onClick={() => setFiltersOpen((open) => !open)}
+                aria-expanded={filtersOpen}
+                className="flex h-[30px] items-center rounded-[5px] bg-[#4f71dc] pl-3 text-[13px] font-semibold text-white hover:brightness-95"
+              >
+                <svg viewBox="0 0 24 24" className="mb-1 h-[18px] w-[18px] fill-white"><path d={CI.filter} /></svg>
+                <span className="pl-2 pr-4">{filtersOpen ? t("Скрыть фильтр") : t("Показать фильтр")}</span>
+                {activeFilterCount > 0 && (
+                  <span className="mr-3 flex h-5 min-w-5 items-center justify-center rounded-full bg-white px-1 text-[11px] text-[#4f71dc]">{activeFilterCount}</span>
+                )}
+              </button>
+            </div>
 
-          <div className="relative min-w-[240px] flex-1 sm:max-w-md">
-            <input
-              value={query}
-              onChange={(e) => {
-                setQuery(e.target.value)
-                setPage(1)
-              }}
-              placeholder={t("Поиск")}
-              className="w-full rounded-md border border-slate-200 bg-white py-2.5 pl-4 pr-10 text-sm outline-none transition-colors focus:border-brand-blue"
-            />
-            {query ? (
+            <div className="relative ml-[18px] flex w-[248px] items-center">
+              <input
+                value={query}
+                onChange={(e) => {
+                  setQuery(e.target.value)
+                  setPage(1)
+                }}
+                placeholder={t("Поиск")}
+                className="h-12 w-full border-b border-[#e0e0e0] bg-transparent text-[13px] outline-none placeholder:text-black/30 focus:border-[#5d6474]"
+              />
+              {query ? (
+                <button type="button" onClick={() => { setQuery(""); setPage(1) }} aria-label={t("Очистить поиск")} className="absolute -right-[38px] p-1 text-[#999]">
+                  <X className="h-5 w-5" />
+                </button>
+              ) : (
+                <Search className="absolute -right-[38px] h-6 w-6 text-[#ccc]" />
+              )}
+            </div>
+
+            <div className="ml-auto flex items-center text-[#5d6474]">
+              {/* Page size */}
+              <div className="relative mr-[15px]">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActionMenu(null)
+                    setPageSizeOpen((open) => !open)
+                  }}
+                  aria-label={t("Количество строк на странице")}
+                  aria-expanded={pageSizeOpen}
+                  className="flex h-12 w-[52px] items-center justify-between border-b border-[#e0e0e0] text-[13px] text-[#333]"
+                >
+                  {pageSize}
+                  <svg viewBox="0 0 24 24" className="h-6 w-6 fill-black/30"><path d="M7 10l5 5 5-5z" /></svg>
+                </button>
+                {pageSizeOpen && (
+                  <>
+                    <div className="fixed inset-0 z-10" onClick={() => setPageSizeOpen(false)} />
+                    <div className="absolute right-0 z-20 w-24 overflow-hidden rounded-[2px] bg-white py-1 shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
+                      {pageSizes.map((size) => (
+                        <button
+                          type="button"
+                          key={size}
+                          onClick={() => {
+                            setPageSize(size)
+                            setPage(1)
+                            setPageSizeOpen(false)
+                          }}
+                          className={`block w-full px-4 py-2 text-left text-[13px] hover:bg-[#f2f5f8] ${size === pageSize ? "font-semibold text-[#4f71dc]" : ""}`}
+                        >
+                          {size}
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>
+
+              {/* Pagination */}
+              <span className="mr-2 whitespace-nowrap">
+                {rangeStart} - {rangeEnd}  {t("из")}  {total}
+              </span>
+              <button type="button" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={currentPage <= 1} aria-label={t("Предыдущая страница")} className="px-[5px]">
+                <svg viewBox="0 0 24 24" className={`h-6 w-6 ${currentPage <= 1 ? "fill-black/30" : "fill-black/55"}`}><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm1-12l-5 4 5 4V8z" /></svg>
+              </button>
+              <button type="button" onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={currentPage >= totalPages} aria-label={t("Следующая страница")}>
+                <svg viewBox="0 0 24 24" className={`h-6 w-6 ${currentPage >= totalPages ? "fill-black/30" : "fill-black/55"}`}><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zM11 8v8l5-4-5-4z" /></svg>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setSelectMode((mode) => !mode)}
+                aria-label={t("Выбрать строки на странице")}
+                aria-pressed={selectMode}
+                title={t("Выбрать строки на странице")}
+                className={`ml-5 flex h-12 w-12 items-center justify-center ${selectMode ? "bg-[#e8efff]" : ""}`}
+              >
+                <svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#5d6474]"><path d={CI.checklist} /></svg>
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewMode((mode) => (mode === "comfortable" ? "compact" : "comfortable"))}
+                aria-label={viewMode === "compact" ? t("Включить обычный вид") : t("Включить компактный вид")}
+                aria-pressed={viewMode === "compact"}
+                title={viewMode === "compact" ? t("Обычный вид") : t("Компактный вид")}
+                className={`flex h-12 w-12 items-center justify-center ${viewMode === "compact" ? "bg-[#e8efff]" : ""}`}
+              >
+                <svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#5d6474]"><path d={CI.align} /></svg>
+              </button>
+
+              {selectedClients.length > 0 && <span className="mx-2 whitespace-nowrap font-semibold text-[#4f71dc]">{t("Выбрано")}: {selectedClients.length}</span>}
+
+              <div className="ml-[10px] flex items-center gap-[18px]">
+                <TopButton
+                  icon={CI.edit}
+                  label={t("Изменить")}
+                  onClick={() => {
+                    if (selectedClients.length !== 1) {
+                      setSelectMode(true)
+                      setNotice({ tone: "info", message: t("Выберите одного клиента для изменения") })
+                      return
+                    }
+                    openEditModal()
+                  }}
+                />
+                <TopButton
+                  icon={CI.trend}
+                  label={t("Уст. маршрут")}
+                  green
+                  onClick={() => {
+                    if (selectedClients.length === 0) {
+                      setSelectMode(true)
+                      setNotice({ tone: "info", message: t("Выберите клиентов для установки маршрута") })
+                      return
+                    }
+                    assignRoute()
+                  }}
+                />
+              </div>
+
+              <div className="relative ml-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPageSizeOpen(false)
+                    setActionMenu((current) => (current === "table" ? null : "table"))
+                  }}
+                  aria-label={t("Дополнительные действия таблицы")}
+                  aria-expanded={actionMenu === "table"}
+                  className="flex h-12 w-12 items-center justify-center"
+                >
+                  <svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#333]"><path d={CI.more} /></svg>
+                </button>
+                {actionMenu === "table" && (
+                  <>
+                    <div className="fixed inset-0 z-20" onClick={() => setActionMenu(null)} />
+                    <div role="menu" className="absolute right-0 top-full z-30 w-64 overflow-hidden rounded-[2px] bg-white py-1 text-[#333] shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => exportClients(selectedClients.length > 0 ? selectedClients : filtered)}
+                        disabled={(selectedClients.length > 0 ? selectedClients : filtered).length === 0}
+                        className="flex w-full items-center gap-2 px-4 py-3 text-left text-[13px] hover:bg-[#f2f5f8] disabled:opacity-40"
+                      >
+                        <Download className="h-4 w-4" />
+                        {selectedClients.length > 0 ? t("Экспортировать выбранные") : t("Экспортировать результат")}
+                      </button>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          setSelected([])
+                          setActionMenu(null)
+                          setNotice({ tone: "info", message: t("Выделение снято") })
+                        }}
+                        disabled={selectedClients.length === 0}
+                        className="flex w-full items-center gap-2 px-4 py-3 text-left text-[13px] hover:bg-[#f2f5f8] disabled:opacity-40"
+                      >
+                        <X className="h-4 w-4" />
+                        {t("Снять выделение")}
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {filtersOpen && (
+            <div className="grid gap-3 border-t border-[#efefef] bg-[#f7f9fb] px-4 py-4 sm:grid-cols-[minmax(180px,1fr)_minmax(180px,1fr)_auto] sm:items-end">
+              <label className="flex flex-col gap-1.5 text-[10px] font-bold">
+                {t("Тип клиента")}
+                <select
+                  value={typeFilter}
+                  onChange={(event) => {
+                    setTypeFilter(event.target.value)
+                    setPage(1)
+                  }}
+                  className="border-b border-[#e0e0e0] bg-transparent py-2 text-[13px] font-semibold outline-none"
+                >
+                  <option value="all">{t("Все типы")}</option>
+                  {typeOptions.map((type) => (
+                    <option key={type} value={type}>{type}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="flex flex-col gap-1.5 text-[10px] font-bold">
+                {t("Зона")}
+                <select
+                  value={zoneFilter}
+                  onChange={(event) => {
+                    setZoneFilter(event.target.value)
+                    setPage(1)
+                  }}
+                  className="border-b border-[#e0e0e0] bg-transparent py-2 text-[13px] font-semibold outline-none"
+                >
+                  <option value="all">{t("Все зоны")}</option>
+                  {zoneOptions.map((zone) => (
+                    <option key={zone} value={zone}>{zone}</option>
+                  ))}
+                </select>
+              </label>
               <button
                 type="button"
                 onClick={() => {
-                  setQuery("")
+                  setTypeFilter("all")
+                  setZoneFilter("all")
                   setPage(1)
                 }}
-                aria-label={t("Очистить поиск")}
-                className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700"
+                disabled={activeFilterCount === 0}
+                className="h-[30px] rounded-[5px] border border-[#e0e0e0] bg-white px-4 text-[13px] font-semibold hover:bg-[#f2f5f8] disabled:opacity-40"
               >
-                <X className="h-4 w-4" />
+                {t("Сбросить")}
               </button>
-            ) : (
-              <Search className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-            )}
-          </div>
-
-          {/* Page size */}
-          <div className="relative">
-            <button
-              type="button"
-              onClick={() => {
-                setActionMenu(null)
-                setPageSizeOpen((open) => !open)
-              }}
-              aria-label={t("Количество строк на странице")}
-              aria-expanded={pageSizeOpen}
-              className="flex items-center gap-2 rounded-md border border-slate-200 px-3 py-2.5 text-sm text-slate-700 transition-colors hover:bg-slate-50"
-            >
-              {pageSize}
-              <ChevronDown className="h-4 w-4 text-slate-400" />
-            </button>
-            {pageSizeOpen && (
-              <>
-                <div className="fixed inset-0 z-10" onClick={() => setPageSizeOpen(false)} />
-                <div className="absolute right-0 z-20 mt-1 w-24 overflow-hidden rounded-md border border-slate-200 bg-white py-1 shadow-lg">
-                  {pageSizes.map((size) => (
-                    <button
-                      type="button"
-                      key={size}
-                      onClick={() => {
-                        setPageSize(size)
-                        setPage(1)
-                        setPageSizeOpen(false)
-                      }}
-                      className={`block w-full px-4 py-2 text-left text-sm transition-colors hover:bg-slate-100 ${
-                        size === pageSize ? "font-semibold text-brand-blue" : "text-slate-700"
-                      }`}
-                    >
-                      {size}
-                    </button>
-                  ))}
-                </div>
-              </>
-            )}
-          </div>
-
-          {/* Pagination */}
-          <div className="flex items-center gap-2">
-            <span className="whitespace-nowrap text-sm text-slate-600">
-              {rangeStart} - {rangeEnd} {t("из")} {total}
-            </span>
-            <button
-              type="button"
-              onClick={() => setPage((p) => Math.max(1, p - 1))}
-              disabled={currentPage <= 1}
-              aria-label={t("Предыдущая страница")}
-              className="rounded-full p-1 text-brand-blue transition-colors hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-30"
-            >
-              <ChevronLeft className="h-6 w-6" />
-            </button>
-            <button
-              type="button"
-              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-              disabled={currentPage >= totalPages}
-              aria-label={t("Следующая страница")}
-              className="rounded-full p-1 text-brand-blue transition-colors hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-30"
-            >
-              <ChevronRight className="h-6 w-6" />
-            </button>
-          </div>
-
-          <button
-            type="button"
-            onClick={toggleAll}
-            disabled={pageRows.length === 0}
-            aria-label={allSelected ? t("Снять выделение со страницы") : t("Выбрать строки на странице")}
-            aria-pressed={allSelected}
-            title={allSelected ? t("Снять выделение со страницы") : t("Выбрать строки на странице")}
-            className={`rounded-md p-2 transition-colors hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-30 ${
-              allSelected ? "bg-blue-50 text-link" : "text-slate-500"
-            }`}
-          >
-            <ListChecks className="h-5 w-5" />
-          </button>
-          <button
-            type="button"
-            onClick={() => setViewMode((mode) => (mode === "comfortable" ? "compact" : "comfortable"))}
-            aria-label={viewMode === "compact" ? t("Включить обычный вид") : t("Включить компактный вид")}
-            aria-pressed={viewMode === "compact"}
-            title={viewMode === "compact" ? t("Обычный вид") : t("Компактный вид")}
-            className={`rounded-md p-2 transition-colors hover:bg-slate-100 ${
-              viewMode === "compact" ? "bg-blue-50 text-link" : "text-slate-500"
-            }`}
-          >
-            <AlignJustify className="h-5 w-5" />
-          </button>
-
-          {selectedClients.length > 0 && (
-            <span className="whitespace-nowrap text-sm font-medium text-link">{t("Выбрано")}: {selectedClients.length}</span>
+            </div>
           )}
 
-          <button
-            type="button"
-            onClick={openEditModal}
-            disabled={selectedClients.length !== 1}
-            className="flex items-center gap-2 rounded-md bg-brand-blue px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            <Pencil className="h-4 w-4" />
-            {t("Изменить")}
-          </button>
-          <button
-            type="button"
-            onClick={assignRoute}
-            disabled={selectedClients.length === 0}
-            className="flex items-center gap-2 rounded-md bg-brand-green px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-brand-green-dark disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            <TrendingUp className="h-4 w-4" />
-            {t("Уст. маршрут")}
-          </button>
-          <div className="relative">
-            <button
-              type="button"
-              onClick={() => {
-                setPageSizeOpen(false)
-                setActionMenu((current) => (current === "table" ? null : "table"))
-              }}
-              aria-label={t("Дополнительные действия таблицы")}
-              aria-expanded={actionMenu === "table"}
-              className="rounded-md p-2 text-slate-500 transition-colors hover:bg-slate-100"
-            >
-              <MoreVertical className="h-5 w-5" />
-            </button>
-            {actionMenu === "table" && (
-              <>
-                <div className="fixed inset-0 z-20" onClick={() => setActionMenu(null)} />
-                <div
-                  role="menu"
-                  className="absolute right-0 top-full z-30 mt-2 w-64 overflow-hidden rounded-md border border-slate-200 bg-white py-1 shadow-lg"
-                >
-                  <button
-                    type="button"
-                    role="menuitem"
-                    onClick={() => exportClients(selectedClients.length > 0 ? selectedClients : filtered)}
-                    disabled={(selectedClients.length > 0 ? selectedClients : filtered).length === 0}
-                    className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
-                  >
-                    <Download className="h-4 w-4" />
-                    {selectedClients.length > 0 ? t("Экспортировать выбранные") : t("Экспортировать результат")}
-                  </button>
-                  <button
-                    type="button"
-                    role="menuitem"
-                    onClick={() => {
-                      setSelected([])
-                      setActionMenu(null)
-                      setNotice({ tone: "info", message: t("Выделение снято") })
-                    }}
-                    disabled={selectedClients.length === 0}
-                    className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
-                  >
-                    <X className="h-4 w-4" />
-                    {t("Снять выделение")}
-                  </button>
-                </div>
-              </>
-            )}
-          </div>
-        </div>
-
-        {filtersOpen && (
-          <div className="grid gap-3 border-t border-slate-100 bg-slate-50 px-4 py-4 sm:grid-cols-[minmax(180px,1fr)_minmax(180px,1fr)_auto] sm:items-end">
-            <label className="flex flex-col gap-1.5 text-sm font-medium text-slate-700">
-              {t("Тип клиента")}
-              <select
-                value={typeFilter}
-                onChange={(event) => {
-                  setTypeFilter(event.target.value)
-                  setPage(1)
-                }}
-                className="rounded-md border border-slate-200 bg-white px-3 py-2.5 text-sm font-normal outline-none transition-colors focus:border-brand-blue"
-              >
-                <option value="all">{t("Все типы")}</option>
-                {typeOptions.map((type) => (
-                  <option key={type} value={type}>
-                    {type}
-                  </option>
+          {/* Table */}
+          <div className="overflow-x-auto">
+            <div className="min-w-[1100px]">
+              <div className="grid h-[50px] items-center bg-[#5d6474] px-[30px] font-semibold text-white" style={{ gridTemplateColumns: CLIENT_COLS }}>
+                {["Название", "Тел. номер", "Информация", "Тип", "Зона", "Ответственный агент", "Ответственный доставщик", "Ответственный инкассатор", "Баланс"].map((head, index) => (
+                  <div key={head} className="flex items-center gap-2 px-2 leading-[16px]">
+                    {index === 0 && selectMode && (
+                      <input
+                        type="checkbox"
+                        checked={allSelected}
+                        onChange={toggleAll}
+                        disabled={pageRows.length === 0}
+                        className="h-4 w-4 cursor-pointer accent-[#71ce87]"
+                        aria-label={t("Выбрать все")}
+                      />
+                    )}
+                    {t(head)}
+                  </div>
                 ))}
-              </select>
-            </label>
-            <label className="flex flex-col gap-1.5 text-sm font-medium text-slate-700">
-              {t("Зона")}
-              <select
-                value={zoneFilter}
-                onChange={(event) => {
-                  setZoneFilter(event.target.value)
-                  setPage(1)
-                }}
-                className="rounded-md border border-slate-200 bg-white px-3 py-2.5 text-sm font-normal outline-none transition-colors focus:border-brand-blue"
-              >
-                <option value="all">{t("Все зоны")}</option>
-                {zoneOptions.map((zone) => (
-                  <option key={zone} value={zone}>
-                    {zone}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <button
-              type="button"
-              onClick={() => {
-                setTypeFilter("all")
-                setZoneFilter("all")
-                setPage(1)
-              }}
-              disabled={activeFilterCount === 0}
-              className="rounded-md border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              {t("Сбросить")}
-            </button>
-          </div>
-        )}
-
-        {/* Table */}
-        <div className="overflow-x-auto">
-          <table className="w-full border-collapse text-left">
-            <thead>
-              <tr className="bg-navy text-white">
-                <th className="w-10 px-4 py-4">
-                  <input
-                    type="checkbox"
-                    checked={allSelected}
-                    onChange={toggleAll}
-                    disabled={pageRows.length === 0}
-                    className="h-4 w-4 cursor-pointer accent-brand-green disabled:cursor-not-allowed disabled:opacity-40"
-                    aria-label={t("Выбрать все")}
-                  />
-                </th>
-                <th className="px-4 py-4 text-sm font-semibold">{t("Название")}</th>
-                <th className="px-4 py-4 text-sm font-semibold">{t("Тел. номер")}</th>
-                <th className="px-4 py-4 text-sm font-semibold">{t("Информация")}</th>
-                <th className="px-4 py-4 text-sm font-semibold">{t("Тип")}</th>
-                <th className="px-4 py-4 text-sm font-semibold">{t("Зона")}</th>
-                <th className="px-4 py-4 text-sm font-semibold">{t("Ответственный агент")}</th>
-                <th className="px-4 py-4 text-sm font-semibold">{t("Ответственный доставщик")}</th>
-                <th className="px-4 py-4 text-sm font-semibold">{t("Ответственный инкассатор")}</th>
-                <th className="px-4 py-4 text-sm font-semibold">{t("Баланс")}</th>
-              </tr>
-            </thead>
-            <tbody>
+              </div>
               {loading ? (
-                <tr>
-                  <td colSpan={10} className="px-4 py-16 text-center text-slate-500">
-                    {t("Загрузка клиентов...")}
-                  </td>
-                </tr>
+                <div className="px-4 py-16 text-center text-[#666]">{t("Загрузка клиентов...")}</div>
               ) : loadError ? (
-                <tr>
-                  <td colSpan={10} className="px-4 py-16 text-center text-red-600">
-                    {loadError}
-                  </td>
-                </tr>
+                <div className="px-4 py-16 text-center text-red-600">{loadError}</div>
               ) : pageRows.length === 0 ? (
-                <tr>
-                  <td colSpan={10} className="px-4 py-16 text-center text-slate-500">
-                    {t("По вашему запросу ничего не найдено")}
-                  </td>
-                </tr>
+                <div className="px-4 py-16 text-center text-[#666]">{t("По вашему запросу ничего не найдено")}</div>
               ) : (
                 pageRows.map((client) => (
                   <ClientRow
                     key={client.id}
                     client={client}
                     selected={selected.includes(client.id)}
+                    selectMode={selectMode}
                     compact={viewMode === "compact"}
                     routed={routeAssigned.has(client.id)}
                     onToggle={() => toggleRow(client.id)}
@@ -1045,8 +978,8 @@ export function ClientsView() {
                   />
                 ))
               )}
-            </tbody>
-          </table>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -1066,38 +999,62 @@ export function ClientsView() {
           onPhoneAdd={addPhone}
           onPhoneRemove={removePhone}
           onToggleChange={updateFormToggle}
+          onAttributeChange={(name, value) => setForm((current) => ({ ...current, attributes: { ...current.attributes, [name]: value } }))}
           onLocationChange={setFormLocation}
           onClose={() => setModalMode(null)}
           onSubmit={saveClient}
         />
       )}
-      {detailClient && <ClientDetail client={detailClient} onClose={() => setDetailClient(null)} />}
+      {detailClient && (
+        <ClientDetail
+          client={detailClient}
+          onClose={() => setDetailClient(null)}
+          onEdit={() => openEditModalFor(detailClient)}
+          onDelete={() => deleteClient(detailClient)}
+        />
+      )}
     </div>
   )
 }
 
-function HeaderButton({
-  icon: Icon,
+const CLIENT_COLS = "minmax(0,185fr) minmax(0,186fr) minmax(0,172fr) minmax(0,87fr) minmax(0,173fr) minmax(0,124fr) minmax(0,124fr) minmax(0,111fr) minmax(0,74fr)"
+
+const CI = {
+  chart: "M10 20h4V4h-4v16zm-6 0h4v-8H4v8zM16 9v11h4V9h-4z",
+  filter: "M10 18h4v-2h-4v2zM3 6v2h18V6H3zm3 7h12v-2H6v2z",
+  sync: "M19 8l-4 4h3c0 3.31-2.69 6-6 6-1.01 0-1.97-.25-2.8-.7l-1.46 1.46C8.97 19.54 10.43 20 12 20c4.42 0 8-3.58 8-8h3l-4-4zM6 12c0-3.31 2.69-6 6-6 1.01 0 1.97.25 2.8.7l1.46-1.46C15.03 4.46 13.57 4 12 4c-4.42 0-8 3.58-8 8H1l4 4 4-4H6z",
+  add: "M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm5 11h-4v4h-2v-4H7v-2h4V7h2v4h4v2z",
+  more: "M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z",
+  checklist: "M14 10H2v2h12v-2zm0-4H2v2h12V6zM2 16h8v-2H2v2zm19.5-4.5L23 13l-6.99 7-4.51-4.5L13 14l3.01 3 5.49-5.5z",
+  align: "M3 21h18v-2H3v2zm0-4h18v-2H3v2zm0-4h18v-2H3v2zm0-4h18V7H3v2zm0-6v2h18V3H3z",
+  edit: "M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z",
+  trend: "M16 6l2.29 2.29-4.88 4.88-4-4L2 16.59 3.41 18l6-6 4 4 6.3-6.29L22 12V6z",
+}
+
+function TopButton({
+  icon,
   label,
   onClick,
   disabled = false,
-  iconClassName,
+  green = false,
+  spin = false,
 }: {
-  icon: typeof BarChart3
+  icon: string
   label: string
   onClick: () => void
   disabled?: boolean
-  iconClassName?: string
+  green?: boolean
+  spin?: boolean
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className="flex items-center gap-2 rounded-md bg-brand-blue px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:brightness-95 disabled:cursor-wait disabled:opacity-60"
+      className={`flex h-[30px] items-center rounded-[5px] pl-3 text-[13px] font-semibold text-white hover:brightness-95 disabled:cursor-wait disabled:opacity-60 ${green ? "bg-[#71ce87]" : "bg-[#4f71dc]"}`}
     >
-      <Icon className={`h-4 w-4 ${iconClassName ?? ""}`} />
-      {label}
+      <svg viewBox="0 0 24 24" className={`mb-1 h-[18px] w-[18px] fill-white ${spin ? "animate-spin" : ""}`}><path d={icon} /></svg>
+      <span className="pl-2 pr-4 whitespace-nowrap">{label}</span>
     </button>
   )
 }
@@ -1116,6 +1073,7 @@ function ClientModal({
   onPhoneAdd,
   onPhoneRemove,
   onToggleChange,
+  onAttributeChange,
   onLocationChange,
   onClose,
   onSubmit,
@@ -1131,6 +1089,7 @@ function ClientModal({
   onPhoneAdd: () => void
   onPhoneRemove: (index: number) => void
   onToggleChange: (field: "autoDelivery" | "unlimitedDebt", value: boolean) => void
+  onAttributeChange: (name: string, value: string) => void
   onLocationChange: (lat: number | null, lng: number | null) => void
   onClose: () => void
   onSubmit: (event: FormEvent<HTMLFormElement>) => void
@@ -1138,21 +1097,39 @@ function ClientModal({
   const { t } = useLanguage()
   const [branchOptions, setBranchOptions] = useState<string[]>([])
   const [typeOptions, setTypeOptions] = useState<string[]>([])
+  const [attributeDefs, setAttributeDefs] = useState<{ name: string; fieldType: string; options: string[] }[]>([])
   const [addTypeOpen, setAddTypeOpen] = useState(false)
   const [newTypeName, setNewTypeName] = useState("")
   const [savingType, setSavingType] = useState(false)
   const [locationPickerOpen, setLocationPickerOpen] = useState(false)
+  const [canSeePrice, setCanSeePrice] = useState(true)
+  const [confirmToOrder, setConfirmToOrder] = useState(true)
+  const [changeFinance, setChangeFinance] = useState(false)
+  const [objectActive, setObjectActive] = useState(true)
 
   useEffect(() => {
     let cancelled = false
     async function loadOptions() {
-      const [branchesRes, typesRes] = await Promise.all([
+      const [branchesRes, typesRes, attributesRes, valuesRes] = await Promise.all([
         fetch("/api/branches").catch(() => null),
         fetch("/api/client-types").catch(() => null),
+        fetch("/api/client-attributes").catch(() => null),
+        fetch("/api/client-attribute-values").catch(() => null),
       ])
       if (cancelled) return
       if (branchesRes?.ok) setBranchOptions(((await branchesRes.json()) as OptionItem[]).map((item) => item.name))
       if (typesRes?.ok) setTypeOptions(((await typesRes.json()) as OptionItem[]).map((item) => item.name))
+      if (attributesRes?.ok) {
+        const attributes = (await attributesRes.json()) as { name: string; fieldType: string }[]
+        const values = valuesRes?.ok ? ((await valuesRes.json()) as { attribute: string; values: string[] }[]) : []
+        setAttributeDefs(
+          attributes.map((attribute) => ({
+            name: attribute.name,
+            fieldType: attribute.fieldType,
+            options: values.filter((item) => item.attribute === attribute.name).flatMap((item) => item.values),
+          })),
+        )
+      }
     }
     void loadOptions()
     return () => {
@@ -1190,7 +1167,7 @@ function ClientModal({
 
   return (
     <div
-      className="fixed inset-0 z-[80] flex items-center justify-center bg-black/45 p-4"
+      className="fixed inset-0 z-[80] bg-black/[0.54]"
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) onClose()
       }}
@@ -1200,69 +1177,71 @@ function ClientModal({
         role="dialog"
         aria-modal="true"
         aria-labelledby="client-modal-title"
-        className="flex max-h-[calc(100vh-2rem)] w-full max-w-4xl flex-col overflow-hidden rounded bg-white shadow-2xl"
+        className="fixed bottom-0 left-1/2 top-16 flex w-[1082px] max-w-full -translate-x-1/2 flex-col bg-white font-sans text-[13px] text-[#333]"
       >
-        <header className="flex items-center justify-between border-b p-6">
-          <b id="client-modal-title" className="uppercase">
-            {mode === "add" ? t("Добавление клиента") : t("Изменить клиента")}
+        <header className="flex h-[60px] shrink-0 items-center justify-between border-b border-[#efefef] px-[30px]">
+          <b id="client-modal-title" className="text-[13px] font-bold uppercase">
+            {mode === "add" ? t("Добавление клиента") : t("Изменение клиента")}
           </b>
           <button type="button" onClick={onClose} aria-label={t("Закрыть")}>
-            <X className="h-5 w-5" />
+            <svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#333]"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" /></svg>
           </button>
         </header>
 
-        <div className="flex-1 overflow-y-auto p-8">
-          <div className="grid gap-x-10 gap-y-8 lg:grid-cols-2">
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          <div className="grid min-h-full lg:grid-cols-2">
             {/* Left column */}
-            <div className="space-y-6">
-              <section className="space-y-4">
+            <div className="px-[30px] pb-6 pt-[18px]">
+              <section>
                 <SectionTitle>{t("Общая информация")}</SectionTitle>
                 <FieldInput label={t("Наименование")} required autoFocus value={form.name} onChange={(value) => onTextChange("name", value)} />
-
-                <div className="flex items-end gap-2">
-                  <FieldSelect
-                    label={t("Тип клиента")}
-                    required
-                    value={form.type}
-                    onChange={(value) => onTextChange("type", value)}
-                    options={typeSelectOptions}
-                    className="flex-1"
-                  />
+                <FieldSelect label={t("Филиал")} required value={form.branch} onChange={(value) => onTextChange("branch", value)} options={branchSelectOptions} />
+                <FieldInput label={t("Канал продаж")} value={form.salesChannel} onChange={(value) => onTextChange("salesChannel", value)} />
+                <div className="relative">
+                  <FieldSelect label={t("Тип клиента")} required value={form.type} onChange={(value) => onTextChange("type", value)} options={typeSelectOptions} />
                   <button
                     type="button"
                     title={t("Добавить тип клиента")}
                     onClick={() => setAddTypeOpen(true)}
-                    className="mb-2 shrink-0 text-[#5fb583] hover:text-[#4a9d6d]"
+                    className="absolute -right-[26px] top-[22px] text-[#5fb583] hover:text-[#4a9d6d]"
                   >
                     <PlusCircle className="h-5 w-5" />
                   </button>
                 </div>
-
-                <FieldInput
-                  label={t("Зона")}
-                  required
-                  value={form.zone}
-                  onChange={(value) => onTextChange("zone", value)}
-                  listId="client-zone-options"
-                  listOptions={zoneOptions}
-                />
-
-                <FieldSelect label={t("Филиал")} value={form.branch} onChange={(value) => onTextChange("branch", value)} options={branchSelectOptions} placeholder={t("Не указано")} />
-                <FieldInput label={t("Канал продаж")} value={form.salesChannel} onChange={(value) => onTextChange("salesChannel", value)} />
+                <FieldInput label={t("Зона")} value={form.zone} onChange={(value) => onTextChange("zone", value)} listId="client-zone-options" listOptions={zoneOptions} />
                 <FieldInput label={t("Реализация по")} value={form.realizationBy} onChange={(value) => onTextChange("realizationBy", value)} />
-                <FieldInput label={t("ИНН")} value={form.inn} onChange={(value) => onTextChange("inn", value)} />
               </section>
 
-              <section className="space-y-4 border-t border-dashed border-slate-200 pt-6">
+              <section className="mt-6 border-t border-dotted border-[#ccc] pt-6">
                 <SectionTitle>{t("Ответственные лица")}</SectionTitle>
-                <FieldInput label={t("Агент зоны")} value={form.zoneAgent} onChange={(value) => onTextChange("zoneAgent", value)} />
-                <FieldInput label={t("Ответственный агент")} value={form.agent} onChange={(value) => onTextChange("agent", value)} />
                 <FieldInput label={t("Ответственный доставщик")} value={form.deliverer} onChange={(value) => onTextChange("deliverer", value)} />
                 <FieldInput label={t("Ответственный инкассатор")} value={form.collector} onChange={(value) => onTextChange("collector", value)} />
+                <FieldInput label={t("Ответственный агент")} value={form.agent} onChange={(value) => onTextChange("agent", value)} />
+                <FieldInput label={t("Агент зоны")} value={form.zoneAgent} onChange={(value) => onTextChange("zoneAgent", value)} />
               </section>
 
-              <section className="space-y-4 border-t border-dashed border-slate-200 pt-6">
-                <SectionTitle>{t("Баланс и статус")}</SectionTitle>
+              <section className="mt-6 border-t border-dotted border-[#ccc] pt-6">
+                <SectionTitle>{t("Юридическая информация")}</SectionTitle>
+                {attributeDefs.map((attribute) =>
+                  attribute.fieldType === "Выбор вариантов" ? (
+                    <FieldSelect
+                      key={attribute.name}
+                      label={attribute.name}
+                      value={form.attributes[attribute.name] ?? ""}
+                      onChange={(value) => onAttributeChange(attribute.name, value)}
+                      options={attribute.options}
+                    />
+                  ) : (
+                    <FieldInput
+                      key={attribute.name}
+                      label={attribute.name}
+                      type={attribute.fieldType === "Цифровое поле" ? "number" : "text"}
+                      value={form.attributes[attribute.name] ?? ""}
+                      onChange={(value) => onAttributeChange(attribute.name, value)}
+                    />
+                  ),
+                )}
+                <FieldInput label={t("ИНН")} value={form.inn} onChange={(value) => onTextChange("inn", value)} />
                 <FieldInput label={t("Баланс")} type="number" value={form.balance} onChange={(value) => onTextChange("balance", value)} />
                 <FieldSelect
                   label={t("Статус")}
@@ -1275,33 +1254,26 @@ function ClientModal({
             </div>
 
             {/* Right column */}
-            <div className="space-y-6">
-              <section className="space-y-4">
+            <div className="border-[#efefef] px-[30px] pb-6 pt-[18px] lg:border-l">
+              <section>
                 <SectionTitle>{t("Адрес и местоположение")}</SectionTitle>
                 <FieldInput label={t("Адрес")} required={mode === "add"} value={form.address} onChange={(value) => onTextChange("address", value)} />
                 <FieldInput label={t("Ориентир")} required={mode === "add"} value={form.landmark} onChange={(value) => onTextChange("landmark", value)} />
 
-                <div>
-                  <button
-                    type="button"
-                    onClick={() => setLocationPickerOpen(true)}
-                    className="inline-flex items-center gap-1.5 text-sm font-medium text-[#4f70e7] hover:underline"
-                  >
+                <div className="py-3">
+                  <button type="button" onClick={() => setLocationPickerOpen(true)} className="inline-flex items-center gap-2 text-[13px] text-[#129fdd] hover:underline">
                     <MapPin className="h-4 w-4" />
-                    {t("отметить местоположение на карте")}
+                    {form.locationLat != null && form.locationLng != null ? `${form.locationLat.toFixed(6)} ${form.locationLng.toFixed(6)}` : t("отметить местоположение на карте")}
                   </button>
                   {form.locationLat != null && form.locationLng != null && (
-                    <div className="mt-2 flex items-center gap-2 text-sm text-slate-500">
-                      {t("Координаты")}: {form.locationLat.toFixed(6)}, {form.locationLng.toFixed(6)}
-                      <button
-                        type="button"
-                        title={t("Убрать точку")}
-                        onClick={() => onLocationChange(null, null)}
-                        className="text-rose-400 hover:text-rose-600"
-                      >
-                        <X className="h-3.5 w-3.5" />
+                    <>
+                      <button type="button" onClick={() => setLocationPickerOpen(true)} className="ml-6 text-[13px] text-[#129fdd] hover:underline">
+                        {t("Изменить")}
                       </button>
-                    </div>
+                      <button type="button" title={t("Убрать точку")} onClick={() => onLocationChange(null, null)} className="ml-3 text-[#e57373]">
+                        <X className="inline h-3.5 w-3.5" />
+                      </button>
+                    </>
                   )}
                 </div>
 
@@ -1313,71 +1285,65 @@ function ClientModal({
                 />
               </section>
 
-              <section className="space-y-4 border-t border-dashed border-slate-200 pt-6">
+              <section className="mt-6 border-t border-dotted border-[#ccc] pt-6">
                 <SectionTitle>{t("Контактные данные")}</SectionTitle>
                 <FieldInput label={t("Код")} value={form.code} onChange={(value) => onTextChange("code", value)} />
 
-                <div className="space-y-2">
-                  <span className="font-medium text-slate-700">
-                    {t("Номер телефона")} <span className="text-red-500">*</span>
-                  </span>
-                  {form.phones.map((phone, index) => (
-                    <div key={index} className="flex items-center gap-2 border-b border-slate-200 pb-2">
-                      <input
+                {form.phones.map((phone, index) => (
+                  <div key={index} className="relative">
+                    <div className="w-[calc(100%-44px)]">
+                      <FieldInput
+                        label={t("Номер телефона")}
                         type="tel"
-                        value={phone}
                         required={index === 0}
                         autoFocus={index === 0 && mode === "add"}
-                        onChange={(event) => onPhoneChange(index, event.target.value)}
-                        className="block w-full outline-none"
+                        value={phone}
+                        onChange={(value) => onPhoneChange(index, value)}
                       />
-                      {index === form.phones.length - 1 ? (
-                        <button type="button" title={t("Добавить номер")} onClick={onPhoneAdd} className="shrink-0 text-[#5fb583] hover:text-[#4a9d6d]">
-                          <PlusCircle className="h-5 w-5" />
-                        </button>
-                      ) : (
-                        <button type="button" title={t("Удалить номер")} onClick={() => onPhoneRemove(index)} className="shrink-0 text-rose-400 hover:text-rose-600">
-                          <Minus className="h-5 w-5" />
-                        </button>
-                      )}
                     </div>
-                  ))}
-                </div>
+                    {index === form.phones.length - 1 ? (
+                      <button type="button" title={t("Добавить номер")} onClick={onPhoneAdd} className="absolute right-3 top-[22px] text-[#666]">
+                        <PlusCircle className="h-5 w-5" />
+                      </button>
+                    ) : (
+                      <button type="button" title={t("Удалить номер")} onClick={() => onPhoneRemove(index)} className="absolute right-3 top-[22px] text-[#e57373]">
+                        <Minus className="h-5 w-5" />
+                      </button>
+                    )}
+                  </div>
+                ))}
 
-                <FieldInput label={t("Контактное лицо")} value={form.contactPerson} onChange={(value) => onTextChange("contactPerson", value)} />
-                <FieldInput label={t("Заметка")} textarea value={form.note} onChange={(value) => onTextChange("note", value)} />
+                <FieldInput label={t("Контактное лицо")} required={mode === "add"} value={form.contactPerson} onChange={(value) => onTextChange("contactPerson", value)} />
+                <FieldInput label={t("Заметка")} value={form.note} onChange={(value) => onTextChange("note", value)} />
               </section>
 
-              <section className="space-y-3 border-t border-dashed border-slate-200 pt-6">
+              <section className="mt-6 border-t border-dotted border-[#ccc] pt-6">
                 <SectionTitle>{t("Настройки клиента")}</SectionTitle>
-                <ToggleRow label={t("Автоматическая доставка")} checked={form.autoDelivery} onChange={(value) => onToggleChange("autoDelivery", value)} />
-                <ToggleRow label={t("Неограниченный долг")} checked={form.unlimitedDebt} onChange={(value) => onToggleChange("unlimitedDebt", value)} />
+                <CheckRow label={t("Автоматическая доставка")} checked={form.autoDelivery} onChange={(value) => onToggleChange("autoDelivery", value)} />
+                <CheckRow label={t("Неограниченный долг")} checked={form.unlimitedDebt} onChange={(value) => onToggleChange("unlimitedDebt", value)} />
+                <CheckRow label={t("Может увидеть цену")} checked={canSeePrice} onChange={setCanSeePrice} />
+                <CheckRow label={t("Подтвердить клиента чтобы взять заказы")} checked={confirmToOrder} onChange={setConfirmToOrder} />
+                <CheckRow label={t("Изменить финансовые настройки")} checked={changeFinance} onChange={setChangeFinance} />
+                <div className="mt-[14px] flex items-center justify-between">
+                  <span>{t("Статус объекта:")}</span>
+                  <div className="w-[240px]">
+                    <FieldSelect label={t("Выберите")} value={objectActive ? "active" : "inactive"} onChange={(value) => setObjectActive(value === "active")} options={["active", "inactive"]} optionLabels={{ active: t("Активен"), inactive: t("Неактивен") }} />
+                  </div>
+                </div>
               </section>
             </div>
           </div>
 
           {error && (
-            <p role="alert" className="mt-6 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            <p role="alert" className="mx-[30px] mb-4 rounded border border-red-200 bg-red-50 px-4 py-3 text-[13px] text-red-700">
               {error}
             </p>
           )}
         </div>
 
-        <footer className="flex items-center justify-end gap-3 border-t p-5">
-          <button
-            type="button"
-            onClick={onClose}
-            disabled={saving}
-            className="rounded border border-slate-200 px-5 py-2.5 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50 disabled:opacity-60"
-          >
-            {t("Отмена")}
-          </button>
-          <button
-            type="submit"
-            disabled={saving}
-            className="rounded bg-[#6ccd8b] px-6 py-2.5 text-sm font-semibold text-white transition-colors hover:brightness-95 disabled:cursor-wait disabled:opacity-60"
-          >
-            {saving ? t("Сохранение...") : mode === "add" ? t("Добавить") : t("Сохранить")}
+        <footer className="flex h-[56px] shrink-0 items-center justify-end border-t border-[#efefef] px-[30px]">
+          <button type="submit" disabled={saving} className="text-[13px] font-semibold uppercase text-[#0a9ddb] disabled:opacity-60">
+            {saving ? t("Сохранение...") : t("Сохранить")}
           </button>
         </footer>
       </form>
@@ -1396,7 +1362,7 @@ function ClientModal({
               <input autoFocus value={newTypeName} onChange={(event) => setNewTypeName(event.target.value)} className="mt-2 block w-full outline-none" />
             </label>
             <div className="mt-5 flex justify-end">
-              <button type="submit" disabled={savingType} className="rounded bg-[#6ccd8b] px-5 py-2.5 font-semibold text-white hover:brightness-95 disabled:opacity-60">
+              <button type="submit" disabled={savingType} className="rounded bg-[#71ce87] px-5 py-2.5 font-semibold text-white hover:brightness-95 disabled:opacity-60">
                 {savingType ? t("Сохранение...") : t("Сохранить")}
               </button>
             </div>
@@ -1420,8 +1386,26 @@ function ClientModal({
 }
 
 function SectionTitle({ children }: { children: React.ReactNode }) {
-  return <h3 className="text-base font-bold text-[#4f70e7]">{children}</h3>
+  return <h3 className="mb-3 text-[16px] font-semibold leading-6 text-[#4f71dc]">{children}</h3>
 }
+
+function FloatLabel({ label, required, filled, info }: { label: string; required?: boolean; filled: boolean; info?: string }) {
+  return (
+    <span
+      className={`pointer-events-none absolute left-0 flex items-center gap-1 font-bold transition-all ${filled ? "top-0 text-[10px] leading-3" : "top-[18px] text-[13px] leading-4"}`}
+    >
+      {label}
+      {required && <span className="text-[#e57373]">*</span>}
+      {info && (
+        <span title={info} className="pointer-events-auto">
+          <Info className="h-3.5 w-3.5 text-[#999]" />
+        </span>
+      )}
+    </span>
+  )
+}
+
+const fieldLine = "relative block h-[52px] border-b border-[#e0e0e0] focus-within:border-[#5d6474]"
 
 function FieldInput({
   label,
@@ -1430,7 +1414,6 @@ function FieldInput({
   type = "text",
   required = false,
   autoFocus = false,
-  textarea = false,
   info,
   listId,
   listOptions,
@@ -1446,36 +1429,22 @@ function FieldInput({
   listId?: string
   listOptions?: string[]
 }) {
+  const [focused, setFocused] = useState(false)
   return (
-    <label className="block border-b border-slate-200 pb-2 font-medium text-slate-700">
-      <span className="inline-flex items-center gap-1">
-        {label}
-        {required && <span className="text-red-500">*</span>}
-        {info && (
-          <span title={info}>
-            <Info className="h-3.5 w-3.5 text-slate-400" />
-          </span>
-        )}
-      </span>
-      {textarea ? (
-        <textarea
-          value={value}
-          onChange={(event) => onChange(event.target.value)}
-          rows={2}
-          className="mt-2 block w-full resize-none outline-none"
-        />
-      ) : (
-        <input
-          type={type}
-          value={value}
-          onChange={(event) => onChange(event.target.value)}
-          required={required}
-          autoFocus={autoFocus}
-          step={type === "number" ? "any" : undefined}
-          list={listId}
-          className="mt-2 block w-full outline-none"
-        />
-      )}
+    <label className={fieldLine}>
+      <FloatLabel label={label} required={required} filled={focused || value !== ""} info={info} />
+      <input
+        type={type}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
+        required={required}
+        autoFocus={autoFocus}
+        step={type === "number" ? "any" : undefined}
+        list={listId}
+        className="absolute inset-x-0 bottom-0 h-[30px] bg-transparent text-[13px] font-semibold outline-none"
+      />
       {listId && listOptions && (
         <datalist id={listId}>
           {listOptions.map((option) => (
@@ -1494,7 +1463,6 @@ function FieldSelect({
   options,
   optionLabels,
   required = false,
-  placeholder = "Выберите...",
   className,
 }: {
   label: string
@@ -1507,208 +1475,616 @@ function FieldSelect({
   className?: string
 }) {
   return (
-    <label className={`block border-b border-slate-200 pb-2 font-medium text-slate-700 ${className ?? ""}`}>
-      {label}
-      {required && <span className="ml-1 text-red-500">*</span>}
+    <label className={`${fieldLine} ${className ?? ""}`}>
+      <FloatLabel label={label} required={required} filled={value !== ""} />
       <select
         value={value}
         required={required}
         onChange={(event) => onChange(event.target.value)}
-        className="mt-2 block w-full bg-white outline-none"
+        className="absolute inset-x-0 bottom-0 h-[30px] appearance-none bg-transparent pr-8 text-[13px] font-semibold outline-none"
       >
-        <option value="">{placeholder}</option>
+        <option value="" />
         {options.map((option) => (
           <option key={option} value={option}>
             {optionLabels?.[option] ?? option}
           </option>
         ))}
       </select>
+      {value !== "" && (
+        <button type="button" onClick={() => onChange("")} aria-label="clear" className="absolute bottom-[3px] right-6 text-[16px] leading-none text-[#999]">
+          ×
+        </button>
+      )}
+      <svg viewBox="0 0 24 24" className="pointer-events-none absolute bottom-0 right-0 h-6 w-6 fill-black/30">
+        <path d="M7 10l5 5 5-5z" />
+      </svg>
     </label>
   )
 }
 
-function ToggleRow({ label, checked, onChange }: { label: string; checked: boolean; onChange: (value: boolean) => void }) {
+function CheckRow({ label, checked, onChange }: { label: string; checked: boolean; onChange: (value: boolean) => void }) {
   return (
-    <label className="flex items-center justify-between gap-3 rounded bg-slate-50 p-3">
-      <span className="font-medium text-slate-800">{label}</span>
-      <button
-        type="button"
-        onClick={() => onChange(!checked)}
-        aria-pressed={checked}
-        className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${checked ? "bg-[#4f70e7]" : "bg-slate-300"}`}
-      >
-        <span className={`absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${checked ? "translate-x-5" : "translate-x-0"}`} />
-      </button>
+    <label className="my-[10px] flex cursor-pointer items-center gap-3 font-semibold">
+      <input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} className="sr-only" />
+      <svg viewBox="0 0 24 24" className="h-5 w-5 shrink-0 fill-[#666]" aria-hidden>
+        <path
+          d={
+            checked
+              ? "M19 3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.11 0 2-.9 2-2V5c0-1.1-.89-2-2-2zm-9 14l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"
+              : "M19 5v14H5V5h14m0-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2z"
+          }
+        />
+      </svg>
+      {label}
     </label>
   )
 }
 
-function ClientDetail({ client, onClose }: { client: Client; onClose: () => void }) {
-  const router = useRouter()
+const DETAIL_TABS = ["АКТИВНОСТЬ", "ЗАДАЧИ", "КЛИЕНТ", "ОТЧЕТЫ", "ОТКАЗЫ"] as const
+const CLIENT_SUBTABS = ["ДЕТАЛИ", "ФИНАНСОВЫЕ НАСТРОЙКИ", "ЛОГИ", "ДОГОВОРЫ"] as const
+const WEEK_DAYS = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
+const SHORT_MONTHS = ["Янв.", "Февр.", "Март", "Апр.", "Май", "Июнь", "Июль", "Авг.", "Сент.", "Окт.", "Нояб.", "Дек."]
+const LOG_FILTERS = ["Все", "Заказ", "Возврат", "Финансы", "Клиент"]
+
+type DetailTask = { text: string; at?: string; link?: boolean; done: boolean }
+
+const DETAIL_TASKS: DetailTask[] = [
+  { text: "Доставили заказ №1594 в 20:3", at: "07 сент. 20:03", done: true },
+  { text: "Оформили заказ №1594", at: "07 сент. 20:03", link: true, done: true },
+  { text: "Внеплановый визит 7 Сентябрь в 20:03", at: "07 сент. 20:03", done: true },
+  { text: "Оформили заказ №1590", at: "17 авг. 13:44", link: true, done: true },
+  { text: "Внеплановый визит 17 Август в 13:44", at: "17 авг. 13:44", done: true },
+  { text: "1 | надо выполнить 4 Август 2026", done: false },
+  { text: "Следует посетить 12 Август 2026 года", done: false },
+  { text: "Следует посетить 11 Август 2026 года", done: false },
+]
+
+const DETAIL_LOGS = [
+  { type: "Оплата", status: "Не установлен", at: "18 июля 2026, 12:38", sum: "12 050 000 SUM" },
+  { type: "Оплата", status: "Удаленный", at: "18 июля 2026, 12:38", sum: "12 050 000 SUM" },
+  { type: "Клиент", status: "Создан", at: "24 мая 2026, 11:32", sum: "0" },
+  { type: "Оплата", status: "Удаленный", at: "18 июля 2026, 12:38", sum: "12 240 000 SUM" },
+  { type: "Оплата", status: "Не установлен", at: "18 июля 2026, 12:36", sum: "12 240 000 SUM" },
+  { type: "Оплата", status: "Удаленный", at: "18 июля 2026, 12:36", sum: "12 050 000 SUM" },
+  { type: "Оплата", status: "Не установлен", at: "18 июля 2026, 12:35", sum: "12 050 000 SUM" },
+  { type: "Оплата", status: "Удаленный", at: "18 июля 2026, 12:35", sum: "12 047 000 SUM" },
+  { type: "Оплата", status: "Не установлен", at: "18 июля 2026, 12:34", sum: "12 047 000 SUM" },
+]
+
+function formatDetailDate(date: Date) {
+  return `${date.getDate()} ${SHORT_MONTHS[date.getMonth()]} ${date.getFullYear()}`
+}
+
+function ClientDetail({
+  client,
+  onClose,
+  onEdit,
+  onDelete,
+}: {
+  client: Client
+  onClose: () => void
+  onEdit: () => void
+  onDelete: () => void
+}) {
   const { t } = useLanguage()
-  const [tab, setTab] = useState("АКТИВНОСТЬ")
+  const [tab, setTab] = useState<(typeof DETAIL_TABS)[number]>("АКТИВНОСТЬ")
+  const [subTab, setSubTab] = useState<(typeof CLIENT_SUBTABS)[number]>("ДЕТАЛИ")
+  const [logFilter, setLogFilter] = useState("Все")
+  const [orderOpen, setOrderOpen] = useState(false)
   const [paymentOpen, setPaymentOpen] = useState(false)
   const [paymentAmount, setPaymentAmount] = useState("")
   const [paymentDone, setPaymentDone] = useState(false)
   const primaryPhone = client.phone.split(",")[0]?.trim() ?? ""
   const hasPhone = primaryPhone !== "" && primaryPhone !== "-"
+  const balance = client.balance ?? 0
+  const balanceText = formatBalance(balance)
+  const periodEnd = new Date()
+  const periodStart = new Date(periodEnd)
+  periodStart.setDate(periodStart.getDate() - 30)
+  const hasLocation = client.locationLat !== undefined && client.locationLng !== undefined
+
+  const actionButton = "flex h-[30px] items-center rounded-[5px] pl-3 text-[13px] font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
+
   return (
     <>
       <button
         type="button"
         aria-label={t("Закрыть карточку клиента")}
         onClick={onClose}
-        className="fixed inset-0 z-40 bg-black/20"
+        className="fixed inset-0 z-40 cursor-default bg-transparent"
       />
-      <aside className="fixed right-0 top-0 z-50 h-full w-[min(725px,62vw)] overflow-y-auto bg-white shadow-2xl">
-        <header className="flex items-center justify-between border-b px-6 py-5">
-          <strong>
-            <span className="mr-3 inline-block h-5 w-5 rounded-full bg-green-400" />
-            {client.name.toUpperCase()}
-          </strong>
-          <button onClick={onClose}>
-            <X />
-          </button>
+      <aside className="fixed right-0 top-0 z-50 h-full w-[580px] max-w-full overflow-y-auto bg-white font-sans text-[13px] leading-[1.25] text-[#333] shadow-[0_3px_10px_rgba(0,0,0,0.16),0_3px_10px_rgba(0,0,0,0.23)]">
+        <header className="flex h-[59px] items-center justify-between border-b border-[#efefef] px-[30px] py-[5px]">
+          <div className="flex items-center gap-[10px] text-[13px] font-semibold uppercase">
+            <svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#92ce95]">
+              <circle cx="12" cy="12" r="8" />
+            </svg>
+            <span>{client.name}</span>
+          </div>
+          <div className="-mr-[10px] flex items-center">
+            <button type="button" aria-label={t("Изменить")} onClick={onEdit} className="flex h-12 w-12 items-center justify-center">
+              <svg viewBox="0 0 24 24" className="h-5 w-5 fill-[#666]">
+                <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z" />
+              </svg>
+            </button>
+            <button type="button" aria-label={t("Удалить")} onClick={onDelete} className="flex h-12 w-12 items-center justify-center">
+              <svg viewBox="0 0 24 24" className="h-5 w-5 fill-[#666]">
+                <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z" />
+              </svg>
+            </button>
+            <button type="button" aria-label={t("Закрыть")} onClick={onClose} className="flex h-12 w-12 items-center justify-center">
+              <svg viewBox="0 0 24 24" className="h-5 w-5 fill-[#666]">
+                <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" />
+              </svg>
+            </button>
+          </div>
         </header>
-        <nav className="flex border-b">
-          {["АКТИВНОСТЬ", "ЗАДАЧИ", "КЛИЕНТ", "ОТЧЕТЫ", "ОТКАЗЫ"].map((item) => (
+
+        <nav className="flex">
+          {DETAIL_TABS.map((item) => (
             <button
               key={item}
+              type="button"
               onClick={() => setTab(item)}
-              className={`px-5 py-4 ${tab === item ? "border-b-2 border-link text-link" : ""}`}
+              className={`h-12 w-1/5 border-b-2 text-[13px] font-medium uppercase text-black ${tab === item ? "border-[#4f71dc]" : "border-transparent"}`}
             >
               {t(item)}
             </button>
           ))}
         </nav>
-        <section className="grid grid-cols-2 gap-x-12 px-6 py-6 text-[16px]">
-          <Metric label={t("Фактические продажи (30 дней)")} value="0 SUM" />
-          <Metric label={t("Прошло дней с последнего заказа")} value="135" red />
-          <Metric label={t("Сумма продаж за период (30 дней)")} value="0 SUM" />
-          <Metric label={t("Прошло дней с последнего визита")} value="19" red />
-          <Metric label={t("Сумма возврата с заказов за период (30 дней)")} value="0 SUM" />
-          <Metric label={t("Комментарий отказа")} value={t("Не указан")} />
-        </section>
-        <div className="flex flex-wrap gap-3 px-6">
-          <button
-            type="button"
-            disabled={!hasPhone}
-            onClick={() => hasPhone && (window.location.href = `tel:${primaryPhone}`)}
-            className="rounded bg-[#6ccd8b] px-4 py-2 font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            {t("☎ Позвонить")}
-          </button>
-          <button
-            type="button"
-            onClick={() => router.push("/analytics/sales")}
-            className="rounded bg-link px-4 py-2 font-semibold text-white"
-          >
-            {t("◉ Заказать")}
-          </button>
-          <button
-            type="button"
-            onClick={() => setTab("ОТКАЗЫ")}
-            className="rounded bg-[#ff806f] px-4 py-2 font-semibold text-white"
-          >
-            {t("⊖ Отказ")}
-          </button>
-          <button
-            type="button"
-            onClick={() => setPaymentOpen(true)}
-            className="rounded bg-[#6ccd8b] px-4 py-2 font-semibold text-white"
-          >
-            {t("▣ Добавить оплату")}
-          </button>
-        </div>
-        {paymentOpen && (
-          <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/45 p-4">
-            <form
-              onSubmit={async (event) => {
-                event.preventDefault()
-                try {
-                  const response = await fetch("/api/client-payments", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({
-                      clientId: client.id,
-                      clientName: client.name,
-                      amount: Number(paymentAmount),
-                      comment: "",
-                      paymentDate: new Date().toISOString().slice(0, 10),
-                    }),
-                  })
-                  if (response.ok) {
-                    setPaymentDone(true)
-                    setPaymentOpen(false)
-                    setPaymentAmount("")
-                    window.setTimeout(() => setPaymentDone(false), 2000)
-                  }
-                } catch {}
-              }}
-              className="w-full max-w-sm rounded-md bg-white p-6 shadow-xl"
-            >
-              <div className="mb-5 flex items-center justify-between">
-                <h3 className="text-lg font-bold">{t("Добавить оплату")}</h3>
-                <button type="button" onClick={() => setPaymentOpen(false)} aria-label={t("Закрыть")}>
-                  <X className="h-5 w-5" />
-                </button>
-              </div>
-              <label className="mb-5 block border-b border-slate-200 pb-2 text-[13px] font-medium text-slate-500">
-                {t("Сумма")}
-                <input
-                  autoFocus
-                  type="number"
-                  min="0"
-                  value={paymentAmount}
-                  onChange={(event) => setPaymentAmount(event.target.value)}
-                  className="mt-1 block w-full bg-transparent text-[16px] font-semibold text-slate-900 outline-none"
-                />
-              </label>
-              <button type="submit" className="w-full rounded-md bg-[#6ccd8b] py-3 font-semibold text-white">
-                {t("Добавить")}
+
+        {tab === "АКТИВНОСТЬ" && (
+          <div className="p-5">
+            <div>
+              <DetailMetricRow
+                left={{ label: t("Фактические продажи (30 дней)"), value: "0 SUM" }}
+                right={{ label: t("Прошло дней с последнего заказа"), value: "2477", red: true }}
+                bordered
+              />
+              <DetailMetricRow
+                left={{ label: t("Сумма продаж за период (30 дней)"), value: "0 SUM" }}
+                right={{ label: t("Прошло дней с последнего визита"), value: "2477", red: true }}
+                bordered
+              />
+              <DetailMetricRow
+                left={{ label: t("Сумма возврата с заказов за период (30 дней)"), value: "0 SUM" }}
+                right={{ label: t("Комментарий отказа"), value: t("Не указан") }}
+              />
+            </div>
+
+            <div className="mt-5 flex gap-[10px]">
+              <button
+                type="button"
+                disabled={!hasPhone}
+                onClick={() => hasPhone && (window.location.href = `tel:${primaryPhone}`)}
+                className={`${actionButton} bg-[#71ce87]`}
+              >
+                <svg viewBox="0 0 24 24" className="mb-1 h-[18px] w-[18px] fill-white">
+                  <path d="M6.62 10.79c1.44 2.83 3.76 5.14 6.59 6.59l2.2-2.2c.27-.27.67-.36 1.02-.24 1.12.37 2.33.57 3.57.57.55 0 1 .45 1 1V20c0 .55-.45 1-1 1-9.39 0-17-7.61-17-17 0-.55.45-1 1-1h3.5c.55 0 1 .45 1 1 0 1.25.2 2.45.57 3.57.11.35.03.74-.25 1.02l-2.2 2.2z" />
+                </svg>
+                <span className="pl-2 pr-4">{t("Позвонить")}</span>
               </button>
-            </form>
+              <button type="button" onClick={() => setOrderOpen(true)} className={`${actionButton} bg-[#4f71dc]`}>
+                <svg viewBox="0 0 24 24" className="mb-1 h-[18px] w-[18px] fill-white">
+                  <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1.41 16.09V20h-2.67v-1.93c-1.71-.36-3.16-1.46-3.27-3.4h1.96c.1 1.05.82 1.87 2.65 1.87 1.96 0 2.4-.98 2.4-1.59 0-.83-.44-1.61-2.67-2.14-2.48-.6-4.18-1.62-4.18-3.67 0-1.72 1.39-2.84 3.11-3.21V4h2.67v1.95c1.86.45 2.79 1.86 2.85 3.39H14.3c-.05-1.11-.64-1.87-2.22-1.87-1.5 0-2.4.68-2.4 1.64 0 .84.65 1.39 2.67 1.91s4.18 1.39 4.18 3.91c-.01 1.83-1.38 2.83-3.12 3.16z" />
+                </svg>
+                <span className="pl-2 pr-4">{t("Заказать")}</span>
+              </button>
+              <button type="button" onClick={() => setTab("ОТКАЗЫ")} className={`${actionButton} bg-[#fa8072]`}>
+                <svg viewBox="0 0 24 24" className="mb-1 h-[18px] w-[18px] fill-white">
+                  <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm5 11H7v-2h10v2z" />
+                </svg>
+                <span className="pl-2 pr-4">{t("Отказ")}</span>
+              </button>
+              <button type="button" onClick={() => setPaymentOpen(true)} className={`${actionButton} bg-[#71ce87]`}>
+                <svg viewBox="0 0 24 24" className="mb-1 h-[18px] w-[18px] fill-white">
+                  <path d="M20 4H4c-1.11 0-1.99.89-1.99 2L2 18c0 1.11.89 2 2 2h16c1.11 0 2-.89 2-2V6c0-1.11-.89-2-2-2zm0 14H4v-6h16v6zm0-10H4V6h16v2z" />
+                </svg>
+                <span className="pl-2 pr-4">{t("Добавить оплату")}</span>
+              </button>
+            </div>
+
+            {orderOpen && (
+              <AddOrderDialog initialShopId={client.id} onClose={() => setOrderOpen(false)} onCreated={() => setOrderOpen(false)} />
+            )}
+
+            {paymentOpen && (
+              <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/45 p-4">
+                <form
+                  onSubmit={async (event) => {
+                    event.preventDefault()
+                    try {
+                      const response = await fetch("/api/client-payments", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                          clientId: client.id,
+                          clientName: client.name,
+                          amount: Number(paymentAmount),
+                          comment: "",
+                          paymentDate: new Date().toISOString().slice(0, 10),
+                        }),
+                      })
+                      if (response.ok) {
+                        setPaymentDone(true)
+                        setPaymentOpen(false)
+                        setPaymentAmount("")
+                        window.setTimeout(() => setPaymentDone(false), 2000)
+                      }
+                    } catch {}
+                  }}
+                  className="w-full max-w-sm rounded-md bg-white p-6 shadow-xl"
+                >
+                  <div className="mb-5 flex items-center justify-between">
+                    <h3 className="text-lg font-bold">{t("Добавить оплату")}</h3>
+                    <button type="button" onClick={() => setPaymentOpen(false)} aria-label={t("Закрыть")}>
+                      <X className="h-5 w-5" />
+                    </button>
+                  </div>
+                  <label className="mb-5 block border-b border-slate-200 pb-2 text-[13px] font-medium text-slate-500">
+                    {t("Сумма")}
+                    <input
+                      autoFocus
+                      type="number"
+                      min="0"
+                      value={paymentAmount}
+                      onChange={(event) => setPaymentAmount(event.target.value)}
+                      className="mt-1 block w-full bg-transparent text-[16px] font-semibold text-slate-900 outline-none"
+                    />
+                  </label>
+                  <button type="submit" className="w-full rounded-md bg-[#71ce87] py-3 font-semibold text-white">
+                    {t("Добавить")}
+                  </button>
+                </form>
+              </div>
+            )}
+            {paymentDone && (
+              <div className="fixed bottom-6 right-6 z-[60] rounded-md bg-slate-900 px-5 py-3 text-sm font-semibold text-white shadow-xl">
+                {t("Оплата добавлена ✓")}
+              </div>
+            )}
+
+            <div className="pt-5">
+              <DetailSectionTitle>{t("Агенты магазина")}</DetailSectionTitle>
+              <div className="-mx-2 flex items-center border-b border-dashed border-[#d8d8d8] py-5">
+                <div className="w-[134px] shrink-0 px-2">{t("Агент")}</div>
+                <div className="w-[134px] shrink-0 px-2">{t("Комментарий")}</div>
+                <div className="flex-1 px-2">{t("Прайс лист")}</div>
+                <div className="flex w-[44.7px] shrink-0 justify-center px-2">
+                  <svg viewBox="0 0 24 24" className="h-5 w-5 fill-[#666]">
+                    <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z" />
+                  </svg>
+                </div>
+              </div>
+
+              <div className="mt-[30px]">
+                <DetailSectionTitle>{t("Маршруты")}</DetailSectionTitle>
+                <div className="-mx-2 flex items-center py-5">
+                  <div className="w-[134px] shrink-0 px-2">{t("Агент")}</div>
+                  <div className="w-[178.7px] shrink-0 px-2">{t("Частота посещения")}</div>
+                  <div className="flex-1 px-2">{t("Дни недели")}</div>
+                  <div className="flex w-[44.7px] shrink-0 justify-center px-2">
+                    <svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#333]">
+                      <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z" />
+                    </svg>
+                  </div>
+                </div>
+                <div className="-mx-2 flex items-center border-b border-dashed border-[#d8d8d8] py-5">
+                  <div className="w-[134px] shrink-0 px-2">Admin Ritm</div>
+                  <div className="w-[178.7px] shrink-0 px-2">{t("Раз в неделю")}</div>
+                  <div className="flex-1 px-2">
+                    <div className="flex w-[207px] flex-wrap">
+                      {WEEK_DAYS.map((day) => (
+                        <span key={day} className="my-[5px] mr-[10px] flex h-7 items-center rounded-[2px] bg-[#e9ecef] px-[10px]">
+                          {t(day)}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-[30px]">
+                <div className="mb-[15px] flex items-center justify-between">
+                  <span className="text-base font-bold leading-[22px]">{t("Баланс")}</span>
+                  <span className="mr-[15px] w-[200px] text-[13px] font-bold text-[#4f71dc]">
+                    {formatDetailDate(periodStart)} - {formatDetailDate(periodEnd)}
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 gap-[15.5px]">
+                  {[t("Баланс на начало периода"), t("Баланс на конец периода")].map((label) => (
+                    <div key={label} className="rounded-[10px] bg-[#f3f3f3] p-[10px]">
+                      <div className="ml-[9px]">
+                        <div className="pb-1 text-[#8c8c8c]">{label}</div>
+                        <span className={`font-semibold ${balance < 0 ? "text-[#e57373]" : "text-[#48a34b]"}`}>{balanceText}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <div className="mt-[15px]">
+                  {t("Последняя дата платежа")} :
+                  <span className="ml-[5px] font-semibold">18 июля 2026</span>
+                </div>
+              </div>
+            </div>
           </div>
         )}
-        {paymentDone && (
-          <div className="fixed bottom-6 right-6 z-[60] rounded-md bg-slate-900 px-5 py-3 text-sm font-semibold text-white shadow-xl">
-            {t("Оплата добавлена ✓")}
+
+        {tab === "ЗАДАЧИ" && (
+          <div className="p-5">
+            <button type="button" className="mb-5 h-[34px] w-full rounded-[5px] bg-[#4f71dc] text-[13px] font-semibold text-white">
+              {t("Создать задачу")}
+            </button>
+            <div className="relative pt-[10px]">
+              <span className="absolute bottom-0 left-[8px] top-0 w-[3px] bg-[#22a6c6]" />
+              {DETAIL_TASKS.map((task, index) => (
+                <div key={index} className="relative mb-[10px] pl-[41px]">
+                  <span className="absolute left-0 top-[15px] h-4 w-4 rounded-full bg-[#22a6c6]" />
+                  <div className="relative mr-[10px] rounded-[2px] bg-white px-5 py-[15px] text-[#666] shadow-[0_1px_6px_rgba(0,0,0,0.25)]">
+                    <span className="absolute -left-[9px] top-[13px] h-0 w-0 border-y-[9px] border-r-[9px] border-y-transparent border-r-white" />
+                    <div className="flex justify-between">
+                      <h2 className="mb-[10px] text-base font-bold leading-[16px]">Admin Ritm</h2>
+                      {task.at && <p className="mb-[10px]">{task.at}</p>}
+                    </div>
+                    <div className="flex items-center gap-[10px] font-semibold">
+                      <svg viewBox="0 0 24 24" className={`h-5 w-5 ${task.done ? "fill-[#92ce95]" : "fill-[#f0ad4e]"}`}>
+                        {task.done ? (
+                          <path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-9 14l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z" />
+                        ) : (
+                          <path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z" />
+                        )}
+                      </svg>
+                      <span>
+                        {t(task.text)}
+                        {task.link && (
+                          <>
+                            {" ("}
+                            <a className="cursor-pointer text-[#129fdd]">{t("Просмотреть")}</a>
+                            {")"}
+                          </>
+                        )}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
         )}
-        <section className="px-6 py-6">
-          <h3 className="mb-5 text-xl font-bold">{t("Агенты магазина")}</h3>
-          <div className="border-b border-dashed pb-5">
-            {t("Агент")} <span className="ml-28">{t("Комментарий")}</span>
-            <span className="ml-20">{t("Прайс лист")}</span>
-          </div>
-          <h3 className="mb-5 mt-10 text-xl font-bold">{t("Маршруты")}</h3>
-          <div className="border-b border-dashed pb-5">
-            Admin Ritm <span className="ml-24">{t("Раз в неделю")}</span>
-            <span className="ml-14 rounded bg-slate-100 px-3 py-2">{t("Пн Вт Ср Чт Пт")}</span>
-          </div>
-          <h3 className="mb-5 mt-10 text-xl font-bold">{t("Баланс")}</h3>
-          <div className="grid grid-cols-2 gap-4">
-            <div className="rounded bg-slate-100 p-5">
-              {t("Баланс на начало периода")}
-              <br />
-              <b className="text-red-400">-20 000 SUM</b>
+
+        {tab === "КЛИЕНТ" && (
+          <div className="px-[30px] pt-[15px] pb-6">
+            <div className="flex h-[300px] flex-col items-center justify-center border border-dashed border-[#c5ced6] bg-[#f0f4f8] text-center text-[#888]">
+              <span className="max-w-[70px] text-[11px]">{t("Фото отсутствует")}</span>
+              <span className="my-[6px] block h-px w-16 bg-[#bbb]" />
+              <button type="button" className="text-[11px] text-[#129fdd]">
+                {t("добавить фото")}
+              </button>
             </div>
-            <div className="rounded bg-slate-100 p-5">
-              {t("Возврат")}
-              <br />
-              <b className="text-green-500">20 000 SUM</b>
+            <div className="mt-[10px] flex">
+              {CLIENT_SUBTABS.map((item) => (
+                <button
+                  key={item}
+                  type="button"
+                  onClick={() => setSubTab(item)}
+                  className={`flex h-9 w-1/4 items-center justify-center whitespace-nowrap border-b-2 text-[13px] font-medium uppercase text-black ${subTab === item ? "border-[#4f71dc]" : "border-transparent"}`}
+                >
+                  {t(item)}
+                </button>
+              ))}
             </div>
+
+            {subTab === "ДЕТАЛИ" && (
+              <div className="pt-1">
+                <DetailListTitle>{t("Детали")}</DetailListTitle>
+                <DetailListRow label={t("Прайс лист:")} value={t("Не указано")} bold />
+                <DetailListRow label={t("Тел. номер:")} value={client.phone || "-"} bold />
+                <DetailListRow label={t("Финансовый счет:")} value={client.name} />
+                <DetailListRow label={t("Класс клиента:")} value="-" />
+                <DetailListRow label={t("Ответственный агент:")} value={client.agent} />
+                <DetailListRow label={t("Тип заведения:")} value={client.type} />
+                <DetailListRow label={t("Частота посещений:")} value="" />
+                <DetailListRow label={t("Создал:")} value="Admin Ritm" />
+                <DetailListRow label={t("Дата:")} value="24 мая 2026" />
+                <DetailListRow label={t("Зона:")} value={client.zone} />
+                <DetailListRow
+                  label={t("Локация:")}
+                  value={
+                    hasLocation ? (
+                      <>
+                        {client.locationLat!.toFixed(6)}, {client.locationLng!.toFixed(6)}
+                        <a
+                          className="block cursor-pointer text-[11px] text-[#4f71dc]"
+                          href={`https://www.google.com/maps?q=${client.locationLat},${client.locationLng}`}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          {t("показать на карте")}
+                        </a>
+                      </>
+                    ) : (
+                      "-"
+                    )
+                  }
+                />
+                <DetailListRow label={t("Статус ИНН:")} value={client.inn ? t("Правильный ИНН") : t("Неправильный ИНН")} />
+                <DetailListRow label={t("Ответственный доставщик:")} value={client.deliverer} />
+                <DetailListRow label={t("Ответственный инкассатор:")} value={client.collector} />
+
+                <DetailListTitle className="mt-[22px]">{t("Контакты")}</DetailListTitle>
+                <DetailListRow label={t("Имя:")} value={client.contactPerson || "-"} />
+                <DetailListRow label={t("Адрес:")} value={client.address || "-"} />
+                <DetailListRow label={t("Ориентир:")} value={client.landmark || "-"} />
+
+                <DetailListTitle className="mt-[22px]">{t("Класс клиента")}</DetailListTitle>
+                <DetailListRow label={t("Названия класса")} value={t("Организация")} bold />
+              </div>
+            )}
+
+            {subTab === "ФИНАНСОВЫЕ НАСТРОЙКИ" && (
+              <div className="pt-[10px]">
+                <h3 className="mt-[10px] text-base font-semibold">{t("Лимит долга")}</h3>
+                <div className="flex flex-col items-center py-[22px] text-[#666]">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src="/robot-empty.png" alt="" className="w-[150px]" />
+                  <span className="mt-[30px]">{t("По вашему запросу ничего не найдено...")}</span>
+                </div>
+                <div className="border-t border-[#e5e5e5] pt-5">
+                  <h3 className="mb-4 text-base font-semibold">{t("Финансовые настройки")}</h3>
+                  <div className="flex items-center border-b border-[#e5e5e5] pb-2 font-semibold">
+                    {t("Без автоматических бонусов:")}
+                    <X className="ml-2 h-5 w-5 text-[#e57373]" />
+                  </div>
+                  <div className="flex items-center border-b border-[#e5e5e5] py-2 font-semibold">
+                    {t("Маркетинговые акции:")}
+                    <span className="ml-2 rounded-full bg-[#ff9a9a] px-3 py-[3px] font-semibold text-white">{t("Нет данных")}</span>
+                  </div>
+                  <div className="flex items-center py-2 font-semibold">
+                    KPI:
+                    <span className="ml-2 rounded-full bg-[#ff9a9a] px-3 py-[3px] font-semibold text-white">{t("Нет данных")}</span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {subTab === "ЛОГИ" && (
+              <div className="pt-[10px]">
+                <div className="flex items-center justify-center gap-2 py-3">
+                  <b className="mr-1">{t("Фильтры:")}</b>
+                  {LOG_FILTERS.map((item) => (
+                    <button
+                      key={item}
+                      type="button"
+                      onClick={() => setLogFilter(item)}
+                      className={`h-[26px] rounded-full border px-4 ${logFilter === item ? "border-[#4f71dc] bg-[#4f71dc] font-semibold text-white" : "border-[#ccc] bg-white"}`}
+                    >
+                      {t(item)}
+                    </button>
+                  ))}
+                </div>
+                <DetailPager total={DETAIL_LOGS.length} />
+                <div className="mt-4 grid grid-cols-[89px_134px_89px_134px_1fr] border-b border-dashed border-[#d8d8d8] pb-4 pt-3 font-semibold">
+                  <span>{t("Тип")}</span>
+                  <span>{t("Статус")}</span>
+                  <span>{t("Кем")}</span>
+                  <span>{t("Дата создания")}</span>
+                  <span>{t("Сумма")}</span>
+                </div>
+                {DETAIL_LOGS.filter((log) => logFilter === "Все" || (logFilter === "Финансы" ? log.type === "Оплата" : log.type === logFilter)).map(
+                  (log, index) => (
+                    <div
+                      key={index}
+                      className="grid grid-cols-[89px_134px_89px_134px_1fr] items-center border-b border-dashed border-[#d8d8d8] py-4"
+                    >
+                      <span>{t(log.type)}</span>
+                      <span>
+                        {log.status === "Удаленный" ? (
+                          <span className="inline-block w-[118px] rounded-full border border-[#e57373] py-[2px] text-center text-[#e57373]">{t(log.status)}</span>
+                        ) : log.status === "Создан" ? (
+                          <span className="inline-block w-[118px] rounded-full border border-[#48a34b] py-[2px] text-center text-[#48a34b]">{t(log.status)}</span>
+                        ) : (
+                          t(log.status)
+                        )}
+                      </span>
+                      <span>Admin Ritm</span>
+                      <span className="pr-3">{log.at}</span>
+                      <span>{log.sum}</span>
+                    </div>
+                  ),
+                )}
+              </div>
+            )}
+
+            {subTab === "ДОГОВОРЫ" && (
+              <div className="pt-[10px]">
+                <DetailPager total={0} />
+                <div className="mt-4 grid grid-cols-[179px_179px_1fr] border-b border-dashed border-[#d8d8d8] pb-4 pt-3 font-semibold">
+                  <span>№</span>
+                  <span>{t("Дата")}</span>
+                  <span>{t("Организация")}</span>
+                </div>
+                <p className="py-8 text-center text-[#333]">{t("Ничего не найдено")}</p>
+              </div>
+            )}
           </div>
-        </section>
+        )}
+
+        {(tab === "ОТЧЕТЫ" || tab === "ОТКАЗЫ") && (
+          <div className="flex flex-col items-center pt-[18px] text-[#666]">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/robot-empty.png" alt="" className="w-[120px]" />
+            <span>{tab === "ОТЧЕТЫ" ? t("Отчеты не найдены") : t("Отказы не найдены")}</span>
+          </div>
+        )}
       </aside>
     </>
   )
 }
-function Metric({ label, value, red }: { label: string; value: string; red?: boolean }) { return <div className="border-b py-4 text-slate-500">{label}<b className={`mt-2 block text-lg ${red?"text-red-400":"text-slate-800"}`}>{value}</b></div> }
+
+function DetailMetricRow({
+  left,
+  right,
+  bordered,
+}: {
+  left: { label: string; value: string; red?: boolean }
+  right: { label: string; value: string; red?: boolean }
+  bordered?: boolean
+}) {
+  return (
+    <div className={`flex justify-between ${bordered ? "mb-[10px] border-b border-[#efefef] pb-2" : ""}`}>
+      {[left, right].map((metric) => (
+        <div key={metric.label} className="flex w-[180px] flex-col justify-between">
+          <div className="mb-[7px] text-[#666]">{metric.label}</div>
+          <div className={`text-base font-semibold leading-5 ${metric.red ? "text-[#e57373]" : "text-[#333]"}`}>{metric.value}</div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function DetailSectionTitle({ children }: { children: React.ReactNode }) {
+  return <span className="block text-base font-bold leading-[22px]">{children}</span>
+}
+
+function DetailListTitle({ children, className = "" }: { children: React.ReactNode; className?: string }) {
+  return <h4 className={`mb-[6px] text-[13px] font-semibold ${className}`}>{children}</h4>
+}
+
+function DetailListRow({ label, value, bold }: { label: string; value: React.ReactNode; bold?: boolean }) {
+  return (
+    <div className={`flex min-h-[25px] items-start justify-between ${bold ? "font-bold" : ""}`}>
+      <span>{label}</span>
+      <span className="text-right">{value}</span>
+    </div>
+  )
+}
+
+function DetailPager({ total }: { total: number }) {
+  const arrow = "flex h-5 w-5 items-center justify-center rounded-full border border-[#999] text-[#999]"
+  return (
+    <div className="flex items-center justify-center gap-4 text-[#666]">
+      <span className="flex items-center gap-1">
+        25 <ChevronDown className="h-4 w-4 text-[#bbb]" />
+      </span>
+      <span>
+        {total === 0 ? 0 : 1} - {total} {"из"} {total}
+      </span>
+      <span className="flex gap-2">
+        <span className={arrow}>
+          <ChevronLeft className="h-3 w-3" />
+        </span>
+        <span className={arrow}>
+          <ChevronRight className="h-3 w-3" />
+        </span>
+      </span>
+    </div>
+  )
+}
 
 function ClientRow({
   client,
   selected,
+  selectMode,
   compact,
   routed,
   onToggle,
@@ -1716,58 +2092,56 @@ function ClientRow({
 }: {
   client: Client
   selected: boolean
+  selectMode: boolean
   compact: boolean
   routed: boolean
   onToggle: () => void
   onOpen: () => void
 }) {
   const { t } = useLanguage()
-  const verticalPadding = compact ? "py-3" : "py-5"
+  const confirmed = client.tab !== "unconfirmed"
 
   return (
-    <tr
-      className={`border-l-4 border-brand-green border-b border-dashed border-b-slate-200 transition-colors hover:bg-slate-50 ${
-        selected ? "bg-blue-50/70" : ""
-      }`}
+    <div
+      onClick={onOpen}
+      className={`grid cursor-pointer items-center border-b border-dotted border-[#d6d6d6] border-l-[3px] [border-left-style:solid] px-[27px] ${compact ? "min-h-[40px] py-1" : "min-h-[50px] py-[7px]"} hover:bg-[#f2f5f8] ${
+        confirmed ? "border-l-[#7ed07e]" : "border-l-[#5d6474]"
+      } ${selected ? "bg-[#e8efff]" : "bg-white"}`}
+      style={{ gridTemplateColumns: CLIENT_COLS }}
     >
-      <td className={`px-4 ${verticalPadding}`}>
-        <input
-          type="checkbox"
-          checked={selected}
-          onChange={onToggle}
-          className="h-4 w-4 cursor-pointer accent-brand-green"
-          aria-label={`${t("Выбрать")} ${client.name}`}
-        />
-      </td>
-      <td className={`px-4 ${verticalPadding} text-[15px] font-medium text-slate-800`}><button type="button" onClick={onOpen} className="text-left hover:text-link">{client.name}</button></td>
-      <td className={`px-4 ${verticalPadding} text-[15px] text-slate-700`}>{client.phone}</td>
-      <td className={`px-4 ${verticalPadding} text-[15px] text-slate-700`}>
+      <div className="flex items-center gap-2 px-2 leading-[16.25px]" >
+        {selectMode && (
+          <span onClick={(event) => event.stopPropagation()}>
+            <input type="checkbox" checked={selected} onChange={onToggle} className="h-4 w-4 cursor-pointer accent-[#71ce87]" aria-label={`${t("Выбрать")} ${client.name}`} />
+          </span>
+        )}
+        {client.name}
+      </div>
+      <div className="px-2">{client.phone}</div>
+      <div className="px-2 leading-[16.25px]">
         {client.inn ? (
-          <span>
-            {t("ИНН")}: <span className="font-semibold text-slate-900">{client.inn}</span>
-          </span>
+          <>
+            {t("ИНН")}: <b>{client.inn}</b>
+            <br />
+            PRICE_LIST_ID: <b>12</b>
+          </>
         ) : (
-          ""
+          client.info ?? ""
         )}
-      </td>
-      <td className={`px-4 ${verticalPadding} text-[15px] text-slate-700`}>{client.type}</td>
-      <td className={`px-4 ${verticalPadding} text-[15px] text-slate-700`}>
-        <div>{client.zone}</div>
-        <div className="text-link">{client.zoneAgent}</div>
-        {routed && <div className="mt-1 text-xs font-semibold text-brand-green">{t("Маршрут установлен")}</div>}
-      </td>
-      <td className={`px-4 ${verticalPadding} text-[15px] text-slate-700`}>{client.agent}</td>
-      <td className={`px-4 ${verticalPadding} text-[15px] text-slate-700`}>{client.deliverer}</td>
-      <td className={`px-4 ${verticalPadding} text-[15px] text-slate-700`}>{client.collector}</td>
-      <td className={`px-4 ${verticalPadding} text-[15px] font-medium`}>
-        {client.balance != null ? (
-          <span className={client.balance < 0 ? "text-brand-orange" : "text-slate-700"}>
-            {formatBalance(client.balance)}
-          </span>
-        ) : (
-          ""
-        )}
-      </td>
-    </tr>
+      </div>
+      <div className="px-2 leading-[16.25px]">{client.type}</div>
+      <div className="px-2 leading-[16.25px]">
+        {client.zone}
+        <br />
+        <span className="text-[#4f71dc]">{client.zoneAgent}</span>
+        {routed && <div className="text-[11px] font-semibold text-[#48a34b]">{t("Маршрут установлен")}</div>}
+      </div>
+      <div className="px-2 leading-[16.25px]">{client.agent}</div>
+      <div className="px-2 leading-[16.25px]">{client.deliverer}</div>
+      <div className="px-2 leading-[16.25px]">{client.collector}</div>
+      <div className={`px-2 leading-[16.25px] ${client.balance != null && client.balance < 0 ? "text-[#e57373]" : ""}`}>
+        {client.balance != null ? formatBalance(client.balance) : ""}
+      </div>
+    </div>
   )
 }

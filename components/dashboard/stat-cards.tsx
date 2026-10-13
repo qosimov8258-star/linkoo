@@ -2,8 +2,10 @@ import { formatStatTitle } from "@/lib/dashboard-date-range"
 import type { CurrencyAmount, DashboardSummary } from "@/lib/dashboard-summary-repo"
 import { useLanguage } from "@/lib/i18n/language-context"
 
-function formatAmount(amount: CurrencyAmount | undefined, loadingLabel: string): string {
-  if (!amount) return loadingLabel
+export const CARD_CLASS = "rounded-[10px] bg-white shadow-[0_8px_24px_rgba(149,157,165,0.2)]"
+
+function formatAmount(amount: CurrencyAmount | undefined): string {
+  if (!amount || !amount.value) return ""
   const maximumFractionDigits = amount.currency === "SUM" ? 0 : 2
   return `${amount.value.toLocaleString("ru-RU", { maximumFractionDigits })} ${amount.currency}`
 }
@@ -20,25 +22,21 @@ export function StatCards({
   visible: Set<string>
 }) {
   const { t } = useLanguage()
-  const loadingLabel = t("Загрузка ...")
   const cards = [
-    { key: "sales", title: formatStatTitle(t("Продажи"), begin, end), value: formatAmount(summary?.sales, loadingLabel) },
-    { key: "payments", title: formatStatTitle(t("Оплаты"), begin, end), value: formatAmount(summary?.payments, loadingLabel) },
-    { key: "returns", title: formatStatTitle(t("Возвраты"), begin, end), value: formatAmount(summary?.returns, loadingLabel) },
-    { key: "akb", title: formatStatTitle(t("АКБ"), begin, end), value: summary ? String(summary.akb) : loadingLabel },
+    { key: "sales", title: formatStatTitle(t("Продажи"), begin, end), value: formatAmount(summary?.sales) },
+    { key: "payments", title: formatStatTitle(t("Оплаты"), begin, end), value: formatAmount(summary?.payments) },
+    { key: "returns", title: formatStatTitle(t("Возвраты"), begin, end), value: formatAmount(summary?.returns) },
+    { key: "akb", title: formatStatTitle(t("АКБ"), begin, end), value: summary ? String(summary.akb) : "0", compact: true },
   ].filter((card) => visible.has(card.key))
 
   if (cards.length === 0) return null
 
   return (
-    <div className="grid grid-cols-1 gap-6 px-6 pt-6 sm:grid-cols-2 xl:grid-cols-4">
+    <div className="mt-5 grid grid-cols-1 items-start gap-4 sm:grid-cols-2 xl:grid-cols-4">
       {cards.map((card) => (
-        <div
-          key={card.title}
-          className="min-h-[130px] rounded-lg bg-white px-6 py-5 shadow-sm"
-        >
-          <p className="text-[15px] text-slate-500">{card.title}</p>
-          <p className="mt-3 text-3xl font-bold text-slate-800">{card.value}</p>
+        <div key={card.key} className={`${CARD_CLASS} p-5 ${card.compact ? "min-h-[118px]" : "min-h-[92px]"}`}>
+          <p className="text-[13px]">{card.title}</p>
+          <p className={`font-bold ${card.compact ? "text-[16px] leading-5" : "mt-2 text-[16px] leading-5"}`}>{card.value}</p>
         </div>
       ))}
     </div>

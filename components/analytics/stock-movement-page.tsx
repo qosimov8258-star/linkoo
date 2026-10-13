@@ -80,7 +80,7 @@ export function StockMovementPage() {
     <main className="min-h-[calc(100vh-64px)] bg-[#f2f5f8] pb-10 text-[#17233b]">
       <header className="flex min-h-[76px] items-center border-b border-slate-200 bg-[#f1f4f7] px-9">
         <FavoritesButton className="flex items-center text-[26px] font-semibold text-[#4f72e5]" />
-        <span className="mx-4 h-8 w-px bg-[#5d6572]" />
+        <span className="mx-4 h-8 w-px bg-[#5d6474]" />
         <h1 className="text-[25px] font-semibold text-[#596273]">План приемок и передач</h1>
       </header>
 
@@ -131,14 +131,14 @@ export function StockMovementPage() {
                 <span className="mb-2 block text-xs">Период</span>
                 <input type="text" defaultValue="01 июля 2026 - 31 июля 2026" className="w-full outline-none" />
               </label>
-              <button onClick={() => setFilterOpen(false)} className="mt-7 rounded bg-[#626c7e] px-5 py-3 text-white shadow-md">ПРИМЕНИТЬ</button>
+              <button onClick={() => setFilterOpen(false)} className="mt-7 rounded bg-[#5d6474] px-5 py-3 text-white shadow-md">ПРИМЕНИТЬ</button>
             </div>
           )}
 
           <div className="overflow-x-auto">
             {tab === "movement" ? (
               <table className="w-full min-w-[1200px] border-collapse text-left text-[16px]">
-                <thead><tr className="h-16 bg-[#626b7d] text-white">{["Товар", "Кол-во", "Серия", "Дата", "Склад", "Тип"].map((h) => <th key={h} className="px-10 font-semibold">{h}</th>)}</tr></thead>
+                <thead><tr className="h-16 bg-[#5d6474] text-white">{["Товар", "Кол-во", "Серия", "Дата", "Склад", "Тип"].map((h) => <th key={h} className="px-10 font-semibold">{h}</th>)}</tr></thead>
                 <tbody>{filteredMovements.map((row, index) => (
                   <tr key={`${row.product}-${index}`} className="h-[63px] border-b border-dashed border-slate-300 odd:bg-white even:bg-[#f1f5f8]">
                     <td className="px-10"><span className={`mr-2 inline-flex ${row.direction === "in" ? "text-[#65c87a]" : "text-[#ff6b72]"}`}>{row.direction === "in" ? <ArrowDown className="h-5 w-5" /> : <ArrowUp className="h-5 w-5" />}</span>{row.product}</td>
@@ -149,7 +149,7 @@ export function StockMovementPage() {
               </table>
             ) : (
               <table className="w-full min-w-[1100px] border-collapse text-left text-[16px]">
-                <thead><tr className="h-16 bg-[#626b7d] text-white">{normalTable!.headers.map((h) => <th key={h} className="px-9 font-semibold">{h}</th>)}</tr></thead>
+                <thead><tr className="h-16 bg-[#5d6474] text-white">{normalTable!.headers.map((h) => <th key={h} className="px-9 font-semibold">{h}</th>)}</tr></thead>
                 <tbody>{filteredNormalRows.map((row, index) => <tr key={index} className="h-[63px] border-b border-dashed border-slate-300 odd:bg-white even:bg-[#f1f5f8]">{row.map((cell, i) => <td key={i} className="px-9">{cell}</td>)}</tr>)}</tbody>
               </table>
             )}

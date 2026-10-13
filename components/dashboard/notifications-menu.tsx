@@ -1,7 +1,7 @@
 "use client"
 
-import { useMemo, useState } from "react"
-import { Bell, ChevronLeft, ChevronRight, ShieldCheck, Trash2 } from "lucide-react"
+import { useEffect, useMemo, useState } from "react"
+import { ChevronLeft, ChevronRight, Trash2 } from "lucide-react"
 
 import { useLanguage } from "@/lib/i18n/language-context"
 
@@ -45,6 +45,33 @@ export function NotificationsMenu({ onClose }: NotificationsMenuProps) {
   const today = useMemo(() => new Date(), [])
   const [tab, setTab] = useState<"notifications" | "incomplete" | "all">("notifications")
   const [notifications, setNotifications] = useState(initialNotifications)
+
+  // Delivered orders become "order delivered" notifications.
+  useEffect(() => {
+    let cancelled = false
+    fetch("/api/orders")
+      .then((response) => (response.ok ? response.json() : []))
+      .then((orders: { id: number; client: string; agent: string; delivery: string; status: string }[]) => {
+        if (cancelled || !Array.isArray(orders)) return
+        setNotifications(
+          orders
+            .filter((order) => order.status === "Доставлено")
+            .sort((a, b) => b.id - a.id)
+            .slice(0, 40)
+            .map((order) => ({
+              id: order.id,
+              kind: "delivered" as const,
+              title: "Заказ доставлен",
+              time: order.delivery,
+              description: `Заказ №${order.id} был доставлен клиенту ${order.client} доставщиком ${order.agent}`,
+            })),
+        )
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [])
   const [tasks, setTasks] = useState<TaskItem[]>(() => makeInitialTasks(today))
   const [viewDate, setViewDate] = useState(today)
 
@@ -68,9 +95,11 @@ export function NotificationsMenu({ onClose }: NotificationsMenuProps) {
   }
 
   return (
-    <div className="absolute right-0 top-full z-50 w-[400px] max-w-[92vw] overflow-hidden rounded-b-md border-t-2 border-rose-300 bg-white text-foreground shadow-2xl sm:w-[500px]">
-      <div className="flex items-center justify-between px-6 py-4">
-        <h2 className="text-lg font-semibold text-slate-800">{t("Уведомления")}</h2>
+    <>
+    <div aria-hidden onClick={onClose} className="fixed inset-0 z-[1200] bg-black/[0.54]" />
+    <div className="fixed right-0 top-0 z-[1300] flex h-full w-[500px] max-w-full flex-col overflow-hidden bg-white font-sans text-[13px] text-[#333] shadow-[0_3px_10px_rgba(0,0,0,0.16),0_3px_10px_rgba(0,0,0,0.23)]">
+      <div className="flex h-[58px] shrink-0 items-center justify-between border-b border-[#efefef] px-[30px]">
+        <h2 className="text-[14px] font-semibold text-[#333]">{t("Уведомления")}</h2>
         {tab === "all" && (
           <div className="flex items-center gap-2 text-sm font-medium text-slate-700">
             <button aria-label={t("Предыдущий день")} onClick={() => shiftDate(-1)} className="rounded-full p-1 text-slate-500 hover:bg-slate-100 hover:text-slate-800">
@@ -84,7 +113,7 @@ export function NotificationsMenu({ onClose }: NotificationsMenuProps) {
         )}
       </div>
 
-      <div className="flex border-b border-slate-100 px-6">
+      <div className="grid shrink-0 grid-cols-3 border-b border-[#efefef]">
         {(
           [
             ["notifications", "Уведомления"],
@@ -96,8 +125,8 @@ export function NotificationsMenu({ onClose }: NotificationsMenuProps) {
             key={key}
             type="button"
             onClick={() => setTab(key)}
-            className={`border-b-2 px-3 py-3 text-sm font-medium transition-colors ${
-              tab === key ? "border-sky-500 text-slate-900" : "border-transparent text-slate-500 hover:text-slate-700"
+            className={`h-12 border-b-2 text-[13px] font-normal text-black transition-colors ${
+              tab === key ? "border-[#0a9ddb]" : "border-transparent"
             }`}
           >
             {t(label)}
@@ -105,31 +134,32 @@ export function NotificationsMenu({ onClose }: NotificationsMenuProps) {
         ))}
       </div>
 
-      <div className="max-h-[480px] overflow-y-auto">
+      <div className="min-h-0 flex-1 overflow-y-auto">
         {tab === "notifications" && (
           notifications.length === 0 ? (
             <p className="px-6 py-10 text-center text-sm text-slate-400">{t("Уведомлений нет")}</p>
           ) : (
             <ul>
               {notifications.map((item) => (
-                <li key={item.id} className="group flex items-start gap-3 border-b border-slate-50 px-6 py-4">
-                  <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full ${item.kind === "delivered" ? "bg-emerald-100 text-emerald-500" : "bg-slate-100 text-slate-400"}`}>
-                    {item.kind === "delivered" ? <ShieldCheck className="h-5 w-5" /> : <Bell className="h-5 w-5" />}
-                  </span>
+                <li key={item.id} className="group flex items-center gap-3 border-b border-[#efefef] px-[20px] py-[14px]">
+                  <svg viewBox="0 0 40 40" className="h-10 w-10 shrink-0" aria-hidden>
+                    <polygon points="20,2 36,11 36,29 20,38 4,29 4,11" fill={item.kind === "delivered" ? "#c8e6c9" : "#eceff1"} />
+                    <path d="M14 20l4 4 8-8" stroke="#fff" strokeWidth="3" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
                   <div className="min-w-0 flex-1">
-                    <div className="flex items-baseline justify-between gap-2">
-                      <p className="font-semibold text-slate-800">{item.title}</p>
-                      <span className="shrink-0 text-xs text-slate-400">{item.time}</span>
+                    <div className="flex items-baseline gap-4">
+                      <p className="font-semibold text-[#888]">{item.title}</p>
+                      <span className="shrink-0 text-[12px] text-[#aaa]">{item.time}</span>
                     </div>
-                    <p className="mt-0.5 text-sm text-slate-500">{item.description}</p>
+                    <p className="mt-0.5 line-clamp-2 text-[13px] text-[#888]">{item.description}</p>
                   </div>
                   <button
                     type="button"
                     aria-label={t("Удалить")}
                     onClick={() => removeNotification(item.id)}
-                    className="shrink-0 text-slate-300 opacity-0 transition-opacity hover:text-rose-500 group-hover:opacity-100"
+                    className="shrink-0 text-[#ccc] hover:text-[#e57373]"
                   >
-                    <Trash2 className="h-4 w-4" />
+                    <Trash2 className="h-5 w-5" />
                   </button>
                 </li>
               ))}
@@ -184,11 +214,12 @@ export function NotificationsMenu({ onClose }: NotificationsMenuProps) {
         )}
       </div>
 
-      <div className="border-t border-slate-100 px-6 py-3 text-right">
-        <button type="button" onClick={onClose} className="text-sm font-semibold text-slate-500 hover:text-slate-800">
+      <div className="shrink-0 border-t border-[#efefef] px-[30px] py-3 text-right">
+        <button type="button" onClick={onClose} className="text-[13px] font-semibold uppercase text-[#0a9ddb]">
           {t("Закрыть")}
         </button>
       </div>
     </div>
+    </>
   )
 }

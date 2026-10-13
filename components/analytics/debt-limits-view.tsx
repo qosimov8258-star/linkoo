@@ -293,15 +293,15 @@ export function DebtLimitsView() {
     <main className="min-h-screen bg-white text-[#17233b]">
       <header className="flex flex-wrap items-center gap-3 border-b border-[#d8dee7] bg-[#f2f5f8] px-6 py-4 md:px-9">
         <div className="flex items-center gap-3">
-          <FavoritesButton className="flex items-center gap-3 text-2xl font-bold text-[#4f70e7]" />
+          <FavoritesButton className="flex items-center gap-3 text-2xl font-bold text-[#4f71dc]" />
           <span className="text-3xl font-light text-[#586174]">|</span>
           <span className="text-2xl font-bold text-[#586174]">{t("Клиенты")}</span>
         </div>
         <div className="ml-auto flex flex-wrap items-center gap-2">
-          <button onClick={downloadAll} className="flex h-11 items-center gap-2 rounded-md bg-[#4f70e7] px-4 font-semibold text-white"><BarChart className="h-4 w-4" /> {t("Импортировать акции")}</button>
-          <button onClick={() => setBulkAction("route")} className="flex h-11 items-center gap-2 rounded-md bg-[#4f70e7] px-4 font-semibold text-white"><MapIcon className="h-4 w-4" /> {t("Показать на карте")}</button>
-          <button onClick={() => setImportOpen(true)} className="flex h-11 items-center gap-2 rounded-md bg-[#4f70e7] px-4 font-semibold text-white"><Upload className="h-4 w-4" /> {t("Импортировать")}</button>
-          <button onClick={() => setPage(1)} className="flex h-11 items-center gap-2 rounded-md bg-[#4f70e7] px-4 font-semibold text-white"><RefreshCw className="h-4 w-4" /> {t("Обновить с excel")}</button>
+          <button onClick={downloadAll} className="flex h-11 items-center gap-2 rounded-md bg-[#4f71dc] px-4 font-semibold text-white"><BarChart className="h-4 w-4" /> {t("Импортировать акции")}</button>
+          <button onClick={() => setBulkAction("route")} className="flex h-11 items-center gap-2 rounded-md bg-[#4f71dc] px-4 font-semibold text-white"><MapIcon className="h-4 w-4" /> {t("Показать на карте")}</button>
+          <button onClick={() => setImportOpen(true)} className="flex h-11 items-center gap-2 rounded-md bg-[#4f71dc] px-4 font-semibold text-white"><Upload className="h-4 w-4" /> {t("Импортировать")}</button>
+          <button onClick={() => setPage(1)} className="flex h-11 items-center gap-2 rounded-md bg-[#4f71dc] px-4 font-semibold text-white"><RefreshCw className="h-4 w-4" /> {t("Обновить с excel")}</button>
           <button onClick={() => setAddOpen(true)} className="flex h-11 items-center gap-2 rounded-md bg-[#4caf72] px-4 font-semibold text-white"><Plus className="h-4 w-4" /> {t("Добавить")}</button>
         </div>
       </header>
@@ -341,7 +341,7 @@ export function DebtLimitsView() {
       )}
 
       <section className="flex flex-wrap items-center gap-4 px-6 py-4 md:px-9">
-        <button onClick={() => setFilterOpen((value) => !value)} className="flex items-center gap-1 font-medium text-[#4f70e7]">
+        <button onClick={() => setFilterOpen((value) => !value)} className="flex items-center gap-1 font-medium text-[#4f71dc]">
           {t("Показать фильтр")} <ChevronDown className={`h-4 w-4 transition ${filterOpen ? "rotate-180" : ""}`} />
         </button>
         <label className="relative min-w-[220px] flex-1 border-b border-[#dbe0e8] pb-1.5">
@@ -357,11 +357,11 @@ export function DebtLimitsView() {
         <button disabled={safePage === 1} onClick={() => setPage((value) => Math.max(1, value - 1))} className="rounded-full border border-[#dbe0e8] p-1 text-[#9aa3b6] disabled:opacity-40">
           <ChevronDown className="h-5 w-5 rotate-90" />
         </button>
-        <button disabled={safePage === maxPage} onClick={() => setPage((value) => Math.min(maxPage, value + 1))} className="rounded-full border border-[#4f70e7] p-1 text-[#4f70e7] disabled:opacity-40">
+        <button disabled={safePage === maxPage} onClick={() => setPage((value) => Math.min(maxPage, value + 1))} className="rounded-full border border-[#4f71dc] p-1 text-[#4f71dc] disabled:opacity-40">
           <ChevronDown className="h-5 w-5 -rotate-90" />
         </button>
         <button aria-label={t("Полный экран")} onClick={() => document.documentElement.requestFullscreen?.()} className="text-[#586174]"><Expand className="h-5 w-5" /></button>
-        <button onClick={() => setBulkAction("edit")} className="flex h-11 items-center gap-2 rounded-md bg-[#4f70e7] px-5 font-semibold text-white"><Pencil className="h-4 w-4" /> {t("Изменить")}</button>
+        <button onClick={() => setBulkAction("edit")} className="flex h-11 items-center gap-2 rounded-md bg-[#4f71dc] px-5 font-semibold text-white"><Pencil className="h-4 w-4" /> {t("Изменить")}</button>
         <button onClick={() => setBulkAction("route")} className="flex h-11 items-center gap-2 rounded-md bg-[#4caf72] px-5 font-semibold text-white"><TrendingUp className="h-4 w-4" /> {t("Уст. маршрут")}</button>
       </section>
 
@@ -388,7 +388,7 @@ export function DebtLimitsView() {
             <ChevronDown className="pointer-events-none absolute right-0 top-7 h-4 w-4 text-[#9aa3b6]" />
           </label>
           <label className="flex items-end gap-2 pb-2 text-[15px] font-medium">
-            <input type="checkbox" checked={limitType === "Не ограничено"} onChange={(event) => setLimitType(event.target.checked ? "Не ограничено" : "Все типы")} className="h-4 w-4 accent-[#4f70e7]" />
+            <input type="checkbox" checked={limitType === "Не ограничено"} onChange={(event) => setLimitType(event.target.checked ? "Не ограничено" : "Все типы")} className="h-4 w-4 accent-[#4f71dc]" />
             {t("Неограниченный долг")}
           </label>
         </section>
@@ -396,7 +396,7 @@ export function DebtLimitsView() {
 
       <section className="overflow-x-auto bg-white pb-10">
         <table className="min-w-[1500px] w-full border-collapse text-[14px]">
-          <thead className="bg-[#626b7e] text-white">
+          <thead className="bg-[#5d6474] text-white">
             <tr>
               <th className="w-2 px-0 py-3" />
               {["Название", "Тел. номер", "Информация", "Тип", "Зона", "Ответственный агент", "Ответственный доставщик", "Ответственный инкассатор", "Баланс"].map((title) => (
@@ -408,11 +408,11 @@ export function DebtLimitsView() {
             {visible.map((row, index) => (
               <tr key={row.id} onClick={() => { setSelected(row); setDrawerTab("activity") }} className={`cursor-pointer border-b border-dashed border-slate-200 ${index % 2 ? "bg-[#f6f9fc]" : "bg-white"} hover:bg-[#eef2ff]`}>
                 <td className={`w-2 p-0 ${colorBarClass[row.colorBar]}`} />
-                <td className="px-4 py-3.5 font-medium text-[#4f70e7]">{row.name}</td>
+                <td className="px-4 py-3.5 font-medium text-[#4f71dc]">{row.name}</td>
                 <td className="px-4 py-3.5">{row.phone}</td>
                 <td className="px-4 py-3.5 text-[13px]">{row.info?.map((line, lineIndex) => <div key={lineIndex}>{line.includes(":") ? <>{line.split(":")[0]}: <b>{line.split(":").slice(1).join(":").trim()}</b></> : line}</div>)}</td>
                 <td className="px-4 py-3.5">{row.type}</td>
-                <td className="px-4 py-3.5">{row.zoneLabel}<br /><span className="text-[#4f70e7]">{row.zoneCity}</span></td>
+                <td className="px-4 py-3.5">{row.zoneLabel}<br /><span className="text-[#4f71dc]">{row.zoneCity}</span></td>
                 <td className="px-4 py-3.5">{row.agent}</td>
                 <td className="px-4 py-3.5">{row.courier}</td>
                 <td className="px-4 py-3.5">{row.collector}</td>
@@ -436,10 +436,10 @@ export function DebtLimitsView() {
               <button aria-label={t("Закрыть")} onClick={() => setImportOpen(false)}><X className="h-6 w-6 text-slate-500" /></button>
             </header>
             <div className="px-8 py-7">
-              <button type="button" onClick={downloadImportTemplate} className="mb-4 block w-full text-center font-semibold text-[#4f70e7]">{t("1. Скачать шаблон")}</button>
+              <button type="button" onClick={downloadImportTemplate} className="mb-4 block w-full text-center font-semibold text-[#4f71dc]">{t("1. Скачать шаблон")}</button>
               <label className="flex h-44 flex-col items-center justify-center gap-2 rounded-md border-2 border-dashed border-[#dbe0e8] text-[#586174] cursor-pointer">
                 <Upload className="h-6 w-6" />
-                <span>{importSaving ? t("Импорт...") : <>{t("Добавьте файл Excel или")} <span className="text-[#4f70e7] underline">{t("нажмите для выбора")}</span></>}</span>
+                <span>{importSaving ? t("Импорт...") : <>{t("Добавьте файл Excel или")} <span className="text-[#4f71dc] underline">{t("нажмите для выбора")}</span></>}</span>
                 <input ref={importInputRef} type="file" accept=".xlsx,.xls" onChange={handleImportFile} disabled={importSaving} className="hidden" />
               </label>
             </div>
@@ -487,7 +487,7 @@ export function DebtLimitsView() {
             <p className="mb-6 text-[#586174]">{t("Будет применено к")} {filtered.length} {t("клиентам из текущей выборки.")}</p>
             <div className="flex justify-end gap-3">
               <button onClick={() => setBulkAction(null)} className="rounded-md border border-[#dbe0e8] px-5 py-2.5 font-semibold text-[#586174]">{t("Отмена")}</button>
-              <button onClick={() => setBulkAction(null)} className="rounded-md bg-[#4f70e7] px-5 py-2.5 font-semibold text-white">{t("Применить")}</button>
+              <button onClick={() => setBulkAction(null)} className="rounded-md bg-[#4f71dc] px-5 py-2.5 font-semibold text-white">{t("Применить")}</button>
             </div>
           </div>
         </div>
@@ -588,7 +588,7 @@ function ClientDrawer({
               >
                 <Phone className="h-4 w-4" /> {t("Позвонить")}
               </button>
-              <button type="button" onClick={() => router.push("/analytics/sales")} className="flex items-center gap-2 rounded-md bg-[#4f70e7] px-5 py-2.5 font-semibold text-white"><ShoppingCart className="h-4 w-4" /> {t("Заказать")}</button>
+              <button type="button" onClick={() => router.push("/analytics/sales")} className="flex items-center gap-2 rounded-md bg-[#4f71dc] px-5 py-2.5 font-semibold text-white"><ShoppingCart className="h-4 w-4" /> {t("Заказать")}</button>
               <button type="button" onClick={() => setTab("refusals")} className="flex items-center gap-2 rounded-md bg-[#e5484d] px-5 py-2.5 font-semibold text-white"><XCircle className="h-4 w-4" /> {t("Отказ")}</button>
               <button type="button" onClick={() => setPaymentOpen(true)} className="flex items-center gap-2 rounded-md bg-[#3aa76d] px-5 py-2.5 font-semibold text-white"><Wallet className="h-4 w-4" /> {t("Добавить оплату")}</button>
             </div>
@@ -658,7 +658,7 @@ function ClientDrawer({
             <div>
               <div className="mb-3 flex items-center justify-between">
                 <h3 className="text-lg font-bold">{t("Баланс")}</h3>
-                <span className="text-[#4f70e7]">{t("05 Июля 2026 - 04 Авг. 2026")}</span>
+                <span className="text-[#4f71dc]">{t("05 Июля 2026 - 04 Авг. 2026")}</span>
               </div>
               <BalanceCell lines={client.balance} />
               {client.balance.length === 0 && <p className="text-[#9aa3b6]">0</p>}
@@ -671,7 +671,7 @@ function ClientDrawer({
           <div className="space-y-7 px-6 py-6">
             <h3 className="text-lg font-bold">{t("Лимит долга")}</h3>
             <label className="flex items-center gap-2 text-[15px] font-medium">
-              <input type="checkbox" checked={unlimited} onChange={(event) => setUnlimited(event.target.checked)} className="h-4 w-4 accent-[#4f70e7]" />
+              <input type="checkbox" checked={unlimited} onChange={(event) => setUnlimited(event.target.checked)} className="h-4 w-4 accent-[#4f71dc]" />
               {t("Неограниченный долг")}
             </label>
             {!unlimited && (
@@ -693,7 +693,7 @@ function ClientDrawer({
             )}
             <button
               onClick={() => onSaveLimit(client.id, unlimited, Number(limit) || 0, currency)}
-              className="rounded-md bg-[#4f70e7] px-6 py-3 font-semibold text-white"
+              className="rounded-md bg-[#4f71dc] px-6 py-3 font-semibold text-white"
             >
               {t("Сохранить")}
             </button>

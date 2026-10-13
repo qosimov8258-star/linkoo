@@ -81,7 +81,7 @@ export function MailingView() {
   }
 
   return (
-    <main className="min-h-screen bg-[#f3f6fa] px-4 pb-12 pt-5 text-[#26344c] md:px-9">
+    <main className="min-h-screen bg-[#f2f5f8] px-4 pb-12 pt-5 text-[#26344c] md:px-9">
       <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-[25px] font-bold text-[#536176]">
           <FavoritesButton className="text-[#4f6ee8]" />
@@ -131,7 +131,7 @@ export function MailingView() {
 
         <div className="overflow-x-auto">
           <table className="w-full min-w-[760px] border-collapse">
-            <thead className="bg-[#626c80] text-left text-white">
+            <thead className="bg-[#5d6474] text-left text-white">
               <tr>
                 <th className="w-[9%] px-9 py-4 font-semibold">№</th>
                 <th className="w-[55%] px-4 py-4 font-semibold">{t("Сообщение")}</th>
@@ -144,7 +144,7 @@ export function MailingView() {
                 <tr
                   key={mailing.id}
                   onClick={() => setSelectedId(selectedId === mailing.id ? null : mailing.id)}
-                  className={"cursor-pointer border-b-2 border-dotted border-[#d9e1ea] text-[16px] transition hover:bg-[#f1f4f8] " + (selectedId === mailing.id ? "bg-[#f0f3f7]" : "")}
+                  className={"cursor-pointer border-b-2 border-dotted border-[#d9e1ea] text-[16px] transition hover:bg-[#f2f5f8] " + (selectedId === mailing.id ? "bg-[#f0f3f7]" : "")}
                 >
                   <td className="px-9 py-4">{mailing.id}</td>
                   <td className="px-4 py-4">{mailing.message}</td>

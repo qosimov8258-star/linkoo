@@ -9,7 +9,7 @@ import { createBrand, listBrands } from "@/lib/brands-repo"
 const brandSchema = z.object({
   name: z.string().trim().min(1),
   organization: z.string().trim().min(1),
-  photoUrl: z.string().optional(),
+  photoUrl: z.string().nullable().optional(),
 })
 
 export async function GET() {

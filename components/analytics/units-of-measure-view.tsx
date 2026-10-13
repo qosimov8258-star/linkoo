@@ -1,10 +1,11 @@
 "use client"
 
-import { ChevronLeft, ChevronRight, FileText, Pencil, Search, Trash2, X } from "lucide-react"
-import { ChangeEvent, Fragment, FormEvent, useEffect, useMemo, useRef, useState } from "react"
+import { ChangeEvent, Fragment, FormEvent, useEffect, useMemo, useState } from "react"
 
 import { downloadExcelTable } from "@/lib/excel-export"
 import { mapHeaderColumns, readExcelRows } from "@/lib/excel-import"
+import { useLanguage } from "@/lib/i18n/language-context"
+import { EmptyState, HoverActions, ImportDialog, LineField, LineSelect, ListToolbar, Modal, SaveButton, grayHead } from "./catalog-ui"
 import type { UnitOfMeasure } from "./units-of-measure-data"
 
 const IMPORT_HEADER_ALIASES: Record<string, string> = {
@@ -17,6 +18,8 @@ function emptyDraft() {
 }
 
 export function UnitsOfMeasureView({ embedded = false }: { embedded?: boolean }) {
+  void embedded
+  const { t } = useLanguage()
   const [units, setUnits] = useState<UnitOfMeasure[]>([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState("")
@@ -29,7 +32,6 @@ export function UnitsOfMeasureView({ embedded = false }: { embedded?: boolean })
   const [importOpen, setImportOpen] = useState(false)
   const [importFile, setImportFile] = useState<File | null>(null)
   const [importSaving, setImportSaving] = useState(false)
-  const importInputRef = useRef<HTMLInputElement>(null)
   const pageSize = 25
 
   useEffect(() => {
@@ -198,155 +200,81 @@ export function UnitsOfMeasureView({ embedded = false }: { embedded?: boolean })
     }
   }
 
+  const gridCols = "grid-cols-[666px_1fr]"
+  const dateOf = (value: string) => value.replace(/\s*г\.$/, "")
+
   function renderRow(unit: UnitOfMeasure, isChild: boolean) {
+    const hasChildren = !isChild && childrenOf(unit.id).length > 0
     return (
-      <tr key={unit.id} className="group border-b border-dashed border-slate-300 hover:bg-slate-50">
-        <td className={isChild ? "py-4 pl-20 pr-5" : "px-9 py-4 font-medium"}>{unit.name}</td>
-        <td className="px-5 py-4">{unit.createdDate}</td>
-        <td className="px-5 py-4">
-          <div className="hidden items-center justify-end gap-3 text-slate-500 group-hover:flex">
-            <button type="button" onClick={() => openEdit(unit)} aria-label="Изменить">
-              <Pencil className="h-5 w-5" />
-            </button>
-            <button type="button" onClick={() => remove(unit.id)} aria-label="Удалить">
-              <Trash2 className="h-5 w-5" />
-            </button>
-          </div>
-        </td>
-      </tr>
+      <div
+        key={unit.id}
+        onClick={() => openEdit(unit)}
+        className={`group relative grid min-h-[50px] cursor-pointer items-center hover:bg-[#f8f9fb] ${isChild ? "grid-cols-[616px_1fr]" : gridCols} ${isChild ? "ml-[30px] mr-[30px] border-b-2 border-dotted border-[#d9e0e5] pl-[50px]" : "border-b-2 border-dotted border-[#d9e0e5] pl-[30px]"}`}
+      >
+        <span className={isChild ? "" : "font-bold"}>{unit.name}</span>
+        <span className={hasChildren ? "font-bold" : ""}>{dateOf(unit.createdDate)}</span>
+        <HoverActions onEdit={() => openEdit(unit)} onDelete={() => remove(unit.id)} />
+      </div>
     )
   }
 
   const flatVisible = filtered ? filtered.slice((safePage - 1) * pageSize, safePage * pageSize) : null
 
   return (
-    <main className={embedded ? "min-w-0 flex-1" : "min-h-[calc(100vh-4rem)] bg-white px-9 py-5"}>
-      <div className="mb-4 flex flex-wrap items-center gap-4">
-        <button type="button" onClick={openCreate} className="text-[16px] text-[#4f70e7] hover:underline">
-          + добавить измерение
-        </button>
-        <button type="button" onClick={() => setImportOpen(true)} className="inline-flex items-center gap-1 text-[16px] text-[#4f70e7] hover:underline">
-          <FileText className="h-4 w-4" /> Импорт с Excel
-        </button>
-        <label className="relative ml-auto w-64">
-          <input
-            value={query}
-            onChange={(event) => { setQuery(event.target.value); setPage(1) }}
-            placeholder="Поиск"
-            className="w-full border-b border-slate-300 py-2 pr-10 outline-none focus:border-[#4f70e7]"
-          />
-          <Search className="absolute right-2 top-2 h-5 w-5 text-slate-300" />
-        </label>
-        <span className="text-slate-500">25</span>
-        <span className="text-slate-500">
-          {flatCount ? (safePage - 1) * pageSize + 1 : 0} - {Math.min(safePage * pageSize, flatCount)} из {flatCount}
-        </span>
-        <button type="button" onClick={() => setPage((value) => Math.max(1, value - 1))} disabled={safePage <= 1} aria-label="Назад" className="disabled:opacity-30">
-          <ChevronLeft className="h-5 w-5 text-slate-400" />
-        </button>
-        <button type="button" onClick={() => setPage((value) => Math.min(pageCount, value + 1))} disabled={safePage >= pageCount} aria-label="Вперед" className="disabled:opacity-30">
-          <ChevronRight className="h-5 w-5 text-slate-400" />
-        </button>
+    <div className="min-h-[calc(100vh-50px)] min-w-0 flex-1 bg-white text-[13px] text-[#333]">
+      <ListToolbar
+        addLabel={t("добавить измерение")}
+        onAdd={openCreate}
+        query={query}
+        onQuery={(value) => { setQuery(value); setPage(1) }}
+        pageSize={pageSize}
+        from={flatCount ? (safePage - 1) * pageSize + 1 : 0}
+        to={Math.min(safePage * pageSize, flatCount)}
+        total={flatCount}
+        onPrev={safePage > 1 ? () => setPage(safePage - 1) : undefined}
+        onNext={safePage < pageCount ? () => setPage(safePage + 1) : undefined}
+        extra={<button type="button" onClick={() => setImportOpen(true)} className="ml-[24px] pt-[8px] text-[13px] text-[#4f71dc] hover:underline">{t("Импорт с Excel")}</button>}
+      />
+
+      <div className={`${grayHead} ${gridCols}`}>
+        <span>{t("Наименование")}</span><span>{t("Дата создания")}</span>
       </div>
 
-      <table className="w-full text-left">
-        <thead className="bg-[#626b7e] text-white">
-          <tr>
-            <th className="px-9 py-5">Наименование</th>
-            <th className="px-5 py-5">Дата создания</th>
-            <th className="w-20" />
-          </tr>
-        </thead>
-        <tbody>
-          {loading ? (
-            <tr><td colSpan={3} className="px-9 py-10 text-center text-slate-400">Загрузка единиц измерения...</td></tr>
-          ) : loadError ? (
-            <tr><td colSpan={3} className="px-9 py-10 text-center text-red-600">{loadError}</td></tr>
-          ) : filtered ? (
-            flatVisible!.map((unit) => renderRow(unit, false))
-          ) : (
-            topLevel.slice((safePage - 1) * pageSize, safePage * pageSize).map((unit) => (
-              <Fragment key={unit.id}>
-                {renderRow(unit, false)}
-                {childrenOf(unit.id).map((child) => renderRow(child, true))}
-              </Fragment>
-            ))
-          )}
-          {!loading && !loadError && flatCount === 0 && (
-            <tr>
-              <td colSpan={3} className="px-9 py-10 text-center text-slate-400">
-                Ничего не найдено
-              </td>
-            </tr>
-          )}
-        </tbody>
-      </table>
+      {loading ? (
+        <p className="py-16 text-center text-slate-400">{t("Загрузка единиц измерения...")}</p>
+      ) : loadError ? (
+        <p className="py-16 text-center text-red-600">{loadError}</p>
+      ) : filtered ? (
+        flatVisible!.map((unit) => renderRow(unit, false))
+      ) : (
+        topLevel.slice((safePage - 1) * pageSize, safePage * pageSize).map((unit) => (
+          <Fragment key={unit.id}>
+            {renderRow(unit, false)}
+            {childrenOf(unit.id).map((child) => renderRow(child, true))}
+          </Fragment>
+        ))
+      )}
+      {!loading && !loadError && flatCount === 0 && <EmptyState />}
 
       {editing !== null && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
-          <form onSubmit={save} className="w-full max-w-lg rounded bg-white">
-            <header className="flex items-center justify-between border-b p-6">
-              <b className="uppercase">{editing === "new" ? "Добавить единицу измерения" : "Изменить единицу измерения"}</b>
-              <button type="button" onClick={() => setEditing(null)} aria-label="Закрыть">
-                <X className="h-5 w-5" />
-              </button>
-            </header>
-            <div className="space-y-5 p-8">
-              <label className="block border-b border-slate-200 pb-2 font-medium">
-                Родительское измерение
-                <select value={draft.parentId} onChange={(event) => setDraft((value) => ({ ...value, parentId: event.target.value }))} className="mt-2 block w-full bg-white outline-none">
-                  <option value="">Нет</option>
-                  {topLevel.filter((unit) => editing === "new" || unit.id !== (editing as UnitOfMeasure).id).map((unit) => (
-                    <option key={unit.id} value={unit.id}>{unit.name}</option>
-                  ))}
-                </select>
-              </label>
-              <label className="block border-b border-slate-200 pb-2 font-medium">
-                Наименование <span className="text-red-500">*</span>
-                <input autoFocus value={draft.name} onChange={(event) => setDraft((value) => ({ ...value, name: event.target.value }))} className="mt-2 block w-full outline-none" />
-              </label>
-              {formError && <p className="text-sm font-medium text-rose-600">{formError}</p>}
-            </div>
-            <footer className="flex justify-end border-t p-5">
-              <button type="submit" disabled={saving} className="rounded bg-[#6ccd8b] px-6 py-3 font-semibold text-white hover:brightness-95 disabled:opacity-60">
-                {saving ? "Сохранение..." : "Сохранить"}
-              </button>
-            </footer>
-          </form>
-        </div>
+        <Modal
+          title={editing === "new" ? t("Добавить единицу измерения") : t("Изменить единицу измерения")}
+          onClose={() => setEditing(null)}
+          footer={<SaveButton disabled={saving || !draft.name.trim()} onClick={() => void save({ preventDefault() {} } as FormEvent)}>{saving ? t("Сохранение...") : t("Сохранить")}</SaveButton>}
+        >
+          <LineSelect
+            label={t("Родительское измерение")}
+            value={topLevel.find((unit) => String(unit.id) === draft.parentId)?.name ?? ""}
+            onChange={(name) => setDraft((value) => ({ ...value, parentId: String(topLevel.find((unit) => unit.name === name)?.id ?? "") }))}
+            options={topLevel.filter((unit) => editing === "new" || unit.id !== (editing as UnitOfMeasure).id).map((unit) => unit.name)}
+            onClear={() => setDraft((value) => ({ ...value, parentId: "" }))}
+          />
+          <div className="mt-[27px]"><LineField label={t("Наименование")} required value={draft.name} onChange={(value) => setDraft((current) => ({ ...current, name: value }))} /></div>
+          {formError && <p className="mt-4 text-[13px] font-semibold text-rose-600">{formError}</p>}
+        </Modal>
       )}
 
-      {importOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
-          <div className="w-full max-w-md rounded bg-white">
-            <header className="flex items-center justify-between border-b p-6">
-              <b className="uppercase">Импорт с Excel</b>
-              <button type="button" onClick={() => { setImportOpen(false); setImportFile(null) }} aria-label="Закрыть">
-                <X className="h-5 w-5" />
-              </button>
-            </header>
-            <div className="p-8">
-              <button type="button" onClick={downloadTemplate} className="mb-4 font-semibold text-[#4f70e7] hover:underline">
-                1. Скачать шаблон
-              </button>
-              <input ref={importInputRef} type="file" accept=".csv,.xls,.xlsx" onChange={pickImportFile} className="hidden" />
-              <button
-                type="button"
-                onClick={() => importInputRef.current?.click()}
-                className="flex w-full flex-col items-center justify-center gap-3 rounded border-2 border-dashed border-slate-300 py-10 text-slate-500 hover:border-[#4f70e7] hover:text-[#4f70e7]"
-              >
-                <FileText className="h-8 w-8" />
-                {importFile ? importFile.name : "Добавьте файл Excel или нажмите для выбора"}
-              </button>
-            </div>
-            <footer className="flex justify-end border-t p-5">
-              <button type="button" disabled={!importFile || importSaving} onClick={saveImport} className="rounded bg-[#6ccd8b] px-5 py-3 font-semibold text-white hover:brightness-95 disabled:opacity-40">
-                {importSaving ? "Импорт..." : "Сохранить"}
-              </button>
-            </footer>
-          </div>
-        </div>
-      )}
-    </main>
+      {importOpen && <ImportDialog file={importFile} onFile={setImportFile} onTemplate={downloadTemplate} onSave={saveImport} saving={importSaving} onClose={() => { setImportOpen(false); setImportFile(null) }} />}
+    </div>
   )
 }

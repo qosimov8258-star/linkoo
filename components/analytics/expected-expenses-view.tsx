@@ -61,7 +61,7 @@ export function ExpectedExpensesView() {
     <main className="min-h-screen bg-white text-[#17233b]">
       <header className="flex min-h-[76px] items-center border-b border-[#d8dee7] bg-[#f2f5f8] px-6 md:px-9">
         <div className="flex items-center gap-3">
-          <FavoritesButton className="flex items-center gap-2 text-2xl font-bold text-[#4f70e7]" /><span className="text-3xl font-light text-[#586174]">|</span>
+          <FavoritesButton className="flex items-center gap-2 text-2xl font-bold text-[#4f71dc]" /><span className="text-3xl font-light text-[#586174]">|</span>
           <span className="text-2xl font-bold text-[#586174]">Ожидаемые расходы</span>
         </div>
       </header>
@@ -99,14 +99,14 @@ export function ExpectedExpensesView() {
         <button disabled={safePage === 1} onClick={() => setPage((value) => Math.max(1, value - 1))} className="rounded-full border border-[#dbe0e8] p-1 text-[#9aa3b6] disabled:opacity-40">
           <ChevronDown className="h-5 w-5 rotate-90" />
         </button>
-        <button disabled={safePage === maxPage} onClick={() => setPage((value) => Math.min(maxPage, value + 1))} className="rounded-full border border-[#4f70e7] p-1 text-[#4f70e7] disabled:opacity-40">
+        <button disabled={safePage === maxPage} onClick={() => setPage((value) => Math.min(maxPage, value + 1))} className="rounded-full border border-[#4f71dc] p-1 text-[#4f71dc] disabled:opacity-40">
           <ChevronDown className="h-5 w-5 -rotate-90" />
         </button>
       </section>
 
       <section className="overflow-x-auto bg-white pb-10">
         <table className="w-full border-collapse text-[14px]">
-          <thead className="bg-[#626b7e] text-white">
+          <thead className="bg-[#5d6474] text-white">
             <tr>
               {["№", "Поставщик", "Дата создания", "Задолженность", "Запас", "Сумма оплаты", "Статус"].map((title) => (
                 <th key={title} className="whitespace-nowrap px-4 py-4 text-left font-semibold">{title}</th>
@@ -121,10 +121,10 @@ export function ExpectedExpensesView() {
                   className={`cursor-pointer border-b border-dashed border-slate-200 ${index % 2 ? "bg-[#f6f9fc]" : "bg-white"} hover:bg-[#eef2ff]`}
                 >
                   <td className="px-4 py-4">{row.id}</td>
-                  <td className="px-4 py-4 font-medium text-[#4f70e7]">{row.supplier}</td>
+                  <td className="px-4 py-4 font-medium text-[#4f71dc]">{row.supplier}</td>
                   <td className="px-4 py-4">{row.date}</td>
-                  <td className="px-4 py-4">{row.debt === 0 ? <span className="text-[#4f70e7]">0</span> : number(row.debt)}</td>
-                  <td className="px-4 py-4">{row.stock === 0 ? <span className="text-[#4f70e7]">0</span> : number(row.stock)}</td>
+                  <td className="px-4 py-4">{row.debt === 0 ? <span className="text-[#4f71dc]">0</span> : number(row.debt)}</td>
+                  <td className="px-4 py-4">{row.stock === 0 ? <span className="text-[#4f71dc]">0</span> : number(row.stock)}</td>
                   <td className="px-4 py-4">{number(row.amount)} {row.currency}</td>
                   <td className={`px-4 py-4 font-medium ${statusColor[row.status]}`}>{statusLabel[row.status]}</td>
                 </tr>

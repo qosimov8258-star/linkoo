@@ -126,8 +126,8 @@ export function MaterialReportViewV2() {
   const selectedMode = mode === "quantity" ? "Количество" : mode === "cost" ? "Себестоимость" : "Прайс лист"
 
   return (
-    <div className="min-h-[calc(100vh-64px)] bg-[#f1f4f8] text-[#12213b]">
-      <section className="flex min-h-[76px] items-center border-b border-slate-300 bg-[#f3f6fa] px-9">
+    <div className="min-h-[calc(100vh-64px)] bg-[#f2f5f8] text-[#12213b]">
+      <section className="flex min-h-[76px] items-center border-b border-slate-300 bg-[#f2f5f8] px-9">
         <FavoritesButton className="flex items-center gap-2 text-[25px] font-semibold text-[#4d72e5]" />
         <span className="mx-3 text-3xl text-[#566173]">|</span>
         <h1 className="text-[25px] font-semibold text-[#566173]">Остаток на определенную дату</h1>

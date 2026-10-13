@@ -118,10 +118,10 @@ export function GoodsMovementView() {
   }
 
   return (
-    <main className="min-h-[calc(100vh-4rem)] bg-[#f1f4f8] px-9 py-5">
+    <main className="min-h-[calc(100vh-4rem)] bg-[#f2f5f8] px-7 pb-7">
       <header className="mb-5 flex items-center justify-between">
         <h1 className="flex items-center text-2xl font-bold text-slate-600">
-          <FavoritesButton className="inline-flex items-center gap-2 text-[#4f70e7]" />
+          <FavoritesButton className="inline-flex items-center gap-2 text-[#4f71dc]" />
           <span className="mx-2 text-slate-400">|</span> План приемок и передач
         </h1>
         {tab === "movement" && (
@@ -193,21 +193,21 @@ export function GoodsMovementView() {
                     {availableTypes.map((type) => <option key={type} value={type}>{type}</option>)}
                   </select>
                 </label>
-                <button type="button" onClick={() => setFilterOpen(false)} className="rounded bg-[#626b7e] px-5 py-3 text-white shadow">ПРИМЕНИТЬ</button>
+                <button type="button" onClick={() => setFilterOpen(false)} className="rounded bg-[#5d6474] px-5 py-3 text-white shadow">ПРИМЕНИТЬ</button>
               </div>
             </div>
           )}
 
           {tab === "receipt" && (
             <table className="w-full text-left">
-              <thead className="bg-[#626b7e] text-white">
+              <thead className="bg-[#5d6474] text-white">
                 <tr><th className="h-16 px-9 font-semibold">№</th><th className="px-5 font-semibold">От кого</th><th className="px-5 font-semibold">Тип</th><th className="px-5 font-semibold">Дата приемки</th><th className="px-5 font-semibold">Склад</th></tr>
               </thead>
               <tbody>
                 {(visible as ReceiptRow[]).map((row) => (
                   <Fragment key={row.no}>
                     <tr onClick={() => setExpandedReceipt((current) => (current === row.no ? null : row.no))} className="h-[62px] cursor-pointer border-b border-dashed border-slate-200 even:bg-[#f2f6f9] hover:bg-slate-50">
-                      <td className="px-9 text-[#4f70e7]">{row.no}</td>
+                      <td className="px-9 text-[#4f71dc]">{row.no}</td>
                       <td className="px-5">{row.person}</td>
                       <td className="px-5">{row.type}</td>
                       <td className="px-5">{row.date}</td>
@@ -218,8 +218,8 @@ export function GoodsMovementView() {
                         <td colSpan={5} className="bg-[#f8fafc] p-0">
                           <div className="m-4 rounded border border-slate-200 bg-white p-6 shadow-sm">
                             <div className="mb-5 flex items-center justify-end gap-4 text-slate-500">
-                              <button type="button" onClick={() => window.print()} aria-label="Печать" className="hover:text-[#4f70e7]"><Printer className="h-5 w-5" /></button>
-                              <button type="button" onClick={() => acceptReceipt(row)} aria-label="Принять" className="flex h-8 w-8 items-center justify-center rounded-full bg-[#4f70e7] text-white hover:brightness-95">
+                              <button type="button" onClick={() => window.print()} aria-label="Печать" className="hover:text-[#4f71dc]"><Printer className="h-5 w-5" /></button>
+                              <button type="button" onClick={() => acceptReceipt(row)} aria-label="Принять" className="flex h-8 w-8 items-center justify-center rounded-full bg-[#4f71dc] text-white hover:brightness-95">
                                 <Check className="h-4 w-4" />
                               </button>
                             </div>
@@ -262,13 +262,13 @@ export function GoodsMovementView() {
           {tab === "transfer" && (
             <div className="overflow-x-auto">
               <table className="w-full min-w-[1000px] text-left">
-                <thead className="bg-[#626b7e] text-white">
+                <thead className="bg-[#5d6474] text-white">
                   <tr><th className="h-16 px-9 font-semibold">№</th><th className="px-5 font-semibold">Дата запроса</th><th className="px-5 font-semibold">Склад</th><th className="px-5 font-semibold">Тип</th><th className="px-5 font-semibold">Кому</th><th className="px-5 font-semibold">Передал</th><th className="px-5 font-semibold">Дата передачи</th></tr>
                 </thead>
                 <tbody>
                   {(visible as TransferRow[]).map((row) => (
                     <tr key={row.no} className="h-[62px] border-b border-dashed border-slate-200 even:bg-[#f2f6f9]">
-                      <td className="px-9 text-[#4f70e7]">{row.no}</td><td className="px-5">{row.requestDate}</td><td className="px-5">{row.warehouse}</td><td className="px-5">{row.type}</td><td className="px-5">{row.to}</td><td className="px-5">{row.sender}</td><td className="px-5">{row.transferDate}</td>
+                      <td className="px-9 text-[#4f71dc]">{row.no}</td><td className="px-5">{row.requestDate}</td><td className="px-5">{row.warehouse}</td><td className="px-5">{row.type}</td><td className="px-5">{row.to}</td><td className="px-5">{row.sender}</td><td className="px-5">{row.transferDate}</td>
                     </tr>
                   ))}
                   {visible.length === 0 && <tr><td colSpan={7} className="p-16 text-center text-slate-400">По вашему запросу ничего не найдено</td></tr>}
@@ -280,7 +280,7 @@ export function GoodsMovementView() {
           {tab === "movement" && (
             <div className="overflow-x-auto">
               <table className="w-full min-w-[1100px] text-left">
-                <thead className="bg-[#626b7e] text-white">
+                <thead className="bg-[#5d6474] text-white">
                   <tr><th className="h-16 px-9 font-semibold">Товар</th><th className="px-5 font-semibold">Кол-во</th><th className="px-5 font-semibold">Серия</th><th className="px-5 font-semibold">Дата</th><th className="px-5 font-semibold">Склад</th><th className="px-5 font-semibold">Тип</th></tr>
                 </thead>
                 <tbody>
@@ -305,13 +305,13 @@ export function GoodsMovementView() {
 
           {tab === "receiptHistory" && (
             <table className="w-full text-left">
-              <thead className="bg-[#626b7e] text-white">
+              <thead className="bg-[#5d6474] text-white">
                 <tr><th className="h-16 px-9 font-semibold">№ заказа</th><th className="px-5 font-semibold">От кого</th><th className="px-5 font-semibold">Тип</th><th className="px-5 font-semibold">Дата приемки</th><th className="px-5 font-semibold">Принял</th><th className="px-5 font-semibold">Склад</th></tr>
               </thead>
               <tbody>
                 {(visible as ReceiptHistoryRow[]).map((row) => (
                   <tr key={row.no} className="h-[62px] border-b border-dashed border-slate-200 even:bg-[#f2f6f9]">
-                    <td className="px-9 text-[#4f70e7]">{row.no}</td><td className="px-5">{row.person}</td><td className="px-5">{row.type}</td><td className="px-5">{row.date}</td><td className="px-5">{row.accepted}</td><td className="px-5">{row.warehouse}</td>
+                    <td className="px-9 text-[#4f71dc]">{row.no}</td><td className="px-5">{row.person}</td><td className="px-5">{row.type}</td><td className="px-5">{row.date}</td><td className="px-5">{row.accepted}</td><td className="px-5">{row.warehouse}</td>
                   </tr>
                 ))}
                 {visible.length === 0 && <tr><td colSpan={6} className="p-16 text-center text-slate-400">По вашему запросу ничего не найдено</td></tr>}
@@ -322,13 +322,13 @@ export function GoodsMovementView() {
           {tab === "transferHistory" && (
             <div className="overflow-x-auto">
               <table className="w-full min-w-[1000px] text-left">
-                <thead className="bg-[#626b7e] text-white">
+                <thead className="bg-[#5d6474] text-white">
                   <tr><th className="h-16 px-9 font-semibold">№</th><th className="px-5 font-semibold">Дата запроса</th><th className="px-5 font-semibold">Склад</th><th className="px-5 font-semibold">Тип</th><th className="px-5 font-semibold">Кому</th><th className="px-5 font-semibold">Передал</th><th className="px-5 font-semibold">Дата передачи</th></tr>
                 </thead>
                 <tbody>
                   {(visible as TransferRow[]).map((row) => (
                     <tr key={row.no} className="h-[62px] border-b border-dashed border-slate-200 even:bg-[#f2f6f9]">
-                      <td className="px-9 text-[#4f70e7]">{row.no}</td><td className="px-5">{row.requestDate}</td><td className="px-5">{row.warehouse}</td><td className="px-5">{row.type}</td><td className="px-5">{row.to}</td><td className="px-5">{row.sender}</td><td className="px-5">{row.transferDate}</td>
+                      <td className="px-9 text-[#4f71dc]">{row.no}</td><td className="px-5">{row.requestDate}</td><td className="px-5">{row.warehouse}</td><td className="px-5">{row.type}</td><td className="px-5">{row.to}</td><td className="px-5">{row.sender}</td><td className="px-5">{row.transferDate}</td>
                     </tr>
                   ))}
                   {visible.length === 0 && <tr><td colSpan={7} className="p-16 text-center text-slate-400">По вашему запросу ничего не найдено</td></tr>}

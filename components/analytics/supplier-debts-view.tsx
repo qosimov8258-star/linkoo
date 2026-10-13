@@ -36,7 +36,7 @@ const groupKeys: GroupKey[] = ["opening", "shipment", "refund", "paid", "correct
 const money = (value: number) => new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 2 }).format(value)
 
 function AmountCell({ value }: { value: number }) {
-  if (value === 0) return <span className="text-[#4f70e7]">0</span>
+  if (value === 0) return <span className="text-[#4f71dc]">0</span>
   const color = value > 0 ? "text-[#3aa76d]" : "text-[#e5484d]"
   return <span className={`font-semibold ${color}`}>{money(value)}</span>
 }
@@ -101,14 +101,14 @@ export function SupplierDebtsView() {
     <main key={refreshTick} className="min-h-screen bg-white text-[#17233b]">
       <header className="flex min-h-[76px] items-center border-b border-[#d8dee7] bg-[#f2f5f8] px-6 md:px-9">
         <div className="flex items-center gap-3">
-          <FavoritesButton className="flex items-center gap-3 text-2xl font-bold text-[#4f70e7]" />
+          <FavoritesButton className="flex items-center gap-3 text-2xl font-bold text-[#4f71dc]" />
           <span className="text-3xl font-light text-[#586174]">|</span>
           <span className="text-2xl font-bold text-[#586174]">Долги доставщиков</span>
         </div>
       </header>
 
       <section className="flex flex-wrap items-center gap-4 px-6 py-4 md:px-9">
-        <div className="flex overflow-hidden rounded-sm border border-[#4f70e7]">
+        <div className="flex overflow-hidden rounded-sm border border-[#4f71dc]">
           {(
             [
               ["today", "Сегодня"],
@@ -119,7 +119,7 @@ export function SupplierDebtsView() {
             <button
               key={key}
               onClick={() => setPeriod(key)}
-              className={`px-5 py-2.5 text-[13px] font-bold uppercase tracking-wide ${period === key ? "bg-[#4f70e7] text-white" : "text-[#4f70e7]"}`}
+              className={`px-5 py-2.5 text-[13px] font-bold uppercase tracking-wide ${period === key ? "bg-[#4f71dc] text-white" : "text-[#4f71dc]"}`}
             >
               {label}
             </button>
@@ -134,7 +134,7 @@ export function SupplierDebtsView() {
           </div>
         )}
 
-        <div className="ml-auto flex overflow-hidden rounded-sm border border-[#4f70e7]">
+        <div className="ml-auto flex overflow-hidden rounded-sm border border-[#4f71dc]">
           {(
             [
               ["suppliers", "Долги доставщиков"],
@@ -144,7 +144,7 @@ export function SupplierDebtsView() {
             <button
               key={key}
               onClick={() => { setDebtTab(key); setSearch("") }}
-              className={`px-5 py-2.5 text-[13px] font-bold uppercase tracking-wide ${debtTab === key ? "bg-[#4f70e7] text-white" : "text-[#4f70e7]"}`}
+              className={`px-5 py-2.5 text-[13px] font-bold uppercase tracking-wide ${debtTab === key ? "bg-[#4f71dc] text-white" : "text-[#4f71dc]"}`}
             >
               {label}
             </button>
@@ -153,7 +153,7 @@ export function SupplierDebtsView() {
 
         <button onClick={downloadExcel} aria-label="Скачать" className="text-[#586174] hover:text-[#17233b]"><Download className="h-5 w-5" /></button>
         <button onClick={refresh} aria-label="Обновить" className="text-[#586174] hover:text-[#17233b]"><RefreshCw className="h-5 w-5" /></button>
-        <button onClick={() => setFilterOpen((value) => !value)} className="flex items-center gap-1 font-medium text-[#4f70e7]">
+        <button onClick={() => setFilterOpen((value) => !value)} className="flex items-center gap-1 font-medium text-[#4f71dc]">
           Показать фильтр <ChevronDown className={`h-4 w-4 transition ${filterOpen ? "rotate-180" : ""}`} />
         </button>
       </section>
@@ -183,7 +183,7 @@ export function SupplierDebtsView() {
       )}
 
       {appliedOrganization !== "Все организации" && (
-        <p className="mx-6 mb-2 text-sm text-[#586174] md:mx-9">Организация: <span className="font-semibold text-[#4f70e7]">{appliedOrganization}</span></p>
+        <p className="mx-6 mb-2 text-sm text-[#586174] md:mx-9">Организация: <span className="font-semibold text-[#4f71dc]">{appliedOrganization}</span></p>
       )}
 
       {!cardsCollapsed && (
@@ -229,7 +229,7 @@ export function SupplierDebtsView() {
       )}
       {cardsCollapsed && (
         <div className="flex justify-end px-6 pb-4 md:px-9">
-          <button onClick={() => setCardsCollapsed(false)} aria-label="Показать панель" className="flex items-center gap-1 text-sm font-medium text-[#4f70e7]">
+          <button onClick={() => setCardsCollapsed(false)} aria-label="Показать панель" className="flex items-center gap-1 text-sm font-medium text-[#4f71dc]">
             <ChevronsRight className="h-4 w-4 rotate-180" /> Показать итоги
           </button>
         </div>
@@ -260,7 +260,7 @@ export function SupplierDebtsView() {
           <tbody>
             {filtered.map((row, index) => (
               <tr key={row.id} className={index % 2 ? "bg-[#f6f9fc]" : "bg-white"}>
-                <td className={`border-b border-[#e1e5eb] px-4 py-3.5 ${row.linkStyle ? "font-medium text-[#4f70e7] underline" : ""}`}>{row.name}</td>
+                <td className={`border-b border-[#e1e5eb] px-4 py-3.5 ${row.linkStyle ? "font-medium text-[#4f71dc] underline" : ""}`}>{row.name}</td>
                 {groupKeys.map((key) =>
                   (["sum", "usd", "eur"] as const).map((currency) => (
                     <td key={`${row.id}-${key}-${currency}`} className="border-b border-[#e1e5eb] px-4 py-3.5">

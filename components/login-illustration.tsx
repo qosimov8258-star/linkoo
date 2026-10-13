@@ -62,10 +62,10 @@ export function LoginIllustration() {
         <path d="M180 470 h60 v30 h50" />
         <path d="M330 500 v40 h70 v20" />
         <path d="M420 430 h-40 v25" />
-        <circle cx="180" cy="470" r="4" fill="#4f70e7" stroke="none" />
-        <circle cx="290" cy="500" r="4" fill="#4f70e7" stroke="none" />
-        <circle cx="400" cy="540" r="4" fill="#4f70e7" stroke="none" />
-        <circle cx="420" cy="430" r="4" fill="#4f70e7" stroke="none" />
+        <circle cx="180" cy="470" r="4" fill="#4f71dc" stroke="none" />
+        <circle cx="290" cy="500" r="4" fill="#4f71dc" stroke="none" />
+        <circle cx="400" cy="540" r="4" fill="#4f71dc" stroke="none" />
+        <circle cx="420" cy="430" r="4" fill="#4f71dc" stroke="none" />
       </g>
 
       {/* === Производители (manufacturers) building, back-left === */}
@@ -129,7 +129,7 @@ export function LoginIllustration() {
         {/* truck */}
         <g transform="translate(160,505)">
           <rect x="0" y="14" width="52" height="26" rx="3" fill="#3f61d8" />
-          <path d="M52 20 h20 l12 12 v8 h-32 z" fill="#5271df" />
+          <path d="M52 20 h20 l12 12 v8 h-32 z" fill="#4f71dc" />
           <circle cx="16" cy="44" r="8" fill="#1c2758" />
           <circle cx="16" cy="44" r="3.5" fill="#aebbe0" />
           <circle cx="66" cy="44" r="8" fill="#1c2758" />
@@ -144,7 +144,7 @@ export function LoginIllustration() {
         <polygon points="450,505 450,400 545,400 545,505" fill="url(#linkoFront)" />
         <polygon points="545,400 545,505 570,492 570,388" fill="#141d47" />
         <polygon points="450,400 545,400 570,388 475,388" fill="#2c3d80" />
-        <g fill="#4f70e7" opacity="0.8">
+        <g fill="#4f71dc" opacity="0.8">
           {[0, 1, 2].map((row) =>
             [0, 1].map((col) => (
               <rect key={`l-${row}-${col}`} x={468 + col * 30} y={420 + row * 26} width="14" height="14" />
@@ -157,7 +157,7 @@ export function LoginIllustration() {
       </g>
 
       {/* foreground scattered particles */}
-      <g fill="#4f70e7" opacity="0.5">
+      <g fill="#4f71dc" opacity="0.5">
         <circle cx="70" cy="520" r="3" />
         <circle cx="580" cy="470" r="3" />
         <circle cx="120" cy="600" r="2.5" />

@@ -126,7 +126,7 @@ export function WarehouseFormModal({
           {error && <p className="text-sm font-medium text-rose-600">{error}</p>}
         </div>
         <footer className="flex justify-end border-t p-5">
-          <button type="submit" disabled={saving} className="rounded bg-[#6ccd8b] px-6 py-3 font-semibold text-white hover:brightness-95 disabled:opacity-60">
+          <button type="submit" disabled={saving} className="rounded bg-[#71ce87] px-6 py-3 font-semibold text-white hover:brightness-95 disabled:opacity-60">
             {saving ? t("Сохранение...") : t("Сохранить")}
           </button>
         </footer>

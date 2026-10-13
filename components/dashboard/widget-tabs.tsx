@@ -23,22 +23,27 @@ export function WidgetTabs() {
   const [activeTab, setActiveTab] = useState("ВИДЖЕТЫ")
 
   return (
-    <div className="flex items-center gap-6 px-6 pt-4">
-      <div className="flex items-center gap-4">
-        <FavoritesButton className="flex items-center gap-2 text-lg font-bold text-link" />
-        <span className="text-slate-300">|</span>
-        <span className="text-lg font-bold text-slate-700">{t("Виджеты")}</span>
-      </div>
+    <div className="flex h-[60px] items-center justify-between">
+      <h1 className="flex items-center text-[18px] font-bold text-[#5d6474]">
+        <FavoritesButton className="flex items-center gap-[5px] text-[18px] font-bold text-[#4f71dc]" />
+        <span className="mx-[11px] h-[21px] w-[2px] bg-[#5d6474]" />
+        {t("Виджеты")}
+      </h1>
 
-      <div className="flex flex-1 items-center gap-2 overflow-hidden">
+      <div className="flex items-center">
         {tabs.map((tab) => (
           <button
             key={tab}
-            onClick={() => { const href = tabHref[tab]; if (href) router.push(href); else setActiveTab(tab) }}
-            className={`whitespace-nowrap rounded-md px-4 py-2.5 text-sm font-bold transition-colors ${
+            type="button"
+            onClick={() => {
+              const href = tabHref[tab]
+              if (href) router.push(href)
+              else setActiveTab(tab)
+            }}
+            className={`h-8 min-w-[70px] whitespace-nowrap rounded-[5px] px-4 text-[13px] font-normal uppercase ${
               tab === activeTab
-                ? "bg-brand-green text-white"
-                : "text-slate-600 hover:bg-slate-100"
+                ? "bg-[#2bcd53] text-white shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]"
+                : "bg-white text-black shadow-[inset_0_0_2px_rgba(0,0,0,0.12)] hover:bg-slate-50"
             }`}
           >
             {t(tab)}

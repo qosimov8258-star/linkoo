@@ -21,6 +21,7 @@ async function ensureSchema(db: ReturnType<typeof getDb>) {
   await db.exec(`ALTER TABLE clients ADD COLUMN IF NOT EXISTS note TEXT NOT NULL DEFAULT '';`)
   await db.exec(`ALTER TABLE clients ADD COLUMN IF NOT EXISTS auto_delivery INTEGER NOT NULL DEFAULT 0;`)
   await db.exec(`ALTER TABLE clients ADD COLUMN IF NOT EXISTS unlimited_debt INTEGER NOT NULL DEFAULT 0;`)
+  await db.exec(`ALTER TABLE clients ADD COLUMN IF NOT EXISTS attributes TEXT NOT NULL DEFAULT '{}';`)
 }
 
 type ClientRow = {
@@ -49,6 +50,7 @@ type ClientRow = {
   note: string
   auto_delivery: number
   unlimited_debt: number
+  attributes?: string | null
 }
 
 function rowToClient(row: ClientRow): Client {
@@ -78,6 +80,19 @@ function rowToClient(row: ClientRow): Client {
     note: row.note || undefined,
     autoDelivery: row.auto_delivery === 1,
     unlimitedDebt: row.unlimited_debt === 1,
+    attributes: parseAttributes(row.attributes),
+  }
+}
+
+function parseAttributes(raw: string | null | undefined): Record<string, string> | undefined {
+  if (!raw) return undefined
+  try {
+    const parsed = JSON.parse(raw) as unknown
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return undefined
+    const entries = Object.entries(parsed as Record<string, unknown>).filter(([, v]) => typeof v === "string" && v !== "") as [string, string][]
+    return entries.length ? Object.fromEntries(entries) : undefined
+  } catch {
+    return undefined
   }
 }
 
@@ -125,6 +140,10 @@ export function parseClientInput(body: unknown): ClientInput | null {
     note: typeof value.note === "string" ? value.note.trim() || undefined : undefined,
     autoDelivery: typeof value.autoDelivery === "boolean" ? value.autoDelivery : undefined,
     unlimitedDebt: typeof value.unlimitedDebt === "boolean" ? value.unlimitedDebt : undefined,
+    attributes:
+      value.attributes && typeof value.attributes === "object" && !Array.isArray(value.attributes)
+        ? (Object.fromEntries(Object.entries(value.attributes as Record<string, unknown>).filter(([, v]) => typeof v === "string" && v !== "")) as Record<string, string>)
+        : undefined,
   }
 }
 
@@ -154,12 +173,12 @@ export async function createClient(input: ClientInput): Promise<Client> {
         `INSERT INTO clients (
            name, phone, inn, type, zone, zone_agent, agent, deliverer, collector, balance, tab,
            branch, sales_channel, realization_by, address, landmark, location_lat, location_lng,
-           telegram_location_link, code, contact_person, note, auto_delivery, unlimited_debt, updated_at
+           telegram_location_link, code, contact_person, note, auto_delivery, unlimited_debt, attributes, updated_at
          )
        VALUES (
            @name, @phone, @inn, @type, @zone, @zoneAgent, @agent, @deliverer, @collector, @balance, @tab,
            @branch, @salesChannel, @realizationBy, @address, @landmark, @locationLat, @locationLng,
-           @telegramLocationLink, @code, @contactPerson, @note, @autoDelivery, @unlimitedDebt, datetime('now')
+           @telegramLocationLink, @code, @contactPerson, @note, @autoDelivery, @unlimitedDebt, @attributes, datetime('now')
          )`,
       )
       .run({
@@ -187,6 +206,7 @@ export async function createClient(input: ClientInput): Promise<Client> {
         note: input.note ?? "",
         autoDelivery: input.autoDelivery ? 1 : 0,
         unlimitedDebt: input.unlimitedDebt ? 1 : 0,
+        attributes: JSON.stringify(input.attributes ?? {}),
       }))
   return (await getClient(Number(result.lastInsertRowid)))!
 }
@@ -204,7 +224,7 @@ export async function updateClient(id: number, input: ClientInput): Promise<Clie
        branch = @branch, sales_channel = @salesChannel, realization_by = @realizationBy,
        address = @address, landmark = @landmark, location_lat = @locationLat, location_lng = @locationLng,
        telegram_location_link = @telegramLocationLink, code = @code, contact_person = @contactPerson,
-       note = @note, auto_delivery = @autoDelivery, unlimited_debt = @unlimitedDebt,
+       note = @note, auto_delivery = @autoDelivery, unlimited_debt = @unlimitedDebt, attributes = @attributes,
        updated_at = datetime('now')
      WHERE id = @id`,
       ).run({
@@ -233,6 +253,7 @@ export async function updateClient(id: number, input: ClientInput): Promise<Clie
         note: input.note ?? "",
         autoDelivery: input.autoDelivery ? 1 : 0,
         unlimitedDebt: input.unlimitedDebt ? 1 : 0,
+        attributes: JSON.stringify(input.attributes ?? {}),
       })
   return (await getClient(id))
 }

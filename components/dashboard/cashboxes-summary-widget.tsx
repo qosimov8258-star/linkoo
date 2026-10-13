@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
-import { BarChart3, ChevronDown, Download } from "lucide-react"
+import { ChevronDown } from "lucide-react"
 import { downloadExcelTable } from "@/lib/excel-export"
 import type { Cashbox } from "@/components/analytics/cashboxes-data"
 import { useLanguage } from "@/lib/i18n/language-context"
@@ -18,12 +18,12 @@ const COLUMNS = [
   "Разница",
 ]
 
-function SummaryTile({ label }: { label: string }) {
+function SummaryTile({ label, color }: { label: string; color: string }) {
   const { t } = useLanguage()
   return (
-    <div className="flex flex-col items-center gap-1 border-r border-slate-100 px-3 py-4 text-center last:border-r-0">
-      <span className="text-base font-bold text-slate-700">0 SUM</span>
-      <span className="text-xs font-semibold text-slate-500">{t(label)}</span>
+    <div className="flex flex-1 flex-col items-center justify-center gap-1 border-r border-[#efefef] px-3 py-4 text-center last:border-r-0">
+      <span className="text-[16px] leading-5" style={{ color }}>0 SUM</span>
+      <span className="text-[13px] text-[#666]">{t(label)}</span>
     </div>
   )
 }
@@ -61,47 +61,26 @@ export function CashboxesSummaryWidget() {
   }
 
   return (
-    <div className="overflow-hidden rounded-lg bg-white shadow-sm">
-      <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-4">
-        <p className="text-[15px] font-semibold text-slate-700">{t("Кассы")}</p>
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={handleDownload}
-            className="inline-flex items-center gap-1.5 rounded-md bg-brand-green px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:brightness-95"
-          >
-            <Download className="h-3.5 w-3.5" />
-            {t("Скачать")}
-          </button>
-          <button
-            type="button"
-            className="inline-flex items-center gap-1.5 rounded-md bg-[#4f70e7] px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:brightness-95"
-          >
-            <BarChart3 className="h-3.5 w-3.5" />
-            {t("Отчет")}
-          </button>
-        </div>
-      </div>
-
+    <div className="overflow-hidden rounded-[10px] bg-white shadow-[0_8px_24px_rgba(149,157,165,0.2)]">
       {!loading && cashboxes.length === 0 ? (
-        <p className="px-5 pb-5 text-sm font-medium text-slate-500">{t("Нет данных за выбранный период")}</p>
+        <p className="p-5 text-[13px] text-[#666]">{t("Нет данных за выбранный период")}</p>
       ) : (
         <>
-          <div className="flex flex-wrap overflow-hidden border-y border-slate-100">
-            <SummaryTile label="Баланс на начало периода" />
-            <SummaryTile label="Приход за период" />
-            <SummaryTile label="Расход за период" />
-            <SummaryTile label="Перевод в кассу" />
-            <SummaryTile label="Перевод с кассы" />
-            <SummaryTile label="Баланс на конец периода" />
+          <div className="flex flex-wrap overflow-hidden">
+            <SummaryTile label="Баланс на начало периода" color="#0d99ff" />
+            <SummaryTile label="Приход за период" color="#81c784" />
+            <SummaryTile label="Расход за период" color="#e57373" />
+            <SummaryTile label="Перевод в кассу" color="#81c784" />
+            <SummaryTile label="Перевод с кассы" color="#e57373" />
+            <SummaryTile label="Баланс на конец периода" color="#0d99ff" />
           </div>
 
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[820px] border-collapse text-sm">
+            <table className="w-full min-w-[820px] border-collapse text-[13px]">
               <thead>
-                <tr className="text-slate-600">
+                <tr className="bg-[#f2f5f8] text-[#333]">
                   {COLUMNS.map((column) => (
-                    <th key={column} className="whitespace-nowrap px-4 py-3 text-left font-semibold">
+                    <th key={column} className="whitespace-nowrap px-[17px] py-[10px] text-left text-[13px] font-semibold">
                       {t(column)}
                     </th>
                   ))}
@@ -109,9 +88,9 @@ export function CashboxesSummaryWidget() {
               </thead>
               <tbody>
                 {visibleRows.map((row, index) => (
-                  <tr key={row[0] as string} className={index % 2 ? "bg-slate-50" : "bg-white"}>
+                  <tr key={row[0] as string} className="border-b border-[#efefef] bg-white">
                     {row.map((cell, cellIndex) => (
-                      <td key={cellIndex} className="whitespace-nowrap px-4 py-3">
+                      <td key={cellIndex} className="whitespace-nowrap border-r border-[#efefef] px-[17px] py-[9px] last:border-r-0">
                         {cell}
                       </td>
                     ))}
@@ -125,7 +104,7 @@ export function CashboxesSummaryWidget() {
             <button
               type="button"
               onClick={() => setExpanded((value) => !value)}
-              className="flex w-full items-center justify-center gap-1.5 border-t border-slate-100 py-3 text-sm font-semibold text-[#4f70e7] hover:bg-slate-50"
+              className="mx-[18px] my-[10px] flex h-[30px] w-[calc(100%-36px)] items-center justify-center gap-1.5 rounded-full bg-[#f2f5f8] text-[13px] text-[#4f71dc]"
             >
               {expanded ? t("Свернуть") : t("Показать еще")}
               <ChevronDown className={`h-4 w-4 transition-transform ${expanded ? "rotate-180" : ""}`} />

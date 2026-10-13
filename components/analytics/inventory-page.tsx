@@ -217,18 +217,18 @@ export function InventoryPage() {
     }
   }
 
-  return <div className="min-h-[calc(100vh-64px)] bg-[#f1f4f8] text-[#17233d]">
+  return <div className="min-h-[calc(100vh-64px)] bg-[#f2f5f8] text-[#17233d]">
     <div className="flex items-center justify-between border-b border-slate-200 px-9 py-4">
       <h1 className="flex items-center text-[26px] font-semibold text-[#586174]"><FavoritesButton className="flex items-center gap-2 text-[#4e70e7]" /><span className="mx-3 text-[#596275]">|</span>{t("Инвентаризация")}</h1>
       <div className="flex items-center gap-3">
-        <button onClick={() => setImportOpen(true)} className="flex items-center gap-2 rounded-md bg-[#4f70e7] px-5 py-2.5 font-semibold text-white shadow"><FileText size={18}/>{t("Импорт с Excel")}</button>
+        <button onClick={() => setImportOpen(true)} className="flex items-center gap-2 rounded-md bg-[#4f71dc] px-5 py-2.5 font-semibold text-white shadow"><FileText size={18}/>{t("Импорт с Excel")}</button>
         <button onClick={() => setAddOpen(true)} className="flex items-center gap-2 rounded-md bg-[#6dce8b] px-5 py-2.5 font-semibold text-white shadow"><Plus size={20}/>{t("Добавить")}</button>
       </div>
     </div>
 
     <div className="m-9 mt-0 overflow-hidden rounded-sm bg-white shadow">
       <div className="flex items-center gap-6 px-2 py-3">
-        <button onClick={() => setFilterOpen(!filterOpen)} className="text-[#4f70e7]">{t("Показать фильтр")}⌄</button>
+        <button onClick={() => setFilterOpen(!filterOpen)} className="text-[#4f71dc]">{t("Показать фильтр")}⌄</button>
         <label className="relative ml-auto mr-auto w-96"><input value={query} onChange={(e) => { setQuery(e.target.value); setPage(1) }} placeholder={t("Поиск")} className="w-full border-b border-slate-300 px-1 py-2 outline-none"/><Search className="absolute right-1 top-2 text-slate-300"/></label>
         <select value={pageSize} onChange={(e) => { setPageSize(Number(e.target.value)); setPage(1) }} className="bg-transparent outline-none"><option>25</option><option>50</option><option>100</option></select>
         <span className="text-slate-500">{filtered.length ? (page - 1) * pageSize + 1 : 0} - {Math.min(page * pageSize, filtered.length)} {t("из")} {filtered.length}</span>
@@ -241,11 +241,11 @@ export function InventoryPage() {
         <div className="mb-7 flex justify-between text-xl text-slate-500">{t("Фильтр")}<button onClick={() => setFilterOpen(false)}><X/></button></div>
         <label className="mb-5 block font-medium">{t("Склад")}<select value={warehouse} onChange={(e) => setWarehouse(e.target.value)} className="mt-2 w-full border-b py-2 font-normal"><option>{t("Все склады")}</option>{warehouses.map((w) => <option key={w}>{w}</option>)}</select></label>
         <label className="mb-7 block font-medium">{t("Статус")}<select value={status} onChange={(e) => setStatus(e.target.value as Status | "Все статусы")} className="mt-2 w-full border-b py-2 font-normal"><option>{t("Все статусы")}</option><option>{t("Подтвержденный")}</option><option>{t("В ожидании")}</option><option>{t("Отменен")}</option></select></label>
-        <button onClick={() => { setFilterOpen(false); setPage(1) }} className="rounded bg-[#626d82] px-6 py-3 text-white shadow">{t("ПРИМЕНИТЬ")}</button>
+        <button onClick={() => { setFilterOpen(false); setPage(1) }} className="rounded bg-[#5d6474] px-6 py-3 text-white shadow">{t("ПРИМЕНИТЬ")}</button>
       </div>}
 
       <div className="overflow-x-auto"><table className="w-full min-w-[1250px] border-collapse text-left">
-        <thead className="bg-[#626b7e] text-white"><tr>{["№", "Склад", "Создал", "Дата создания", "Комментарий", "Статус", "Сумма"].map((h) => <th key={h} className="px-9 py-5 font-semibold">{t(h)}</th>)}</tr></thead>
+        <thead className="bg-[#5d6474] text-white"><tr>{["№", "Склад", "Создал", "Дата создания", "Комментарий", "Статус", "Сумма"].map((h) => <th key={h} className="px-9 py-5 font-semibold">{t(h)}</th>)}</tr></thead>
         <tbody>{visible.map((row) => <Fragment key={row.id}>
           <tr onClick={() => setSelected(selected === row.id ? null : row.id)} className="cursor-pointer border-b border-dashed border-slate-300 hover:bg-blue-50">
             <td className="px-9 py-5">{row.id}</td><td className="px-9 py-5">{row.warehouse}</td><td className="px-9 py-5">{row.author}</td><td className="px-9 py-5">{row.date}</td><td className="px-9 py-5">{row.comment}</td>
@@ -276,21 +276,21 @@ export function InventoryPage() {
             </button>
           </header>
           <div className="p-8">
-            <button type="button" onClick={downloadTemplate} className="mb-4 font-semibold text-[#4f70e7] hover:underline">
+            <button type="button" onClick={downloadTemplate} className="mb-4 font-semibold text-[#4f71dc] hover:underline">
               {t("1. Скачать шаблон")}
             </button>
             <input ref={importInputRef} type="file" accept=".csv,.xls,.xlsx" onChange={pickImportFile} className="hidden" />
             <button
               type="button"
               onClick={() => importInputRef.current?.click()}
-              className="flex w-full flex-col items-center justify-center gap-3 rounded border-2 border-dashed border-slate-300 py-10 text-slate-500 hover:border-[#4f70e7] hover:text-[#4f70e7]"
+              className="flex w-full flex-col items-center justify-center gap-3 rounded border-2 border-dashed border-slate-300 py-10 text-slate-500 hover:border-[#4f71dc] hover:text-[#4f71dc]"
             >
               <FileText className="h-8 w-8" />
               {importFile ? importFile.name : t("Добавьте файл Excel или нажмите для выбора")}
             </button>
           </div>
           <footer className="flex justify-end border-t p-5">
-            <button type="button" disabled={!importFile || importSaving} onClick={saveImport} className="rounded bg-[#6ccd8b] px-5 py-3 font-semibold text-white hover:brightness-95 disabled:opacity-40">
+            <button type="button" disabled={!importFile || importSaving} onClick={saveImport} className="rounded bg-[#71ce87] px-5 py-3 font-semibold text-white hover:brightness-95 disabled:opacity-40">
               {importSaving ? t("Импорт...") : t("Сохранить")}
             </button>
           </footer>

@@ -1,10 +1,9 @@
 "use client"
 
 import { FormEvent, useMemo, useState } from "react"
-import { Download, PlusCircle } from "lucide-react"
 import { downloadExcelTable } from "@/lib/excel-export"
 import { DashboardDialog } from "./dashboard-dialog"
-import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
+import { RI, RefButton, RefEmpty, RefFilterDate, RefFilterSelect, RefHeader, RefPage } from "@/components/ref/list-kit"
 
 const sourceRows: { store: string; sale: number; saleCost: number; returned: number; returnCost: number; payment: number; discount: number }[] = []
 
@@ -65,36 +64,48 @@ export function ClientSalesPaymentsView() {
     ])
   }
 
+  const heads = ["Магазин", "Продажа", "Себестоимость продаж", "Возврат", "Себестоимость возврата", "Факт продаж", "Себестоимость факт", "Оплата", "Сумма скидок"]
   return (
-    <main className="min-h-[calc(100vh-4rem)] bg-slate-100">
-      <header className="flex flex-wrap items-center gap-3 border-b px-5 py-4 text-xl font-bold sm:px-10 sm:text-2xl">
-        <FavoritesButton className="flex items-center gap-2 text-[#5470e8]" />
-        <span className="text-slate-500">|</span><h1 className="text-slate-600">Продажа и оплата по магазинам</h1>
-        <div className="ml-auto flex gap-4">
-          <button type="button" onClick={download} className="rounded bg-[#6ccd8b] px-5 py-2 text-base text-white"><Download className="mr-2 inline h-5 w-5" />Скачать Excel</button>
-          <button type="button" onClick={() => setDashboardOpen(true)} className="rounded bg-[#5470e8] px-5 py-2 text-base text-white"><PlusCircle className="mr-2 inline h-5 w-5" />{saved ? "Добавлено в дашборд" : "Добавить в дашборд"}</button>
-        </div>
-      </header>
+    <RefPage>
+      <RefHeader title="Продажа и оплата по магазинам">
+        <RefButton icon={RI.download} green label="Скачать Excel" onClick={download} />
+        <RefButton icon={RI.add} label={saved ? "Добавлено в дашборд" : "Добавить в дашборд"} onClick={() => setDashboardOpen(true)} />
+      </RefHeader>
 
-      <form onSubmit={apply} className="bg-white px-4 pb-2 sm:px-10">
-        <div className="grid gap-x-5 gap-y-12 py-3 md:grid-cols-2 xl:grid-cols-4">
-          <DateField label="Дата от" value={from} max={to} onChange={setFrom} />
-          <DateField label="Дата до" value={to} min={from} onChange={setTo} />
-          {(Object.keys(filterOptions) as FilterKey[]).map((key) => <SelectField key={key} name={key} value={filters[key]} onChange={(value) => setFilter(key, value)} />)}
+      <form onSubmit={apply} className="bg-white px-[10px] pb-[10px] pt-[8px] shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
+        <div className="grid gap-x-5 gap-y-6 py-3 md:grid-cols-2 xl:grid-cols-4">
+          <RefFilterDate label="Дата от" value={from} max={to} onChange={setFrom} />
+          <RefFilterDate label="Дата до" value={to} min={from} onChange={setTo} />
+          {(Object.keys(filterOptions) as FilterKey[]).map((key) => (
+            <RefFilterSelect key={key} label={labels[key]} value={filters[key]} onChange={(value) => setFilter(key, value)} options={filterOptions[key]} />
+          ))}
         </div>
-        <button type="submit" className="w-full rounded bg-[#6ccd8b] py-3 font-bold text-white">Применить</button>
+        <button type="submit" className="h-[30px] w-full rounded-[5px] bg-[#71ce87] text-[13px] font-semibold text-white">Применить</button>
       </form>
 
-      <section className="overflow-x-auto bg-white px-4 pt-3 sm:px-10">
-        <table className="min-w-[1900px] w-full border-collapse text-sm">
-          <thead className="bg-slate-50"><tr>{["Магазин", "Продажа", "Себестоимость продаж", "Возврат", "Себестоимость возврата", "Факт продаж", "Себестоимость факт", "Оплата", "Сумма скидок"].map((title) => <th key={title} className="border px-4 py-4 text-center text-base">{title} <span className="text-slate-300">↕</span></th>)}</tr></thead>
-          <tbody>
-            {rows.map((row, index) => <tr key={row.store} className={index % 2 ? "bg-slate-50" : "bg-white"}><td className="border px-2 py-4">{row.store}</td>{[row.sale, row.saleCost, row.returned, row.returnCost, row.sale-row.returned, row.saleCost-row.returnCost, row.payment, row.discount].map((value, i) => <td key={i} className="border px-2 py-4 text-right">{format(value)}</td>)}</tr>)}
-            <tr className="bg-[#555] font-bold text-white"><td className="border px-2 py-4">Итого</td>{[totals.sale, totals.saleCost, totals.returned, totals.returnCost, totals.sale-totals.returned, totals.saleCost-totals.returnCost, totals.payment, totals.discount].map((value, i) => <td key={i} className="border px-2 py-4 text-right">{format(value)}</td>)}</tr>
-          </tbody>
-        </table>
-        <div className="h-1.5 w-full rounded bg-sky-600" />
-      </section>
+      {rows.length === 0 ? (
+        <RefEmpty text="По вашему запросу ничего не найдено..." />
+      ) : (
+        <section className="mt-5 overflow-x-auto bg-white">
+          <table className="w-full min-w-[1500px] border-collapse">
+            <thead className="bg-[#5d6474] text-white">
+              <tr>{heads.map((title) => <th key={title} className="text-left">{title}</th>)}</tr>
+            </thead>
+            <tbody>
+              {rows.map((row) => (
+                <tr key={row.store}>
+                  <td>{row.store}</td>
+                  {[row.sale, row.saleCost, row.returned, row.returnCost, row.sale - row.returned, row.saleCost - row.returnCost, row.payment, row.discount].map((value, index) => <td key={index}>{format(value)}</td>)}
+                </tr>
+              ))}
+              <tr className="font-bold">
+                <td>Итого</td>
+                {[totals.sale, totals.saleCost, totals.returned, totals.returnCost, totals.sale - totals.returned, totals.saleCost - totals.returnCost, totals.payment, totals.discount].map((value, index) => <td key={index}>{format(value)}</td>)}
+              </tr>
+            </tbody>
+          </table>
+        </section>
+      )}
 
       {dashboardOpen && <button type="button" aria-label="Закрыть" onClick={() => setDashboardOpen(false)} className="fixed inset-0 z-[90] bg-black/55" />}
       {dashboardOpen && (
@@ -109,11 +120,9 @@ export function ClientSalesPaymentsView() {
           onSave={() => setSaved(true)}
         />
       )}
-    </main>
+    </RefPage>
   )
 }
 
 const labels: Record<FilterKey, string> = { responsible: "Отв.агент магазина", organization: "Организация", storeType: "Тип магазина", zone: "Зона", branch: "Филиал", column: "Колонка" }
-function SelectField({ name, value, onChange }: { name: FilterKey; value: string; onChange: (value: string) => void }) { return <label className="font-semibold">{labels[name]}<select value={value} onChange={(event) => onChange(event.target.value)} className="mt-1 block w-full border-b bg-white py-2 font-normal">{filterOptions[name].map((item) => <option key={item}>{item}</option>)}</select></label> }
-function DateField({ label, value, min, max, onChange }: { label: string; value: string; min?: string; max?: string; onChange: (value: string) => void }) { return <label className="text-xs">{label}<input type="date" value={value} min={min} max={max} onChange={(event) => onChange(event.target.value)} className="mt-1 block w-full border-b py-2 text-base" /></label> }
 function format(value: number) { return value.toLocaleString("ru-RU", { maximumFractionDigits: 2 }) }

@@ -99,7 +99,7 @@ export function AgentWorkingTimeView() {
           <h1 className="text-slate-600">Время работы агента</h1>
         </div>
         <div className="flex flex-wrap gap-3">
-          <button type="button" onClick={downloadCsv} className="inline-flex items-center gap-2 rounded-md bg-[#6ccd8b] px-5 py-2.5 font-semibold text-white hover:brightness-95">
+          <button type="button" onClick={downloadCsv} className="inline-flex items-center gap-2 rounded-md bg-[#71ce87] px-5 py-2.5 font-semibold text-white hover:brightness-95">
             <Download className="h-5 w-5" /> Скачать Excel
           </button>
           <button type="button" onClick={() => setDashboardOpen(true)} className="inline-flex items-center gap-2 rounded-md bg-[#5470e8] px-5 py-2.5 font-semibold text-white hover:brightness-95">
@@ -141,7 +141,7 @@ export function AgentWorkingTimeView() {
               </select>
             </label>
           </div>
-          <button type="submit" disabled={from > to} className="mt-3 w-full rounded-md bg-[#6ccd8b] py-3 font-bold text-white hover:brightness-95 disabled:opacity-50">
+          <button type="submit" disabled={from > to} className="mt-3 w-full rounded-md bg-[#71ce87] py-3 font-bold text-white hover:brightness-95 disabled:opacity-50">
             Применить
           </button>
         </form>

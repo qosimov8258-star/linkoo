@@ -45,7 +45,7 @@ export function RoutesAnalysisView() {
     <main className="min-h-screen bg-slate-100 pb-10 text-slate-800">
       <div className="flex min-h-[74px] items-center justify-between border-b border-slate-200 bg-slate-50 px-10">
         <h1 className="flex items-center gap-3 text-[27px] font-bold text-slate-600"><FavoritesButton className="flex items-center gap-3 text-[#5171e3]" /><span className="font-normal text-slate-500">|</span> {t("Анализ маршрутов")}</h1>
-        <button onClick={() => setIsOpen(true)} className="flex items-center gap-2 rounded-md bg-[#70cf84] px-5 py-2.5 text-lg font-semibold text-white shadow hover:bg-[#60be74]"><Pencil className="h-5 w-5" />{t("Установить маршрут")}</button>
+        <button onClick={() => setIsOpen(true)} className="flex items-center gap-2 rounded-md bg-[#71ce87] px-5 py-2.5 text-lg font-semibold text-white shadow hover:bg-[#60be74]"><Pencil className="h-5 w-5" />{t("Установить маршрут")}</button>
       </div>
 
       {notice && <div className="mx-10 mt-4 flex items-center justify-between rounded-md bg-emerald-50 px-4 py-3 text-emerald-700"><span>{notice}</span><button onClick={() => setNotice("")}><X className="h-4 w-4" /></button></div>}

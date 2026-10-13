@@ -69,7 +69,7 @@ function SortableHeader({ label, metricKey, active, onSort }: { label: string; m
       tabIndex={0}
       onClick={() => onSort(metricKey)}
       onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onSort(metricKey) } }}
-      className={`cursor-pointer select-none whitespace-nowrap px-4 py-3 text-left font-semibold ${active ? "text-[#4f70e7]" : "text-[#586174]"} hover:text-[#4f70e7]`}
+      className={`cursor-pointer select-none whitespace-nowrap px-4 py-3 text-left font-semibold ${active ? "text-[#4f71dc]" : "text-[#586174]"} hover:text-[#4f71dc]`}
     >
       <span className="inline-flex items-center gap-1.5">{label}<ChevronsUpDown className="h-3.5 w-3.5" /></span>
     </th>
@@ -152,10 +152,10 @@ export function PnLView() {
   }
 
   return (
-    <main className="min-h-screen bg-[#f1f4f8] text-[#17233b]">
+    <main className="min-h-screen bg-[#f2f5f8] text-[#17233b]">
       <header className="flex flex-wrap items-center gap-4 border-b border-[#d8dee7] bg-[#f2f5f8] px-6 py-4 md:px-9">
         <div className="flex items-center gap-3">
-          <FavoritesButton className="flex items-center gap-2 text-xl font-bold text-[#4f70e7]" /><span className="text-2xl font-light text-[#586174]">|</span>
+          <FavoritesButton className="flex items-center gap-2 text-xl font-bold text-[#4f71dc]" /><span className="text-2xl font-light text-[#586174]">|</span>
           <span className="text-xl font-bold text-[#586174]">Виджеты</span>
         </div>
         <nav className="ml-auto flex flex-wrap gap-2">
@@ -214,7 +214,7 @@ export function PnLView() {
             <button
               key={tab}
               onClick={() => setMetricTab(tab)}
-              className={`rounded-sm px-5 py-2.5 text-[13px] font-bold uppercase tracking-wide ${metricTab === tab ? "bg-[#4f70e7] text-white" : "bg-white text-[#586174] hover:bg-slate-100"}`}
+              className={`rounded-sm px-5 py-2.5 text-[13px] font-bold uppercase tracking-wide ${metricTab === tab ? "bg-[#4f71dc] text-white" : "bg-white text-[#586174] hover:bg-slate-100"}`}
             >
               {tab}
             </button>

@@ -165,7 +165,7 @@ export function ClientDebtsView() {
     <main className="min-h-screen bg-white text-[#17233b]">
       <header className="flex min-h-[76px] items-center justify-between border-b border-[#d8dee7] bg-[#f2f5f8] px-6 md:px-9">
         <div className="flex items-center gap-3">
-          <FavoritesButton className="flex items-center gap-3 text-2xl font-bold text-[#4f70e7]" />
+          <FavoritesButton className="flex items-center gap-3 text-2xl font-bold text-[#4f71dc]" />
           <span className="text-3xl font-light text-[#586174]">|</span>
           <span className="text-2xl font-bold text-[#586174]">{t("Долги с заказов")}</span>
         </div>
@@ -183,11 +183,11 @@ export function ClientDebtsView() {
       </header>
 
       <section className="flex flex-wrap items-center gap-4 px-6 py-4 md:px-9">
-        <button onClick={() => setFilterOpen(true)} className="flex h-11 items-center gap-2 rounded-md bg-[#4f70e7] px-5 font-semibold text-white">
+        <button onClick={() => setFilterOpen(true)} className="flex h-11 items-center gap-2 rounded-md bg-[#4f71dc] px-5 font-semibold text-white">
           <Filter className="h-4 w-4" /> {t("Фильтр")}
         </button>
-        <span className="font-semibold text-[#4f70e7]">{t("Во всей организации")}</span>
-        <button onClick={() => { setP1Draft(String(p1)); setP2Draft(String(p2)); setP3Draft(String(p3)); setPeriodOpen(true) }} className="ml-auto flex h-11 items-center gap-2 rounded-md border border-[#4f70e7] px-5 font-semibold text-[#4f70e7]">
+        <span className="font-semibold text-[#4f71dc]">{t("Во всей организации")}</span>
+        <button onClick={() => { setP1Draft(String(p1)); setP2Draft(String(p2)); setP3Draft(String(p3)); setPeriodOpen(true) }} className="ml-auto flex h-11 items-center gap-2 rounded-md border border-[#4f71dc] px-5 font-semibold text-[#4f71dc]">
           <Settings className="h-5 w-5" /> {t("Настроить период")}
         </button>
         <button onClick={downloadAll} className="flex h-11 items-center gap-2 rounded-md bg-[#4caf72] px-5 font-semibold text-white">
@@ -198,17 +198,17 @@ export function ClientDebtsView() {
       <section className="grid grid-cols-1 gap-6 px-6 pb-6 sm:grid-cols-2 lg:grid-cols-5 md:px-9">
         <div>
           <p className="text-[#586174]">{t("Прошло до")} {p1} {t("дней")}</p>
-          <p className="mt-2 font-semibold"><span className="text-[#4f70e7]">0</span> / <span className="text-[#4f70e7]">0</span> {t("Заказов обработано")}</p>
+          <p className="mt-2 font-semibold"><span className="text-[#4f71dc]">0</span> / <span className="text-[#4f71dc]">0</span> {t("Заказов обработано")}</p>
         </div>
         <div>
           <p className="text-[#586174]">{t("С")} {p1} {t("дней - До")} {p2}</p>
-          <p className="mt-2 font-semibold"><span className="text-[#4f70e7]">0</span> / <span className="text-[#4f70e7]">0</span> {t("Заказов обработано")}</p>
+          <p className="mt-2 font-semibold"><span className="text-[#4f71dc]">0</span> / <span className="text-[#4f71dc]">0</span> {t("Заказов обработано")}</p>
         </div>
         <div>
           <p className="text-[#586174]">{t("С")} {p2} {t("дней - До")} {p3}</p>
           <p className="font-semibold text-[#e5484d]">0 SUM</p>
           <p className="font-semibold text-[#e0952e]">0 USD</p>
-          <p className="mt-2 font-semibold"><span className="text-[#4f70e7]">0</span> / <span className="text-[#4f70e7]">0</span> {t("Заказов обработано")}</p>
+          <p className="mt-2 font-semibold"><span className="text-[#4f71dc]">0</span> / <span className="text-[#4f71dc]">0</span> {t("Заказов обработано")}</p>
         </div>
         <div>
           <p className="text-[#586174]">{t("Больше")} {p3} {t("дней")}</p>
@@ -221,22 +221,22 @@ export function ClientDebtsView() {
           <p className="font-semibold text-[#e5484d]">0 Euro</p>
           <p className="font-semibold text-[#e5484d]">0 SUM</p>
           <p className="font-semibold text-[#e5484d]">0 USD</p>
-          <p className="mt-2 font-semibold"><span className="text-[#4f70e7]">0</span> / <span className="text-[#4f70e7]">0</span> {t("Заказов обработано")}</p>
+          <p className="mt-2 font-semibold"><span className="text-[#4f71dc]">0</span> / <span className="text-[#4f71dc]">0</span> {t("Заказов обработано")}</p>
         </div>
       </section>
 
       {needsRecalc > 0 && (
         <section className="mx-6 mb-6 flex flex-wrap items-center justify-between gap-3 rounded-md border border-[#f5c2c7] bg-[#fdecee] px-6 py-4 md:mx-9">
           <p className="text-[#c53238]">{t("Требуется перерасчет долгов клиентов")}: {needsRecalc} {t("шт. Долги этих клиентов исключены из итогов")}</p>
-          <button onClick={() => setNeedsRecalc(0)} className="rounded-md bg-[#4f70e7] px-5 py-2.5 font-semibold text-white">{t("Пересчитать")}</button>
+          <button onClick={() => setNeedsRecalc(0)} className="rounded-md bg-[#4f71dc] px-5 py-2.5 font-semibold text-white">{t("Пересчитать")}</button>
         </section>
       )}
 
       <section className="flex flex-wrap items-center gap-4 px-6 py-3 md:px-9">
         <h2 className="text-lg font-semibold text-[#586174]">{t("Статистика по должникам")}</h2>
         <div className="flex overflow-hidden rounded-md">
-          <button onClick={() => { setView("clients"); setPage(1) }} className={`px-5 py-2.5 text-[13px] font-bold uppercase tracking-wide ${view === "clients" ? "bg-[#4f70e7] text-white" : "border border-[#4f70e7] text-[#4f70e7]"}`}>{t("Клиенты")}</button>
-          <button onClick={() => { setView("orders"); setPage(1) }} className={`px-5 py-2.5 text-[13px] font-bold uppercase tracking-wide ${view === "orders" ? "bg-[#4f70e7] text-white" : "border border-[#4f70e7] text-[#4f70e7]"}`}>{t("Заказы")}</button>
+          <button onClick={() => { setView("clients"); setPage(1) }} className={`px-5 py-2.5 text-[13px] font-bold uppercase tracking-wide ${view === "clients" ? "bg-[#4f71dc] text-white" : "border border-[#4f71dc] text-[#4f71dc]"}`}>{t("Клиенты")}</button>
+          <button onClick={() => { setView("orders"); setPage(1) }} className={`px-5 py-2.5 text-[13px] font-bold uppercase tracking-wide ${view === "orders" ? "bg-[#4f71dc] text-white" : "border border-[#4f71dc] text-[#4f71dc]"}`}>{t("Заказы")}</button>
         </div>
         <label className="relative min-w-[220px] flex-1 border-b border-[#dbe0e8] pb-1.5">
           <input value={search} onChange={(event) => { setSearch(event.target.value); setPage(1) }} placeholder={t("Поиск")} className="w-full bg-transparent pr-7 text-[15px] outline-none placeholder:text-[#9aa3b6]" />
@@ -250,7 +250,7 @@ export function ClientDebtsView() {
         <button disabled={safePage === 1} onClick={() => setPage((value) => Math.max(1, value - 1))} className="rounded-full border border-[#dbe0e8] p-1 text-[#9aa3b6] disabled:opacity-40">
           <ChevronDown className="h-5 w-5 rotate-90" />
         </button>
-        <button disabled={safePage === maxPage} onClick={() => setPage((value) => Math.min(maxPage, value + 1))} className="rounded-full border border-[#4f70e7] p-1 text-[#4f70e7] disabled:opacity-40">
+        <button disabled={safePage === maxPage} onClick={() => setPage((value) => Math.min(maxPage, value + 1))} className="rounded-full border border-[#4f71dc] p-1 text-[#4f71dc] disabled:opacity-40">
           <ChevronDown className="h-5 w-5 -rotate-90" />
         </button>
         <button aria-label={t("Полный экран")} onClick={() => document.documentElement.requestFullscreen?.()} className="text-[#586174]"><Expand className="h-5 w-5" /></button>
@@ -283,13 +283,13 @@ export function ClientDebtsView() {
                 <tr key={row.id} className={index % 2 ? "bg-[#f6f9fc]" : "bg-white"}>
                   <td className="border-t border-[#e1e5eb] px-4 py-3.5">{row.id}</td>
                   <td className="border-t border-[#e1e5eb] px-2 py-3.5 text-center">
-                    <input type="checkbox" checked={selected.has(row.id)} onChange={() => toggleOne(row.id)} className="h-4 w-4 accent-[#4f70e7]" />
+                    <input type="checkbox" checked={selected.has(row.id)} onChange={() => toggleOne(row.id)} className="h-4 w-4 accent-[#4f71dc]" />
                   </td>
-                  <td className="border-t border-[#e1e5eb] px-4 py-3.5 font-medium text-[#4f70e7]">{row.client}</td>
+                  <td className="border-t border-[#e1e5eb] px-4 py-3.5 font-medium text-[#4f71dc]">{row.client}</td>
                   <td className="border-t border-[#e1e5eb] px-4 py-3.5">{row.daysPassed}</td>
                   <td className="border-t border-[#e1e5eb] px-4 py-3.5">{number(row.orderAmount, row.orderAmount % 1 ? 2 : 0)} {row.orderCurrency}</td>
                   <td className="border-t border-[#e1e5eb] px-4 py-3.5 text-[#e5484d]">{number(row.debt, row.debt % 1 ? 2 : 0)}</td>
-                  <td className="border-t border-[#e1e5eb] px-4 py-3.5 text-[#4f70e7]">{row.dueDate}</td>
+                  <td className="border-t border-[#e1e5eb] px-4 py-3.5 text-[#4f71dc]">{row.dueDate}</td>
                   <td className="border-t border-[#e1e5eb] px-4 py-3.5">{row.agent}</td>
                   <td className="border-t border-[#e1e5eb] px-4 py-3.5 text-[#e5484d]">{number(row.totalDebtSum, 2)}</td>
                   <td className="border-t border-[#e1e5eb] px-4 py-3.5">{number(row.totalDebtUsd, 3)}</td>
@@ -428,7 +428,7 @@ export function ClientDebtsView() {
             </div>
             <div className="border-t px-8 py-6">
               <label className="flex items-center gap-2 text-[14px] text-[#17233b]">
-                <input type="checkbox" checked={onlyNeedsRecalc} onChange={(event) => setOnlyNeedsRecalc(event.target.checked)} className="h-4 w-4 accent-[#4f70e7]" />
+                <input type="checkbox" checked={onlyNeedsRecalc} onChange={(event) => setOnlyNeedsRecalc(event.target.checked)} className="h-4 w-4 accent-[#4f71dc]" />
                 {t("Требуется перерасчет")}
               </label>
             </div>

@@ -1,14 +1,13 @@
 "use client"
 
-import { FileText, Pencil, Plus, Trash2, X } from "lucide-react"
-import { ChangeEvent, FormEvent, useEffect, useRef, useState } from "react"
+import { ChangeEvent, FormEvent, useEffect, useState } from "react"
 
 import { downloadExcelTable } from "@/lib/excel-export"
 import { mapHeaderColumns, readExcelRows } from "@/lib/excel-import"
+import { CatalogHeader, HoverActions, ImportDialog, LineField, LineSelect, Modal, SaveButton, dottedRow } from "@/components/analytics/catalog-ui"
 import { useLanguage } from "@/lib/i18n/language-context"
 
 type Row = { id: number; attribute: string; values: string[]; textOnly?: boolean }
-const names: string[] = []
 const initial: Row[] = []
 
 const IMPORT_HEADER_ALIASES: Record<string, string> = {
@@ -20,11 +19,16 @@ export function AttributeValuesView({ embedded = false }: { embedded?: boolean }
   const { t } = useLanguage()
   const [rows, setRows] = useState(initial)
   const [editing, setEditing] = useState<Row | null>(null)
-  const [draft, setDraft] = useState({ attribute: names[0], value: "" })
+  const [attributes, setAttributes] = useState<{ id: number; name: string; fieldType: string }[]>([])
+  const [draft, setDraft] = useState({ attribute: "", value: "" })
+  const selectNames = attributes.filter((attr) => attr.fieldType === "Выбор вариантов").map((attr) => attr.name)
   const [importOpen, setImportOpen] = useState(false)
   const [importFile, setImportFile] = useState<File | null>(null)
   const [importSaving, setImportSaving] = useState(false)
-  const importInputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    fetch("/api/client-attributes").then((response) => (response.ok ? response.json() : [])).then(setAttributes)
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -44,7 +48,7 @@ export function AttributeValuesView({ embedded = false }: { embedded?: boolean }
     }
   }, [])
 
-  function open(row?: Row) { setEditing(row ?? { id: 0, attribute: names[0], values: [] }); setDraft({ attribute: row?.attribute ?? names[0], value: row?.values.join(", ") ?? "" }) }
+  function open(row?: Row, name = "") { setEditing(row ?? { id: 0, attribute: name, values: [] }); setDraft({ attribute: row?.attribute ?? name, value: row?.values.join(", ") ?? "" }) }
   async function save(e: FormEvent) {
     e.preventDefault()
     const values = draft.value.split(",").map((value) => value.trim()).filter(Boolean)
@@ -145,29 +149,43 @@ export function AttributeValuesView({ embedded = false }: { embedded?: boolean }
       setImportFile(null)
     }
   }
-  return <main className={embedded ? "min-w-0 flex-1 px-[38px] pb-8 pt-6" : "min-h-screen bg-white px-[38px] pb-8 pt-6 text-slate-800"}><div className="flex items-center justify-between border-b border-slate-200 pb-5"><div className="flex items-center gap-4"><button onClick={() => open()} className="text-[17px] text-[#5474e6] hover:underline">+ {t("Добавление значения")}</button><button type="button" onClick={() => setImportOpen(true)} className="inline-flex items-center gap-2 rounded bg-[#4f70e7] px-4 py-2 text-sm font-semibold text-white hover:brightness-95"><FileText className="h-4 w-4" /> {t("Импорт с Excel")}</button></div><div className="text-slate-500">1 - {rows.length} {t("из")} {rows.length} <span className="ml-3 text-2xl text-slate-400">◀ ◉</span></div></div><div className="overflow-x-auto"><table className="w-full min-w-[800px] border-collapse text-[16px]"><thead><tr className="border-b-2 border-dotted border-slate-200 text-left"><th className="w-1/4 py-5 font-semibold">{t("Атрибут")}</th><th className="py-5 font-semibold">{t("Значение")}</th><th className="w-28" /></tr></thead><tbody>{rows.map((row) => <tr key={row.id} className="group border-b-2 border-dotted border-slate-200 hover:bg-slate-50"><td className="py-5">{row.attribute}</td><td className="py-3">{row.textOnly ? <span>{t("Только ввод текста")}</span> : <div className="flex flex-wrap gap-3">{row.values.map((value) => <span key={value} className="rounded bg-slate-200 px-3 py-2">{value}</span>)}</div>}</td><td><div className="hidden justify-end gap-3 pr-4 text-slate-500 group-hover:flex"><button onClick={() => open(row)} aria-label={t("Изменить")}><Pencil className="h-5 w-5" /></button><button onClick={() => void remove(row.id)} aria-label={t("Удалить")}><Trash2 className="h-5 w-5" /></button></div></td></tr>)}</tbody></table></div>{editing && <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 p-4"><form onSubmit={save} className="w-full max-w-md rounded-lg bg-white p-6 shadow-xl"><div className="mb-5 flex justify-between"><h2 className="text-xl font-bold">{editing.id ? t("Изменить значение") : t("Добавить значение")}</h2><button type="button" onClick={() => setEditing(null)}><X /></button></div><label className="mb-2 block font-medium">{t("Атрибут")}</label><select value={draft.attribute} onChange={(e) => setDraft({ ...draft, attribute: e.target.value })} className="mb-4 w-full rounded border border-slate-300 px-3 py-2.5">{names.map((name) => <option key={name}>{name}</option>)}</select><label className="mb-2 block font-medium">{t("Значения через запятую")}</label><input autoFocus value={draft.value} onChange={(e) => setDraft({ ...draft, value: e.target.value })} className="w-full rounded border border-slate-300 px-3 py-2.5" /><div className="mt-6 flex justify-end gap-3"><button type="button" onClick={() => setEditing(null)} className="rounded border px-4 py-2">{t("Отмена")}</button><button className="inline-flex items-center gap-2 rounded bg-[#5474e6] px-4 py-2 font-semibold text-white"><Plus className="h-4 w-4" />{t("Сохранить")}</button></div></form></div>}
-    {importOpen && (
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
-        <div className="w-full max-w-md rounded bg-white">
-          <header className="flex items-center justify-between border-b p-6">
-            <b className="uppercase">{t("Импорт с Excel")}</b>
-            <button type="button" onClick={() => { setImportOpen(false); setImportFile(null) }} aria-label={t("Закрыть")}><X className="h-5 w-5" /></button>
-          </header>
-          <div className="p-8">
-            <button type="button" onClick={downloadTemplate} className="mb-4 font-semibold text-[#4f70e7] hover:underline">1. {t("Скачать шаблон")}</button>
-            <input ref={importInputRef} type="file" accept=".csv,.xls,.xlsx" onChange={pickImportFile} className="hidden" />
-            <button type="button" onClick={() => importInputRef.current?.click()} className="flex w-full flex-col items-center justify-center gap-3 rounded border-2 border-dashed border-slate-300 py-10 text-slate-500 hover:border-[#4f70e7] hover:text-[#4f70e7]">
-              <FileText className="h-8 w-8" />
-              {importFile ? importFile.name : t("Добавьте файл Excel или нажмите для выбора")}
-            </button>
-          </div>
-          <footer className="flex justify-end border-t p-5">
-            <button type="button" disabled={!importFile || importSaving} onClick={saveImport} className="rounded bg-[#6ccd8b] px-5 py-3 font-semibold text-white hover:brightness-95 disabled:opacity-40">
-              {importSaving ? t("Импорт...") : t("Сохранить")}
-            </button>
-          </footer>
-        </div>
+  void embedded
+  const listed = attributes.map((attr) => ({ attr, row: rows.find((row) => row.attribute === attr.name) }))
+  return (
+    <div className="min-h-[calc(100vh-50px)] min-w-0 flex-1 bg-white px-[30px] text-[13px] text-[#333]">
+      <CatalogHeader
+        addLabel={t("Добавление значения")}
+        onAdd={() => open()}
+        from={listed.length ? 1 : 0}
+        to={listed.length}
+        total={listed.length}
+        extra={<button type="button" onClick={() => setImportOpen(true)} className="ml-[24px] text-[13px] text-[#4f71dc] hover:underline">{t("Импорт с Excel")}</button>}
+      />
+      <div className={`grid grid-cols-[389px_1fr] ${dottedRow} h-[49px] items-center pt-[3px] font-bold`}>
+        <span>{t("Атрибут")}</span><span>{t("Значение")}</span>
       </div>
-    )}
-  </main>
+      {listed.map(({ attr, row }) => (
+        <div key={attr.id} onClick={() => attr.fieldType === "Выбор вариантов" && open(row, attr.name)} className={`group relative grid min-h-[50px] grid-cols-[389px_1fr] items-center ${dottedRow} ${attr.fieldType === "Выбор вариантов" ? "cursor-pointer hover:bg-[#f8f9fb]" : ""}`}>
+          <span>{attr.name}</span>
+          <span className="flex flex-wrap gap-[10px] py-[7px]">
+            {(row?.values ?? []).map((value) => <span key={value} className="rounded-[3px] bg-[#e9ecef] px-[10px] py-[6px]">{value}</span>)}
+          </span>
+          {attr.fieldType === "Выбор вариантов" && <HoverActions offset={70} onEdit={() => open(row, attr.name)} />}
+        </div>
+      ))}
+
+      {editing && (
+        <Modal
+          title={editing.id ? t("Изменение значения") : t("Добавление значения")}
+          onClose={() => setEditing(null)}
+          footer={<SaveButton disabled={!draft.attribute} onClick={() => void save({ preventDefault() {} } as FormEvent)}>{t("Сохранить")}</SaveButton>}
+        >
+          <LineSelect label={t("Атрибут")} required value={draft.attribute} onChange={(value) => setDraft({ ...draft, attribute: value })} options={selectNames} onClear={() => setDraft({ ...draft, attribute: "" })} />
+          <div className="mt-[27px]"><LineField label={t("Значения через запятую")} value={draft.value} onChange={(value) => setDraft({ ...draft, value })} /></div>
+        </Modal>
+      )}
+
+      {importOpen && <ImportDialog file={importFile} onFile={setImportFile} onTemplate={downloadTemplate} onSave={saveImport} saving={importSaving} onClose={() => { setImportOpen(false); setImportFile(null) }} />}
+    </div>
+  )
 }

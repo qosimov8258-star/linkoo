@@ -118,7 +118,7 @@ export function StoreTimeView({ storeCheckMode = false, productCheckMode = false
           </h1>
         </div>
         <div className="flex flex-wrap gap-3">
-          <button type="button" onClick={downloadCsv} className="inline-flex items-center gap-2 rounded-md bg-[#6ccd8b] px-5 py-2.5 font-semibold text-white"><Download className="h-5 w-5" />Скачать Excel</button>
+          <button type="button" onClick={downloadCsv} className="inline-flex items-center gap-2 rounded-md bg-[#71ce87] px-5 py-2.5 font-semibold text-white"><Download className="h-5 w-5" />Скачать Excel</button>
           <button type="button" onClick={() => setDashboardOpen(true)} className="inline-flex items-center gap-2 rounded-md bg-[#5470e8] px-5 py-2.5 font-semibold text-white"><PlusCircle className="h-5 w-5" />Добавить в дашборд</button>
         </div>
       </header>
@@ -148,7 +148,7 @@ export function StoreTimeView({ storeCheckMode = false, productCheckMode = false
               </>
             )}
           </div>
-          <button type="submit" disabled={from > to} className="mt-3 w-full rounded-md bg-[#6ccd8b] py-3 font-bold text-white disabled:opacity-50">Применить</button>
+          <button type="submit" disabled={from > to} className="mt-3 w-full rounded-md bg-[#71ce87] py-3 font-bold text-white disabled:opacity-50">Применить</button>
         </form>
 
         <div className="flex min-h-[365px] flex-col items-center justify-center py-12">

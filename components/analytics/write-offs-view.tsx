@@ -242,18 +242,18 @@ export function WriteOffsView({ embedded = false }: { embedded?: boolean }) {
   }
 
   return (
-    <main className={embedded ? "min-w-0 flex-1" : "min-h-[calc(100vh-4rem)] bg-[#f1f4f8] px-9 py-5"}>
+    <main className={embedded ? "min-w-0 flex-1" : "min-h-[calc(100vh-4rem)] bg-[#f2f5f8] px-7 pb-7"}>
       {!embedded && (
         <header className="mb-5 flex items-center justify-between">
           <h1 className="flex items-center text-2xl font-bold text-slate-600">
-            <FavoritesButton className="inline-flex items-center gap-2 text-[#4f70e7]" />
+            <FavoritesButton className="inline-flex items-center gap-2 text-[#4f71dc]" />
             <span className="mx-2 text-slate-400">|</span> Списание
           </h1>
           <div className="flex items-center gap-4">
             <button type="button" onClick={openCreate} className="text-[15px] font-medium text-[#ff7a59] hover:underline">
               Списание товара
             </button>
-            <button type="button" onClick={() => setImportOpen(true)} className="inline-flex items-center gap-1 text-[15px] font-medium text-[#4f70e7] hover:underline">
+            <button type="button" onClick={() => setImportOpen(true)} className="inline-flex items-center gap-1 text-[15px] font-medium text-[#4f71dc] hover:underline">
               <FileText className="h-4 w-4" /> Импорт с Excel
             </button>
           </div>
@@ -262,7 +262,7 @@ export function WriteOffsView({ embedded = false }: { embedded?: boolean }) {
 
       <section className="overflow-hidden rounded bg-white shadow">
         <div className="flex flex-wrap items-center gap-4 px-5 py-3">
-          <button type="button" onClick={() => setFilterOpen((value) => !value)} className="inline-flex items-center gap-1 text-[#4f70e7] hover:underline">
+          <button type="button" onClick={() => setFilterOpen((value) => !value)} className="inline-flex items-center gap-1 text-[#4f71dc] hover:underline">
             Показать фильтр <ChevronDown className={`h-4 w-4 transition-transform ${filterOpen ? "rotate-180" : ""}`} />
           </button>
         </div>
@@ -281,7 +281,7 @@ export function WriteOffsView({ embedded = false }: { embedded?: boolean }) {
 
         <div className="flex flex-wrap items-center gap-4 px-5 py-3">
           <label className="relative w-64">
-            <input value={query} onChange={(event) => { setQuery(event.target.value); setPage(1) }} placeholder="Поиск" className="w-full border-b border-slate-300 py-2 pr-10 outline-none focus:border-[#4f70e7]" />
+            <input value={query} onChange={(event) => { setQuery(event.target.value); setPage(1) }} placeholder="Поиск" className="w-full border-b border-slate-300 py-2 pr-10 outline-none focus:border-[#4f71dc]" />
             <Search className="absolute right-2 top-2 h-5 w-5 text-slate-300" />
           </label>
           <span className="ml-auto text-slate-500">25</span>
@@ -294,7 +294,7 @@ export function WriteOffsView({ embedded = false }: { embedded?: boolean }) {
           <button type="button" onClick={() => setPage((value) => Math.min(pageCount, value + 1))} disabled={safePage >= pageCount} aria-label="Вперед" className="disabled:opacity-30">
             <ChevronRight className="h-5 w-5 text-slate-400" />
           </button>
-          <button type="button" onClick={downloadList} aria-label="Скачать" className="text-slate-500 hover:text-[#4f70e7]">
+          <button type="button" onClick={downloadList} aria-label="Скачать" className="text-slate-500 hover:text-[#4f71dc]">
             <Download className="h-5 w-5" />
           </button>
           {embedded && (
@@ -302,7 +302,7 @@ export function WriteOffsView({ embedded = false }: { embedded?: boolean }) {
               <button type="button" onClick={openCreate} className="text-sm font-medium text-[#ff7a59] hover:underline">
                 Списание товара
               </button>
-              <button type="button" onClick={() => setImportOpen(true)} className="inline-flex items-center gap-1 text-sm font-medium text-[#4f70e7] hover:underline">
+              <button type="button" onClick={() => setImportOpen(true)} className="inline-flex items-center gap-1 text-sm font-medium text-[#4f71dc] hover:underline">
                 <FileText className="h-4 w-4" /> Импорт с Excel
               </button>
             </>
@@ -310,7 +310,7 @@ export function WriteOffsView({ embedded = false }: { embedded?: boolean }) {
         </div>
 
         <table className="w-full text-left">
-          <thead className="bg-[#626b7e] text-white">
+          <thead className="bg-[#5d6474] text-white">
             <tr>
               <th className="px-9 py-5">№</th>
               <th className="px-5 py-5">Создал</th>
@@ -328,7 +328,7 @@ export function WriteOffsView({ embedded = false }: { embedded?: boolean }) {
               <Fragment key={row.id}>
                 <tr onClick={() => toggleExpand(row)} className="cursor-pointer border-b border-dashed border-slate-300 hover:bg-slate-50">
                   <td className="px-9 py-4">{row.id}</td>
-                  <td className="px-5 py-4 text-[#4f70e7]">{row.creator}</td>
+                  <td className="px-5 py-4 text-[#4f71dc]">{row.creator}</td>
                   <td className="px-5 py-4">{row.warehouse}</td>
                   <td className="px-5 py-4">{row.date}</td>
                   <td className="px-5 py-4 text-emerald-500">{row.status}</td>
@@ -344,7 +344,7 @@ export function WriteOffsView({ embedded = false }: { embedded?: boolean }) {
                             <button type="button" onClick={() => cancelWriteOff(row)} aria-label="Отменить списание" className="flex h-8 w-8 items-center justify-center rounded-full bg-rose-400 text-white hover:bg-rose-500">
                               <Minus className="h-4 w-4" />
                             </button>
-                            <button type="button" onClick={() => window.print()} aria-label="Печать" className="hover:text-[#4f70e7]">
+                            <button type="button" onClick={() => window.print()} aria-label="Печать" className="hover:text-[#4f71dc]">
                               <Printer className="h-5 w-5" />
                             </button>
                           </div>
@@ -436,7 +436,7 @@ export function WriteOffsView({ embedded = false }: { embedded?: boolean }) {
               <div>
                 <div className="mb-3 flex items-center justify-between">
                   <p className="font-medium text-slate-800">Товары</p>
-                  <button type="button" onClick={addBlankItem} className="inline-flex items-center gap-1 text-sm text-[#4f70e7] hover:underline">
+                  <button type="button" onClick={addBlankItem} className="inline-flex items-center gap-1 text-sm text-[#4f71dc] hover:underline">
                     <Plus className="h-4 w-4" /> добавить товар
                   </button>
                 </div>
@@ -446,7 +446,7 @@ export function WriteOffsView({ embedded = false }: { embedded?: boolean }) {
                     <Ban className="h-10 w-10" />
                     <p>
                       Товары не добавлены.{" "}
-                      <button type="button" onClick={addBlankItem} className="text-[#4f70e7] hover:underline">
+                      <button type="button" onClick={addBlankItem} className="text-[#4f71dc] hover:underline">
                         Добавить товар?
                       </button>
                     </p>
@@ -512,21 +512,21 @@ export function WriteOffsView({ embedded = false }: { embedded?: boolean }) {
               </button>
             </header>
             <div className="p-8">
-              <button type="button" onClick={downloadTemplate} className="mb-4 font-semibold text-[#4f70e7] hover:underline">
+              <button type="button" onClick={downloadTemplate} className="mb-4 font-semibold text-[#4f71dc] hover:underline">
                 1. Скачать шаблон
               </button>
               <input ref={importInputRef} type="file" accept=".csv,.xls,.xlsx" onChange={pickImportFile} className="hidden" />
               <button
                 type="button"
                 onClick={() => importInputRef.current?.click()}
-                className="flex w-full flex-col items-center justify-center gap-3 rounded border-2 border-dashed border-slate-300 py-10 text-slate-500 hover:border-[#4f70e7] hover:text-[#4f70e7]"
+                className="flex w-full flex-col items-center justify-center gap-3 rounded border-2 border-dashed border-slate-300 py-10 text-slate-500 hover:border-[#4f71dc] hover:text-[#4f71dc]"
               >
                 <FileText className="h-8 w-8" />
                 {importFile ? importFile.name : "Добавьте файл Excel или нажмите для выбора"}
               </button>
             </div>
             <footer className="flex justify-end border-t p-5">
-              <button type="button" disabled={!importFile || importSaving} onClick={saveImport} className="rounded bg-[#6ccd8b] px-5 py-3 font-semibold text-white hover:brightness-95 disabled:opacity-40">
+              <button type="button" disabled={!importFile || importSaving} onClick={saveImport} className="rounded bg-[#71ce87] px-5 py-3 font-semibold text-white hover:brightness-95 disabled:opacity-40">
                 {importSaving ? "Импорт..." : "Сохранить"}
               </button>
             </footer>

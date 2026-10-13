@@ -322,18 +322,18 @@ export function EmployeesView() {
   return (
     <main className="min-w-0 flex-1">
       <div className="flex flex-wrap items-center gap-4 px-5 py-4">
-        <button type="button" onClick={openCreate} className="inline-flex items-center gap-2 rounded bg-[#4f70e7] px-5 py-2.5 font-semibold text-white hover:brightness-95">
+        <button type="button" onClick={openCreate} className="inline-flex items-center gap-2 rounded bg-[#4f71dc] px-5 py-2.5 font-semibold text-white hover:brightness-95">
           <PlusCircle className="h-4 w-4" /> Добавить пользователя
         </button>
         <div className="ml-auto flex items-center gap-3">
-          <button type="button" onClick={() => setImportOpen(true)} className="inline-flex items-center gap-2 rounded bg-[#4f70e7] px-5 py-2.5 font-semibold text-white hover:brightness-95">
+          <button type="button" onClick={() => setImportOpen(true)} className="inline-flex items-center gap-2 rounded bg-[#4f71dc] px-5 py-2.5 font-semibold text-white hover:brightness-95">
             <BarChart3 className="h-4 w-4" /> Импортировать
           </button>
-          <div className="flex overflow-hidden rounded border border-[#4f70e7]">
-            <button type="button" onClick={() => { setTab("active"); setPage(1) }} className={`px-5 py-2.5 text-sm font-bold uppercase ${tab === "active" ? "bg-[#4f70e7] text-white" : "text-[#4f70e7]"}`}>
+          <div className="flex overflow-hidden rounded border border-[#4f71dc]">
+            <button type="button" onClick={() => { setTab("active"); setPage(1) }} className={`px-5 py-2.5 text-sm font-bold uppercase ${tab === "active" ? "bg-[#4f71dc] text-white" : "text-[#4f71dc]"}`}>
               Активный
             </button>
-            <button type="button" onClick={() => { setTab("deleted"); setPage(1) }} className={`px-5 py-2.5 text-sm font-bold uppercase ${tab === "deleted" ? "bg-[#4f70e7] text-white" : "text-[#4f70e7]"}`}>
+            <button type="button" onClick={() => { setTab("deleted"); setPage(1) }} className={`px-5 py-2.5 text-sm font-bold uppercase ${tab === "deleted" ? "bg-[#4f71dc] text-white" : "text-[#4f71dc]"}`}>
               Удаленные
             </button>
           </div>
@@ -344,9 +344,9 @@ export function EmployeesView() {
       </div>
 
       <div className="flex flex-wrap items-center gap-4 px-5 py-3">
-        <span className="text-[#4f70e7]">Показать фильтр⌄</span>
+        <span className="text-[#4f71dc]">Показать фильтр⌄</span>
         <label className="relative w-64">
-          <input value={query} onChange={(event) => { setQuery(event.target.value); setPage(1) }} placeholder="Поиск" className="w-full border-b border-slate-300 py-2 pr-10 outline-none focus:border-[#4f70e7]" />
+          <input value={query} onChange={(event) => { setQuery(event.target.value); setPage(1) }} placeholder="Поиск" className="w-full border-b border-slate-300 py-2 pr-10 outline-none focus:border-[#4f71dc]" />
           <Search className="absolute right-2 top-2 h-5 w-5 text-slate-300" />
         </label>
         <span className="ml-auto text-slate-500">25</span>
@@ -366,7 +366,7 @@ export function EmployeesView() {
 
       <div className="overflow-x-auto">
         <table className="w-full min-w-[1100px] text-left">
-          <thead className="bg-[#626b7e] text-white">
+          <thead className="bg-[#5d6474] text-white">
             <tr>
               {selectMode && <th className="w-10 px-5 py-5" />}
               <th className="px-9 py-5">№</th>
@@ -402,7 +402,7 @@ export function EmployeesView() {
                 <td className="px-5 py-4">{employee.phone}</td>
                 <td className="px-5 py-4">{employee.position}</td>
                 <td className="px-5 py-4">
-                  <span className={employee.active ? "text-[#6ccd8b]" : "text-slate-400"}>{employee.active ? "Активный" : "Удален"}</span>
+                  <span className={employee.active ? "text-[#71ce87]" : "text-slate-400"}>{employee.active ? "Активный" : "Удален"}</span>
                 </td>
                 <td className="px-5 py-4">
                   <div className="hidden items-center justify-end gap-3 text-slate-500 group-hover:flex">
@@ -505,18 +505,18 @@ export function EmployeesView() {
                 <button
                   type="button"
                   onClick={() => setDraft((value) => ({ ...value, gpsCheck: !value.gpsCheck }))}
-                  className={`h-6 w-11 rounded-full transition-colors ${draft.gpsCheck ? "bg-[#4f70e7]" : "bg-slate-300"}`}
+                  className={`h-6 w-11 rounded-full transition-colors ${draft.gpsCheck ? "bg-[#4f71dc]" : "bg-slate-300"}`}
                 >
                   <span className={`block h-5 w-5 translate-x-0.5 rounded-full bg-white transition-transform ${draft.gpsCheck ? "translate-x-[22px]" : ""}`} />
                 </button>
-                <span className={`text-sm font-semibold ${draft.gpsCheck ? "text-[#4f70e7]" : "text-slate-600"}`}>Проверка GPS включена</span>
+                <span className={`text-sm font-semibold ${draft.gpsCheck ? "text-[#4f71dc]" : "text-slate-600"}`}>Проверка GPS включена</span>
               </label>
 
               <label className="mt-3 flex items-center gap-3">
                 <button
                   type="button"
                   onClick={() => setDraft((value) => ({ ...value, startPoint: !value.startPoint }))}
-                  className={`h-6 w-11 rounded-full transition-colors ${draft.startPoint ? "bg-[#4f70e7]" : "bg-slate-300"}`}
+                  className={`h-6 w-11 rounded-full transition-colors ${draft.startPoint ? "bg-[#4f71dc]" : "bg-slate-300"}`}
                 >
                   <span className={`block h-5 w-5 translate-x-0.5 rounded-full bg-white transition-transform ${draft.startPoint ? "translate-x-[22px]" : ""}`} />
                 </button>
@@ -540,7 +540,7 @@ export function EmployeesView() {
               </div>
             </div>
             <footer className="flex justify-end border-t p-5">
-              <button type="submit" disabled={saving} className="rounded bg-[#6ccd8b] px-6 py-3 font-semibold text-white hover:brightness-95 disabled:opacity-60">
+              <button type="submit" disabled={saving} className="rounded bg-[#71ce87] px-6 py-3 font-semibold text-white hover:brightness-95 disabled:opacity-60">
                 {saving ? "Сохранение..." : "Сохранить"}
               </button>
             </footer>
@@ -558,21 +558,21 @@ export function EmployeesView() {
               </button>
             </header>
             <div className="p-8">
-              <button type="button" onClick={downloadTemplate} className="mb-4 font-semibold text-[#4f70e7] hover:underline">
+              <button type="button" onClick={downloadTemplate} className="mb-4 font-semibold text-[#4f71dc] hover:underline">
                 1. Скачать шаблон
               </button>
               <input ref={importInputRef} type="file" accept=".csv,.xls,.xlsx" onChange={pickImportFile} className="hidden" />
               <button
                 type="button"
                 onClick={() => importInputRef.current?.click()}
-                className="flex w-full flex-col items-center justify-center gap-3 rounded border-2 border-dashed border-slate-300 py-10 text-slate-500 hover:border-[#4f70e7] hover:text-[#4f70e7]"
+                className="flex w-full flex-col items-center justify-center gap-3 rounded border-2 border-dashed border-slate-300 py-10 text-slate-500 hover:border-[#4f71dc] hover:text-[#4f71dc]"
               >
                 <FileText className="h-8 w-8" />
                 {importFile ? importFile.name : "Добавьте файл Excel или нажмите для выбора"}
               </button>
             </div>
             <footer className="flex justify-end border-t p-5">
-              <button type="button" disabled={!importFile || importSaving} onClick={saveImport} className="rounded bg-[#6ccd8b] px-5 py-3 font-semibold text-white hover:brightness-95 disabled:opacity-40">
+              <button type="button" disabled={!importFile || importSaving} onClick={saveImport} className="rounded bg-[#71ce87] px-5 py-3 font-semibold text-white hover:brightness-95 disabled:opacity-40">
                 {importSaving ? "Импорт..." : "Сохранить"}
               </button>
             </footer>

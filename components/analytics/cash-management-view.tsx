@@ -300,20 +300,20 @@ export function CashManagementView() {
   }
 
   return (
-    <main className="min-h-[calc(100vh-4rem)] bg-[#f1f4f8]">
+    <main className="min-h-[calc(100vh-4rem)] bg-[#f2f5f8]">
       <header className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-white px-9 py-4">
         <h1 className="flex items-center text-2xl font-bold text-slate-600">
-          <FavoritesButton className="flex items-center gap-2 text-2xl font-bold text-[#4f70e7]" /> <span className="mx-1 text-slate-400">|</span> Управления кассой
+          <FavoritesButton className="flex items-center gap-2 text-2xl font-bold text-[#4f71dc]" /> <span className="mx-1 text-slate-400">|</span> Управления кассой
         </h1>
         {selectedCashbox && (
           <div className="flex flex-wrap items-center gap-3">
-            <button type="button" onClick={() => setModal("accept")} className="inline-flex items-center gap-2 rounded bg-[#6ccd8b] px-4 py-2.5 font-semibold text-white hover:brightness-95">
+            <button type="button" onClick={() => setModal("accept")} className="inline-flex items-center gap-2 rounded bg-[#71ce87] px-4 py-2.5 font-semibold text-white hover:brightness-95">
               <CreditCard className="h-4 w-4" /> Принять деньги
             </button>
-            <button type="button" onClick={() => setModal("bulk")} className="inline-flex items-center gap-2 rounded bg-[#4f70e7] px-4 py-2.5 font-semibold text-white hover:brightness-95">
+            <button type="button" onClick={() => setModal("bulk")} className="inline-flex items-center gap-2 rounded bg-[#4f71dc] px-4 py-2.5 font-semibold text-white hover:brightness-95">
               <Users className="h-4 w-4" /> Груповой приход
             </button>
-            <button type="button" onClick={() => setModal("income")} className="inline-flex items-center gap-2 rounded bg-[#4f70e7] px-4 py-2.5 font-semibold text-white hover:brightness-95">
+            <button type="button" onClick={() => setModal("income")} className="inline-flex items-center gap-2 rounded bg-[#4f71dc] px-4 py-2.5 font-semibold text-white hover:brightness-95">
               <Plus className="h-4 w-4" /> Приход
             </button>
             <button type="button" onClick={() => setModal("expense")} className="inline-flex items-center gap-2 rounded bg-rose-500 px-4 py-2.5 font-semibold text-white hover:brightness-95">
@@ -359,13 +359,13 @@ export function CashManagementView() {
             <h2 className="text-lg font-semibold text-slate-700">{selectedId === "all" ? "Общий объем" : selectedCashbox?.name}</h2>
             {selectedCashbox && (
               <div className="flex items-center gap-3">
-                <button type="button" onClick={() => setModal("transfer")} className="rounded border border-[#4f70e7] px-4 py-2 text-sm font-semibold text-[#4f70e7] hover:bg-blue-50">
+                <button type="button" onClick={() => setModal("transfer")} className="rounded border border-[#4f71dc] px-4 py-2 text-sm font-semibold text-[#4f71dc] hover:bg-blue-50">
                   <ArrowLeftRight className="mr-1.5 inline h-4 w-4" /> Перевод
                 </button>
                 <button type="button" onClick={() => setModal("request")} className="rounded border border-emerald-500 px-4 py-2 text-sm font-semibold text-emerald-600 hover:bg-emerald-50">
                   Запрос средств
                 </button>
-                <button type="button" onClick={() => setHistoryOpen((value) => !value)} aria-label="История" className={`rounded-full border p-2 ${historyOpen ? "border-[#4f70e7] text-[#4f70e7]" : "border-slate-300 text-slate-500"}`}>
+                <button type="button" onClick={() => setHistoryOpen((value) => !value)} aria-label="История" className={`rounded-full border p-2 ${historyOpen ? "border-[#4f71dc] text-[#4f71dc]" : "border-slate-300 text-slate-500"}`}>
                   <Clock className="h-4 w-4" />
                 </button>
               </div>
@@ -374,11 +374,11 @@ export function CashManagementView() {
 
           <section className="overflow-hidden rounded bg-white shadow">
             <div className="flex flex-wrap items-center gap-4 px-5 py-3">
-              <button type="button" onClick={() => setFilterOpen((value) => !value)} className="inline-flex items-center gap-1 text-[#4f70e7] hover:underline">
+              <button type="button" onClick={() => setFilterOpen((value) => !value)} className="inline-flex items-center gap-1 text-[#4f71dc] hover:underline">
                 Показать фильтр <ChevronDown className={`h-4 w-4 transition-transform ${filterOpen ? "rotate-180" : ""}`} />
               </button>
               <label className="relative w-64">
-                <input value={query} onChange={(event) => { setQuery(event.target.value); setPage(1) }} placeholder="Поиск" className="w-full border-b border-slate-300 py-2 pr-10 outline-none focus:border-[#4f70e7]" />
+                <input value={query} onChange={(event) => { setQuery(event.target.value); setPage(1) }} placeholder="Поиск" className="w-full border-b border-slate-300 py-2 pr-10 outline-none focus:border-[#4f71dc]" />
                 <Search className="absolute right-2 top-2 h-5 w-5 text-slate-300" />
               </label>
               <span className="ml-auto text-slate-500">25</span>
@@ -391,7 +391,7 @@ export function CashManagementView() {
               <button type="button" onClick={() => setPage((value) => Math.min(pageCount, value + 1))} disabled={safePage >= pageCount} aria-label="Вперед" className="disabled:opacity-30">
                 <ChevronRight className="h-5 w-5 text-slate-400" />
               </button>
-              <button type="button" onClick={downloadList} aria-label="Скачать" className="text-slate-500 hover:text-[#4f70e7]">
+              <button type="button" onClick={downloadList} aria-label="Скачать" className="text-slate-500 hover:text-[#4f71dc]">
                 <Download className="h-5 w-5" />
               </button>
             </div>
@@ -410,7 +410,7 @@ export function CashManagementView() {
             )}
 
             <table className="w-full text-left">
-              <thead className="bg-[#626b7e] text-white">
+              <thead className="bg-[#5d6474] text-white">
                 <tr>
                   <th className="px-9 py-5">№</th>
                   {selectedId === "all" && <th className="px-5 py-5">Касса</th>}
@@ -428,10 +428,10 @@ export function CashManagementView() {
                     <td className="px-5 py-4 align-top text-sm">
                       <p>
                         Описание: {entry.description}
-                        {entry.category && <>, Категория: <span className="text-[#4f70e7]">{entry.category}</span></>}
+                        {entry.category && <>, Категория: <span className="text-[#4f71dc]">{entry.category}</span></>}
                         {`, Филиал: ${entry.branch}, Организация: ${entry.organization}`}
                       </p>
-                      {entry.clientName ? <p>Клиент: <span className="text-[#4f70e7]">{entry.clientName}</span></p> : entry.comment ? <p>Комментарий: {entry.comment}</p> : null}
+                      {entry.clientName ? <p>Клиент: <span className="text-[#4f71dc]">{entry.clientName}</span></p> : entry.comment ? <p>Комментарий: {entry.comment}</p> : null}
                     </td>
                     <td className="px-5 py-4 align-top whitespace-nowrap">{fmtDateTime(entry.date)}</td>
                     <td className={`px-5 py-4 align-top text-right font-medium whitespace-nowrap ${entry.amount < 0 ? "text-rose-500" : "text-emerald-600"}`}>
@@ -484,7 +484,7 @@ export function CashManagementView() {
               </label>
             </div>
             <footer className="flex justify-end border-t p-5">
-              <button type="submit" className="rounded bg-[#6ccd8b] px-6 py-3 font-semibold text-white hover:brightness-95">Сохранить</button>
+              <button type="submit" className="rounded bg-[#71ce87] px-6 py-3 font-semibold text-white hover:brightness-95">Сохранить</button>
             </footer>
           </form>
         </div>
@@ -516,7 +516,7 @@ export function CashManagementView() {
               </label>
             </div>
             <footer className="flex justify-end border-t p-5">
-              <button type="submit" className="rounded bg-[#6ccd8b] px-6 py-3 font-semibold text-white hover:brightness-95">Принять</button>
+              <button type="submit" className="rounded bg-[#71ce87] px-6 py-3 font-semibold text-white hover:brightness-95">Принять</button>
             </footer>
           </form>
         </div>
@@ -547,12 +547,12 @@ export function CashManagementView() {
                   )}
                 </div>
               ))}
-              <button type="button" onClick={() => setBulkRows((current) => [...current, { clientName: "", amount: "" }])} className="text-sm text-[#4f70e7] hover:underline">
+              <button type="button" onClick={() => setBulkRows((current) => [...current, { clientName: "", amount: "" }])} className="text-sm text-[#4f71dc] hover:underline">
                 + добавить строку
               </button>
             </div>
             <footer className="flex justify-end border-t p-5">
-              <button type="submit" className="rounded bg-[#6ccd8b] px-6 py-3 font-semibold text-white hover:brightness-95">Сохранить</button>
+              <button type="submit" className="rounded bg-[#71ce87] px-6 py-3 font-semibold text-white hover:brightness-95">Сохранить</button>
             </footer>
           </form>
         </div>
@@ -588,7 +588,7 @@ export function CashManagementView() {
               </label>
             </div>
             <footer className="flex justify-end border-t p-5">
-              <button type="submit" className={`rounded px-6 py-3 font-semibold text-white hover:brightness-95 ${modal === "expense" ? "bg-rose-500" : "bg-[#6ccd8b]"}`}>Сохранить</button>
+              <button type="submit" className={`rounded px-6 py-3 font-semibold text-white hover:brightness-95 ${modal === "expense" ? "bg-rose-500" : "bg-[#71ce87]"}`}>Сохранить</button>
             </footer>
           </form>
         </div>
@@ -615,7 +615,7 @@ export function CashManagementView() {
               </label>
             </div>
             <footer className="flex justify-end border-t p-5">
-              <button type="submit" className="rounded bg-[#6ccd8b] px-6 py-3 font-semibold text-white hover:brightness-95">Перевести</button>
+              <button type="submit" className="rounded bg-[#71ce87] px-6 py-3 font-semibold text-white hover:brightness-95">Перевести</button>
             </footer>
           </form>
         </div>
@@ -640,7 +640,7 @@ export function CashManagementView() {
               </label>
             </div>
             <footer className="flex justify-end border-t p-5">
-              <button type="submit" className="rounded bg-[#6ccd8b] px-6 py-3 font-semibold text-white hover:brightness-95">Отправить</button>
+              <button type="submit" className="rounded bg-[#71ce87] px-6 py-3 font-semibold text-white hover:brightness-95">Отправить</button>
             </footer>
           </form>
         </div>

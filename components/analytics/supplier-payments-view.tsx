@@ -37,9 +37,9 @@ function parseRuDate(value: string): number {
 }
 
 function PaymentIcon({ type }: { type: "cash" | "card" }) {
-  if (type === "card") return <CreditCard className="inline h-4 w-4 text-[#4f70e7]" />
+  if (type === "card") return <CreditCard className="inline h-4 w-4 text-[#4f71dc]" />
   return (
-    <span className="inline-flex h-4 w-4 items-center justify-center rounded-[3px] bg-[#4f70e7] text-[10px] font-bold text-white">S</span>
+    <span className="inline-flex h-4 w-4 items-center justify-center rounded-[3px] bg-[#4f71dc] text-[10px] font-bold text-white">S</span>
   )
 }
 
@@ -159,10 +159,10 @@ export function SupplierPaymentsView() {
   }
 
   return (
-    <main className="min-h-screen bg-[#f1f4f8] text-[#17233b]">
+    <main className="min-h-screen bg-[#f2f5f8] text-[#17233b]">
       <header className="flex min-h-[76px] items-center justify-between border-b border-[#d8dee7] bg-[#f2f5f8] px-6 md:px-9">
         <div className="flex items-center gap-3">
-          <FavoritesButton className="flex items-center gap-3 text-2xl font-bold text-[#4f70e7]" />
+          <FavoritesButton className="flex items-center gap-3 text-2xl font-bold text-[#4f71dc]" />
           <span className="text-3xl font-light text-[#586174]">|</span>
           <span className="text-2xl font-bold text-[#586174]">Оплаты поставщикам</span>
         </div>
@@ -173,7 +173,7 @@ export function SupplierPaymentsView() {
       </div>
 
       <section className="flex flex-wrap items-center gap-5 border-b border-[#e1e5eb] bg-white px-6 py-3 md:px-9">
-        <button onClick={() => setFilterOpen((value) => !value)} className="flex items-center gap-1 font-medium text-[#4f70e7]">
+        <button onClick={() => setFilterOpen((value) => !value)} className="flex items-center gap-1 font-medium text-[#4f71dc]">
           <Filter className="h-4 w-4" /> Показать фильтр <ChevronDown className={`h-4 w-4 transition ${filterOpen ? "rotate-180" : ""}`} />
         </button>
 
@@ -193,7 +193,7 @@ export function SupplierPaymentsView() {
         <button disabled={safePage === 1} onClick={() => setPage((value) => Math.max(1, value - 1))} className="rounded-full border border-[#dbe0e8] p-1 text-[#9aa3b6] disabled:opacity-40">
           <ChevronLeft className="h-5 w-5" />
         </button>
-        <button disabled={safePage === maxPage} onClick={() => setPage((value) => Math.min(maxPage, value + 1))} className="rounded-full border border-[#4f70e7] p-1 text-[#4f70e7] disabled:opacity-40">
+        <button disabled={safePage === maxPage} onClick={() => setPage((value) => Math.min(maxPage, value + 1))} className="rounded-full border border-[#4f71dc] p-1 text-[#4f71dc] disabled:opacity-40">
           <ChevronRight className="h-5 w-5" />
         </button>
 
@@ -256,7 +256,7 @@ export function SupplierPaymentsView() {
 
       <section className="overflow-x-auto bg-white pb-10">
         <table className="min-w-[1400px] w-full border-collapse text-[14px]">
-          <thead className="bg-[#626b7e] text-white">
+          <thead className="bg-[#5d6474] text-white">
             <tr>
               {(
                 [
@@ -312,7 +312,7 @@ export function SupplierPaymentsView() {
                   <div className="text-[13px] text-[#586174]">{number(row.cashAmount)} SUM</div>
                 </td>
                 <td className="px-4 py-4 align-top">
-                  <span className="font-medium text-[#4f70e7]">{row.kassa}</span>
+                  <span className="font-medium text-[#4f71dc]">{row.kassa}</span>
                 </td>
                 <td className="px-4 py-4 align-top">{row.comment}</td>
               </tr>

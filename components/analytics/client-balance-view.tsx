@@ -141,7 +141,7 @@ export function ClientBalanceView() {
     <main className="min-h-screen bg-white text-[#17233b]">
       <header className="flex min-h-[76px] flex-wrap items-center justify-between gap-4 border-b border-[#d8dee7] bg-[#f2f5f8] px-6 md:px-9">
         <div className="flex items-center gap-3">
-          <FavoritesButton className="flex items-center gap-3 text-2xl font-bold text-[#4f70e7]" />
+          <FavoritesButton className="flex items-center gap-3 text-2xl font-bold text-[#4f71dc]" />
           <span className="text-3xl font-light text-[#586174]">|</span>
           <span className="text-2xl font-bold text-[#586174]">{t("Баланс клиентов")}</span>
         </div>
@@ -162,12 +162,12 @@ export function ClientBalanceView() {
       </header>
 
       <section className="flex flex-wrap items-center gap-4 px-6 py-4 md:px-9">
-        <button onClick={() => setFilterOpen(true)} className="flex h-11 items-center gap-2 rounded-md bg-[#4f70e7] px-5 font-semibold text-white">
+        <button onClick={() => setFilterOpen(true)} className="flex h-11 items-center gap-2 rounded-md bg-[#4f71dc] px-5 font-semibold text-white">
           <Filter className="h-4 w-4" /> {t("Фильтр")} / {filterCount}
         </button>
-        <span className="font-semibold text-[#4f70e7]">{appliedFrom} - {appliedTo}</span>
+        <span className="font-semibold text-[#4f71dc]">{appliedFrom} - {appliedTo}</span>
         <span className="text-[#586174]">{t("Во всей организации")}</span>
-        <button onClick={() => setGroupPaymentOpen(true)} className="ml-auto flex h-11 items-center gap-2 rounded-md border border-[#4f70e7] px-5 font-semibold text-[#4f70e7]">
+        <button onClick={() => setGroupPaymentOpen(true)} className="ml-auto flex h-11 items-center gap-2 rounded-md border border-[#4f71dc] px-5 font-semibold text-[#4f71dc]">
           <CreditCard className="h-5 w-5" /> {t("Групповая оплата")}
         </button>
         <button onClick={downloadAll} className="flex h-11 items-center gap-2 rounded-md bg-[#4caf72] px-5 font-semibold text-white">
@@ -223,13 +223,13 @@ export function ClientBalanceView() {
       <section className="flex flex-wrap items-center gap-3 border-t border-[#e1e5eb] px-6 py-4 md:px-9">
         <button
           onClick={() => setSplitByCurrency((value) => !value)}
-          className={`rounded-sm px-5 py-2.5 text-[13px] font-bold uppercase tracking-wide ${splitByCurrency ? "bg-[#4f70e7] text-white" : "border border-[#4f70e7] text-[#4f70e7]"}`}
+          className={`rounded-sm px-5 py-2.5 text-[13px] font-bold uppercase tracking-wide ${splitByCurrency ? "bg-[#4f71dc] text-white" : "border border-[#4f71dc] text-[#4f71dc]"}`}
         >
           {t("Разбить по валютам")}
         </button>
         <button
           onClick={() => { setByType((value) => !value); setTypeFilter("Все типы"); setPage(1) }}
-          className={`rounded-sm px-5 py-2.5 text-[13px] font-bold uppercase tracking-wide ${byType ? "bg-[#4f70e7] text-white" : "border border-[#4f70e7] text-[#4f70e7]"}`}
+          className={`rounded-sm px-5 py-2.5 text-[13px] font-bold uppercase tracking-wide ${byType ? "bg-[#4f71dc] text-white" : "border border-[#4f71dc] text-[#4f71dc]"}`}
         >
           {t("Показать по типам клиентов")}
         </button>
@@ -247,7 +247,7 @@ export function ClientBalanceView() {
         <button disabled={byType || safePage === 1} onClick={() => setPage((value) => Math.max(1, value - 1))} className="rounded-full border border-[#dbe0e8] p-1 text-[#9aa3b6] disabled:opacity-40">
           <ChevronDown className="h-5 w-5 rotate-90" />
         </button>
-        <button disabled={byType || safePage === maxPage} onClick={() => setPage((value) => Math.min(maxPage, value + 1))} className="rounded-full border border-[#4f70e7] p-1 text-[#4f70e7] disabled:opacity-40">
+        <button disabled={byType || safePage === maxPage} onClick={() => setPage((value) => Math.min(maxPage, value + 1))} className="rounded-full border border-[#4f71dc] p-1 text-[#4f71dc] disabled:opacity-40">
           <ChevronDown className="h-5 w-5 -rotate-90" />
         </button>
         <button aria-label={t("Полный экран")} onClick={() => document.documentElement.requestFullscreen?.()} className="text-[#586174]"><ChevronsRight className="h-5 w-5 rotate-45" /></button>
@@ -267,7 +267,7 @@ export function ClientBalanceView() {
               <tr className="bg-white text-[#17233b]">
                 <th className="border-b border-[#e1e5eb] px-4 py-2 text-left font-semibold">{byType ? t("Тип клиента") : t("Клиент")}</th>
                 <th className="border-b border-[#e1e5eb] px-2 py-2">
-                  {!byType && <input type="checkbox" checked={allSelected} onChange={toggleAll} className="h-4 w-4 accent-[#4f70e7]" />}
+                  {!byType && <input type="checkbox" checked={allSelected} onChange={toggleAll} className="h-4 w-4 accent-[#4f71dc]" />}
                 </th>
                 {groups.map((group) =>
                   ["SUM", "USD", "Euro"].map((currency) => (
@@ -281,8 +281,8 @@ export function ClientBalanceView() {
                 ? typeAggregates.map((row, index) => (
                     <tr key={row.type} className={index % 2 ? "bg-[#f6f9fc]" : "bg-white"}>
                       <td className="border-b border-[#e1e5eb] px-4 py-3.5">
-                        <button onClick={() => drillIntoType(row.type)} className="flex items-center gap-2 text-left hover:text-[#4f70e7]">
-                          {row.type} <List className="h-4 w-4 text-[#4f70e7]" />
+                        <button onClick={() => drillIntoType(row.type)} className="flex items-center gap-2 text-left hover:text-[#4f71dc]">
+                          {row.type} <List className="h-4 w-4 text-[#4f71dc]" />
                         </button>
                       </td>
                       <td className="border-b border-[#e1e5eb] px-2 py-3.5" />
@@ -301,7 +301,7 @@ export function ClientBalanceView() {
                         {client.taxId && <div className="text-[13px] text-[#586174]">({client.taxId})</div>}
                       </td>
                       <td className="border-b border-[#e1e5eb] px-2 py-3.5 text-center">
-                        <input type="checkbox" checked={selected.has(client.id)} onChange={() => toggleOne(client.id)} className="h-4 w-4 accent-[#4f70e7]" />
+                        <input type="checkbox" checked={selected.has(client.id)} onChange={() => toggleOne(client.id)} className="h-4 w-4 accent-[#4f71dc]" />
                       </td>
                       <td className="border-b border-[#e1e5eb] px-4 py-3.5"><AmountCell value={client.opening.sum} /></td>
                       <td className="border-b border-[#e1e5eb] px-4 py-3.5"><AmountCell value={client.opening.usd} /></td>
@@ -379,10 +379,10 @@ export function ClientBalanceView() {
             </div>
 
             <div className="flex flex-wrap gap-x-10 gap-y-3 border-t px-8 py-6 text-[14px] text-[#17233b]">
-              <label className="flex items-center gap-2"><input type="checkbox" checked={onlyRealized} onChange={(event) => setOnlyRealized(event.target.checked)} className="h-4 w-4 accent-[#4f70e7]" /> {t("Учитывать только реализованных заказов")}</label>
-              <label className="flex items-center gap-2"><input type="checkbox" checked={onlyDelivered} onChange={(event) => setOnlyDelivered(event.target.checked)} className="h-4 w-4 accent-[#4f70e7]" /> {t("Только доставленные заказы")}</label>
-              <label className="flex items-center gap-2"><input type="checkbox" checked={onlyInvoiced} onChange={(event) => setOnlyInvoiced(event.target.checked)} className="h-4 w-4 accent-[#4f70e7]" /> {t("Только оплаты с счет фактурой")}</label>
-              <label className="flex items-center gap-2"><input type="checkbox" checked={excludeClosed} onChange={(event) => setExcludeClosed(event.target.checked)} className="h-4 w-4 accent-[#4f70e7]" /> {t("Исключить закрытие магазины")}</label>
+              <label className="flex items-center gap-2"><input type="checkbox" checked={onlyRealized} onChange={(event) => setOnlyRealized(event.target.checked)} className="h-4 w-4 accent-[#4f71dc]" /> {t("Учитывать только реализованных заказов")}</label>
+              <label className="flex items-center gap-2"><input type="checkbox" checked={onlyDelivered} onChange={(event) => setOnlyDelivered(event.target.checked)} className="h-4 w-4 accent-[#4f71dc]" /> {t("Только доставленные заказы")}</label>
+              <label className="flex items-center gap-2"><input type="checkbox" checked={onlyInvoiced} onChange={(event) => setOnlyInvoiced(event.target.checked)} className="h-4 w-4 accent-[#4f71dc]" /> {t("Только оплаты с счет фактурой")}</label>
+              <label className="flex items-center gap-2"><input type="checkbox" checked={excludeClosed} onChange={(event) => setExcludeClosed(event.target.checked)} className="h-4 w-4 accent-[#4f71dc]" /> {t("Исключить закрытие магазины")}</label>
             </div>
 
             <div className="px-8 pb-8">
@@ -500,7 +500,7 @@ function GroupPaymentModal({ count, clientIds, onClose }: { count: number; clien
           </label>
         </div>
         <footer className="flex justify-end border-t px-8 py-5">
-          <button onClick={save} disabled={saving} className="font-bold uppercase tracking-wide text-[#4f70e7] disabled:opacity-60">{saving ? t("Сохранение...") : t("Сохранить")}</button>
+          <button onClick={save} disabled={saving} className="font-bold uppercase tracking-wide text-[#4f71dc] disabled:opacity-60">{saving ? t("Сохранение...") : t("Сохранить")}</button>
         </footer>
       </div>
     </div>

@@ -1,14 +1,16 @@
 "use client"
 
-import { AlertTriangle, Clock3, EyeOff, Filter, Map, Plus, Search, ShoppingBag, Truck, X } from "lucide-react"
-import { ChangeEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react"
+import { Search, X } from "lucide-react"
+import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
 
 import { readExcelRows } from "@/lib/excel-import"
 import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
 import { useLanguage } from "@/lib/i18n/language-context"
 
-import { statuses, type Order } from "./orders-data"
+import { AddOrderDialog } from "./add-order-dialog"
+import { OrderDetailCard } from "./order-detail"
+import type { Order } from "./orders-data"
 
 export function OrdersView() {
   const router = useRouter()
@@ -16,7 +18,10 @@ export function OrdersView() {
   const [orders, setOrders] = useState<Order[]>([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState("")
-  const [tab, setTab] = useState("Активные")
+  const [tab, setTab] = useState<string>("Все")
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(25)
+  const [selectMode, setSelectMode] = useState(false)
   const [query, setQuery] = useState("")
   const [selected, setSelected] = useState<Order | null>(null)
   const [checkedIds, setCheckedIds] = useState<number[]>([])
@@ -24,17 +29,42 @@ export function OrdersView() {
   const [zoneFilter, setZoneFilter] = useState("Все зоны")
   const [notice, setNotice] = useState("")
   const [addOpen, setAddOpen] = useState(false)
+  const [initialShopId, setInitialShopId] = useState<number | undefined>()
   const [bulkPayOpen, setBulkPayOpen] = useState(false)
   const importInputRef = useRef<HTMLInputElement>(null)
+  const detailRowRef = useRef<HTMLDivElement>(null)
   const zones = useMemo(() => Array.from(new Set(orders.map((row) => row.zone).filter(Boolean))), [orders])
 
-  const visible = useMemo(
+  const filtered = useMemo(
     () =>
       orders
         .filter((row) => `${row.id} ${row.client} ${row.agent}`.toLowerCase().includes(query.toLowerCase()))
-        .filter((row) => zoneFilter === "Все зоны" || row.zone === zoneFilter),
-    [orders, query, zoneFilter],
+        .filter((row) => zoneFilter === "Все зоны" || row.zone === zoneFilter)
+        .filter((row) =>
+          tab === "Активные"
+            ? row.status !== "Доставлено" && row.status !== "Отменен"
+            : tab === "Доставляется"
+              ? row.status === "В пути"
+              : tab === "Доставленные"
+                ? row.status === "Доставлено"
+                : true,
+        ),
+    [orders, query, zoneFilter, tab],
   )
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize))
+  const pageStart = (Math.min(page, pageCount) - 1) * pageSize
+  const pageRows = filtered.slice(pageStart, pageStart + pageSize)
+  const totals = useMemo(
+    () => ({
+      orders: sumByCurrency(filtered),
+      returns: sumByCurrency([]),
+      fact: sumByCurrency(filtered.filter((row) => row.status === "Доставлено")),
+    }),
+    [filtered],
+  )
+  const alertCount = orders.filter((row) => row.negative).length
+  const transitCount = orders.filter((row) => row.status === "В пути").length
+  const stockCount = orders.filter((row) => row.status === "Есть на складе").length
 
   useEffect(() => {
     let cancelled = false
@@ -59,6 +89,88 @@ export function OrdersView() {
       cancelled = true
     }
   }, [])
+
+  // Deep link to an expanded order: /analytics/sales?order=<id>
+  useEffect(() => {
+    if (loading || selected) return
+    const id = Number(new URLSearchParams(window.location.search).get("order"))
+    if (!Number.isFinite(id) || id <= 0) return
+    const match = orders.find((row) => row.id === id)
+    if (match) setSelected(match)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, orders])
+
+  useEffect(() => {
+    if (!selected) return
+    const url = new URL(window.location.href)
+    url.searchParams.set("order", String(selected.id))
+    window.history.replaceState(null, "", url)
+    detailRowRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" })
+  }, [selected?.id])
+
+  // Esc collapses the expanded order unless one of its dialogs is open
+  useEffect(() => {
+    if (!selected) return
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || document.querySelector("[data-order-overlay]")) return
+      setSelected(null)
+      const url = new URL(window.location.href)
+      url.searchParams.delete("order")
+      window.history.replaceState(null, "", url)
+    }
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
+  }, [selected])
+
+  // Deep link from the client card: /analytics/sales?openOrderDialog=true&openShop=<id>
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    if (params.get("openOrderDialog") !== "true") return
+    const shop = Number(params.get("openShop"))
+    setInitialShopId(Number.isFinite(shop) && shop > 0 ? shop : undefined)
+    setAddOpen(true)
+  }, [])
+
+  function closeAddDialog() {
+    setAddOpen(false)
+    setInitialShopId(undefined)
+    if (window.location.search) router.replace("/analytics/sales")
+  }
+
+  async function reloadOrders() {
+    try {
+      const response = await fetch("/api/orders")
+      if (!response.ok) throw new Error("reload failed")
+      setOrders((await response.json()) as Order[])
+      flash(t("Данные обновлены"))
+    } catch {
+      flash(t("Не удалось загрузить заказы с сервера"))
+    }
+  }
+
+  function exportCsv() {
+    const rows = checkedIds.length ? filtered.filter((row) => checkedIds.includes(row.id)) : filtered
+    const cell = (value: string | number) => `"${String(value).replace(/"/g, '""')}"`
+    const csv = [["№", "Клиент", "Тип", "Дата создания", "Дата доставки", "Агент", "Сумма заказа", "Баланс", "Статус"].join(";")]
+      .concat(rows.map((row) => [row.id, row.client, row.type, row.created, row.delivery, row.agent, row.amount, row.balance, row.status].map(cell).join(";")))
+      .join("\n")
+    const url = URL.createObjectURL(new Blob(["\ufeff" + csv], { type: "text/csv;charset=utf-8" }))
+    const link = document.createElement("a")
+    link.href = url
+    link.download = "orders.csv"
+    link.click()
+    URL.revokeObjectURL(url)
+  }
+
+  function editChecked() {
+    const target = orders.find((row) => row.id === checkedIds[0])
+    if (!target) {
+      setSelectMode(true)
+      flash(t("Выберите заказ для изменения"))
+      return
+    }
+    setSelected(target)
+  }
 
   function flash(text: string) {
     setNotice(text)
@@ -123,21 +235,10 @@ export function OrdersView() {
     }
   }
 
-  async function addOrder(client: string) {
-    setAddOpen(false)
-    try {
-      const response = await fetch("/api/orders", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ client: client || t("Новый клиент") }),
-      })
-      if (!response.ok) throw new Error("create failed")
-      const created = (await response.json()) as Order
-      setOrders((current) => [created, ...current])
-      flash(t("Заказ добавлен"))
-    } catch {
-      flash(t("Не удалось создать заказ"))
-    }
+  function orderCreated(created: Order) {
+    setOrders((current) => [created, ...current])
+    closeAddDialog()
+    flash(t("Заказ добавлен"))
   }
 
   function importFromExcel(event: ChangeEvent<HTMLInputElement>) {
@@ -169,104 +270,208 @@ export function OrdersView() {
   }
 
   return (
-    <main className="min-h-screen bg-slate-100 pb-8 text-slate-800">
-      <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-50 px-10 py-4">
-        <h1 className="flex items-center gap-3 text-[26px] font-bold text-slate-600">
-          <FavoritesButton className="flex items-center gap-2 text-[#5271df]" />
-          <span className="font-normal">|</span> {t("Заказы")} <AlertTriangle className="ml-4 fill-slate-500 text-slate-500" /><Clock3 /><ShoppingBag />
-        </h1>
-        <div className="flex flex-wrap gap-3">
+    <main className="min-h-screen bg-[#f2f5f8] px-7 pb-7 font-sans text-[13px] text-[#333]">
+      <div className="flex h-[60px] items-center justify-between">
+        <div className="flex items-center">
+          <h1 className="flex items-center text-[18px] font-bold text-[#5d6474]">
+            <FavoritesButton className="flex items-center gap-[5px] text-[18px] font-bold text-[#4f71dc]" />
+            <span className="mx-[11px] h-[21px] w-[2px] bg-[#5d6474]" />
+            {t("Заказы")}
+          </h1>
+          <div className="ml-[22px] flex items-center">
+            {[
+              { path: ICON.warning, count: alertCount },
+              { path: ICON.clock, count: transitCount },
+              { path: ICON.store, count: stockCount },
+            ].map((badge, index) => (
+              <button
+                key={index}
+                type="button"
+                onClick={() => setTab(index === 0 ? "Все" : index === 1 ? "Доставляется" : "Активные")}
+                className="relative flex h-12 w-12 items-center justify-center"
+              >
+                <svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#5d6474]"><path d={badge.path} /></svg>
+                <span className="absolute left-[26px] top-1 flex h-[18px] min-w-[18px] items-center justify-center rounded-full border border-white bg-[#e57373] px-[3px] text-[9px] font-semibold text-white">{badge.count}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="flex items-center gap-[10px]">
           <input ref={importInputRef} type="file" accept=".csv,.xls,.xlsx" onChange={importFromExcel} className="hidden" />
-          <Button icon={<Map />} text={t("Показать на карте")} onClick={() => router.push("/tracking")} />
-          <Button text={t("▣  Групповая оплата")} onClick={() => setBulkPayOpen(true)} />
-          <Button text={t("▥  Импортировать")} onClick={() => importInputRef.current?.click()} />
-          <button type="button" onClick={() => setAddOpen(true)} className="rounded-md bg-[#70cf84] px-5 py-2.5 font-semibold text-white">
-            <Plus className="mr-2 inline h-5" />{t("Добавить")}
-          </button>
+          <TopButton icon={ICON.map} text={t("Показать на карте")} onClick={() => router.push("/tracking")} />
+          <TopButton icon={ICON.card} text={t("Групповая оплата")} onClick={() => setBulkPayOpen(true)} />
+          <TopButton icon={ICON.chart} text={t("Импортировать")} onClick={() => importInputRef.current?.click()} />
+          <TopButton
+            icon={ICON.add}
+            text={t("Добавить")}
+            green
+            onClick={() => {
+              setInitialShopId(undefined)
+              setAddOpen(true)
+            }}
+          />
         </div>
       </div>
 
       {notice && (
-        <div className="mx-9 mt-3 flex items-center justify-between rounded bg-[#e9f8ed] px-4 py-3 text-sm text-[#278549]">
+        <div className="mb-3 flex items-center justify-between rounded bg-[#e9f8ed] px-4 py-3 text-sm text-[#278549]">
           {notice}
           <button type="button" onClick={() => setNotice("")} aria-label={t("Закрыть уведомление")}><X size={18} /></button>
         </div>
       )}
 
-      <section className="mx-9 mt-1 bg-white shadow">
-        <div className="grid grid-cols-4">
-          <Tabs labels={["Активные", "Доставляется", "Доставленные", "Все"]} value={tab} onChange={setTab} />
+      <section className="shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
+        <div className="relative flex h-10 rounded-[2px] bg-white">
+          {TAB_LABELS.map((label) => (
+            <button key={label} type="button" onClick={() => { setTab(label); setPage(1) }} className="h-10 w-1/4 text-[13px] font-medium text-black">
+              {t(label)}
+            </button>
+          ))}
+          <span
+            className="absolute -bottom-[2px] left-0 h-[3px] w-1/4 bg-[#4f71dc] shadow-[0_-3px_10px_0_#5869f0] transition-transform duration-300"
+            style={{ transform: `translateX(${TAB_LABELS.indexOf(tab as (typeof TAB_LABELS)[number]) * 100}%)` }}
+          />
         </div>
-        <div className="grid grid-cols-3 bg-[#586ce8] px-2 py-2 text-white font-semibold">
-          <span>{t("Заказы: 302 722 200 SUM , 938,18 USD")}</span>
-          <span className="text-center">{t("Возвраты: 0 SUM , 0 USD")}</span>
-          <span className="text-right">{t("Факт: 302 722 200 SUM , 938,18 USD")}</span>
-        </div>
-        <div className="relative flex flex-wrap items-center gap-5 px-5 py-3">
-          <button type="button" onClick={() => setFilterOpen((value) => !value)} className="rounded bg-[#5271df] px-4 py-2 text-white">
-            <Filter className="mr-2 inline h-4" />{t("Фильтр: 1 элемента")}
-          </button>
-          {filterOpen && (
-            <div className="absolute left-5 top-full z-20 mt-2 w-64 border border-slate-200 bg-white p-4 shadow-xl">
-              <label className="block text-xs font-medium text-slate-500">
-                {t("Зона")}
-                <select value={zoneFilter} onChange={(event) => setZoneFilter(event.target.value)} className="mt-1 block w-full border-b border-slate-300 bg-white py-2 text-sm outline-none">
-                  <option value="Все зоны">{t("Все зоны")}</option>
-                  {zones.map((zone) => (
-                    <option key={zone}>{zone}</option>
-                  ))}
-                </select>
-              </label>
-              <button type="button" onClick={() => setFilterOpen(false)} className="mt-4 w-full rounded bg-[#5271df] py-2 text-sm font-semibold text-white">{t("Применить")}</button>
+        <div className="flex justify-between border-b border-[#efefef] bg-[#5869f0] p-[5px] text-[13px] font-semibold text-white">
+          {[
+            { label: t("Заказы"), value: totals.orders },
+            { label: t("Возвраты"), value: totals.returns },
+            { label: t("Факт"), value: totals.fact },
+          ].map((group) => (
+            <div key={group.label} className="flex-1 pt-1">
+              <span className="mr-[5px]">{group.label} :</span>
+              {group.value}
             </div>
-          )}
-          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={t("Поиск")} className="ml-3 w-80 border-b border-slate-300 px-2 py-2 outline-none" />
-          <Search className="-ml-12 text-slate-400" />
-          <span className="ml-auto">25　 1 - {visible.length} {t("из")} {orders.length}　 ◀ ▶　 <EyeOff className="inline" /></span>
-          <button type="button" onClick={passToDelivery} className="rounded bg-[#70cf84] px-4 py-2 font-semibold text-white">
-            <Truck className="mr-2 inline h-5" />{t("Передать")}
-          </button>
+          ))}
         </div>
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[1600px] text-left">
-            <thead className="bg-[#626b7e] text-white">
-              <tr>{["▦", "№", "Клиент", "Тип", "Дата создания", "Доставщик", "Дата доставки", "Агент", "Сумма заказа", "Баланс", "Статус"].map((head) => <th key={head} className="px-4 py-4">{t(head)}</th>)}</tr>
-            </thead>
-            <tbody>
-              {loading ? (
-                <tr><td colSpan={11} className="px-4 py-16 text-center text-slate-500">{t("Загрузка заказов...")}</td></tr>
-              ) : loadError ? (
-                <tr><td colSpan={11} className="px-4 py-16 text-center text-red-600">{loadError}</td></tr>
-              ) : visible.map((row) => (
-                <tr onClick={() => setSelected(row)} key={row.id} className="cursor-pointer border-b-2 border-dotted border-slate-200 hover:bg-blue-50">
-                  <td className="px-4 py-3">
-                    <input type="checkbox" checked={checkedIds.includes(row.id)} onClick={(e) => e.stopPropagation()} onChange={() => toggleChecked(row.id)} />
-                  </td>
-                  <td className="px-4">{row.id}</td>
-                  <td className="px-4 py-3">{row.client}<br /><span>{t("Зона:")} {row.zone || t("Не указано")}</span></td>
-                  <td className="px-4">{row.type}<br /><b>{row.product}</b></td>
-                  <td className="px-4">{row.created}</td>
-                  <td className="px-4">Admin Ritm<br /><span className="text-[#5271df]">{t("Не указано")}</span></td>
-                  <td className="px-4">{row.delivery}</td>
-                  <td className="px-4">{row.agent}<br /><span className="text-[#5271df]">{t("0 кг.")}</span></td>
-                  <td className="px-4">{row.amount}</td>
-                  <td className={`px-4 font-medium ${row.negative ? "text-red-400" : "text-green-600"}`}>{row.balance}</td>
-                  <td className="px-4 text-center">
-                    <AlertTriangle className="inline h-5 text-slate-400" />　<span className="rounded border border-red-400 px-1 text-red-400">$</span>
-                  </td>
-                </tr>
+
+        <div className="relative bg-white shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
+          <div className="flex h-[50px] items-center px-[5px]">
+            <div className="w-[318px] shrink-0">
+            <button
+              type="button"
+              onClick={() => setFilterOpen((value) => !value)}
+              className="flex h-[30px] items-center rounded-[5px] bg-[#4f71dc] pl-3 text-[13px] font-semibold text-white"
+            >
+              <svg viewBox="0 0 24 24" className="mb-1 h-[18px] w-[18px] fill-white"><path d={ICON.filter} /></svg>
+              <span className="pl-2 pr-4">{filterOpen ? t("Скрыть фильтр") : t("Показать фильтр")}</span>
+            </button>
+            </div>
+            {filterOpen && (
+              <div className="absolute left-[5px] top-[46px] z-20 w-64 border border-slate-200 bg-white p-4 shadow-xl">
+                <label className="block text-xs font-medium text-slate-500">
+                  {t("Зона")}
+                  <select value={zoneFilter} onChange={(event) => { setZoneFilter(event.target.value); setPage(1) }} className="mt-1 block w-full border-b border-slate-300 bg-white py-2 text-sm outline-none">
+                    <option value="Все зоны">{t("Все зоны")}</option>
+                    {zones.map((zone) => (
+                      <option key={zone}>{zone}</option>
+                    ))}
+                  </select>
+                </label>
+                <button type="button" onClick={() => setFilterOpen(false)} className="mt-4 w-full rounded bg-[#4f71dc] py-2 text-sm font-semibold text-white">{t("Применить")}</button>
+              </div>
+            )}
+            <div className="relative ml-[18px] flex w-[248px] items-center">
+              <input
+                value={query}
+                onChange={(event) => { setQuery(event.target.value); setPage(1) }}
+                placeholder={t("Поиск")}
+                className="h-12 w-full border-b border-[#e0e0e0] bg-transparent text-[13px] outline-none placeholder:text-black/30 focus:border-[#5d6474]"
+              />
+              <Search className="absolute -right-[38px] h-6 w-6 text-[#ccc]" />
+            </div>
+            <div className="ml-auto flex items-center text-[#5d6474]">
+              <div className="relative mr-[15px]">
+                <select
+                  value={pageSize}
+                  onChange={(event) => { setPageSize(Number(event.target.value)); setPage(1) }}
+                  className="h-12 w-[52px] appearance-none border-b border-[#e0e0e0] bg-transparent text-[13px] text-[#333] outline-none"
+                >
+                  {[10, 25, 50, 100].map((size) => <option key={size}>{size}</option>)}
+                </select>
+                <svg viewBox="0 0 24 24" className="pointer-events-none absolute right-0 top-3 h-6 w-6 fill-black/30"><path d="M7 10l5 5 5-5z" /></svg>
+              </div>
+              <span className="mr-2">{pageStart + 1 > filtered.length ? 0 : pageStart + 1} - {Math.min(pageStart + pageSize, filtered.length)}  {t("из")}  {filtered.length}</span>
+              <button type="button" disabled={page <= 1} onClick={() => setPage((current) => current - 1)} aria-label="prev" className="px-[5px] disabled:opacity-100">
+                <svg viewBox="0 0 24 24" className={`h-6 w-6 ${page <= 1 ? "fill-black/30" : "fill-black/55"}`}><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm1-12l-5 4 5 4V8z" /></svg>
+              </button>
+              <button type="button" disabled={page >= pageCount} onClick={() => setPage((current) => current + 1)} aria-label="next">
+                <svg viewBox="0 0 24 24" className={`h-6 w-6 ${page >= pageCount ? "fill-black/30" : "fill-black/55"}`}><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zM11 8v8l5-4-5-4z" /></svg>
+              </button>
+              {[
+                { path: ICON.checklist, title: t("Выбрать"), color: "#5d6474", onClick: () => setSelectMode((value) => !value) },
+                { path: ICON.sync, title: t("Обновить"), color: "#5d6474", onClick: reloadOrders },
+                { path: ICON.print, title: t("Распечатать"), color: "#666", onClick: () => window.print() },
+                { path: ICON.download, title: t("Экспортировать"), color: "#666", onClick: exportCsv },
+                { path: ICON.edit, title: t("Изменить"), color: "#666", onClick: editChecked },
+                { path: ICON.history, title: t("История"), color: "#666", onClick: () => flash(t("Скоро будет доступно")) },
+                { path: ICON.textA, title: t("Текст"), color: "#666", onClick: () => flash(t("Скоро будет доступно")) },
+                { path: ICON.send, title: t("Передать"), color: "#666", onClick: passToDelivery },
+              ].map((action, index) => (
+                <button key={index} type="button" title={action.title} aria-label={action.title} onClick={action.onClick} className={`flex h-12 w-12 items-center justify-center ${index === 0 ? "ml-5" : ""}`}>
+                  <svg viewBox="0 0 24 24" className="h-6 w-6" style={{ fill: action.color }}><path d={action.path} /></svg>
+                </button>
               ))}
-            </tbody>
-          </table>
+            </div>
+          </div>
+
+          <div className="overflow-x-auto">
+            <div className="min-w-[1100px]">
+              <div className="grid h-[50px] items-center bg-[#5d6474] px-[30px] font-semibold text-white" style={{ gridTemplateColumns: COLS }}>
+                {["№", "Клиент", "Тип", "Дата создания", "Доставщик", "Дата доставки", "Агент", "Сумма заказа", "Баланс", "Статус"].map((head) => (
+                  <div key={head} className="px-2 leading-[18px]">{t(head)}</div>
+                ))}
+              </div>
+              {loading ? (
+                <div className="px-4 py-16 text-center text-slate-500">{t("Загрузка заказов...")}</div>
+              ) : loadError ? (
+                <div className="px-4 py-16 text-center text-red-600">{loadError}</div>
+              ) : pageRows.length === 0 ? (
+                <div className="px-4 py-16 text-center text-slate-500">{t("Ничего не найдено")}</div>
+              ) : (
+                pageRows.map((row) =>
+                  selected?.id === row.id ? (
+                    <div key={row.id} ref={detailRowRef} className="my-3 px-[2px]">
+                      <div className="sticky left-0 w-[calc(100vw-56px)] max-w-full">
+                        <OrderDetailCard order={selected} onUpdate={updateOrder} refreshOrder={refreshOrder} onNavigate={(href) => router.push(href)} onNotify={flash} />
+                      </div>
+                    </div>
+                  ) : (
+                    <div
+                      key={row.id}
+                      onClick={() => setSelected(row)}
+                      className="grid min-h-[50px] cursor-pointer items-center border-b border-dotted border-[#d6d6d6] bg-white px-[30px] py-[7px] hover:bg-[#f2f5f8]"
+                      style={{ gridTemplateColumns: COLS }}
+                    >
+                      <div className="flex items-center gap-2 px-2">
+                        {selectMode && (
+                          <input type="checkbox" checked={checkedIds.includes(row.id)} onClick={(event) => event.stopPropagation()} onChange={() => toggleChecked(row.id)} />
+                        )}
+                        {row.id}
+                      </div>
+                      <div className="px-2 leading-[16.25px]">{row.client}<br /><span>{t("Зона")} : {row.zone || t("Не указано")}</span></div>
+                      <div className="px-2 leading-[16.25px]">{row.type}<br /><b className="font-semibold">{row.product}</b></div>
+                      <div className="px-2">{row.created}</div>
+                      <div className="px-2 leading-[16.25px]">Admin Ritm<br /><span className="text-[#4f71dc]">{t("Не указано")}</span></div>
+                      <div className="px-2">{row.delivery}</div>
+                      <div className="px-2 leading-[16.25px]">{row.agent}<br /><span className="text-[#4f71dc]">{t("0 кг.")}</span></div>
+                      <div className="px-2">{row.amount}</div>
+                      <div className={`px-2 font-semibold ${row.negative ? "text-[#e57373]" : "text-[#48a34b]"}`}>{row.balance}</div>
+                      <div className="flex items-center gap-[10px] px-2">
+                        <StatusIcon status={row.status} />
+                        <svg viewBox="0 0 24 24" className="h-5 w-5 fill-[#e57373]"><path d={ICON.card} /></svg>
+                      </div>
+                    </div>
+                  ),
+                )
+              )}
+            </div>
+          </div>
         </div>
       </section>
 
-      {selected && (
-        <OrderDetail order={selected} close={() => setSelected(null)} onUpdate={updateOrder} refreshOrder={refreshOrder} router={router} />
-      )}
-
       {addOpen && (
-        <AddOrderModal onClose={() => setAddOpen(false)} onSave={addOrder} />
+        <AddOrderDialog initialShopId={initialShopId} onClose={closeAddDialog} onCreated={orderCreated} />
       )}
 
       {bulkPayOpen && (
@@ -285,7 +490,7 @@ export function OrdersView() {
                 setCheckedIds([])
               }}
               disabled={!checkedIds.length}
-              className="w-full rounded-md bg-[#70cf84] py-3 font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
+              className="w-full rounded-md bg-[#71ce87] py-3 font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
             >
               {t("Оплатить")}
             </button>
@@ -296,346 +501,73 @@ export function OrdersView() {
   )
 }
 
-function Tabs({ labels, value, onChange }: { labels: string[]; value: string; onChange: (v: string) => void }) {
-  const { t } = useLanguage()
-  return (
-    <>
-      {labels.map((label) => (
-        <button key={label} onClick={() => onChange(label)} className={`py-4 text-center ${value === label ? "border-b-4 border-[#586ce8]" : ""}`}>
-          {t(label)}
-        </button>
-      ))}
-    </>
-  )
+const TAB_LABELS = ["Активные", "Доставляется", "Доставленные", "Все"] as const
+const COLS = "minmax(0,87fr) minmax(0,198fr) minmax(0,173fr) minmax(0,124fr) minmax(0,148fr) minmax(0,99fr) minmax(0,99fr) minmax(0,124fr) minmax(0,111fr) minmax(0,74fr)"
+
+const ICON = {
+  warning: "M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z",
+  clock: "M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67z",
+  store: "M20 4H4v2h16V4zm1 10v-2l-1-5H4l-1 5v2h1v6h10v-6h4v6h2v-6h1zm-9 4H6v-4h6v4z",
+  map: "M20.5 3l-.16.03L15 5.1 9 3 3.36 4.9c-.21.07-.36.25-.36.48V20.5c0 .28.22.5.5.5l.16-.03L9 18.9l6 2.1 5.64-1.9c.21-.07.36-.25.36-.48V3.5c0-.28-.22-.5-.5-.5zM15 19l-6-2.11V5l6 2.11V19z",
+  card: "M20 4H4c-1.11 0-1.99.89-1.99 2L2 18c0 1.11.89 2 2 2h16c1.11 0 2-.89 2-2V6c0-1.11-.89-2-2-2zm0 14H4v-6h16v6zm0-10H4V6h16v2z",
+  chart: "M10 20h4V4h-4v16zm-6 0h4v-8H4v8zM16 9v11h4V9h-4z",
+  add: "M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm5 11h-4v4h-2v-4H7v-2h4V7h2v4h4v2z",
+  filter: "M10 18h4v-2h-4v2zM3 6v2h18V6H3zm3 7h12v-2H6v2z",
+  checklist: "M14 10H2v2h12v-2zm0-4H2v2h12V6zM2 16h8v-2H2v2zm19.5-4.5L23 13l-6.99 7-4.51-4.5L13 14l3.01 3 5.49-5.5z",
+  sync: "M19 8l-4 4h3c0 3.31-2.69 6-6 6-1.01 0-1.97-.25-2.8-.7l-1.46 1.46C8.97 19.54 10.43 20 12 20c4.42 0 8-3.58 8-8h3l-4-4zM6 12c0-3.31 2.69-6 6-6 1.01 0 1.97.25 2.8.7l1.46-1.46C15.03 4.46 13.57 4 12 4c-4.42 0-8 3.58-8 8H1l4 4 4-4H6z",
+  print: "M19 8H5c-1.66 0-3 1.34-3 3v6h4v4h12v-4h4v-6c0-1.66-1.34-3-3-3zm-3 11H8v-5h8v5zm3-7c-.55 0-1-.45-1-1s.45-1 1-1 1 .45 1 1-.45 1-1 1zm-1-9H6v4h12V3z",
+  download: "M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z",
+  edit: "M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z",
+  history: "M11 17c0 .55.45 1 1 1s1-.45 1-1-.45-1-1-1-1 .45-1 1zm0-14v4h2V5.08c3.39.49 6 3.39 6 6.92 0 3.87-3.13 7-7 7s-7-3.13-7-7c0-1.68.59-3.22 1.58-4.42L12 13l1.41-1.41-6.8-6.8v.02C4.42 6.45 3 9.05 3 12c0 4.97 4.02 9 9 9 4.97 0 9-4.03 9-9s-4.03-9-9-9h-1zm7 9c0-.55-.45-1-1-1s-1 .45-1 1 .45 1 1 1 1-.45 1-1zM6 12c0 .55.45 1 1 1s1-.45 1-1-.45-1-1-1-1 .45-1 1z",
+  textA: "M5 17v2h14v-2H5zm4.5-4.2h5l.9 2.2h2.1L12.75 4h-1.5L6.5 15h2.1l.9-2.2zM12 5.98L13.87 11h-3.74L12 5.98z",
+  send: "M2.01 21L23 12 2.01 3 2 10l15 2-15 2z",
+  clipboard: "M19 3h-4.18C14.4 1.84 13.3 1 12 1c-1.3 0-2.4.84-2.82 2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-7 0c.55 0 1 .45 1 1s-.45 1-1 1-1-.45-1-1 .45-1 1-1zm-2 14l-4-4 1.41-1.41L10 14.17l6.59-6.59L18 9l-8 8z",
+  truck: "M20 8h-3V4H3c-1.1 0-2 .9-2 2v11h2c0 1.66 1.34 3 3 3s3-1.34 3-3h6c0 1.66 1.34 3 3 3s3-1.34 3-3h2v-5l-3-4zM6 18.5c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zm13.5-9l1.96 2.5H17V9.5h2.5zm-1.5 9c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5z",
+  ban: "M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zM4 12c0-4.42 3.58-8 8-8 1.85 0 3.55.63 4.9 1.69L5.69 16.9C4.63 15.55 4 13.85 4 12zm8 8c-1.85 0-3.55-.63-4.9-1.69L18.31 7.1C19.37 8.45 20 10.15 20 12c0 4.42-3.58 8-8 8z",
 }
 
-function Field({ label, value, valueClassName }: { label: string; value: ReactNode; valueClassName?: string }) {
+function TopButton({ icon, text, onClick, green }: { icon: string; text: string; onClick: () => void; green?: boolean }) {
   return (
-    <div className="flex items-baseline justify-between gap-4 text-sm">
-      <span className="text-slate-500">{label}</span>
-      <b className={`text-right ${valueClassName ?? ""}`}>{value}</b>
-    </div>
-  )
-}
-
-function Button({ text, icon, onClick }: { text: string; icon?: ReactNode; onClick?: () => void }) {
-  return (
-    <button type="button" onClick={onClick} className="rounded-md bg-[#5271df] px-5 py-2.5 font-semibold text-white">
-      {icon && <span className="mr-2 inline-block align-middle">{icon}</span>}
-      {text}
+    <button type="button" onClick={onClick} className={`flex h-[30px] items-center rounded-[5px] pl-3 text-[13px] font-semibold text-white hover:brightness-95 ${green ? "bg-[#71ce87]" : "bg-[#4f71dc]"}`}>
+      <svg viewBox="0 0 24 24" className="mb-1 h-[18px] w-[18px] fill-white"><path d={icon} /></svg>
+      <span className="pl-2 pr-4">{text}</span>
     </button>
   )
 }
 
-function AddOrderModal({ onClose, onSave }: { onClose: () => void; onSave: (client: string) => void }) {
-  const [client, setClient] = useState("")
-  const { t } = useLanguage()
+function StatusIcon({ status }: { status: string }) {
+  const map: Record<string, { path: string; color: string }> = {
+    "Доставлено": { path: ICON.clipboard, color: "#81c784" },
+    "Есть на складе": { path: ICON.store, color: "#f0ad4e" },
+    "В пути": { path: ICON.truck, color: "#f0ad4e" },
+    "В процессе": { path: ICON.clock, color: "#f0ad4e" },
+    "Отменен": { path: ICON.ban, color: "#e57373" },
+  }
+  const item = map[status] ?? { path: ICON.warning, color: "#757575" }
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/45 p-4">
-      <form
-        onSubmit={(event) => {
-          event.preventDefault()
-          onSave(client.trim())
-        }}
-        className="w-full max-w-sm rounded-md bg-white p-6 shadow-xl"
-      >
-        <div className="mb-5 flex items-center justify-between">
-          <h3 className="text-lg font-bold">{t("Добавить заказ")}</h3>
-          <button type="button" onClick={onClose} aria-label={t("Закрыть")}><X className="h-5 w-5" /></button>
-        </div>
-        <label className="mb-5 block border-b border-slate-200 pb-2 text-[13px] font-medium text-slate-500">
-          {t("Клиент")}
-          <input autoFocus value={client} onChange={(event) => setClient(event.target.value)} className="mt-1 block w-full bg-transparent text-[16px] font-semibold text-slate-900 outline-none" />
-        </label>
-        <button type="submit" className="w-full rounded-md bg-[#70cf84] py-3 font-semibold text-white">{t("Создать")}</button>
-      </form>
-    </div>
+    <svg viewBox="0 0 24 24" className="h-5 w-5">
+      <path d={item.path} fill={item.color} />
+    </svg>
   )
 }
 
-function OrderDetail({
-  order,
-  close,
-  onUpdate,
-  refreshOrder,
-  router,
-}: {
-  order: Order
-  close: () => void
-  onUpdate: (id: number, patch: Partial<Order>) => void
-  refreshOrder: (id: number) => void
-  router: ReturnType<typeof useRouter>
-}) {
-  const { t } = useLanguage()
-  const [editOpen, setEditOpen] = useState(false)
-  const [editClient, setEditClient] = useState(order.client)
-  const [discountOpen, setDiscountOpen] = useState(false)
-  const [discountValue, setDiscountValue] = useState("")
-  const [tab, setTab] = useState("Список товаров")
-  const detailTabs = ["Список товаров", "Серии", "Возврат", "Задействованные акции", "Логи"]
-
-  function cycleStatus() {
-    const index = statuses.indexOf(order.status)
-    onUpdate(order.id, { status: statuses[(index + 1) % statuses.length] })
-  }
-
-  return (
-    <div className="fixed inset-0 z-[100] flex items-start justify-center overflow-y-auto bg-black/45 p-4 py-8" onClick={close}>
-    <section onClick={(event) => event.stopPropagation()} className="w-full max-w-6xl bg-white shadow-xl">
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b p-5">
-        <h2 className="text-2xl">{t("Заказ №")}{order.id}</h2>
-        <div className="flex flex-wrap gap-3">
-          <Button text={t("✎  Изменить статус")} onClick={cycleStatus} />
-          <Button text={t("✎  Изменить")} onClick={() => setEditOpen(true)} />
-          <Button text={t("⌁  Скидка")} onClick={() => setDiscountOpen(true)} />
-          <Button text={t("↩  Возврат")} onClick={() => router.push("/analytics/returns")} />
-          <Button text={t("▣  Распечатать")} onClick={() => window.print()} />
-          <button onClick={close} aria-label={t("Закрыть")}><X /></button>
-        </div>
-      </div>
-      <div className="grid grid-cols-1 gap-5 p-5 sm:grid-cols-3 sm:divide-x">
-        <div className="flex flex-col gap-2">
-          <Field label={t("Клиент:")} value={order.client} valueClassName="text-[#5271df]" />
-          <Field label={t("Транспорт:")} value={t("Не указан")} />
-          <Field label={t("Филиал:")} value={order.zone || "ddr"} />
-          <Field label={t("Склад:")} value="toshkent" />
-          <Field label={t("Договор:")} value={t("Не указан")} />
-          <Field label={t("Счет фактуры:")} value={t("Не активный")} valueClassName="text-orange-400" />
-          <Field label={t("Номер счет фактура:")} value={t("Не указано")} />
-          <Field label={t("Дата счет фактуры:")} value={t("Не указано")} />
-        </div>
-        <div className="flex flex-col gap-2 sm:px-5">
-          <Field label={t("Прайс-лист:")} value="donalik" />
-          <Field label={t("Организация:")} value="energetik" />
-          <Field label={t("Дата окончательной оплаты:")} value={order.delivery} />
-          <Field label={t("Тип оплаты:")} value={t("Наличные")} />
-          <Field label={t("Общая стоимость")} value={order.amount} />
-          {order.discount && <Field label={t("Скидка")} value={order.discount} valueClassName="text-[#278549]" />}
-          <Field label={t("Оплачено:")} value="0 SUM" />
-          <Field label={t("Остаток:")} value={order.balance} valueClassName={order.negative ? "text-red-400" : "text-slate-700"} />
-          <Field label={t("Оперативный долг клиента:")} value={order.negative ? order.balance : "0 SUM"} valueClassName="text-red-400" />
-          <Field label={t("Фактический долг клиента:")} value="0 SUM" valueClassName="text-[#278549]" />
-        </div>
-        <div className="flex flex-col gap-2 sm:pl-5">
-          <Field label={t("Создал:")} value={order.agent} />
-          <Field label={t("Доставщик:")} value={order.agent} />
-          <Field label={t("Экспедитор:")} value={t("Не указано")} />
-          <Field label={t("Дата создания:")} value={order.created} />
-          <Field label={t("Дата реализации:")} value={order.status === "Доставлено" ? order.delivery : t("Не реализовано")} />
-          <Field label={t("Текущий статус:")} value={t(order.status)} valueClassName="text-orange-400" />
-          <Field label={t("Тип передачи:")} value={t("Доставка")} />
-          <Field label={t("Дата доставки:")} value={order.delivery} />
-          <Field label={t("Тип сделки:")} value={t("Консигнация")} />
-        </div>
-      </div>
-      <div className="border-t">
-        <nav className="flex flex-wrap gap-6 border-b px-5 text-sm font-medium text-slate-500">
-          {detailTabs.map((label) => (
-            <button
-              key={label}
-              type="button"
-              onClick={() => setTab(label)}
-              className={`border-b-2 py-3 ${tab === label ? "border-[#5271df] text-[#5271df]" : "border-transparent hover:text-slate-700"}`}
-            >
-              {t(label)}
-            </button>
-          ))}
-        </nav>
-        {tab === "Список товаров" ? (
-          <OrderItemsTab orderId={order.id} onChange={() => refreshOrder(order.id)} />
-        ) : (
-          <p className="p-10 text-center text-slate-400">{t("Нет данных")}</p>
-        )}
-      </div>
-
-      {editOpen && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/45 p-4">
-          <form
-            onSubmit={(event) => {
-              event.preventDefault()
-              onUpdate(order.id, { client: editClient.trim() || order.client })
-              setEditOpen(false)
-            }}
-            className="w-full max-w-sm rounded-md bg-white p-6 shadow-xl"
-          >
-            <div className="mb-5 flex items-center justify-between">
-              <h3 className="text-lg font-bold">{t("Изменить заказ")}</h3>
-              <button type="button" onClick={() => setEditOpen(false)} aria-label={t("Закрыть")}><X className="h-5 w-5" /></button>
-            </div>
-            <label className="mb-5 block border-b border-slate-200 pb-2 text-[13px] font-medium text-slate-500">
-              {t("Клиент")}
-              <input autoFocus value={editClient} onChange={(event) => setEditClient(event.target.value)} className="mt-1 block w-full bg-transparent text-[16px] font-semibold text-slate-900 outline-none" />
-            </label>
-            <button type="submit" className="w-full rounded-md bg-[#5271df] py-3 font-semibold text-white">{t("Сохранить")}</button>
-          </form>
-        </div>
-      )}
-
-      {discountOpen && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/45 p-4">
-          <form
-            onSubmit={(event) => {
-              event.preventDefault()
-              if (discountValue.trim()) onUpdate(order.id, { discount: `${discountValue.trim()}%` })
-              setDiscountOpen(false)
-              setDiscountValue("")
-            }}
-            className="w-full max-w-sm rounded-md bg-white p-6 shadow-xl"
-          >
-            <div className="mb-5 flex items-center justify-between">
-              <h3 className="text-lg font-bold">{t("Скидка")}</h3>
-              <button type="button" onClick={() => setDiscountOpen(false)} aria-label={t("Закрыть")}><X className="h-5 w-5" /></button>
-            </div>
-            <label className="mb-5 block border-b border-slate-200 pb-2 text-[13px] font-medium text-slate-500">
-              {t("Скидка, %")}
-              <input autoFocus type="number" min="0" max="100" value={discountValue} onChange={(event) => setDiscountValue(event.target.value)} className="mt-1 block w-full bg-transparent text-[16px] font-semibold text-slate-900 outline-none" />
-            </label>
-            <button type="submit" className="w-full rounded-md bg-[#5271df] py-3 font-semibold text-white">{t("Применить")}</button>
-          </form>
-        </div>
-      )}
-    </section>
-    </div>
-  )
+function parseAmount(value: string) {
+  const match = /^([\d\s\u00a0.,-]+)\s*([A-Za-z]+)/.exec(value.trim())
+  if (!match) return null
+  const number = Number(match[1].replace(/[\s\u00a0]/g, "").replace(",", "."))
+  return Number.isFinite(number) ? { number, currency: match[2].toUpperCase() } : null
 }
 
-type OrderLineItem = {
-  id: number
-  productName: string
-  unit: string
-  quantity: number
-  unitPrice: number
-  currency: string
-  lineTotal: number
-}
-
-function OrderItemsTab({ orderId, onChange }: { orderId: number; onChange: () => void }) {
-  const { t } = useLanguage()
-  const [items, setItems] = useState<OrderLineItem[]>([])
-  const [loading, setLoading] = useState(true)
-  const [addOpen, setAddOpen] = useState(false)
-  const [productName, setProductName] = useState("")
-  const [quantity, setQuantity] = useState("1")
-  const [unit, setUnit] = useState("шт.")
-  const [unitPrice, setUnitPrice] = useState("")
-  const [error, setError] = useState("")
-
-  function load() {
-    setLoading(true)
-    fetch(`/api/orders/${orderId}/items`)
-      .then(async (response) => (response.ok ? ((await response.json()) as OrderLineItem[]) : []))
-      .then(setItems)
-      .finally(() => setLoading(false))
+function sumByCurrency(rows: Order[]) {
+  const totals = new Map<string, number>([["SUM", 0], ["EUR", 0], ["USD", 0]])
+  for (const row of rows) {
+    const parsed = parseAmount(row.amount)
+    if (parsed) totals.set(parsed.currency, (totals.get(parsed.currency) ?? 0) + parsed.number)
   }
-
-  useEffect(() => {
-    load()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [orderId])
-
-  async function addItem() {
-    setError("")
-    const parsedQuantity = Number(quantity)
-    const parsedPrice = Number(unitPrice)
-    if (!productName.trim()) {
-      setError(t("Наименование товара обязательно"))
-      return
-    }
-    if (!Number.isFinite(parsedQuantity) || parsedQuantity <= 0 || !Number.isFinite(parsedPrice) || parsedPrice < 0) {
-      setError(t("Проверьте количество и цену"))
-      return
-    }
-    const response = await fetch(`/api/orders/${orderId}/items`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ productName: productName.trim(), unit: unit.trim() || "шт.", quantity: parsedQuantity, unitPrice: parsedPrice }),
-    })
-    if (!response.ok) {
-      setError(t("Не удалось добавить товар"))
-      return
-    }
-    setProductName("")
-    setQuantity("1")
-    setUnitPrice("")
-    setAddOpen(false)
-    load()
-    onChange()
-  }
-
-  async function removeItem(itemId: number) {
-    const response = await fetch(`/api/orders/${orderId}/items/${itemId}`, { method: "DELETE" })
-    if (response.ok) {
-      load()
-      onChange()
-    }
-  }
-
-  return (
-    <div>
-      <table className="w-full border-t">
-        <thead className="bg-slate-100">
-          <tr>
-            <th className="p-3">№</th>
-            <th>{t("Товар")}</th>
-            <th>{t("Количество")}</th>
-            <th>{t("Цена")}</th>
-            <th>{t("Сумма")}</th>
-            <th />
-          </tr>
-        </thead>
-        <tbody>
-          {loading ? (
-            <tr><td colSpan={6} className="p-6 text-center text-slate-400">{t("Загрузка...")}</td></tr>
-          ) : items.length === 0 ? (
-            <tr><td colSpan={6} className="p-6 text-center text-slate-400">{t("Товары не добавлены")}</td></tr>
-          ) : (
-            items.map((item, index) => (
-              <tr key={item.id} className="border-t text-center">
-                <td className="p-3">{index + 1}</td>
-                <td>{item.productName}</td>
-                <td>{item.quantity} {item.unit}</td>
-                <td>{item.unitPrice.toLocaleString("ru-RU")} {item.currency}</td>
-                <td>{Math.round(item.lineTotal).toLocaleString("ru-RU")} {item.currency}</td>
-                <td>
-                  <button type="button" onClick={() => removeItem(item.id)} className="text-red-500 hover:text-red-700" aria-label={t("Удалить")}>
-                    <X className="mx-auto h-4 w-4" />
-                  </button>
-                </td>
-              </tr>
-            ))
-          )}
-        </tbody>
-      </table>
-
-      <div className="border-t p-4">
-        {addOpen ? (
-          <div className="flex flex-wrap items-end gap-3">
-            <label className="text-xs text-slate-500">
-              {t("Товар")}
-              <input value={productName} onChange={(event) => setProductName(event.target.value)} className="mt-1 block w-48 rounded border px-2 py-1.5 text-sm" autoFocus />
-            </label>
-            <label className="text-xs text-slate-500">
-              {t("Количество")}
-              <input type="number" min="0" step="any" value={quantity} onChange={(event) => setQuantity(event.target.value)} className="mt-1 block w-24 rounded border px-2 py-1.5 text-sm" />
-            </label>
-            <label className="text-xs text-slate-500">
-              {t("Ед. измерения")}
-              <input value={unit} onChange={(event) => setUnit(event.target.value)} className="mt-1 block w-20 rounded border px-2 py-1.5 text-sm" />
-            </label>
-            <label className="text-xs text-slate-500">
-              {t("Цена")}
-              <input type="number" min="0" step="any" value={unitPrice} onChange={(event) => setUnitPrice(event.target.value)} className="mt-1 block w-28 rounded border px-2 py-1.5 text-sm" />
-            </label>
-            <button type="button" onClick={addItem} className="rounded bg-[#5271df] px-4 py-1.5 text-sm font-semibold text-white">{t("Добавить")}</button>
-            <button type="button" onClick={() => setAddOpen(false)} className="rounded border px-4 py-1.5 text-sm">{t("Отмена")}</button>
-            {error && <span className="text-xs text-red-500">{error}</span>}
-          </div>
-        ) : (
-          <button type="button" onClick={() => setAddOpen(true)} className="flex items-center gap-1 text-sm font-medium text-[#5271df]">
-            <Plus className="h-4 w-4" /> {t("Добавить товар")}
-          </button>
-        )}
-      </div>
-    </div>
-  )
+  const label = (currency: string) => (currency === "EUR" ? "Euro" : currency)
+  return [...totals.entries()].map(([currency, number], index, all) => (
+    <span key={currency} className="mr-[5px]">
+      {number.toLocaleString("ru-RU", { maximumFractionDigits: 3 })} {label(currency)} {index < all.length - 1 ? "," : ""}
+    </span>
+  ))
 }

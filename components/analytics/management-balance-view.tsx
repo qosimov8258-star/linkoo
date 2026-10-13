@@ -47,31 +47,31 @@ export function ManagementBalanceView() {
   }
 
   return (
-    <main className="min-h-[calc(100vh-4rem)] bg-[#f1f4f8] px-9 py-5">
+    <main className="min-h-[calc(100vh-4rem)] bg-[#f2f5f8] px-7 pb-7">
       <header className="mb-5 flex items-center text-2xl font-bold text-slate-600">
-        <FavoritesButton className="inline-flex items-center gap-2 text-[#4f70e7]" />
+        <FavoritesButton className="inline-flex items-center gap-2 text-[#4f71dc]" />
         <span className="mx-2 text-slate-400">|</span> Управленческий баланс по филиалам
       </header>
 
       <section className="mb-5 flex flex-wrap items-end gap-6 rounded bg-white p-5 shadow">
         <label className="block text-sm font-medium text-slate-600">
           Организация
-          <select value={organization} onChange={(event) => setOrganization(event.target.value)} className="mt-1 block w-48 border-b border-slate-300 bg-white py-1.5 outline-none focus:border-[#4f70e7]">
+          <select value={organization} onChange={(event) => setOrganization(event.target.value)} className="mt-1 block w-48 border-b border-slate-300 bg-white py-1.5 outline-none focus:border-[#4f71dc]">
             {organizations.map((org) => <option key={org} value={org}>{org}</option>)}
           </select>
         </label>
         <label className="block text-sm font-medium text-slate-600">
           Филиалы
-          <select value={branchFilter} onChange={(event) => setBranchFilter(event.target.value)} className="mt-1 block w-48 border-b border-slate-300 bg-white py-1.5 outline-none focus:border-[#4f70e7]">
+          <select value={branchFilter} onChange={(event) => setBranchFilter(event.target.value)} className="mt-1 block w-48 border-b border-slate-300 bg-white py-1.5 outline-none focus:border-[#4f71dc]">
             {filterOptions.map((name) => <option key={name} value={name}>{name}</option>)}
           </select>
         </label>
         <div className="flex items-center gap-2">
-          <input type="date" value={dateFrom} max={dateTo} onChange={(event) => setDateFrom(event.target.value)} className="border-b border-slate-300 py-1.5 text-sm outline-none focus:border-[#4f70e7]" />
+          <input type="date" value={dateFrom} max={dateTo} onChange={(event) => setDateFrom(event.target.value)} className="border-b border-slate-300 py-1.5 text-sm outline-none focus:border-[#4f71dc]" />
           <span className="text-slate-400">—</span>
-          <input type="date" value={dateTo} min={dateFrom} onChange={(event) => setDateTo(event.target.value)} className="border-b border-slate-300 py-1.5 text-sm outline-none focus:border-[#4f70e7]" />
+          <input type="date" value={dateTo} min={dateFrom} onChange={(event) => setDateTo(event.target.value)} className="border-b border-slate-300 py-1.5 text-sm outline-none focus:border-[#4f71dc]" />
         </div>
-        <button type="button" onClick={apply} className="rounded bg-[#4f70e7] px-6 py-2.5 font-semibold text-white hover:brightness-95">
+        <button type="button" onClick={apply} className="rounded bg-[#4f71dc] px-6 py-2.5 font-semibold text-white hover:brightness-95">
           Применить
         </button>
       </section>

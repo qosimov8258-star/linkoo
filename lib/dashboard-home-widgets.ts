@@ -33,21 +33,21 @@ export const HOME_WIDGETS: HomeWidgetDef[] = [
   { key: "couriers", label: "Доставщики", kind: "placeholder", defaultChecked: true },
   { key: "cashboxes", label: "Кассы", kind: "cashboxSummary", defaultChecked: true },
   { key: "productAnalysis", label: "Анализ по товару", kind: "placeholder", defaultChecked: true },
-  { key: "warehouseWriteoff", label: "Склад списание по ндям", kind: "placeholder", defaultChecked: false },
-  { key: "ttVisitsByTp", label: "Посещение ТТ по ТП", kind: "placeholder", defaultChecked: false },
-  { key: "warehouseIncomeByDay", label: "Склад приход по дням", kind: "placeholder", defaultChecked: false },
-  { key: "fev4Info", label: "4-fev info", kind: "placeholder", defaultChecked: false },
-  { key: "visitConstructor", label: "конструктор по визитов", kind: "placeholder", defaultChecked: false },
-  { key: "testOtchot", label: "test otchot", kind: "placeholder", defaultChecked: false },
-  { key: "okbReport", label: "отчет ОКБ", kind: "placeholder", defaultChecked: false },
-  { key: "skidka", label: "skidka", kind: "placeholder", defaultChecked: false },
-  { key: "productTypeRating", label: "Тип продукта рейтинг 1", kind: "placeholder", defaultChecked: false },
-  { key: "testUchun", label: "Test Uchun", kind: "placeholder", defaultChecked: false },
-  { key: "productNames", label: "названия продукта", kind: "placeholder", defaultChecked: false },
-  { key: "agentReports", label: "отчеты по агентам", kind: "placeholder", defaultChecked: false },
+  { key: "warehouseWriteoff", label: "Склад списание по ндям", kind: "placeholder", defaultChecked: true },
+  { key: "ttVisitsByTp", label: "Посещение ТТ по ТП", kind: "placeholder", defaultChecked: true },
+  { key: "warehouseIncomeByDay", label: "Склад приход по дням", kind: "placeholder", defaultChecked: true },
+  { key: "fev4Info", label: "4-fev info", kind: "placeholder", defaultChecked: true },
+  { key: "visitConstructor", label: "конструктор по визитов", kind: "placeholder", defaultChecked: true },
+  { key: "testOtchot", label: "test otchot", kind: "placeholder", defaultChecked: true },
+  { key: "okbReport", label: "отчет ОКБ", kind: "placeholder", defaultChecked: true },
+  { key: "skidka", label: "skidka", kind: "placeholder", defaultChecked: true },
+  { key: "productTypeRating", label: "Тип продукта рейтинг 1", kind: "placeholder", defaultChecked: true },
+  { key: "testUchun", label: "Test Uchun", kind: "placeholder", defaultChecked: true },
+  { key: "productNames", label: "названия продукта", kind: "placeholder", defaultChecked: true },
+  { key: "agentReports", label: "отчеты по агентам", kind: "placeholder", defaultChecked: true },
 ]
 
-const STORAGE_KEY = "linko.dashboard.homeWidgets"
+const STORAGE_KEY = "linko.dashboard.homeWidgets.v2"
 
 export function defaultSelectedHomeWidgets(): string[] {
   return HOME_WIDGETS.filter((widget) => widget.defaultChecked).map((widget) => widget.key)

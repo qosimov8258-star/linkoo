@@ -31,6 +31,7 @@ const clientSchema = z.object({
   note: z.string().trim().optional(),
   autoDelivery: z.boolean().optional(),
   unlimitedDebt: z.boolean().optional(),
+  attributes: z.record(z.string(), z.string()).optional(),
 })
 
 type RouteParams = { params: Promise<{ id: string }> }
@@ -78,6 +79,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     note: parsed.data.note,
     autoDelivery: parsed.data.autoDelivery,
     unlimitedDebt: parsed.data.unlimitedDebt,
+    attributes: parsed.data.attributes,
   })
   if (!client) return NextResponse.json({ error: "Клиент не найден" }, { status: 404 })
   return NextResponse.json(client)

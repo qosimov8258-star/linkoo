@@ -99,7 +99,7 @@ export function BranchTabView() {
     <main className="min-h-screen bg-white text-[#17233b]">
       <header className="flex flex-wrap items-center gap-4 border-b border-[#d8dee7] bg-[#f2f5f8] px-6 py-4 md:px-9">
         <div className="flex items-center gap-3">
-          <FavoritesButton className="flex items-center gap-2 text-xl font-bold text-[#4f70e7]" /><span className="text-2xl font-light text-[#586174]">|</span>
+          <FavoritesButton className="flex items-center gap-2 text-xl font-bold text-[#4f71dc]" /><span className="text-2xl font-light text-[#586174]">|</span>
           <span className="text-xl font-bold text-[#586174]">Виджеты</span>
         </div>
         <nav className="ml-auto flex flex-wrap gap-2">
@@ -128,8 +128,8 @@ export function BranchTabView() {
           <span>Нет данных за выбранный период</span>
         </div>
         <div className="flex overflow-hidden rounded-sm">
-          <button onClick={() => setChartMode("type")} className={`px-5 py-2.5 text-[13px] font-bold uppercase tracking-wide ${chartMode === "type" ? "bg-[#4f70e7] text-white" : "border border-[#4f70e7] text-[#4f70e7]"}`}>Тип продукта</button>
-          <button onClick={() => setChartMode("brand")} className={`px-5 py-2.5 text-[13px] font-bold uppercase tracking-wide ${chartMode === "brand" ? "bg-[#4f70e7] text-white" : "border border-[#4f70e7] text-[#4f70e7]"}`}>Бренд</button>
+          <button onClick={() => setChartMode("type")} className={`px-5 py-2.5 text-[13px] font-bold uppercase tracking-wide ${chartMode === "type" ? "bg-[#4f71dc] text-white" : "border border-[#4f71dc] text-[#4f71dc]"}`}>Тип продукта</button>
+          <button onClick={() => setChartMode("brand")} className={`px-5 py-2.5 text-[13px] font-bold uppercase tracking-wide ${chartMode === "brand" ? "bg-[#4f71dc] text-white" : "border border-[#4f71dc] text-[#4f71dc]"}`}>Бренд</button>
         </div>
       </section>
 
@@ -180,7 +180,7 @@ export function BranchTabView() {
                   <th
                     key={`${group}-${currency}`}
                     onClick={() => (group === "Баланс на начало периода" ? toggleSort("opening") : group === "Баланс на конец" ? toggleSort("closing") : undefined)}
-                    className={`cursor-pointer select-none border-b border-[#e1e5eb] px-4 py-2 font-semibold hover:bg-[#f6f9fc] ${(group === "Баланс на начало периода" && sortKey === "opening") || (group === "Баланс на конец" && sortKey === "closing") ? "text-[#4f70e7]" : ""}`}
+                    className={`cursor-pointer select-none border-b border-[#e1e5eb] px-4 py-2 font-semibold hover:bg-[#f6f9fc] ${(group === "Баланс на начало периода" && sortKey === "opening") || (group === "Баланс на конец" && sortKey === "closing") ? "text-[#4f71dc]" : ""}`}
                   >
                     <span className="inline-flex items-center gap-1">{currency}<ChevronDown className="h-3 w-3" /></span>
                   </th>
@@ -208,8 +208,8 @@ export function BranchTabView() {
 
       <section className="mx-6 mb-10 rounded-md bg-white p-6 shadow-sm md:mx-9">
         <div className="mb-6 flex overflow-hidden rounded-sm">
-          <button onClick={() => setWarehouseTab("cost")} className={`px-5 py-2.5 text-[13px] font-bold uppercase tracking-wide ${warehouseTab === "cost" ? "bg-[#4f70e7] text-white" : "border border-[#4f70e7] text-[#4f70e7]"}`}>Себестоимость</button>
-          <button onClick={() => setWarehouseTab("priceList")} className={`px-5 py-2.5 text-[13px] font-bold uppercase tracking-wide ${warehouseTab === "priceList" ? "bg-[#4f70e7] text-white" : "border border-[#4f70e7] text-[#4f70e7]"}`}>Прайс лист</button>
+          <button onClick={() => setWarehouseTab("cost")} className={`px-5 py-2.5 text-[13px] font-bold uppercase tracking-wide ${warehouseTab === "cost" ? "bg-[#4f71dc] text-white" : "border border-[#4f71dc] text-[#4f71dc]"}`}>Себестоимость</button>
+          <button onClick={() => setWarehouseTab("priceList")} className={`px-5 py-2.5 text-[13px] font-bold uppercase tracking-wide ${warehouseTab === "priceList" ? "bg-[#4f71dc] text-white" : "border border-[#4f71dc] text-[#4f71dc]"}`}>Прайс лист</button>
         </div>
 
         <div className="grid grid-cols-1 gap-8 lg:grid-cols-[320px_1fr]">
@@ -226,7 +226,7 @@ export function BranchTabView() {
                 <tr>
                   <th className="px-4 py-3 text-left font-semibold">Склад</th>
                   <th className="px-4 py-3 text-left font-semibold">Баланс на начало</th>
-                  <th onClick={() => setWarehouseSort((current) => ({ key: "balance", dir: current?.dir === "asc" ? "desc" : "asc" }))} className="cursor-pointer px-4 py-3 text-left font-semibold hover:text-[#4f70e7]">
+                  <th onClick={() => setWarehouseSort((current) => ({ key: "balance", dir: current?.dir === "asc" ? "desc" : "asc" }))} className="cursor-pointer px-4 py-3 text-left font-semibold hover:text-[#4f71dc]">
                     <span className="inline-flex items-center gap-1">Баланс на конец<ChevronDown className="h-3.5 w-3.5" /></span>
                   </th>
                   <th className="px-4 py-3 text-left font-semibold">Разница</th>

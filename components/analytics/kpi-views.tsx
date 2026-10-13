@@ -63,7 +63,7 @@ export function KpiPerformanceView() {
       <header className="flex flex-wrap items-center justify-between gap-4 py-4 sm:px-5">
         <FavoritesButton className="flex items-center gap-2 text-2xl font-bold text-[#5470e8]" />
         <div className="flex flex-wrap gap-7">
-          <button type="button" onClick={() => router.push("/analytics/kpi-tasks")} className="rounded-md bg-[#6ccd8b] px-6 py-2.5 font-bold text-white">{t("KPI задачи")}</button>
+          <button type="button" onClick={() => router.push("/analytics/kpi-tasks")} className="rounded-md bg-[#71ce87] px-6 py-2.5 font-bold text-white">{t("KPI задачи")}</button>
           <button type="button" onClick={() => router.push("/analytics/salary-planning")} className="rounded-md bg-[#5470e8] px-6 py-2.5 font-bold text-white">{t("Зарплата и установка планов")}</button>
           <button type="button" onClick={() => router.push("/analytics/visits-by-day")} className="rounded-md bg-[#ff786e] px-6 py-2.5 font-bold text-white">{t("Посещения")}</button>
         </div>
@@ -75,7 +75,7 @@ export function KpiPerformanceView() {
       <section className="mt-10 grid gap-8 md:grid-cols-[312px_1fr]">
         <div><h2 className="mb-3 font-semibold">KPI</h2><div className="min-h-[600px] bg-white shadow"><button type="button" aria-current="true" onClick={() => { setRecalculating(true); window.setTimeout(() => setRecalculating(false), 600) }} className="w-full bg-slate-100 px-5 py-4 text-left font-semibold text-[#17233b]">{t("Общий объем во всех KPI")}</button></div></div>
         <div>
-          <div className="mb-3 flex items-center justify-between"><h2 className="font-semibold">{t("Общий объем")}</h2><div className="flex gap-7"><button type="button" onClick={downloadCsv} aria-label={t("Скачать")}><Download /></button><span>{t("данные за")}</span><button type="button" onClick={() => { setRecalculating(true); window.setTimeout(() => setRecalculating(false), 600) }} className="text-[#6ccd8b]"><RefreshCw className={`mr-2 inline h-4 w-4 ${recalculating ? "animate-spin" : ""}`} />{t("Перерасчет")}</button></div></div>
+          <div className="mb-3 flex items-center justify-between"><h2 className="font-semibold">{t("Общий объем")}</h2><div className="flex gap-7"><button type="button" onClick={downloadCsv} aria-label={t("Скачать")}><Download /></button><span>{t("данные за")}</span><button type="button" onClick={() => { setRecalculating(true); window.setTimeout(() => setRecalculating(false), 600) }} className="text-[#71ce87]"><RefreshCw className={`mr-2 inline h-4 w-4 ${recalculating ? "animate-spin" : ""}`} />{t("Перерасчет")}</button></div></div>
           <div className="flex min-h-[370px] flex-col items-center justify-center bg-white shadow"><Image src="/robot-mascot.png" alt={t("Робот-помощник")} width={150} height={150} priority /><p className="mt-6 text-slate-400">{t("По вашему запросу ничего не найдено...")}</p></div>
         </div>
       </section>
@@ -184,7 +184,7 @@ export function KpiTasksView() {
     <main className="min-h-[calc(100vh-4rem)] bg-slate-100 px-4 pb-8">
       <header className="flex flex-wrap items-center justify-between gap-4 py-4 sm:px-5">
         <div className="flex items-center gap-2 text-2xl font-bold text-[#5470e8]"><FavoritesButton className="flex items-center gap-2 text-2xl font-bold text-[#5470e8]" /> <span className="text-slate-500">|</span><span className="text-slate-600">{t("KPI задачи")}</span></div>
-        <div className="flex gap-5"><button type="button" onClick={() => router.push("/analytics/salary-planning")} className="rounded-md bg-[#6ccd8b] px-6 py-2.5 font-bold text-white"><PlusCircle className="mr-2 inline h-5 w-5" />{t("Установить зарплату и планы")}</button><button type="button" onClick={() => setModalOpen(true)} className="rounded-md bg-[#5470e8] px-6 py-2.5 font-bold text-white"><PlusCircle className="mr-2 inline h-5 w-5" />{t("Добавить KPI")}</button></div>
+        <div className="flex gap-5"><button type="button" onClick={() => router.push("/analytics/salary-planning")} className="rounded-md bg-[#71ce87] px-6 py-2.5 font-bold text-white"><PlusCircle className="mr-2 inline h-5 w-5" />{t("Установить зарплату и планы")}</button><button type="button" onClick={() => setModalOpen(true)} className="rounded-md bg-[#5470e8] px-6 py-2.5 font-bold text-white"><PlusCircle className="mr-2 inline h-5 w-5" />{t("Добавить KPI")}</button></div>
       </header>
       <div className="grid grid-cols-4 bg-white shadow">{["Активные", "Не активный", "Системные", "Все"].map((item) => <button key={item} type="button" onClick={() => { setTab(item); setPage(1) }} className={`py-5 ${tab === item ? "border-b-4 border-[#5470e8]" : ""}`}>{t(item)}</button>)}</div>
       <section className="mt-6 bg-white shadow">
@@ -321,7 +321,7 @@ function KpiTaskDetail({
           <p>
             {t("Дополнительные условия:")} <b className="ml-2 text-slate-900">{t("Нет дополнительных условий")}</b>
           </p>
-          <p className={task.active ? "font-semibold text-[#6ccd8b]" : "font-semibold text-red-500"}>{task.active ? t("Активный") : t("Не активный")}</p>
+          <p className={task.active ? "font-semibold text-[#71ce87]" : "font-semibold text-red-500"}>{task.active ? t("Активный") : t("Не активный")}</p>
           <p className="pt-3">
             {t("Заказы по дате:")} <b className="ml-2 text-slate-900">{t("Создания")}</b>
           </p>

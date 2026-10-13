@@ -185,7 +185,7 @@ export function SalesByProductsView() {
             <ListFilter className="mr-2 inline h-5 w-5" />Фильтр / 1
           </button>
           <strong className="text-[#5470e8]">{formatDate(from)} - {formatDate(to)} {filters.organization}</strong>
-          <button type="button" onClick={download} className="ml-auto rounded-md bg-[#6ccd8b] px-5 py-2.5 font-bold text-white">
+          <button type="button" onClick={download} className="ml-auto rounded-md bg-[#71ce87] px-5 py-2.5 font-bold text-white">
             <Download className="mr-2 inline h-5 w-5" />Скачать
           </button>
           {fullscreen && <button type="button" onClick={() => setFullscreen(false)} className="rounded border px-3 py-2">Закрыть</button>}
@@ -243,7 +243,7 @@ export function SalesByProductsView() {
               {(["branch", "brand", "organization", "productType", "status", "client", "agent", "clientType", "warehouse"] as FilterKey[]).map((key) => <FilterSelect key={key} name={key} value={filters[key]} onChange={(value) => setFilter(key, value)} />)}
               <label className="flex items-center gap-3"><input type="checkbox" checked={bonus} onChange={(event) => setBonus(event.target.checked)} className="h-5 w-5" />Показать бонусные продукты</label>
             </div>
-            <button type="submit" className="mt-5 w-full rounded bg-[#6ccd8b] py-3 font-bold text-white">Применить</button>
+            <button type="submit" className="mt-5 w-full rounded bg-[#71ce87] py-3 font-bold text-white">Применить</button>
           </form>
         </div>
       )}
@@ -255,7 +255,7 @@ function ProductTable({ rows, bonus }: { rows: ProductRow[]; bonus: boolean }) {
   return <div className="overflow-x-auto"><table className="min-w-[1400px] w-full border-collapse text-sm"><thead><tr className="bg-slate-100 text-slate-700"><th colSpan={2} /><Group title="Продажа" /><Group title="Возврат в этом периоде" /><Group title="Фактическая продажа" /><Group title="Скидки" /><Group title="Бонус" /></tr><tr className="bg-slate-100">{["Товар","Ед. измер","Кол-во","Сумма","Кол-во","Сумма","Кол-во","Сумма","Кол-во","Сумма","Кол-во","Сумма"].map((item, i) => <th key={`${item}-${i}`} className="border px-3 py-3">{item}</th>)}</tr></thead><tbody>{rows.length === 0 ? <tr><td colSpan={12} className="border px-3 py-16 text-center text-slate-400">Нет данных за выбранный период</td></tr> : rows.map((row) => { const cells = [row.name,row.unit,row.saleQty,row.saleSum,row.returnQty,row.returnSum,row.saleQty-row.returnQty,row.saleSum-row.returnSum,0,0,bonus ? 1 : 0,bonus ? 5000 : 0]; return <tr key={row.name}>{cells.map((cell, i) => <td key={i} className={`border px-2 py-3 ${i > 1 && Number(cell) > 0 ? "text-green-600" : ""}`}>{typeof cell === "number" ? cell.toLocaleString("ru-RU") : cell}</td>)}</tr>})}</tbody></table></div>
 }
 function Group({ title }: { title: string }) { return <th colSpan={2} className="border px-3 py-3">{title}</th> }
-function Summary({ label, sum, qty, right = false }: { label: string; sum: number; qty: number; right?: boolean }) { return <div className={`border px-5 py-3 ${right ? "text-right" : ""}`}><p className="text-slate-500">{label}</p><strong className="text-xl text-[#6ccd8b]">{sum.toLocaleString("ru-RU")} SUM <small className="text-base text-slate-700">({qty} шт)</small></strong></div> }
+function Summary({ label, sum, qty, right = false }: { label: string; sum: number; qty: number; right?: boolean }) { return <div className={`border px-5 py-3 ${right ? "text-right" : ""}`}><p className="text-slate-500">{label}</p><strong className="text-xl text-[#71ce87]">{sum.toLocaleString("ru-RU")} SUM <small className="text-base text-slate-700">({qty} шт)</small></strong></div> }
 function ModeButton({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) { return <button type="button" onClick={onClick} className={`rounded px-5 py-2.5 ${active ? "bg-[#5470e8] text-white shadow" : "border bg-white"}`}>{children}</button> }
 function formatDate(value: string) { const [year, month, day] = value.split("-"); return `${day}.${month}.${year}` }
 

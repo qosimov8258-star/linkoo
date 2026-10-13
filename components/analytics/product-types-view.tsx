@@ -1,10 +1,12 @@
 "use client"
 
-import { FileText, ImagePlus, Pencil, Trash2, X } from "lucide-react"
-import { ChangeEvent, Fragment, FormEvent, useEffect, useRef, useState } from "react"
+import { ImagePlus } from "lucide-react"
+import { ChangeEvent, FormEvent, useEffect, useRef, useState } from "react"
 
 import { downloadExcelTable } from "@/lib/excel-export"
 import { mapHeaderColumns, readExcelRows } from "@/lib/excel-import"
+import { useLanguage } from "@/lib/i18n/language-context"
+import { EmptyState, HoverActions, ImportDialog, LineField, LineSelect, ListToolbar, Modal, SaveButton, grayHead } from "./catalog-ui"
 import { productTypeOrganizations as organizations, type ProductType } from "./product-types-data"
 
 const IMPORT_HEADER_ALIASES: Record<string, string> = {
@@ -19,6 +21,8 @@ function emptyDraft() {
 }
 
 export function ProductTypesView({ embedded = false }: { embedded?: boolean }) {
+  void embedded
+  const { t } = useLanguage()
   const [types, setTypes] = useState<ProductType[]>([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState("")
@@ -30,7 +34,6 @@ export function ProductTypesView({ embedded = false }: { embedded?: boolean }) {
   const [importOpen, setImportOpen] = useState(false)
   const [importFile, setImportFile] = useState<File | null>(null)
   const [importSaving, setImportSaving] = useState(false)
-  const importInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -207,170 +210,99 @@ export function ProductTypesView({ embedded = false }: { embedded?: boolean }) {
     }
   }
 
-  function renderRow(type: ProductType, isChild: boolean) {
+  const dateOf = (value: string) => value.replace(/\s*г\.$/, "")
+  const yes = (type: ProductType) => (type.showInBot ? t("Да") : t("Нет"))
+  const rowBase = "group relative grid cursor-pointer items-center hover:bg-[#f8f9fb]"
+
+  function renderParent(type: ProductType) {
+    const kids = childrenOf(type.id)
+    if (kids.length === 0) {
+      return (
+        <div key={type.id} onClick={() => openEdit(type)} className={`${rowBase} min-h-[55px] grid-cols-[344px_337px_336px_1fr] border-b-2 border-dotted border-[#d9e0e5] pl-[15px]`}>
+          <span className="pr-4 font-bold">{type.name}</span>
+          <span>{type.organization}</span>
+          <span>{dateOf(type.createdDate)}</span>
+          <span>{yes(type)}</span>
+          <HoverActions onEdit={() => openEdit(type)} onDelete={() => remove(type.id)} />
+        </div>
+      )
+    }
     return (
-      <tr key={type.id} className="group border-b border-dashed border-slate-300 hover:bg-slate-50">
-        <td className={isChild ? "py-4 pl-20 pr-5" : "px-9 py-4 font-medium"}>{type.name}</td>
-        <td className="px-5 py-4">{type.organization}</td>
-        <td className="px-5 py-4">{type.createdDate}</td>
-        <td className="px-5 py-4">{type.showInBot ? "Да" : "Нет"}</td>
-        <td className="px-5 py-4">
-          <div className="hidden items-center justify-end gap-3 text-slate-500 group-hover:flex">
-            <button type="button" onClick={() => openEdit(type)} aria-label="Изменить">
-              <Pencil className="h-5 w-5" />
-            </button>
-            <button type="button" onClick={() => remove(type.id)} aria-label="Удалить">
-              <Trash2 className="h-5 w-5" />
-            </button>
+      <div key={type.id}>
+        <div onClick={() => openEdit(type)} className={`${rowBase} min-h-[50px] grid-cols-[337px_329px_328px_1fr] border-b-2 border-dotted border-[#d9e0e5] pl-[30px] font-bold`}>
+          <span className="pr-4">{type.name}</span>
+          <span>{type.organization}</span>
+          <span>{dateOf(type.createdDate)}</span>
+          <span>{yes(type)}</span>
+          <HoverActions onEdit={() => openEdit(type)} onDelete={() => remove(type.id)} />
+        </div>
+        {kids.map((child) => (
+          <div key={child.id} onClick={() => openEdit(child)} className={`${rowBase} mx-[30px] min-h-[45px] grid-cols-[442px_325px_216px_1fr] border-b-2 border-dotted border-[#d9e0e5] pl-[123px]`}>
+            <span className="pr-4">{child.name}</span>
+            <span>{child.organization}</span>
+            <span>{dateOf(child.createdDate)}</span>
+            <span>{yes(child)}</span>
+            <HoverActions onEdit={() => openEdit(child)} onDelete={() => remove(child.id)} />
           </div>
-        </td>
-      </tr>
+        ))}
+      </div>
     )
   }
 
   return (
-    <main className={embedded ? "min-w-0 flex-1" : "min-h-[calc(100vh-4rem)] bg-white px-9 py-5"}>
-      <div className="mb-4 flex flex-wrap items-center gap-5">
-        <button type="button" onClick={openCreate} className="text-[16px] text-[#4f70e7] hover:underline">
-          + добавить тип продукта
-        </button>
-        <button type="button" onClick={() => setImportOpen(true)} className="inline-flex items-center gap-2 text-[16px] text-[#4f70e7] hover:underline">
-          <FileText className="h-4 w-4" /> Импорт с Excel
-        </button>
+    <div className="min-h-[calc(100vh-50px)] min-w-0 flex-1 bg-white text-[13px] text-[#333]">
+      <ListToolbar
+        addLabel={t("добавить тип продукта")}
+        onAdd={openCreate}
+        extra={<button type="button" onClick={() => setImportOpen(true)} className="ml-[24px] pt-[8px] text-[13px] text-[#4f71dc] hover:underline">{t("Импорт с Excel")}</button>}
+      />
+
+      <div className={`${grayHead} grid-cols-[337px_329px_328px_1fr]`}>
+        <span>{t("Категории")}</span><span>{t("Организация")}</span><span>{t("Дата создания")}</span><span>{t("Показывать в боте")}</span>
       </div>
 
-      <table className="w-full text-left">
-        <thead className="bg-[#626b7e] text-white">
-          <tr>
-            <th className="px-9 py-5">Категории</th>
-            <th className="px-5 py-5">Организация</th>
-            <th className="px-5 py-5">Дата создания</th>
-            <th className="px-5 py-5">Показывать в боте</th>
-            <th className="w-20" />
-          </tr>
-        </thead>
-        <tbody>
-          {loading ? (
-            <tr><td colSpan={5} className="px-9 py-10 text-center text-slate-400">Загрузка типов продуктов...</td></tr>
-          ) : loadError ? (
-            <tr><td colSpan={5} className="px-9 py-10 text-center text-red-600">{loadError}</td></tr>
-          ) : (
-            topLevel.map((type) => (
-              <Fragment key={type.id}>
-                {renderRow(type, false)}
-                {childrenOf(type.id).map((child) => renderRow(child, true))}
-              </Fragment>
-            ))
-          )}
-          {!loading && !loadError && types.length === 0 && (
-            <tr>
-              <td colSpan={5} className="px-9 py-10 text-center text-slate-400">
-                Ничего не найдено
-              </td>
-            </tr>
-          )}
-        </tbody>
-      </table>
+      {loading ? (
+        <p className="py-16 text-center text-slate-400">{t("Загрузка типов продуктов...")}</p>
+      ) : loadError ? (
+        <p className="py-16 text-center text-red-600">{loadError}</p>
+      ) : (
+        topLevel.map((type) => renderParent(type))
+      )}
+      {!loading && !loadError && types.length === 0 && <EmptyState />}
 
       {editing !== null && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
-          <form onSubmit={save} className="w-full max-w-lg rounded bg-white">
-            <header className="flex items-center justify-between border-b p-6">
-              <b className="uppercase">{editing === "new" ? "Добавить тип продукта" : "Изменить тип продукта"}</b>
-              <button type="button" onClick={() => setEditing(null)} aria-label="Закрыть">
-                <X className="h-5 w-5" />
-              </button>
-            </header>
-            <div className="space-y-5 p-8">
-              <label className="block border-b border-slate-200 pb-2 font-medium">
-                Родительская категория
-                <select value={draft.parentId} onChange={(event) => setDraft((value) => ({ ...value, parentId: event.target.value }))} className="mt-2 block w-full bg-white outline-none">
-                  <option value="">Нет</option>
-                  {topLevel.filter((type) => editing === "new" || type.id !== (editing as ProductType).id).map((type) => (
-                    <option key={type.id} value={type.id}>{type.name}</option>
-                  ))}
-                </select>
-              </label>
-              <label className="block border-b border-slate-200 pb-2 font-medium">
-                Наименование категории <span className="text-red-500">*</span>
-                <input autoFocus value={draft.name} onChange={(event) => setDraft((value) => ({ ...value, name: event.target.value }))} className="mt-2 block w-full outline-none" />
-              </label>
-              <label className="block border-b border-slate-200 pb-2 font-medium">
-                Организация <span className="text-red-500">*</span>
-                <select value={draft.organization} onChange={(event) => setDraft((value) => ({ ...value, organization: event.target.value }))} className="mt-2 block w-full bg-white outline-none">
-                  {organizations.map((org) => <option key={org}>{org}</option>)}
-                </select>
-              </label>
-              <label className="block border-b border-slate-200 pb-2 font-medium">
-                Порядок
-                <input type="number" value={draft.order} onChange={(event) => setDraft((value) => ({ ...value, order: event.target.value }))} className="mt-2 block w-full outline-none" />
-              </label>
-
-              <input ref={fileInputRef} type="file" accept="image/*" onChange={pickPhoto} className="hidden" />
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                className="flex w-full flex-col items-center justify-center gap-2 rounded border-2 border-dashed border-slate-300 py-8 text-slate-500 hover:border-[#4f70e7] hover:text-[#4f70e7]"
-              >
-                <ImagePlus className="h-8 w-8" />
-                {draft.photoName || "Добавьте фото"}
-              </button>
-
-              <label className="flex items-center justify-between gap-3">
-                <span>
-                  <span className="block font-medium text-slate-800">Показывать в боте</span>
-                  <span className="block text-xs text-slate-500">Показывать в телеграм боте</span>
-                </span>
-                <button
-                  type="button"
-                  onClick={() => setDraft((value) => ({ ...value, showInBot: !value.showInBot }))}
-                  className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${draft.showInBot ? "bg-[#4f70e7]" : "bg-slate-300"}`}
-                >
-                  <span className={`absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${draft.showInBot ? "translate-x-5" : "translate-x-0"}`} />
-                </button>
-              </label>
-              {formError && <p className="text-sm font-medium text-rose-600">{formError}</p>}
-            </div>
-            <footer className="flex justify-end border-t p-5">
-              <button type="submit" disabled={saving} className="rounded bg-[#6ccd8b] px-6 py-3 font-semibold text-white hover:brightness-95 disabled:opacity-60">
-                {saving ? "Сохранение..." : "Сохранить"}
-              </button>
-            </footer>
-          </form>
-        </div>
-      )}
-
-      {importOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
-          <div className="w-full max-w-md rounded bg-white">
-            <header className="flex items-center justify-between border-b p-6">
-              <b className="uppercase">Импорт с Excel</b>
-              <button type="button" onClick={() => { setImportOpen(false); setImportFile(null) }} aria-label="Закрыть">
-                <X className="h-5 w-5" />
-              </button>
-            </header>
-            <div className="p-8">
-              <button type="button" onClick={downloadTemplate} className="mb-4 font-semibold text-[#4f70e7] hover:underline">
-                1. Скачать шаблон
-              </button>
-              <input ref={importInputRef} type="file" accept=".csv,.xls,.xlsx" onChange={pickImportFile} className="hidden" />
-              <button
-                type="button"
-                onClick={() => importInputRef.current?.click()}
-                className="flex w-full flex-col items-center justify-center gap-3 rounded border-2 border-dashed border-slate-300 py-10 text-slate-500 hover:border-[#4f70e7] hover:text-[#4f70e7]"
-              >
-                <FileText className="h-8 w-8" />
-                {importFile ? importFile.name : "Добавьте файл Excel или нажмите для выбора"}
-              </button>
-            </div>
-            <footer className="flex justify-end border-t p-5">
-              <button type="button" disabled={!importFile || importSaving} onClick={saveImport} className="rounded bg-[#6ccd8b] px-5 py-3 font-semibold text-white hover:brightness-95 disabled:opacity-40">
-                {importSaving ? "Импорт..." : "Сохранить"}
-              </button>
-            </footer>
+        <Modal
+          title={editing === "new" ? t("Добавить тип продукта") : t("Изменить тип продукта")}
+          onClose={() => setEditing(null)}
+          footer={<SaveButton disabled={saving || !draft.name.trim()} onClick={() => void save({ preventDefault() {} } as FormEvent)}>{saving ? t("Сохранение...") : t("Сохранить")}</SaveButton>}
+        >
+          <LineSelect
+            label={t("Родительская категория")}
+            value={topLevel.find((type) => String(type.id) === draft.parentId)?.name ?? ""}
+            onChange={(name) => setDraft((value) => ({ ...value, parentId: String(topLevel.find((type) => type.name === name)?.id ?? "") }))}
+            options={topLevel.filter((type) => editing === "new" || type.id !== (editing as ProductType).id).map((type) => type.name)}
+            onClear={() => setDraft((value) => ({ ...value, parentId: "" }))}
+          />
+          <div className="mt-[27px]"><LineField label={t("Наименование категории")} required value={draft.name} onChange={(value) => setDraft((current) => ({ ...current, name: value }))} /></div>
+          <div className="mt-[27px]"><LineSelect label={t("Организация")} required value={draft.organization} onChange={(value) => setDraft((current) => ({ ...current, organization: value }))} options={organizations} onClear={() => setDraft((current) => ({ ...current, organization: "" }))} /></div>
+          <div className="mt-[27px]"><LineField label={t("Порядок")} value={draft.order} onChange={(value) => setDraft((current) => ({ ...current, order: value }))} /></div>
+          <input ref={fileInputRef} type="file" accept="image/*" onChange={pickPhoto} className="hidden" />
+          <button type="button" onClick={() => fileInputRef.current?.click()} className="mt-[24px] flex h-[80px] w-[110px] flex-col items-center justify-center gap-1 border border-dashed border-[#c9ced6] text-[12px] text-[#9aa3b0] hover:text-[#4f71dc]">
+            <ImagePlus className="h-6 w-6" />
+            {draft.photoName || t("Добавьте фото")}
+          </button>
+          <div className="mt-[24px] flex items-center gap-[10px]">
+            <button type="button" role="switch" aria-checked={draft.showInBot} onClick={() => setDraft((value) => ({ ...value, showInBot: !value.showInBot }))} className="relative h-[22px] w-[40px] shrink-0">
+              <span className={`absolute left-[2px] top-[4px] h-[14px] w-[34px] rounded-full ${draft.showInBot ? "bg-[#a7b8ed]" : "bg-[#bdbdbd]"}`} />
+              <span className={`absolute top-0 h-[22px] w-[22px] rounded-full shadow-[0_1px_4px_rgba(0,0,0,0.35)] transition-all ${draft.showInBot ? "left-[18px] bg-[#4f71dc]" : "left-0 bg-white"}`} />
+            </button>
+            <span className="leading-[16px]"><span className="font-semibold">{t("Показывать в боте")}</span><span className="block text-[#555]">{t("Показывать в телеграм боте")}</span></span>
           </div>
-        </div>
+          {formError && <p className="mt-4 text-[13px] font-semibold text-rose-600">{formError}</p>}
+        </Modal>
       )}
-    </main>
+
+      {importOpen && <ImportDialog file={importFile} onFile={setImportFile} onTemplate={downloadTemplate} onSave={saveImport} saving={importSaving} onClose={() => { setImportOpen(false); setImportFile(null) }} />}
+    </div>
   )
 }

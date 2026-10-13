@@ -322,11 +322,11 @@ export function SalaryPlanningView() {
       <header className="flex flex-wrap items-center justify-between gap-4 py-4 sm:px-5">
         <div className="flex items-center gap-2 text-2xl font-bold text-[#5470e8]"><FavoritesButton className="flex items-center gap-2 text-2xl font-bold text-[#5470e8]" /> <span className="text-slate-500">|</span><span className="text-slate-600">Зарплата и установка планов</span></div>
         <div className="flex flex-wrap gap-4">
-          <button type="button" onClick={() => void recalcKpi()} className="rounded-md bg-[#6ccd8b] px-5 py-2.5 font-bold text-white"><RefreshCw className={`mr-2 inline h-5 w-5 ${recalculating ? "animate-spin" : ""}`} />Перерасчет KPI</button>
+          <button type="button" onClick={() => void recalcKpi()} className="rounded-md bg-[#71ce87] px-5 py-2.5 font-bold text-white"><RefreshCw className={`mr-2 inline h-5 w-5 ${recalculating ? "animate-spin" : ""}`} />Перерасчет KPI</button>
           <input ref={fileRef} type="file" accept=".csv" onChange={importCsv} className="hidden" />
           <button type="button" onClick={() => fileRef.current?.click()} className="rounded-md bg-[#5470e8] px-5 py-2.5 font-bold text-white"><RefreshCw className="mr-2 inline h-5 w-5" />Обновить с excel</button>
-          <button type="button" onClick={exportCsv} className="rounded-md bg-[#6ccd8b] px-5 py-2.5 font-bold text-white"><Download className="mr-2 inline h-5 w-5" />Скачать EXCEL</button>
-          <button type="button" onClick={() => setAddOpen(true)} className="rounded-md bg-[#6ccd8b] px-5 py-2.5 font-bold text-white"><PlusCircle className="mr-2 inline h-5 w-5" />Добавить зарплату</button>
+          <button type="button" onClick={exportCsv} className="rounded-md bg-[#71ce87] px-5 py-2.5 font-bold text-white"><Download className="mr-2 inline h-5 w-5" />Скачать EXCEL</button>
+          <button type="button" onClick={() => setAddOpen(true)} className="rounded-md bg-[#71ce87] px-5 py-2.5 font-bold text-white"><PlusCircle className="mr-2 inline h-5 w-5" />Добавить зарплату</button>
           <button type="button" onClick={() => setImportOpen(true)} className="rounded-md bg-[#5470e8] px-5 py-2.5 font-bold text-white"><FileText className="mr-2 inline h-5 w-5" />Импорт с Excel</button>
         </div>
       </header>
@@ -350,7 +350,7 @@ export function SalaryPlanningView() {
           <button type="button" aria-label="Назад" disabled={page === 1} onClick={() => setPage((value) => value - 1)} className="rounded-full border-2 p-1 disabled:opacity-30"><ChevronLeft className="h-4 w-4" /></button>
           <button type="button" aria-label="Вперед" disabled={page === pages} onClick={() => setPage((value) => value + 1)} className="rounded-full border-2 p-1 disabled:opacity-30"><ChevronRight className="h-4 w-4" /></button>
           <ListChecks className="text-slate-500" />
-          <button type="button" disabled={!selected.length} onClick={() => setCredited(true)} className="rounded bg-[#6ccd8b] px-5 py-2 font-bold text-white disabled:opacity-50">Зачислить</button>
+          <button type="button" disabled={!selected.length} onClick={() => setCredited(true)} className="rounded bg-[#71ce87] px-5 py-2 font-bold text-white disabled:opacity-50">Зачислить</button>
           <button type="button" disabled={!selected.length} onClick={() => setCredited(false)} className="rounded bg-[#ff786e] px-5 py-2 font-bold text-white disabled:opacity-50">Отменить зачисление</button>
           <button type="button" disabled={!selected.length} onClick={() => setPlansOpen(true)} className="rounded bg-[#5470e8] px-5 py-2 font-bold text-white disabled:opacity-50"><Pencil className="mr-2 inline h-4 w-4" />Изменить планы</button>
           <button type="button" aria-label="Копировать выбранные" onClick={() => void duplicateSelected()}><Copy /></button>
@@ -385,7 +385,7 @@ export function SalaryPlanningView() {
               </button>
             </div>
             <footer className="flex justify-end border-t p-5">
-              <button type="button" disabled={!importFile || importSaving} onClick={saveImport} className="rounded bg-[#6ccd8b] px-5 py-3 font-semibold text-white hover:brightness-95 disabled:opacity-40">
+              <button type="button" disabled={!importFile || importSaving} onClick={saveImport} className="rounded bg-[#71ce87] px-5 py-3 font-semibold text-white hover:brightness-95 disabled:opacity-40">
                 {importSaving ? "Импорт..." : "Сохранить"}
               </button>
             </footer>

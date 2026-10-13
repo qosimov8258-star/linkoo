@@ -44,8 +44,8 @@ export function GoodsMovementView() {
   }
 
   return (
-    <section className="min-h-[calc(100vh-64px)] bg-[#f2f5f9] p-4 text-[#18233a] md:p-9">
-      <h1 className="mb-5 flex items-center text-2xl font-semibold text-[#566074]"><FavoritesButton className="flex items-center gap-2 text-[#4f70e7]" /> | План приемок и передач</h1>
+    <section className="min-h-[calc(100vh-64px)] bg-[#f2f5f8] p-4 text-[#18233a] md:p-9">
+      <h1 className="mb-5 flex items-center text-2xl font-semibold text-[#566074]"><FavoritesButton className="flex items-center gap-2 text-[#4f71dc]" /> | План приемок и передач</h1>
       <div className="overflow-hidden rounded-sm bg-white shadow">
         <div className="grid grid-cols-2 md:grid-cols-5">
           {tabs.map((item) => (
@@ -90,14 +90,14 @@ export function GoodsMovementView() {
               )
             })}
             <label className="mt-5 block text-xs">Период</label><input defaultValue="01 июля 2026 - 31 июля 2026" className="w-full border-b py-2" />
-            <button onClick={() => setFilterOpen(false)} className="mt-6 rounded bg-[#626c80] px-5 py-3 text-white">ПРИМЕНИТЬ</button>
+            <button onClick={() => setFilterOpen(false)} className="mt-6 rounded bg-[#5d6474] px-5 py-3 text-white">ПРИМЕНИТЬ</button>
           </div>
         )}
 
         <div className="overflow-x-auto">
           <table className="w-full min-w-[1050px] border-collapse text-left">
-            <thead><tr className="bg-[#626b7d] text-white">{["Товар", "Кол-во", "Серия", "Дата", "Склад", "Тип"].map((heading) => <th key={heading} className="px-10 py-5">{heading}</th>)}</tr></thead>
-            <tbody>{filtered.map((row, index) => <tr key={`${row[0]}-${index}`} className="border-b border-dashed even:bg-[#f3f6f9]">{row.map((cell, cellIndex) => <td key={cellIndex} className={`px-10 py-5 ${cellIndex === 0 ? (String(row[1]).startsWith("-") ? "before:mr-2 before:text-red-400 before:content-['↑']" : "before:mr-2 before:text-green-500 before:content-['↓']") : ""}`}>{cell}</td>)}</tr>)}</tbody>
+            <thead><tr className="bg-[#5d6474] text-white">{["Товар", "Кол-во", "Серия", "Дата", "Склад", "Тип"].map((heading) => <th key={heading} className="px-10 py-5">{heading}</th>)}</tr></thead>
+            <tbody>{filtered.map((row, index) => <tr key={`${row[0]}-${index}`} className="border-b border-dashed even:bg-[#f2f5f8]">{row.map((cell, cellIndex) => <td key={cellIndex} className={`px-10 py-5 ${cellIndex === 0 ? (String(row[1]).startsWith("-") ? "before:mr-2 before:text-red-400 before:content-['↑']" : "before:mr-2 before:text-green-500 before:content-['↓']") : ""}`}>{cell}</td>)}</tr>)}</tbody>
           </table>
         </div>
       </div>

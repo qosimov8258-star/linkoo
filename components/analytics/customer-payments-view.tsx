@@ -39,9 +39,9 @@ function parseRuDate(value: string): number {
 }
 
 function PaymentIcon({ type }: { type: "cash" | "card" }) {
-  if (type === "card") return <CreditCard className="inline h-4 w-4 text-[#4f70e7]" />
+  if (type === "card") return <CreditCard className="inline h-4 w-4 text-[#4f71dc]" />
   return (
-    <span className="inline-flex h-4 w-4 items-center justify-center rounded-[3px] bg-[#4f70e7] text-[10px] font-bold text-white">S</span>
+    <span className="inline-flex h-4 w-4 items-center justify-center rounded-[3px] bg-[#4f71dc] text-[10px] font-bold text-white">S</span>
   )
 }
 
@@ -215,10 +215,10 @@ export function CustomerPaymentsView() {
   }
 
   return (
-    <main className="min-h-screen bg-[#f1f4f8] text-[#17233b]">
+    <main className="min-h-screen bg-[#f2f5f8] text-[#17233b]">
       <header className="flex min-h-[76px] items-center justify-between border-b border-[#d8dee7] bg-[#f2f5f8] px-6 md:px-9">
         <div className="flex items-center gap-3">
-          <FavoritesButton className="flex items-center gap-2 text-2xl font-bold text-[#4f70e7]" /><span className="text-3xl font-light text-[#586174]">|</span>
+          <FavoritesButton className="flex items-center gap-2 text-2xl font-bold text-[#4f71dc]" /><span className="text-3xl font-light text-[#586174]">|</span>
           <span className="text-2xl font-bold text-[#586174]">Оплаты от клиентов</span>
         </div>
         <button onClick={downloadExcel} className="flex h-11 items-center gap-2 rounded-md bg-[#69cd87] px-5 font-semibold text-white">
@@ -249,7 +249,7 @@ export function CustomerPaymentsView() {
       </section>
 
       <section className="flex flex-wrap items-center gap-5 border-b border-[#e1e5eb] bg-white px-6 py-3 md:px-9">
-        <button onClick={() => setFilterOpen((value) => !value)} className="flex items-center gap-1 font-medium text-[#4f70e7]">
+        <button onClick={() => setFilterOpen((value) => !value)} className="flex items-center gap-1 font-medium text-[#4f71dc]">
           <Filter className="h-4 w-4" /> Показать фильтр <ChevronDown className={`h-4 w-4 transition ${filterOpen ? "rotate-180" : ""}`} />
         </button>
 
@@ -269,7 +269,7 @@ export function CustomerPaymentsView() {
         <button disabled={safePage === 1} onClick={() => setPage((value) => Math.max(1, value - 1))} className="rounded-full border border-[#dbe0e8] p-1 text-[#9aa3b6] disabled:opacity-40">
           <ChevronDown className="h-5 w-5 rotate-90" />
         </button>
-        <button disabled={safePage === maxPage} onClick={() => setPage((value) => Math.min(maxPage, value + 1))} className="rounded-full border border-[#4f70e7] p-1 text-[#4f70e7] disabled:opacity-40">
+        <button disabled={safePage === maxPage} onClick={() => setPage((value) => Math.min(maxPage, value + 1))} className="rounded-full border border-[#4f71dc] p-1 text-[#4f71dc] disabled:opacity-40">
           <ChevronDown className="h-5 w-5 -rotate-90" />
         </button>
 
@@ -306,7 +306,7 @@ export function CustomerPaymentsView() {
 
       <section className="overflow-x-auto bg-white pb-10">
         <table className="min-w-[1750px] w-full border-collapse text-[14px]">
-          <thead className="bg-[#626b7e] text-white">
+          <thead className="bg-[#5d6474] text-white">
             <tr>
               {(
                 [
@@ -351,7 +351,7 @@ export function CustomerPaymentsView() {
                 <td className="px-4 py-4 align-top">{row.id}</td>
                 <td className="px-4 py-4 align-top">
                   <div>{row.client}</div>
-                  {row.clientCode && <div className="text-[13px] font-medium text-[#4f70e7]">{row.clientCode}</div>}
+                  {row.clientCode && <div className="text-[13px] font-medium text-[#4f71dc]">{row.clientCode}</div>}
                 </td>
                 <td className="px-4 py-4 align-top">{row.createdBy}</td>
                 <td className="px-4 py-4 align-top">{row.paidAt}</td>
@@ -378,7 +378,7 @@ export function CustomerPaymentsView() {
                 <td className="relative px-4 py-4 align-top">
                   <div className="group-hover:invisible">
                     {row.accepted
-                      ? <span className="font-medium text-[#4f70e7]">{row.kassa}</span>
+                      ? <span className="font-medium text-[#4f71dc]">{row.kassa}</span>
                       : <span className="text-[#17233b]">Не принято</span>}
                   </div>
                   <div className="invisible absolute inset-0 flex items-center gap-3 px-4 group-hover:visible">
@@ -396,9 +396,9 @@ export function CustomerPaymentsView() {
                         value={editingComment}
                         onChange={(event) => setEditingComment(event.target.value)}
                         onKeyDown={(event) => event.key === "Enter" && saveEdit(row.id)}
-                        className="w-full border-b border-[#4f70e7] bg-transparent text-sm outline-none"
+                        className="w-full border-b border-[#4f71dc] bg-transparent text-sm outline-none"
                       />
-                      <button onClick={() => saveEdit(row.id)} className="text-xs font-semibold text-[#4f70e7]">OK</button>
+                      <button onClick={() => saveEdit(row.id)} className="text-xs font-semibold text-[#4f71dc]">OK</button>
                     </div>
                   ) : (
                     row.comment

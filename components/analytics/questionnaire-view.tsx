@@ -238,17 +238,17 @@ export function QuestionnaireView() {
   ]
 
   return (
-    <main className="min-h-[calc(100vh-4rem)] bg-[#f1f4f8] px-9 py-5">
+    <main className="min-h-[calc(100vh-4rem)] bg-[#f2f5f8] px-7 pb-7">
       <header className="mb-5 flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-bold text-slate-600">
-          <FavoritesButton className="inline-flex items-center gap-2 text-[#4f70e7]" />{" "}
+          <FavoritesButton className="inline-flex items-center gap-2 text-[#4f71dc]" />{" "}
           <span className="mx-2 text-slate-400">|</span> Опросник
         </h1>
         <div className="flex items-center gap-3">
-          <button type="button" onClick={() => setImportOpen(true)} className="inline-flex items-center gap-2 rounded bg-[#4f70e7] px-5 py-3 font-semibold text-white hover:brightness-95">
+          <button type="button" onClick={() => setImportOpen(true)} className="inline-flex items-center gap-2 rounded bg-[#4f71dc] px-5 py-3 font-semibold text-white hover:brightness-95">
             <FileText className="h-4 w-4" /> Импорт с Excel
           </button>
-          <button type="button" onClick={openCreate} className="rounded bg-[#6ccd8b] px-5 py-3 font-semibold text-white hover:brightness-95">
+          <button type="button" onClick={openCreate} className="rounded bg-[#71ce87] px-5 py-3 font-semibold text-white hover:brightness-95">
             <PlusCircle className="mr-2 inline h-5 w-5" />
             Добавить
           </button>
@@ -262,7 +262,7 @@ export function QuestionnaireView() {
               key={item.key}
               type="button"
               onClick={() => setTab(item.key)}
-              className={`flex-1 border-b-2 py-4 text-[15px] font-medium ${tab === item.key ? "border-[#4f70e7] text-[#4f70e7]" : "border-transparent text-slate-600 hover:text-slate-800"}`}
+              className={`flex-1 border-b-2 py-4 text-[15px] font-medium ${tab === item.key ? "border-[#4f71dc] text-[#4f71dc]" : "border-transparent text-slate-600 hover:text-slate-800"}`}
             >
               {item.label}
             </button>
@@ -270,12 +270,12 @@ export function QuestionnaireView() {
         </div>
 
         <div className="flex flex-wrap items-center gap-4 px-5 py-3">
-          <button type="button" onClick={() => setFilterOpen((value) => !value)} className="inline-flex items-center gap-2 rounded bg-[#4f70e7] px-5 py-3 font-semibold text-white hover:brightness-95">
+          <button type="button" onClick={() => setFilterOpen((value) => !value)} className="inline-flex items-center gap-2 rounded bg-[#4f71dc] px-5 py-3 font-semibold text-white hover:brightness-95">
             <Filter className="h-4 w-4" />
             Показать фильтр
           </button>
           <label className="relative w-64">
-            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Поиск" className="w-full border-b border-slate-300 py-3 pr-10 outline-none focus:border-[#4f70e7]" />
+            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Поиск" className="w-full border-b border-slate-300 py-3 pr-10 outline-none focus:border-[#4f71dc]" />
             <Search className="absolute right-2 top-3 h-5 w-5 text-slate-300" />
           </label>
           <span className="ml-auto text-slate-500">25</span>
@@ -290,14 +290,14 @@ export function QuestionnaireView() {
           <div className="flex flex-wrap items-end gap-4 border-t border-slate-200 bg-slate-50 px-5 py-4">
             <label className="text-sm font-medium text-slate-600">
               Организация
-              <select value={organizationFilter} onChange={(event) => setOrganizationFilter(event.target.value)} className="mt-1 block w-56 border-0 border-b border-slate-300 bg-white px-0 py-2 outline-none focus:border-[#4f70e7]">
+              <select value={organizationFilter} onChange={(event) => setOrganizationFilter(event.target.value)} className="mt-1 block w-56 border-0 border-b border-slate-300 bg-white px-0 py-2 outline-none focus:border-[#4f71dc]">
                 <option>Все организации</option>
                 {organizations.map((item) => (
                   <option key={item}>{item}</option>
                 ))}
               </select>
             </label>
-            <button type="button" onClick={() => setFilterOpen(false)} className="rounded bg-[#626b7e] px-5 py-2.5 font-semibold text-white hover:brightness-95">
+            <button type="button" onClick={() => setFilterOpen(false)} className="rounded bg-[#5d6474] px-5 py-2.5 font-semibold text-white hover:brightness-95">
               Применить
             </button>
           </div>
@@ -305,7 +305,7 @@ export function QuestionnaireView() {
 
         <div className="overflow-x-auto">
           <table className="w-full min-w-[720px] text-left">
-            <thead className="bg-[#626b7e] text-white">
+            <thead className="bg-[#5d6474] text-white">
               <tr>
                 <th className="px-9 py-5">№</th>
                 <th className="px-5 py-5">Название</th>
@@ -318,13 +318,13 @@ export function QuestionnaireView() {
                 <tr key={survey.id} className={`border-b border-dashed border-slate-300 hover:bg-slate-50 ${selected === survey.id ? "bg-slate-50" : ""}`}>
                   <td className="px-12 py-5">{survey.id}</td>
                   <td className="px-5 py-5">
-                    <button type="button" onClick={() => setSelected((current) => (current === survey.id ? null : survey.id))} className="text-left text-[#4f70e7] hover:underline">
+                    <button type="button" onClick={() => setSelected((current) => (current === survey.id ? null : survey.id))} className="text-left text-[#4f71dc] hover:underline">
                       {survey.name}
                     </button>
                   </td>
                   <td className="px-5 py-5">{survey.createdAt}</td>
                   <td className="px-5 py-5">
-                    <span className={survey.active ? "text-[#6ccd8b]" : "text-slate-400"}>{survey.active ? "Активный" : "Отключен"}</span>
+                    <span className={survey.active ? "text-[#71ce87]" : "text-slate-400"}>{survey.active ? "Активный" : "Отключен"}</span>
                   </td>
                 </tr>
               ))}
@@ -346,10 +346,10 @@ export function QuestionnaireView() {
                 № {detail.id} - {detail.name}
               </h2>
               <div className="flex items-center gap-4 text-slate-500">
-                <button type="button" onClick={() => downloadSurvey(detail)} aria-label="Скачать" className="hover:text-[#4f70e7]">
+                <button type="button" onClick={() => downloadSurvey(detail)} aria-label="Скачать" className="hover:text-[#4f71dc]">
                   <Download className="h-5 w-5" />
                 </button>
-                <button type="button" onClick={() => openEdit(detail)} aria-label="Изменить" className="hover:text-[#4f70e7]">
+                <button type="button" onClick={() => openEdit(detail)} aria-label="Изменить" className="hover:text-[#4f71dc]">
                   <Pencil className="h-5 w-5" />
                 </button>
                 <button type="button" onClick={() => remove(detail.id)} aria-label="Удалить" className="hover:text-red-500">
@@ -411,12 +411,12 @@ export function QuestionnaireView() {
                 <textarea value={draft.comment} onChange={(event) => setDraft((value) => ({ ...value, comment: event.target.value }))} rows={3} className="mt-3 block w-full resize-none outline-none" />
               </label>
               <label className="flex items-center gap-3 font-medium">
-                <input type="checkbox" checked={draft.active} onChange={(event) => setDraft((value) => ({ ...value, active: event.target.checked }))} className="h-5 w-5 accent-[#4f70e7]" />
+                <input type="checkbox" checked={draft.active} onChange={(event) => setDraft((value) => ({ ...value, active: event.target.checked }))} className="h-5 w-5 accent-[#4f71dc]" />
                 Активный
               </label>
             </div>
             <footer className="flex justify-end border-t p-5">
-              <button type="submit" className="rounded bg-[#6ccd8b] px-5 py-3 font-semibold text-white hover:brightness-95">
+              <button type="submit" className="rounded bg-[#71ce87] px-5 py-3 font-semibold text-white hover:brightness-95">
                 Сохранить
               </button>
             </footer>
@@ -434,21 +434,21 @@ export function QuestionnaireView() {
               </button>
             </header>
             <div className="p-8">
-              <button type="button" onClick={downloadTemplate} className="mb-4 font-semibold text-[#4f70e7] hover:underline">
+              <button type="button" onClick={downloadTemplate} className="mb-4 font-semibold text-[#4f71dc] hover:underline">
                 1. Скачать шаблон
               </button>
               <input ref={importInputRef} type="file" accept=".csv,.xls,.xlsx" onChange={pickImportFile} className="hidden" />
               <button
                 type="button"
                 onClick={() => importInputRef.current?.click()}
-                className="flex w-full flex-col items-center justify-center gap-3 rounded border-2 border-dashed border-slate-300 py-10 text-slate-500 hover:border-[#4f70e7] hover:text-[#4f70e7]"
+                className="flex w-full flex-col items-center justify-center gap-3 rounded border-2 border-dashed border-slate-300 py-10 text-slate-500 hover:border-[#4f71dc] hover:text-[#4f71dc]"
               >
                 <FileText className="h-8 w-8" />
                 {importFile ? importFile.name : "Добавьте файл Excel или нажмите для выбора"}
               </button>
             </div>
             <footer className="flex justify-end border-t p-5">
-              <button type="button" disabled={!importFile || importSaving} onClick={saveImport} className="rounded bg-[#6ccd8b] px-5 py-3 font-semibold text-white hover:brightness-95 disabled:opacity-40">
+              <button type="button" disabled={!importFile || importSaving} onClick={saveImport} className="rounded bg-[#71ce87] px-5 py-3 font-semibold text-white hover:brightness-95 disabled:opacity-40">
                 {importSaving ? "Импорт..." : "Сохранить"}
               </button>
             </footer>

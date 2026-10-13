@@ -79,17 +79,17 @@ export function CashbackWithdrawalRequestsView() {
   }
 
   return (
-    <main className="min-h-screen bg-[#f1f4f8] text-[#17233b]">
+    <main className="min-h-screen bg-[#f2f5f8] text-[#17233b]">
       <header className="flex min-h-[76px] items-center border-b border-[#d8dee7] bg-[#f2f5f8] px-6 md:px-9">
         <div className="flex items-center gap-3">
-          <FavoritesButton className="flex items-center gap-2 text-2xl font-bold text-[#4f70e7]" /><span className="text-3xl font-light text-[#586174]">|</span>
+          <FavoritesButton className="flex items-center gap-2 text-2xl font-bold text-[#4f71dc]" /><span className="text-3xl font-light text-[#586174]">|</span>
           <span className="text-2xl font-bold text-[#586174]">Запросы на снятие кэшбэка</span>
         </div>
       </header>
 
       <section className="mx-4 mt-4 rounded-md bg-white shadow-sm md:mx-6">
         <div className="flex flex-wrap items-center gap-5 border-b border-[#e1e5eb] px-6 py-4">
-          <button onClick={() => setFilterOpen((value) => !value)} className="flex items-center gap-1 font-medium text-[#4f70e7]">
+          <button onClick={() => setFilterOpen((value) => !value)} className="flex items-center gap-1 font-medium text-[#4f71dc]">
             <Filter className="h-4 w-4" /> Показать фильтр <ChevronDown className={`h-4 w-4 transition ${filterOpen ? "rotate-180" : ""}`} />
           </button>
 
@@ -109,7 +109,7 @@ export function CashbackWithdrawalRequestsView() {
           <button disabled={safePage === 1} onClick={() => setPage((value) => Math.max(1, value - 1))} className="rounded-full border border-[#dbe0e8] p-1 text-[#9aa3b6] disabled:opacity-40">
             <ChevronDown className="h-5 w-5 rotate-90" />
           </button>
-          <button disabled={safePage === maxPage} onClick={() => setPage((value) => Math.min(maxPage, value + 1))} className="rounded-full border border-[#4f70e7] p-1 text-[#4f70e7] disabled:opacity-40">
+          <button disabled={safePage === maxPage} onClick={() => setPage((value) => Math.min(maxPage, value + 1))} className="rounded-full border border-[#4f71dc] p-1 text-[#4f71dc] disabled:opacity-40">
             <ChevronDown className="h-5 w-5 -rotate-90" />
           </button>
         </div>
@@ -128,7 +128,7 @@ export function CashbackWithdrawalRequestsView() {
 
         <div className="overflow-x-auto pb-2">
           <table className="w-full min-w-[800px] border-collapse text-[14px]">
-            <thead className="bg-[#626b7e] text-white">
+            <thead className="bg-[#5d6474] text-white">
               <tr>
                 {["№", "Клиент", "Сумма", "Валюта", "Статус"].map((title) => (
                   <th key={title} className="whitespace-nowrap px-4 py-4 text-left font-semibold">{title}</th>

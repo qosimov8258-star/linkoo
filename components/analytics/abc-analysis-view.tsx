@@ -196,7 +196,7 @@ export function AbcAnalysisView() {
           <FavoritesButton className="flex items-center gap-2 text-[#5470e8]" />
           <span className="text-slate-500">|</span><h1 className="text-slate-600">ABC анализ</h1>
         </div>
-        <div className="flex gap-4"><button type="button" onClick={downloadCsv} className="rounded-md bg-[#6ccd8b] px-5 py-2.5 font-bold text-white"><Download className="mr-2 inline h-5 w-5" />Скачать Excel</button><button type="button" onClick={() => setDashboardOpen(true)} className="rounded-md bg-[#5470e8] px-5 py-2.5 font-bold text-white"><PlusCircle className="mr-2 inline h-5 w-5" />Добавить в дашборд</button></div>
+        <div className="flex gap-4"><button type="button" onClick={downloadCsv} className="rounded-md bg-[#71ce87] px-5 py-2.5 font-bold text-white"><Download className="mr-2 inline h-5 w-5" />Скачать Excel</button><button type="button" onClick={() => setDashboardOpen(true)} className="rounded-md bg-[#5470e8] px-5 py-2.5 font-bold text-white"><PlusCircle className="mr-2 inline h-5 w-5" />Добавить в дашборд</button></div>
       </header>
       <section className="bg-white px-4 py-3 sm:px-10">
         <form onSubmit={apply}>
@@ -209,7 +209,7 @@ export function AbcAnalysisView() {
             <SelectFilter label="Заказ оформил" value={orderUser} setValue={setOrderUser} options={orderUsers} />
             <SelectFilter label="Группировать по" value={groupBy} setValue={setGroupBy} options={["Продукт", "Бренд", "Филиал"]} />
           </div>
-          <button type="submit" disabled={from > to} className="mt-3 w-full rounded-md bg-[#6ccd8b] py-3 font-bold text-white disabled:opacity-50">Применить</button>
+          <button type="submit" disabled={from > to} className="mt-3 w-full rounded-md bg-[#71ce87] py-3 font-bold text-white disabled:opacity-50">Применить</button>
         </form>
         <div className="mt-3 overflow-x-auto border visits-scrollbar">
           <table className="min-w-[1250px] w-full border-collapse">

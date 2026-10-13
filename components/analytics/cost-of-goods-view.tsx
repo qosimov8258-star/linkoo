@@ -299,18 +299,18 @@ export function CostOfGoodsView({ embedded = false }: { embedded?: boolean }) {
   }
 
   return (
-    <main className={embedded ? "min-w-0 flex-1" : "min-h-[calc(100vh-4rem)] bg-[#f1f4f8] px-9 py-5"}>
+    <main className={embedded ? "min-w-0 flex-1" : "min-h-[calc(100vh-4rem)] bg-[#f2f5f8] px-7 pb-7"}>
       {!embedded && (
         <header className="mb-5 flex flex-wrap items-center justify-between gap-3">
           <h1 className="flex items-center text-2xl font-bold text-slate-600">
-            <FavoritesButton className="inline-flex items-center gap-2 text-[#4f70e7]" />
+            <FavoritesButton className="inline-flex items-center gap-2 text-[#4f71dc]" />
             <span className="mx-2 text-slate-400">|</span> Себестоимость
           </h1>
           <div className="flex flex-wrap items-center gap-3">
-            <button type="button" onClick={runCheck} className="rounded bg-[#4f70e7] px-4 py-2.5 font-semibold text-white hover:brightness-95">Проверить</button>
-            <button type="button" onClick={() => setModal("recalc")} className="rounded bg-[#4f70e7] px-4 py-2.5 font-semibold text-white hover:brightness-95">Перерасчет</button>
-            <button type="button" onClick={() => setModal("rewrite")} className="rounded bg-[#4f70e7] px-4 py-2.5 font-semibold text-white hover:brightness-95">Перезаписать</button>
-            <button type="button" onClick={() => setModal("regenerate")} className="rounded bg-[#4f70e7] px-4 py-2.5 font-semibold text-white hover:brightness-95">Сгенерировать заново</button>
+            <button type="button" onClick={runCheck} className="rounded bg-[#4f71dc] px-4 py-2.5 font-semibold text-white hover:brightness-95">Проверить</button>
+            <button type="button" onClick={() => setModal("recalc")} className="rounded bg-[#4f71dc] px-4 py-2.5 font-semibold text-white hover:brightness-95">Перерасчет</button>
+            <button type="button" onClick={() => setModal("rewrite")} className="rounded bg-[#4f71dc] px-4 py-2.5 font-semibold text-white hover:brightness-95">Перезаписать</button>
+            <button type="button" onClick={() => setModal("regenerate")} className="rounded bg-[#4f71dc] px-4 py-2.5 font-semibold text-white hover:brightness-95">Сгенерировать заново</button>
           </div>
         </header>
       )}
@@ -347,11 +347,11 @@ export function CostOfGoodsView({ embedded = false }: { embedded?: boolean }) {
 
       <section className="overflow-hidden rounded bg-white shadow">
         <div className="flex flex-wrap items-center gap-4 px-5 py-3">
-          <button type="button" onClick={() => setFilterOpen((value) => !value)} className="inline-flex items-center gap-1 text-[#4f70e7] hover:underline">
+          <button type="button" onClick={() => setFilterOpen((value) => !value)} className="inline-flex items-center gap-1 text-[#4f71dc] hover:underline">
             Показать фильтр <ChevronDown className={`h-4 w-4 transition-transform ${filterOpen ? "rotate-180" : ""}`} />
           </button>
           <label className="relative w-64">
-            <input value={query} onChange={(event) => { setQuery(event.target.value); setPage(1) }} placeholder="Поиск" className="w-full border-b border-slate-300 py-2 pr-10 outline-none focus:border-[#4f70e7]" />
+            <input value={query} onChange={(event) => { setQuery(event.target.value); setPage(1) }} placeholder="Поиск" className="w-full border-b border-slate-300 py-2 pr-10 outline-none focus:border-[#4f71dc]" />
             <Search className="absolute right-2 top-2 h-5 w-5 text-slate-300" />
           </label>
           <span className="ml-auto text-slate-500">25</span>
@@ -364,7 +364,7 @@ export function CostOfGoodsView({ embedded = false }: { embedded?: boolean }) {
           <button type="button" onClick={() => setPage((value) => Math.min(pageCount, value + 1))} disabled={safePage >= pageCount} aria-label="Вперед" className="disabled:opacity-30">
             <ChevronRight className="h-5 w-5 text-slate-400" />
           </button>
-          <button type="button" onClick={downloadList} aria-label="Скачать" className="text-slate-500 hover:text-[#4f70e7]">
+          <button type="button" onClick={downloadList} aria-label="Скачать" className="text-slate-500 hover:text-[#4f71dc]">
             <Upload className="h-5 w-5 rotate-180" />
           </button>
         </div>
@@ -390,7 +390,7 @@ export function CostOfGoodsView({ embedded = false }: { embedded?: boolean }) {
         )}
 
         <table className="w-full text-left">
-          <thead className="bg-[#626b7e] text-white">
+          <thead className="bg-[#5d6474] text-white">
             <tr>
               <th className="px-9 py-5">Наименование</th>
               <th className="px-5 py-5">Склад</th>
@@ -476,7 +476,7 @@ export function CostOfGoodsView({ embedded = false }: { embedded?: boolean }) {
               </label>
             </div>
             <footer className="flex justify-end border-t p-5">
-              <button type="submit" className="rounded bg-[#6ccd8b] px-6 py-3 font-semibold text-white hover:brightness-95">Сохранить</button>
+              <button type="submit" className="rounded bg-[#71ce87] px-6 py-3 font-semibold text-white hover:brightness-95">Сохранить</button>
             </footer>
           </form>
         </div>
@@ -498,11 +498,11 @@ export function CostOfGoodsView({ embedded = false }: { embedded?: boolean }) {
               <div className="grid grid-cols-2 gap-4">
                 <label className="text-xs font-medium text-slate-600">
                   Дата от
-                  <input type="date" value={dateFrom} max={dateTo} onChange={(event) => setDateFrom(event.target.value)} className="mt-1 block w-full border-0 border-b border-slate-300 bg-transparent py-2 text-sm outline-none focus:border-[#4f70e7]" />
+                  <input type="date" value={dateFrom} max={dateTo} onChange={(event) => setDateFrom(event.target.value)} className="mt-1 block w-full border-0 border-b border-slate-300 bg-transparent py-2 text-sm outline-none focus:border-[#4f71dc]" />
                 </label>
                 <label className="text-xs font-medium text-slate-600">
                   Дата до
-                  <input type="date" value={dateTo} min={dateFrom} onChange={(event) => setDateTo(event.target.value)} className="mt-1 block w-full border-0 border-b border-slate-300 bg-transparent py-2 text-sm outline-none focus:border-[#4f70e7]" />
+                  <input type="date" value={dateTo} min={dateFrom} onChange={(event) => setDateTo(event.target.value)} className="mt-1 block w-full border-0 border-b border-slate-300 bg-transparent py-2 text-sm outline-none focus:border-[#4f71dc]" />
                 </label>
               </div>
               <div className="space-y-3">
@@ -526,7 +526,7 @@ export function CostOfGoodsView({ embedded = false }: { embedded?: boolean }) {
               </div>
             </div>
             <footer className="flex justify-end border-t p-5">
-              <button type="submit" className="rounded bg-[#6ccd8b] px-6 py-3 font-semibold text-white hover:brightness-95">
+              <button type="submit" className="rounded bg-[#71ce87] px-6 py-3 font-semibold text-white hover:brightness-95">
                 {modal === "rewrite" ? "Сохранить" : "Сгенерировать"}
               </button>
             </footer>

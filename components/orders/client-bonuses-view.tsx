@@ -1,17 +1,13 @@
 "use client";
 
-import { ChangeEvent, FormEvent, useMemo, useRef, useState } from "react";
+import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
   ChevronLeft,
   ChevronRight,
-  Download,
-  Filter,
   Plus,
-  Search,
-  Upload,
   X,
 } from "lucide-react";
-import { FavoritesButton } from "@/components/dashboard/favorites-drawer";
+import { RI, RefButton, RefCard, RefHeader, RefIconButton, RefPage, RefTable, RefToolbar, usePaging } from "@/components/ref/list-kit";
 import { useLanguage } from "@/lib/i18n/language-context";
 
 type BonusEntry = {
@@ -53,6 +49,26 @@ export function ClientBonusesView() {
   const [formError, setFormError] = useState("");
   const [notice, setNotice] = useState("");
   const importRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/clients")
+      .then((response) => (response.ok ? response.json() : []))
+      .then((data: { id: number; name: string }[]) => {
+        if (cancelled || !Array.isArray(data)) return;
+        setClients(
+          data
+            .slice()
+            .sort((a, b) => b.id - a.id)
+            .map((client) => ({ id: client.id, name: client.name, points: 0, lastScore: "Не получатель", history: [] })),
+        );
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  const paging = usePaging(0);
 
   const filteredClients = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -171,27 +187,21 @@ export function ClientBonusesView() {
     setFormError("");
   }
 
+  const pageCount = Math.max(1, Math.ceil(filteredClients.length / paging.pageSize));
+  const currentPage = Math.min(paging.page, pageCount);
+  const startIndex = (currentPage - 1) * paging.pageSize;
+  const pagedClients = filteredClients.slice(startIndex, startIndex + paging.pageSize);
+
   return (
-    <main className="min-h-screen bg-[#f2f5f9] px-9 pb-12 pt-5 text-[#233047]">
+    <RefPage>
       <input ref={importRef} className="hidden" type="file" accept=".csv,text/csv" onChange={importCsv} />
 
-      <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-[27px] font-bold text-[#5d687b]">
-          <FavoritesButton className="text-[#4d6fe2]" />
-          <span className="mx-3 text-[#667184]">|</span>
-          {t("Бонусы клиентов")}
-        </h1>
-        <button
-          onClick={() => importRef.current?.click()}
-          className="inline-flex items-center gap-2 rounded-md bg-[#5273df] px-5 py-2.5 font-semibold text-white shadow-sm transition hover:bg-[#4264d0]"
-        >
-          <Upload size={19} />
-          {t("Импортировать")}
-        </button>
-      </div>
+      <RefHeader title={t("Бонусы клиентов")}>
+        <RefButton icon={RI.chart} label={t("Импортировать")} onClick={() => importRef.current?.click()} />
+      </RefHeader>
 
       {notice && (
-        <div className="mb-3 flex items-center justify-between rounded-md border border-[#b6dfbf] bg-[#effaf1] px-4 py-2 text-sm text-[#368c4e]">
+        <div className="mb-3 flex items-center justify-between rounded bg-[#e9f8ed] px-4 py-3 text-[13px] text-[#278549]">
           {notice}
           <button onClick={() => setNotice("")} aria-label={t("Закрыть уведомление")}>
             <X size={17} />
@@ -199,109 +209,73 @@ export function ClientBonusesView() {
         </div>
       )}
 
-      <section className="overflow-hidden rounded-sm bg-white shadow-sm">
-        <div className="flex flex-wrap items-center gap-4 border-b border-[#e0e4eb] px-2 py-3">
-          <button
-            onClick={() => setFilterOpen((value) => !value)}
-            className="inline-flex items-center gap-2 rounded-md bg-[#5273df] px-4 py-2.5 font-semibold text-white shadow-sm hover:bg-[#4264d0]"
-          >
-            <Filter size={18} />
-            {t("Показать фильтр")}
-          </button>
-
-          <label className="mx-auto flex w-full max-w-[380px] items-center border-b border-[#d9dfe8] px-1 py-1 text-[#7c8799] sm:w-[380px]">
-            <input
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder={t("Поиск")}
-              className="w-full bg-transparent text-[16px] outline-none placeholder:text-[#b3bcc9]"
-            />
-            <Search size={25} className="text-[#b5bdc8]" />
-          </label>
-
-          <div className="ml-auto flex items-center gap-4 whitespace-nowrap text-[#596477]">
-            <span>25⌄</span>
-            <span>1 - {Math.min(25, filteredClients.length)} {t("из")} {filteredClients.length}</span>
-            <ChevronLeft className="rounded-full border border-[#b5bdc8] p-0.5" size={25} />
-            <ChevronRight className="rounded-full border border-[#8b95a5] p-0.5" size={25} />
-            <button onClick={exportCsv} title={t("Скачать Excel/CSV")} className="text-[#616c7b] hover:text-[#5273df]">
-              <Download size={28} />
-            </button>
-          </div>
-        </div>
-
-        {filterOpen && (
-          <div className="flex flex-wrap items-center gap-3 border-b border-[#e0e4eb] bg-[#f8fafc] px-5 py-3">
-            <span className="font-semibold">{t("Фильтр по баллам:")}</span>
-            {[
-              ["all", "Все клиенты"],
-              ["positive", "Положительный балл"],
-              ["zero", "Без баллов"],
-              ["negative", "Минусовой балл"],
-            ].map(([value, label]) => (
-              <label key={value} className="inline-flex cursor-pointer items-center gap-2 text-sm">
-                <input
-                  type="radio"
-                  name="score-filter"
-                  checked={draftFilter === value}
-                  onChange={() => setDraftFilter(value as typeof draftFilter)}
-                />
-                {t(label)}
-              </label>
-            ))}
-            <button onClick={applyFilter} className="rounded bg-[#70cf88] px-4 py-2 text-sm font-bold text-white">
-              {t("Применить")}
-            </button>
-          </div>
-        )}
-
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[820px] border-collapse text-left">
-            <thead className="bg-[#626d82] text-white">
-              <tr>
-                <th className="px-9 py-4 font-bold">{t("№")}</th>
-                <th className="px-9 py-4 font-bold">{t("Наименование")}</th>
-                <th className="px-9 py-4 font-bold">{t("Балл")}</th>
-                <th className="px-9 py-4 font-bold">{t("Дата последнего бала")}</th>
-                <th className="w-24 px-4 py-4" aria-label={t("Действия")} />
-              </tr>
-            </thead>
-            <tbody>
-              {filteredClients.map((client) => (
-                <tr
-                  key={client.id}
-                  onClick={() => setSelectedClient(client)}
-                  className="cursor-pointer border-b-2 border-dotted border-[#dce4ec] bg-white transition hover:bg-[#f2f6ff]"
-                >
-                  <td className="px-9 py-4">{client.id}</td>
-                  <td className="px-9 py-4 text-[17px]">{client.name}</td>
-                  <td className={`px-9 py-4 text-[17px] ${client.points < 0 ? "text-[#e46666]" : ""}`}>{client.points}</td>
-                  <td className="px-9 py-4 text-[17px]">{client.lastScore}</td>
-                  <td className="px-4 py-4 text-center">
-                    <button
-                      title={t("Добавить балл")}
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        setBonusClient(client);
-                        setBonusKind("minus");
-                        setFormError("");
-                      }}
-                      className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-[#88c56f] text-white hover:bg-[#70b25a]"
-                    >
-                      <Plus size={17} strokeWidth={3} />
-                    </button>
-                  </td>
-                </tr>
+      <RefCard>
+        <RefToolbar
+          filterOpen={filterOpen}
+          onToggleFilter={() => setFilterOpen((value) => !value)}
+          filterPanel={
+            <div className="flex w-[520px] flex-wrap items-center gap-3 border border-slate-200 bg-white p-4 text-[13px] shadow-xl">
+              <span className="font-semibold">{t("Фильтр по баллам:")}</span>
+              {[
+                ["all", "Все клиенты"],
+                ["positive", "Положительный балл"],
+                ["zero", "Без баллов"],
+                ["negative", "Минусовой балл"],
+              ].map(([value, label]) => (
+                <label key={value} className="inline-flex cursor-pointer items-center gap-2">
+                  <input type="radio" name="score-filter" checked={draftFilter === value} onChange={() => setDraftFilter(value as typeof draftFilter)} />
+                  {t(label)}
+                </label>
               ))}
-              {!filteredClients.length && (
-                <tr>
-                  <td colSpan={5} className="px-8 py-16 text-center text-[#8b95a5]">{t("Ничего не найдено")}</td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </section>
+              <button onClick={applyFilter} className="h-[30px] rounded-[5px] bg-[#71ce87] px-4 text-[13px] font-semibold text-white">
+                {t("Применить")}
+              </button>
+            </div>
+          }
+          query={search}
+          onQuery={(value) => {
+            setSearch(value);
+            paging.setPage(1);
+          }}
+          pageSize={paging.pageSize}
+          onPageSize={paging.setPageSize}
+          from={filteredClients.length ? startIndex + 1 : 0}
+          to={Math.min(startIndex + paging.pageSize, filteredClients.length)}
+          total={filteredClients.length}
+          page={currentPage}
+          pageCount={pageCount}
+          onPage={paging.setPage}
+          icons={<RefIconButton path={RI.download} label={t("Скачать Excel/CSV")} onClick={exportCsv} />}
+        />
+
+        <RefTable
+          cols="minmax(0,90fr) minmax(0,330fr) minmax(0,150fr) minmax(0,260fr) minmax(0,60fr)"
+          heads={[t("№"), t("Наименование"), t("Балл"), t("Дата последнего бала"), ""]}
+          rows={pagedClients}
+          rowKey={(client) => client.id}
+          onRowClick={(client) => setSelectedClient(client)}
+          empty={t("Ничего не найдено")}
+          render={(client) => [
+            client.id,
+            client.name,
+            <span key="p" className={client.points < 0 ? "text-[#e57373]" : ""}>{client.points}</span>,
+            t(client.lastScore),
+            <button
+              key="b"
+              title={t("Добавить балл")}
+              onClick={(event) => {
+                event.stopPropagation();
+                setBonusClient(client);
+                setBonusKind("minus");
+                setFormError("");
+              }}
+              className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-[#71ce87] text-white"
+            >
+              <Plus size={14} strokeWidth={3} />
+            </button>,
+          ]}
+        />
+      </RefCard>
 
       {bonusClient && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#0e1727]/60 p-4">
@@ -388,6 +362,6 @@ export function ClientBonusesView() {
           </div>
         </div>
       )}
-    </main>
+    </RefPage>
   );
 }

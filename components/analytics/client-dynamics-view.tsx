@@ -52,7 +52,7 @@ export function ClientDynamicsView() {
         <FavoritesButton className="flex items-center gap-2 text-[#5470e8]" />
         <span className="text-slate-500">|</span><h1 className="text-slate-600">Классификация и динамика клиентов</h1>
         <div className="ml-auto flex gap-3">
-          <button type="button" onClick={download} className="rounded bg-[#6ccd8b] px-5 py-2 text-base text-white"><Download className="mr-2 inline h-5 w-5" />Скачать</button>
+          <button type="button" onClick={download} className="rounded bg-[#71ce87] px-5 py-2 text-base text-white"><Download className="mr-2 inline h-5 w-5" />Скачать</button>
           <button type="button" onClick={() => setSettingsOpen(true)} className="rounded bg-[#5470e8] px-5 py-2 text-base text-white"><Settings className="mr-2 inline h-5 w-5" />Настроить классификацию</button>
         </div>
       </header>

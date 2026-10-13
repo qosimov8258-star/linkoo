@@ -1,10 +1,10 @@
 "use client"
 
-import { FileText, Pencil, Plus, Trash2, X } from "lucide-react"
-import { ChangeEvent, FormEvent, useEffect, useRef, useState } from "react"
+import { ChangeEvent, FormEvent, useEffect, useState } from "react"
 
 import { downloadExcelTable } from "@/lib/excel-export"
 import { mapHeaderColumns, readExcelRows } from "@/lib/excel-import"
+import { CatalogHeader, CheckBox, HoverActions, ImportDialog, LineField, LineSelect, Modal, SaveButton, dottedRow } from "@/components/analytics/catalog-ui"
 import { useLanguage } from "@/lib/i18n/language-context"
 
 type Attribute = { id: number; name: string; fieldType: string; required: boolean }
@@ -32,7 +32,6 @@ export function AttributesView({ embedded = false }: { embedded?: boolean }) {
   const [importOpen, setImportOpen] = useState(false)
   const [importFile, setImportFile] = useState<File | null>(null)
   const [importSaving, setImportSaving] = useState(false)
-  const importInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -165,33 +164,47 @@ export function AttributesView({ embedded = false }: { embedded?: boolean }) {
       setImportFile(null)
     }
   }
-  return <main className={embedded ? "min-w-0 flex-1 px-[38px] pb-8 pt-6" : "min-h-screen bg-white px-[38px] pb-8 pt-6 text-slate-800"}>
-    <div className="flex items-center justify-between border-b border-slate-200 pb-5"><div className="flex items-center gap-4"><button onClick={() => open()} className="text-[17px] text-[#5474e6] hover:underline">+ {t("добавить атрибуты")}</button><button type="button" onClick={() => setImportOpen(true)} className="inline-flex items-center gap-2 rounded bg-[#4f70e7] px-4 py-2 text-sm font-semibold text-white hover:brightness-95"><FileText className="h-4 w-4" /> {t("Импорт с Excel")}</button></div><div className="text-slate-500">{t("1 -")} {items.length} {t("из")} {items.length} <span className="ml-3 text-2xl text-slate-400">◀ ◉</span></div></div>
-    {loadError && <p className="pt-3 text-sm text-red-500">{loadError}</p>}
-    <div className="overflow-x-auto"><table className="w-full min-w-[900px] border-collapse text-[16px]"><thead><tr className="border-b-2 border-dotted border-slate-200 text-left"><th className="w-[34%] py-5 font-semibold">{t("Название")}</th><th className="w-[26%] py-5 font-semibold">{t("Тип поля")}</th><th className="py-5 font-semibold">{t("Обязательный к заполнению")}</th><th className="w-28" /></tr></thead><tbody>{loading ? <tr><td colSpan={4} className="py-10 text-center text-slate-400">{t("Загрузка...")}</td></tr> : items.map((item) => <tr key={item.id} className="group border-b-2 border-dotted border-slate-200 hover:bg-slate-50"><td className="py-5">{item.name}</td><td className="py-5">{t(item.fieldType)}</td><td className="py-5">{t(item.required ? "Обязательный" : "Не обязательный")}</td><td><div className="hidden justify-end gap-3 pr-4 text-slate-500 group-hover:flex"><button onClick={() => open(item)} aria-label={t("Изменить")}><Pencil className="h-5 w-5" /></button><button onClick={() => remove(item.id)} aria-label={t("Удалить")}><Trash2 className="h-5 w-5" /></button></div></td></tr>)}</tbody></table></div>
-    {editing && <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 p-4"><form onSubmit={save} className="w-full max-w-md rounded-lg bg-white p-6 shadow-xl"><div className="mb-5 flex justify-between"><h2 className="text-xl font-bold">{t(editing.id ? "Изменить атрибут" : "Добавить атрибут")}</h2><button type="button" onClick={() => setEditing(null)}><X /></button></div><label className="mb-2 block font-medium">{t("Название")}</label><input autoFocus value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} className="mb-4 w-full rounded border border-slate-300 px-3 py-2.5" /><label className="mb-2 block font-medium">{t("Тип поля")}</label><select value={draft.fieldType} onChange={(e) => setDraft({ ...draft, fieldType: e.target.value })} className="w-full rounded border border-slate-300 px-3 py-2.5"><option value="Выбор вариантов">{t("Выбор вариантов")}</option><option value="Текстовое поле">{t("Текстовое поле")}</option><option value="Цифровое поле">{t("Цифровое поле")}</option></select><label className="mt-4 flex gap-2"><input type="checkbox" checked={draft.required} onChange={(e) => setDraft({ ...draft, required: e.target.checked })} />{t("Обязательный к заполнению")}</label><div className="mt-6 flex justify-end gap-3"><button type="button" onClick={() => setEditing(null)} className="rounded border px-4 py-2">{t("Отмена")}</button><button disabled={saving} className="inline-flex items-center gap-2 rounded bg-[#5474e6] px-4 py-2 font-semibold text-white disabled:opacity-60"><Plus className="h-4 w-4" />{t(saving ? "Сохранение..." : "Сохранить")}</button></div></form></div>}
-    {importOpen && (
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
-        <div className="w-full max-w-md rounded bg-white">
-          <header className="flex items-center justify-between border-b p-6">
-            <b className="uppercase">{t("Импорт с Excel")}</b>
-            <button type="button" onClick={() => { setImportOpen(false); setImportFile(null) }} aria-label={t("Закрыть")}><X className="h-5 w-5" /></button>
-          </header>
-          <div className="p-8">
-            <button type="button" onClick={downloadTemplate} className="mb-4 font-semibold text-[#4f70e7] hover:underline">{t("1. Скачать шаблон")}</button>
-            <input ref={importInputRef} type="file" accept=".csv,.xls,.xlsx" onChange={pickImportFile} className="hidden" />
-            <button type="button" onClick={() => importInputRef.current?.click()} className="flex w-full flex-col items-center justify-center gap-3 rounded border-2 border-dashed border-slate-300 py-10 text-slate-500 hover:border-[#4f70e7] hover:text-[#4f70e7]">
-              <FileText className="h-8 w-8" />
-              {importFile ? importFile.name : t("Добавьте файл Excel или нажмите для выбора")}
-            </button>
-          </div>
-          <footer className="flex justify-end border-t p-5">
-            <button type="button" disabled={!importFile || importSaving} onClick={saveImport} className="rounded bg-[#6ccd8b] px-5 py-3 font-semibold text-white hover:brightness-95 disabled:opacity-40">
-              {t(importSaving ? "Импорт..." : "Сохранить")}
-            </button>
-          </footer>
-        </div>
+  void embedded
+  return (
+    <div className="min-h-[calc(100vh-50px)] min-w-0 flex-1 bg-white px-[30px] text-[13px] text-[#333]">
+      <CatalogHeader
+        addLabel={t("добавить атрибуты")}
+        onAdd={() => open()}
+        from={items.length ? 1 : 0}
+        to={items.length}
+        total={items.length}
+        extra={<button type="button" onClick={() => setImportOpen(true)} className="ml-[24px] text-[13px] text-[#4f71dc] hover:underline">{t("Импорт с Excel")}</button>}
+      />
+      {loadError && <p className="pt-3 text-red-500">{loadError}</p>}
+      <div className={`grid grid-cols-[519px_389px_1fr] ${dottedRow} h-[49px] items-center pt-[3px] font-bold`}>
+        <span>{t("Название")}</span><span>{t("Тип поля")}</span><span>{t("Обязательный к заполнению")}</span>
       </div>
-    )}
-  </main>
+      {loading ? (
+        <p className="py-10 text-center text-slate-400">{t("Загрузка...")}</p>
+      ) : (
+        items.map((item) => (
+          <div key={item.id} onClick={() => open(item)} className={`group relative grid h-[50px] cursor-pointer grid-cols-[519px_389px_1fr] items-center ${dottedRow} hover:bg-[#f8f9fb]`}>
+            <span className="pr-4">{item.name}</span>
+            <span>{t(item.fieldType)}</span>
+            <span>{t(item.required ? "Обязательный" : "Не обязательный")}</span>
+            <HoverActions offset={70} onEdit={() => open(item)} onDelete={() => void remove(item.id)} />
+          </div>
+        ))
+      )}
+
+      {editing && (
+        <Modal
+          title={editing.id ? t("Изменение атрибута") : t("Добавление атрибута")}
+          onClose={() => setEditing(null)}
+          footer={<SaveButton disabled={saving || !draft.name.trim()} onClick={() => void save({ preventDefault() {} } as FormEvent)}>{saving ? t("Сохранение...") : t("Сохранить")}</SaveButton>}
+        >
+          <LineField label={t("Наименование")} required value={draft.name} onChange={(value) => setDraft({ ...draft, name: value })} />
+          <div className="mt-[34px]"><LineSelect tall label={t("Тип поля")} required value={draft.fieldType} onChange={(value) => setDraft({ ...draft, fieldType: value })} options={fieldTypeOptions} onClear={() => setDraft({ ...draft, fieldType: "" })} /></div>
+          <div className="mt-[35px]"><CheckBox checked={draft.required} onChange={(value) => setDraft({ ...draft, required: value })} label={t("Обязательный к заполнению")} /></div>
+        </Modal>
+      )}
+
+      {importOpen && <ImportDialog file={importFile} onFile={setImportFile} onTemplate={downloadTemplate} onSave={saveImport} saving={importSaving} onClose={() => { setImportOpen(false); setImportFile(null) }} />}
+    </div>
+  )
 }

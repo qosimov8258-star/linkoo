@@ -55,9 +55,9 @@ function parseRuDate(value: string): number {
 }
 
 function PaymentIcon({ type }: { type: PaymentType }) {
-  if (type === "transfer") return <CreditCard className="inline h-4 w-4 text-[#4f70e7]" />
+  if (type === "transfer") return <CreditCard className="inline h-4 w-4 text-[#4f71dc]" />
   return (
-    <span className="inline-flex h-4 w-4 items-center justify-center rounded-[3px] border border-[#4f70e7] text-[10px] font-bold text-[#4f70e7]">$</span>
+    <span className="inline-flex h-4 w-4 items-center justify-center rounded-[3px] border border-[#4f71dc] text-[10px] font-bold text-[#4f71dc]">$</span>
   )
 }
 
@@ -178,16 +178,16 @@ export function ExpectedPaymentsView() {
   }
 
   return (
-    <main className="min-h-screen bg-[#f1f4f8] text-[#17233b]">
+    <main className="min-h-screen bg-[#f2f5f8] text-[#17233b]">
       <header className="flex min-h-[76px] items-center justify-between border-b border-[#d8dee7] bg-[#f2f5f8] px-6 md:px-9">
         <div className="flex items-center gap-3">
-          <FavoritesButton className="flex items-center gap-2 text-2xl font-bold text-[#4f70e7]" /><span className="text-3xl font-light text-[#586174]">|</span>
+          <FavoritesButton className="flex items-center gap-2 text-2xl font-bold text-[#4f71dc]" /><span className="text-3xl font-light text-[#586174]">|</span>
           <span className="text-2xl font-bold text-[#586174]">Ожидаемые оплаты</span>
         </div>
       </header>
 
       <section className="flex flex-wrap items-center gap-5 border-b border-[#e1e5eb] bg-white px-6 py-3 md:px-9">
-        <button onClick={() => setFilterOpen((value) => !value)} className="flex items-center gap-1 font-medium text-[#4f70e7]">
+        <button onClick={() => setFilterOpen((value) => !value)} className="flex items-center gap-1 font-medium text-[#4f71dc]">
           <Filter className="h-4 w-4" /> Показать фильтр <ChevronDown className={`h-4 w-4 transition ${filterOpen ? "rotate-180" : ""}`} />
         </button>
 
@@ -207,7 +207,7 @@ export function ExpectedPaymentsView() {
         <button disabled={safePage === 1} onClick={() => setPage((value) => Math.max(1, value - 1))} className="rounded-full border border-[#dbe0e8] p-1 text-[#9aa3b6] disabled:opacity-40">
           <ChevronLeft className="h-5 w-5" />
         </button>
-        <button disabled={safePage === maxPage} onClick={() => setPage((value) => Math.min(maxPage, value + 1))} className="rounded-full border border-[#4f70e7] p-1 text-[#4f70e7] disabled:opacity-40">
+        <button disabled={safePage === maxPage} onClick={() => setPage((value) => Math.min(maxPage, value + 1))} className="rounded-full border border-[#4f71dc] p-1 text-[#4f71dc] disabled:opacity-40">
           <ChevronRight className="h-5 w-5" />
         </button>
 
@@ -236,7 +236,7 @@ export function ExpectedPaymentsView() {
 
       <section className="overflow-x-auto bg-white pb-10">
         <table className="min-w-[1300px] w-full border-collapse text-[14px]">
-          <thead className="bg-[#626b7e] text-white">
+          <thead className="bg-[#5d6474] text-white">
             <tr>
               {(
                 [
@@ -275,7 +275,7 @@ export function ExpectedPaymentsView() {
                 <td className="px-4 py-4 align-top">{row.id}</td>
                 <td className="px-4 py-4 align-top">
                   <div>{row.client}</div>
-                  {row.clientBranch && <div className="text-[13px] font-medium text-[#4f70e7] underline">{row.clientBranch}</div>}
+                  {row.clientBranch && <div className="text-[13px] font-medium text-[#4f71dc] underline">{row.clientBranch}</div>}
                 </td>
                 <td className="px-4 py-4 align-top">{row.createdAt}</td>
                 <td className="px-4 py-4 align-top">{row.paidAt}</td>
@@ -339,7 +339,7 @@ function PaymentModal({
           </button>
           <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-[14px]">
             <div>Заказ №{row.id}</div>
-            <div>Тип оплаты: <span className="font-semibold text-[#4f70e7]">{paymentTypeLabel[row.paymentType]}</span></div>
+            <div>Тип оплаты: <span className="font-semibold text-[#4f71dc]">{paymentTypeLabel[row.paymentType]}</span></div>
             <div>Клиент: <span className="font-semibold">{row.client}</span></div>
             <div>Сумма заказа: <span className="font-semibold">{number(row.amount, 2)} {row.currency}</span></div>
             <div>Организация: <span className="font-semibold">{row.organization}</span></div>
@@ -413,7 +413,7 @@ function PaymentModal({
           </label>
 
           <label className="flex items-center gap-2 text-[14px]">
-            <input type="checkbox" checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} className="h-4 w-4 rounded border-[#9aa3b6] accent-[#4f70e7]" />
+            <input type="checkbox" checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} className="h-4 w-4 rounded border-[#9aa3b6] accent-[#4f71dc]" />
             Подтвержденный приход (Я получил деньги)
           </label>
 
