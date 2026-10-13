@@ -243,3 +243,31 @@ section > div.flex.flex-wrap.items-center.gap-4.px-5.py-3 input {
 }
 section > div.flex.flex-wrap.items-center.gap-4.px-5.py-3 input::placeholder { color: rgba(0,0,0,.3); }
 section > div.flex.flex-wrap.items-center.gap-4.px-5.py-3 svg.h-5 { width: 24px; height: 24px; }
+
+@keyframes nav-menu-in {
+  from { opacity: 0; transform: translateY(-6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.nav-menu-in { animation: nav-menu-in 180ms ease-out; }
+
+/* Soft hover/open feel everywhere (matches the reference app) */
+@keyframes soft-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes soft-drop-in {
+  from { opacity: 0; transform: translateY(-6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@layer base {
+  button, a, [role="button"], [role="menuitem"], label, input, select, textarea, .cursor-pointer {
+    transition-property: color, background-color, border-color, box-shadow, opacity;
+    transition-duration: 200ms;
+    transition-timing-function: ease;
+  }
+  ul.absolute, [role="menu"], [role="listbox"] { animation: soft-drop-in 160ms ease-out; }
+  div.fixed.inset-0 { animation: soft-fade-in 180ms ease-out; }
+}
+@media (prefers-reduced-motion: reduce) {
+  ul.absolute, [role="menu"], [role="listbox"], div.fixed.inset-0, .nav-menu-in { animation: none; }
+}

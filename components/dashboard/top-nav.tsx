@@ -331,7 +331,7 @@ export function TopNav() {
                 onFocus={() => setOpenMenu(label)}
                 aria-haspopup="menu"
                 aria-expanded={isOpen}
-                className={`flex h-full shrink-0 items-center gap-[4px] border-r border-white/[0.12] pl-[18px] pr-[26px] font-[Arial,Helvetica,sans-serif] text-[13px] font-normal transition-colors ${
+                className={`flex h-full shrink-0 items-center gap-[4px] border-r border-white/[0.12] pl-[18px] pr-[26px] font-[Arial,Helvetica,sans-serif] text-[13px] font-normal transition-colors duration-200 ${
                   isOpen
                     ? "bg-[#5c6df3] hover:bg-[#5c6df3]"
                     : "hover:bg-[#3a3897]"
@@ -345,7 +345,7 @@ export function TopNav() {
           })}
 
           {desktopMenu && (
-            <div ref={menuWrapperRef} className="absolute top-full z-50" style={{ left: menuLeft }}>
+            <div ref={menuWrapperRef} className="nav-menu-in absolute top-full z-50" style={{ left: menuLeft }}>
               <desktopMenu.menu
                 onSelect={() => setOpenMenu(null)}
                 onMouseEnter={cancelClose}
