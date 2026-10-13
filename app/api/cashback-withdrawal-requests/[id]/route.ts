@@ -1,25 +1,46 @@
 import { NextResponse } from "next/server"
-import { z } from "zod"
 
+import { cashErrorResponse } from "@/lib/cash/api"
+import { cashbackRequestDecisionSchema, decideCashbackRequest, getCashbackRequestDetail } from "@/lib/cashback-withdrawal-requests-repo"
+import { getCurrentUser } from "@/lib/current-user"
 import { requireRole } from "@/lib/rbac"
 import { parseJsonBody } from "@/lib/validation"
-import { updateCashbackWithdrawalRequestStatus } from "@/lib/cashback-withdrawal-requests-repo"
-
-const cashbackWithdrawalStatusSchema = z.object({
-  status: z.enum(["confirmed", "rejected", "pending"]),
-})
 
 type RouteParams = { params: Promise<{ id: string }> }
 
+function requestId(value: string): number | null {
+  const id = Number(value)
+  return Number.isInteger(id) && id > 0 && id <= 2_147_483_647 ? id : null
+}
+
+// GET /api/cashback-withdrawal-requests/[id] — the request + the client's cashback balance in its
+// currency and the cashboxes of that currency (demo GET telegram/cashback_request/%d/).
+export async function GET(_request: Request, { params }: RouteParams) {
+  const user = await getCurrentUser()
+  if (!user) return NextResponse.json({ error: "Tizimga kirilmagan" }, { status: 401 })
+  const id = requestId((await params).id)
+  if (!id) return NextResponse.json({ error: "Запрос не найден" }, { status: 404 })
+  try {
+    return NextResponse.json(await getCashbackRequestDetail(id))
+  } catch (error) {
+    return cashErrorResponse(error)
+  }
+}
+
+// PUT /api/cashback-withdrawal-requests/[id] {status: "confirmed", cashboxId} | {status: "rejected"}
+// (demo PUT {cashbox, status}). Confirming pays the cashback out of the cashbox (cash op 22).
 export async function PUT(request: Request, { params }: RouteParams) {
   const auth = await requireRole("manager")
   if ("error" in auth) return auth.error
 
-  const id = Number((await params).id)
-  const parsed = await parseJsonBody(request, cashbackWithdrawalStatusSchema)
+  const id = requestId((await params).id)
+  if (!id) return NextResponse.json({ error: "Запрос не найден" }, { status: 404 })
+  const parsed = await parseJsonBody(request, cashbackRequestDecisionSchema)
   if (parsed.error) return parsed.error
 
-  const updated = (await updateCashbackWithdrawalRequestStatus(id, parsed.data.status))
-  if (!updated) return NextResponse.json({ error: "Запрос не найден" }, { status: 404 })
-  return NextResponse.json(updated)
+  try {
+    return NextResponse.json(await decideCashbackRequest(id, parsed.data, auth.user.displayName || auth.user.username))
+  } catch (error) {
+    return cashErrorResponse(error)
+  }
 }

@@ -1,272 +1,316 @@
 "use client"
 
-import { ChevronLeft, ChevronRight, FileText, Pencil, Search, Trash2, X } from "lucide-react"
-import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react"
+import { ArrowDown, ArrowUp, FileText, Pencil, Plus, Search, Trash2 } from "lucide-react"
+import { useSearchParams } from "next/navigation"
+import { useCallback, useEffect, useState, type FormEvent } from "react"
 
-import { downloadExcelTable } from "@/lib/excel-export"
-import { mapHeaderColumns, readExcelRows } from "@/lib/excel-import"
+import { BalancePagination } from "@/components/analytics/balance/pagination"
+import { CatalogPageLayout } from "@/components/dashboard/catalog-sidebar"
+import { useLanguage } from "@/lib/i18n/language-context"
+import {
+  ORGANIZATIONS_API,
+  type OrganizationErrorBody,
+  type OrganizationListResult,
+  type OrganizationOrdering,
+} from "./organization-data"
+import {
+  OrganizationDeleteDialog,
+  OrganizationImportDialog,
+  OrganizationSnackbar,
+  type OrganizationNotice,
+} from "./organization-dialogs"
 import { OrganizationFormModal } from "./organization-form-modal"
-import type { Organization } from "./organization-data"
 
-const IMPORT_HEADER_ALIASES: Record<string, string> = {
-  "наименование": "name", "название": "name", "name": "name",
-  "ограничение по долгу": "limitByDebt", "ограничение по долгу клиента": "limitByDebt", "limit": "limitByDebt",
+// "Организация" (demo #/division, Settings → Разное and Finance menu; API
+// main/division/). Settings side menu + grid: "+ добавить организацию", search
+// (500 ms debounce / Enter), paginator, "Наименование" (sortable) | "Ограничение по
+// долгу клиента" ("С ограничением" / "Без ограничения") | hover ✎ / 🗑. Create /
+// update dialog = organization-form-modal.tsx, delete confirm = organization-dialogs.tsx.
+// Like the demo the state lives in the URL (?search, ?page, ?pageSize, ?ordering,
+// ?openCreateDialog=true, ?division=<id>&openUpdateDialog=true | openDeleteDialog=true).
+
+type ViewState = { search: string; ordering: OrganizationOrdering; page: number; pageSize: number }
+
+type DialogState = { kind: "create" } | { kind: "update"; id: number } | { kind: "delete"; id: number; name?: string } | null
+
+function positiveInt(value: string | null, fallback: number): number {
+  const parsed = Number(value)
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback
+}
+
+function orderingFrom(value: string | null): OrganizationOrdering {
+  return value === "name" || value === "-name" ? value : ""
+}
+
+function stateFromParams(params: URLSearchParams): ViewState {
+  return {
+    search: params.get("search") ?? "",
+    ordering: orderingFrom(params.get("ordering")),
+    page: positiveInt(params.get("page"), 1),
+    pageSize: Math.min(2000, positiveInt(params.get("pageSize"), 25)),
+  }
+}
+
+function dialogFromParams(params: URLSearchParams): DialogState {
+  if (params.get("openCreateDialog") === "true") return { kind: "create" }
+  const id = positiveInt(params.get("division"), 0)
+  if (!id) return null
+  if (params.get("openUpdateDialog") === "true") return { kind: "update", id }
+  if (params.get("openDeleteDialog") === "true") return { kind: "delete", id }
+  return null
+}
+
+function urlSearch(state: ViewState, dialog: DialogState): string {
+  const params = new URLSearchParams()
+  params.set("pageSize", String(state.pageSize))
+  if (state.page > 1) params.set("page", String(state.page))
+  if (state.search) params.set("search", state.search)
+  if (state.ordering) params.set("ordering", state.ordering)
+  if (dialog?.kind === "create") params.set("openCreateDialog", "true")
+  if (dialog && dialog.kind !== "create") {
+    params.set("division", String(dialog.id))
+    params.set(dialog.kind === "update" ? "openUpdateDialog" : "openDeleteDialog", "true")
+  }
+  return params.toString()
+}
+
+function listUrl(state: ViewState): string {
+  const params = new URLSearchParams({ page: String(state.page), pageSize: String(state.pageSize) })
+  if (state.search) params.set("search", state.search)
+  if (state.ordering) params.set("ordering", state.ordering)
+  return `${ORGANIZATIONS_API}?${params.toString()}`
+}
+
+/** Demo header sorting: none → name ↑ → name ↓ → none. */
+function nextOrdering(current: OrganizationOrdering): OrganizationOrdering {
+  if (current === "name") return "-name"
+  if (current === "-name") return ""
+  return "name"
+}
+
+function useOrganizationList(url: string) {
+  const [data, setData] = useState<OrganizationListResult | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState("")
+  const [version, setVersion] = useState(0)
+  useEffect(() => {
+    const controller = new AbortController()
+    setLoading(true)
+    setError("")
+    fetch(url, { signal: controller.signal })
+      .then(async (response) => {
+        const body = (await response.json().catch(() => ({}))) as OrganizationListResult & OrganizationErrorBody
+        if (!response.ok) throw new Error(body.error || "Не удалось загрузить организации")
+        setData(body)
+      })
+      .catch((reason: unknown) => {
+        if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : String(reason))
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoading(false)
+      })
+    return () => controller.abort()
+  }, [url, version])
+  const reload = useCallback(() => setVersion((value) => value + 1), [])
+  return { data, loading, error, reload }
 }
 
 export function OrganizationView({ embedded = false }: { embedded?: boolean }) {
-  const [organizations, setOrganizations] = useState<Organization[]>([])
-  const [loading, setLoading] = useState(true)
-  const [loadError, setLoadError] = useState("")
-  const [query, setQuery] = useState("")
-  const [page, setPage] = useState(1)
-  const [modalOpen, setModalOpen] = useState(false)
-  const [editingId, setEditingId] = useState<number | null>(null)
-  const [importOpen, setImportOpen] = useState(false)
-  const [importFile, setImportFile] = useState<File | null>(null)
-  const [importSaving, setImportSaving] = useState(false)
-  const importInputRef = useRef<HTMLInputElement>(null)
-  const pageSize = 25
+  if (embedded) return <OrganizationGrid />
+  return (
+    <CatalogPageLayout>
+      <OrganizationGrid />
+    </CatalogPageLayout>
+  )
+}
 
+function OrganizationGrid() {
+  const { t } = useLanguage()
+  const searchParams = useSearchParams()
+  const [state, setState] = useState<ViewState>(() => stateFromParams(searchParams))
+  const [dialog, setDialog] = useState<DialogState>(() => dialogFromParams(searchParams))
+  const [searchDraft, setSearchDraft] = useState(state.search)
+  const [importOpen, setImportOpen] = useState(false)
+  const [notice, setNotice] = useState<OrganizationNotice | null>(null)
+  const [canEdit, setCanEdit] = useState(false)
+  const { data, loading, error, reload } = useOrganizationList(listUrl(state))
+
+  const update = useCallback((patch: Partial<ViewState>) => setState((current) => ({ ...current, ...patch })), [])
+  const closeNotice = useCallback(() => setNotice(null), [])
+  const closeDialog = useCallback(() => setDialog(null), [])
+
+  // The demo keeps the grid and dialog state in the URL query.
   useEffect(() => {
-    let cancelled = false
-    setLoading(true)
-    fetch("/api/organizations")
-      .then(async (response) => {
-        if (!response.ok) throw new Error("Не удалось загрузить организации")
-        return (await response.json()) as Organization[]
-      })
-      .then((data) => {
-        if (cancelled) return
-        setOrganizations(data)
-        setLoadError("")
-      })
-      .catch(() => {
-        if (!cancelled) setLoadError("Не удалось загрузить организации с сервера")
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false)
-      })
-    return () => {
-      cancelled = true
-    }
+    const search = urlSearch(state, dialog)
+    if (window.location.search.slice(1) !== search) window.history.replaceState(window.history.state, "", `${window.location.pathname}?${search}`)
+  }, [state, dialog])
+
+  // Search: 500 ms debounce like the demo GridList search (Enter submits at once).
+  useEffect(() => {
+    const value = searchDraft.trim()
+    if (value === state.search) return
+    const timer = window.setTimeout(() => update({ search: value, page: 1 }), 500)
+    return () => window.clearTimeout(timer)
+  }, [searchDraft, state.search, update])
+
+  // Writes need the manager role (POST/PUT/DELETE /api/organizations).
+  useEffect(() => {
+    fetch("/api/auth/me")
+      .then(async (response) => (response.ok ? ((await response.json()) as { role?: string }) : {}))
+      .then((me) => setCanEdit(me.role === "manager" || me.role === "admin"))
+      .catch(() => setCanEdit(false))
   }, [])
 
-  const filtered = useMemo(() => {
-    if (!query.trim()) return organizations
-    const q = query.trim().toLowerCase()
-    return organizations.filter((organization) => organization.name.toLowerCase().includes(q))
-  }, [organizations, query])
+  // A page past the end (stale URL, rows deleted) jumps to the last page.
+  useEffect(() => {
+    if (!data || loading || data.results.length || state.page <= 1) return
+    const lastPage = Math.max(1, Math.ceil(data.count / state.pageSize))
+    if (state.page > lastPage) update({ page: lastPage })
+  }, [data, loading, state.page, state.pageSize, update])
 
-  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize))
-  const safePage = Math.min(page, pageCount)
-  const visible = filtered.slice((safePage - 1) * pageSize, safePage * pageSize)
-
-  function openCreate() {
-    setEditingId(null)
-    setModalOpen(true)
+  function submitSearch(event: FormEvent) {
+    event.preventDefault()
+    update({ search: searchDraft.trim(), page: 1 })
   }
 
-  function openEdit(organization: Organization) {
-    setEditingId(organization.id)
-    setModalOpen(true)
-  }
-
-  async function remove(id: number) {
-    if (!window.confirm("Удалить организацию?")) return
-    try {
-      const response = await fetch(`/api/organizations/${id}`, { method: "DELETE" })
-      if (!response.ok) {
-        const data = await response.json().catch(() => ({}))
-        window.alert(data.error || "Не удалось удалить организацию")
-        return
-      }
-      setOrganizations((current) => current.filter((organization) => organization.id !== id))
-    } catch {
-      window.alert("Сервер недоступен, попробуйте ещё раз")
-    }
-  }
-
-  function downloadTemplate() {
-    downloadExcelTable("organizations-template", [["Наименование", "Ограничение по долгу"]])
-  }
-
-  function pickImportFile(event: ChangeEvent<HTMLInputElement>) {
-    setImportFile(event.target.files?.[0] ?? null)
-  }
-
-  async function saveImport() {
-    if (!importFile) return
-    setImportSaving(true)
-    try {
-      const rows = await readExcelRows(importFile)
-      if (!rows.length) {
-        window.alert("Не удалось найти данные для импорта в выбранном файле")
-        return
-      }
-      const fieldByIndex = mapHeaderColumns(rows[0], IMPORT_HEADER_ALIASES)
-      const hasHeader = Array.from(fieldByIndex.values()).includes("name")
-      const dataRows = hasHeader ? rows.slice(1) : rows
-
-      const parsed: { name: string; limitByDebt: boolean }[] = []
-      for (const row of dataRows) {
-        const record: Record<string, string> = {}
-        if (hasHeader) {
-          row.forEach((cell, index) => {
-            const field = fieldByIndex.get(index)
-            if (field) record[field] = cell
-          })
-        } else {
-          record.name = row[0] ?? ""
-          record.limitByDebt = row[1] ?? ""
-        }
-        if (!record.name) continue
-        parsed.push({
-          name: record.name,
-          limitByDebt: /^(да|yes|true|1|есть|с ограничением)$/i.test((record.limitByDebt || "").trim()),
-        })
-      }
-
-      if (!parsed.length) {
-        window.alert("Не удалось найти данные для импорта в выбранном файле")
-        return
-      }
-
-      const created: Organization[] = []
-      let failed = 0
-      for (const item of parsed) {
-        try {
-          const response = await fetch("/api/organizations", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(item),
-          })
-          if (response.ok) created.push((await response.json()) as Organization)
-          else failed += 1
-        } catch {
-          failed += 1
-        }
-      }
-      if (created.length) setOrganizations((current) => [...created, ...current])
-      if (failed) window.alert(`Импортировано ${created.length} из ${parsed.length}. Не удалось сохранить: ${failed}`)
-    } finally {
-      setImportSaving(false)
-      setImportOpen(false)
-      setImportFile(null)
-    }
-  }
+  const rows = data?.results ?? []
+  const sortIcon = state.ordering === "name" ? <ArrowUp className="h-4 w-4" /> : state.ordering === "-name" ? <ArrowDown className="h-4 w-4" /> : null
 
   return (
-    <main className={embedded ? "min-w-0 flex-1" : "min-h-[calc(100vh-4rem)] bg-white px-9 py-5"}>
-      <div className="mb-4 flex flex-wrap items-center gap-4">
-        <button type="button" onClick={openCreate} className="text-[16px] text-[#4f70e7] hover:underline">
-          + добавить организацию
-        </button>
-        <button type="button" onClick={() => setImportOpen(true)} className="inline-flex items-center gap-2 rounded bg-[#4f70e7] px-5 py-2.5 font-semibold text-white hover:brightness-95">
-          <FileText className="h-4 w-4" /> Импорт с Excel
-        </button>
-        <label className="relative ml-auto w-64">
+    <section className="min-w-0 flex-1 px-9 py-5">
+      <div className="mb-4 flex flex-wrap items-center gap-x-6 gap-y-3">
+        {canEdit && (
+          <button type="button" onClick={() => setDialog({ kind: "create" })} className="inline-flex items-center gap-1 text-[16px] text-[#4f70e7] hover:underline">
+            <Plus className="h-4 w-4" /> {t("добавить организацию")}
+          </button>
+        )}
+        {canEdit && (
+          <button type="button" onClick={() => setImportOpen(true)} className="inline-flex items-center gap-1 text-[16px] text-[#4f70e7] hover:underline">
+            <FileText className="h-4 w-4" /> {t("Импорт с Excel")}
+          </button>
+        )}
+        <form onSubmit={submitSearch} className="relative mx-auto w-full max-w-[300px]">
           <input
-            value={query}
-            onChange={(event) => { setQuery(event.target.value); setPage(1) }}
-            placeholder="Поиск"
+            value={searchDraft}
+            onChange={(event) => setSearchDraft(event.target.value)}
+            placeholder={t("Поиск")}
             className="w-full border-b border-slate-300 py-2 pr-10 outline-none focus:border-[#4f70e7]"
           />
-          <Search className="absolute right-2 top-2 h-5 w-5 text-slate-300" />
-        </label>
-        <span className="text-slate-500">25</span>
-        <span className="text-slate-500">
-          {filtered.length ? (safePage - 1) * pageSize + 1 : 0} - {Math.min(safePage * pageSize, filtered.length)} из {filtered.length}
-        </span>
-        <button type="button" onClick={() => setPage((value) => Math.max(1, value - 1))} disabled={safePage <= 1} aria-label="Назад" className="disabled:opacity-30">
-          <ChevronLeft className="h-5 w-5 text-slate-400" />
-        </button>
-        <button type="button" onClick={() => setPage((value) => Math.min(pageCount, value + 1))} disabled={safePage >= pageCount} aria-label="Вперед" className="disabled:opacity-30">
-          <ChevronRight className="h-5 w-5 text-slate-400" />
-        </button>
+          <button type="submit" aria-label={t("Поиск")} className="absolute right-1 top-1.5 text-slate-300 hover:text-[#4f70e7]">
+            <Search className="h-5 w-5" />
+          </button>
+        </form>
+        <BalancePagination
+          page={state.page}
+          pageSize={state.pageSize}
+          count={data?.count ?? 0}
+          onChange={(next) => update({ page: next.page, pageSize: next.pageSize })}
+        />
       </div>
 
-      <table className="w-full text-left">
+      <table className="w-full table-fixed text-left">
         <thead className="bg-[#626b7e] text-white">
           <tr>
-            <th className="px-9 py-5">Наименование</th>
-            <th className="px-5 py-5">Ограничение по долгу клиента</th>
-            <th className="w-20" />
+            <th className="w-5/12 px-9 py-4">
+              <button type="button" onClick={() => update({ ordering: nextOrdering(state.ordering), page: 1 })} className="inline-flex items-center gap-2 font-semibold">
+                {t("Наименование")} {sortIcon}
+              </button>
+            </th>
+            <th className="w-5/12 px-5 py-4 font-semibold">{t("Ограничение по долгу клиента")}</th>
+            <th className="w-2/12" />
           </tr>
         </thead>
-        <tbody>
-          {loading ? (
-            <tr><td colSpan={3} className="px-9 py-10 text-center text-slate-400">Загрузка организаций...</td></tr>
-          ) : loadError ? (
-            <tr><td colSpan={3} className="px-9 py-10 text-center text-red-600">{loadError}</td></tr>
-          ) : visible.map((organization) => (
-            <tr key={organization.id} className="group border-b border-dashed border-slate-300 hover:bg-slate-50">
-              <td className="px-9 py-4 font-medium text-[#4f70e7]">{organization.name}</td>
-              <td className="px-5 py-4">{organization.limitByDebt ? "С ограничением" : "Без ограничения"}</td>
-              <td className="px-5 py-4">
-                <div className="hidden items-center justify-end gap-3 text-slate-500 group-hover:flex">
-                  <button type="button" onClick={() => openEdit(organization)} aria-label="Изменить">
-                    <Pencil className="h-5 w-5" />
-                  </button>
-                  <button type="button" onClick={() => remove(organization.id)} aria-label="Удалить">
-                    <Trash2 className="h-5 w-5" />
-                  </button>
-                </div>
-              </td>
-            </tr>
-          ))}
-          {!loading && !loadError && visible.length === 0 && (
+        <tbody className={loading && data ? "opacity-60" : undefined}>
+          {loading && !data ? (
             <tr>
               <td colSpan={3} className="px-9 py-10 text-center text-slate-400">
-                Ничего не найдено
+                {t("Загрузка...")}
               </td>
             </tr>
+          ) : error ? (
+            <tr>
+              <td colSpan={3} className="px-9 py-10 text-center text-red-600">
+                {t(error)}
+              </td>
+            </tr>
+          ) : rows.length === 0 ? (
+            <tr>
+              <td colSpan={3} className="px-9 py-10 text-center text-slate-400">
+                {t("По вашему запросу ничего не найдено")}
+              </td>
+            </tr>
+          ) : (
+            rows.map((organization) => (
+              <tr key={organization.id} className="group border-b border-dashed border-slate-300 hover:bg-slate-50">
+                <td className="truncate px-9 py-4 font-medium" title={organization.name}>
+                  {organization.name}
+                </td>
+                <td className="px-5 py-4">{organization.limitByDebt ? t("С ограничением") : t("Без ограничения")}</td>
+                <td className="px-5 py-4">
+                  {canEdit && (
+                    <div className="flex items-center justify-end gap-3 text-slate-500 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+                      <button type="button" onClick={() => setDialog({ kind: "update", id: organization.id })} title={t("Изменить")} aria-label={t("Изменить")} className="hover:text-[#4f70e7]">
+                        <Pencil className="h-5 w-5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setDialog({ kind: "delete", id: organization.id, name: organization.name })}
+                        title={t("Удалить")}
+                        aria-label={t("Удалить")}
+                        className="hover:text-rose-600"
+                      >
+                        <Trash2 className="h-5 w-5" />
+                      </button>
+                    </div>
+                  )}
+                </td>
+              </tr>
+            ))
           )}
         </tbody>
       </table>
 
-      {modalOpen && (
+      {(dialog?.kind === "create" || dialog?.kind === "update") && (
         <OrganizationFormModal
-          organization={editingId !== null ? (organizations.find((organization) => organization.id === editingId) ?? null) : null}
-          onClose={() => setModalOpen(false)}
-          onSaved={(saved) => {
-            setOrganizations((current) => (editingId !== null ? current.map((organization) => (organization.id === editingId ? saved : organization)) : [saved, ...current]))
-            setModalOpen(false)
-            setPage(1)
+          key={dialog.kind === "update" ? `update-${dialog.id}` : "create"}
+          organizationId={dialog.kind === "update" ? dialog.id : null}
+          onClose={closeDialog}
+          onSaved={() => {
+            setDialog(null)
+            setNotice({ text: t("Успешно сохранено"), tone: "success" })
+            reload()
           }}
         />
       )}
 
-      {importOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
-          <div className="w-full max-w-md rounded bg-white">
-            <header className="flex items-center justify-between border-b p-6">
-              <b className="uppercase">Импорт с Excel</b>
-              <button type="button" onClick={() => { setImportOpen(false); setImportFile(null) }} aria-label="Закрыть">
-                <X className="h-5 w-5" />
-              </button>
-            </header>
-            <div className="p-8">
-              <button type="button" onClick={downloadTemplate} className="mb-4 font-semibold text-[#4f70e7] hover:underline">
-                1. Скачать шаблон
-              </button>
-              <input ref={importInputRef} type="file" accept=".csv,.xls,.xlsx" onChange={pickImportFile} className="hidden" />
-              <button
-                type="button"
-                onClick={() => importInputRef.current?.click()}
-                className="flex w-full flex-col items-center justify-center gap-3 rounded border-2 border-dashed border-slate-300 py-10 text-slate-500 hover:border-[#4f70e7] hover:text-[#4f70e7]"
-              >
-                <FileText className="h-8 w-8" />
-                {importFile ? importFile.name : "Добавьте файл Excel или нажмите для выбора"}
-              </button>
-            </div>
-            <footer className="flex justify-end border-t p-5">
-              <button type="button" disabled={!importFile || importSaving} onClick={saveImport} className="rounded bg-[#6ccd8b] px-5 py-3 font-semibold text-white hover:brightness-95 disabled:opacity-40">
-                {importSaving ? "Импорт..." : "Сохранить"}
-              </button>
-            </footer>
-          </div>
-        </div>
+      {dialog?.kind === "delete" && (
+        <OrganizationDeleteDialog
+          key={`delete-${dialog.id}`}
+          organizationId={dialog.id}
+          name={dialog.name}
+          onClose={closeDialog}
+          onDeleted={() => {
+            setDialog(null)
+            setNotice({ text: t("Успешно удалено"), tone: "success" })
+            reload()
+          }}
+          onFailed={(message) => setNotice({ text: message, tone: "error" })}
+        />
       )}
-    </main>
+
+      {importOpen && (
+        <OrganizationImportDialog
+          onClose={() => setImportOpen(false)}
+          onImported={(result) => {
+            setImportOpen(false)
+            setNotice(result)
+            update({ page: 1 })
+            reload()
+          }}
+        />
+      )}
+
+      <OrganizationSnackbar notice={notice} onClose={closeNotice} />
+    </section>
   )
 }

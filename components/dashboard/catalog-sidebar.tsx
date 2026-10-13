@@ -50,6 +50,19 @@ const groups: MenuGroup[] = [
       { label: "Значение атрибута", href: "/clients/attribute-values" },
     ],
   },
+  {
+    title: "Разное",
+    items: [
+      { label: "Прайс-листы", href: "/analytics/price-lists" },
+      { label: "Тип отказа", href: "/analytics/refusal-types" },
+      { label: "Филиалы", href: "/analytics/branches" },
+      { label: "Организация", href: "/analytics/organization" },
+      { label: "Объединение", href: "/analytics/duplicate-analysis" },
+      { label: "Ограничение времени", href: "/analytics/time-restrictions" },
+      { label: "Интеграция", href: "/settings/integrations" },
+      { label: "Уведомления", href: "/settings/notifications" },
+    ],
+  },
 ]
 
 export const catalogSidebarHrefs: string[] = groups.flatMap((group) => group.items.map((item) => item.href))

@@ -18,6 +18,8 @@ export const supplierIncomingSchema = z.object({
   invoiceDate: z.string().optional(),
   comment: z.string().optional(),
   items: z.array(z.record(z.string(), z.unknown())).min(1),
+  /** "Создать приход" from an accepted incoming e-invoice (create only). */
+  invoiceId: z.coerce.number().int().positive().nullable().optional(),
 })
 
 export function incomingChangeResponse(result: IncomingChange, lockedMessage: string) {

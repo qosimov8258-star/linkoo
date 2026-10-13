@@ -1,35 +1,15 @@
 import { NextResponse } from "next/server"
-import { z } from "zod"
 
+import { branchKpiListQuerySchema, invalidQueryResponse, searchParamsObject } from "@/lib/branch-kpi-api"
+import { listBranchKpi } from "@/lib/branch-kpi-plans-repo"
 import { getCurrentUser } from "@/lib/current-user"
-import { requireRole } from "@/lib/rbac"
-import { parseJsonBody } from "@/lib/validation"
-import { listBranchKpiPlans, saveBranchKpiPlan } from "@/lib/branch-kpi-plans-repo"
 
-const branchKpiPlanSchema = z.object({
-  branchId: z.coerce.number().finite(),
-  branchName: z.string().trim().min(1),
-  period: z.string().trim().min(1),
-  planSales: z.coerce.number().catch(0),
-  bonusPercent: z.coerce.number().catch(0),
-})
-
+// GET /api/branch-kpi-plans?month&year&search&ordering&page&pageSize — branches with their
+// KPI plans and the month's bonus total (demo GET staff/branch_performance/).
 export async function GET(request: Request) {
   const user = await getCurrentUser()
   if (!user) return NextResponse.json({ error: "Tizimga kirilmagan" }, { status: 401 })
-
-  const { searchParams } = new URL(request.url)
-  const period = searchParams.get("period") || undefined
-  return NextResponse.json((await listBranchKpiPlans(period)))
-}
-
-export async function POST(request: Request) {
-  const auth = await requireRole("manager")
-  if ("error" in auth) return auth.error
-
-  const parsed = await parseJsonBody(request, branchKpiPlanSchema)
-  if (parsed.error) return parsed.error
-
-  const plan = (await saveBranchKpiPlan(parsed.data))
-  return NextResponse.json(plan, { status: 201 })
+  const query = branchKpiListQuerySchema.safeParse(searchParamsObject(new URL(request.url).searchParams))
+  if (!query.success) return invalidQueryResponse(query.error)
+  return NextResponse.json(await listBranchKpi(query.data))
 }

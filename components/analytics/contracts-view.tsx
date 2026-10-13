@@ -1,6 +1,6 @@
 "use client"
 
-import { Fragment, useCallback, useEffect, useState, type ReactNode } from "react"
+import { Fragment, useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import { useSearchParams } from "next/navigation"
 import { ArrowDown, ArrowUp, ArrowUpDown, FileSpreadsheet, Info, MoreVertical, Plus, Search } from "lucide-react"
 
@@ -119,6 +119,7 @@ export function ContractsView() {
   const [searchDraft, setSearchDraft] = useState(state.search)
   const [filterOpen, setFilterOpen] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
+  const menuRef = useRef<HTMLDivElement>(null)
   const [importOpen, setImportOpen] = useState(false)
   // undefined = closed, null = create, contract = edit.
   const [form, setForm] = useState<ContractDetail | null | undefined>(undefined)
@@ -150,7 +151,9 @@ export function ContractsView() {
 
   useEffect(() => {
     if (!menuOpen) return
-    const close = () => setMenuOpen(false)
+    const close = (event: MouseEvent) => {
+      if (!menuRef.current?.contains(event.target as Node)) setMenuOpen(false)
+    }
     document.addEventListener("mousedown", close)
     return () => document.removeEventListener("mousedown", close)
   }, [menuOpen])
@@ -220,7 +223,7 @@ export function ContractsView() {
         </div>
         <div className="flex items-center gap-2">
           {canEdit && (
-            <div className="relative" onMouseDown={(event) => event.stopPropagation()}>
+            <div ref={menuRef} className="relative">
               <button type="button" onClick={() => setMenuOpen((value) => !value)} aria-label={t("Меню")} className="flex h-11 w-11 items-center justify-center rounded-full text-[#586174] hover:bg-white">
                 <MoreVertical className="h-6 w-6" />
               </button>

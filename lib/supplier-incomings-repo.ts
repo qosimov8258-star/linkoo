@@ -5,6 +5,7 @@ import { supplyCostLines, type Incoming, type IncomingExpense, type IncomingItem
 import type { SupplyPaymentsResult } from "@/components/analytics/supplier-payments-data"
 import { listSupplyPayments, paidBySupply } from "@/lib/cash/supplier-payments"
 import { ensureCashSchema } from "@/lib/cash/schema"
+import { claimInvoiceForIncoming, ensureInvoiceIncomingsSchema } from "@/lib/invoice-incomings-link"
 
 // Supplier incomings ("Приход от поставщиков"). A supply is created
 // "ожидает", is accepted onto the warehouse ("принят") or cancelled
@@ -12,17 +13,19 @@ import { ensureCashSchema } from "@/lib/cash/schema"
 // Accepted supplies drive product net costs (Формирование цен) and stock.
 
 declare global {
-  var __linkoIncomingsSchemaReady: Promise<void> | undefined
+  // V2: + invoice_id (supply created from an incoming e-invoice, "Входящие счет фактуры").
+  var __linkoIncomingsSchemaReadyV2: Promise<void> | undefined
 }
 
 async function ensureSchema(db: PgDb) {
-  if (!globalThis.__linkoIncomingsSchemaReady) {
-    globalThis.__linkoIncomingsSchemaReady = (async () => {
+  if (!globalThis.__linkoIncomingsSchemaReadyV2) {
+    globalThis.__linkoIncomingsSchemaReadyV2 = (async () => {
       await db.exec(`
         ALTER TABLE supplier_incomings ADD COLUMN IF NOT EXISTS currency TEXT NOT NULL DEFAULT 'SUM';
         ALTER TABLE supplier_incomings ADD COLUMN IF NOT EXISTS invoice_date TEXT NOT NULL DEFAULT '';
         ALTER TABLE supplier_incomings ADD COLUMN IF NOT EXISTS accepted_at TEXT NOT NULL DEFAULT '';
         ALTER TABLE supplier_incomings ADD COLUMN IF NOT EXISTS accepted_by TEXT NOT NULL DEFAULT '';
+        ALTER TABLE supplier_incomings ADD COLUMN IF NOT EXISTS invoice_id INTEGER;
         ALTER TABLE products ADD COLUMN IF NOT EXISTS initial_cost REAL;
 
         CREATE TABLE IF NOT EXISTS supplier_incoming_expenses (
@@ -47,11 +50,11 @@ async function ensureSchema(db: PgDb) {
         );
       `)
     })().catch((error) => {
-      globalThis.__linkoIncomingsSchemaReady = undefined
+      globalThis.__linkoIncomingsSchemaReadyV2 = undefined
       throw error
     })
   }
-  await globalThis.__linkoIncomingsSchemaReady
+  await globalThis.__linkoIncomingsSchemaReadyV2
 }
 
 /** For other modules reading the incoming tables (production stock). */
@@ -154,6 +157,8 @@ export type IncomingInput = {
   invoiceDate: string
   comment: string
   items: IncomingItem[]
+  /** Incoming e-invoice the supply is created from ("Создать приход"); create only. */
+  invoiceId: number | null
 }
 
 export function parseIncomingInput(body: unknown): IncomingInput | null {
@@ -176,6 +181,7 @@ export function parseIncomingInput(body: unknown): IncomingInput | null {
     invoiceNumber: typeof value.invoiceNumber === "string" ? value.invoiceNumber : "",
     invoiceDate: typeof value.invoiceDate === "string" ? value.invoiceDate : "",
     comment: typeof value.comment === "string" ? value.comment : "",
+    invoiceId: Number.isInteger(value.invoiceId) && Number(value.invoiceId) > 0 ? Number(value.invoiceId) : null,
     items: items
       .filter((item) => String(item.product ?? "").trim())
       .map((item, index) => ({
@@ -238,18 +244,21 @@ export async function listIncomingPayments(id: number): Promise<SupplyPaymentsRe
   return listSupplyPayments(id, db)
 }
 
+/** Throws InvoiceLinkError when `input.invoiceId` is not an accepted invoice without a supply. */
 export async function createIncoming(input: IncomingInput, userName: string): Promise<Incoming> {
   const db = await incomingsDb()
   const contact = await supplierContact(db, input.supplier)
+  if (input.invoiceId) await ensureInvoiceIncomingsSchema()
   return withTransaction(async (tx) => {
+    const invoice = input.invoiceId ? await claimInvoiceForIncoming(tx, input.invoiceId) : null
     const result = await tx
       .prepare(
         `INSERT INTO supplier_incomings (
           supplier, warehouse, date, payment_type, contract_number, amount, status, invoice_number,
-          organization, branch, phone, email, initiator, paid, time, comment, items, currency, invoice_date, updated_at
+          organization, branch, phone, email, initiator, paid, time, comment, items, currency, invoice_date, invoice_id, updated_at
         ) VALUES (
           @supplier, @warehouse, @date, @paymentType, @contractNumber, @amount, 'ожидает', @invoiceNumber,
-          @organization, @branch, @phone, @email, @initiator, 0, @time, @comment, @items, @currency, @invoiceDate, datetime('now')
+          @organization, @branch, @phone, @email, @initiator, 0, @time, @comment, @items, @currency, @invoiceDate, @invoiceId, datetime('now')
         )`,
       )
       .run({
@@ -270,8 +279,9 @@ export async function createIncoming(input: IncomingInput, userName: string): Pr
         items: JSON.stringify(input.items),
         currency: input.currency,
         invoiceDate: input.invoiceDate,
+        invoiceId: invoice?.id ?? null,
       })
-    await addLog(tx, result.lastInsertRowid, "created", userName)
+    await addLog(tx, result.lastInsertRowid, "created", userName, invoice ? `Счет-фактура № ${invoice.number}` : "")
     return (await getIncoming(result.lastInsertRowid, tx))!
   })
 }
