@@ -1,21 +1,27 @@
-export type IncomeCategory = { id: number; name: string; parameter: string; otherIncome: boolean; createdDate: string }
+// Shared (client + server) shapes of "Категории приходов" (demo #/income-category,
+// API finance/income_category: {id, name, options[], created_date, is_other}).
+// Storage rules: lib/income-categories-repo.ts + lib/categories-common.ts.
 
-export const incomeParameterOptions = ["Детализация", "Клиент", "Заказ"]
+import type { CategoryOptionKey } from "@/lib/cash/types"
 
-export const knownIncomeCategories: IncomeCategory[] = [
-  { id: 1, name: "distrubutor", parameter: "Детализация", otherIncome: false, createdDate: "06 мар. 2025" },
-  { id: 2, name: "Ichki perevod", parameter: "", otherIncome: false, createdDate: "22 дек. 2025" },
-  { id: 3, name: "kassa 2", parameter: "", otherIncome: false, createdDate: "10 дек. 2025" },
-  { id: 4, name: "old", parameter: "", otherIncome: false, createdDate: "20 июня 2025" },
-  { id: 5, name: "Админ", parameter: "Детализация", otherIncome: false, createdDate: "02 июня 2025" },
-  { id: 6, name: "Внутренние переводы", parameter: "", otherIncome: false, createdDate: "22 нояб. 2025" },
-  { id: 7, name: "возврат", parameter: "Клиент", otherIncome: false, createdDate: "01 мар. 2025" },
-  { id: 8, name: "Возвраты клиентов", parameter: "", otherIncome: false, createdDate: "22 нояб. 2025" },
-  { id: 9, name: "Детализация", parameter: "Детализация", otherIncome: false, createdDate: "25 февр. 2022" },
-  { id: 10, name: "Заказ", parameter: "Заказ", otherIncome: false, createdDate: "11 янв. 2022" },
-  { id: 11, name: "Клиент", parameter: "Клиент", otherIncome: false, createdDate: "25 февр. 2022" },
-  { id: 12, name: "Инкассация", parameter: "", otherIncome: false, createdDate: "18 янв. 2022" },
-  { id: 13, name: "Оплата от клиента", parameter: "Клиент", otherIncome: false, createdDate: "15 янв. 2022" },
-  { id: 14, name: "Пополнение баланса", parameter: "", otherIncome: false, createdDate: "10 янв. 2022" },
-  { id: 15, name: "Прочий приход", parameter: "", otherIncome: true, createdDate: "05 янв. 2022" },
-]
+/** Element of GET /api/income-categories (plain array for the selects of other pages) and of the paged list. */
+export type IncomeCategory = {
+  id: number
+  name: string
+  /** Russian title of the chosen option ('' = none), kept for older readers. */
+  parameter: string
+  /** Option keys (lib/cash/types.ts CATEGORY_OPTIONS); the dialog edits the first one. */
+  options: CategoryOptionKey[]
+  /** "Прочий приход" (demo is_other). */
+  otherIncome: boolean
+  /** Local "YYYY-MM-DDTHH:mm:ss" of the creation ('' = unknown). */
+  createdDate: string
+}
+
+/** GET /api/income-categories?page=&pageSize=&search=&ordering= (demo {count, results}). */
+export type IncomeCategoryListResult = { count: number; results: IncomeCategory[] }
+
+export const INCOME_CATEGORIES_API = "/api/income-categories"
+
+/** Header sorting: only "Дата создания" is sortable in the demo grid; default = name. */
+export type IncomeCategoryOrdering = "" | "created_date" | "-created_date"

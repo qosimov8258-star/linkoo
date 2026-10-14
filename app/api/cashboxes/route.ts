@@ -1,44 +1,39 @@
-import { NextRequest, NextResponse } from "next/server"
-import { z } from "zod"
+import { NextResponse } from "next/server"
 
 import { getCurrentUser } from "@/lib/current-user"
+import { cashboxErrorResponse, createCashbox, listCashboxes, listCashboxesPage } from "@/lib/cashboxes-repo"
+import { cashboxInputSchema, cashboxListQuerySchema, cashboxQueryObject, wantsPagedCashboxes } from "@/lib/cashboxes-schema"
 import { requireRole } from "@/lib/rbac"
 import { parseJsonBody } from "@/lib/validation"
-import { createCashbox, listCashboxes } from "@/lib/cashboxes-repo"
 
-const cashboxSchema = z.object({
-  name: z.string().trim().min(1),
-  currency: z.string().trim().min(1),
-  cashier: z.string().trim().min(1),
-  branch: z.string().trim().optional(),
-  paymentType: z.string().trim().min(1),
-  vansell: z.boolean().optional(),
-  orderNumber: z.coerce.number().finite(),
-})
-
-export async function GET(request: NextRequest) {
+// GET /api/cashboxes — plain array of Cashbox for every cashbox select (optional
+// ?search= / ?q=), in the demo order (position, "Не указано" last, then id desc).
+// With ?page / ?pageSize (or ?paged=1) it returns the grid of the "Кассы" page
+// instead: {count, results} — demo GET finance/cashbox/?search&page&page_size.
+export async function GET(request: Request) {
   const user = await getCurrentUser()
   if (!user) return NextResponse.json({ error: "Tizimga kirilmagan" }, { status: 401 })
-
-  const search = request.nextUrl.searchParams.get("q") ?? undefined
-  return NextResponse.json((await listCashboxes(search)))
+  const params = new URL(request.url).searchParams
+  const query = cashboxListQuerySchema.safeParse(cashboxQueryObject(params))
+  if (!query.success) return NextResponse.json({ error: "Ma'lumotlar noto'g'ri", details: query.error.flatten() }, { status: 400 })
+  if (wantsPagedCashboxes(params)) return NextResponse.json(await listCashboxesPage(query.data))
+  return NextResponse.json(await listCashboxes(query.data.search ?? ""))
 }
 
-export async function POST(request: NextRequest) {
+// POST /api/cashboxes {name, currency, cashierId, branchId?, paymentType, vansell, orderNumber}
+// — demo POST finance/cashbox/ {name, currency, cashier, branch, type, is_van_sell, position}.
+export async function POST(request: Request) {
   const auth = await requireRole("manager")
   if ("error" in auth) return auth.error
 
-  const parsed = await parseJsonBody(request, cashboxSchema)
+  const parsed = await parseJsonBody(request, cashboxInputSchema)
   if (parsed.error) return parsed.error
 
-  const cashbox = await createCashbox({
-    name: parsed.data.name,
-    currency: parsed.data.currency,
-    cashier: parsed.data.cashier,
-    branch: parsed.data.branch ?? "",
-    paymentType: parsed.data.paymentType,
-    vansell: parsed.data.vansell ?? false,
-    orderNumber: parsed.data.orderNumber,
-  })
-  return NextResponse.json(cashbox, { status: 201 })
+  try {
+    return NextResponse.json(await createCashbox(parsed.data), { status: 201 })
+  } catch (error) {
+    const response = cashboxErrorResponse(error)
+    if (response) return response
+    throw error
+  }
 }

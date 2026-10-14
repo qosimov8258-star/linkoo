@@ -133,7 +133,25 @@ export async function updateEmployee(id: number, input: EmployeeInput): Promise<
       organizations = @organizations, active = @active, updated_at = datetime('now')
     WHERE id = @id`,
       ).run({ ...toParams(input), id })
+  await syncCashierName(id)
   return (await getEmployee(id))
+}
+
+// cashboxes.cashier keeps the cashier's "First Last" name (the ledger matches it by
+// name); cashier_id is added lazily by lib/cashboxes-repo.ts, so check it exists.
+async function syncCashierName(id: number) {
+  const db = getDb()
+  const linked = await db
+    .prepare("SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'cashboxes' AND column_name = 'cashier_id'")
+    .get()
+  if (!linked) return
+  await db
+    .prepare(
+      `UPDATE cashboxes c SET cashier = btrim(btrim(coalesce(e.first_name, '')) || ' ' || btrim(coalesce(e.last_name, ''))), updated_at = datetime('now')
+       FROM employees e WHERE e.id = @id AND c.cashier_id = e.id
+         AND c.cashier IS DISTINCT FROM btrim(btrim(coalesce(e.first_name, '')) || ' ' || btrim(coalesce(e.last_name, '')))`,
+    )
+    .run({ id })
 }
 
 export async function deleteEmployee(id: number): Promise<boolean> {

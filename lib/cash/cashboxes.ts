@@ -34,7 +34,9 @@ export async function listCashboxesWithBalances(db: PgDb = getDb()): Promise<Cas
       balance,
     }
   })
-  cashboxes.sort((a, b) => a.position - b.position || a.name.localeCompare(b.name, "ru") || a.id - b.id)
+  // Same order as the Кассы page: position 0 / empty = "Не указано", last.
+  const rank = (position: number) => (position > 0 ? position : Number.MAX_SAFE_INTEGER)
+  cashboxes.sort((a, b) => rank(a.position) - rank(b.position) || a.name.localeCompare(b.name, "ru") || a.id - b.id)
   return { baseCurrency: list.baseCurrency, cashboxes, totals }
 }
 
