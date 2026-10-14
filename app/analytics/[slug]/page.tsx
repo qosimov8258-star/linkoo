@@ -238,7 +238,7 @@ export default async function AnalyticsPage({ params }: PageProps) {
   if (report.slug === "stock-level") {
     return <StockLevelView />
   }
-  if (report.slug === "stock-by-date" || report.slug === "material-report" || report.slug === "goods-movement") {
+  if (report.slug === "material-report" || report.slug === "goods-movement") {
     return <MaterialReportView />
   }
 

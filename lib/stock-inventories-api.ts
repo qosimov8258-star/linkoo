@@ -1,0 +1,166 @@
+import "server-only"
+
+import { NextResponse } from "next/server"
+import { z } from "zod"
+
+import {
+  STOCK_INVENTORY_STATUSES,
+  type StockInventoryListQuery,
+  type StockInventoryOrdering,
+  type StockInventoryStatus,
+} from "@/lib/stock-inventories-types"
+
+// HTTP helpers of /api/stock/inventories/** (route files export only handlers).
+// Error messages are Russian i18n keys; the UI shows them through t().
+
+export class StockInventoryError extends Error {
+  constructor(
+    message: string,
+    readonly status = 400,
+    readonly field?: string,
+    readonly extra?: Record<string, unknown>,
+  ) {
+    super(message)
+  }
+}
+
+/** JSON response of a StockInventoryError ({error, field?, …extra}); rethrows anything else. */
+export function stockInventoryErrorResponse(error: unknown): NextResponse {
+  if (error instanceof StockInventoryError) {
+    return NextResponse.json({ error: error.message, field: error.field ?? null, ...(error.extra ?? {}) }, { status: error.status })
+  }
+  throw error
+}
+
+export type Parsed<T> = { data: T; error?: undefined } | { data?: undefined; error: NextResponse }
+
+function bad(name: string, hint: string) {
+  return NextResponse.json({ error: "Ma'lumotlar noto'g'ri", details: { fieldErrors: { [name]: [hint] } } }, { status: 400 })
+}
+
+const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/
+const ORDERINGS: StockInventoryOrdering[] = ["id", "-id", "created_date", "-created_date", "total_price", "-total_price"]
+
+export function parseInventoryId(value: string): number | null {
+  const id = Number(value)
+  return Number.isInteger(id) && id > 0 && id <= 2_147_483_647 ? id : null
+}
+
+function texts(values: string[]): string[] {
+  return [...new Set(values.flatMap((value) => value.split("~")).map((value) => value.trim()).filter(Boolean))]
+}
+
+/**
+ * GET /api/stock/inventories?search &status=pending|confirmed|canceled &warehouse=<name>* (also stock)
+ * &createdBy=<name>* (also created_by) &fromDate &toDate (also begin_date / end_date; inventory day)
+ * &ordering=id|-id|created_date|-created_date|total_price|-total_price &page &pageSize (0 = all; also page_size)
+ */
+export function parseInventoryListQuery(url: string): Parsed<StockInventoryListQuery> {
+  const search = new URL(url).searchParams
+  const status = (search.get("status") ?? "").trim()
+  if (status && !STOCK_INVENTORY_STATUSES.includes(status as StockInventoryStatus)) return { error: bad("status", STOCK_INVENTORY_STATUSES.join(" | ")) }
+  const page = Number(search.get("page") ?? 1)
+  const pageSize = Number(search.get("pageSize") ?? search.get("page_size") ?? 25)
+  if (!Number.isInteger(page) || page < 1) return { error: bad("page", ">= 1") }
+  if (!Number.isInteger(pageSize) || pageSize < 0 || pageSize > 5000) return { error: bad("pageSize", "0..5000") }
+  const fromDate = (search.get("fromDate") ?? search.get("begin_date") ?? "").trim()
+  const toDate = (search.get("toDate") ?? search.get("end_date") ?? "").trim()
+  if (fromDate && !ISO_DAY.test(fromDate)) return { error: bad("fromDate", "YYYY-MM-DD") }
+  if (toDate && !ISO_DAY.test(toDate)) return { error: bad("toDate", "YYYY-MM-DD") }
+  const ordering = (search.get("ordering") ?? "-id").trim() || "-id"
+  if (!ORDERINGS.includes(ordering as StockInventoryOrdering)) return { error: bad("ordering", ORDERINGS.join(" | ")) }
+  return {
+    data: {
+      search: (search.get("search") ?? "").trim().slice(0, 200),
+      status: status as StockInventoryStatus | "",
+      warehouses: texts([...search.getAll("warehouse"), ...search.getAll("stock")]),
+      createdBy: texts([...search.getAll("createdBy"), ...search.getAll("created_by")]),
+      fromDate,
+      toDate,
+      ordering: ordering as StockInventoryOrdering,
+      page,
+      pageSize,
+    },
+  }
+}
+
+/** GET /api/stock/inventories/balances?warehouse &date (YYYY-MM-DD, default today) &forDayEnd=0|1 (default 1). */
+export function parseBalancesQuery(url: string): Parsed<{ warehouse: string; date: string; forDayEnd: boolean }> {
+  const search = new URL(url).searchParams
+  const warehouse = (search.get("warehouse") ?? search.get("stock") ?? "").trim()
+  if (!warehouse) return { error: bad("warehouse", "required") }
+  const date = (search.get("date") ?? "").trim()
+  if (date && !ISO_DAY.test(date)) return { error: bad("date", "YYYY-MM-DD") }
+  const rawEnd = (search.get("forDayEnd") ?? search.get("for_day_end") ?? "1").trim().toLowerCase()
+  return { data: { warehouse, date, forDayEnd: !["0", "false", "no"].includes(rawEnd) } }
+}
+
+const REQUIRED = "Обязательное поле"
+
+/** Counted amount: number ≥ 0 ("1 000,5" strings accepted). */
+const amountSchema = z.preprocess(
+  (value) => (typeof value === "string" ? Number(value.replace(/[\s  ]/g, "").replace(",", ".")) : value),
+  z.number({ error: "Введите число" }).finite("Введите число").min(0, "Количество не может быть отрицательным").max(1e12, "Слишком большое число"),
+)
+
+const lineSchema = z.object({
+  key: z.string().trim().min(1, REQUIRED).max(300),
+  amount: amountSchema,
+  series: z.string().trim().max(200).optional(),
+})
+
+const headerShape = {
+  type: z.enum(["fact_date", "custom_date"]).default("fact_date"),
+  warehouse: z.string({ error: REQUIRED }).trim().min(1, REQUIRED).max(255),
+  invDate: z.string().trim().optional(),
+  forDayEnd: z.boolean().optional(),
+  comment: z.string().max(2000).optional(),
+}
+
+/** POST /api/stock/inventories, PUT /api/stock/inventories/[id]. */
+export const inventoryInputSchema = z.object({
+  ...headerShape,
+  items: z.array(lineSchema).max(5000, "Слишком много товаров"),
+})
+
+/** POST /api/stock/inventories/import — rows of the filled template. */
+export const inventoryImportSchema = z.object({
+  ...headerShape,
+  rows: z
+    .array(
+      z.object({
+        name: z.coerce.string().max(300).optional(),
+        article: z.coerce.string().max(100).optional(),
+        amount: z.union([z.number(), z.string().max(40), z.null()]),
+        line: z.number().int().optional(),
+      }),
+    )
+    .max(10000, "Слишком много строк"),
+})
+
+/** POST /api/stock/inventories/[id]/confirm {comment?} (demo InventoryVerifyForm). */
+export const inventoryConfirmSchema = z.object({ comment: z.string().max(2000).optional() })
+
+/**
+ * Reads and validates a JSON body like parseJsonBody, but answers with the first
+ * issue as a translatable `error` (+ `field`, e.g. "items.2.amount") so the dialog
+ * can show it. `optional` = an empty body reads as {} (confirm without a comment).
+ */
+export async function parseInventoryBody<T>(request: Request, schema: z.ZodType<T>, optional = false): Promise<Parsed<T>> {
+  const text = await request.text()
+  let json: unknown = {}
+  if (text.trim() || !optional) {
+    try {
+      json = JSON.parse(text)
+    } catch {
+      return { error: NextResponse.json({ error: "So'rov tanasi JSON emas" }, { status: 400 }) }
+    }
+  }
+  const result = schema.safeParse(json)
+  if (!result.success) {
+    const issue = result.error.issues[0]
+    const field = issue?.path.map(String).join(".") ?? ""
+    return { error: NextResponse.json({ error: issue?.message || "Ma'lumotlar noto'g'ri", field: field || null, details: result.error.flatten() }, { status: 400 }) }
+  }
+  return { data: result.data }
+}

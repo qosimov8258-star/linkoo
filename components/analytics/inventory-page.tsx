@@ -1,301 +1,321 @@
 "use client"
 
-import { ChangeEvent, Fragment, useEffect, useMemo, useRef, useState } from "react"
-import { ChevronLeft, ChevronRight, Download, FileText, MinusCircle, Pencil, Plus, Search, Trash2, X } from "lucide-react"
+import { Fragment, useCallback, useEffect, useState, type ReactNode } from "react"
+import { useSearchParams } from "next/navigation"
+import { ArrowDown, ArrowUp, ArrowUpDown, FileSpreadsheet, Plus, RefreshCw, Search } from "lucide-react"
 
-import { downloadExcelTable } from "@/lib/excel-export"
-import { mapHeaderColumns, readExcelRows } from "@/lib/excel-import"
+import { BalancePagination } from "@/components/analytics/balance/pagination"
+import { buildCashQuery, useCashJson, type CashQuery } from "@/components/analytics/cash/use-cash"
+import { CashSnackbar, useCanWrite, type SnackbarMessage } from "@/components/analytics/cash-management-shared"
+import { InventoryDetailPanel } from "@/components/analytics/stock-inventory-detail"
+import { EMPTY_INVENTORY_FILTERS, InventoryFilterBar, type InventoryFilters } from "@/components/analytics/stock-inventory-filter"
+import { InventoryFormDialog } from "@/components/analytics/stock-inventory-form"
+import { StatusLabel, formatSum, inventoryDateText, inventoryListSheet } from "@/components/analytics/stock-inventory-shared"
 import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
+import { downloadExcelTable } from "@/lib/excel-export"
 import { useLanguage } from "@/lib/i18n/language-context"
+import {
+  STOCK_INVENTORY_STATUSES,
+  type StockInventoryDetail,
+  type StockInventoryListResult,
+  type StockInventoryOptions,
+  type StockInventoryStatus,
+} from "@/lib/stock-inventories-types"
 
-type Status = "Подтвержденный" | "В ожидании" | "Отменен"
-type Inventory = { id: number; warehouse: string; author: string; date: string; comment: string; status: Status; amount: string }
+// "Инвентаризация" (demo #/inventory; chunk c83 module 4138 + c0 modules
+// 4372–4759; API stock/inventory/). Toolbar: "Показать фильтр" (Склад, Создал,
+// Статус, Период создания), search, page size + "1 - 25 из N", Excel; columns
+// № | Склад | Создал | Дата создания | Комментарий | Статус | Сумма (№ and date
+// sortable); a row opens its detail in place; "Добавить" creates. Counted
+// lines become stock movements once confirmed (lib/stock core). Data:
+// /api/stock/inventories/**; the URL keeps the state.
 
-const warehouses = ["05,08,2025(1)", "Andijon skladi", "ПРОФРЕШ", "123 test", "878", "Herat", "Chinobod sklad"]
+const PAGE_SIZES = [10, 25, 50, 100, 200, 500] as const
 
-const IMPORT_HEADER_ALIASES: Record<string, string> = {
-  "склад": "warehouse", "warehouse": "warehouse",
-  "комментарий": "comment", "comment": "comment",
+type ViewState = {
+  search: string
+  ordering: string
+  page: number
+  pageSize: number
+  filters: InventoryFilters
+  detailId: number | null
 }
 
-function makeRows(): Inventory[] {
-  return []
+function positiveInt(value: string | null): number | null {
+  const number = Number(value)
+  return Number.isInteger(number) && number > 0 ? number : null
 }
 
-const statusColor: Record<Status, string> = {
-  "Подтвержденный": "bg-[#77c98b]",
-  "В ожидании": "bg-[#f1aa42]",
-  "Отменен": "bg-[#e96c70]",
+function stateFromParams(params: URLSearchParams): ViewState {
+  const list = (name: string) => [...new Set(params.getAll(name).flatMap((value) => value.split("~")).map((value) => value.trim()).filter(Boolean))]
+  const status = params.get("status") as StockInventoryStatus | null
+  return {
+    search: params.get("search") ?? "",
+    ordering: params.get("ordering") ?? "",
+    page: positiveInt(params.get("page")) ?? 1,
+    pageSize: positiveInt(params.get("pageSize")) ?? 25,
+    filters: {
+      warehouses: list("stock"),
+      createdBy: list("createdBy"),
+      status: status && STOCK_INVENTORY_STATUSES.includes(status) ? status : "",
+      fromDate: params.get("fromDate") ?? "",
+      toDate: params.get("toDate") ?? "",
+    },
+    detailId: positiveInt(params.get("id")),
+  }
+}
+
+function stateToSearch(state: ViewState): string {
+  return buildCashQuery({
+    search: state.search,
+    ordering: state.ordering,
+    page: state.page > 1 ? state.page : "",
+    pageSize: state.pageSize,
+    stock: state.filters.warehouses,
+    createdBy: state.filters.createdBy,
+    status: state.filters.status,
+    fromDate: state.filters.fromDate,
+    toDate: state.filters.toDate,
+    id: state.detailId ?? "",
+  })
+}
+
+/** Query of GET /api/stock/inventories (pageSize 0 = every row for Excel). */
+function listQuery(state: ViewState, pageSize = state.pageSize): CashQuery {
+  return {
+    search: state.search,
+    ordering: state.ordering,
+    page: pageSize ? state.page : 1,
+    pageSize: String(pageSize),
+    warehouse: state.filters.warehouses,
+    createdBy: state.filters.createdBy,
+    status: state.filters.status,
+    fromDate: state.filters.fromDate,
+    toDate: state.filters.toDate,
+  }
+}
+
+function SortIcon({ ordering, sortKey }: { ordering: string; sortKey: string }) {
+  if (ordering === sortKey) return <ArrowUp className="h-3.5 w-3.5" />
+  if (ordering === `-${sortKey}`) return <ArrowDown className="h-3.5 w-3.5" />
+  return <ArrowUpDown className="h-3.5 w-3.5 opacity-40" />
 }
 
 export function InventoryPage() {
-  const { t } = useLanguage()
-  const [rows, setRows] = useState<Inventory[]>(makeRows)
-  useEffect(() => {
-    let cancelled = false
-    fetch("/api/inventory-records")
-      .then(async (response) => {
-        if (!response.ok) throw new Error("failed")
-        return (await response.json()) as Inventory[]
-      })
-      .then((data) => {
-        if (!cancelled) setRows(data)
-      })
-      .catch(() => {
-        if (!cancelled) window.alert(t("Не удалось загрузить инвентаризации с сервера"))
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [])
-  const [query, setQuery] = useState("")
-  const [page, setPage] = useState(1)
-  const [pageSize, setPageSize] = useState(25)
-  const [selected, setSelected] = useState<number | null>(null)
+  const { t, language } = useLanguage()
+  const searchParams = useSearchParams()
+  const canEdit = useCanWrite()
+  const [state, setState] = useState<ViewState>(() => stateFromParams(new URLSearchParams(searchParams.toString())))
+  const [searchDraft, setSearchDraft] = useState(state.search)
   const [filterOpen, setFilterOpen] = useState(false)
-  const [addOpen, setAddOpen] = useState(false)
-  const [addComment, setAddComment] = useState("")
-  const [warehouse, setWarehouse] = useState("Все склады")
-  const [status, setStatus] = useState<Status | "Все статусы">("Все статусы")
-  const [editRow, setEditRow] = useState<Inventory | null>(null)
-  const [editComment, setEditComment] = useState("")
-  const [importOpen, setImportOpen] = useState(false)
-  const [importFile, setImportFile] = useState<File | null>(null)
-  const [importSaving, setImportSaving] = useState(false)
-  const importInputRef = useRef<HTMLInputElement>(null)
+  // undefined = closed, null = create, detail = edit.
+  const [form, setForm] = useState<StockInventoryDetail | null | undefined>(undefined)
+  const [detailVersion, setDetailVersion] = useState(0)
+  const [message, setMessage] = useState<SnackbarMessage | null>(null)
 
-  const filtered = useMemo(() => rows.filter((row) => {
-    const matchesQuery = `${row.id} ${row.warehouse} ${row.author} ${row.comment} ${row.status}`.toLowerCase().includes(query.toLowerCase())
-    return matchesQuery && (warehouse === "Все склады" || row.warehouse === warehouse) && (status === "Все статусы" || row.status === status)
-  }), [rows, query, warehouse, status])
+  const list = useCashJson<StockInventoryListResult>(`/api/stock/inventories?${buildCashQuery(listQuery(state))}`)
+  const options = useCashJson<StockInventoryOptions>("/api/stock/inventories/options")
+  const data = list.data
+  const rows = data?.results ?? []
 
-  const pages = Math.max(1, Math.ceil(filtered.length / pageSize))
-  const visible = filtered.slice((page - 1) * pageSize, page * pageSize)
+  useEffect(() => {
+    const search = stateToSearch(state)
+    if (window.location.search.slice(1) !== search) window.history.replaceState(window.history.state, "", `${window.location.pathname}?${search}`)
+  }, [state])
 
-  function downloadExcel() {
-    const header = [t("№"), t("Склад"), t("Создал"), t("Дата создания"), t("Комментарий"), t("Статус"), t("Сумма")]
-    const body = filtered.map((r) => [r.id, r.warehouse, r.author, r.date, r.comment, t(r.status), r.amount])
-    downloadExcelTable("inventory", [header, ...body])
+  // Search applies 400 ms after typing stops.
+  useEffect(() => {
+    const value = searchDraft.trim()
+    if (value === state.search) return
+    const timer = window.setTimeout(() => setState((current) => ({ ...current, search: value, page: 1 })), 400)
+    return () => window.clearTimeout(timer)
+  }, [searchDraft, state.search])
+
+  // A page past the end (rows removed, stale URL) jumps to the last page.
+  useEffect(() => {
+    if (!data || list.loading || state.page <= 1) return
+    const last = Math.max(1, Math.ceil(data.count / Math.max(1, state.pageSize)))
+    if (state.page > last) setState((current) => ({ ...current, page: last }))
+  }, [data, list.loading, state.page, state.pageSize])
+
+  const update = (patch: Partial<ViewState>) => setState((current) => ({ ...current, ...patch }))
+  const notify = useCallback((text: string, error = false) => setMessage({ text, tone: error ? "error" : "success" }), [])
+  const closeSnackbar = useCallback(() => setMessage(null), [])
+
+  const sort = (key: string) => update({ ordering: state.ordering === key ? `-${key}` : state.ordering === `-${key}` ? "" : key, page: 1 })
+  const sortHeader = (key: string, label: ReactNode) => (
+    <button type="button" onClick={() => sort(key)} className="inline-flex items-center gap-1 font-semibold">
+      {label}
+      <SortIcon ordering={state.ordering} sortKey={key} />
+    </button>
+  )
+
+  const clearFilters = () => {
+    setSearchDraft("")
+    setFilterOpen(false)
+    update({ search: "", page: 1, filters: { ...EMPTY_INVENTORY_FILTERS }, detailId: null })
   }
 
-  async function cancelInventory(id: number) {
+  const downloadExcel = async () => {
     try {
-      const response = await fetch(`/api/inventory-records/${id}/cancel`, { method: "POST" })
-      if (!response.ok) {
-        window.alert(t("Не удалось отменить инвентаризацию"))
-        return
-      }
-      const saved = (await response.json()) as Inventory
-      setRows((current) => current.map((row) => (row.id === id ? saved : row)))
-    } catch {
-      window.alert(t("Сервер недоступен, попробуйте ещё раз"))
+      const response = await fetch(`/api/stock/inventories?${buildCashQuery(listQuery(state, 0))}`, { cache: "no-store" })
+      const body = (await response.json().catch(() => null)) as (StockInventoryListResult & { error?: string }) | null
+      if (!response.ok || !body) throw new Error(body?.error || `HTTP ${response.status}`)
+      downloadExcelTable(t("Инвентаризация"), inventoryListSheet(body.results, t, language))
+    } catch (reason) {
+      notify(reason instanceof Error ? t(reason.message) : t("Сервер недоступен, попробуйте ещё раз"), true)
     }
   }
 
-  async function saveComment() {
-    if (!editRow) return
-    try {
-      const response = await fetch(`/api/inventory-records/${editRow.id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ comment: editComment }),
-      })
-      if (!response.ok) {
-        window.alert(t("Не удалось сохранить комментарий"))
-        return
-      }
-      const saved = (await response.json()) as Inventory
-      setRows((current) => current.map((row) => (row.id === editRow.id ? saved : row)))
-      setEditRow(null)
-    } catch {
-      window.alert(t("Сервер недоступен, попробуйте ещё раз"))
-    }
-  }
+  const th = "whitespace-nowrap px-3 py-3 text-left font-semibold"
+  const td = "px-3 py-3 align-middle"
+  return (
+    <main className="min-h-screen bg-[#f1f4f8] text-[#17233b]">
+      <header className="flex min-h-[76px] flex-wrap items-center justify-between gap-4 border-b border-[#d8dee7] bg-[#f2f5f8] px-4 py-3 md:px-9">
+        <div className="flex min-w-0 items-center gap-3">
+          <FavoritesButton className="flex items-center gap-3 text-2xl font-bold text-[#4f70e7]" />
+          <span className="text-3xl font-light text-[#586174]">|</span>
+          <h1 className="truncate text-xl font-bold text-[#586174] md:text-2xl">{t("Инвентаризация")}</h1>
+        </div>
+        {canEdit && (
+          <button
+            type="button"
+            onClick={() => setForm(null)}
+            className="inline-flex h-[34px] items-center gap-1.5 rounded-sm bg-[#71ce87] px-4 text-[14px] font-semibold text-white shadow-sm hover:brightness-95"
+          >
+            <Plus className="h-[18px] w-[18px]" /> {t("Добавить")}
+          </button>
+        )}
+      </header>
 
-  async function addInventory() {
-    try {
-      const response = await fetch("/api/inventory-records", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ warehouse: warehouse === "Все склады" ? warehouses[0] : warehouse, comment: addComment }),
-      })
-      if (!response.ok) {
-        const data = await response.json().catch(() => ({}))
-        window.alert(data.error || t("Не удалось создать инвентаризацию"))
-        return
-      }
-      const saved = (await response.json()) as Inventory
-      setRows((current) => [saved, ...current])
-      setAddOpen(false)
-      setAddComment("")
-      setPage(1)
-    } catch {
-      window.alert(t("Сервер недоступен, попробуйте ещё раз"))
-    }
-  }
-
-  async function removeInventory(id: number) {
-    try {
-      const response = await fetch(`/api/inventory-records/${id}`, { method: "DELETE" })
-      if (!response.ok) {
-        window.alert(t("Не удалось удалить инвентаризацию"))
-        return
-      }
-      setRows((current) => current.filter((row) => row.id !== id))
-      setSelected(null)
-    } catch {
-      window.alert(t("Сервер недоступен, попробуйте ещё раз"))
-    }
-  }
-
-  function downloadTemplate() {
-    downloadExcelTable("inventory-template", [[t("Склад"), t("Комментарий")]])
-  }
-
-  function pickImportFile(event: ChangeEvent<HTMLInputElement>) {
-    setImportFile(event.target.files?.[0] ?? null)
-  }
-
-  async function saveImport() {
-    if (!importFile) return
-    setImportSaving(true)
-    try {
-      const rows = await readExcelRows(importFile)
-      if (!rows.length) {
-        window.alert(t("Не удалось найти данные для импорта в выбранном файле"))
-        return
-      }
-      const fieldByIndex = mapHeaderColumns(rows[0], IMPORT_HEADER_ALIASES)
-      const hasHeader = Array.from(fieldByIndex.values()).includes("warehouse")
-      const dataRows = hasHeader ? rows.slice(1) : rows
-
-      type ParsedInventory = { warehouse: string; comment: string }
-      const parsed: ParsedInventory[] = []
-      for (const row of dataRows) {
-        const record: Record<string, string> = {}
-        if (hasHeader) {
-          row.forEach((cell, index) => {
-            const field = fieldByIndex.get(index)
-            if (field) record[field] = cell
-          })
-        } else {
-          record.warehouse = row[0] ?? ""
-          record.comment = row[1] ?? ""
-        }
-        if (!record.warehouse) continue
-        const matched = warehouses.find((item) => item.toLowerCase() === record.warehouse.trim().toLowerCase())
-        parsed.push({ warehouse: matched ?? record.warehouse.trim(), comment: record.comment?.trim() || "Комментариев нет" })
-      }
-
-      if (!parsed.length) {
-        window.alert(t("Не удалось найти данные для импорта в выбранном файле"))
-        return
-      }
-
-      const created: Inventory[] = []
-      let failed = 0
-      for (const item of parsed) {
-        try {
-          const response = await fetch("/api/inventory-records", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(item),
-          })
-          if (response.ok) created.push((await response.json()) as Inventory)
-          else failed += 1
-        } catch {
-          failed += 1
-        }
-      }
-      if (created.length) setRows((current) => [...created, ...current])
-      if (failed) window.alert(`${t("Импортировано")} ${created.length} ${t("из")} ${parsed.length}. ${t("Не удалось сохранить")}: ${failed}`)
-      setPage(1)
-    } finally {
-      setImportSaving(false)
-      setImportOpen(false)
-      setImportFile(null)
-    }
-  }
-
-  return <div className="min-h-[calc(100vh-64px)] bg-[#f1f4f8] text-[#17233d]">
-    <div className="flex items-center justify-between border-b border-slate-200 px-9 py-4">
-      <h1 className="flex items-center text-[26px] font-semibold text-[#586174]"><FavoritesButton className="flex items-center gap-2 text-[#4e70e7]" /><span className="mx-3 text-[#596275]">|</span>{t("Инвентаризация")}</h1>
-      <div className="flex items-center gap-3">
-        <button onClick={() => setImportOpen(true)} className="flex items-center gap-2 rounded-md bg-[#4f70e7] px-5 py-2.5 font-semibold text-white shadow"><FileText size={18}/>{t("Импорт с Excel")}</button>
-        <button onClick={() => setAddOpen(true)} className="flex items-center gap-2 rounded-md bg-[#6dce8b] px-5 py-2.5 font-semibold text-white shadow"><Plus size={20}/>{t("Добавить")}</button>
-      </div>
-    </div>
-
-    <div className="m-9 mt-0 overflow-hidden rounded-sm bg-white shadow">
-      <div className="flex items-center gap-6 px-2 py-3">
-        <button onClick={() => setFilterOpen(!filterOpen)} className="text-[#4f70e7]">{t("Показать фильтр")}⌄</button>
-        <label className="relative ml-auto mr-auto w-96"><input value={query} onChange={(e) => { setQuery(e.target.value); setPage(1) }} placeholder={t("Поиск")} className="w-full border-b border-slate-300 px-1 py-2 outline-none"/><Search className="absolute right-1 top-2 text-slate-300"/></label>
-        <select value={pageSize} onChange={(e) => { setPageSize(Number(e.target.value)); setPage(1) }} className="bg-transparent outline-none"><option>25</option><option>50</option><option>100</option></select>
-        <span className="text-slate-500">{filtered.length ? (page - 1) * pageSize + 1 : 0} - {Math.min(page * pageSize, filtered.length)} {t("из")} {filtered.length}</span>
-        <button disabled={page === 1} onClick={() => setPage((p) => p - 1)}><ChevronLeft className="text-slate-400"/></button>
-        <button disabled={page === pages} onClick={() => setPage((p) => p + 1)}><ChevronRight className="text-slate-500"/></button>
-        <button onClick={downloadExcel} title={t("Скачать Excel")}><Download className="text-slate-600"/></button>
-      </div>
-
-      {filterOpen && <div className="absolute z-30 ml-2 w-[390px] rounded bg-white p-6 shadow-2xl">
-        <div className="mb-7 flex justify-between text-xl text-slate-500">{t("Фильтр")}<button onClick={() => setFilterOpen(false)}><X/></button></div>
-        <label className="mb-5 block font-medium">{t("Склад")}<select value={warehouse} onChange={(e) => setWarehouse(e.target.value)} className="mt-2 w-full border-b py-2 font-normal"><option>{t("Все склады")}</option>{warehouses.map((w) => <option key={w}>{w}</option>)}</select></label>
-        <label className="mb-7 block font-medium">{t("Статус")}<select value={status} onChange={(e) => setStatus(e.target.value as Status | "Все статусы")} className="mt-2 w-full border-b py-2 font-normal"><option>{t("Все статусы")}</option><option>{t("Подтвержденный")}</option><option>{t("В ожидании")}</option><option>{t("Отменен")}</option></select></label>
-        <button onClick={() => { setFilterOpen(false); setPage(1) }} className="rounded bg-[#626d82] px-6 py-3 text-white shadow">{t("ПРИМЕНИТЬ")}</button>
-      </div>}
-
-      <div className="overflow-x-auto"><table className="w-full min-w-[1250px] border-collapse text-left">
-        <thead className="bg-[#626b7e] text-white"><tr>{["№", "Склад", "Создал", "Дата создания", "Комментарий", "Статус", "Сумма"].map((h) => <th key={h} className="px-9 py-5 font-semibold">{t(h)}</th>)}</tr></thead>
-        <tbody>{visible.map((row) => <Fragment key={row.id}>
-          <tr onClick={() => setSelected(selected === row.id ? null : row.id)} className="cursor-pointer border-b border-dashed border-slate-300 hover:bg-blue-50">
-            <td className="px-9 py-5">{row.id}</td><td className="px-9 py-5">{row.warehouse}</td><td className="px-9 py-5">{row.author}</td><td className="px-9 py-5">{row.date}</td><td className="px-9 py-5">{row.comment}</td>
-            <td className="px-9 py-5"><span className={`mr-2 inline-block h-2.5 w-2.5 rounded-full ${statusColor[row.status]}`}/>{t(row.status)}</td><td className="px-9 py-5">{row.amount}</td>
-          </tr>
-          {selected === row.id && <tr><td colSpan={7} className="bg-[#f2f5f8] p-4"><div className="rounded bg-white shadow-lg">
-            <div className="flex items-center border-b px-9 py-5"><strong className="text-xl">{row.author}</strong><div className="ml-auto flex gap-5"><button onClick={() => { setEditRow(row); setEditComment(row.comment) }} aria-label={t("Изменить")}><Pencil className="text-slate-400"/></button><button onClick={downloadExcel} className="flex items-center gap-2 rounded bg-[#67cc87] px-5 py-2 text-white"><Download size={18}/>{t("Скачать Excel")}</button><button disabled={row.status === "Отменен"} onClick={() => cancelInventory(row.id)} className="flex items-center gap-2 rounded bg-[#fa8077] px-5 py-2 text-white disabled:cursor-not-allowed disabled:opacity-40"><MinusCircle size={18}/>{t("Отменить")}</button><button onClick={() => removeInventory(row.id)} aria-label={t("Удалить")}><Trash2 className="text-slate-500"/></button></div></div>
-            <div className="grid grid-cols-[420px_1fr]">
-              <dl className="grid grid-cols-2 gap-y-3 border-r p-9 text-slate-600"><dt>{t("Тип:")}</dt><dd className="text-right font-semibold">{t("По факту проведения")}</dd><dt>{t("Склад:")}</dt><dd className="text-right font-semibold">{row.warehouse}</dd><dt>{t("Статус:")}</dt><dd className="text-right font-semibold">{t(row.status)}</dd><dt>{t("Дата создания:")}</dt><dd className="text-right font-semibold">{row.date}</dd><dt>{t("Время:")}</dt><dd className="text-right font-semibold">{t("На начало дня")}</dd><dt>{t("Комментарий:")}</dt><dd className="text-right font-semibold">{row.comment}</dd></dl>
-              <div className="p-9"><div className="grid grid-cols-6 border-b pb-4 font-semibold"><span>{t("Наименование")}</span><span>{t("Серия")}</span><span>{t("Баланс (до)")}</span><span>{t("Баланс (после)")}</span><span>{t("Разница")}</span><span>{t("Сумма SUM")}</span></div><div className="grid grid-cols-6 border-b py-5"><span>sndwch</span><span>-</span><span>4 sht</span><span>1 sht</span><span>-3 sht</span><span>{row.amount}</span></div><div className="mt-5 text-right font-semibold">{t("Итого")}: <span className="ml-16">{row.amount}</span></div></div>
-            </div>
-          </div></td></tr>}
-        </Fragment>)}</tbody>
-      </table></div>
-    </div>
-
-    {addOpen && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45"><div className="w-[620px] rounded bg-white p-8 shadow-2xl"><div className="mb-8 flex justify-between text-xl font-semibold">{t("ДОБАВИТЬ ИНВЕНТАРИЗАЦИЮ")}<button onClick={() => setAddOpen(false)}><X/></button></div><label className="block">{t("Склад")}<select value={warehouse} onChange={(e) => setWarehouse(e.target.value)} className="mt-2 w-full border-b py-3"><option>{t("Все склады")}</option>{warehouses.map((w) => <option key={w}>{w}</option>)}</select></label><label className="mt-6 block">{t("Комментарий")}<input value={addComment} onChange={(e) => setAddComment(e.target.value)} className="mt-2 w-full border-b py-3" placeholder={t("Комментарий")}/></label><div className="mt-10 text-right"><button onClick={addInventory} className="rounded bg-[#67cc87] px-7 py-3 font-semibold text-white">{t("СОХРАНИТЬ")}</button></div></div></div>}
-
-    {editRow && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45"><div className="w-[620px] rounded bg-white p-8 shadow-2xl"><div className="mb-8 flex justify-between text-xl font-semibold">{t("ИЗМЕНИТЬ ИНВЕНТАРИЗАЦИЮ №")}{editRow.id}<button onClick={() => setEditRow(null)}><X/></button></div><label className="block">{t("Комментарий")}<input autoFocus value={editComment} onChange={(e) => setEditComment(e.target.value)} className="mt-2 w-full border-b py-3" placeholder={t("Комментарий")}/></label><div className="mt-10 text-right"><button onClick={saveComment} className="rounded bg-[#67cc87] px-7 py-3 font-semibold text-white">{t("СОХРАНИТЬ")}</button></div></div></div>}
-
-    {importOpen && (
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
-        <div className="w-full max-w-md rounded bg-white">
-          <header className="flex items-center justify-between border-b p-6">
-            <b className="uppercase">{t("Импорт с Excel")}</b>
-            <button type="button" onClick={() => { setImportOpen(false); setImportFile(null) }} aria-label={t("Закрыть")}>
-              <X className="h-5 w-5" />
+      <section className="mx-4 mb-10 mt-4 rounded-sm bg-white shadow-sm md:mx-6">
+        <div className="flex flex-wrap items-center gap-x-5 gap-y-3 border-b border-[#e1e5eb] px-4 py-3 md:px-6">
+          <InventoryFilterBar
+            filters={state.filters}
+            open={filterOpen}
+            onOpen={() => setFilterOpen(true)}
+            onClose={() => setFilterOpen(false)}
+            onClear={clearFilters}
+            onApply={(filters) => {
+              setFilterOpen(false)
+              update({ filters, page: 1, detailId: null })
+            }}
+            options={options.data}
+          />
+          <label className="relative min-w-[180px] flex-1 border-b border-[#dbe0e8] pb-1.5 md:max-w-[340px]">
+            <input
+              value={searchDraft}
+              onChange={(event) => setSearchDraft(event.target.value)}
+              placeholder={t("Поиск")}
+              aria-label={t("Поиск")}
+              className="w-full bg-transparent pr-7 text-[15px] outline-none placeholder:text-[#9aa3b6]"
+            />
+            <Search className="pointer-events-none absolute right-0 top-0.5 h-5 w-5 text-[#9aa3b6]" />
+          </label>
+          <div className="ml-auto flex flex-wrap items-center gap-3">
+            <BalancePagination page={state.page} pageSize={state.pageSize} count={data?.count ?? 0} sizes={PAGE_SIZES} onChange={({ page, pageSize }) => update({ page, pageSize, detailId: null })} />
+            <button type="button" onClick={list.reload} title={t("Обновить список")} aria-label={t("Обновить список")} className="flex h-9 w-9 items-center justify-center rounded-full text-[#666] hover:bg-[#f2f5f8]">
+              <RefreshCw className={`h-5 w-5 ${list.loading ? "animate-spin" : ""}`} />
             </button>
-          </header>
-          <div className="p-8">
-            <button type="button" onClick={downloadTemplate} className="mb-4 font-semibold text-[#4f70e7] hover:underline">
-              {t("1. Скачать шаблон")}
-            </button>
-            <input ref={importInputRef} type="file" accept=".csv,.xls,.xlsx" onChange={pickImportFile} className="hidden" />
-            <button
-              type="button"
-              onClick={() => importInputRef.current?.click()}
-              className="flex w-full flex-col items-center justify-center gap-3 rounded border-2 border-dashed border-slate-300 py-10 text-slate-500 hover:border-[#4f70e7] hover:text-[#4f70e7]"
-            >
-              <FileText className="h-8 w-8" />
-              {importFile ? importFile.name : t("Добавьте файл Excel или нажмите для выбора")}
+            <button type="button" onClick={() => void downloadExcel()} disabled={!data} title={t("Скачать Excel")} aria-label={t("Скачать Excel")} className="flex h-9 w-9 items-center justify-center rounded-full text-[#666] hover:bg-[#f2f5f8] disabled:opacity-40">
+              <FileSpreadsheet className="h-5 w-5" />
             </button>
           </div>
-          <footer className="flex justify-end border-t p-5">
-            <button type="button" disabled={!importFile || importSaving} onClick={saveImport} className="rounded bg-[#6ccd8b] px-5 py-3 font-semibold text-white hover:brightness-95 disabled:opacity-40">
-              {importSaving ? t("Импорт...") : t("Сохранить")}
-            </button>
-          </footer>
         </div>
-      </div>
-    )}
-  </div>
+
+        {list.error && (
+          <div className="flex flex-wrap items-center gap-3 px-6 py-3 text-[#e57373]">
+            <span>
+              {t("Не удалось загрузить данные")}: {t(list.error)}
+            </span>
+            <button type="button" onClick={list.reload} className="font-semibold text-[#4f70e7] hover:underline">
+              {t("Повторить")}
+            </button>
+          </div>
+        )}
+
+        <div className={`overflow-x-auto ${list.loading ? "opacity-60" : ""}`}>
+          <table className="w-full min-w-[960px] border-collapse text-[14px]">
+            <thead>
+              <tr className="border-b border-[#e1e5eb] text-[#17233b]">
+                <th className={`${th} w-[8%] pl-6`}>{sortHeader("id", "№")}</th>
+                <th className={`${th} w-[17%]`}>{t("Склад")}</th>
+                <th className={`${th} w-[15%]`}>{t("Создал")}</th>
+                <th className={`${th} w-[15%]`}>{sortHeader("created_date", t("Дата создания"))}</th>
+                <th className={`${th} w-[18%]`}>{t("Комментарий")}</th>
+                <th className={`${th} w-[14%]`}>{t("Статус")}</th>
+                <th className={`${th} w-[13%] pr-6 text-right`}>{t("Сумма")}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row) => {
+                const open = state.detailId === row.id
+                return (
+                  <Fragment key={row.id}>
+                    <tr onClick={() => update({ detailId: open ? null : row.id })} className={`cursor-pointer border-b border-[#efefef] ${open ? "bg-[#eef2ff]" : "hover:bg-[#f2f5f8]"}`}>
+                      <td className={`${td} pl-6 font-semibold`}>{row.id}</td>
+                      <td className={td}>{row.warehouse}</td>
+                      <td className={td}>{row.createdBy || "—"}</td>
+                      <td className={`${td} whitespace-nowrap`}>{inventoryDateText(row, language)}</td>
+                      <td className={`${td} max-w-[260px] truncate`} title={row.comment || undefined}>
+                        {row.comment || t("Комментариев нет")}
+                      </td>
+                      <td className={td}>
+                        <StatusLabel status={row.status} />
+                      </td>
+                      <td className={`${td} whitespace-nowrap pr-6 text-right`}>{formatSum(row.totalPrice)}</td>
+                    </tr>
+                    {open && (
+                      <tr>
+                        <td colSpan={7} className="bg-[#f2f5f8] px-2 py-3 md:px-4">
+                          <InventoryDetailPanel
+                            key={`${row.id}-${detailVersion}`}
+                            id={row.id}
+                            canEdit={canEdit}
+                            onClose={() => update({ detailId: null })}
+                            onEdit={(detail) => setForm(detail)}
+                            onChanged={list.reload}
+                            onDeleted={() => {
+                              update({ detailId: null })
+                              list.reload()
+                            }}
+                            notify={notify}
+                          />
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
+                )
+              })}
+              {!rows.length && (
+                <tr>
+                  <td colSpan={7} className="px-4 py-16 text-center text-[#9aa3b6]">
+                    {list.loading ? t("Загрузка...") : list.error ? "" : t("По вашему запросу ничего не найдено")}
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      {form !== undefined && (
+        <InventoryFormDialog
+          inventory={form}
+          options={options.data}
+          onClose={() => setForm(undefined)}
+          onSaved={(saved, created, text) => {
+            setForm(undefined)
+            notify(t(text))
+            list.reload()
+            options.reload()
+            if (created) update({ detailId: saved.id, page: 1 })
+            else setDetailVersion((value) => value + 1)
+          }}
+        />
+      )}
+
+      <CashSnackbar message={message} onClose={closeSnackbar} />
+    </main>
+  )
 }
