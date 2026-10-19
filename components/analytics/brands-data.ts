@@ -1,23 +1,32 @@
+import type { DictionaryUsage } from "./dictionaries-data"
+
+// "Бренд" (demo #/brand, API main/brand/?thumbnail_type=large). Products store the brand
+// NAME in products.brand / raw_materials.brand.
+
+export const BRANDS_API = "/api/brands"
+
+/** The first five fields are the original GET /api/brands array shape. */
 export type Brand = {
   id: number
   name: string
+  /** Организация (demo division), a name; "" = not set. */
   organization: string
+  /** "08 окт. 2026". */
   createdDate: string
+  /** Picture URL (GET /api/brands/[id]/image?v=…) or null. */
   photoUrl: string | null
+  /** Local ISO "YYYY-MM-DDTHH:MM:SS". */
+  createdAt: string
 }
 
-export const brandOrganizations = ["05,08,2025", "shirinliklar", "ТестоваяОрганизация", "напитки", "Electronika", "Ichimliklar", "energetik"]
+/** GET /api/brands?page=… — the grid of the page. */
+export type BrandListResult = { count: number; results: Brand[] }
 
-export const knownBrands: Brand[] = [
-  { id: 20, name: "Alpen Gold", organization: "shirinliklar", createdDate: "02 апр. 2025", photoUrl: null },
-  { id: 37, name: "Aple", organization: "Не указано", createdDate: "26 июня 2025", photoUrl: null },
-  { id: 26, name: "Apple", organization: "ТестоваяОрганизация", createdDate: "17 июня 2025", photoUrl: "brand" },
-  { id: 54, name: "Aqua de lux", organization: "напитки", createdDate: "03 окт. 2025", photoUrl: null },
-  { id: 64, name: "arbuz privet", organization: "05,08,2025", createdDate: "12 дек. 2025", photoUrl: "brand" },
-  { id: 42, name: "asus vivobook", organization: "Electronika", createdDate: "29 июля 2025", photoUrl: "brand" },
-  { id: 73, name: "Atack", organization: "05,08,2025", createdDate: "11 янв. 2026", photoUrl: null },
-  { id: 52, name: "Baby Still", organization: "Не указано", createdDate: "23 сент. 2025", photoUrl: null },
-  { id: 43, name: "b-fresh", organization: "Ichimliklar", createdDate: "30 июля 2025", photoUrl: "brand" },
-  { id: 79, name: "BrandOne", organization: "Не указано", createdDate: "23 февр. 2026", photoUrl: null },
-  { id: 22, name: "BURN", organization: "energetik", createdDate: "13 июня 2025", photoUrl: "brand" },
-]
+/** GET /api/brands/[id] (?usage=1 adds `usage`). */
+export type BrandDetail = Brand & { usage?: DictionaryUsage[] }
+
+/** POST / PUT body. `image`: a data URL = new picture, null = remove, omitted = keep. */
+export type BrandPayload = { name: string; organization: string; image?: string | null }
+
+export const BRAND_ORDERINGS = ["id", "image", "name", "division", "created_date"] as const
+export type BrandOrderingField = (typeof BRAND_ORDERINGS)[number]

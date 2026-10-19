@@ -1,37 +1,37 @@
 import { NextResponse } from "next/server"
-import { z } from "zod"
 
 import { getCurrentUser } from "@/lib/current-user"
 import { requireRole } from "@/lib/rbac"
 import { parseJsonBody } from "@/lib/validation"
-import { createRepricing, listRepricings, parseRepricingInput } from "@/lib/repricings-repo"
+import { parseRepricingListQuery, repricingCreateSchema, toRepricingInput } from "@/lib/repricings-api"
+import { createRepricing, listRepricings, listRepricingsPage, repricingErrorResponse } from "@/lib/repricings-repo"
 
-const repricingSchema = z.object({
-  priceListId: z.number().finite(),
-  productId: z.number().finite(),
-  amount: z.number().optional(),
-  currency: z.enum(["SUM", "USD", "Euro"]).optional(),
-  status: z.enum(["проведен", "черновик"]).optional(),
-  user: z.string().trim().optional(),
-})
-
-export async function GET() {
+// GET /api/repricings — plain array of repricings (newest first). With ?paged=1 / ?page / ?pageSize:
+// {count, results} filtered by ?priceList (ids), ?user, ?status (finished | canceled), ?product
+// ("product:12"), ?search, ordered by ?ordering — demo GET main/reprice/.
+export async function GET(request: Request) {
   const user = await getCurrentUser()
-  if (!user) return NextResponse.json({ error: "Вы не вошли в систему" }, { status: 401 })
-  return NextResponse.json((await listRepricings()))
+  if (!user) return NextResponse.json({ error: "Tizimga kirilmagan" }, { status: 401 })
+  const query = parseRepricingListQuery(request.url)
+  return NextResponse.json(query ? await listRepricingsPage(query) : await listRepricings())
 }
 
+// POST /api/repricings — demo POST main/reprice/: {priceListId, currency, comment?, products:
+// [{kind, id, price}], connected?} → a finished repricing whose prices are applied to the items
+// (+ the linked price lists when `connected`). 201 {repricing, linked, skipped}.
 export async function POST(request: Request) {
   const auth = await requireRole("manager")
   if ("error" in auth) return auth.error
-  const user = auth.user
 
-  const parsed = await parseJsonBody(request, repricingSchema)
+  const parsed = await parseJsonBody(request, repricingCreateSchema)
   if (parsed.error) return parsed.error
-
-  const input = parseRepricingInput(parsed.data, user.displayName)
-  if (!input) return NextResponse.json({ error: "Прайс-лист и товар обязательны" }, { status: 400 })
-
-  const repricing = (await createRepricing(input))
-  return NextResponse.json(repricing, { status: 201 })
+  const input = toRepricingInput(parsed.data)
+  if ("error" in input) return NextResponse.json({ error: input.error }, { status: 400 })
+  try {
+    return NextResponse.json(await createRepricing(input, auth.user.displayName), { status: 201 })
+  } catch (error) {
+    const response = repricingErrorResponse(error)
+    if (response) return response
+    throw error
+  }
 }

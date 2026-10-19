@@ -1,239 +1,336 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
-import { ChevronDown, MinusCircle, PlusCircle, X } from "lucide-react"
-import { RefHeader } from "@/components/ref/list-kit"
-import { ReportPage, ReportPager, ReportSearchField } from "@/components/ref/report-kit"
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react"
+import { useSearchParams } from "next/navigation"
+import { MinusCircle, PlusCircle, Search } from "lucide-react"
 
-type Money = { euro: number; sum: number; usd: number }
-type Transaction = { id: number; type: string; action: string; date: string; amount: number; currency: keyof Money }
-type CardClient = {
-  id: number
-  client: string
-  balance: Money
-  transactions: Transaction[]
+import { ExpandedOverlay, ExpandedViewButton } from "@/components/analytics/balance/expanded-view"
+import { BalanceFilterChip } from "@/components/analytics/balance/filter-bar"
+import { BalancePagination } from "@/components/analytics/balance/pagination"
+import {
+  fetchJson,
+  LOYALTY_API,
+  LoyaltyFilterDialog,
+  LoyaltyInfoDialog,
+  LoyaltyTransactionDialog,
+  useClientName,
+} from "@/components/analytics/loyalty-card-dialogs"
+import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
+import { formatMoney } from "@/lib/finance/currency"
+import { useLanguage } from "@/lib/i18n/language-context"
+import type { LoyaltyCardListResult, LoyaltyCardOptions, LoyaltyCardRow } from "@/lib/loyalty-card-types"
+
+// "Накопительная карта" (demo #/cumulative, GET sales/cash_back/): every
+// client's cashback balance per currency from loyalty_card_transactions
+// (manual "Добавить" / "Списать" here, payouts "Выдача денег для Кэшбек" from
+// the cash page). Row click → movement history; hover buttons → manual
+// приход / расход. Filter = client type, search, pagination, expanded view;
+// the state lives in the URL (?search=, ?clientType=, ?client= …) like the demo.
+
+type ViewState = {
+  search: string
+  clientType: string
+  ordering: string
+  page: number
+  pageSize: number
+  /** Client whose history dialog is open (demo /cumulative/:id?openInfoDialog=true). */
+  client: number | null
+  /** History page (demo dPage). */
+  dPage: number
 }
 
-const clients: CardClient[] = []
-
-const TOTAL_CLIENTS = 0
-
-const number = (value: number) => new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 2 }).format(value)
-
-function AmountText({ value }: { value: number }) {
-  if (value === 0) return <span>0</span>
-  return <span className={value > 0 ? "text-[#71ce87]" : "text-[#e57373]"}>{number(value)}</span>
+function positiveInt(value: string | null, fallback: number): number {
+  const parsed = Number(value)
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback
 }
+
+function stateFromParams(params: URLSearchParams): ViewState {
+  const client = positiveInt(params.get("client"), 0)
+  return {
+    search: params.get("search") ?? "",
+    clientType: params.get("clientType") ?? params.get("marketType") ?? "",
+    ordering: params.get("ordering") ?? "",
+    page: positiveInt(params.get("page"), 1),
+    pageSize: Math.min(2000, positiveInt(params.get("pageSize"), 25)),
+    client: client || null,
+    dPage: positiveInt(params.get("dPage"), 1),
+  }
+}
+
+function stateToSearch(state: ViewState): string {
+  const params = new URLSearchParams()
+  params.set("pageSize", String(state.pageSize))
+  if (state.page > 1) params.set("page", String(state.page))
+  if (state.search) params.set("search", state.search)
+  if (state.clientType) params.set("clientType", state.clientType)
+  if (state.ordering) params.set("ordering", state.ordering)
+  if (state.client) {
+    params.set("client", String(state.client))
+    if (state.dPage > 1) params.set("dPage", String(state.dPage))
+  }
+  return params.toString()
+}
+
+function listQuery(state: ViewState): string {
+  const params = new URLSearchParams({ page: String(state.page), pageSize: String(state.pageSize) })
+  if (state.search) params.set("search", state.search)
+  if (state.clientType) params.set("clientType", state.clientType)
+  if (state.ordering) params.set("ordering", state.ordering)
+  return params.toString()
+}
+
+/** Demo grid colours: > 0 #92ce95, < 0 #e27676 (600); 0 plain. */
+function balanceStyle(value: number) {
+  if (value > 0) return { color: "#92ce95", fontWeight: 600 }
+  if (value < 0) return { color: "#e27676", fontWeight: 600 }
+  return undefined
+}
+
+function useLoyaltyList(url: string) {
+  const [data, setData] = useState<LoyaltyCardListResult | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState("")
+  const [version, setVersion] = useState(0)
+  useEffect(() => {
+    const controller = new AbortController()
+    setLoading(true)
+    setError("")
+    fetchJson<LoyaltyCardListResult>(url, { signal: controller.signal })
+      .then(setData)
+      .catch((reason: unknown) => {
+        if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : String(reason))
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoading(false)
+      })
+    return () => controller.abort()
+  }, [url, version])
+  const reload = useCallback(() => setVersion((value) => value + 1), [])
+  return { data, loading, error, reload }
+}
+
+type RowDialog = { kind: "add" | "expense"; row: LoyaltyCardRow } | null
 
 export function LoyaltyCardView() {
-  const [rows, setRows] = useState(clients)
-  const [loading, setLoading] = useState(true)
-  const [search, setSearch] = useState("")
+  const { t } = useLanguage()
+  const clientName = useClientName()
+  const searchParams = useSearchParams()
+  const [state, setState] = useState<ViewState>(() => stateFromParams(searchParams))
+  const [searchDraft, setSearchDraft] = useState(state.search)
   const [filterOpen, setFilterOpen] = useState(false)
-  const [pageSize, setPageSize] = useState(25)
-  const [page, setPage] = useState(1)
-  const [infoTarget, setInfoTarget] = useState<CardClient | null>(null)
-  const [modal, setModal] = useState<{ type: "add" | "expense"; clientId: number } | null>(null)
+  const [expanded, setExpanded] = useState(false)
+  const [dialog, setDialog] = useState<RowDialog>(null)
+  const [options, setOptions] = useState<LoyaltyCardOptions | null>(null)
+  const [canEdit, setCanEdit] = useState(false)
+  const [notice, setNotice] = useState<{ text: string; error: boolean } | null>(null)
 
-  const filtered = useMemo(
-    () => rows.filter((row) => row.client.toLocaleLowerCase("ru").includes(search.trim().toLocaleLowerCase("ru"))),
-    [rows, search],
-  )
+  const query = useMemo(() => listQuery(state), [state])
+  const { data, loading, error, reload } = useLoyaltyList(`${LOYALTY_API}?${query}`)
 
-  const maxPage = Math.max(1, Math.ceil(filtered.length / pageSize))
-  const safePage = Math.min(page, maxPage)
-  const visible = filtered.slice((safePage - 1) * pageSize, safePage * pageSize)
-  const isDefaultView = !search.trim()
-  const totalLabel = isDefaultView ? TOTAL_CLIENTS : filtered.length
+  // The demo keeps the list state in the URL query.
+  useEffect(() => {
+    const search = stateToSearch(state)
+    if (window.location.search.slice(1) !== search) window.history.replaceState(window.history.state, "", `${window.location.pathname}?${search}`)
+  }, [state])
 
   useEffect(() => {
-    let cancelled = false
-    setLoading(true)
-    fetch("/api/loyalty-card")
-      .then(async (response) => {
-        if (!response.ok) throw new Error("Не удалось загрузить данные")
-        return (await response.json()) as CardClient[]
-      })
-      .then((data) => {
-        if (!cancelled) setRows(data)
-      })
-      .catch(() => {})
-      .finally(() => {
-        if (!cancelled) setLoading(false)
-      })
-    return () => {
-      cancelled = true
-    }
+    fetchJson<LoyaltyCardOptions>(`${LOYALTY_API}/options`)
+      .then(setOptions)
+      .catch(() => setOptions(null))
+    // Списать / Добавить: the POST route requires manager (or admin).
+    fetchJson<{ role?: string }>("/api/auth/me")
+      .then((me) => setCanEdit(me.role === "manager" || me.role === "admin"))
+      .catch(() => setCanEdit(false))
   }, [])
 
-  const applyTransaction = async (clientId: number, kind: "add" | "expense", currency: keyof Money, amount: number, comment: string) => {
-    try {
-      const response = await fetch("/api/loyalty-card", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ clientId, currency, amount, kind, comment }),
-      })
-      if (!response.ok) return
-      const saved = (await response.json()) as CardClient
-      setRows((current) => current.map((row) => (row.id === clientId ? saved : row)))
-    } catch {
-      window.alert("Сервер недоступен, попробуйте ещё раз")
-    }
-  }
+  useEffect(() => {
+    if (!notice) return
+    const timer = window.setTimeout(() => setNotice(null), 4000)
+    return () => window.clearTimeout(timer)
+  }, [notice])
 
+  // A page past the end (stale URL, rows gone) jumps to the last page.
+  useEffect(() => {
+    if (!data || loading || data.rows.length || state.page <= 1) return
+    const lastPage = Math.max(1, Math.ceil(data.count / Math.max(1, state.pageSize)))
+    if (state.page > lastPage) setState((current) => ({ ...current, page: lastPage }))
+  }, [data, loading, state.page, state.pageSize])
+
+  const update = (patch: Partial<ViewState>) => setState((current) => ({ ...current, ...patch }))
+  const openInfo = (row: LoyaltyCardRow) => update({ client: row.id, dPage: 1 })
+
+  const rows = data?.rows ?? []
+  const currencies = data?.currencies ?? options?.currencies ?? []
+  const filterCount = state.clientType ? 1 : 0
+
+  const actionButton = (title: string, icon: ReactNode, onClick: () => void) => (
+    <button
+      type="button"
+      title={t(title)}
+      aria-label={t(title)}
+      onClick={(event) => {
+        event.stopPropagation()
+        onClick()
+      }}
+      className="flex h-[30px] w-[30px] items-center justify-center rounded-full hover:bg-white"
+    >
+      {icon}
+    </button>
+  )
+
+  const head = "border border-[#efefef] px-5 py-2.5 text-left font-semibold"
   return (
-    <ReportPage>
-      <div className="pl-[30px] pr-[38px]"><RefHeader title="Накопительная карта" /></div>
-
-      <section className="mx-[28px] bg-white shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
-        <div className="relative flex h-[55px] items-center">
-          <button onClick={() => setFilterOpen((value) => !value)} className="ml-[30px] self-start pt-[12px] text-[13px] text-[#4f71dc]">Показать фильтр ⌄</button>
-          <div className="absolute left-[460px] top-[16px]"><ReportSearchField value={search} onChange={(value) => { setSearch(value); setPage(1) }} width={255} /></div>
-          <div className="ml-auto flex items-center gap-[20px] pr-[30px] pt-[8px]">
-            <ReportPager pageSize={pageSize} onPageSize={(size) => { setPageSize(size); setPage(1) }} rangeLabel={`${filtered.length ? (safePage - 1) * pageSize + 1 : 0} - ${Math.min(safePage * pageSize, filtered.length)} из ${totalLabel}`} canPrev={safePage > 1} canNext={safePage < maxPage} onPrev={() => setPage((value) => Math.max(1, value - 1))} onNext={() => setPage((value) => Math.min(maxPage, value + 1))} />
-            <button aria-label="Полный экран" onClick={() => document.documentElement.requestFullscreen?.()}><svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#444]"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z" /></svg></button>
-          </div>
+    <main className="min-h-screen bg-white text-[#17233b]">
+      <header className="flex min-h-[76px] flex-wrap items-center gap-4 border-b border-[#d8dee7] bg-[#f2f5f8] px-6 md:px-9">
+        <div className="flex items-center gap-3">
+          <FavoritesButton className="flex items-center gap-3 text-2xl font-bold text-[#4f70e7]" />
+          <span className="text-3xl font-light text-[#586174]">|</span>
+          <span className="text-2xl font-bold text-[#586174]">{t("Накопительная карта")}</span>
         </div>
-        {filterOpen && (
-          <div className="mx-[25px] mb-3 w-[300px] bg-white p-5 shadow-[0_3px_10px_rgba(0,0,0,0.16),0_3px_10px_rgba(0,0,0,0.23)]">
-            <ReportSearchField value={search} onChange={(value) => { setSearch(value); setPage(1) }} width={260} label="Клиент" />
+      </header>
+
+      <ExpandedOverlay expanded={expanded}>
+        <section className="relative flex min-h-[55px] flex-wrap items-center gap-3 border-t border-[#efefef] px-6 py-2 md:px-9">
+          <div className="relative">
+            <BalanceFilterChip
+              count={filterCount}
+              onOpen={() => setFilterOpen(true)}
+              onClear={() => {
+                // Demo: clearing the filter resets the URL to {pageSize: 25}.
+                setSearchDraft("")
+                update({ clientType: "", search: "", ordering: "", page: 1, pageSize: 25 })
+              }}
+            />
+            <LoyaltyFilterDialog
+              open={filterOpen}
+              clientType={state.clientType}
+              options={options}
+              onClose={() => setFilterOpen(false)}
+              onApply={(clientType) => update({ clientType, page: 1 })}
+            />
+          </div>
+          <form
+            className="mx-auto flex min-w-[160px] flex-1 items-center justify-center gap-1"
+            onSubmit={(event) => {
+              event.preventDefault()
+              update({ search: searchDraft.trim(), page: 1 })
+            }}
+          >
+            <input
+              value={searchDraft}
+              onChange={(event) => setSearchDraft(event.target.value)}
+              placeholder={t("Поиск")}
+              aria-label={t("Поиск")}
+              className="h-10 w-full max-w-[260px] border-b border-[#dbe0e8] bg-transparent px-1 text-[15px] outline-none focus:border-[#4f70e7]"
+            />
+            <button type="submit" aria-label={t("Поиск")} className="p-1.5 text-[#ccc]">
+              <Search className="h-5 w-5" />
+            </button>
+          </form>
+          <div className="flex flex-wrap items-center gap-3">
+            <BalancePagination page={state.page} pageSize={state.pageSize} count={data?.count ?? 0} onChange={({ page, pageSize }) => update({ page, pageSize })} />
+            <ExpandedViewButton expanded={expanded} onToggle={() => setExpanded((value) => !value)} />
+          </div>
+        </section>
+
+        {error && (
+          <div className="flex items-center gap-3 px-6 py-3 text-[#e57373] md:px-9">
+            <span>
+              {t("Не удалось загрузить данные")}: {t(error)}
+            </span>
+            <button type="button" onClick={reload} className="font-semibold text-[#4f70e7] hover:underline">
+              {t("Повторить")}
+            </button>
           </div>
         )}
 
-        <div className="flex overflow-x-auto border-t border-[#e8e8e8] text-[13px]">
-          <div className="w-[300px] shrink-0 shadow-[2px_0_4px_rgba(0,0,0,0.1)]">
-            <div className="flex h-[40px] items-center border-b border-[#e8e8e8] px-[15px] font-semibold">Клиент</div>
-            {visible.map((row, index) => (
-              <div key={row.id} className={`flex h-[40px] items-center justify-between px-[15px] ${index % 2 ? "bg-[#f2f5f8]" : "bg-white"}`}>
-                <button onClick={() => setInfoTarget(row)} className="max-w-[190px] truncate text-left hover:underline">{row.client}</button>
-                <span className="flex items-center gap-[12px]">
-                  <button aria-label="Добавить расход" onClick={() => setModal({ type: "expense", clientId: row.id })}><MinusCircle className="h-[20px] w-[20px] fill-[#ff5d63] text-white" /></button>
-                  <button aria-label="Добавить" onClick={() => setModal({ type: "add", clientId: row.id })}><PlusCircle className="h-[20px] w-[20px] fill-[#71ce87] text-white" /></button>
-                </span>
-              </div>
-            ))}
-          </div>
-          <div className="min-w-[600px] flex-1">
-            <div className="grid h-[40px] grid-cols-[200px_522px_1fr] items-center border-b border-[#e8e8e8] bg-white px-[20px] font-semibold text-[#555]"><span>Euro</span><span>SUM</span><span>USD</span></div>
-            {visible.map((row, index) => (
-              <div key={row.id} className={`grid h-[40px] grid-cols-[200px_522px_1fr] items-center px-[20px] ${index % 2 ? "bg-[#f2f5f8]" : "bg-white"}`}>
-                <AmountText value={row.balance.euro} /><AmountText value={row.balance.sum} /><AmountText value={row.balance.usd} />
-              </div>
-            ))}
-          </div>
-        </div>
-        {!loading && visible.length === 0 && <p className="py-16 text-center text-[13px] text-[#8c8c8c]">Ничего не найдено</p>}
-      </section>
-
-      {infoTarget && (
-        <div className="fixed inset-0 z-[110] flex items-start justify-center overflow-y-auto bg-black/40 py-16" onClick={() => setInfoTarget(null)}>
-          <div onClick={(event) => event.stopPropagation()} className="w-[1000px] max-w-[94vw] rounded-md bg-white shadow-2xl">
-            <header className="flex items-center justify-between border-b px-8 py-6">
-              <h2 className="text-lg font-bold uppercase tracking-wide">Информация по клиенту {infoTarget.client}</h2>
-              <button aria-label="Закрыть" onClick={() => setInfoTarget(null)}><X className="h-6 w-6 text-slate-500" /></button>
-            </header>
-            <table className="w-full border-collapse text-[14px]">
-              <thead>
-                <tr className="text-left text-[#586174]">
-                  <th className="border-b border-[#e1e5eb] px-8 py-4 font-semibold">Тип</th>
-                  <th className="border-b border-[#e1e5eb] px-8 py-4 font-semibold">Акция</th>
-                  <th className="border-b border-[#e1e5eb] px-8 py-4 font-semibold">Дата</th>
-                  <th className="border-b border-[#e1e5eb] px-8 py-4 font-semibold">Сумма</th>
-                </tr>
-              </thead>
-              <tbody>
-                {(rows.find((row) => row.id === infoTarget.id)?.transactions ?? []).map((tx) => (
-                  <tr key={tx.id} className="border-b border-dashed border-slate-200">
-                    <td className="px-8 py-4">{tx.type}</td>
-                    <td className="px-8 py-4">{tx.action}</td>
-                    <td className="px-8 py-4">{tx.date}</td>
-                    <td className="px-8 py-4"><AmountText value={tx.amount} /> {tx.currency.toUpperCase()}</td>
-                  </tr>
+        <div className={`overflow-x-auto pb-8 ${loading ? "opacity-60" : ""}`}>
+          <table className="w-full min-w-[700px] border-collapse text-[14px] text-[#666]">
+            <thead>
+              <tr className="bg-white text-[#666]">
+                <th className={`${head} sticky left-0 z-[2] w-[300px] min-w-[300px] bg-white shadow-[5px_0_8px_-3px_#ccc]`}>{t("Клиент")}</th>
+                {currencies.map((currency) => (
+                  <th key={currency.code} className={head}>
+                    {currency.label}
+                  </th>
                 ))}
-              </tbody>
-            </table>
-            {(rows.find((row) => row.id === infoTarget.id)?.transactions.length ?? 0) === 0 && (
-              <div className="flex flex-col items-center justify-center py-16">
-                <div className="text-6xl">🤖</div>
-                <p className="mt-4 text-[#9aa3b6]">Пока транзакции нет</p>
-              </div>
-            )}
-            <div className="flex items-center justify-end gap-2 border-t px-8 py-4 text-[#586174]">
-              1 - {rows.find((row) => row.id === infoTarget.id)?.transactions.length ?? 0} из {rows.find((row) => row.id === infoTarget.id)?.transactions.length ?? 0}
-            </div>
-          </div>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row, index) => {
+                const background = index % 2 ? "#ffffff" : "#F4F8FB"
+                return (
+                  <tr key={row.id} style={{ background }} className="group h-10 cursor-pointer hover:!bg-[#e9f8ff] hover:font-semibold">
+                    <td
+                      className="sticky left-0 z-[1] border-b border-r border-[#efefef] px-4 shadow-[5px_0_8px_-3px_#ccc]"
+                      style={{ background: "inherit" }}
+                      onClick={() => openInfo(row)}
+                    >
+                      <div className="relative flex min-h-[30px] w-[268px] items-center">
+                        <span className={`truncate hover:text-[rgb(79,113,220)] ${row.exists ? "" : "italic text-[#999]"}`}>{clientName(row)}</span>
+                        {canEdit && row.exists && (
+                          <div className="absolute inset-y-0 right-0 flex items-center gap-0.5 bg-gradient-to-r from-transparent to-[#F4F8FB] pl-6 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+                            {actionButton("Списать", <MinusCircle className="h-[22px] w-[22px] text-[#ff584b]" />, () => setDialog({ kind: "expense", row }))}
+                            {actionButton("Добавить", <PlusCircle className="h-[22px] w-[22px] text-[#8dc572]" />, () => setDialog({ kind: "add", row }))}
+                          </div>
+                        )}
+                      </div>
+                    </td>
+                    {currencies.map((currency) => {
+                      const value = row.balances[currency.code] ?? 0
+                      return (
+                        <td key={currency.code} className="whitespace-nowrap border-b border-r border-[#efefef] px-5" onClick={() => openInfo(row)}>
+                          <span style={balanceStyle(value)}>{value ? formatMoney(value) : 0}</span>
+                        </td>
+                      )
+                    })}
+                  </tr>
+                )
+              })}
+              {!rows.length && (
+                <tr>
+                  <td colSpan={currencies.length + 1} className="border-b border-[#efefef] px-4 py-16 text-center text-[13px] text-[#666]">
+                    {loading ? t("Загрузка...") : t("По вашему запросу ничего не найдено")}
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
         </div>
+      </ExpandedOverlay>
+
+      {state.client && (
+        <LoyaltyInfoDialog
+          key={state.client}
+          clientId={state.client}
+          page={state.dPage}
+          onPage={(dPage) => update({ dPage })}
+          onClose={() => update({ client: null, dPage: 1 })}
+        />
       )}
 
-      {modal && (
-        <TransactionModal
-          client={rows.find((item) => item.id === modal.clientId)!}
-          type={modal.type}
-          onClose={() => setModal(null)}
-          onSave={(currency, amount, comment) => {
-            void applyTransaction(modal.clientId, modal.type, currency, amount, comment)
-            setModal(null)
+      {dialog && (
+        <LoyaltyTransactionDialog
+          client={{ id: dialog.row.id, name: dialog.row.name }}
+          kind={dialog.kind}
+          balances={dialog.row.balances}
+          options={options}
+          onClose={() => setDialog(null)}
+          onSaved={() => {
+            setNotice({ text: t("Успешно сохранено"), error: false })
+            reload()
           }}
         />
       )}
-    </ReportPage>
-  )
-}
 
-function TransactionModal({
-  client,
-  type,
-  onClose,
-  onSave,
-}: {
-  client: CardClient
-  type: "add" | "expense"
-  onClose: () => void
-  onSave: (currency: keyof Money, amount: number, comment: string) => void
-}) {
-  const [currency, setCurrency] = useState<keyof Money>("sum")
-  const [amount, setAmount] = useState("")
-  const [comment, setComment] = useState("")
-
-  return (
-    <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/40" onClick={onClose}>
-      <div onClick={(event) => event.stopPropagation()} className="w-[560px] max-w-[92vw] rounded-md bg-white shadow-2xl">
-        <header className="flex items-center justify-between border-b px-8 py-6">
-          <h2 className="text-xl font-bold uppercase tracking-wide">{type === "add" ? "Добавить приход клиенту" : "Добавить расход клиенту"}</h2>
-          <button aria-label="Закрыть" onClick={onClose}><X className="h-6 w-6 text-slate-500" /></button>
-        </header>
-        <div className="space-y-7 px-8 py-7">
-          <p className="text-[15px]"><span className="text-[#586174]">Клиент:</span> <span className="font-semibold">{client.client}</span></p>
-          <label className="block border-b border-[#dbe0e8] pb-2 text-[13px] font-medium text-[#586174]">
-            Цена
-            <input type="number" value={amount} onChange={(event) => setAmount(event.target.value)} className="mt-1 block w-full bg-transparent text-[16px] font-semibold text-[#17233b] outline-none" />
-          </label>
-          <label className="relative block border-b border-[#dbe0e8] pb-2 text-[13px] font-medium text-[#586174]">
-            Валюта
-            <select value={currency} onChange={(event) => setCurrency(event.target.value as keyof Money)} className="mt-1 block w-full appearance-none bg-transparent pr-6 text-[16px] font-semibold text-[#17233b] outline-none">
-              <option value="sum">SUM</option>
-              <option value="usd">USD</option>
-              <option value="euro">Euro</option>
-            </select>
-            <ChevronDown className="pointer-events-none absolute right-0 top-7 h-4 w-4 text-[#9aa3b6]" />
-          </label>
-          <label className="block border-b border-[#dbe0e8] pb-2 text-[13px] font-medium text-[#586174]">
-            Комментарий
-            <input value={comment} onChange={(event) => setComment(event.target.value)} className="mt-1 block w-full bg-transparent text-[16px] outline-none" />
-          </label>
+      {notice && (
+        <div
+          role="status"
+          className={`fixed bottom-6 left-1/2 z-[120] max-w-[90vw] -translate-x-1/2 rounded-md px-5 py-3 font-semibold text-white shadow-lg ${notice.error ? "bg-[#e57373]" : "bg-[#48a34b]"}`}
+        >
+          {notice.text}
         </div>
-        <footer className="flex justify-end border-t px-8 py-5">
-          <button
-            onClick={() => {
-              const value = Number(amount)
-              if (value > 0) onSave(currency, value, comment)
-            }}
-            className="font-bold uppercase tracking-wide text-[#4f71dc]"
-          >
-            Сохранить
-          </button>
-        </footer>
-      </div>
-    </div>
+      )}
+    </main>
   )
 }

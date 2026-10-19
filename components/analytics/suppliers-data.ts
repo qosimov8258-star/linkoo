@@ -1,5 +1,5 @@
 export type SupplierContact = { id: number; name: string; email: string; phone: string }
-export type SupplierProduct = { id: number; product: string; qty: number; price: number }
+export type SupplierProduct = { id: number; product: string; qty: number; price: number; currency?: string }
 export type Supplier = {
   id: number
   name: string

@@ -1,33 +1,31 @@
 import { NextResponse } from "next/server"
-import { z } from "zod"
 
 import { getCurrentUser } from "@/lib/current-user"
 import { requireRole } from "@/lib/rbac"
 import { parseJsonBody } from "@/lib/validation"
-import { createLinkedRepricing, listLinkedRepricings } from "@/lib/linked-repricings-repo"
+import { listLinkedRepricings } from "@/lib/linked-repricings-repo"
+import { repricingConnectedSchema } from "@/lib/repricings-api"
+import { createConnectedRepricings, repricingErrorResponse } from "@/lib/repricings-repo"
 
-const linkedRepricingSchema = z.object({
-  priceListId: z.number().finite(),
-  priceListName: z.string().trim().optional(),
-})
-
+// GET /api/linked-repricings — journal of the "Переоценку связанных" runs.
 export async function GET() {
   const user = await getCurrentUser()
-  if (!user) return NextResponse.json({ error: "Вы не вошли в систему" }, { status: 401 })
-  return NextResponse.json((await listLinkedRepricings()))
+  if (!user) return NextResponse.json({ error: "Tizimga kirilmagan" }, { status: 401 })
+  return NextResponse.json(await listLinkedRepricings())
 }
 
+// POST /api/linked-repricings — same as POST /api/repricings/connected ({priceListId}).
 export async function POST(request: Request) {
   const auth = await requireRole("manager")
   if ("error" in auth) return auth.error
-  const user = auth.user
 
-  const parsed = await parseJsonBody(request, linkedRepricingSchema)
+  const parsed = await parseJsonBody(request, repricingConnectedSchema)
   if (parsed.error) return parsed.error
-
-  const linkedRepricing = (await createLinkedRepricing(
-    { priceListId: parsed.data.priceListId, priceListName: parsed.data.priceListName ?? "" },
-    user.displayName,
-  ))
-  return NextResponse.json(linkedRepricing, { status: 201 })
+  try {
+    return NextResponse.json(await createConnectedRepricings(parsed.data.priceListId, auth.user.displayName), { status: 201 })
+  } catch (error) {
+    const response = repricingErrorResponse(error)
+    if (response) return response
+    throw error
+  }
 }

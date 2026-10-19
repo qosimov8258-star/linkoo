@@ -1,148 +1,227 @@
 "use client"
 
-import { useMemo, useState } from "react"
-import { RefHeader } from "@/components/ref/list-kit"
-import { ReportFilterPanel, ReportGridTable, ReportMoneyBox, ReportPage, ReportRangeField, ReportSortHead, ReportTopRow } from "@/components/ref/report-kit"
+import { Suspense, useMemo, useState } from "react"
+import { useSearchParams } from "next/navigation"
+import { CircleAlert, Loader2, SearchX } from "lucide-react"
+
+import { BalanceTable, type BalanceColumnGroup } from "@/components/analytics/balance/balance-table"
+import { BalanceDownloadMenu } from "@/components/analytics/balance/download-menu"
+import { balanceListExcelRows } from "@/components/analytics/balance/excel"
+import { BalanceFilterButton, BalanceFilterDialog, countActiveFilters } from "@/components/analytics/balance/filter-bar"
+import { useBalanceList } from "@/components/analytics/balance/use-balance"
+import { CASH_COLUMN_TYPES, CashBalanceDetail, DEFAULT_DETAIL_PAGE_SIZE, type CashDetailState } from "@/components/analytics/cash-balance-detail"
+import { CashBalanceSummary } from "@/components/analytics/cash-balance-summary"
+import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
 import { downloadExcelTable } from "@/lib/excel-export"
+import { currencyLabel } from "@/lib/finance/currency"
+import { defaultBalancePeriod, isIsoDay } from "@/lib/finance/dates"
+import { sortBalanceRows } from "@/lib/finance/rows"
+import { MOVEMENT_LABELS, type BalanceRow } from "@/lib/finance/types"
+import { useLanguage } from "@/lib/i18n/language-context"
 
-import { registers, type Currency, type Register } from "./cash-balance-data"
+// "Баланс кассы" (demo #/statistics/cashbox): one row per cashbox in its own
+// currency — balance before the period, income / expenses / transfers inside
+// it and the closing balance — with per-currency totals on top. Clicking a
+// cell opens the cashbox detail (filtered by the clicked movement type).
+// Data: GET /api/balances/cashbox (the shared finance ledger). The period and
+// the open detail live in the URL (?fromDate&toDate&cashbox&type…), so the
+// management balance links and browser back work like the demo's hash routes.
 
+const GROUPS: BalanceColumnGroup[] = [
+  { field: "begin_balance", label: "Баланс на начало периода" },
+  ...Object.entries(MOVEMENT_LABELS.cashbox).map(([field, label]) => ({ field, label })),
+  { field: "end_balance", label: "Баланс на конец периода" },
+]
 
-const FIXED_TOTALS = { opening: { euro: 20, sum: 25884391057.44, usd: 6577793.296 }, closing: { euro: 20, sum: 25884391057.44, usd: 6577793.296 } }
+const cashierOf = (row: BalanceRow, t: (text: string) => string) => String(row.info.cashier || "") || t("Неизвестно")
+const typeOf = (row: BalanceRow, t: (text: string) => string) => (row.info.type === "bank" ? t("Перечислением") : t("Наличными"))
 
-const money = (value: number) => new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 3 }).format(value)
+type Period = { from: string; to: string }
 
-function toIso(date: Date) {
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
+/** Period from ?fromDate&toDate (demo menu default: 1st of the month .. today). */
+function readPeriod(params: URLSearchParams): Period {
+  const fallback = defaultBalancePeriod()
+  const fromParam = params.get("fromDate")
+  const toParam = params.get("toDate")
+  const from = isIsoDay(fromParam) ? fromParam : fallback.from
+  const to = isIsoDay(toParam) ? toParam : from > fallback.to ? from : fallback.to
+  return from <= to ? { from, to } : { from: to, to: from }
 }
 
-function pad(value: number) {
-  return String(value).padStart(2, "0")
+function readDetail(params: URLSearchParams): CashDetailState | null {
+  const key = params.get("cashbox")?.trim()
+  if (!key) return null
+  const type = params.get("type") ?? ""
+  const page = Number(params.get("page"))
+  const pageSize = Number(params.get("pageSize"))
+  return {
+    key,
+    type: ["1", "2", "4", "5"].includes(type) ? type : "",
+    category: params.get("categoryExpense") ?? "",
+    client: params.get("client") ?? "",
+    notAccepted: type === "1" && ["1", "true"].includes(params.get("notAcceptedTransfer") ?? ""),
+    search: params.get("search") ?? "",
+    page: Number.isInteger(page) && page > 0 ? page : 1,
+    pageSize: Number.isInteger(pageSize) && pageSize > 0 ? pageSize : DEFAULT_DETAIL_PAGE_SIZE,
+  }
 }
 
-function formatDate(date: Date) {
-  return `${pad(date.getDate())}.${pad(date.getMonth() + 1)}.${date.getFullYear()}`
+/** Pushes a new URL state (the app router keeps useSearchParams in sync with history.pushState). */
+function pushState(period: Period, detail: CashDetailState | null) {
+  const params = new URLSearchParams({ fromDate: period.from, toDate: period.to })
+  if (detail) {
+    params.set("cashbox", detail.key)
+    if (detail.type) params.set("type", detail.type)
+    if (detail.category) params.set("categoryExpense", detail.category)
+    if (detail.client) params.set("client", detail.client)
+    if (detail.notAccepted && detail.type === "1") params.set("notAcceptedTransfer", "1")
+    if (detail.search) params.set("search", detail.search)
+    if (detail.page > 1) params.set("page", String(detail.page))
+    if (detail.pageSize !== DEFAULT_DETAIL_PAGE_SIZE) params.set("pageSize", String(detail.pageSize))
+  }
+  window.history.pushState(null, "", `${window.location.pathname}?${params.toString()}`)
 }
-
-function AmountCell({ amount, currency }: { amount: number; currency: Currency }) {
-  if (amount === 0) return <span>0</span>
-  const color = amount > 0 ? "text-[#3aa76d]" : "text-[#e5484d]"
-  return <span className={`font-semibold ${color}`}>{money(amount)} {currency}</span>
-}
-
-type SortKey = "opening" | "income" | "expense" | "transferIn" | "transferOut" | "closing"
-type SortDir = "asc" | "desc"
 
 export function CashBalanceView() {
+  return (
+    <Suspense fallback={null}>
+      <CashBalanceContent />
+    </Suspense>
+  )
+}
+
+function CashBalanceContent() {
+  const { t } = useLanguage()
+  const searchParams = useSearchParams()
+  const urlState = searchParams.toString()
+  const { period, detail } = useMemo(() => {
+    const params = new URLSearchParams(urlState)
+    return { period: readPeriod(params), detail: readDetail(params) }
+  }, [urlState])
+
   const [filterOpen, setFilterOpen] = useState(false)
-  const [sortKey, setSortKey] = useState<SortKey | null>(null)
-  const [sortDir, setSortDir] = useState<SortDir>("asc")
+  // Client-side multi-sort, as the demo (lodash orderBy over the loaded rows).
+  const [ordering, setOrdering] = useState<string[]>([])
 
-  const today = useMemo(() => new Date(), [])
-  const defaultFrom = useMemo(() => new Date(today.getFullYear(), today.getMonth(), 1), [today])
-  const [dateFrom, setDateFrom] = useState("")
-  const [dateTo, setDateTo] = useState("")
-  const [appliedFrom, setAppliedFrom] = useState(() => formatDate(defaultFrom))
-  const [appliedTo, setAppliedTo] = useState(() => formatDate(today))
+  const { data, loading, error, reload } = useBalanceList("cashbox", { from: period.from, to: period.to })
+  const rows = useMemo(() => sortBalanceRows([...(data?.rows ?? [])], ordering), [data, ordering])
 
-  const filterCount = appliedFrom && appliedTo ? 1 : 0
+  const changeOrdering = (next: string[]) => {
+    // Demo sort header: the clicked column moves to the end of the multi-sort list.
+    const changed = next.find((key) => !ordering.includes(key))
+    setOrdering(changed ? [...next.filter((key) => key !== changed), changed] : next)
+  }
 
-  const sorted = useMemo(() => {
-    if (!sortKey) return registers
-    const copy = [...registers]
-    copy.sort((a, b) => {
-      const valueOf = (row: Register) => {
-        if (sortKey === "opening") return row.openingAmount
-        if (sortKey === "closing") return row.openingAmount + row.income - row.expense + row.transferIn - row.transferOut
-        return row[sortKey]
-      }
-      const result = valueOf(a) - valueOf(b)
-      return sortDir === "asc" ? result : -result
+  const openDetail = (row: BalanceRow, field: string | null) =>
+    pushState(period, {
+      key: row.key,
+      type: (field && CASH_COLUMN_TYPES[field]) || "",
+      category: "",
+      client: "",
+      notAccepted: false,
+      search: "",
+      page: 1,
+      pageSize: DEFAULT_DETAIL_PAGE_SIZE,
     })
-    return copy
-  }, [sortDir, sortKey])
-
-  const toggleSort = (key: SortKey) => {
-    if (sortKey === key) {
-      setSortDir((direction) => (direction === "asc" ? "desc" : "asc"))
-    } else {
-      setSortKey(key)
-      setSortDir("asc")
-    }
-  }
-
-  const applyFilter = () => {
-    if (dateFrom) setAppliedFrom(formatDate(new Date(dateFrom)))
-    if (dateTo) setAppliedTo(formatDate(new Date(dateTo)))
-    setFilterOpen(false)
-  }
 
   const downloadAll = () => {
-    const header = ["Кассы", "Баланс на начало периода", "Приход за период", "Расход за период", "Перевод на кассу", "Перевод с кассы", "Баланс на конец периода", "Кассир", "Тип"]
-    const body = sorted.map((row) => {
-      const closing = row.openingAmount + row.income - row.expense + row.transferIn - row.transferOut
-      return [
-        row.name,
-        row.openingAmount === 0 ? "0" : `${money(row.openingAmount)} ${row.openingCurrency}`,
-        row.income,
-        row.expense,
-        row.transferIn,
-        row.transferOut,
-        closing === 0 ? "0" : `${money(closing)} ${row.openingCurrency}`,
-        row.cashier,
-        row.type,
-      ]
+    if (!data) return
+    const table = balanceListExcelRows({
+      rows,
+      groups: GROUPS,
+      currencies: data.visibleCurrencies,
+      leading: [
+        { label: "Кассы", value: (row) => row.name },
+        { label: "Валюта", value: (row) => currencyLabel(String(row.info.currency || data.baseCurrency)) },
+      ],
+      trailing: [
+        { label: "Кассир", value: (row) => cashierOf(row, t) },
+        { label: "Тип", value: (row) => typeOf(row, t) },
+      ],
+      totals: data.totals,
+      t,
     })
-    downloadExcelTable("cash-balance.xls", [header, ...body])
+    downloadExcelTable(`cash-balance-${period.from}-${period.to}`, table)
   }
 
-  const lineText = (euro: number | string, sum: number | string, usd: number | string, tone?: "plus" | "minus") => [
-    { text: `${euro} Euro`, tone },
-    { text: `${typeof sum === "number" ? money(sum) : sum} SUM`, tone },
-    { text: `${typeof usd === "number" ? money(usd) : usd} USD`, tone },
-  ]
+  const detailName = detail ? (data?.rows.find((row) => row.key === detail.key)?.name ?? "") : ""
 
   return (
-    <ReportPage>
-      <div className="pl-[30px] pr-[38px]"><RefHeader title="Баланс кассы" /></div>
-
-      <section className="border-b border-[#d9d9d9] bg-white pb-[1px] pt-[21px]">
-        <div className="px-[30px]">
-          <ReportTopRow filterLabel={`Фильтр / ${filterCount}`} scope={`${appliedFrom} - ${appliedTo} Во всей организации`} onFilter={() => setFilterOpen(true)} onDownload={downloadAll} />
-          <div className="mt-[15px] grid grid-cols-1 gap-x-[10px] gap-y-[10px] sm:grid-cols-2 lg:grid-cols-4">
-            <ReportMoneyBox title="Баланс на начало периода" lines={lineText(FIXED_TOTALS.opening.euro, FIXED_TOTALS.opening.sum, FIXED_TOTALS.opening.usd)} />
-            <ReportMoneyBox title="Приход за период" lines={lineText(0, 0, 0, "plus")} />
-            <ReportMoneyBox title="Перевод на кассу" lines={lineText(0, 0, 0, "plus")} />
-            <ReportMoneyBox title="Баланс на конец периода" right lines={lineText(FIXED_TOTALS.closing.euro, FIXED_TOTALS.closing.sum, FIXED_TOTALS.closing.usd)} />
-            <ReportMoneyBox title="Расход за период" className="lg:col-start-2" lines={lineText(0, 0, 0, "minus")} />
-            <ReportMoneyBox title="Перевод с кассы" lines={lineText(0, 0, 0, "minus")} />
-          </div>
+    <main className="min-h-screen bg-white text-[#17233b]">
+      <header className="flex min-h-[76px] items-center border-b border-[#d8dee7] bg-[#f2f5f8] px-6 md:px-9">
+        <div className="flex items-center gap-3">
+          <FavoritesButton className="flex items-center gap-3 text-2xl font-bold text-[#4f70e7]" />
+          <span className="text-3xl font-light text-[#586174]">|</span>
+          <span className="text-2xl font-bold text-[#586174]">{t("Баланс кассы")}</span>
         </div>
+      </header>
 
-        <div className="mt-[20px] px-[30px]">
-          <ReportGridTable
-            minWidth={1400}
-            headClass="bg-[#4f71dc]"
-            headTextClass="text-white"
-            heads={[
-              <span key="k" className="font-semibold text-white">Кассы</span>,
-              ...([["Баланс на начало периода", "opening"], ["Приход за период", "income"], ["Расход за период", "expense"], ["Перевод на кассу", "transferIn"], ["Перевод с кассы", "transferOut"], ["Баланс на конец периода", "closing"]] as const).map(([label, key]) => <ReportSortHead key={key} label={label} active={sortKey === key} dir={sortDir} onClick={() => toggleSort(key)} />),
-              <span key="c" className="font-semibold text-white">Кассир</span>,
-              <span key="t" className="font-semibold text-white">Тип</span>,
-            ]}
-            rows={sorted.map((row) => {
-              const closing = row.openingAmount + row.income - row.expense + row.transferIn - row.transferOut
-              return [row.name, <AmountCell key="o" amount={row.openingAmount} currency={row.openingCurrency} />, 0, 0, 0, 0, <AmountCell key="c" amount={closing} currency={row.openingCurrency} />, row.cashier, row.type]
-            })}
-          />
+      <section className="flex flex-wrap items-center gap-4 px-6 py-4 md:px-9">
+        <BalanceFilterButton count={countActiveFilters({ toDate: period.to })} from={period.from} to={period.to} onOpen={() => setFilterOpen(true)} />
+        <div className="ml-auto">
+          <BalanceDownloadMenu disabled={!data?.rows.length} items={[{ label: "Скачать все", onClick: downloadAll }]} />
         </div>
       </section>
 
-      {filterOpen && (
-        <ReportFilterPanel onClose={() => setFilterOpen(false)} onApply={applyFilter}>
-          <ReportRangeField label="Диапазон дат" from={dateFrom || toIso(defaultFrom)} to={dateTo || toIso(today)} onFrom={setDateFrom} onTo={setDateTo} />
-        </ReportFilterPanel>
+      {!data && loading && (
+        <div className="flex items-center justify-center gap-2 py-24 text-[#586174]">
+          <Loader2 className="h-5 w-5 animate-spin" /> {t("Загрузка...")}
+        </div>
       )}
-    </ReportPage>
+      {error && (
+        <div className="flex flex-col items-center gap-3 py-10 text-center text-[#586174]">
+          <CircleAlert className="h-10 w-10 text-[#e57373]" />
+          <p>
+            {t("Не удалось выполнить запрос")}: {t(error)}
+          </p>
+          <button type="button" onClick={reload} className="rounded-md border border-[#4f70e7] px-4 py-2 font-semibold text-[#4f70e7]">
+            {t("Повторить")}
+          </button>
+        </div>
+      )}
+      {data && !rows.length && !error && (
+        <div className="flex flex-col items-center gap-3 py-24 text-center text-[13px] text-[#666]">
+          <SearchX className="h-12 w-12 text-[#999]" />
+          {loading ? t("Загрузка...") : t("По вашему запросу ничего не найдено")}
+        </div>
+      )}
+      {data && rows.length > 0 && (
+        <>
+          <CashBalanceSummary totals={data.totals} currencies={data.visibleCurrencies} loading={loading} />
+          <section className="pb-10">
+            <BalanceTable
+              rows={rows}
+              groups={GROUPS}
+              currencies={data.visibleCurrencies}
+              first={{ label: "Кассы", render: (row) => row.name }}
+              cellCurrency={(row) => String(row.info.currency || data.baseCurrency)}
+              trailing={[
+                { label: "Кассир", render: (row) => cashierOf(row, t) },
+                { label: "Тип", render: (row) => typeOf(row, t) },
+              ]}
+              ordering={ordering}
+              onOrderingChange={changeOrdering}
+              sortCycle="desc-first"
+              multiSort
+              onCellClick={openDetail}
+              headerTone="blue"
+              loading={loading}
+            />
+          </section>
+        </>
+      )}
+
+      <BalanceFilterDialog open={filterOpen} onClose={() => setFilterOpen(false)} from={period.from} to={period.to} onApply={(next) => pushState(next, null)} />
+
+      {detail && (
+        <CashBalanceDetail
+          period={period}
+          state={detail}
+          fallbackName={detailName}
+          onChange={(nextPeriod, nextState) => pushState(nextPeriod, nextState)}
+          onClose={() => pushState(period, null)}
+        />
+      )}
+    </main>
   )
 }

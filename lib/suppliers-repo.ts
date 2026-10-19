@@ -122,3 +122,28 @@ export async function deleteSupplier(id: number): Promise<boolean> {
   const db = getDb()
   return (await db.prepare("DELETE FROM suppliers WHERE id = ?").run(id)).changes > 0
 }
+
+export type ReserveInput = { product: string; qty: number; price: number; currency: string }
+
+/** "Добавить продукт": products the supplier holds for us (reserve). Adding
+ * a product that is already reserved updates its quantity and price. */
+export async function addSupplierReserve(id: number, lines: ReserveInput[]): Promise<Supplier | null> {
+  const supplier = await getSupplier(id)
+  if (!supplier) return null
+  const products = [...supplier.products]
+  for (const line of lines) {
+    const existing = products.find((item) => item.product === line.product)
+    if (existing) Object.assign(existing, { qty: line.qty, price: line.price, currency: line.currency })
+    else products.push({ id: Math.max(0, ...products.map((item) => item.id)) + 1, product: line.product, qty: line.qty, price: line.price, currency: line.currency })
+  }
+  await getDb().prepare("UPDATE suppliers SET products = ?, updated_at = datetime('now') WHERE id = ?").run(JSON.stringify(products), id)
+  return getSupplier(id)
+}
+
+export async function removeSupplierReserve(id: number, rowId: number): Promise<Supplier | null> {
+  const supplier = await getSupplier(id)
+  if (!supplier) return null
+  const products = supplier.products.filter((item) => item.id !== rowId)
+  await getDb().prepare("UPDATE suppliers SET products = ?, updated_at = datetime('now') WHERE id = ?").run(JSON.stringify(products), id)
+  return getSupplier(id)
+}

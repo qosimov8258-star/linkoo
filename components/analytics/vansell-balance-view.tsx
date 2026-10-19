@@ -1,284 +1,405 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
-import { ChevronDown, Info, MinusCircle, Pencil, PlusCircle, X } from "lucide-react"
-import { RefHeader } from "@/components/ref/list-kit"
-import { ReportBalanceBoxes, ReportGridTable, ReportPage, ReportPager, ReportSearchField, type BalanceTone } from "@/components/ref/report-kit"
+import { useCallback, useEffect, useMemo, useState } from "react"
+import { Info, Loader2, Minus, Pencil, Plus, Search } from "lucide-react"
 
-type Money = { sum: number; usd: number; eur: number }
-type Vansel = {
-  id: number
-  name: string
-  opening: Money
-  transferToWarehouse: Money
-  transferReturn: Money
-  cash: Money
-  transferred: Money
+import { BalanceSummaryCards, type SummaryBox } from "@/components/analytics/balance/summary-cards"
+import { BalanceTable, type BalanceColumnGroup } from "@/components/analytics/balance/balance-table"
+import { BalanceFilterChip, BalanceFilterDialog } from "@/components/analytics/balance/filter-bar"
+import { BalancePagination } from "@/components/analytics/balance/pagination"
+import { ExpandedOverlay, ExpandedViewButton } from "@/components/analytics/balance/expanded-view"
+import { useBalanceList, useFinanceCurrencies, useLookup } from "@/components/analytics/balance/use-balance"
+import { VansellDetailDialog } from "@/components/analytics/vansell-balance-detail"
+import {
+  VansellLimitDialog,
+  VansellMovementDialog,
+  VansellSnackbar,
+  VansellUsersSelect,
+  paymentHintLines,
+  type VansellEmployeeOption,
+} from "@/components/analytics/vansell-balance-dialogs"
+import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
+import { currencyLabel } from "@/lib/finance/currency"
+import { isIsoDay, monthEndIso, monthStartIso, todayIso } from "@/lib/finance/dates"
+import { MOVEMENT_LABELS, type BalanceRow } from "@/lib/finance/types"
+import { useLanguage } from "@/lib/i18n/language-context"
+
+// "Баланс вансел" (demo #/ven-sell): per van-sell agent and currency the
+// balance at the start of the period, goods handed over / returned, money
+// accepted (cash / bank), "Отход", other incomes / expenses and the balance
+// at the end, from the shared finance ledger (GET /api/balances/vansell).
+// Manual movements and debt limits: /api/vansell-transactions/**.
+// State lives in the URL like the demo: fromDate, toDate, users (1-2-3),
+// search, page, pageSize, ordering, dynamicList (open detail).
+
+const GROUPS: BalanceColumnGroup[] = [
+  { field: "begin_balance", label: "Баланс на начало периода" },
+  ...Object.entries(MOVEMENT_LABELS.vansell).map(([field, label]) => ({ field, label })),
+  { field: "end_balance", label: "Баланс на конец" },
+]
+
+/** Demo ROUND_AMOUNT_FOR_CURRENCY. */
+const DIGITS = 3
+const DEFAULT_PAGE_SIZE = 25
+
+/** Demo serializer default: the whole current calendar month. */
+function defaultPeriod() {
+  const today = todayIso()
+  return { from: monthStartIso(today), to: monthEndIso(today) }
 }
 
-const zero: Money = { sum: 0, usd: 0, eur: 0 }
-
-const initialVansels: Vansel[] = []
-
-const number = (value: number) => new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 2 }).format(value)
-
-function addMoney(a: Money, b: Money): Money {
-  return { sum: a.sum + b.sum, usd: a.usd + b.usd, eur: a.eur + b.eur }
+type ViewState = {
+  /** null = default period (not counted as an active filter). */
+  period: { from: string; to: string } | null
+  users: string[]
+  search: string
+  page: number
+  pageSize: number
+  ordering: string[]
+  /** Open detail dialog (employee key). */
+  detail: string | null
 }
 
-function closingBalance(vansel: Vansel): Money {
-  return addMoney(addMoney(addMoney(vansel.opening, vansel.transferToWarehouse), vansel.cash), vansel.transferred)
+const INITIAL_STATE: ViewState = { period: null, users: [], search: "", page: 1, pageSize: DEFAULT_PAGE_SIZE, ordering: [], detail: null }
+
+function readUrlState(): ViewState {
+  const params = new URLSearchParams(window.location.search)
+  const fromDate = params.get("fromDate") ?? ""
+  const toDate = params.get("toDate") ?? ""
+  const fallback = defaultPeriod()
+  const from = isIsoDay(fromDate) ? fromDate : isIsoDay(toDate) ? monthStartIso(toDate) : ""
+  const to = isIsoDay(toDate) ? toDate : from ? (from > fallback.to ? monthEndIso(from) : fallback.to) : ""
+  const pageSize = Number(params.get("pageSize"))
+  const page = Number(params.get("page"))
+  const detail = params.get("dynamicList") ?? ""
+  return {
+    period: from && to ? (from <= to ? { from, to } : { from: to, to: from }) : null,
+    users: (params.get("users") ?? "").split("-").filter((id) => /^\d+$/.test(id)),
+    search: params.get("search") ?? "",
+    page: Number.isInteger(page) && page > 0 ? page : 1,
+    pageSize: Number.isInteger(pageSize) && pageSize > 0 ? pageSize : DEFAULT_PAGE_SIZE,
+    ordering: (params.get("ordering") ?? "").split(",").filter(Boolean),
+    detail: /^\d+$/.test(detail) && detail !== "0" ? detail : null,
+  }
 }
 
-function AmountCell({ value }: { value: number }) {
-  if (value > 0) return <span className="text-[#3aa76d]">{number(value)}</span>
-  if (value < 0) return <span className="text-[#e5484d]">{number(value)}</span>
-  return <span className="text-[#17233b]">0</span>
+function writeUrlState(state: ViewState) {
+  const params = new URLSearchParams(window.location.search)
+  const set = (name: string, value: string) => (value ? params.set(name, value) : params.delete(name))
+  set("fromDate", state.period?.from ?? "")
+  set("toDate", state.period?.to ?? "")
+  set("users", state.users.join("-"))
+  set("search", state.search)
+  set("page", state.page > 1 ? String(state.page) : "")
+  set("pageSize", String(state.pageSize))
+  set("ordering", state.ordering.join(","))
+  set("dynamicList", state.detail ?? "")
+  const query = params.toString()
+  const next = `${window.location.pathname}${query ? `?${query}` : ""}${window.location.hash}`
+  if (next !== `${window.location.pathname}${window.location.search}${window.location.hash}`) window.history.replaceState(window.history.state, "", next)
+}
+
+type LimitsResponse = { canUpdate: boolean; limits: Array<{ employeeId: number; limit: number }> }
+
+/** GET /api/vansell-transactions/limits (+ whether the user may write). */
+function useVansellLimits() {
+  const [data, setData] = useState<LimitsResponse | null>(null)
+  const [version, setVersion] = useState(0)
+  useEffect(() => {
+    const controller = new AbortController()
+    fetch("/api/vansell-transactions/limits", { signal: controller.signal, cache: "no-store" })
+      .then((response) => (response.ok ? (response.json() as Promise<LimitsResponse>) : null))
+      .then((body) => {
+        if (body) setData(body)
+      })
+      .catch(() => {})
+    return () => controller.abort()
+  }, [version])
+  const reload = useCallback(() => setVersion((value) => value + 1), [])
+  return { data, reload }
 }
 
 export function VansellBalanceView() {
-  const [vansels, setVansels] = useState(initialVansels)
-  const [loading, setLoading] = useState(true)
-  const [search, setSearch] = useState("")
+  const { t } = useLanguage()
+  const [state, setState] = useState<ViewState>(INITIAL_STATE)
+  const [hydrated, setHydrated] = useState(false)
+  const [searchInput, setSearchInput] = useState("")
+  const [selected, setSelected] = useState<Map<string, string>>(new Map())
   const [filterOpen, setFilterOpen] = useState(false)
-  const [selected, setSelected] = useState<Set<number>>(new Set())
-  const [pageSize, setPageSize] = useState(25)
-  const [page, setPage] = useState(1)
-  const [modal, setModal] = useState<{ type: "add" | "expense"; vanselId: number } | null>(null)
-  const [limitModalOpen, setLimitModalOpen] = useState(false)
+  const [draftUsers, setDraftUsers] = useState<string[]>([])
+  const [expanded, setExpanded] = useState(false)
+  const [movement, setMovement] = useState<{ kind: "add" | "expense"; employeeId: number } | null>(null)
+  const [limitOpen, setLimitOpen] = useState(false)
+  const [notice, setNotice] = useState("")
+  const hideNotice = useCallback(() => setNotice(""), [])
 
-  const filtered = useMemo(
-    () => vansels.filter((vansel) => vansel.name.toLocaleLowerCase("ru").includes(search.trim().toLocaleLowerCase("ru"))),
-    [search, vansels],
+  // URL → state once on mount (after hydration), then state → URL.
+  useEffect(() => {
+    const initial = readUrlState()
+    setState(initial)
+    setSearchInput(initial.search)
+    setHydrated(true)
+  }, [])
+  useEffect(() => {
+    if (hydrated) writeUrlState(state)
+  }, [hydrated, state])
+
+  // Demo search box: debounced 500 ms, server-side.
+  useEffect(() => {
+    if (!hydrated) return
+    const timer = window.setTimeout(() => {
+      setState((current) => (current.search === searchInput.trim() ? current : { ...current, search: searchInput.trim(), page: 1 }))
+    }, 500)
+    return () => window.clearTimeout(timer)
+  }, [hydrated, searchInput])
+
+  const period = state.period ?? defaultPeriod()
+  const list = useBalanceList("vansell", {
+    from: period.from,
+    to: period.to,
+    search: state.search,
+    key: state.users,
+    ordering: state.ordering,
+    page: state.page,
+    pageSize: state.pageSize,
+    totalsIgnoreSearch: true,
+  })
+  const limits = useVansellLimits()
+  const currencies = useFinanceCurrencies()
+  const employees = useLookup<VansellEmployeeOption>("/api/employees")
+
+  const data = list.data
+  const rows = useMemo(() => data?.rows ?? [], [data])
+  const visible = data?.visibleCurrencies ?? []
+  const canEdit = Boolean(limits.data?.canUpdate)
+  const limitMap = useMemo(() => new Map((limits.data?.limits ?? []).map((item) => [item.employeeId, item.limit])), [limits.data])
+  const currencyList = currencies.data?.currencies ?? data?.currencies ?? []
+  const filterCount = (state.period ? 1 : 0) + (state.users.length ? 1 : 0)
+
+  const update = (patch: Partial<ViewState>) => setState((current) => ({ ...current, ...patch }))
+  const reloadAll = () => {
+    list.reload()
+    limits.reload()
+  }
+  const saved = (message = "Успешно сохранено") => {
+    setNotice(message)
+    reloadAll()
+  }
+  const detailRow = state.detail ? rows.find((row) => row.key === state.detail) : undefined
+
+  const boxes: SummaryBox[] = [
+    {
+      metrics: [
+        { label: "Передача на склад", field: "stock_transfer_minus" },
+        { label: "Возврат передачи", field: "stock_transfer_plus" },
+      ],
+    },
+    {
+      metrics: [
+        {
+          label: "Принятие оплаты",
+          field: "payment_accepted",
+          value: (balance) => (balance.cash_transfer_plus ?? 0) + (balance.bank_transfer_plus ?? 0),
+          hint: (
+            <span className="group relative inline-flex">
+              <Info className="h-4 w-4 cursor-help text-[#9aa3b6]" aria-label={`${t("Перечисление")} / ${t("Наличные")}`} />
+              <span className="pointer-events-none absolute left-1/2 top-6 z-20 hidden -translate-x-1/2 whitespace-nowrap rounded bg-[#323232] px-3 py-2 text-[12px] font-normal leading-5 text-white shadow-lg group-hover:block">
+                {paymentHintLines(data?.totals ?? {}, visible, currencyLabel, t).map((line) => (
+                  <span key={line} className="block">
+                    {line}
+                  </span>
+                ))}
+              </span>
+            </span>
+          ),
+        },
+        { label: "Отход", field: "order_return_plus" },
+      ],
+    },
+    {
+      metrics: [
+        { label: "Прочие приходы", field: "none_type_plus" },
+        { label: "Прочие расходы", field: "none_type_minus" },
+      ],
+    },
+    {
+      align: "right",
+      metrics: [
+        { label: "Баланс на начало периода", field: "begin_balance" },
+        { label: "Баланс на конец периода", field: "end_balance" },
+      ],
+    },
+  ]
+
+  const nameCell = (row: BalanceRow) => (
+    <div className="flex items-center justify-between gap-3">
+      <button type="button" onClick={() => update({ detail: row.key })} className="text-left font-medium text-[#129fdd] hover:underline">
+        {row.name || t("Не указано")}
+      </button>
+      {canEdit && row.id !== null && (
+        <span className="flex shrink-0 items-center gap-1.5">
+          <button
+            type="button"
+            title={t("Добавить расход")}
+            aria-label={t("Добавить расход")}
+            onClick={() => setMovement({ kind: "expense", employeeId: row.id! })}
+            className="flex h-6 w-6 items-center justify-center rounded-full bg-[#ff584b] text-white hover:opacity-85"
+          >
+            <Minus className="h-4 w-4" />
+          </button>
+          <button
+            type="button"
+            title={t("Добавить")}
+            aria-label={t("Добавить")}
+            onClick={() => setMovement({ kind: "add", employeeId: row.id! })}
+            className="flex h-6 w-6 items-center justify-center rounded-full bg-[#8dc572] text-white hover:opacity-85"
+          >
+            <Plus className="h-4 w-4" />
+          </button>
+        </span>
+      )}
+    </div>
   )
 
-  const maxPage = Math.max(1, Math.ceil(filtered.length / pageSize))
-  const safePage = Math.min(page, maxPage)
-  const visible = filtered.slice((safePage - 1) * pageSize, safePage * pageSize)
-
-  const openingTotal = vansels.reduce((acc, vansel) => addMoney(acc, vansel.opening), zero)
-  const closingTotal = vansels.reduce((acc, vansel) => addMoney(acc, closingBalance(vansel)), zero)
-  const transferToWarehouseTotal = vansels.reduce((acc, vansel) => addMoney(acc, vansel.transferToWarehouse), zero)
-  const transferReturnTotal = vansels.reduce((acc, vansel) => addMoney(acc, vansel.transferReturn), zero)
-
-  const allSelected = visible.length > 0 && visible.every((vansel) => selected.has(vansel.id))
-  const toggleAll = () => {
+  const onSelectionChange = (next: Set<string>) => {
     setSelected((current) => {
-      if (allSelected) {
-        const next = new Set(current)
-        visible.forEach((vansel) => next.delete(vansel.id))
-        return next
-      }
-      const next = new Set(current)
-      visible.forEach((vansel) => next.add(vansel.id))
-      return next
+      const map = new Map<string, string>()
+      for (const key of next) map.set(key, rows.find((row) => row.key === key)?.name ?? current.get(key) ?? key)
+      return map
     })
   }
-  const toggleOne = (id: number) => {
-    setSelected((current) => {
-      const next = new Set(current)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
-      return next
-    })
-  }
-
-  useEffect(() => {
-    let cancelled = false
-    setLoading(true)
-    fetch("/api/vansell-transactions")
-      .then(async (response) => {
-        if (!response.ok) throw new Error("Не удалось загрузить данные")
-        return (await response.json()) as Vansel[]
-      })
-      .then((data) => {
-        if (!cancelled) setVansels(data)
-      })
-      .catch(() => {})
-      .finally(() => {
-        if (!cancelled) setLoading(false)
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [])
-
-  const applyTransaction = async (vanselId: number, kind: "add" | "expense", currency: keyof Money, amount: number) => {
-    try {
-      const response = await fetch("/api/vansell-transactions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ vanselId, currency, amount, kind }),
-      })
-      if (!response.ok) return
-      const saved = (await response.json()) as Vansel
-      setVansels((current) => current.map((vansel) => (vansel.id === vanselId ? saved : vansel)))
-    } catch {
-      window.alert("Сервер недоступен, попробуйте ещё раз")
-    }
-  }
-
-  const lines = (m: Money) => (["eur", "sum", "usd"] as const).map((key) => ({ text: `${number(m[key])} ${key === "eur" ? "Euro" : key.toUpperCase()}`, tone: (m[key] > 0 ? "plus" : m[key] < 0 ? "minus" : "default") as BalanceTone }))
-  const zeros = [{ text: "0 Euro" }, { text: "0 SUM" }, { text: "0 USD" }]
-  const infoZeros = zeros.map((line) => ({ ...line, info: true }))
-  const cur = ["SUM", "USD", "Euro"]
-  const money = (m: Money) => [m.sum, m.usd, m.eur].map((value, index) => <AmountCell key={index} value={value} />)
 
   return (
-    <ReportPage>
-      <div className="pl-[30px] pr-[38px]"><RefHeader title="Баланс вансел" /></div>
-
-      <section className="border-b border-[#d9d9d9] bg-white pb-[1px] pt-[10px]">
-        <ReportBalanceBoxes
-          columns={[
-            { blocks: [{ title: "Передача на склад", lines: lines(transferToWarehouseTotal) }, { title: "Возврат передачи", lines: lines(transferReturnTotal) }] },
-            { blocks: [{ title: "Принятие оплаты", lines: infoZeros }, { title: "Отход", lines: zeros }] },
-            { blocks: [{ title: "Прочие приходы", lines: zeros }, { title: "Прочие расходы", lines: zeros }] },
-            { right: true, blocks: [{ title: "Баланс на начало периода", lines: lines(openingTotal) }, { title: "Баланс на конец периода", lines: lines(closingTotal) }] },
-          ]}
-        />
-
-        <div className="relative mx-[10px] mt-[16px] flex h-[50px] items-center border-t border-[#e8e8e8]">
-          <button onClick={() => setFilterOpen((value) => !value)} className="text-[13px] text-[#1ea1f2]">Показать фильтр ⌄</button>
-          {filterOpen && (
-            <div className="absolute left-0 top-[46px] z-20 w-[300px] bg-white p-5 shadow-[0_3px_10px_rgba(0,0,0,0.16),0_3px_10px_rgba(0,0,0,0.23)]">
-              <ReportSearchField value={search} onChange={(value) => { setSearch(value); setPage(1) }} width={260} label="Вансел" />
-            </div>
-          )}
-          <div className="absolute left-[490px]"><ReportSearchField value={search} onChange={(value) => { setSearch(value); setPage(1) }} width={180} /></div>
-          <div className="ml-auto flex items-center gap-[20px]">
-            <button onClick={() => setLimitModalOpen(true)} className="flex h-[30px] items-center rounded-[3px] bg-[#4f71dc] px-4 text-[13px] font-semibold text-white hover:brightness-95"><Pencil className="mr-[10px] h-[16px] w-[16px]" />Изменить лимит</button>
-            <ReportPager pageSize={pageSize} onPageSize={(size) => { setPageSize(size); setPage(1) }} rangeLabel={`${filtered.length ? (safePage - 1) * pageSize + 1 : 0} - ${Math.min(safePage * pageSize, filtered.length)} из ${filtered.length}`} canPrev={safePage > 1} canNext={safePage < maxPage} onPrev={() => setPage((value) => Math.max(1, value - 1))} onNext={() => setPage((value) => Math.min(maxPage, value + 1))} />
-            <button aria-label="Полный экран" onClick={() => document.documentElement.requestFullscreen?.()}><svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#444]"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z" /></svg></button>
-          </div>
+    <main className="min-h-screen bg-[#f1f4f8] text-[#17233b]">
+      <header className="flex min-h-[76px] items-center border-b border-[#d8dee7] bg-[#f2f5f8] px-6 md:px-9">
+        <div className="flex items-center gap-3">
+          <FavoritesButton className="flex items-center gap-3 text-2xl font-bold text-[#4f70e7]" />
+          <span className="text-3xl font-light text-[#586174]">|</span>
+          <span className="text-2xl font-bold text-[#586174]">{t("Баланс вансел")}</span>
         </div>
+      </header>
 
-        <ReportGridTable
-          minWidth={1750}
-          loading={loading}
-          colWidths={["230px", "30px", ...Array.from({ length: 15 }, () => "")]}
-          groups={[{ title: "", span: 2 }, ...["Баланс на начало периода", "Передача на склад", "Возврат передачи", "Наличные", "Перечисление", "Баланс на конец периода"].map((title) => ({ title, span: 3 }))]}
-          heads={["Вансел", <input key="all" type="checkbox" checked={allSelected} onChange={toggleAll} className="h-[14px] w-[14px] accent-[#444]" />, ...Array.from({ length: 6 }).flatMap(() => cur)]}
-          rows={visible.map((vansel) => {
-            const closing = closingBalance(vansel)
-            return [
-              <div key="n" className="flex items-center gap-[10px]">
-                <span className="w-[100px] truncate">{vansel.name}</span>
-                <button aria-label="Добавить расход" onClick={() => setModal({ type: "expense", vanselId: vansel.id })}><MinusCircle className="h-[22px] w-[22px] fill-[#ff5d63] text-white" /></button>
-                <button aria-label="Добавить" onClick={() => setModal({ type: "add", vanselId: vansel.id })}><PlusCircle className="h-[22px] w-[22px] fill-[#71ce87] text-white" /></button>
-              </div>,
-              <input key="c" type="checkbox" checked={selected.has(vansel.id)} onChange={() => toggleOne(vansel.id)} className="h-[14px] w-[14px] accent-[#444]" />,
-              ...money(vansel.opening), ...money(vansel.transferToWarehouse), ...money(vansel.transferReturn), ...money(vansel.cash), ...money(vansel.transferred), ...money(closing),
-            ]
-          })}
+      <div className="border-b border-[#e1e5eb] bg-white pt-6">
+        {data ? (
+          <BalanceSummaryCards boxes={boxes} totals={data.totals} currencies={visible} digits={DIGITS} loading={list.loading} />
+        ) : (
+          <div className="flex h-[150px] items-center justify-center pb-6">
+            {list.error ? <span className="text-[#e57373]">{t(list.error)}</span> : <Loader2 className="h-7 w-7 animate-spin text-[#4f70e7]" />}
+          </div>
+        )}
+      </div>
+
+      <ExpandedOverlay expanded={expanded}>
+        <section className="flex flex-wrap items-center gap-x-5 gap-y-3 border-b border-[#e1e5eb] bg-white px-6 py-3 md:px-9">
+          <BalanceFilterChip
+            count={filterCount}
+            onOpen={() => {
+              setDraftUsers(state.users)
+              setFilterOpen(true)
+            }}
+            onClear={() => update({ period: null, users: [], page: 1 })}
+          />
+          <label className="relative min-w-[200px] flex-1 border-b border-[#dbe0e8] pb-1.5">
+            <input
+              value={searchInput}
+              onChange={(event) => setSearchInput(event.target.value)}
+              placeholder={t("Поиск")}
+              className="w-full bg-transparent pr-7 text-[15px] outline-none placeholder:text-[#9aa3b6]"
+            />
+            <Search className="pointer-events-none absolute right-0 top-0.5 h-5 w-5 text-[#9aa3b6]" />
+          </label>
+          <div className="ml-auto flex flex-wrap items-center gap-5">
+            {canEdit && (
+              <button type="button" onClick={() => setLimitOpen(true)} className="flex h-10 items-center gap-2 rounded-md bg-[#4f71dc] px-4 font-semibold text-white">
+                <Pencil className="h-4 w-4" /> {t("Изменить лимит")}
+                {selected.size > 0 && <span className="rounded-full bg-white/25 px-2 text-[12px]">{selected.size}</span>}
+              </button>
+            )}
+            <BalancePagination page={state.page} pageSize={state.pageSize} count={data?.count ?? 0} onChange={(next) => update(next)} />
+            <ExpandedViewButton expanded={expanded} onToggle={() => setExpanded((value) => !value)} />
+          </div>
+        </section>
+
+        {list.error && data && (
+          <div className="flex items-center justify-between gap-4 bg-[#fdecec] px-6 py-2 text-[14px] text-[#c62828] md:px-9">
+            <span>{t(list.error)}</span>
+            <button type="button" onClick={list.reload} className="font-semibold underline">
+              {t("Повторить")}
+            </button>
+          </div>
+        )}
+
+        <section className="bg-white pb-10">
+          <BalanceTable
+            rows={rows}
+            groups={GROUPS}
+            currencies={visible}
+            first={{ label: "Вансел", width: 220, sortKey: "name", render: nameCell }}
+            selection={{ selected: new Set(selected.keys()), onChange: onSelectionChange }}
+            ordering={state.ordering}
+            onOrderingChange={(ordering) => update({ ordering, page: 1 })}
+            sortCycle="asc-first"
+            digits={DIGITS}
+            loading={list.loading}
+          />
+        </section>
+      </ExpandedOverlay>
+
+      <BalanceFilterDialog
+        open={filterOpen}
+        onClose={() => setFilterOpen(false)}
+        from={period.from}
+        to={period.to}
+        dateLabel="Период создания"
+        onApply={(next) => {
+          // An untouched default period stays "not set" (the demo counts only a chosen period).
+          const unchanged = !state.period && next.from === period.from && next.to === period.to
+          update({ period: unchanged ? null : next, users: draftUsers, page: 1 })
+        }}
+      >
+        <VansellUsersSelect options={employees} value={draftUsers} onChange={setDraftUsers} />
+      </BalanceFilterDialog>
+
+      {state.detail && (
+        <VansellDetailDialog
+          key={state.detail}
+          entityKey={state.detail}
+          name={detailRow?.name ?? ""}
+          currencies={currencyList}
+          canEdit={canEdit}
+          onClose={() => update({ detail: null })}
+          onChanged={saved}
         />
-      </section>
+      )}
 
-      {modal && (
-        <TransactionModal
-          vansel={vansels.find((item) => item.id === modal.vanselId)!}
-          type={modal.type}
-          onClose={() => setModal(null)}
-          onSave={(currency, amount) => {
-            applyTransaction(modal.vanselId, modal.type, currency, amount)
-            setModal(null)
+      {movement && (
+        <VansellMovementDialog
+          kind={movement.kind}
+          employeeId={movement.employeeId}
+          employees={employees}
+          currencies={currencyList}
+          onClose={() => setMovement(null)}
+          onSaved={() => {
+            setMovement(null)
+            saved()
           }}
         />
       )}
 
-      {limitModalOpen && <LimitModal count={selected.size || visible.length} onClose={() => setLimitModalOpen(false)} />}
-    </ReportPage>
-  )
-}
+      {limitOpen && (
+        <VansellLimitDialog
+          rows={[...selected.entries()].map(([key, name]) => ({ id: Number(key), name }))}
+          limits={limitMap}
+          onClose={() => setLimitOpen(false)}
+          onSaved={() => {
+            setLimitOpen(false)
+            setSelected(new Map())
+            saved()
+          }}
+        />
+      )}
 
-function TransactionModal({
-  vansel,
-  type,
-  onClose,
-  onSave,
-}: {
-  vansel: Vansel
-  type: "add" | "expense"
-  onClose: () => void
-  onSave: (currency: keyof Money, amount: number) => void
-}) {
-  const [currency, setCurrency] = useState<keyof Money>("sum")
-  const [amount, setAmount] = useState("")
-  const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10))
-  const [comment, setComment] = useState("")
-
-  return (
-    <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/40" onClick={onClose}>
-      <div onClick={(event) => event.stopPropagation()} className="w-[600px] max-w-[92vw] rounded-md bg-white shadow-2xl">
-        <header className="flex items-center justify-between border-b px-8 py-6">
-          <h2 className="text-xl font-bold uppercase tracking-wide">{type === "add" ? "Добавить" : "Добавить расход"}</h2>
-          <button aria-label="Закрыть" onClick={onClose}><X className="h-6 w-6 text-slate-500" /></button>
-        </header>
-        <div className="space-y-7 px-8 py-7">
-          <label className="block border-b border-[#dbe0e8] pb-2 text-[13px] font-medium text-[#586174]">
-            Пользователь
-            <div className="mt-1 flex items-center justify-between text-[16px] font-semibold text-[#17233b]">
-              {vansel.name}
-              <span className="flex items-center gap-2 text-[#9aa3b6]"><X className="h-4 w-4" /><ChevronDown className="h-4 w-4" /></span>
-            </div>
-          </label>
-          <label className="relative block border-b border-[#dbe0e8] pb-2 text-[13px] font-medium text-[#586174]">
-            Валюта
-            <select value={currency} onChange={(event) => setCurrency(event.target.value as keyof Money)} className="mt-1 block w-full appearance-none bg-transparent pr-6 text-[16px] font-semibold text-[#17233b] outline-none">
-              <option value="sum">SUM</option>
-              <option value="usd">USD</option>
-              <option value="eur">Euro</option>
-            </select>
-            <ChevronDown className="pointer-events-none absolute right-0 top-7 h-4 w-4 text-[#9aa3b6]" />
-          </label>
-          <label className="block border-b border-[#dbe0e8] pb-2 text-[13px] font-medium text-[#586174]">
-            Сумма
-            <input type="number" value={amount} onChange={(event) => setAmount(event.target.value)} className="mt-1 block w-full bg-transparent text-[16px] font-semibold text-[#17233b] outline-none" />
-          </label>
-          <label className="block border-b border-[#dbe0e8] pb-2 text-[13px] font-medium text-[#586174]">
-            Дата создания
-            <input type="date" value={date} onChange={(event) => setDate(event.target.value)} className="mt-1 block w-full bg-transparent text-[16px] font-semibold text-[#17233b] outline-none" />
-          </label>
-          <label className="block border-b border-[#dbe0e8] pb-2 text-[13px] font-medium text-[#586174]">
-            <input placeholder="Оставить комментарий..." value={comment} onChange={(event) => setComment(event.target.value)} className="mt-1 block w-full bg-transparent text-[16px] outline-none placeholder:text-[#586174]" />
-          </label>
-        </div>
-        <footer className="flex justify-end border-t px-8 py-5">
-          <button
-            onClick={() => {
-              const value = Number(amount)
-              if (value > 0) onSave(currency, value)
-            }}
-            className="font-bold uppercase tracking-wide text-[#4f71dc]"
-          >
-            Сохранить
-          </button>
-        </footer>
-      </div>
-    </div>
-  )
-}
-
-function LimitModal({ count, onClose }: { count: number; onClose: () => void }) {
-  const [limit, setLimit] = useState("")
-  return (
-    <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/40" onClick={onClose}>
-      <div onClick={(event) => event.stopPropagation()} className="w-[460px] max-w-[92vw] rounded-md bg-white shadow-2xl">
-        <header className="flex items-center justify-between border-b px-8 py-6">
-          <h2 className="text-xl font-bold uppercase tracking-wide">Изменить лимит</h2>
-          <button aria-label="Закрыть" onClick={onClose}><X className="h-6 w-6 text-slate-500" /></button>
-        </header>
-        <div className="px-8 py-7">
-          <p className="mb-5 text-sm text-[#586174]">Будет применено к {count} {count === 1 ? "вансел" : "вансел(ам)"}</p>
-          <label className="block border-b border-[#dbe0e8] pb-2 text-[13px] font-medium text-[#586174]">
-            Новый лимит (SUM)
-            <input type="number" value={limit} onChange={(event) => setLimit(event.target.value)} className="mt-1 block w-full bg-transparent text-[16px] font-semibold text-[#17233b] outline-none" />
-          </label>
-        </div>
-        <footer className="flex justify-end border-t px-8 py-5">
-          <button onClick={onClose} className="font-bold uppercase tracking-wide text-[#4f71dc]">Сохранить</button>
-        </footer>
-      </div>
-    </div>
+      <VansellSnackbar text={notice} onHide={hideNotice} />
+    </main>
   )
 }

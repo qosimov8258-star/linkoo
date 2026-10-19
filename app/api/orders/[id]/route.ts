@@ -21,11 +21,14 @@ const orderPatchSchema = z.object({
   status: z.string().optional(),
   discount: z.string().optional(),
   negative: z.boolean().optional(),
+  paymentDate: z.union([z.string().regex(/^\d{4}-\d{2}-\d{2}$/), z.literal("")]).optional(),
+  paymentType: z.enum(["cash", "bank", ""]).optional(),
+  organization: z.string().trim().max(200).optional(),
 })
 
 export async function GET(_request: NextRequest, { params }: RouteParams) {
   const user = await getCurrentUser()
-  if (!user) return NextResponse.json({ error: "Вы не вошли в систему" }, { status: 401 })
+  if (!user) return NextResponse.json({ error: "Tizimga kirilmagan" }, { status: 401 })
 
   const id = Number((await params).id)
   const order = (await getOrder(id))

@@ -1,244 +1,222 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
-import { RI, RefHeader } from "@/components/ref/list-kit"
-import { ReportFilterPanel, ReportGridTable, ReportPage, ReportSearchField, ReportSelectField } from "@/components/ref/report-kit"
-import type { Product } from "@/components/analytics/products-data"
-import { downloadExcelTable } from "@/lib/excel-export"
+import { Suspense, useState, type FormEvent } from "react"
+import Image from "next/image"
+import { BarChart, CircleAlert, Info, Loader2, Search } from "lucide-react"
 
-type UnitType = "Количество" | "Объем" | "Вес" | "Блок"
+import { BalanceFilterChip, countActiveFilters } from "@/components/analytics/balance/filter-bar"
+import { BalancePagination } from "@/components/analytics/balance/pagination"
+import { useCashJson } from "@/components/analytics/cash/use-cash"
+import {
+  REORDER_PAGE_SIZES,
+  REORDER_UNITS,
+  ReorderFilterDialog,
+  reorderApiQuery,
+  reorderStateFromParams,
+  type ReorderDraft,
+} from "@/components/analytics/reorder-level-filters"
+import { ReorderLevelTable } from "@/components/analytics/reorder-level-table"
+import { useStockOptions, useUrlState } from "@/components/analytics/stock-move-filters"
+import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
+import { formatDotDate } from "@/lib/finance/dates"
+import { useLanguage } from "@/lib/i18n/language-context"
+import type { RecommendedListResult, RecommendedUnit } from "@/lib/stock-recommended"
 
-type ProductRow = {
-  id: number
-  product: string
-  weightPerUnit: number
-  type: string
-  brand: string
-  // NOTE (real-data gap): recommending a reorder quantity needs both live
-  // on-hand stock and a sales-velocity figure. Neither exists yet for this
-  // report — there is no per-product on-hand ledger anywhere in the schema
-  // (see stock-level-view.tsx), and aggregating "units sold" from orders
-  // here would duplicate the sales-report work another agent owns
-  // (abc-analysis / sales-by-products views) using the same order data. So
-  // these five fields are honestly 0 for every row rather than fabricated —
-  // only the real product identity fields below are wired.
-  sold: number
-  available: number
-  stockDaysValue: number
-  recommended6: number
-  recommended30: number
-  warehouse: string
-  organization: string
-}
-
-function parseWeight(value: string): number {
-  const parsed = Number.parseFloat(value.replace(",", "."))
-  return Number.isFinite(parsed) ? parsed : 0
-}
-
-function productToRow(product: Product): ProductRow {
-  return {
-    id: product.id,
-    product: product.name,
-    weightPerUnit: parseWeight(product.netWeight) || parseWeight(product.weight),
-    type: product.type || "Не указано",
-    brand: product.brand || "No brand",
-    sold: 0,
-    available: 0,
-    stockDaysValue: 0,
-    recommended6: 0,
-    recommended30: 0,
-    // No real per-product warehouse link exists; the warehouse filter below
-    // stays in the UI but has nothing real to filter on yet.
-    warehouse: "Не указано",
-    organization: product.organization || "Не указано",
-  }
-}
-
-type SortKey = "weightPerUnit" | "sold" | "salesShare" | "available" | "avgDailySales" | "stockDays" | "recommended6" | "recommended30"
-type SortDir = "asc" | "desc"
-
-const number = (value: number, fraction = 0, maxFraction = 3) => new Intl.NumberFormat("ru-RU", { minimumFractionDigits: fraction, maximumFractionDigits: maxFraction }).format(value)
-
-// `sold` is currently always 0 for every row (see the real-data-gap note
-// above), so the sales-share percentage is always 0 too.
-const salesShare = (_row: ProductRow) => 0
-const stockDays = (row: ProductRow) => row.stockDaysValue
-const avgDailySales = (row: ProductRow) => (row.stockDaysValue ? row.available / row.stockDaysValue : 0)
-
-function sharePillClass(value: number) {
-  if (value >= 10) return "bg-[#3aa76d]"
-  if (value >= 1) return "bg-[#e0952e]"
-  return "bg-[#e5484d]"
-}
-
-function stockDaysPillClass(value: number) {
-  if (value >= 14) return "bg-[#3aa76d]"
-  if (value >= 7) return "bg-[#e0952e]"
-  return "bg-[#e5484d]"
-}
-
+// "Рекомендованный запас" (demo #/recommended-stock, chunk c138): "Показать
+// фильтр" (Склад, Организация, Тип продукта, Подкатегория, По брендам, period),
+// the period, "Показать по типу ед.", search, "Скачать все" and the table of
+// items sold in the period, by sold descending. Sales = shipped orders of a
+// warehouse (stock ledger `order` movements); available = on hand − reserved −
+// defects now. Data: /api/stock/recommended (+ /export).
 
 export function ReorderLevelView() {
-  const [rows, setRows] = useState<ProductRow[]>([])
-  const [loading, setLoading] = useState(true)
-  const [search, setSearch] = useState("")
-  const [filterOpen, setFilterOpen] = useState(false)
-  const [unit, setUnit] = useState<UnitType>("Количество")
-  const [warehouse, setWarehouse] = useState("")
-  const [organization, setOrganization] = useState("")
-  const [productType, setProductType] = useState("")
-  const [brand, setBrand] = useState("")
-  const [sortKey, setSortKey] = useState<SortKey | null>(null)
-  const [sortDir, setSortDir] = useState<SortDir>("asc")
-  const [{ dateFrom, dateTo }] = useState(() => {
-    const months = ["Янв.", "Февр.", "Март", "Апр.", "Май", "Июнь", "Июль", "Авг.", "Сент.", "Окт.", "Нояб.", "Дек."]
-    const now = new Date()
-    const start = new Date(now.getFullYear(), now.getMonth() - 2, 1)
-    const end = new Date(now.getFullYear(), now.getMonth() + 1, 0)
-    return {
-      dateFrom: `01 ${months[start.getMonth()]} ${start.getFullYear()}`,
-      dateTo: `${end.getDate()} ${months[end.getMonth()]} ${end.getFullYear()}`,
-    }
-  })
-
-  useEffect(() => {
-    let cancelled = false
-    setLoading(true)
-    fetch("/api/products")
-      .then(async (response) => (response.ok ? ((await response.json()) as Product[]) : []))
-      .then((products) => {
-        if (!cancelled) setRows(products.filter((product) => !product.deleted).map(productToRow))
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false)
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [])
-
-  const warehouses = [...new Set(rows.map((row) => row.warehouse))]
-  const organizations = [...new Set(rows.map((row) => row.organization))]
-  const productTypes = [...new Set(rows.map((row) => row.type))]
-  const brands = [...new Set(rows.map((row) => row.brand))]
-
-  const unitMultiplier = (row: ProductRow) => {
-    if (unit === "Вес" && row.weightPerUnit) return row.weightPerUnit
-    if (unit === "Блок") return 1 / 12
-    return 1
-  }
-
-  const filtered = useMemo(() => {
-    return rows.filter((row) => {
-      if (search.trim() && !row.product.toLocaleLowerCase("ru").includes(search.trim().toLocaleLowerCase("ru"))) return false
-      if (warehouse !== "" && row.warehouse !== warehouse) return false
-      if (organization !== "" && row.organization !== organization) return false
-      if (productType !== "" && row.type !== productType) return false
-      if (brand !== "" && row.brand !== brand) return false
-      return true
-    })
-  }, [brand, organization, productType, search, warehouse])
-
-  const sorted = useMemo(() => {
-    if (!sortKey) return filtered
-    const key = sortKey
-    const copy = [...filtered]
-    copy.sort((a, b) => {
-      const valueOf = (row: ProductRow) => {
-        if (key === "salesShare") return salesShare(row)
-        if (key === "stockDays") return stockDays(row)
-        if (key === "avgDailySales") return avgDailySales(row)
-        return row[key]
-      }
-      const result = valueOf(a) - valueOf(b)
-      return sortDir === "asc" ? result : -result
-    })
-    return copy
-  }, [filtered, sortDir, sortKey])
-
-  const toggleSort = (key: SortKey) => {
-    if (sortKey === key) {
-      setSortDir((direction) => (direction === "asc" ? "desc" : "asc"))
-    } else {
-      setSortKey(key)
-      setSortDir("asc")
-    }
-  }
-
-  const downloadAll = () => {
-    const header = ["Товар", "Вес одной ед.", "Тип", "Бренд", "Продано", "Доля от продаж (%)", "Доступно", "Сред. дневные продажи", "Запас дней", "Рек. запас на 6 дней", "Рек. запас на 30 дней"]
-    const body = sorted.map((row) => {
-      const mult = unitMultiplier(row)
-      return [
-        row.product,
-        row.weightPerUnit,
-        row.type,
-        row.brand,
-        number(row.sold * mult, mult !== 1 ? 3 : 0),
-        number(salesShare(row), 2, 2),
-        number(row.available * mult, mult !== 1 ? 3 : 0),
-        number(avgDailySales(row) * mult, 0, 3),
-        number(stockDays(row)),
-        row.recommended6,
-        row.recommended30,
-      ]
-    })
-    downloadExcelTable("recommended-stock.xls", [header, ...body])
-  }
-
-  const sortHead = (label: string, key: SortKey) => (
-    <button type="button" onClick={() => toggleSort(key)} className={`w-full border-b-[3px] pb-[2px] font-semibold leading-4 ${sortKey === key ? "border-[#555]" : "border-transparent"}`}>{label}</button>
+  return (
+    <Suspense fallback={null}>
+      <ReorderLevelContent />
+    </Suspense>
   )
-  const pill = (className: string, text: string) => <div className={`-mx-[6px] -my-[6px] px-[6px] py-[6px] font-semibold text-white ${className}`}>{text}</div>
+}
+
+function ReorderLevelContent() {
+  const { t } = useLanguage()
+  const { searchParams, update } = useUrlState()
+  const state = reorderStateFromParams(searchParams)
+  const list = useCashJson<RecommendedListResult>(`/api/stock/recommended?${reorderApiQuery(state, { page: state.page, pageSize: state.pageSize })}`)
+  const data = list.data
+  const rows = data?.results ?? []
+
+  const [filterOpen, setFilterOpen] = useState(false)
+  const [lookupsWanted, setLookupsWanted] = useState(false)
+  const { options, error: optionsError } = useStockOptions(lookupsWanted)
+  const [searchDraft, setSearchDraft] = useState(state.search)
+  const [lastSearch, setLastSearch] = useState(state.search)
+  if (state.search !== lastSearch) {
+    setLastSearch(state.search)
+    setSearchDraft(state.search)
+  }
+  const [downloading, setDownloading] = useState(false)
+  const [downloadError, setDownloadError] = useState("")
+
+  // Demo counter: the filter keys except the period.
+  const filterCount = countActiveFilters({ stock: state.warehouses, division: state.divisions, typeParent: state.typeParents, typeChild: state.typeChildren, brand: state.brands })
+
+  const openFilter = () => {
+    setLookupsWanted(true)
+    setFilterOpen(true)
+  }
+  const applyFilter = (period: { from: string; to: string }, draft: ReorderDraft) =>
+    update({ beginDate: period.from, endDate: period.to, stock: draft.warehouses, division: draft.divisions, typeParent: draft.typeParents, typeChild: draft.typeChildren, brand: draft.brands, page: null })
+  const clearFilter = () => update({ stock: null, division: null, typeParent: null, typeChild: null, brand: null, page: null })
+  const submitSearch = (event: FormEvent) => {
+    event.preventDefault()
+    update({ search: searchDraft.trim(), page: null })
+  }
+  const downloadAll = async () => {
+    setDownloading(true)
+    setDownloadError("")
+    try {
+      const response = await fetch(`/api/stock/recommended/export?${reorderApiQuery(state)}`, { cache: "no-store" })
+      if (!response.ok) {
+        const body = (await response.json().catch(() => null)) as { error?: string } | null
+        throw new Error(body?.error || `HTTP ${response.status}`)
+      }
+      const blob = await response.blob()
+      const encoded = /filename\*=UTF-8''([^;]+)/.exec(response.headers.get("Content-Disposition") ?? "")?.[1]
+      const link = document.createElement("a")
+      link.href = URL.createObjectURL(blob)
+      link.download = encoded ? decodeURIComponent(encoded) : "recommended-stock.xlsx"
+      link.click()
+      window.setTimeout(() => URL.revokeObjectURL(link.href), 1000)
+    } catch (reason) {
+      setDownloadError(reason instanceof Error ? reason.message : String(reason))
+    } finally {
+      setDownloading(false)
+    }
+  }
+
+  const sales = data?.sales
+  const noWarehouseSales = Boolean(sales && sales.orderMovements === 0)
 
   return (
-    <ReportPage>
-      <div className="pl-[30px] pr-[38px]"><RefHeader title="Рекомендованный запас" /></div>
-
-      <section className="border-b border-[#d9d9d9] bg-white pb-[1px]">
-        <div className="relative flex h-[50px] items-center px-[30px]">
-          <button onClick={() => setFilterOpen(true)} className="text-[13px] text-[#4f71dc]">Показать фильтр ⌄</button>
-          <div className="ml-[160px]"><ReportSearchField value={search} onChange={setSearch} width={182} /></div>
-          <span className="ml-auto mr-[12px] text-[13px] font-bold text-[#4f71dc]">{dateFrom} - {dateTo}</span>
-          <div className="w-[200px]"><ReportSelectField label="Показать по типу ед." value={unit === "Количество" ? "" : unit} onChange={(value) => setUnit((value || "Количество") as UnitType)} options={["Количество", "Объем", "Вес", "Блок"]} clearable={false} /></div>
-          <button onClick={downloadAll} className="ml-[94px] flex h-[30px] items-center rounded-[3px] bg-[#4f71dc] px-4 text-[13px] font-semibold text-white hover:brightness-95"><svg viewBox="0 0 24 24" className="mr-2 h-[18px] w-[18px] fill-white" aria-hidden><path d={RI.download} /></svg>Скачать все</button>
+    <main className="min-h-screen bg-white text-[#17233b]">
+      <header className="flex min-h-[76px] items-center border-b border-[#d8dee7] bg-[#f2f5f8] px-4 sm:px-6 md:px-9">
+        <div className="flex min-w-0 flex-wrap items-center gap-3">
+          <FavoritesButton className="flex items-center gap-3 text-2xl font-bold text-[#4f70e7]" />
+          <span className="text-3xl font-light text-[#586174]">|</span>
+          <span className="text-xl font-bold text-[#586174] sm:text-2xl">{t("Рекомендованный запас")}</span>
         </div>
+      </header>
 
-        <ReportGridTable
-          minWidth={1750}
-          loading={loading}
-          colWidths={["300px", "", "", "", "", "", "", "", "", "", ""]}
-          heads={["Товар", sortHead("Вес одной ед.", "weightPerUnit"), "Тип", "Бренд", sortHead("Продано", "sold"), sortHead("Доля от продаж (%)", "salesShare"), sortHead("Доступно", "available"), sortHead("Сред. дневные продажи", "avgDailySales"), sortHead("Запас дней", "stockDays"), sortHead("Рек. запас на 6 дней", "recommended6"), sortHead("Рек. запас на 30 дней", "recommended30")]}
-          rows={sorted.map((row) => {
-            const mult = unitMultiplier(row)
-            const share = salesShare(row)
-            const days = stockDays(row)
-            return [
-              row.product,
-              number(row.weightPerUnit),
-              row.type,
-              row.brand === "No brand" ? "" : row.brand,
-              number(row.sold * mult, mult !== 1 ? 3 : 0),
-              pill(sharePillClass(share), `${number(share, 2, 2)} %`),
-              number(row.available * mult, mult !== 1 ? 3 : 0),
-              number(avgDailySales(row) * mult, 0, 3),
-              pill(stockDaysPillClass(days), number(days)),
-              row.recommended6,
-              row.recommended30,
-            ]
-          })}
+      <section className="flex flex-wrap items-center gap-4 px-4 py-4 sm:px-6 md:px-9">
+        <BalanceFilterChip count={filterCount} onOpen={openFilter} onClear={clearFilter} />
+        <button type="button" onClick={openFilter} className="font-bold text-[#4f71dc]" title={t("Диапазон дат")}>
+          {formatDotDate(state.from)} - {formatDotDate(state.to)}
+        </button>
+        <label className="flex items-center gap-2 text-[#586174]">
+          <span className="text-[13px]">{t("Показать по типу ед.")}</span>
+          <select
+            value={state.unit}
+            onChange={(event) => update({ selectType: event.target.value === "measurement" ? null : event.target.value, page: null })}
+            className="h-9 rounded-md border border-[#dbe0e8] bg-white px-2 text-[#17233b]"
+          >
+            {REORDER_UNITS.map((unit) => (
+              <option key={unit.id} value={unit.id}>
+                {t(unit.label)}
+              </option>
+            ))}
+          </select>
+        </label>
+        <button
+          type="button"
+          onClick={() => void downloadAll()}
+          disabled={downloading}
+          className="ml-auto flex h-10 items-center gap-2 rounded-md bg-[#4f71dc] px-5 font-semibold text-white disabled:opacity-50"
+        >
+          {downloading ? <Loader2 className="h-5 w-5 animate-spin" /> : <BarChart className="h-5 w-5" />} {t("Скачать все")}
+        </button>
+      </section>
+      {downloadError && (
+        <p className="px-4 pb-2 text-sm text-[#e57373] sm:px-6 md:px-9">
+          {t("Не удалось выполнить запрос")}: {t(downloadError)}
+        </p>
+      )}
+      {state.unit === "box" && <UnitNote unit={state.unit} />}
+
+      <section className="flex flex-wrap items-center justify-between gap-4 border-t border-[#e1e5eb] px-4 py-3 sm:px-6 md:px-9">
+        <form onSubmit={submitSearch} className="relative w-full max-w-[350px] border-b border-[#dbe0e8] pb-1.5 focus-within:border-[#4f70e7]">
+          <input
+            value={searchDraft}
+            onChange={(event) => setSearchDraft(event.target.value)}
+            placeholder={t("Поиск")}
+            aria-label={t("Поиск")}
+            className="w-full bg-transparent pr-8 text-[15px] outline-none placeholder:text-[#9aa3b6]"
+          />
+          <button type="submit" aria-label={t("Поиск")} className="absolute right-0 top-0 text-[#9aa3b6] hover:text-[#4f70e7]">
+            <Search className="h-5 w-5" />
+          </button>
+        </form>
+        <BalancePagination
+          page={data?.page ?? state.page}
+          pageSize={state.pageSize}
+          count={data?.count ?? 0}
+          sizes={REORDER_PAGE_SIZES}
+          onChange={(next) => update({ page: next.page > 1 ? next.page : null, pageSize: next.pageSize === 25 ? null : next.pageSize })}
         />
       </section>
 
-      {filterOpen && (
-        <ReportFilterPanel onClose={() => setFilterOpen(false)} onApply={() => setFilterOpen(false)}>
-          <ReportSelectField label="Склад" value={warehouse} onChange={setWarehouse} options={warehouses} />
-          <ReportSelectField label="Организация" value={organization} onChange={setOrganization} options={organizations} />
-          <ReportSelectField label="Тип продукта" value={productType} onChange={setProductType} options={productTypes} />
-          <ReportSelectField label="По брендам" value={brand} onChange={setBrand} options={brands} />
-        </ReportFilterPanel>
+      {!data && list.loading && (
+        <div className="flex items-center justify-center gap-2 border-t border-[#e1e5eb] py-24 text-[#586174]">
+          <Loader2 className="h-5 w-5 animate-spin" /> {t("Загрузка...")}
+        </div>
       )}
-    </ReportPage>
+      {list.error && !list.loading && (
+        <div className="flex flex-col items-center gap-3 border-t border-[#e1e5eb] px-4 py-10 text-center text-[#586174]">
+          <CircleAlert className="h-10 w-10 text-[#e57373]" />
+          <p>
+            {t("Не удалось выполнить запрос")}: {t(list.error)}
+          </p>
+          <button type="button" onClick={list.reload} className="rounded-md border border-[#4f70e7] px-4 py-2 font-semibold text-[#4f70e7]">
+            {t("Повторить")}
+          </button>
+        </div>
+      )}
+      {data && !list.error && !rows.length && (
+        <div className="flex flex-col items-center justify-center border-t border-[#e1e5eb] px-4 py-20 text-center">
+          {list.loading ? (
+            <Loader2 className="h-8 w-8 animate-spin text-[#586174]" />
+          ) : (
+            <>
+              <Image src="/robot-mascot.png" alt="" width={120} height={120} className="h-28 w-28 object-contain" />
+              <p className="mt-4 text-[#9aa3b6]">{t("По вашему запросу ничего не найдено")}</p>
+              {noWarehouseSales && (
+                <p className="mt-4 flex max-w-[640px] items-start gap-2 rounded-md bg-[#f2f5f8] px-4 py-3 text-left text-[14px] text-[#586174]">
+                  <Info className="mt-0.5 h-4 w-4 shrink-0 text-[#4f70e7]" />
+                  <span>
+                    {t("Рекомендации строятся по продажам за период: отгруженные заказы («В пути», «Доставлено») со склада.")}{" "}
+                    {sales && (!sales.warehouseColumn || sales.ordersWithWarehouse === 0)
+                      ? t("Пока ни один заказ не привязан к складу, поэтому продаж нет.")
+                      : t("За выбранный период отгруженных заказов со склада нет.")}
+                  </span>
+                </p>
+              )}
+            </>
+          )}
+        </div>
+      )}
+      {data && !list.error && rows.length > 0 && (
+        <section className="border-t border-[#e1e5eb] pb-10">
+          <ReorderLevelTable rows={rows} ordering={state.ordering} onOrderingChange={(next) => update({ ordering: next || null, page: null })} loading={list.loading} />
+        </section>
+      )}
+
+      <ReorderFilterDialog open={filterOpen} onClose={() => setFilterOpen(false)} state={state} options={options} optionsError={optionsError} onApply={applyFilter} />
+    </main>
   )
+}
+
+/** "Блок": the catalog has no units-per-block yet, so the numbers stay in pieces. */
+function UnitNote({ unit }: { unit: RecommendedUnit }) {
+  const { t } = useLanguage()
+  if (unit !== "box") return null
+  return <p className="px-4 pb-2 text-[13px] text-[#b7791f] sm:px-6 md:px-9">{t("Количество в блоке не задано в справочнике — показано в штуках")}</p>
 }

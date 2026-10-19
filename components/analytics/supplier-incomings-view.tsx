@@ -2,6 +2,7 @@
 
 import {
   Ban,
+  CheckCircle2,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
@@ -13,25 +14,33 @@ import {
   Percent,
   Plus,
   Printer,
+  Receipt,
+  RotateCcw,
   Search,
+  Trash2,
   Upload,
   X,
 } from "lucide-react"
 import { ChangeEvent, Fragment, FormEvent, useEffect, useMemo, useRef, useState } from "react"
+import { useSearchParams } from "next/navigation"
 import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
 
 import { downloadExcelTable } from "@/lib/excel-export"
 import { mapHeaderColumns, readExcelRows } from "@/lib/excel-import"
 import { useLanguage } from "@/lib/i18n/language-context"
+import type { InvoiceSupplyDraft } from "@/lib/invoice-incomings-types"
 import { OrganizationFormModal } from "./organization-form-modal"
 import { SupplierFormModal } from "./supplier-form-modal"
 import {
-  incomingBranches as branches,
   incomingPaymentTypes as paymentTypes,
+  supplyCostLines,
   type Incoming,
-  type IncomingPaymentType as PaymentType,
+  type IncomingExpense,
+  type IncomingLog,
   type IncomingStatus as Status,
 } from "./supplier-incomings-data"
+import { IncomingExpenseDialog, IncomingRepriceDialog, LOG_LABELS } from "./supplier-incoming-dialogs"
+import { SupplyPaymentsDialog } from "./supplier-payments-supply-dialog"
 import { WarehouseFormModal } from "./warehouse-form-modal"
 
 const ITEM_IMPORT_HEADER_ALIASES: Record<string, string> = {
@@ -40,8 +49,15 @@ const ITEM_IMPORT_HEADER_ALIASES: Record<string, string> = {
   "цена": "cost", "стоимость": "cost", "сумма": "cost", "сумма за единицу": "cost", "цена за единицу": "cost", "cost": "cost", "price": "cost", "unit price": "cost",
 }
 
-function formatMoney(value: number) {
-  return `${value.toLocaleString("ru-RU")} SUM`
+function formatMoney(value: number, currency = "SUM") {
+  return `${(Math.round(value * 1000) / 1000).toLocaleString("ru-RU")} ${currency}`
+}
+
+function formatTimestamp(value: string) {
+  if (!value) return ""
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return `${formatDate(date)}, ${date.toTimeString().slice(0, 5)}`
 }
 
 const statusStyles: Record<Status, string> = {
@@ -55,7 +71,8 @@ const statusDots: Record<Status, string> = {
   отменен: "bg-rose-500",
 }
 
-type DraftItem = { id: number; product: string; qty: number; cost: number }
+/** `source` = the e-invoice line the item was prefilled from ("Создать приход"). */
+type DraftItem = { id: number; product: string; qty: number; cost: number; source?: { name: string; ikpu: string; unit: string } }
 type Tab = "items" | "cost" | "expenses" | "logs"
 
 const monthNames = ["января", "февраля", "марта", "апреля", "мая", "июня", "июля", "августа", "сентября", "октября", "ноября", "декабря"]
@@ -63,10 +80,10 @@ function formatDate(date: Date) {
   return `${String(date.getDate()).padStart(2, "0")} ${monthNames[date.getMonth()]} ${date.getFullYear()}`
 }
 
-function emptyDraft(supplierOptions: string[] = [], warehouseOptions: string[] = [], organizationOptions: string[] = []) {
+function emptyDraft(supplierOptions: string[] = [], warehouseOptions: string[] = [], organizationOptions: string[] = [], branchOptions: string[] = []) {
   return {
     supplier: supplierOptions[0] ?? "",
-    branch: branches[0],
+    branch: branchOptions[0] ?? "",
     warehouse: warehouseOptions[0] ?? "",
     organization: organizationOptions[0] ?? "",
     currency: "SUM",
@@ -95,7 +112,12 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
   const [expandedId, setExpandedId] = useState<number | null>(null)
   const [detailTab, setDetailTab] = useState<Tab>("items")
   const [markupTarget, setMarkupTarget] = useState<Incoming | null>(null)
-  const [markupPercent, setMarkupPercent] = useState("")
+  const [expenseTarget, setExpenseTarget] = useState<Incoming | null>(null)
+  const [paymentsTarget, setPaymentsTarget] = useState<number | null>(null)
+  const [detailExpenses, setDetailExpenses] = useState<IncomingExpense[]>([])
+  const [detailLogs, setDetailLogs] = useState<IncomingLog[]>([])
+  const [detailVersion, setDetailVersion] = useState(0)
+  const [busy, setBusy] = useState(false)
   const [modalOpen, setModalOpen] = useState(false)
   const [editingId, setEditingId] = useState<number | null>(null)
   const [draft, setDraft] = useState(emptyDraft)
@@ -104,11 +126,18 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
   const [supplierOptions, setSupplierOptions] = useState<string[]>([])
   const [warehouseOptions, setWarehouseOptions] = useState<string[]>([])
   const [organizationOptions, setOrganizationOptions] = useState<string[]>([])
+  const [branchOptions, setBranchOptions] = useState<string[]>([])
   const [productOptions, setProductOptions] = useState<string[]>([])
+  const [productUnits, setProductUnits] = useState<Record<string, string>>({})
   const [pickerQuery, setPickerQuery] = useState("")
   const [quickAddSupplierOpen, setQuickAddSupplierOpen] = useState(false)
   const [quickAddWarehouseOpen, setQuickAddWarehouseOpen] = useState(false)
   const [quickAddOrganizationOpen, setQuickAddOrganizationOpen] = useState(false)
+  // Create dialog opened from "Входящие счет фактуры" (?openCreateDialog=true&invoiceId=N).
+  const searchParams = useSearchParams()
+  const [optionsLoaded, setOptionsLoaded] = useState(false)
+  const [fromInvoice, setFromInvoice] = useState<InvoiceSupplyDraft | null>(null)
+  const invoiceHandled = useRef<string | null>(null)
   const importInputRef = useRef<HTMLInputElement>(null)
   const pageSize = 25
 
@@ -139,11 +168,13 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
   useEffect(() => {
     let cancelled = false
     async function loadOptions() {
-      const [suppliersRes, warehousesRes, organizationsRes, productsRes] = await Promise.all([
+      const [suppliersRes, warehousesRes, organizationsRes, productsRes, rawMaterialsRes, branchesRes] = await Promise.all([
         fetch("/api/suppliers").catch(() => null),
         fetch("/api/warehouses").catch(() => null),
         fetch("/api/organizations").catch(() => null),
         fetch("/api/products").catch(() => null),
+        fetch("/api/raw-materials").catch(() => null),
+        fetch("/api/branches").catch(() => null),
       ])
       if (cancelled) return
       if (suppliersRes?.ok) {
@@ -158,16 +189,60 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
         const data = (await organizationsRes.json()) as { name: string }[]
         setOrganizationOptions(data.map((item) => item.name))
       }
-      if (productsRes?.ok) {
-        const data = (await productsRes.json()) as { name: string }[]
-        setProductOptions(Array.from(new Set(data.map((item) => item.name))).sort((a, b) => a.localeCompare(b, "ru")))
+      if (branchesRes?.ok) {
+        const data = (await branchesRes.json()) as { name: string }[]
+        setBranchOptions(data.map((item) => item.name))
       }
+      // Raw materials are received from suppliers too (production stock).
+      const catalog: { name: string; unit: string }[] = []
+      // Soft-deleted products ("Удалённые") are not offered.
+      if (productsRes?.ok) catalog.push(...((await productsRes.json()) as { name: string; unit: string; deleted?: boolean }[]).filter((item) => !item.deleted))
+      if (rawMaterialsRes?.ok) catalog.push(...((await rawMaterialsRes.json()) as { name: string; unit: string }[]))
+      setProductOptions(Array.from(new Set(catalog.map((item) => item.name))).sort((a, b) => a.localeCompare(b, "ru")))
+      setProductUnits(Object.fromEntries(catalog.map((item) => [item.name, item.unit])))
+      setOptionsLoaded(true)
     }
     void loadOptions()
     return () => {
       cancelled = true
     }
   }, [])
+
+  // "Создать приход" of an accepted incoming e-invoice: the create dialog prefilled with
+  // its supplier, organization, currency, contract / invoice number and date and the lines
+  // (matched to our products / raw materials; unmatched lines stay empty to pick a product).
+  const invoiceParam = searchParams.get("openCreateDialog") === "true" ? searchParams.get("invoiceId") : null
+  useEffect(() => {
+    if (!invoiceParam || !optionsLoaded || invoiceHandled.current === invoiceParam) return
+    invoiceHandled.current = invoiceParam
+    const url = new URL(window.location.href)
+    url.searchParams.delete("openCreateDialog")
+    url.searchParams.delete("invoiceId")
+    window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}`)
+    fetch(`/api/invoice-incomings/${encodeURIComponent(invoiceParam)}/supply-draft`, { cache: "no-store" })
+      .then(async (response) => {
+        const data = await response.json().catch(() => ({}))
+        if (!response.ok) throw new Error(data.error || "Не удалось загрузить счет-фактуру")
+        return data as InvoiceSupplyDraft
+      })
+      .then((invoice) => {
+        const base = emptyDraft(supplierOptions, warehouseOptions, organizationOptions, branchOptions)
+        setDraft({
+          ...base,
+          supplier: invoice.supplier,
+          organization: invoice.organizationMatched ? invoice.organization : base.organization,
+          currency: invoice.currency,
+          contractNumber: invoice.contractNumber,
+          invoiceNumber: invoice.number,
+          invoiceDate: invoice.date ? formatDate(new Date(`${invoice.date}T00:00:00`)) : "",
+        })
+        setDraftItems(invoice.lines.map((line, index) => ({ id: index + 1, product: line.product, qty: line.quantity, cost: line.cost, source: { name: line.name, ikpu: line.ikpu, unit: line.unit } })))
+        setEditingId(null)
+        setFromInvoice(invoice)
+        setModalOpen(true)
+      })
+      .catch((reason: unknown) => window.alert(t(reason instanceof Error ? reason.message : String(reason))))
+  }, [invoiceParam, optionsLoaded, supplierOptions, warehouseOptions, organizationOptions, branchOptions, t])
 
   const filtered = useMemo(() => {
     return rows.filter((row) => {
@@ -182,15 +257,69 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
   const safePage = Math.min(page, pageCount)
   const visible = filtered.slice((safePage - 1) * pageSize, safePage * pageSize)
 
+  useEffect(() => {
+    if (expandedId === null) return
+    let cancelled = false
+    Promise.all([
+      fetch(`/api/supplier-incomings/${expandedId}/expenses`).then((response) => (response.ok ? response.json() : [])),
+      fetch(`/api/supplier-incomings/${expandedId}/logs`).then((response) => (response.ok ? response.json() : [])),
+    ])
+      .then(([expenses, logs]) => {
+        if (cancelled) return
+        setDetailExpenses(expenses as IncomingExpense[])
+        setDetailLogs(logs as IncomingLog[])
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [expandedId, detailVersion])
+
+  function replaceRow(saved: Incoming) {
+    setRows((current) => current.map((row) => (row.id === saved.id ? saved : row)))
+    setDetailVersion((value) => value + 1)
+  }
+
+  /** PATCH status actions and the expense delete share this error handling. */
+  async function mutate(url: string, init: RequestInit, failure: string) {
+    setBusy(true)
+    try {
+      const response = await fetch(url, { ...init, headers: { "Content-Type": "application/json" } })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) {
+        window.alert(data.error ? t(data.error) : t(failure))
+        return
+      }
+      replaceRow(data as Incoming)
+    } catch {
+      window.alert(t("Сервер недоступен, попробуйте ещё раз"))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  function changeStatus(row: Incoming, action: "accept" | "unaccept" | "cancel") {
+    const question =
+      action === "accept" ? `${t("Принять на склад поставку №")} ${row.id}?` : action === "unaccept" ? `${t("Отменить приёмку поставки №")} ${row.id}?` : `${t("Отменить поставку №")} ${row.id}?`
+    if (!window.confirm(question)) return
+    void mutate(`/api/supplier-incomings/${row.id}`, { method: "PATCH", body: JSON.stringify({ action }) }, "Не удалось изменить статус поставки")
+  }
+
+  function removeExpense(row: Incoming, expense: IncomingExpense) {
+    if (!window.confirm(`${t("Удалить расход")} «${expense.description}»?`)) return
+    void mutate(`/api/supplier-incomings/${row.id}/expenses/${expense.id}`, { method: "DELETE" }, "Не удалось удалить расход")
+  }
+
   function toggleExpand(row: Incoming) {
     setExpandedId((current) => (current === row.id ? null : row.id))
     setDetailTab("items")
   }
 
   function openCreate() {
-    setDraft(emptyDraft(supplierOptions, warehouseOptions, organizationOptions))
+    setDraft(emptyDraft(supplierOptions, warehouseOptions, organizationOptions, branchOptions))
     setDraftItems([])
     setEditingId(null)
+    setFromInvoice(null)
     setModalOpen(true)
   }
 
@@ -200,18 +329,19 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
       branch: row.branch,
       warehouse: row.warehouse,
       organization: row.organization,
-      currency: "SUM",
+      currency: row.currency || "SUM",
       paymentType: row.paymentType,
       date: row.date,
       expectedFactoryExit: "",
       expectedCustomsArrival: "",
       contractNumber: row.contractNumber,
       invoiceNumber: row.invoiceNumber,
-      invoiceDate: "",
+      invoiceDate: row.invoiceDate,
       comment: row.comment,
     })
     setDraftItems(row.items.map((item) => ({ id: item.id, product: item.product, qty: item.qty, cost: item.cost })))
     setEditingId(row.id)
+    setFromInvoice(null)
     setModalOpen(true)
   }
 
@@ -274,6 +404,16 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
   async function save(event: FormEvent) {
     event.preventDefault()
     if (!draftItems.length) return
+    if (fromInvoice && editingId === null) {
+      if (!supplierOptions.includes(draft.supplier)) {
+        window.alert(t("Выберите поставщика из справочника"))
+        return
+      }
+      if (draftItems.some((item) => !item.product.trim())) {
+        window.alert(t("Выберите товар для каждой строки счет-фактуры или удалите строку"))
+        return
+      }
+    }
     const items = draftItems.map((item) => ({
       id: item.id,
       product: item.product,
@@ -297,21 +437,26 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
           branch: draft.branch,
           organization: draft.organization,
           paymentType: draft.paymentType,
+          currency: draft.currency,
           date: draft.date,
           contractNumber: draft.contractNumber,
           invoiceNumber: draft.invoiceNumber,
+          invoiceDate: draft.invoiceDate,
           comment: draft.comment,
           items,
+          ...(fromInvoice && !isEdit ? { invoiceId: fromInvoice.invoiceId } : {}),
         }),
       })
       if (!response.ok) {
         const data = await response.json().catch(() => ({}))
-        window.alert(data.error || t("Не удалось сохранить приёмку"))
+        window.alert(data.error ? t(data.error) : t("Не удалось сохранить приёмку"))
         return
       }
       const saved = (await response.json()) as Incoming
       setRows((current) => (isEdit ? current.map((row) => (row.id === editingId ? saved : row)) : [saved, ...current]))
+      setDetailVersion((value) => value + 1)
       setModalOpen(false)
+      setFromInvoice(null)
     } catch {
       window.alert(t("Сервер недоступен, попробуйте ещё раз"))
     } finally {
@@ -319,67 +464,18 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
     }
   }
 
-  async function cancelSupply(row: Incoming) {
-    if (!window.confirm(`${t("Отменить приёмку поставки №")} ${row.id}?`)) return
-    try {
-      const response = await fetch(`/api/supplier-incomings/${row.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "cancel" }),
-      })
-      if (!response.ok) {
-        const data = await response.json().catch(() => ({}))
-        window.alert(data.error || t("Не удалось отменить приёмку"))
-        return
-      }
-      const saved = (await response.json()) as Incoming
-      setRows((current) => current.map((item) => (item.id === row.id ? saved : item)))
-    } catch {
-      window.alert(t("Сервер недоступен, попробуйте ещё раз"))
-    }
-  }
-
   function downloadRow(row: Incoming) {
     downloadExcelTable(`postavka-${row.id}`, [
       [t("№"), t("Товар"), t("Количество"), t("Стоимость"), t("Итог")],
-      ...row.items.map((item) => [item.id, item.product, `${item.qty} ${t("шт")}`, item.cost, item.total]),
+      ...row.items.map((item) => [item.id, item.product, `${item.qty} ${productUnits[item.product] ?? ""}`.trim(), item.cost, item.total]),
     ])
   }
 
   function downloadList() {
     downloadExcelTable("prihod-ot-postavshikov", [
       [t("№"), t("Поставщик"), t("Склад"), t("Дата поставки"), t("Тип оплаты"), t("Номер договора"), t("Сумма поставки"), t("Статус"), t("Счет фактура")],
-      ...filtered.map((row) => [row.id, row.supplier, row.warehouse, row.date, row.paymentType, row.contractNumber, row.amount, row.status, row.invoiceNumber]),
+      ...filtered.map((row) => [row.id, row.supplier, row.warehouse, row.date, t(row.paymentType), row.contractNumber, row.amount, t(row.status), row.invoiceNumber]),
     ])
-  }
-
-  async function applyMarkup(event: FormEvent) {
-    event.preventDefault()
-    if (!markupTarget) return
-    const percent = Number(markupPercent)
-    if (!percent) {
-      setMarkupTarget(null)
-      setMarkupPercent("")
-      return
-    }
-    try {
-      const response = await fetch(`/api/supplier-incomings/${markupTarget.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "markup", percent }),
-      })
-      if (!response.ok) {
-        const data = await response.json().catch(() => ({}))
-        window.alert(data.error || t("Не удалось применить наценку"))
-        return
-      }
-      const saved = (await response.json()) as Incoming
-      setRows((current) => current.map((row) => (row.id === saved.id ? saved : row)))
-    } catch {
-      window.alert(t("Сервер недоступен, попробуйте ещё раз"))
-    }
-    setMarkupTarget(null)
-    setMarkupPercent("")
   }
 
   const tabs: { id: Tab; label: string }[] = [
@@ -390,20 +486,25 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
   ]
 
   return (
-    <main className={embedded ? "min-w-0 flex-1" : "min-h-[calc(100vh-4rem)] bg-[#f2f5f8] px-7 pb-7"}>
+    <main className={embedded ? "min-w-0 flex-1" : "min-h-[calc(100vh-4rem)] bg-[#f1f4f8] px-9 py-5"}>
       {!embedded && (
-        <header className="flex h-[60px] flex-wrap items-center justify-between gap-3">
-          <h1 className="flex items-center text-[18px] font-bold text-[#5d6474]">
-            <FavoritesButton className="flex items-center gap-[5px] text-[18px] font-bold text-[#4f71dc]" />
-            <span className="mx-[11px] inline-block h-[21px] w-[2px] bg-[#5d6474]" /> {t("Приход от поставщиков")}
+        <header className="mb-5 flex items-center justify-between">
+          <h1 className="flex items-center text-2xl font-bold text-slate-600">
+            <FavoritesButton className="inline-flex items-center gap-2 text-[#4f70e7]" />
+            <span className="mx-2 text-slate-400">|</span> {t("Приход от поставщиков")}
           </h1>
-          <button type="button" onClick={openCreate} className="inline-flex items-center gap-2 h-[30px] rounded-[5px] bg-[#71ce87] px-4 text-[13px] font-semibold text-white hover:brightness-95">
+          <button type="button" onClick={openCreate} className="inline-flex items-center gap-2 rounded bg-[#6ccd8b] px-5 py-2.5 font-semibold text-white hover:brightness-95">
             <Plus className="h-4 w-4" /> {t("Добавить")}
           </button>
         </header>
       )}
 
       <section className="overflow-hidden rounded bg-white shadow">
+        <div className="flex flex-wrap items-center gap-4 border-b border-slate-100 px-5 py-3">
+          <button type="button" onClick={() => setFilterOpen((value) => !value)} className="inline-flex items-center gap-1 text-[#4f70e7] hover:underline">
+            {t("Показать фильтр")} <ChevronDown className={`h-4 w-4 transition-transform ${filterOpen ? "rotate-180" : ""}`} />
+          </button>
+        </div>
 
         {filterOpen && (
           <div className="flex flex-wrap items-center gap-4 border-b border-slate-100 bg-slate-50 px-5 py-3">
@@ -428,14 +529,9 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
           </div>
         )}
 
-        <div className="flex h-[50px] flex-wrap items-center gap-4 px-[10px]">
-          <div className="w-[308px] shrink-0">
-          <button type="button" onClick={() => setFilterOpen((value) => !value)} className="inline-flex items-center gap-1 text-[#4f71dc] hover:underline">
-            {t("Показать фильтр")} <ChevronDown className={`h-4 w-4 transition-transform ${filterOpen ? "rotate-180" : ""}`} />
-          </button>
-          </div>
-          <label className="relative w-[248px]">
-            <input value={query} onChange={(event) => { setQuery(event.target.value); setPage(1) }} placeholder={t("Поиск")} className="w-full border-b border-slate-300 py-2 pr-10 outline-none focus:border-[#4f71dc]" />
+        <div className="flex flex-wrap items-center gap-4 px-5 py-3">
+          <label className="relative w-64">
+            <input value={query} onChange={(event) => { setQuery(event.target.value); setPage(1) }} placeholder={t("Поиск")} className="w-full border-b border-slate-300 py-2 pr-10 outline-none focus:border-[#4f70e7]" />
             <Search className="absolute right-2 top-2 h-5 w-5 text-slate-300" />
           </label>
           <span className="ml-auto text-slate-500">25</span>
@@ -448,28 +544,28 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
           <button type="button" onClick={() => setPage((value) => Math.min(pageCount, value + 1))} disabled={safePage >= pageCount} aria-label={t("Вперед")} className="disabled:opacity-30">
             <ChevronRight className="h-5 w-5 text-slate-400" />
           </button>
-          <button type="button" onClick={downloadList} aria-label={t("Скачать")} className="text-slate-500 hover:text-[#4f71dc]">
+          <button type="button" onClick={downloadList} aria-label={t("Скачать")} className="text-slate-500 hover:text-[#4f70e7]">
             <Download className="h-5 w-5" />
           </button>
           {embedded && (
-            <button type="button" onClick={openCreate} className="inline-flex items-center gap-2 rounded bg-[#71ce87] px-4 py-2 text-sm font-semibold text-white hover:brightness-95">
+            <button type="button" onClick={openCreate} className="inline-flex items-center gap-2 rounded bg-[#6ccd8b] px-4 py-2 text-sm font-semibold text-white hover:brightness-95">
               <Plus className="h-4 w-4" /> {t("Добавить")}
             </button>
           )}
         </div>
 
         <table className="w-full text-left">
-          <thead className="bg-[#5d6474] text-white">
+          <thead className="bg-[#626b7e] text-white">
             <tr>
-              <th className="px-9 py-4 text-[13px]">{t("№")}</th>
-              <th className="px-5 py-4 text-[13px]">{t("Поставщик")}</th>
-              <th className="px-5 py-4 text-[13px]">{t("Склад")}</th>
-              <th className="px-5 py-4 text-[13px]">{t("Дата поставки")}</th>
-              <th className="px-5 py-4 text-[13px]">{t("Тип оплаты")}</th>
-              <th className="px-5 py-4 text-[13px]">{t("Номер договора")}</th>
-              <th className="px-5 py-4 text-[13px]">{t("Сумма поставки")}</th>
-              <th className="px-5 py-4 text-[13px]">{t("Статус")}</th>
-              <th className="px-5 py-4 text-[13px]">{t("Счет фактура")}</th>
+              <th className="px-9 py-5">{t("№")}</th>
+              <th className="px-5 py-5">{t("Поставщик")}</th>
+              <th className="px-5 py-5">{t("Склад")}</th>
+              <th className="px-5 py-5">{t("Дата поставки")}</th>
+              <th className="px-5 py-5">{t("Тип оплаты")}</th>
+              <th className="px-5 py-5">{t("Номер договора")}</th>
+              <th className="px-5 py-5">{t("Сумма поставки")}</th>
+              <th className="px-5 py-5">{t("Статус")}</th>
+              <th className="px-5 py-5">{t("Счет фактура")}</th>
             </tr>
           </thead>
           <tbody>
@@ -478,12 +574,12 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
                 {expandedId !== row.id && (
                   <tr onClick={() => toggleExpand(row)} className="cursor-pointer border-b border-dashed border-slate-300 hover:bg-slate-50">
                     <td className="px-9 py-4">{row.id}</td>
-                    <td className="px-5 py-4">{row.supplier}</td>
+                    <td className="px-5 py-4 text-[#4f70e7]">{row.supplier}</td>
                     <td className="px-5 py-4">{row.warehouse}</td>
                     <td className="px-5 py-4">{row.date}</td>
-                    <td className="px-5 py-4">{row.paymentType}</td>
+                    <td className="px-5 py-4">{t(row.paymentType)}</td>
                     <td className="px-5 py-4">{row.contractNumber}</td>
-                    <td className="px-5 py-4">{formatMoney(row.amount)}</td>
+                    <td className="px-5 py-4">{formatMoney(row.amount, row.currency)}</td>
                     <td className="px-5 py-4">
                       <span className="inline-flex items-center gap-2">
                         <span className={`h-2 w-2 rounded-full ${statusDots[row.status]}`} /> {t(row.status)}
@@ -502,28 +598,44 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
                             <h2 className="text-xl font-bold text-slate-700">{t("Поставка №")} {row.id}</h2>
                             <span className="font-medium text-emerald-500">{row.supplier}</span>
                           </div>
-                          <div className="flex items-center gap-2">
-                            <button type="button" onClick={() => setMarkupTarget(row)} className="inline-flex items-center gap-2 rounded bg-[#4f71dc] px-4 py-2 text-sm font-semibold text-white hover:brightness-95">
-                              <Percent className="h-4 w-4" /> {t("Наценка")}
-                            </button>
-                            <button type="button" onClick={() => openEdit(row)} className="inline-flex items-center gap-2 rounded bg-[#4f71dc] px-4 py-2 text-sm font-semibold text-white hover:brightness-95">
-                              <Pencil className="h-4 w-4" /> {t("Изменить")}
-                            </button>
-                            <button type="button" onClick={() => downloadRow(row)} className="inline-flex items-center gap-2 rounded bg-[#4f71dc] px-4 py-2 text-sm font-semibold text-white hover:brightness-95">
+                          <div className="flex flex-wrap items-center gap-2">
+                            {row.status !== "отменен" && (
+                              <button type="button" onClick={() => setExpenseTarget(row)} className="inline-flex items-center gap-2 rounded bg-[#4f70e7] px-4 py-2 text-sm font-semibold text-white hover:brightness-95">
+                                <Receipt className="h-4 w-4" /> {t("Добавить расход")}
+                              </button>
+                            )}
+                            {row.status !== "отменен" && (
+                              <button type="button" onClick={() => setMarkupTarget(row)} className="inline-flex items-center gap-2 rounded bg-[#4f70e7] px-4 py-2 text-sm font-semibold text-white hover:brightness-95">
+                                <Percent className="h-4 w-4" /> {t("Наценка")}
+                              </button>
+                            )}
+                            {row.status === "ожидает" && (
+                              <button type="button" onClick={() => openEdit(row)} className="inline-flex items-center gap-2 rounded bg-[#4f70e7] px-4 py-2 text-sm font-semibold text-white hover:brightness-95">
+                                <Pencil className="h-4 w-4" /> {t("Изменить")}
+                              </button>
+                            )}
+                            <button type="button" onClick={() => downloadRow(row)} className="inline-flex items-center gap-2 rounded bg-[#4f70e7] px-4 py-2 text-sm font-semibold text-white hover:brightness-95">
                               <Download className="h-4 w-4" /> {t("Скачать")}
                             </button>
-                            <button
-                              type="button"
-                              onClick={() => cancelSupply(row)}
-                              disabled={row.status === "отменен"}
-                              className="inline-flex items-center gap-2 rounded bg-[#ff8967] px-4 py-2 text-sm font-semibold text-white hover:brightness-95 disabled:opacity-40"
-                            >
-                              <Ban className="h-4 w-4" /> {t("Отменить приёмку")}
-                            </button>
-                            <button type="button" onClick={() => window.print()} aria-label={t("Печать")} className="text-slate-500 hover:text-[#4f71dc]">
+                            {row.status === "ожидает" && (
+                              <button type="button" disabled={busy} onClick={() => changeStatus(row, "accept")} className="inline-flex items-center gap-2 rounded bg-[#6ccd8b] px-4 py-2 text-sm font-semibold text-white hover:brightness-95 disabled:opacity-50">
+                                <CheckCircle2 className="h-4 w-4" /> {t("Принять на склад")}
+                              </button>
+                            )}
+                            {row.status === "ожидает" && (
+                              <button type="button" disabled={busy} onClick={() => changeStatus(row, "cancel")} className="inline-flex items-center gap-2 rounded bg-[#ff8967] px-4 py-2 text-sm font-semibold text-white hover:brightness-95 disabled:opacity-50">
+                                <Ban className="h-4 w-4" /> {t("Отменить")}
+                              </button>
+                            )}
+                            {row.status === "принят" && (
+                              <button type="button" disabled={busy} onClick={() => changeStatus(row, "unaccept")} className="inline-flex items-center gap-2 rounded bg-[#ff8967] px-4 py-2 text-sm font-semibold text-white hover:brightness-95 disabled:opacity-50">
+                                <RotateCcw className="h-4 w-4" /> {t("Отменить приёмку")}
+                              </button>
+                            )}
+                            <button type="button" onClick={() => window.print()} aria-label={t("Печать")} className="text-slate-500 hover:text-[#4f70e7]">
                               <Printer className="h-5 w-5" />
                             </button>
-                            <button type="button" onClick={() => toggleExpand(row)} aria-label={t("Свернуть")} className="text-slate-500 hover:text-[#4f71dc]">
+                            <button type="button" onClick={() => toggleExpand(row)} aria-label={t("Свернуть")} className="text-slate-500 hover:text-[#4f70e7]">
                               <X className="h-5 w-5" />
                             </button>
                           </div>
@@ -543,22 +655,42 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
                           <div>
                             <p className="mb-2 font-bold uppercase tracking-wide text-slate-700">{t("Баланс")}</p>
                             <dl className="space-y-2 text-sm">
-                              <div className="flex justify-between gap-4"><dt className="text-slate-500">{t("Стоимость поставки")}</dt><dd className="font-medium">{formatMoney(row.amount)}</dd></div>
-                              <div className="flex justify-between gap-4"><dt className="text-slate-500">{t("Тип оплаты")}</dt><dd className="font-medium">{row.paymentType}</dd></div>
-                              <div className="flex justify-between gap-4"><dt className="text-slate-500">{t("Оплачено")}:</dt><dd className="font-medium">{formatMoney(row.paid)}</dd></div>
-                              <div className="flex justify-between gap-4"><dt className="text-slate-500">{t("Остаток")}:</dt><dd className="font-medium text-rose-500">{formatMoney(row.amount - row.paid)}</dd></div>
+                              <div className="flex justify-between gap-4"><dt className="text-slate-500">{t("Стоимость поставки")}</dt><dd className="font-medium">{formatMoney(row.amount, row.currency)}</dd></div>
+                              <div className="flex justify-between gap-4"><dt className="text-slate-500">{t("Тип оплаты")}</dt><dd className="font-medium">{t(row.paymentType)}</dd></div>
+                              {/* Demo: "Оплачено" (Σ supplier payments linked to the supply) opens "Список оплат по поставке №N" when > 0; "Остаток" red while > 0. */}
+                              <div className="flex justify-between gap-4">
+                                <dt className="text-slate-500">{t("Оплачено")}:</dt>
+                                <dd className="font-medium">
+                                  {row.paid > 0 ? (
+                                    <button type="button" onClick={() => setPaymentsTarget(row.id)} className="border-b border-dashed border-[#4f70e7] font-semibold text-[#4f70e7]">
+                                      {formatMoney(row.paid, row.currency)}
+                                    </button>
+                                  ) : (
+                                    formatMoney(row.paid, row.currency)
+                                  )}
+                                </dd>
+                              </div>
+                              <div className="flex justify-between gap-4"><dt className="text-slate-500">{t("Остаток")}:</dt><dd className={`font-medium ${row.amount - row.paid > 0 ? "text-[#e57373]" : "text-[#81c784]"}`}>{formatMoney(row.amount - row.paid, row.currency)}</dd></div>
                             </dl>
                             <p className="mb-2 mt-4 font-bold uppercase tracking-wide text-slate-700">{t("Доп. расходы")}</p>
-                            <p className="text-sm text-slate-500">{t("Нет дополнительных расходов")}</p>
+                            {detailExpenses.length ? (
+                              <dl className="space-y-1 text-sm">
+                                {Object.entries(detailExpenses.reduce<Record<string, number>>((totals, expense) => ({ ...totals, [expense.currency]: (totals[expense.currency] ?? 0) + expense.amount }), {})).map(([currency, total]) => (
+                                  <div key={currency} className="flex justify-between gap-4"><dt className="text-slate-500">{t("Итого")}:</dt><dd className="font-medium">{formatMoney(total, currency)}</dd></div>
+                                ))}
+                              </dl>
+                            ) : (
+                              <p className="text-sm text-slate-500">{t("Нет дополнительных расходов")}</p>
+                            )}
                           </div>
 
                           <div>
                             <p className="mb-2 font-bold uppercase tracking-wide text-slate-700">{t("Исполнение")}</p>
                             <dl className="space-y-2 text-sm">
                               <div className="flex justify-between gap-4"><dt className="text-slate-500">{t("Склад")}:</dt><dd className="font-medium">{row.warehouse}</dd></div>
-                              <div className="flex justify-between gap-4"><dt className="text-slate-500">{t("Статус")}:</dt><dd className={`font-medium ${statusStyles[row.status]}`}>{row.status === "принят" ? t("Завершен") : row.status === "ожидает" ? t("В ожидании") : t("Отменен")}</dd></div>
-                              <div className="flex justify-between gap-4"><dt className="text-slate-500">{t("Принимать на склад")}:</dt><dd className="font-medium text-emerald-500">{row.status === "отменен" ? t("Нельзя") : t("Можно")}</dd></div>
-                              <div className="flex justify-between gap-4"><dt className="text-slate-500">{t("Время приемки")}:</dt><dd className="font-medium">{row.time}</dd></div>
+                              <div className="flex justify-between gap-4"><dt className="text-slate-500">{t("Статус")}:</dt><dd className={`font-medium ${statusStyles[row.status]}`}>{row.status === "принят" ? t("Принят") : row.status === "ожидает" ? t("В ожидании") : t("Отменен")}</dd></div>
+                              <div className="flex justify-between gap-4"><dt className="text-slate-500">{t("Принимать на склад")}:</dt><dd className={`font-medium ${row.status === "ожидает" ? "text-emerald-500" : "text-slate-500"}`}>{row.status === "ожидает" ? t("Можно") : row.status === "принят" ? t("Принято") : t("Нельзя")}</dd></div>
+                              <div className="flex justify-between gap-4"><dt className="text-slate-500">{t("Время приемки")}:</dt><dd className="font-medium">{row.acceptedAt ? `${formatTimestamp(row.acceptedAt)}${row.acceptedBy ? ` (${row.acceptedBy})` : ""}` : t("Не начался")}</dd></div>
                               <div className="flex justify-between gap-4"><dt className="text-slate-500">{t("Дата поставки")}:</dt><dd className="font-medium">{row.date}</dd></div>
                               <div className="flex justify-between gap-4"><dt className="text-slate-500">{t("Комментарии")}:</dt><dd className="font-medium">{row.comment || t("Не указан")}</dd></div>
                               <div className="flex justify-between gap-4"><dt className="text-slate-500">{t("Счет фактура")}:</dt><dd className="font-medium">{row.invoiceNumber || t("Не указан")}</dd></div>
@@ -572,7 +704,7 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
                               key={tab.id}
                               type="button"
                               onClick={() => setDetailTab(tab.id)}
-                              className={`border-b-2 pb-2 text-sm font-medium ${detailTab === tab.id ? "border-[#4f71dc] text-[#4f71dc]" : "border-transparent text-slate-500 hover:text-slate-700"}`}
+                              className={`border-b-2 pb-2 text-sm font-medium ${detailTab === tab.id ? "border-[#4f70e7] text-[#4f70e7]" : "border-transparent text-slate-500 hover:text-slate-700"}`}
                             >
                               {t(tab.label)}
                             </button>
@@ -600,7 +732,7 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
                                   <td className="py-2 pr-4">{item.id}</td>
                                   <td className="py-2 pr-4">{item.product}</td>
                                   <td className="py-2 pr-4">{item.expiry || "—"}</td>
-                                  <td className="py-2 pr-4">{item.qty} {t("шт")}</td>
+                                  <td className="py-2 pr-4">{item.qty.toLocaleString("ru-RU")} {productUnits[item.product] ?? ""}</td>
                                   <td className="py-2 pr-4">{item.block}</td>
                                   <td className="py-2 pr-4">{item.kg}</td>
                                   <td className="py-2 pr-4">{item.netWeight}</td>
@@ -610,11 +742,11 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
                               ))}
                               <tr className="border-t border-slate-300 font-bold">
                                 <td className="py-2 pr-4" colSpan={3}>{t("Итого")}:</td>
-                                <td className="py-2 pr-4">{row.items.reduce((sum, item) => sum + item.qty, 0)} {t("шт")}</td>
+                                <td className="py-2 pr-4">{row.items.reduce((sum, item) => sum + item.qty, 0).toLocaleString("ru-RU")}</td>
                                 <td className="py-2 pr-4">0</td>
                                 <td className="py-2 pr-4">0</td>
                                 <td className="py-2 pr-4" />
-                                <td className="py-2 pr-4">{row.items.reduce((sum, item) => sum + item.cost, 0).toLocaleString("ru-RU")}</td>
+                                <td className="py-2 pr-4" />
                                 <td className="py-2 pr-4">{row.items.reduce((sum, item) => sum + item.total, 0).toLocaleString("ru-RU")}</td>
                               </tr>
                             </tbody>
@@ -626,28 +758,78 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
                             <thead>
                               <tr className="text-slate-500">
                                 <th className="py-2 pr-4">{t("Товар")}</th>
+                                <th className="py-2 pr-4">{t("Количество")}</th>
+                                <th className="py-2 pr-4">{t("Закупочная цена")}</th>
+                                <th className="py-2 pr-4">{t("Доп. расход на ед.")}</th>
                                 <th className="py-2 pr-4">{t("Себестоимость за ед.")}</th>
                                 <th className="py-2 pr-4">{t("Итог")}</th>
                               </tr>
                             </thead>
                             <tbody>
-                              {row.items.map((item) => (
-                                <tr key={item.id} className="border-t border-slate-100">
-                                  <td className="py-2 pr-4">{item.product}</td>
-                                  <td className="py-2 pr-4">{item.cost.toLocaleString("ru-RU")} SUM</td>
-                                  <td className="py-2 pr-4">{item.total.toLocaleString("ru-RU")} SUM</td>
+                              {supplyCostLines(row).map((line, index) => (
+                                <tr key={`${line.product}-${index}`} className="border-t border-slate-100">
+                                  <td className="py-2 pr-4">{line.product}</td>
+                                  <td className="py-2 pr-4">{line.qty.toLocaleString("ru-RU")} {productUnits[line.product] ?? ""}</td>
+                                  <td className="py-2 pr-4">{formatMoney(line.purchasePrice, row.currency)}</td>
+                                  <td className="py-2 pr-4">{formatMoney(line.expensePerUnit, row.currency)}</td>
+                                  <td className="py-2 pr-4 font-medium">{formatMoney(line.unitCost, row.currency)}</td>
+                                  <td className="py-2 pr-4">{formatMoney(line.total, row.currency)}</td>
                                 </tr>
                               ))}
+                              <tr className="border-t border-slate-300 font-bold">
+                                <td className="py-2 pr-4" colSpan={5}>{t("Итого")}:</td>
+                                <td className="py-2 pr-4">{formatMoney(row.amount + row.expensesTotal, row.currency)}</td>
+                              </tr>
                             </tbody>
                           </table>
                         )}
 
-                        {detailTab === "expenses" && <p className="text-sm text-slate-500">{t("Нет дополнительных расходов")}</p>}
+                        {detailTab === "expenses" && (
+                          detailExpenses.length ? (
+                            <table className="w-full text-left text-sm">
+                              <thead>
+                                <tr className="text-slate-500">
+                                  <th className="py-2 pr-4">{t("Дата")}</th>
+                                  <th className="py-2 pr-4">{t("Описание расхода")}</th>
+                                  <th className="py-2 pr-4">{t("Тип оплаты")}</th>
+                                  <th className="py-2 pr-4">{t("Сумма")}</th>
+                                  <th className="py-2 pr-4">{t("Добавил")}</th>
+                                  <th className="w-10" />
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {detailExpenses.map((expense) => (
+                                  <tr key={expense.id} className="border-t border-slate-100">
+                                    <td className="py-2 pr-4">{expense.date}</td>
+                                    <td className="py-2 pr-4">{expense.description}</td>
+                                    <td className="py-2 pr-4">{t(expense.paymentType)}</td>
+                                    <td className="py-2 pr-4">{formatMoney(expense.amount, expense.currency)}</td>
+                                    <td className="py-2 pr-4">{expense.createdBy}</td>
+                                    <td className="py-2 pr-4 text-right">
+                                      <button type="button" disabled={busy} onClick={() => removeExpense(row, expense)} aria-label={t("Удалить")} className="text-slate-400 hover:text-rose-500">
+                                        <Trash2 className="h-4 w-4" />
+                                      </button>
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          ) : (
+                            <p className="text-sm text-slate-500">{t("Нет дополнительных расходов")}</p>
+                          )
+                        )}
 
                         {detailTab === "logs" && (
                           <ul className="space-y-2 text-sm text-slate-600">
-                            <li>{row.time} — {t("Поставка создана инициатором")} {row.initiator}</li>
-                            {row.status !== "ожидает" && <li>{row.time} — {t("Статус изменён на")} «{t(row.status)}»</li>}
+                            {detailLogs.map((log) => (
+                              <li key={log.id} className="flex flex-wrap gap-x-2 border-b border-dashed border-slate-200 pb-2">
+                                <span className="text-slate-400">{formatTimestamp(log.createdAt)}</span>
+                                <span className="font-medium text-slate-700">{t(LOG_LABELS[log.action] ?? log.action)}</span>
+                                {log.details && <span>— {log.details}</span>}
+                                <span className="text-slate-400">({log.userName})</span>
+                              </li>
+                            ))}
+                            {!detailLogs.length && <li className="text-slate-400">{t("Записей нет")}</li>}
                           </ul>
                         )}
                       </div>
@@ -668,49 +850,59 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
       </section>
 
       {markupTarget && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
-          <form onSubmit={applyMarkup} className="w-full max-w-sm rounded bg-white p-6">
-            <div className="mb-4 flex items-center justify-between">
-              <b className="uppercase">{t("Наценка — поставка №")} {markupTarget.id}</b>
-              <button type="button" onClick={() => setMarkupTarget(null)} aria-label={t("Закрыть")}><X className="h-5 w-5" /></button>
-            </div>
-            <label className="block text-sm font-medium text-slate-600">
-              {t("Процент наценки (%)")}
-              <input
-                autoFocus
-                type="number"
-                value={markupPercent}
-                onChange={(event) => setMarkupPercent(event.target.value)}
-                className="mt-2 block w-full rounded border border-slate-300 px-3 py-2"
-              />
-            </label>
-            <div className="mt-5 flex justify-end gap-3">
-              <button type="button" onClick={() => setMarkupTarget(null)} className="rounded border px-4 py-2">{t("Отмена")}</button>
-              <button type="submit" className="rounded bg-[#4f71dc] px-4 py-2 font-semibold text-white">{t("Применить")}</button>
-            </div>
-          </form>
-        </div>
+        <IncomingRepriceDialog
+          incoming={markupTarget}
+          units={productUnits}
+          onClose={() => setMarkupTarget(null)}
+          onSaved={() => {
+            setMarkupTarget(null)
+            setDetailVersion((value) => value + 1)
+          }}
+        />
+      )}
+
+      {paymentsTarget !== null && <SupplyPaymentsDialog supplyId={paymentsTarget} onClose={() => setPaymentsTarget(null)} />}
+
+      {expenseTarget && (
+        <IncomingExpenseDialog
+          incoming={expenseTarget}
+          onClose={() => setExpenseTarget(null)}
+          onSaved={(saved) => {
+            setExpenseTarget(null)
+            replaceRow(saved)
+          }}
+        />
       )}
 
       {modalOpen && (
-        <div className="fixed inset-0 z-50 flex bg-white">
-          <form onSubmit={save} className="flex h-full w-full flex-col bg-white">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
+          <form onSubmit={save} className="flex max-h-[90vh] w-full max-w-4xl flex-col rounded bg-white">
             <header className="flex items-center justify-between border-b p-6">
               <b className="uppercase">{editingId !== null ? `${t("Изменить поставку №")} ${editingId}` : t("Добавление поставки")}</b>
               <button type="button" onClick={() => setModalOpen(false)} aria-label={t("Закрыть")}><X className="h-5 w-5" /></button>
             </header>
 
             <div className="flex-1 space-y-6 overflow-y-auto p-8">
+              {fromInvoice && editingId === null && (
+                <div className="space-y-1 rounded border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-800">
+                  <p>
+                    {t("Приход создается из счет-фактуры")} № <b>{fromInvoice.number}</b> {t("от")} {draft.invoiceDate} — {formatMoney(fromInvoice.total, fromInvoice.currency)}
+                  </p>
+                  {!supplierOptions.includes(draft.supplier) && <p className="text-amber-700">{t("Поставщик не найден в справочнике — выберите поставщика или добавьте его.")}</p>}
+                  {draftItems.some((item) => !item.product) && <p className="text-amber-700">{t("Строки без товара в каталоге выделены — выберите товар или удалите строку.")}</p>}
+                </div>
+              )}
               <div className="grid gap-6 sm:grid-cols-3">
                 <div className="space-y-4">
                   <div className="flex items-end justify-between gap-3 border-b border-slate-200 pb-2">
                     <label className="block flex-1 font-medium">
                       {t("Поставщик")} *
                       <select value={draft.supplier} onChange={(event) => setDraft((value) => ({ ...value, supplier: event.target.value }))} className="mt-2 block w-full bg-white outline-none">
+                        {draft.supplier && !supplierOptions.includes(draft.supplier) && <option>{draft.supplier}</option>}
                         {supplierOptions.map((item) => <option key={item}>{item}</option>)}
                       </select>
                     </label>
-                    <button type="button" onClick={() => setQuickAddSupplierOpen(true)} className="whitespace-nowrap pb-2 text-sm font-semibold text-[#4f71dc] hover:underline">
+                    <button type="button" onClick={() => setQuickAddSupplierOpen(true)} className="whitespace-nowrap pb-2 text-sm font-semibold text-[#4f70e7] hover:underline">
                       {t("+добавить")}
                     </button>
                   </div>
@@ -718,7 +910,9 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
                   <label className="block border-b border-slate-200 pb-2 font-medium">
                     {t("Филиал")} *
                     <select value={draft.branch} onChange={(event) => setDraft((value) => ({ ...value, branch: event.target.value }))} className="mt-2 block w-full bg-white outline-none">
-                      {branches.map((item) => <option key={item}>{item}</option>)}
+                      <option value="">{t("Не указано")}</option>
+                      {draft.branch && !branchOptions.includes(draft.branch) && <option>{draft.branch}</option>}
+                      {branchOptions.map((item) => <option key={item}>{item}</option>)}
                     </select>
                   </label>
                   <div className="flex items-end justify-between gap-3 border-b border-slate-200 pb-2">
@@ -728,7 +922,7 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
                         {warehouseOptions.map((item) => <option key={item}>{item}</option>)}
                       </select>
                     </label>
-                    <button type="button" onClick={() => setQuickAddWarehouseOpen(true)} className="whitespace-nowrap pb-2 text-sm font-semibold text-[#4f71dc] hover:underline">
+                    <button type="button" onClick={() => setQuickAddWarehouseOpen(true)} className="whitespace-nowrap pb-2 text-sm font-semibold text-[#4f70e7] hover:underline">
                       {t("+добавить")}
                     </button>
                   </div>
@@ -747,7 +941,7 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
                         {organizationOptions.map((item) => <option key={item}>{item}</option>)}
                       </select>
                     </label>
-                    <button type="button" onClick={() => setQuickAddOrganizationOpen(true)} className="whitespace-nowrap pb-2 text-sm font-semibold text-[#4f71dc] hover:underline">
+                    <button type="button" onClick={() => setQuickAddOrganizationOpen(true)} className="whitespace-nowrap pb-2 text-sm font-semibold text-[#4f70e7] hover:underline">
                       {t("+добавить")}
                     </button>
                   </div>
@@ -757,12 +951,13 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
                     <select value={draft.currency} onChange={(event) => setDraft((value) => ({ ...value, currency: event.target.value }))} className="mt-2 block w-full bg-white outline-none">
                       <option>SUM</option>
                       <option>USD</option>
+                      {!["SUM", "USD"].includes(draft.currency) && <option>{draft.currency}</option>}
                     </select>
                   </label>
                   <label className="block border-b border-slate-200 pb-2 font-medium">
                     {t("Тип оплаты")} *
                     <select value={draft.paymentType} onChange={(event) => setDraft((value) => ({ ...value, paymentType: event.target.value }))} className="mt-2 block w-full bg-white outline-none">
-                      {paymentTypes.map((item) => <option key={item}>{item}</option>)}
+                      {paymentTypes.map((item) => <option key={item} value={item}>{t(item)}</option>)}
                     </select>
                   </label>
                 </div>
@@ -799,13 +994,13 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
                 <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
                   <p className="font-medium text-slate-800">{t("Список товаров")}</p>
                   <div className="flex items-center gap-4 text-sm">
-                    <button type="button" onClick={addBlankItem} className="inline-flex items-center gap-1 text-[#4f71dc] hover:underline">
+                    <button type="button" onClick={addBlankItem} className="inline-flex items-center gap-1 text-[#4f70e7] hover:underline">
                       <Plus className="h-4 w-4" /> {t("добавить товар")}
                     </button>
-                    <button type="button" onClick={() => { setPickerQuery(""); setPickerOpen(true) }} className="inline-flex items-center gap-1 text-[#4f71dc] hover:underline">
+                    <button type="button" onClick={() => { setPickerQuery(""); setPickerOpen(true) }} className="inline-flex items-center gap-1 text-[#4f70e7] hover:underline">
                       <ListPlus className="h-4 w-4" /> {t("добавить из списка")}
                     </button>
-                    <button type="button" onClick={() => importInputRef.current?.click()} className="inline-flex items-center gap-1 text-[#4f71dc] hover:underline">
+                    <button type="button" onClick={() => importInputRef.current?.click()} className="inline-flex items-center gap-1 text-[#4f70e7] hover:underline">
                       <Upload className="h-4 w-4" /> {t("импортировать с excel")}
                     </button>
                     <input ref={importInputRef} type="file" accept=".csv,.xls,.xlsx,text/csv" onChange={importFromExcel} className="hidden" />
@@ -817,7 +1012,7 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
                     <FileSpreadsheet className="h-12 w-12" />
                     <p>
                       {t("Вы еще не выбрали ни одного товара.")}{" "}
-                      <button type="button" onClick={addBlankItem} className="text-[#4f71dc] hover:underline">
+                      <button type="button" onClick={addBlankItem} className="text-[#4f70e7] hover:underline">
                         {t("Добавить товар?")}
                       </button>
                     </p>
@@ -837,11 +1032,18 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
                       {draftItems.map((item) => (
                         <tr key={item.id} className="border-t border-slate-100">
                           <td className="py-2 pr-4">
-                            <select value={item.product} onChange={(event) => updateDraftItem(item.id, { product: event.target.value })} className="bg-white outline-none">
+                            <select value={item.product} onChange={(event) => updateDraftItem(item.id, { product: event.target.value })} className={`bg-white outline-none ${item.source && !item.product ? "rounded border border-rose-400" : ""}`}>
                               {(productOptions.includes(item.product) ? productOptions : [item.product, ...productOptions]).map((product) => (
                                 <option key={product}>{product}</option>
                               ))}
                             </select>
+                            {item.source && (
+                              <span className={`block text-xs ${item.product ? "text-slate-400" : "text-rose-500"}`}>
+                                {t("По счет-фактуре")}: {item.source.name}
+                                {item.source.ikpu ? ` · ${t("ИКПУ")} ${item.source.ikpu}` : ""}
+                                {item.source.unit ? ` · ${item.source.unit}` : ""}
+                              </span>
+                            )}
                           </td>
                           <td className="py-2 pr-4">
                             <input type="number" min={0} step="any" value={item.qty} onChange={(event) => updateDraftItem(item.id, { qty: Number(event.target.value) })} className="w-20 border-b border-slate-200 outline-none" />
@@ -886,7 +1088,7 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
               value={pickerQuery}
               onChange={(event) => setPickerQuery(event.target.value)}
               placeholder={t("Поиск товара...")}
-              className="mb-3 w-full border-b border-slate-300 py-2 outline-none focus:border-[#4f71dc]"
+              className="mb-3 w-full border-b border-slate-300 py-2 outline-none focus:border-[#4f70e7]"
             />
             <div className="space-y-2 overflow-y-auto">
               {productOptions.length === 0 && <p className="text-sm text-slate-400">{t("Каталог продуктов пуст")}</p>}
@@ -901,7 +1103,7 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
                 ))}
             </div>
             <div className="mt-5 flex justify-end">
-              <button type="button" onClick={() => setPickerOpen(false)} className="rounded bg-[#4f71dc] px-4 py-2 font-semibold text-white">{t("Готово")}</button>
+              <button type="button" onClick={() => setPickerOpen(false)} className="rounded bg-[#4f70e7] px-4 py-2 font-semibold text-white">{t("Готово")}</button>
             </div>
           </div>
         </div>

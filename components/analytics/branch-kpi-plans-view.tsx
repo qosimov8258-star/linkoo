@@ -1,318 +1,435 @@
 "use client"
 
-import { ChevronLeft, ChevronRight, ChevronsUpDown, Copy, Download, ListChecks, Pencil, RefreshCw, Search, X } from "lucide-react"
-import { Fragment, FormEvent, useEffect, useMemo, useState } from "react"
-import { RI, RefButton, RefHeader, RefPage } from "@/components/ref/list-kit"
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react"
+import { useSearchParams } from "next/navigation"
+import { ChevronDown, ChevronsUpDown, ChevronUp, Copy, ListChecks, ListX, Pencil, RefreshCw, Search, X } from "lucide-react"
 
-type BranchKpiPlan = { branchId: number; branchName: string; period: string; planSales: number; bonusPercent: number }
+import { BalancePagination } from "@/components/analytics/balance/pagination"
+import { BranchKpiDetailPanel } from "@/components/analytics/branch-kpi-detail"
+import { BranchKpiBulkDialog, BranchKpiDuplicateDialog, BranchKpiLevelsDialog } from "@/components/analytics/branch-kpi-dialogs"
+import { BRANCH_KPI_API, fetchJson, formatKpiDate, KPI_COLORS, KpiMonthYearFilter, kpiNumber, sendJson } from "@/components/analytics/branch-kpi-shared"
+import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
+import type { BranchKpiListResult, BranchKpiRecalcResult } from "@/lib/branch-kpi-types"
+import { useLanguage } from "@/lib/i18n/language-context"
 
-const kpiColumns = ["KPI", "Уровень", "План", "Продажи", "Возврат", "Факт", "%", "Дневной план", "Прогноз", "%", "Бонус"]
-const months = ["Январь", "Февраль", "Март", "Апрель", "Май", "Июнь", "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"]
+// "KPI план филиалов" (demo #/staff-branch/?month&year, chunk 126): every branch
+// with its KPI plans of the month ("name: plan" chips) and the month's bonus
+// total; row → detail (plan / fact / level / bonus per KPI, Excel);
+// "Изменить планы" (selected branches × KPI grid), "Дублировать" (copy plans to
+// another month), "Перерасчет KPI" (recalculate the month, "ДАННЫЕ ЗА <date>").
+// The list state lives in the URL query like the demo.
 
-type Branch = { id: number; name: string; bonus: number; kpi: number }
+type Ordering = "" | "name" | "-name" | "salary" | "-salary"
 
+type ViewState = {
+  month: number
+  year: number
+  search: string
+  ordering: Ordering
+  page: number
+  pageSize: number
+  showCheckboxes: boolean
+  /** Branch whose detail is open (demo /staff-branch/:id/). */
+  id: number | null
+}
+
+function positiveInt(value: string | null, fallback: number): number {
+  const parsed = Number(value)
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback
+}
+
+function stateFromParams(params: URLSearchParams): ViewState {
+  const now = new Date()
+  const month = positiveInt(params.get("month"), now.getMonth() + 1)
+  const year = positiveInt(params.get("year"), now.getFullYear())
+  const ordering = params.get("ordering") ?? ""
+  return {
+    month: month <= 12 ? month : now.getMonth() + 1,
+    year: year >= 2000 && year <= 2100 ? year : now.getFullYear(),
+    search: params.get("search") ?? "",
+    ordering: (["name", "-name", "salary", "-salary"].includes(ordering) ? ordering : "") as Ordering,
+    page: positiveInt(params.get("page"), 1),
+    pageSize: Math.min(2000, positiveInt(params.get("pageSize"), 25)),
+    showCheckboxes: params.get("showCheckboxes") === "true",
+    id: positiveInt(params.get("id"), 0) || null,
+  }
+}
+
+function stateToSearch(state: ViewState): string {
+  const params = new URLSearchParams()
+  params.set("month", String(state.month))
+  params.set("pageSize", String(state.pageSize))
+  params.set("year", String(state.year))
+  if (state.page > 1) params.set("page", String(state.page))
+  if (state.search) params.set("search", state.search)
+  if (state.ordering) params.set("ordering", state.ordering)
+  if (state.showCheckboxes) params.set("showCheckboxes", "true")
+  if (state.id) params.set("id", String(state.id))
+  return params.toString()
+}
+
+function listQuery(state: ViewState): string {
+  const params = new URLSearchParams({ month: String(state.month), year: String(state.year), page: String(state.page), pageSize: String(state.pageSize) })
+  if (state.search) params.set("search", state.search)
+  if (state.ordering) params.set("ordering", state.ordering)
+  return params.toString()
+}
+
+type Dialog = { kind: "bulk" } | { kind: "duplicate" } | { kind: "levels"; indicatorId: number } | null
 
 export function BranchKpiPlansView() {
-  const today = new Date()
-  const [branches, setBranches] = useState<Branch[]>([])
-  const [month, setMonth] = useState(today.getMonth())
-  const [year, setYear] = useState(today.getFullYear())
-  const [query, setQuery] = useState("")
-  const [page, setPage] = useState(1)
-  const [selectedId, setSelectedId] = useState<number | null>(null)
-  const [selectMode, setSelectMode] = useState(false)
-  const [checkedIds, setCheckedIds] = useState<number[]>([])
-  const [plansOpen, setPlansOpen] = useState(false)
+  const { t, language } = useLanguage()
+  const searchParams = useSearchParams()
+  const [state, setState] = useState<ViewState>(() => stateFromParams(searchParams))
+  const [searchDraft, setSearchDraft] = useState(state.search)
+  const [selected, setSelected] = useState<number[]>([])
+  const [dialog, setDialog] = useState<Dialog>(null)
+  const [canEdit, setCanEdit] = useState(false)
   const [recalculating, setRecalculating] = useState(false)
-  const [planDraft, setPlanDraft] = useState({ planSales: "", bonusPercent: "" })
-  const [savingPlans, setSavingPlans] = useState(false)
-  const pageSize = 25
+  const [notice, setNotice] = useState<{ text: string; error: boolean } | null>(null)
+  const [data, setData] = useState<BranchKpiListResult | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState("")
+  const [version, setVersion] = useState(0)
 
-  const period = `${year}-${String(month + 1).padStart(2, "0")}`
+  const query = useMemo(() => listQuery(state), [state])
+  useEffect(() => {
+    const controller = new AbortController()
+    setLoading(true)
+    setError("")
+    fetchJson<BranchKpiListResult>(`${BRANCH_KPI_API}?${query}`, { signal: controller.signal })
+      .then(setData)
+      .catch((reason: unknown) => {
+        if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : String(reason))
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoading(false)
+      })
+    return () => controller.abort()
+  }, [query, version])
+  const reload = useCallback(() => setVersion((value) => value + 1), [])
+
+  // The demo keeps the list state in the URL query.
+  useEffect(() => {
+    const search = stateToSearch(state)
+    if (window.location.search.slice(1) !== search) window.history.replaceState(window.history.state, "", `${window.location.pathname}?${search}`)
+  }, [state])
 
   useEffect(() => {
-    let cancelled = false
-    Promise.all([
-      fetch("/api/branches").then(async (response) => (response.ok ? ((await response.json()) as { id: number; name: string }[]) : [])),
-      fetch(`/api/branch-kpi-plans?period=${period}`).then(async (response) => (response.ok ? ((await response.json()) as BranchKpiPlan[]) : [])),
-    ])
-      .then(([list, plans]) => {
-        if (cancelled) return
-        setBranches(
-          [...list]
-            .sort((a, b) => a.id - b.id)
-            .map((branch) => {
-              const plan = plans.find((item) => item.branchId === branch.id)
-              return { id: branch.id, name: branch.name, bonus: plan?.bonusPercent ?? 0, kpi: plan?.planSales ?? 0 }
-            }),
-        )
-      })
-      .catch(() => {})
-    return () => {
-      cancelled = true
-    }
-  }, [period])
+    // Writes need manager (or admin), like the POST routes.
+    fetchJson<{ role?: string }>("/api/auth/me")
+      .then((me) => setCanEdit(me.role === "manager" || me.role === "admin"))
+      .catch(() => setCanEdit(false))
+  }, [])
 
-  const filtered = useMemo(() => branches.filter((branch) => branch.name.toLowerCase().includes(query.toLowerCase())), [branches, query])
-  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize))
-  const safePage = Math.min(page, pageCount)
-  const visible = filtered.slice((safePage - 1) * pageSize, safePage * pageSize)
+  useEffect(() => {
+    if (!notice) return
+    const timer = window.setTimeout(() => setNotice(null), 4000)
+    return () => window.clearTimeout(timer)
+  }, [notice])
 
-  function openPlans() {
-    setPlanDraft({ planSales: "", bonusPercent: "" })
-    setPlansOpen(true)
-  }
+  const update = (patch: Partial<ViewState>) => setState((current) => ({ ...current, ...patch }))
+  const rows = useMemo(() => data?.results ?? [], [data])
+  const selectedRows = useMemo(() => rows.filter((row) => selected.includes(row.id)), [rows, selected])
+  const pageIds = rows.map((row) => row.id)
+  const allChecked = pageIds.length > 0 && pageIds.every((id) => selected.includes(id))
 
-  async function savePlans(event: FormEvent) {
-    event.preventDefault()
-    if (!checkedIds.length) {
-      setPlansOpen(false)
-      return
-    }
-    const planSales = Number(planDraft.planSales) || 0
-    const bonusPercent = Number(planDraft.bonusPercent) || 0
-    setSavingPlans(true)
+  const recalc = async () => {
+    setRecalculating(true)
     try {
-      const results = await Promise.all(
-        checkedIds.map(async (branchId) => {
-          const branch = branches.find((item) => item.id === branchId)
-          if (!branch) return null
-          const response = await fetch("/api/branch-kpi-plans", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ branchId: branch.id, branchName: branch.name, period, planSales, bonusPercent }),
-          })
-          if (!response.ok) return null
-          return (await response.json()) as BranchKpiPlan
-        }),
-      )
-      setBranches((current) =>
-        current.map((branch) => {
-          const saved = results.find((item) => item && item.branchId === branch.id)
-          return saved ? { ...branch, bonus: saved.bonusPercent, kpi: saved.planSales } : branch
-        }),
-      )
-      setPlansOpen(false)
-    } catch {
-      window.alert("Сервер недоступен, попробуйте ещё раз")
+      const result = await sendJson<BranchKpiRecalcResult>(`${BRANCH_KPI_API}/recalc`, "POST", { month: state.month, year: state.year })
+      setNotice({ text: `${t("KPI пересчитан")}: ${result.branches}`, error: false })
+      reload()
+    } catch (reason) {
+      setNotice({ text: reason instanceof Error ? t(reason.message) : String(reason), error: true })
     } finally {
-      setSavingPlans(false)
+      setRecalculating(false)
     }
   }
 
-  function toggleChecked(id: number) {
-    setCheckedIds((current) => (current.includes(id) ? current.filter((item) => item !== id) : [...current, id]))
+  const toggleOrdering = (field: "name" | "salary") => {
+    const next: Ordering = state.ordering === field ? `-${field}` : state.ordering === `-${field}` ? "" : field
+    update({ ordering: next, page: 1 })
+  }
+  const orderingIcon = (field: "name" | "salary") => {
+    if (state.ordering === field) return <ChevronUp className="h-4 w-4" />
+    if (state.ordering === `-${field}`) return <ChevronDown className="h-4 w-4" />
+    return <ChevronsUpDown className="h-4 w-4 opacity-50" />
   }
 
-  function duplicateSelected() {
-    if (!checkedIds.length) return
-    setBranches((current) => {
-      const toCopy = current.filter((branch) => checkedIds.includes(branch.id))
-      const nextId = Math.max(0, ...current.map((branch) => branch.id)) + 1
-      const copies = toCopy.map((branch, index) => ({ ...branch, id: nextId + index, name: `${branch.name} (копия)` }))
-      return [...current, ...copies]
-    })
-    setCheckedIds([])
-  }
+  const actionButtons = (
+    <div className="flex items-center gap-2.5">
+      <span title={selected.length ? undefined : t("Выберите хотя бы один сотрудник !")}>
+        <button
+          type="button"
+          disabled={!selected.length || !canEdit}
+          onClick={() => setDialog({ kind: "bulk" })}
+          className="flex h-[30px] items-center gap-1.5 whitespace-nowrap rounded px-3 text-[13px] font-semibold text-white"
+          style={{ backgroundColor: selected.length && canEdit ? KPI_COLORS.blue : KPI_COLORS.disabled }}
+        >
+          <Pencil className="h-4 w-4" /> {t("Изменить планы")}
+        </button>
+      </span>
+      <button
+        type="button"
+        disabled={!canEdit}
+        onClick={() => setDialog({ kind: "duplicate" })}
+        title={t("Дублировать")}
+        aria-label={t("Дублировать")}
+        className="flex h-9 w-9 items-center justify-center rounded-full text-[#666] hover:bg-[#f2f5f8] disabled:opacity-40"
+      >
+        <Copy className="h-5 w-5" />
+      </button>
+    </div>
+  )
 
-  function downloadBranch(branch: Branch) {
-    const csv = [["Филиал", "Фикс. зарплата", "Бонусы", "Итог зарплата"].join(";"), [branch.name, "0 SUM", "0 SUM", "0 SUM"].join(";")].join("\n")
-    const url = URL.createObjectURL(new Blob([`﻿${csv}`], { type: "text/csv;charset=utf-8" }))
-    const anchor = document.createElement("a")
-    anchor.href = url
-    anchor.download = `${branch.name}-kpi.csv`
-    anchor.click()
-    URL.revokeObjectURL(url)
-  }
+  const pagination = (
+    <BalancePagination
+      page={state.page}
+      pageSize={state.pageSize}
+      count={data?.count ?? 0}
+      onChange={({ page, pageSize }) => update({ page, pageSize })}
+    />
+  )
 
+  const head = "border-b border-[#efefef] px-5 py-3 text-left font-semibold text-[#333]"
+  const colSpan = state.showCheckboxes ? 4 : 3
   return (
-    <RefPage>
-      <RefHeader title="KPI план филиалов">
-        <RefButton
-          icon={RI.sync}
-          green
-          label="Перерасчет KPI"
-          onClick={() => {
-            setRecalculating(true)
-            window.setTimeout(() => setRecalculating(false), 600)
-          }}
-        />
-      </RefHeader>
-
-      <section className="bg-white shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
-        <div className="flex flex-wrap items-end gap-[15px] px-[10px] py-[8px] text-[13px]">
-          <label className="text-[10px] font-bold text-black">
-            Месяц
-            <div className="mt-1 flex items-center gap-2 border-b py-1 pr-1">
-              <select value={month} onChange={(event) => setMonth(Number(event.target.value))} className="bg-white text-[13px] text-black outline-none">
-                {months.map((item, index) => (
-                  <option key={item} value={index}>
-                    {item}
-                  </option>
-                ))}
-              </select>
-              <button type="button" aria-label="Очистить месяц" onClick={() => setMonth(today.getMonth())} className="text-slate-400 hover:text-slate-600">
-                <X className="h-4 w-4" />
-              </button>
+    <main className="min-h-screen bg-white text-[#17233b]">
+      <header className="flex min-h-[76px] flex-wrap items-center gap-4 border-b border-[#d8dee7] bg-[#f2f5f8] px-6 md:px-9">
+        <div className="flex items-center gap-3">
+          <FavoritesButton className="flex items-center gap-3 text-2xl font-bold text-[#4f70e7]" />
+          <span className="text-3xl font-light text-[#586174]">|</span>
+          <span className="text-2xl font-bold text-[#586174]">{t("KPI план филиалов")}</span>
+        </div>
+        <div className="ml-auto flex flex-wrap items-center gap-3">
+          {data?.lastDate && (
+            <div className="font-semibold text-[#586174]">
+              {t("ДАННЫЕ ЗА")} <span className="font-normal">{formatKpiDate(data.lastDate, language)}</span>
             </div>
-          </label>
-          <label className="text-[10px] font-bold text-black">
-            Год
-            <select value={year} onChange={(event) => setYear(Number(event.target.value))} className="mt-1 block border-0 border-b py-1 text-[13px] text-black">
-              {[2024, 2025, 2026, 2027].map((item) => (
-                <option key={item}>{item}</option>
-              ))}
-            </select>
-          </label>
-          <label className="relative ml-[18px] w-[248px]">
-            <input value={query} onChange={(event) => { setQuery(event.target.value); setPage(1) }} placeholder="Поиск" className="w-full border-b border-[#e0e0e0] py-1 pr-10 text-[13px] outline-none focus:border-[#5d6474]" />
-            <Search className="absolute right-2 top-2 h-5 w-5 text-slate-300" />
-          </label>
-          <span className="ml-auto text-slate-500">25</span>
-          <span className="text-slate-500">
-            {filtered.length ? (safePage - 1) * pageSize + 1 : 0} - {Math.min(safePage * pageSize, filtered.length)} из {filtered.length}
-          </span>
-          <button type="button" onClick={() => setPage((value) => Math.max(1, value - 1))} disabled={safePage <= 1} aria-label="Назад" className="rounded-full border-2 p-1 disabled:opacity-30">
-            <ChevronLeft className="h-4 w-4" />
-          </button>
-          <button type="button" onClick={() => setPage((value) => Math.min(pageCount, value + 1))} disabled={safePage >= pageCount} aria-label="Вперед" className="rounded-full border-2 p-1 disabled:opacity-30">
-            <ChevronRight className="h-4 w-4" />
-          </button>
-          <button type="button" onClick={() => setSelectMode((value) => !value)} aria-pressed={selectMode} aria-label="Выбрать филиалы" className={`rounded p-1 ${selectMode ? "bg-[#5470e8] text-white" : "text-slate-500 hover:bg-slate-100"}`}>
-            <ListChecks className="h-5 w-5" />
-          </button>
-          <button type="button" onClick={openPlans} className="inline-flex items-center h-[30px] rounded-[5px] bg-[#5470e8] px-4 text-[13px] font-semibold text-white">
-            <Pencil className="mr-2 inline h-4 w-4" />
-            Изменить планы
-          </button>
-          <button type="button" onClick={duplicateSelected} aria-label="Дублировать выбранные" className="text-slate-500 hover:text-[#5470e8]">
-            <Copy className="h-5 w-5" />
+          )}
+          <button
+            type="button"
+            onClick={() => void recalc()}
+            disabled={!canEdit || recalculating}
+            className="flex h-[30px] items-center gap-1.5 whitespace-nowrap rounded px-3 text-[13px] font-semibold text-white disabled:opacity-60"
+            style={{ backgroundColor: KPI_COLORS.green }}
+          >
+            <RefreshCw className={`h-4 w-4 ${recalculating ? "animate-spin" : ""}`} />
+            {t("Перерасчет KPI")}
           </button>
         </div>
+      </header>
 
-        <table className="w-full text-left">
-          <thead className="bg-[#5d6474] text-white">
+      {selected.length === 0 ? (
+        <section className="flex min-h-[64px] flex-wrap items-end gap-x-6 gap-y-3 px-6 py-2 md:px-9">
+          <KpiMonthYearFilter month={state.month} year={state.year} onChange={({ month, year }) => update({ month, year, page: 1 })} />
+          <form
+            className="flex min-w-[200px] flex-1 items-center justify-center gap-1"
+            onSubmit={(event) => {
+              event.preventDefault()
+              update({ search: searchDraft.trim(), page: 1 })
+            }}
+          >
+            <input
+              value={searchDraft}
+              onChange={(event) => setSearchDraft(event.target.value)}
+              placeholder={t("Поиск")}
+              aria-label={t("Поиск")}
+              className="h-10 w-full max-w-[260px] border-b border-[#dbe0e8] bg-transparent px-1 text-[15px] outline-none focus:border-[#4f70e7]"
+            />
+            <button type="submit" aria-label={t("Поиск")} className="p-1.5 text-[#ccc]">
+              <Search className="h-5 w-5" />
+            </button>
+          </form>
+          <div className="flex flex-wrap items-center gap-3">
+            {pagination}
+            <button
+              type="button"
+              onClick={() => {
+                if (state.showCheckboxes) setSelected([])
+                update({ showCheckboxes: !state.showCheckboxes })
+              }}
+              title={state.showCheckboxes ? t("Спрятать флажки") : t("Выбрать из списка")}
+              aria-label={state.showCheckboxes ? t("Спрятать флажки") : t("Выбрать из списка")}
+              aria-pressed={state.showCheckboxes}
+              className="flex h-9 w-9 items-center justify-center rounded-full text-[#5d6474] hover:bg-[#f2f5f8]"
+            >
+              {state.showCheckboxes ? <ListX className="h-5 w-5" /> : <ListChecks className="h-5 w-5" />}
+            </button>
+            {actionButtons}
+          </div>
+        </section>
+      ) : (
+        <section className="flex min-h-[64px] flex-wrap items-center gap-4 bg-[#f2f5f8] px-6 py-2 md:px-9">
+          <strong className="text-[#333]">
+            {t("Выбрано")}: {selected.length}
+          </strong>
+          <div className="ml-auto flex flex-wrap items-center gap-3">
+            {pagination}
+            {actionButtons}
+            <button
+              type="button"
+              onClick={() => setSelected([])}
+              title={t("Снять выделение")}
+              aria-label={t("Снять выделение")}
+              className="flex h-9 w-9 items-center justify-center rounded-full text-[#666] hover:bg-white"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>
+        </section>
+      )}
+
+      {error && (
+        <div className="flex items-center gap-3 px-6 py-3 text-[#e57373] md:px-9">
+          <span>
+            {t("Не удалось загрузить данные")}: {t(error)}
+          </span>
+          <button type="button" onClick={reload} className="font-semibold text-[#4f70e7] hover:underline">
+            {t("Повторить")}
+          </button>
+        </div>
+      )}
+
+      <div className={`overflow-x-auto pb-10 ${loading ? "opacity-60" : ""}`}>
+        <table className="w-full min-w-[760px] border-collapse text-[14px] text-[#666]">
+          <thead>
             <tr>
-              {selectMode && <th className="w-10 px-5 py-4 text-[13px]" />}
-              <th className="px-9 py-4 text-[13px]">Филиал</th>
-              <th className="px-5 py-4 text-[13px]">Сумма бонусов</th>
-              <th className="px-5 py-4 text-[13px]">KPI</th>
+              {state.showCheckboxes && (
+                <th className={`${head} w-12`}>
+                  <input
+                    type="checkbox"
+                    checked={allChecked}
+                    onChange={() => setSelected((current) => (allChecked ? current.filter((id) => !pageIds.includes(id)) : [...new Set([...current, ...pageIds])]))}
+                    aria-label={t("Выбрать все")}
+                    className="h-4 w-4 accent-[#4f71dc]"
+                  />
+                </th>
+              )}
+              <th className={`${head} w-1/3`}>
+                <button type="button" onClick={() => toggleOrdering("name")} className="inline-flex items-center gap-1">
+                  {t("Филиал")} {orderingIcon("name")}
+                </button>
+              </th>
+              <th className={`${head} w-1/6`}>
+                <button type="button" onClick={() => toggleOrdering("salary")} className="inline-flex items-center gap-1">
+                  {t("Сумма бонусов")} {orderingIcon("salary")}
+                </button>
+              </th>
+              <th className={head}>KPI</th>
             </tr>
           </thead>
           <tbody>
-            {visible.map((branch) => (
-              <Fragment key={branch.id}>
-                <tr className="cursor-pointer border-b border-dashed border-slate-300 hover:bg-slate-50" onClick={() => setSelectedId((current) => (current === branch.id ? null : branch.id))}>
-                  {selectMode && (
-                    <td className="px-5 py-4" onClick={(event) => event.stopPropagation()}>
-                      <input type="checkbox" checked={checkedIds.includes(branch.id)} onChange={() => toggleChecked(branch.id)} />
-                    </td>
-                  )}
-                  <td className="px-9 py-4 font-semibold text-slate-800">{branch.name}</td>
-                  <td className="px-5 py-4">{branch.bonus}</td>
-                  <td className="px-5 py-4">{branch.kpi || ""}</td>
-                </tr>
-                {selectedId === branch.id && (
-                  <tr>
-                    <td colSpan={selectMode ? 4 : 3} className="border-b bg-white p-0">
-                      <div className="p-6">
-                        <div className="mb-5 flex items-center justify-between">
-                          <h2 className="text-2xl font-semibold text-slate-800">{branch.name}</h2>
-                          <button type="button" onClick={() => downloadBranch(branch)} aria-label="Скачать" className="text-slate-500 hover:text-[#5470e8]">
-                            <Download className="h-5 w-5" />
-                          </button>
-                        </div>
-                        <div className="mb-5 grid gap-6 sm:grid-cols-3">
-                          <div>
-                            <p className="text-slate-500">Фикс. зарплата</p>
-                            <p className="text-lg font-semibold">0 SUM</p>
+            {rows.map((row) => {
+              const open = state.id === row.id
+              return (
+                <Fragment key={row.id}>
+                  <tr
+                    className={`cursor-pointer border-b border-[#efefef] ${open ? "bg-[#f2f5f8]" : "hover:bg-[#f9fafc]"}`}
+                    onClick={() => update({ id: open ? null : row.id })}
+                  >
+                    {state.showCheckboxes && (
+                      <td className="px-5" onClick={(event) => event.stopPropagation()}>
+                        <input
+                          type="checkbox"
+                          checked={selected.includes(row.id)}
+                          onChange={() => setSelected((current) => (current.includes(row.id) ? current.filter((id) => id !== row.id) : [...current, row.id]))}
+                          aria-label={row.name}
+                          className="h-4 w-4 accent-[#4f71dc]"
+                        />
+                      </td>
+                    )}
+                    <td className="px-5 py-2 font-semibold text-[#333]">{row.name}</td>
+                    <td className="px-5 py-2">{kpiNumber(row.totalBonus)}</td>
+                    <td className="px-5 py-1">
+                      <div className="flex min-h-[50px] flex-wrap items-center">
+                        {row.performanceIndicators.map((item) => (
+                          <div key={item.id} className="my-[5px] mr-2.5 inline-flex h-7 items-center rounded-sm bg-[#e9ecef] px-2.5 leading-none">
+                            {item.name}: <span className="ml-1 font-semibold text-[#4f71dc]">{kpiNumber(item.plan)}</span>
                           </div>
-                          <div>
-                            <p className="text-slate-500">Бонусы</p>
-                            <p className="text-lg font-semibold">0 SUM</p>
-                          </div>
-                          <div>
-                            <p className="text-slate-500">Итог зарплата</p>
-                            <p className="text-lg font-semibold">0 SUM</p>
-                          </div>
-                        </div>
-                        <div className="overflow-x-auto">
-                          <table className="w-full min-w-[1000px] text-left text-sm">
-                            <thead className="bg-[#4f71dc] text-white">
-                              <tr>
-                                {kpiColumns.map((column) => (
-                                  <th key={column} className="px-4 py-3 font-semibold">
-                                    <span className="inline-flex items-center gap-1">
-                                      {column} <ChevronsUpDown className="h-3.5 w-3.5" />
-                                    </span>
-                                  </th>
-                                ))}
-                              </tr>
-                            </thead>
-                            <tbody>
-                              <tr>
-                                <td colSpan={kpiColumns.length} className="px-4 py-8 text-center text-slate-400">
-                                  Нет данных
-                                </td>
-                              </tr>
-                            </tbody>
-                          </table>
-                        </div>
+                        ))}
                       </div>
                     </td>
                   </tr>
-                )}
-              </Fragment>
-            ))}
-            {visible.length === 0 && (
+                  {open && (
+                    <tr>
+                      <td colSpan={colSpan} className="border-b-2 border-[#dbe0e8] p-0">
+                        <BranchKpiDetailPanel
+                          branchId={row.id}
+                          month={state.month}
+                          year={state.year}
+                          version={version}
+                          onClose={() => update({ id: null })}
+                          onOpenIndicator={(indicatorId) => setDialog({ kind: "levels", indicatorId })}
+                        />
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
+              )
+            })}
+            {!rows.length && !loading && (
               <tr>
-                <td colSpan={selectMode ? 4 : 3} className="px-5 py-10 text-center text-slate-400">
-                  Ничего не найдено
+                <td colSpan={colSpan} className="px-5 py-10 text-center text-[#999]">
+                  {t("Нет данных")}
                 </td>
               </tr>
             )}
           </tbody>
         </table>
-      </section>
+      </div>
 
-      {plansOpen && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/55 p-4">
-          <form onSubmit={savePlans} className="w-full max-w-lg bg-white">
-            <header className="flex justify-between border-b px-7 py-5">
-              <h2 className="font-bold">ИЗМЕНИТЬ ПЛАНЫ</h2>
-              <button type="button" onClick={() => setPlansOpen(false)} aria-label="Закрыть">
-                <X />
-              </button>
-            </header>
-            <div className="space-y-5 p-7">
-              <p className="text-sm text-slate-500">
-                {checkedIds.length ? `Выбрано филиалов: ${checkedIds.length}` : "Выберите филиалы в таблице, чтобы изменить их планы"}
-              </p>
-              <input
-                type="number"
-                min="0"
-                placeholder="План продаж"
-                value={planDraft.planSales}
-                onChange={(event) => setPlanDraft((value) => ({ ...value, planSales: event.target.value }))}
-                className="w-full border-b py-3"
-              />
-              <input
-                type="number"
-                min="0"
-                placeholder="Бонус, %"
-                value={planDraft.bonusPercent}
-                onChange={(event) => setPlanDraft((value) => ({ ...value, bonusPercent: event.target.value }))}
-                className="w-full border-b py-3"
-              />
-            </div>
-            <footer className="flex justify-end border-t px-7 py-5">
-              <button type="submit" disabled={savingPlans || !checkedIds.length} className="font-bold uppercase text-sky-500 disabled:opacity-40">
-                {savingPlans ? "Сохранение..." : "Сохранить"}
-              </button>
-            </footer>
-          </form>
+      {dialog?.kind === "bulk" && (
+        <BranchKpiBulkDialog
+          month={state.month}
+          year={state.year}
+          branches={selectedRows}
+          onPeriodChange={({ month, year }) => update({ month, year })}
+          onClose={() => setDialog(null)}
+          onSaved={(text) => {
+            setDialog(null)
+            setNotice({ text, error: false })
+            reload()
+          }}
+        />
+      )}
+      {dialog?.kind === "duplicate" && (
+        <BranchKpiDuplicateDialog
+          month={state.month}
+          year={state.year}
+          selected={selected}
+          onClose={() => setDialog(null)}
+          onSaved={(text) => {
+            setDialog(null)
+            setNotice({ text, error: false })
+            reload()
+          }}
+        />
+      )}
+      {dialog?.kind === "levels" && (
+        <BranchKpiLevelsDialog
+          indicatorId={dialog.indicatorId}
+          month={state.month}
+          year={state.year}
+          canEdit={canEdit}
+          onClose={() => setDialog(null)}
+          onSaved={(text) => {
+            setDialog(null)
+            setNotice({ text, error: false })
+            reload()
+          }}
+        />
+      )}
+
+      {notice && (
+        <div
+          role="status"
+          className={`fixed bottom-6 left-1/2 z-[120] max-w-[90vw] -translate-x-1/2 rounded-md px-5 py-3 font-semibold text-white shadow-lg ${notice.error ? "bg-[#e57373]" : "bg-[#48a34b]"}`}
+        >
+          {notice.text}
         </div>
       )}
-    </RefPage>
+    </main>
   )
 }

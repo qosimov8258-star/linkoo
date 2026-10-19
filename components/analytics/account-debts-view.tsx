@@ -1,485 +1,515 @@
 "use client"
 
-import { useMemo, useRef, useState } from "react"
-import { BarChart, Calendar, ChevronDown, ChevronsRight, CreditCard, Filter, List, X } from "lucide-react"
+import { useEffect, useMemo, useState, type FormEvent } from "react"
+import { useSearchParams } from "next/navigation"
+import { CheckCircle2, CreditCard, Info, List, Search, X } from "lucide-react"
+
+import {
+  AccountDebtFilterDialog,
+  accountDebtFilterQuery,
+  readAccountDebtFilters,
+  writeAccountDebtFilters,
+  type AccountDebtFilters,
+} from "@/components/analytics/account-debts-filter"
+import { BalanceTable } from "@/components/analytics/balance/balance-table"
+import { ClientActDialog } from "@/components/analytics/balance/client-act-dialog"
+import { BalanceDownloadMenu } from "@/components/analytics/balance/download-menu"
+import { balanceListExcelRows } from "@/components/analytics/balance/excel"
+import { ExpandedOverlay, ExpandedViewButton } from "@/components/analytics/balance/expanded-view"
+import { BalanceFilterButton, countActiveFilters } from "@/components/analytics/balance/filter-bar"
+import { GroupPaymentDialog } from "@/components/analytics/balance/group-payment-dialog"
+import { BALANCE_PAGE_SIZES, BalancePagination } from "@/components/analytics/balance/pagination"
+import { BalanceSummaryCards, type SummaryBox } from "@/components/analytics/balance/summary-cards"
+import { buildBalanceQuery, useBalanceList, type BalanceQuery } from "@/components/analytics/balance/use-balance"
 import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
 import { downloadExcelTable } from "@/lib/excel-export"
+import { defaultBalancePeriod, isIsoDay } from "@/lib/finance/dates"
+import { MOVEMENT_LABELS, type BalanceDateMode, type BalanceListResult, type BalanceRow } from "@/lib/finance/types"
+import { useLanguage } from "@/lib/i18n/language-context"
 
-type Money = { sum: number; usd: number; eur: number }
-type DebtRow = {
-  id: number
-  name: string
-  taxId?: string
-  type: string
-  opening: Money
+// "Долги по счетам" (demo #/statistics/market-expanded, a fork of the
+// clients balance page): balances of financial accounts — clients grouped by
+// INN (key "inn:<inn>", legal name from contracts) or single clients without
+// INN — per currency for a period, by transaction creation or realization
+// date. Data: GET /api/balances/account (shared finance ledger); act modal:
+// ClientActDialog kind "account"; "Групповая оплата": GroupPaymentDialog →
+// POST /api/balances/group-payment. Page state lives in the URL with the
+// demo's query keys (fromDate/toDate or acceptedDateBegin/End, pageSize,
+// ordering, toggle, filters, openClient).
+
+type Toggle = "marketExpanded" | "marketType"
+
+type PageState = {
+  from: string
+  to: string
+  mode: BalanceDateMode
+  toggle: Toggle
+  search: string
+  page: number
+  pageSize: number
+  ordering: string[]
+  filters: AccountDebtFilters
+  /** BalanceRow.key of the account whose act is open ("" = closed). */
+  openClient: string
 }
 
-const zero: Money = { sum: 0, usd: 0, eur: 0 }
+const GROUPS = [
+  { field: "begin_balance", label: "Баланс на начало периода" },
+  ...Object.entries(MOVEMENT_LABELS.account).map(([field, label]) => ({ field, label })),
+  { field: "end_balance", label: "Баланс на конец" },
+]
 
-const rows: DebtRow[] = []
+const SUMMARY_BOXES: SummaryBox[] = [
+  { metrics: [{ label: "Баланс на начало периода", field: "begin_balance" }, { label: "Продажи", field: "order" }] },
+  { metrics: [{ label: "Возврат", field: "order_return" }, { label: "Оплачено", field: "payment" }] },
+  { metrics: [{ label: "Прочие приходы", field: "none_type_plus" }, { label: "Прочие расходы", field: "none_type_minus" }] },
+  { align: "right", metrics: [{ label: "Баланс на конец периода", field: "end_balance" }] },
+]
 
-const TOTAL_ROWS = 0
-const FIXED_TOTALS = {
-  opening: { eur: 0, sum: 0, usd: 0 },
-  closing: { eur: 0, sum: 0, usd: 0 },
+const PERIOD_HINTS: Record<BalanceDateMode, { intro: string; items: string[] }> = {
+  created: {
+    intro: "При расчете оперативного долга система будет учитывать все транзакции по дате создания и будет учитывать:",
+    items: ["Все заказы (кроме неподтвержденных и отмененных заказов).", "Все оплаты (кроме отмененных).", "Все возвраты (кроме отмененных)."],
+  },
+  realization: {
+    intro: "При расчете фактического долга система будет учитывать все транзакции по дате реализации и будет учитывать:",
+    items: [
+      "Заказы после выдачи со склада (то есть статус \"Доставляется\" и \"Доставленные\").",
+      "Только принятые возвраты на склад (то есть статус \"Принят\").",
+      "Только принятые оплаты в кассу.",
+    ],
+  },
 }
 
-const typeAggregates: { type: string; balance: Money }[] = []
+function readState(params: URLSearchParams): PageState {
+  const mode: BalanceDateMode = params.get("periodType") === "secondPeriod" ? "realization" : "created"
+  const fallback = defaultBalancePeriod()
+  const day = (name: string, alt: string) => {
+    const value = params.get(name) ?? ""
+    return isIsoDay(value) ? value : alt
+  }
+  let from = mode === "realization" ? day("acceptedDateBegin", fallback.from) : day("fromDate", fallback.from)
+  let to = mode === "realization" ? day("acceptedDateEnd", fallback.to) : day("toDate", fallback.to)
+  if (from > to) [from, to] = [to, from]
+  const pageSize = Number(params.get("pageSize"))
+  const page = Number(params.get("page"))
+  return {
+    from,
+    to,
+    mode,
+    toggle: params.get("toggle") === "marketType" ? "marketType" : "marketExpanded",
+    search: (params.get("search") ?? "").trim(),
+    page: Number.isInteger(page) && page > 0 ? page : 1,
+    pageSize: (BALANCE_PAGE_SIZES as readonly number[]).includes(pageSize) ? pageSize : 25,
+    ordering: params.getAll("ordering").filter(Boolean).slice(0, 1),
+    filters: readAccountDebtFilters(params),
+    openClient: (params.get("openClient") ?? "").trim(),
+  }
+}
 
-const groups =["Баланс на начало периода", "Продано", "Возврат", "Оплачено", "Прочие приходы", "Прочие расходы", "Баланс на конец периода"] as const
-
-const money = (value: number) => new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 2 }).format(value)
-
-function AmountCell({ value }: { value: number }) {
-  if (value === 0) return <span>0</span>
-  const color = value > 0 ? "text-[#3aa76d]" : "text-[#e5484d]"
-  return <span className={`font-semibold ${color}`}>{money(value)}</span>
+function stateUrl(state: PageState): string {
+  const params = new URLSearchParams()
+  if (state.mode === "realization") {
+    params.set("periodType", "secondPeriod")
+    params.set("acceptedDateBegin", state.from)
+    params.set("acceptedDateEnd", state.to)
+  } else {
+    params.set("fromDate", state.from)
+    params.set("toDate", state.to)
+  }
+  params.set("pageSize", String(state.pageSize))
+  if (state.page > 1) params.set("page", String(state.page))
+  state.ordering.forEach((key) => params.append("ordering", key))
+  if (state.search) params.set("search", state.search)
+  if (state.toggle === "marketType") params.set("toggle", "marketType")
+  writeAccountDebtFilters(params, state.filters)
+  if (state.openClient) params.set("openClient", state.openClient)
+  return `?${params.toString()}`
 }
 
 export function AccountDebtsView() {
-  const [dateBasis, setDateBasis] = useState<"transaction" | "realization">("transaction")
+  const { t } = useLanguage()
+  const searchParams = useSearchParams()
+  const [state, setState] = useState<PageState>(() => readState(new URLSearchParams(searchParams.toString())))
+  const [searchDraft, setSearchDraft] = useState(state.search)
   const [filterOpen, setFilterOpen] = useState(false)
   const [groupPaymentOpen, setGroupPaymentOpen] = useState(false)
-  const [splitByCurrency, setSplitByCurrency] = useState(false)
-  const [byType, setByType] = useState(false)
-  const [typeFilter, setTypeFilter] = useState("Все типы")
-  const [selected, setSelected] = useState<Set<number>>(new Set())
-  const [pageSize, setPageSize] = useState(25)
-  const [page, setPage] = useState(1)
-  const tableRef = useRef<HTMLDivElement>(null)
+  const [expanded, setExpanded] = useState(false)
+  const [selected, setSelected] = useState<Map<string, BalanceRow>>(() => new Map())
+  const [actName, setActName] = useState("")
+  const [notice, setNotice] = useState("")
+  const [exporting, setExporting] = useState(false)
+  const [exportError, setExportError] = useState("")
 
-  const [branch, setBranch] = useState("Все филиалы")
-  const [zone, setZone] = useState("Все зоны")
-  const [lastVisit, setLastVisit] = useState("Не важно")
-  const [organization, setOrganization] = useState("Все организации")
-  const [agentClients, setAgentClients] = useState("Все агенты")
-  const [supplier, setSupplier] = useState("Все поставщики")
-  const [balanceType, setBalanceType] = useState("Любой")
-  const [responsibleSupplier, setResponsibleSupplier] = useState("Не важно")
-  const [responsibleCollector, setResponsibleCollector] = useState("Не важно")
-  const [sinceOrderFrom, setSinceOrderFrom] = useState("")
-  const [sinceOrderTo, setSinceOrderTo] = useState("")
-  const [sincePaymentFrom, setSincePaymentFrom] = useState("")
-  const [sincePaymentTo, setSincePaymentTo] = useState("")
-  const [onlyRealized, setOnlyRealized] = useState(false)
-  const [onlyDelivered, setOnlyDelivered] = useState(false)
-  const [onlyOverdue, setOnlyOverdue] = useState(false)
-  const [excludeClosed, setExcludeClosed] = useState(false)
+  const { from, to, mode, toggle, search, page, pageSize, ordering, filters, openClient } = state
+  const byType = toggle === "marketType"
 
-  const today = useMemo(() => new Date(), [])
-  const defaultFrom = useMemo(() => new Date(today.getFullYear(), today.getMonth(), 1), [today])
-  const [transFrom, setTransFrom] = useState("")
-  const [transTo, setTransTo] = useState("")
-  const [appliedFrom, setAppliedFrom] = useState(() => formatDate(defaultFrom))
-  const [appliedTo, setAppliedTo] = useState(() => formatDate(today))
+  // Mirror the page state into the URL (demo keeps every filter in the query).
+  const url = stateUrl(state)
+  useEffect(() => {
+    if (window.location.search !== url) window.history.replaceState(null, "", url)
+  }, [url])
 
-  const filterCount = appliedFrom && appliedTo ? 1 : 0
+  useEffect(() => {
+    if (!notice) return
+    const timer = window.setTimeout(() => setNotice(""), 3000)
+    return () => window.clearTimeout(timer)
+  }, [notice])
 
-  const types = ["Все типы", ...new Set(rows.map((row) => row.type))]
+  /** Any change but paging goes back to page 1. */
+  const update = (patch: Partial<PageState>) => setState((current) => ({ ...current, page: 1, ...patch }))
 
-  const filteredRows = useMemo(
-    () => rows.filter((row) => typeFilter === "Все типы" || row.type === typeFilter),
-    [typeFilter],
+  const listQuery: BalanceQuery = useMemo(
+    () => ({
+      from,
+      to,
+      mode,
+      ...accountDebtFilterQuery(filters),
+      ordering,
+      // The client-type view lists every type (demo total_by_types is not paged); its search is by type name.
+      search: byType ? "" : search,
+      groupBy: byType ? "type" : "",
+      page: byType ? undefined : page,
+      pageSize: byType ? 0 : pageSize,
+    }),
+    [from, to, mode, filters, ordering, search, byType, page, pageSize],
   )
+  const { data, loading, error, reload } = useBalanceList("account", listQuery)
 
-  const maxPage = Math.max(1, Math.ceil(filteredRows.length / pageSize))
-  const safePage = Math.min(page, maxPage)
-  const visibleRows = filteredRows.slice((safePage - 1) * pageSize, safePage * pageSize)
+  const currencies = data?.visibleCurrencies ?? []
 
-  const allSelected = visibleRows.length > 0 && visibleRows.every((row) => selected.has(row.id))
-  const toggleAll = () => {
-    setSelected((current) => {
-      const next = new Set(current)
-      if (allSelected) visibleRows.forEach((row) => next.delete(row.id))
-      else visibleRows.forEach((row) => next.add(row.id))
-      return next
+  // A page number past the end (stale URL, fewer rows after a change) jumps to the last page.
+  useEffect(() => {
+    if (byType || !data || loading || data.rows.length || page <= 1) return
+    const lastPage = Math.max(1, Math.ceil(data.count / Math.max(1, pageSize)))
+    if (page > lastPage) setState((current) => ({ ...current, page: lastPage }))
+  }, [byType, data, loading, page, pageSize])
+  const typeQuery = search.trim().toLowerCase()
+  const rows = useMemo(() => {
+    const all = data?.rows ?? []
+    if (!byType || !typeQuery) return all
+    return all.filter((row) => (row.name || t("Не указано")).toLowerCase().includes(typeQuery))
+  }, [data, byType, typeQuery, t])
+
+  // Selected accounts are kept across pages; prefer the freshest numbers of the current page.
+  const pageRows = useMemo(() => new Map((data?.rows ?? []).map((row) => [row.key, row])), [data])
+  const selectedRows = [...selected.values()].map((row) => pageRows.get(row.key) ?? row)
+  const selection = {
+    selected: new Set(selected.keys()),
+    onChange: (next: Set<string>) =>
+      setSelected((current) => {
+        const result = new Map<string, BalanceRow>()
+        for (const key of next) {
+          const row = pageRows.get(key) ?? current.get(key)
+          if (row) result.set(key, row)
+        }
+        return result
+      }),
+  }
+
+  const filterCount = countActiveFilters({
+    ...(mode === "realization" ? { acceptedDateBegin: from, acceptedDateEnd: to } : { toDate: to }),
+    ...filters,
+  })
+  const scope = [...filters.division, ...filters.branch]
+
+  const openAct = (row: BalanceRow) => {
+    setActName(row.name)
+    setState((current) => ({ ...current, openClient: row.key }))
+  }
+
+  const drillIntoType = (row: BalanceRow) => {
+    const type = String(row.info.type ?? "")
+    if (!type) return
+    setSearchDraft("")
+    update({ toggle: "marketExpanded", search: "", filters: { ...filters, marketTypeParent: type } })
+  }
+
+  const submitSearch = (event: FormEvent) => {
+    event.preventDefault()
+    update({ search: searchDraft.trim() })
+  }
+
+  const fileBase = `${t("Долги по счетам")} ${from} - ${to}`
+
+  const fetchAll = async (): Promise<BalanceListResult> => {
+    const response = await fetch(`/api/balances/account?${buildBalanceQuery({ ...listQuery, page: undefined, pageSize: 0 })}`, { cache: "no-store" })
+    const body = (await response.json().catch(() => null)) as (BalanceListResult & { error?: string }) | null
+    if (!response.ok || !body) throw new Error(body?.error || `HTTP ${response.status}`)
+    return body
+  }
+
+  const runExport = async (build: (result: BalanceListResult) => void) => {
+    setExporting(true)
+    setExportError("")
+    try {
+      build(await fetchAll())
+    } catch (reason) {
+      setExportError(reason instanceof Error ? reason.message : String(reason))
+    } finally {
+      setExporting(false)
+    }
+  }
+
+  const downloadAll = () =>
+    runExport((result) => {
+      const list = byType && typeQuery ? result.rows.filter((row) => (row.name || t("Не указано")).toLowerCase().includes(typeQuery)) : result.rows
+      const leading = byType
+        ? [{ label: "Тип клиента", value: (row: BalanceRow) => row.name || t("Не указано") }]
+        : [
+            { label: "Клиент", value: (row: BalanceRow) => row.name },
+            { label: "ИНН", value: (row: BalanceRow) => String(row.info.inn ?? "") },
+          ]
+      downloadExcelTable(fileBase, balanceListExcelRows({ rows: list, groups: GROUPS, currencies: result.visibleCurrencies, leading, totals: result.totals, t }))
     })
-  }
-  const toggleOne = (id: number) => {
-    setSelected((current) => {
-      const next = new Set(current)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
-      return next
-    })
-  }
 
-  const applyFilter = () => {
-    if (transFrom) setAppliedFrom(formatDate(new Date(transFrom)))
-    if (transTo) setAppliedTo(formatDate(new Date(transTo)))
-    setPage(1)
-    setFilterOpen(false)
-  }
-
-  const scrollTableToEnd = () => {
-    tableRef.current?.scrollTo({ left: tableRef.current.scrollWidth, behavior: "smooth" })
-  }
-
-  const drillIntoType = (type: string) => {
-    setByType(false)
-    setTypeFilter(type)
-    setPage(1)
-  }
-
-  const downloadAll = () => {
-    const header = ["Клиент", "Тип", ...groups.flatMap((group) => [`${group} SUM`, `${group} USD`, `${group} Euro`])]
-    const body = filteredRows.map((row) => {
-      const cells = groups.flatMap((group) =>
-        group === "Баланс на начало периода" ? [row.opening.sum, row.opening.usd, row.opening.eur]
-        : group === "Баланс на конец периода" ? [row.opening.sum, row.opening.usd, row.opening.eur]
-        : [0, 0, 0],
+  const downloadShort = () =>
+    runExport((result) => {
+      downloadExcelTable(
+        `${fileBase} (${t("Скачать упрощенным")})`,
+        balanceListExcelRows({
+          rows: result.rows,
+          groups: [{ field: "end_balance", label: "Баланс на конец" }],
+          currencies: result.visibleCurrencies,
+          leading: [{ label: "Клиент", value: (row) => row.name }],
+          t,
+        }),
       )
-      return [row.name, row.type, ...cells]
     })
-    downloadExcelTable("account-debts.xls", [header, ...body])
-  }
+
+  const firstColumn = byType
+    ? {
+        label: "Тип клиента",
+        sortKey: "name",
+        render: (row: BalanceRow) =>
+          row.info.type ? (
+            <button type="button" onClick={() => drillIntoType(row)} className="flex items-center gap-2 text-left text-[#17233b] hover:text-[#4f70e7]">
+              {row.name}
+              <List className="h-4 w-4 shrink-0 text-[#4f70e7]" />
+            </button>
+          ) : (
+            <span className="text-[#586174]">{t("Не указано")}</span>
+          ),
+      }
+    : {
+        label: "Клиент",
+        sortKey: "name",
+        render: (row: BalanceRow) => (
+          <div className="min-w-0">
+            <button type="button" onClick={() => openAct(row)} className="text-left font-medium text-[#4f70e7] hover:underline">
+              {row.name || "No"}
+            </button>
+            {(row.info.inn || Number(row.info.clients) > 1) && (
+              <div className="text-[12px] text-[#586174]">
+                {row.info.inn ? `${t("ИНН")}: ${row.info.inn}` : ""}
+                {row.info.inn && Number(row.info.clients) > 1 ? " · " : ""}
+                {Number(row.info.clients) > 1 ? `${t("Клиенты")}: ${row.info.clients}` : ""}
+              </div>
+            )}
+          </div>
+        ),
+      }
+
+  const realizedBadge =
+    mode === "realization" ? (
+      <span className="font-semibold text-[#4caf72]">
+        {t("Реализовано")}
+        {filters.deliveryMan ? ` (${t("По доставщику")})` : ""}
+      </span>
+    ) : null
 
   return (
     <main className="min-h-screen bg-white text-[#17233b]">
       <header className="flex min-h-[76px] flex-wrap items-center justify-between gap-4 border-b border-[#d8dee7] bg-[#f2f5f8] px-6 md:px-9">
         <div className="flex items-center gap-3">
-          <FavoritesButton className="flex items-center gap-3 text-2xl font-bold text-[#4f71dc]" />
+          <FavoritesButton className="flex items-center gap-3 text-2xl font-bold text-[#4f70e7]" />
           <span className="text-3xl font-light text-[#586174]">|</span>
-          <span className="text-2xl font-bold text-[#586174]">Долги по счетам</span>
+          <h1 className="text-2xl font-bold text-[#586174]">{t("Долги по счетам")}</h1>
         </div>
-        <div className="my-3 flex overflow-hidden rounded-md border border-[#dbe0e8]">
-          <button
-            onClick={() => setDateBasis("transaction")}
-            className={`flex items-center gap-2 px-5 py-3 text-[15px] font-semibold ${dateBasis === "transaction" ? "bg-[#6fcf97] text-white" : "bg-white text-[#586174]"}`}
-          >
-            <Info className="h-4 w-4" /> По дате создание транзакции
-          </button>
-          <button
-            onClick={() => setDateBasis("realization")}
-            className={`flex items-center gap-2 px-5 py-3 text-[15px] font-semibold ${dateBasis === "realization" ? "bg-[#6fcf97] text-white" : "bg-white text-[#586174]"}`}
-          >
-            <Info className="h-4 w-4" /> По дате реализации
-          </button>
+        <div className="my-3 flex rounded-md border border-[#dbe0e8] bg-white">
+          {(["created", "realization"] as const).map((value) => (
+            <button
+              key={value}
+              type="button"
+              onClick={() => value !== mode && update({ mode: value })}
+              className={`group relative flex items-center gap-2 px-5 py-3 text-[15px] font-semibold first:rounded-l-md last:rounded-r-md ${mode === value ? "bg-[#71ce87] text-white" : "text-[#586174] hover:bg-[#f7f9fb]"}`}
+            >
+              <Info className="h-4 w-4" />
+              {t(value === "created" ? "По дате создание транзакции" : "По дате реализации")}
+              <span className="pointer-events-none absolute right-0 top-full z-[70] mt-2 hidden w-[380px] rounded-md bg-[#3d4656] p-3 text-left text-[13px] font-normal leading-5 text-white shadow-lg group-hover:block">
+                {t(PERIOD_HINTS[value].intro)}
+                <span className="mt-2 block">
+                  {PERIOD_HINTS[value].items.map((item, index) => (
+                    <span key={item} className="block">
+                      {index + 1}. {t(item)}
+                    </span>
+                  ))}
+                </span>
+              </span>
+            </button>
+          ))}
         </div>
       </header>
 
       <section className="flex flex-wrap items-center gap-4 px-6 py-4 md:px-9">
-        <button onClick={() => setFilterOpen(true)} className="flex h-11 items-center gap-2 rounded-md bg-[#4f71dc] px-5 font-semibold text-white">
-          <Filter className="h-4 w-4" /> Фильтр / {filterCount}
-        </button>
-        <span className="font-semibold text-[#4f71dc]">{appliedFrom} - {appliedTo}</span>
-        <span className="text-[#586174]">Во всей организации</span>
-        <button onClick={() => setGroupPaymentOpen(true)} className="ml-auto flex h-11 items-center gap-2 rounded-md border border-[#4f71dc] px-5 font-semibold text-[#4f71dc]">
-          <CreditCard className="h-5 w-5" /> Групповая оплата
-        </button>
-        <button onClick={downloadAll} className="flex h-11 items-center gap-2 rounded-md bg-[#4caf72] px-5 font-semibold text-white">
-          <BarChart className="h-5 w-5" /> Скачать
-        </button>
+        <BalanceFilterButton count={filterCount} from={from} to={to} scope={scope} onOpen={() => setFilterOpen(true)} extra={realizedBadge} />
+        <div className="ml-auto flex flex-wrap items-center gap-3">
+          {!byType && (
+            <button
+              type="button"
+              onClick={() => setGroupPaymentOpen(true)}
+              className="flex h-11 items-center gap-2 rounded-md border border-[#4f70e7] px-5 font-semibold text-[#4f70e7] hover:bg-[#f2f5fd]"
+            >
+              <CreditCard className="h-5 w-5" /> {t("Групповая оплата")}
+              {selected.size > 0 && <span className="rounded-full bg-[#4f70e7] px-2 text-[12px] text-white">{selected.size}</span>}
+            </button>
+          )}
+          <BalanceDownloadMenu
+            disabled={exporting}
+            label={exporting ? "Загрузка..." : "Скачать"}
+            items={byType ? [{ label: "Скачать все", onClick: downloadAll }] : [{ label: "Скачать все", onClick: downloadAll }, { label: "Скачать упрощенным", onClick: downloadShort }]}
+          />
+        </div>
+        {exportError && <p className="w-full text-right text-sm text-[#e57373]">{exportError}</p>}
       </section>
 
-      <section className="grid grid-cols-1 gap-6 px-6 pb-6 sm:grid-cols-2 lg:grid-cols-4 md:px-9">
-        <div>
-          <p className="text-[#586174]">Баланс на начало периода</p>
-          <p className="font-semibold"><AmountCell value={FIXED_TOTALS.opening.eur} /> Euro</p>
-          <p className="font-semibold"><AmountCell value={FIXED_TOTALS.opening.sum} /> SUM</p>
-          <p className="font-semibold"><AmountCell value={FIXED_TOTALS.opening.usd} /> USD</p>
-        </div>
-        <div>
-          <p className="text-[#586174]">Возврат</p>
-          <p className="font-semibold">0 Euro</p>
-          <p className="font-semibold">0 SUM</p>
-          <p className="font-semibold">0 USD</p>
-        </div>
-        <div>
-          <p className="text-[#586174]">Прочие приходы</p>
-          <p className="font-semibold">0 Euro</p>
-          <p className="font-semibold">0 SUM</p>
-          <p className="font-semibold">0 USD</p>
-        </div>
-        <div className="lg:text-right">
-          <p className="text-[#586174]">Баланс на конец периода</p>
-          <p className="font-semibold"><AmountCell value={FIXED_TOTALS.closing.eur} /> Euro</p>
-          <p className="font-semibold"><AmountCell value={FIXED_TOTALS.closing.sum} /> SUM</p>
-          <p className="font-semibold"><AmountCell value={FIXED_TOTALS.closing.usd} /> USD</p>
-        </div>
-        <div className="sm:col-start-2 lg:col-start-2">
-          <p className="text-[#586174]">Продажи</p>
-          <p className="font-semibold">0 Euro</p>
-          <p className="font-semibold">0 SUM</p>
-          <p className="font-semibold">0 USD</p>
-        </div>
-        <div>
-          <p className="text-[#586174]">Оплачено</p>
-          <p className="font-semibold">0 Euro</p>
-          <p className="font-semibold">0 SUM</p>
-          <p className="font-semibold">0 USD</p>
-        </div>
-        <div>
-          <p className="text-[#586174]">Прочие расходы</p>
-          <p className="font-semibold">0 Euro</p>
-          <p className="font-semibold">0 SUM</p>
-          <p className="font-semibold">0 USD</p>
-        </div>
-      </section>
+      <BalanceSummaryCards boxes={SUMMARY_BOXES} totals={data?.totals ?? {}} currencies={currencies} loading={loading} />
 
-      <section className="flex flex-wrap items-center gap-3 border-t border-[#e1e5eb] px-6 py-4 md:px-9">
-        <button
-          onClick={() => setSplitByCurrency((value) => !value)}
-          className={`rounded-sm px-5 py-2.5 text-[13px] font-bold uppercase tracking-wide ${splitByCurrency ? "bg-[#4f71dc] text-white" : "border border-[#4f71dc] text-[#4f71dc]"}`}
-        >
-          Разбить по валютам
-        </button>
-        <button
-          onClick={() => { setByType((value) => !value); setTypeFilter("Все типы"); setPage(1) }}
-          className={`rounded-sm px-5 py-2.5 text-[13px] font-bold uppercase tracking-wide ${byType ? "bg-[#4f71dc] text-white" : "border border-[#4f71dc] text-[#4f71dc]"}`}
-        >
-          Показать по типам клиентов
-        </button>
-
-        <span className="mx-auto text-[15px] font-medium text-[#17233b]">{byType ? "Тип клиента" : "Клиент"}</span>
-
-        <select value={pageSize} onChange={(event) => { setPageSize(Number(event.target.value)); setPage(1) }} className="h-9 bg-transparent text-[#586174]">
-          <option value={10}>10</option>
-          <option value={25}>25</option>
-          <option value={50}>50</option>
-        </select>
-        <span className="text-[#586174]">
-          {byType ? `1 - ${typeAggregates.length} из ${typeAggregates.length}` : `${filteredRows.length ? (safePage - 1) * pageSize + 1 : 0} - ${Math.min(safePage * pageSize, filteredRows.length)} из ${typeFilter === "Все типы" ? TOTAL_ROWS : filteredRows.length}`}
-        </span>
-        <button disabled={byType || safePage === 1} onClick={() => setPage((value) => Math.max(1, value - 1))} className="rounded-full border border-[#dbe0e8] p-1 text-[#9aa3b6] disabled:opacity-40">
-          <ChevronDown className="h-5 w-5 rotate-90" />
-        </button>
-        <button disabled={byType || safePage === maxPage} onClick={() => setPage((value) => Math.min(maxPage, value + 1))} className="rounded-full border border-[#4f71dc] p-1 text-[#4f71dc] disabled:opacity-40">
-          <ChevronDown className="h-5 w-5 -rotate-90" />
-        </button>
-        <button aria-label="Полный экран" onClick={() => document.documentElement.requestFullscreen?.()} className="text-[#586174]"><ChevronsRight className="h-5 w-5 rotate-45" /></button>
-      </section>
-
-      <div className="relative">
-        <section ref={tableRef} className="overflow-x-auto pb-10">
-          <table className="min-w-[2600px] w-full border-collapse text-[14px]">
-            <thead>
-              <tr className="bg-[#edf2f7] text-[#253653]">
-                <th className="border border-[#e1e5eb] px-4 py-2" />
-                <th className="border border-[#e1e5eb] px-2 py-2" />
-                {groups.map((group) => (
-                  <th key={group} colSpan={3} className="border border-[#e1e5eb] px-4 py-2 text-center font-medium">{group}</th>
-                ))}
-              </tr>
-              <tr className="bg-white text-[#17233b]">
-                <th className="border-b border-[#e1e5eb] px-4 py-2 text-left font-semibold">{byType ? "Тип клиента" : "Клиент"}</th>
-                <th className="border-b border-[#e1e5eb] px-2 py-2">
-                  {!byType && <input type="checkbox" checked={allSelected} onChange={toggleAll} className="h-4 w-4 accent-[#4f71dc]" />}
-                </th>
-                {groups.map((group) =>
-                  ["SUM", "USD", "Euro"].map((currency) => (
-                    <th key={`${group}-${currency}`} className="border-b border-[#e1e5eb] px-4 py-2 font-semibold">{currency}</th>
-                  )),
-                )}
-              </tr>
-            </thead>
-            <tbody>
-              {byType
-                ? typeAggregates.map((row, index) => (
-                    <tr key={row.type} className={index % 2 ? "bg-[#f6f9fc]" : "bg-white"}>
-                      <td className="border-b border-[#e1e5eb] px-4 py-3.5">
-                        <button onClick={() => drillIntoType(row.type)} className="flex items-center gap-2 text-left hover:text-[#4f71dc]">
-                          {row.type} <List className="h-4 w-4 text-[#4f71dc]" />
-                        </button>
-                      </td>
-                      <td className="border-b border-[#e1e5eb] px-2 py-3.5" />
-                      <td className="border-b border-[#e1e5eb] px-4 py-3.5"><AmountCell value={row.balance.sum} /></td>
-                      <td className="border-b border-[#e1e5eb] px-4 py-3.5"><AmountCell value={row.balance.usd} /></td>
-                      <td className="border-b border-[#e1e5eb] px-4 py-3.5"><AmountCell value={row.balance.eur} /></td>
-                      {Array.from({ length: 15 }).map((_, cellIndex) => (
-                        <td key={cellIndex} className="border-b border-[#e1e5eb] px-4 py-3.5">0</td>
-                      ))}
-                    </tr>
-                  ))
-                : visibleRows.map((row, index) => (
-                    <tr key={row.id} className={index % 2 ? "bg-[#f6f9fc]" : "bg-white"}>
-                      <td className="border-b border-[#e1e5eb] px-4 py-3.5">
-                        <div>{row.name}</div>
-                        {row.taxId && <div className="text-[13px] text-[#586174]">({row.taxId})</div>}
-                      </td>
-                      <td className="border-b border-[#e1e5eb] px-2 py-3.5 text-center">
-                        <input type="checkbox" checked={selected.has(row.id)} onChange={() => toggleOne(row.id)} className="h-4 w-4 accent-[#4f71dc]" />
-                      </td>
-                      <td className="border-b border-[#e1e5eb] px-4 py-3.5"><AmountCell value={row.opening.sum} /></td>
-                      <td className="border-b border-[#e1e5eb] px-4 py-3.5"><AmountCell value={row.opening.usd} /></td>
-                      <td className="border-b border-[#e1e5eb] px-4 py-3.5"><AmountCell value={row.opening.eur} /></td>
-                      {Array.from({ length: 15 }).map((_, cellIndex) => (
-                        <td key={cellIndex} className="border-b border-[#e1e5eb] px-4 py-3.5">0</td>
-                      ))}
-                    </tr>
-                  ))}
-              {!byType && visibleRows.length === 0 && (
-                <tr><td colSpan={23} className="border-b border-[#e1e5eb] px-4 py-16 text-center text-[#9aa3b6]">Ничего не найдено</td></tr>
-              )}
-            </tbody>
-          </table>
-        </section>
-        <button
-          aria-label="Прокрутить таблицу вправо"
-          onClick={scrollTableToEnd}
-          className="fixed right-0 top-1/2 z-10 flex h-14 w-9 -translate-y-1/2 items-center justify-center rounded-l-full bg-[#dfe4ea] text-[#586174] shadow-lg hover:bg-[#cfd6df]"
-        >
-          <ChevronsRight className="h-5 w-5" />
-        </button>
-      </div>
-
-      {filterOpen && (
-        <div className="fixed inset-0 z-[100] flex items-start justify-center overflow-y-auto bg-black/30 py-10" onClick={() => setFilterOpen(false)}>
-          <div onClick={(event) => event.stopPropagation()} className="w-[1100px] max-w-[94vw] rounded-md bg-white shadow-2xl">
-            <header className="flex items-center justify-between border-b px-8 py-6">
-              <h2 className="text-lg font-semibold text-[#586174]">Фильтр</h2>
-              <button aria-label="Закрыть" onClick={() => setFilterOpen(false)}><X className="h-6 w-6 rounded-full border-2 border-[#9aa3b6] p-0.5 text-[#9aa3b6]" /></button>
-            </header>
-
-            <div className="grid grid-cols-1 gap-x-10 gap-y-7 px-8 py-7 sm:grid-cols-2 lg:grid-cols-4">
-              <div>
-                <div className="mb-1 flex items-center justify-between text-[13px] font-medium text-[#586174]">
-                  <span>Период создания транзакции</span>
-                  <Calendar className="h-4 w-4 text-[#9aa3b6]" />
-                </div>
-                <div className="flex items-center gap-2 border-b border-[#dbe0e8] pb-2 text-[15px]">
-                  <input type="date" value={transFrom} onChange={(event) => setTransFrom(event.target.value)} className="w-full bg-transparent outline-none" />
-                  <span className="text-[#9aa3b6]">—</span>
-                  <input type="date" value={transTo} onChange={(event) => setTransTo(event.target.value)} className="w-full bg-transparent outline-none" />
-                </div>
-              </div>
-
-              <SelectField label="Филиалы" value={branch} setter={setBranch} options={["Все филиалы", "Центральный", "Ташкент", "Фаргона"]} />
-              <SelectField label="Зона" value={zone} setter={setZone} options={["Все зоны", "Розничный", "Рабочий", "Не рабочий зона"]} />
-              <SelectField label="Последнее посещение" value={lastVisit} setter={setLastVisit} options={["Не важно", "Сегодня", "Неделя", "Месяц"]} />
-
-              <RangeField label="Прошло дней с последнего заказа" from={sinceOrderFrom} to={sinceOrderTo} setFrom={setSinceOrderFrom} setTo={setSinceOrderTo} />
-              <RangeField label="Прошло дней с последней оплаты" from={sincePaymentFrom} to={sincePaymentTo} setFrom={setSincePaymentFrom} setTo={setSincePaymentTo} />
-              <SelectField label="Организация" value={organization} setter={setOrganization} options={["Все организации", "05,08,2025", "Ichimliklar"]} />
-              <SelectField label="Тип клиента" value={typeFilter} setter={(value) => { setTypeFilter(value); setByType(false); setPage(1) }} options={types} />
-
-              <SelectField label="Клиенты агента" value={agentClients} setter={setAgentClients} options={["Все агенты", "Admin Ritm", "Temur Raupov", "Samandar Abdurahmonov"]} />
-              <SelectField label="Доставщик" value={supplier} setter={setSupplier} options={["Все поставщики", "Собственная доставка", "Партнёр"]} />
-              <SelectField label="Тип баланса" value={balanceType} setter={setBalanceType} options={["Любой", "Дебитор", "Кредитор", "Нулевой"]} />
-              <SelectField label="Ответственные доставщики" value={responsibleSupplier} setter={setResponsibleSupplier} options={["Не важно", "Admin Ritm", "Шохрух Туляганов"]} />
-              <SelectField label="Ответственный инкасатор" value={responsibleCollector} setter={setResponsibleCollector} options={["Не важно", "Admin Ritm", "Тп 2 Алиса"]} />
-            </div>
-
-            <div className="flex flex-wrap gap-x-10 gap-y-3 border-t px-8 py-6 text-[14px] text-[#17233b]">
-              <label className="flex items-center gap-2"><input type="checkbox" checked={onlyRealized} onChange={(event) => setOnlyRealized(event.target.checked)} className="h-4 w-4 accent-[#4f71dc]" /> Учитывать только реализованных заказов</label>
-              <label className="flex items-center gap-2"><input type="checkbox" checked={onlyDelivered} onChange={(event) => setOnlyDelivered(event.target.checked)} className="h-4 w-4 accent-[#4f71dc]" /> Только доставленные заказы</label>
-              <label className="flex items-center gap-2"><input type="checkbox" checked={onlyOverdue} onChange={(event) => setOnlyOverdue(event.target.checked)} className="h-4 w-4 accent-[#4f71dc]" /> Только просроченные долги</label>
-              <label className="flex items-center gap-2"><input type="checkbox" checked={excludeClosed} onChange={(event) => setExcludeClosed(event.target.checked)} className="h-4 w-4 accent-[#4f71dc]" /> Исключить закрытие магазины</label>
-            </div>
-
-            <div className="px-8 pb-8">
-              <button onClick={applyFilter} className="block w-full rounded-md bg-[#6fcf97] py-3.5 text-center font-semibold text-white hover:bg-[#5fbf87]">Применить</button>
-            </div>
+      <ExpandedOverlay expanded={expanded}>
+        <section className="flex flex-wrap items-center gap-x-6 gap-y-3 border-t border-[#e1e5eb] px-6 py-4 md:px-9">
+          <div className="flex overflow-hidden rounded-sm">
+            {(["marketExpanded", "marketType"] as const).map((value) => (
+              <button
+                key={value}
+                type="button"
+                onClick={() => {
+                  if (value === toggle) return
+                  // Demo: switching the view drops the search and the client-type drill-down.
+                  setSearchDraft("")
+                  update({ toggle: value, search: "", filters: { ...filters, marketTypeParent: "" } })
+                }}
+                className={`px-5 py-2 text-[13px] font-bold uppercase tracking-wide ${
+                  toggle === value ? "bg-[#4f71dc] text-white shadow-[0_1px_6px_rgba(0,0,0,0.12)]" : "bg-white text-[#4f71dc] shadow-[inset_0_0_0_1px_rgba(0,0,0,0.12)]"
+                }`}
+              >
+                {t(value === "marketExpanded" ? "Разбить по валютам" : "Показать по типам клиентов")}
+              </button>
+            ))}
           </div>
+
+          {filters.marketTypeParent && (
+            <div className="flex items-center gap-2 whitespace-nowrap text-[14px]">
+              <span className="text-[#586174]">{t("Отфильтровано по")}:</span>
+              <span className="font-semibold">{filters.marketTypeParent}</span>
+              <button type="button" onClick={() => update({ filters: { ...filters, marketTypeParent: "" } })} className="font-semibold text-[#4f70e7] hover:underline">
+                {t("Сбросить фильтр")}
+              </button>
+            </div>
+          )}
+
+          <form onSubmit={submitSearch} className="flex min-w-[220px] flex-1 items-center gap-2 border-b border-[#dbe0e8] pb-1">
+            <Search className="h-4 w-4 text-[#9aa3b6]" />
+            <input
+              value={searchDraft}
+              onChange={(event) => setSearchDraft(event.target.value)}
+              placeholder={t(byType ? "Тип клиента" : "Клиент")}
+              aria-label={t(byType ? "Тип клиента" : "Клиент")}
+              className="h-8 flex-1 bg-transparent text-[15px] outline-none placeholder:text-[#586174]"
+            />
+            {(searchDraft || search) && (
+              <button
+                type="button"
+                aria-label={t("Очистить")}
+                onClick={() => {
+                  setSearchDraft("")
+                  if (search) update({ search: "" })
+                }}
+                className="text-[#9aa3b6] hover:text-[#586174]"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            )}
+          </form>
+
+          {byType ? (
+            <span className="whitespace-nowrap text-[#586174]">
+              {rows.length ? 1 : 0} - {rows.length} {t("из")} {rows.length}
+            </span>
+          ) : (
+            <BalancePagination page={page} pageSize={pageSize} count={data?.count ?? 0} onChange={(next) => setState((current) => ({ ...current, ...next }))} />
+          )}
+          <ExpandedViewButton expanded={expanded} onToggle={() => setExpanded((value) => !value)} />
+        </section>
+
+        {error && (
+          <div className="mx-6 mb-4 flex items-center justify-between gap-4 rounded-md border border-[#f3c7c7] bg-[#fdf3f3] px-4 py-3 text-[#c0392b] md:mx-9">
+            <span>
+              {t("Не удалось загрузить данные")}: {error}
+            </span>
+            <button type="button" onClick={reload} className="font-semibold text-[#4f70e7] hover:underline">
+              {t("Повторить")}
+            </button>
+          </div>
+        )}
+
+        <div className="pb-10">
+          <BalanceTable
+            rows={rows}
+            groups={GROUPS}
+            currencies={currencies.length ? currencies : ["SUM"]}
+            first={firstColumn}
+            selection={byType ? undefined : selection}
+            ordering={ordering}
+            onOrderingChange={(next) => update({ ordering: next })}
+            loading={loading}
+            emptyText={byType && typeQuery ? "Ничего не найдено" : "По вашему запросу ничего не найдено"}
+          />
         </div>
+      </ExpandedOverlay>
+
+      <AccountDebtFilterDialog
+        open={filterOpen}
+        onClose={() => setFilterOpen(false)}
+        from={from}
+        to={to}
+        mode={mode}
+        filters={filters}
+        onApply={(period, next) => update({ ...period, filters: next })}
+      />
+
+      {openClient && (
+        <ClientActDialog
+          key={`${openClient}|${from}|${to}|${mode}`}
+          kind="account"
+          entityKey={openClient}
+          name={actName || pageRows.get(openClient)?.name || ""}
+          from={from}
+          to={to}
+          mode={mode}
+          onClose={() => {
+            setActName("")
+            setState((current) => ({ ...current, openClient: "" }))
+          }}
+        />
       )}
 
-      {groupPaymentOpen && (
-        <GroupPaymentModal clientIds={Array.from(selected)} onClose={() => setGroupPaymentOpen(false)} />
+      <GroupPaymentDialog
+        open={groupPaymentOpen}
+        rows={selectedRows}
+        currencies={currencies.length ? currencies : ["SUM"]}
+        onClose={() => setGroupPaymentOpen(false)}
+        onSaved={() => {
+          setSelected(new Map())
+          setNotice(t("Успешно сохранено"))
+          reload()
+        }}
+      />
+
+      {notice && (
+        <div className="fixed bottom-6 right-6 z-[120] flex items-center gap-2 rounded-md bg-[#4caf72] px-5 py-3 font-semibold text-white shadow-lg" role="status">
+          <CheckCircle2 className="h-5 w-5" /> {notice}
+        </div>
       )}
     </main>
   )
-}
-
-function Info({ className }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" className={className}>
-      <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2" />
-      <path d="M12 11v5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-      <circle cx="12" cy="8" r="1" fill="currentColor" />
-    </svg>
-  )
-}
-
-function SelectField({ label, value, setter, options }: { label: string; value: string; setter: (value: string) => void; options: string[] }) {
-  return (
-    <label className="relative block border-b border-[#dbe0e8] pb-2 text-[13px] font-medium text-[#586174]">
-      {label}
-      <select value={value} onChange={(event) => setter(event.target.value)} className="mt-1 block w-full appearance-none bg-transparent pr-6 text-[15px] font-normal text-[#17233b] outline-none">
-        {options.map((option) => <option key={option}>{option}</option>)}
-      </select>
-      <ChevronDown className="pointer-events-none absolute right-0 top-7 h-4 w-4 text-[#9aa3b6]" />
-    </label>
-  )
-}
-
-function RangeField({ label, from, to, setFrom, setTo }: { label: string; from: string; to: string; setFrom: (value: string) => void; setTo: (value: string) => void }) {
-  return (
-    <div>
-      <p className="mb-1 text-[13px] font-medium text-[#586174]">{label}</p>
-      <div className="flex items-center gap-3">
-        <input value={from} onChange={(event) => setFrom(event.target.value)} type="number" placeholder="От (дней)" className="w-full border-b border-[#dbe0e8] bg-transparent pb-2 text-[15px] outline-none placeholder:text-[#586174]" />
-        <input value={to} onChange={(event) => setTo(event.target.value)} type="number" placeholder="До (дней)" className="w-full border-b border-[#dbe0e8] bg-transparent pb-2 text-[15px] outline-none placeholder:text-[#586174]" />
-      </div>
-    </div>
-  )
-}
-
-function GroupPaymentModal({ clientIds, onClose }: { clientIds: number[]; onClose: () => void }) {
-  const count = clientIds.length
-  const [currency, setCurrency] = useState<"sum" | "usd" | "eur">("sum")
-  const [amount, setAmount] = useState("")
-  const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10))
-  const [comment, setComment] = useState("")
-  const [saving, setSaving] = useState(false)
-
-  const save = async () => {
-    if (saving) return
-    setSaving(true)
-    try {
-      const response = await fetch("/api/account-bulk-payments", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ clientIds, currency, amount: Number(amount), paymentDate: date, comment }),
-      })
-      if (response.ok) onClose()
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  return (
-    <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/40" onClick={onClose}>
-      <div onClick={(event) => event.stopPropagation()} className="w-[600px] max-w-[92vw] rounded-md bg-white shadow-2xl">
-        <header className="flex items-center justify-between border-b px-8 py-6">
-          <h2 className="text-xl font-bold uppercase tracking-wide">Групповая оплата</h2>
-          <button aria-label="Закрыть" onClick={onClose}><X className="h-6 w-6 text-slate-500" /></button>
-        </header>
-        <div className="space-y-7 px-8 py-7">
-          <p className="text-sm text-[#586174]">Будет применено к {count || "0"} {count === 1 ? "клиенту" : "клиентам"}</p>
-          <label className="relative block border-b border-[#dbe0e8] pb-2 text-[13px] font-medium text-[#586174]">
-            Валюта
-            <select value={currency} onChange={(event) => setCurrency(event.target.value as "sum" | "usd" | "eur")} className="mt-1 block w-full appearance-none bg-transparent pr-6 text-[16px] font-semibold text-[#17233b] outline-none">
-              <option value="sum">SUM</option>
-              <option value="usd">USD</option>
-              <option value="eur">Euro</option>
-            </select>
-            <ChevronDown className="pointer-events-none absolute right-0 top-7 h-4 w-4 text-[#9aa3b6]" />
-          </label>
-          <label className="block border-b border-[#dbe0e8] pb-2 text-[13px] font-medium text-[#586174]">
-            Сумма
-            <input type="number" value={amount} onChange={(event) => setAmount(event.target.value)} className="mt-1 block w-full bg-transparent text-[16px] font-semibold text-[#17233b] outline-none" />
-          </label>
-          <label className="block border-b border-[#dbe0e8] pb-2 text-[13px] font-medium text-[#586174]">
-            Дата создания
-            <input type="date" value={date} onChange={(event) => setDate(event.target.value)} className="mt-1 block w-full bg-transparent text-[16px] font-semibold text-[#17233b] outline-none" />
-          </label>
-          <label className="block border-b border-[#dbe0e8] pb-2 text-[13px] font-medium text-[#586174]">
-            <input placeholder="Оставить комментарий..." value={comment} onChange={(event) => setComment(event.target.value)} className="mt-1 block w-full bg-transparent text-[16px] outline-none placeholder:text-[#586174]" />
-          </label>
-        </div>
-        <footer className="flex justify-end border-t px-8 py-5">
-          <button onClick={save} disabled={saving || !amount} className="font-bold uppercase tracking-wide text-[#4f71dc] disabled:opacity-40">{saving ? "Сохранение..." : "Сохранить"}</button>
-        </footer>
-      </div>
-    </div>
-  )
-}
-
-function pad(value: number) {
-  return String(value).padStart(2, "0")
-}
-
-function formatDate(date: Date) {
-  return `${pad(date.getDate())}.${pad(date.getMonth() + 1)}.${date.getFullYear()}`
 }

@@ -1,254 +1,564 @@
 "use client"
 
-import { FileText, Pencil, Plus, Search, Trash2, X } from "lucide-react"
-import { FormEvent, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import Link from "next/link"
+import { useRouter, useSearchParams } from "next/navigation"
+import { Check, Download, FileSpreadsheet, FileText, MoreVertical, Plus, Search, Truck, X } from "lucide-react"
+
+import { BalanceFilterChip, BalanceFilterDialog } from "@/components/analytics/balance/filter-bar"
+import { BalancePagination } from "@/components/analytics/balance/pagination"
+import { buildCashQuery, cashMutate, useCashJson, type CashQuery } from "@/components/analytics/cash/use-cash"
+import { CashSnackbar, MultiPick, mutationError, useCanWrite, useCashRates, type SnackbarMessage } from "@/components/analytics/cash-management-shared"
+import { downloadInvoiceTemplate, InvoiceImportDialog, InvoiceRejectDialog, InvoiceViewDialog } from "@/components/analytics/invoice-incomings-dialogs"
+import { InvoiceFormDialog } from "@/components/analytics/invoice-incomings-form"
+import { formatInvoiceDate, formatInvoiceMoney, InvoiceStatusBadge, supplyFromInvoiceHref, useInvoiceParties } from "@/components/analytics/invoice-incomings-shared"
 import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
+import { downloadExcelTable } from "@/lib/excel-export"
+import { monthStartIso, todayIso } from "@/lib/finance/dates"
+import { useLanguage } from "@/lib/i18n/language-context"
+import {
+  INVOICE_STATUS_LABELS,
+  INVOICE_TAB_LABELS,
+  INVOICE_TABS,
+  type InvoiceDetail,
+  type InvoiceListResult,
+  type InvoiceRow,
+  type InvoiceTab,
+} from "@/lib/invoice-incomings-types"
 
-const INVOICE_INCOMING_STATUSES = ["Получен", "Проведён", "Отклонён"] as const
+// "Входящие счет фактуры" (demo: the menu item opens the separate Linko EDO product,
+// edo.linko.uz/ru/crm/documents?tab=accepted&doc_type=["invoice"], whose
+// external_url is #/supply?openCreateDialog=true). Here it is an in-app EDO-style list
+// of incoming e-invoices (ЭСФ) without any tax-service integration (spec: scratchpad
+// extra/spec-invoice-incomings.md): tabs Все / Ожидает / Принятые / Отклоненные, search
+// (номер, поставщик, ИНН), filter (период, поставщик, организация, валюта), pagination,
+// totals per currency, create / edit / Excel import, card with Принять / Отклонить /
+// Удалить and "Создать приход" → /analytics/supplier-incomings?openCreateDialog=true&invoiceId=N.
+// Data: /api/invoice-incomings/** (lib/invoice-incomings-repo.ts). The URL keeps the state.
 
-type Invoice = {
-  id: number
-  documentNumber: string
-  supplier: string
-  date: string
-  amount: number
-  branch: string
-  status: string
-  note: string
+const PAGE_SIZES = [10, 25, 50, 100, 200, 500] as const
+
+type Filters = { fromDate: string; toDate: string; supplierIds: number[]; organizationIds: number[]; currencies: string[] }
+
+const EMPTY_FILTERS: Filters = { fromDate: "", toDate: "", supplierIds: [], organizationIds: [], currencies: [] }
+
+type ViewState = { tab: InvoiceTab; search: string; page: number; pageSize: number; filters: Filters; viewId: number | null }
+
+function positiveInt(value: string | null): number | null {
+  const number = Number(value)
+  return Number.isInteger(number) && number > 0 ? number : null
 }
 
-const emptyDraft = {
-  documentNumber: "",
-  supplier: "",
-  date: "",
-  amount: 0,
-  branch: "",
-  status: INVOICE_INCOMING_STATUSES[0] as string,
-  note: "",
+function idList(value: string | null): number[] {
+  return (value ?? "")
+    .split("-")
+    .map(Number)
+    .filter((id) => Number.isInteger(id) && id > 0)
 }
 
-const statusColors: Record<string, string> = {
-  "Получен": "bg-sky-50 text-sky-600",
-  "Проведён": "bg-emerald-50 text-emerald-600",
-  "Отклонён": "bg-red-50 text-red-600",
+function stateFromParams(params: URLSearchParams): ViewState {
+  const tab = params.get("status") as InvoiceTab | null
+  return {
+    tab: tab && INVOICE_TABS.includes(tab) ? tab : "all",
+    search: params.get("search") ?? "",
+    page: positiveInt(params.get("page")) ?? 1,
+    pageSize: positiveInt(params.get("pageSize")) ?? 25,
+    filters: {
+      fromDate: params.get("fromDate") ?? "",
+      toDate: params.get("toDate") ?? "",
+      supplierIds: idList(params.get("supplier")),
+      organizationIds: idList(params.get("organization")),
+      currencies: params.getAll("currency").filter(Boolean),
+    },
+    viewId: positiveInt(params.get("id")),
+  }
 }
 
-function formatSum(value: number) {
-  return `${new Intl.NumberFormat("ru-RU").format(value)} SUM`
+function stateToSearch(state: ViewState): string {
+  return buildCashQuery({
+    status: state.tab === "all" ? "" : state.tab,
+    search: state.search,
+    page: state.page > 1 ? state.page : "",
+    pageSize: state.pageSize,
+    fromDate: state.filters.fromDate,
+    toDate: state.filters.toDate,
+    supplier: state.filters.supplierIds.join("-"),
+    organization: state.filters.organizationIds.join("-"),
+    currency: state.filters.currencies,
+    id: state.viewId ?? "",
+  })
+}
+
+/** Query of GET /api/invoice-incomings (pageSize 0 = all rows for Excel). */
+function listQuery(state: ViewState, pageSize = state.pageSize): CashQuery {
+  return {
+    status: state.tab,
+    search: state.search,
+    page: pageSize ? state.page : 1,
+    pageSize: String(pageSize),
+    fromDate: state.filters.fromDate,
+    toDate: state.filters.toDate,
+    supplier: state.filters.supplierIds,
+    organization: state.filters.organizationIds,
+    currency: state.filters.currencies,
+  }
+}
+
+function filterCount(filters: Filters): number {
+  return [Boolean(filters.fromDate || filters.toDate), filters.supplierIds.length > 0, filters.organizationIds.length > 0, filters.currencies.length > 0].filter(Boolean).length
 }
 
 export function InvoiceIncomingsView() {
-  const [items, setItems] = useState<Invoice[]>([])
-  const [query, setQuery] = useState("")
-  const [editing, setEditing] = useState<Invoice | null>(null)
-  const [draft, setDraft] = useState(emptyDraft)
+  const { t } = useLanguage()
+  const router = useRouter()
+  const searchParams = useSearchParams()
+  const canEdit = useCanWrite()
+  const [state, setState] = useState<ViewState>(() => stateFromParams(new URLSearchParams(searchParams.toString())))
+  const [searchDraft, setSearchDraft] = useState(state.search)
+  const [filterOpen, setFilterOpen] = useState(false)
+  const [filterDraft, setFilterDraft] = useState<Filters>(state.filters)
+  const [menuOpen, setMenuOpen] = useState(false)
+  const menuRef = useRef<HTMLDivElement>(null)
+  const [importOpen, setImportOpen] = useState(false)
+  // undefined = closed, null = create, invoice = edit.
+  const [form, setForm] = useState<InvoiceDetail | null | undefined>(undefined)
+  const [viewVersion, setViewVersion] = useState(0)
+  const [rejectTarget, setRejectTarget] = useState<InvoiceRow | null>(null)
+  const [busyId, setBusyId] = useState<number | null>(null)
+  const [rejectError, setRejectError] = useState("")
+  const [message, setMessage] = useState<SnackbarMessage | null>(null)
+
+  const list = useCashJson<InvoiceListResult>(`/api/invoice-incomings?${buildCashQuery(listQuery(state))}`)
+  const parties = useInvoiceParties()
+  const { codes } = useCashRates()
+  const data = list.data
+  const rows = data?.results ?? []
 
   useEffect(() => {
-    let cancelled = false
-    fetch("/api/invoice-incomings")
-      .then(async (response) => {
-        if (!response.ok) throw new Error("Не удалось загрузить входящие счета-фактуры")
-        return (await response.json()) as Invoice[]
-      })
-      .then((data) => {
-        if (!cancelled) setItems(data)
-      })
-      .catch(() => {
-        if (!cancelled) window.alert("Не удалось загрузить входящие счета-фактуры с сервера")
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [])
+    const search = stateToSearch(state)
+    if (window.location.search.slice(1) !== search) window.history.replaceState(window.history.state, "", `${window.location.pathname}?${search}`)
+  }, [state])
 
-  const rows = useMemo(
-    () =>
-      items.filter(
-        (item) =>
-          item.supplier.toLowerCase().includes(query.toLowerCase()) ||
-          item.documentNumber.toLowerCase().includes(query.toLowerCase()),
-      ),
-    [items, query],
+  useEffect(() => {
+    const value = searchDraft.trim()
+    if (value === state.search) return
+    const timer = window.setTimeout(() => setState((current) => ({ ...current, search: value, page: 1 })), 400)
+    return () => window.clearTimeout(timer)
+  }, [searchDraft, state.search])
+
+  useEffect(() => {
+    if (!data || list.loading || state.page <= 1) return
+    const last = Math.max(1, Math.ceil(data.count / Math.max(1, state.pageSize)))
+    if (state.page > last) setState((current) => ({ ...current, page: last }))
+  }, [data, list.loading, state.page, state.pageSize])
+
+  useEffect(() => {
+    if (!menuOpen) return
+    const close = (event: MouseEvent) => {
+      if (!menuRef.current?.contains(event.target as Node)) setMenuOpen(false)
+    }
+    document.addEventListener("mousedown", close)
+    return () => document.removeEventListener("mousedown", close)
+  }, [menuOpen])
+
+  const update = (patch: Partial<ViewState>) => setState((current) => ({ ...current, ...patch }))
+  const notify = useCallback((text: string, error = false) => setMessage({ text, tone: error ? "error" : "success" }), [])
+  const closeSnackbar = useCallback(() => setMessage(null), [])
+
+  // The dialog needs a period; with no active one it shows this month and, if left
+  // untouched, applying keeps the list unrestricted by date.
+  const seededPeriod = useMemo(() => {
+    const to = todayIso()
+    return { from: state.filters.fromDate || monthStartIso(to), to: state.filters.toDate || to }
+  }, [state.filters.fromDate, state.filters.toDate])
+
+  const openFilter = () => {
+    setFilterDraft(state.filters)
+    setFilterOpen(true)
+  }
+
+  const applyFilter = (period: { from: string; to: string }) => {
+    const untouched = !state.filters.fromDate && !state.filters.toDate && period.from === seededPeriod.from && period.to === seededPeriod.to
+    update({ filters: { ...filterDraft, fromDate: untouched ? "" : period.from, toDate: untouched ? "" : period.to }, page: 1 })
+  }
+
+  const clearFilters = () => {
+    setSearchDraft("")
+    update({ search: "", page: 1, filters: { ...EMPTY_FILTERS } })
+  }
+
+  const createSupply = (invoiceId: number) => router.push(supplyFromInvoiceHref(invoiceId))
+
+  const quickAccept = async (row: InvoiceRow) => {
+    setBusyId(row.id)
+    const result = await cashMutate("PATCH", `/api/invoice-incomings/${row.id}`, { action: "accept" })
+    setBusyId(null)
+    if (!result.ok) {
+      notify(mutationError(result, t), true)
+      return
+    }
+    notify("Счет-фактура принята")
+    list.reload()
+  }
+
+  const reject = async (reason: string) => {
+    if (!rejectTarget) return
+    setBusyId(rejectTarget.id)
+    setRejectError("")
+    const result = await cashMutate("PATCH", `/api/invoice-incomings/${rejectTarget.id}`, { action: "reject", reason })
+    setBusyId(null)
+    if (!result.ok) {
+      setRejectError(mutationError(result, t))
+      return
+    }
+    setRejectTarget(null)
+    notify("Счет-фактура отклонена")
+    list.reload()
+  }
+
+  const downloadList = async () => {
+    try {
+      const response = await fetch(`/api/invoice-incomings?${buildCashQuery(listQuery(state, 0))}`, { cache: "no-store" })
+      const body = (await response.json().catch(() => null)) as (InvoiceListResult & { error?: string }) | null
+      if (!response.ok || !body) throw new Error(body?.error || `HTTP ${response.status}`)
+      const header = [
+        t("№ счет-фактуры"),
+        t("Дата счет-фактуры"),
+        t("Поставщик"),
+        t("ИНН поставщика"),
+        t("Покупатель"),
+        t("ИНН покупателя"),
+        t("№ договора"),
+        t("Дата договора"),
+        t("Валюта"),
+        t("Сумма без НДС"),
+        t("НДС"),
+        t("Сумма с НДС"),
+        t("Статус"),
+        t("Приход"),
+      ]
+      const lines = body.results.map((row) => [
+        row.number,
+        formatInvoiceDate(row.date),
+        row.supplierName,
+        row.supplierInn,
+        row.organizationName || row.buyerName,
+        row.buyerInn,
+        row.contractNumber,
+        formatInvoiceDate(row.contractDate),
+        row.currency,
+        row.amountWithoutVat,
+        row.vatAmount,
+        row.total,
+        t(INVOICE_STATUS_LABELS[row.status]),
+        row.incoming ? `${t("Приход №")} ${row.incoming.id}` : "",
+      ])
+      downloadExcelTable(t("Входящие счет фактуры"), [header, ...lines])
+    } catch (reason) {
+      notify(reason instanceof Error ? t(reason.message) : t("Сервер недоступен, попробуйте ещё раз"), true)
+    }
+  }
+
+  const currencyOptions = useMemo(
+    () => [...new Set([...codes, ...(data?.totals.map((total) => total.currency) ?? []), ...state.filters.currencies])].map((code) => ({ value: code, label: code })),
+    [codes, data?.totals, state.filters.currencies],
   )
 
-  const total = useMemo(() => rows.reduce((sum, item) => sum + item.amount, 0), [rows])
-
-  function open(item?: Invoice) {
-    setEditing(item ?? { id: 0, ...emptyDraft })
-    setDraft(
-      item
-        ? { documentNumber: item.documentNumber, supplier: item.supplier, date: item.date, amount: item.amount, branch: item.branch, status: item.status, note: item.note }
-        : emptyDraft,
-    )
-  }
-
-  async function save(event: FormEvent) {
-    event.preventDefault()
-    if (!draft.supplier.trim()) return
-    const body = JSON.stringify(draft)
-    try {
-      if (editing?.id) {
-        const response = await fetch(`/api/invoice-incomings/${editing.id}`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body,
-        })
-        if (!response.ok) {
-          const data = await response.json().catch(() => ({}))
-          window.alert(data.error || "Не удалось сохранить документ")
-          return
-        }
-        const saved = (await response.json()) as Invoice
-        setItems((list) => list.map((item) => (item.id === editing.id ? saved : item)))
-      } else {
-        const response = await fetch("/api/invoice-incomings", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body,
-        })
-        if (!response.ok) {
-          const data = await response.json().catch(() => ({}))
-          window.alert(data.error || "Не удалось добавить документ")
-          return
-        }
-        const saved = (await response.json()) as Invoice
-        setItems((list) => [saved, ...list])
-      }
-      setEditing(null)
-    } catch {
-      window.alert("Сервер недоступен, попробуйте ещё раз")
-    }
-  }
-
-  async function remove(id: number) {
-    try {
-      const response = await fetch(`/api/invoice-incomings/${id}`, { method: "DELETE" })
-      if (!response.ok) {
-        const data = await response.json().catch(() => ({}))
-        window.alert(data.error || "Не удалось удалить запись")
-        return
-      }
-      setItems((list) => list.filter((row) => row.id !== id))
-    } catch {
-      window.alert("Сервер недоступен, попробуйте ещё раз")
-    }
-  }
+  const th = "whitespace-nowrap px-3 py-3 text-left font-semibold"
+  const td = "px-3 py-3 align-middle"
 
   return (
-    <main className="min-h-[calc(100vh-4rem)] bg-[#f2f5f8] px-7 pb-7">
-      <header className="flex h-[60px] flex-wrap items-center justify-between gap-3">
-        <h1 className="flex items-center text-[18px] font-bold text-[#5d6474]">
-          <FavoritesButton className="flex items-center gap-[5px] text-[18px] font-bold text-[#4f71dc]" />
-          <span className="mx-[11px] inline-block h-[21px] w-[2px] bg-[#5d6474]" /> Входящие счет фактуры
-        </h1>
+    <main className="min-h-screen bg-[#f1f4f8] text-[#17233b]">
+      <header className="flex min-h-[76px] flex-wrap items-center justify-between gap-4 border-b border-[#d8dee7] bg-[#f2f5f8] px-4 py-3 md:px-9">
+        <div className="flex min-w-0 items-center gap-3">
+          <FavoritesButton className="flex items-center gap-3 text-2xl font-bold text-[#4f70e7]" />
+          <span className="text-3xl font-light text-[#586174]">|</span>
+          <h1 className="truncate text-xl font-bold text-[#586174] md:text-2xl">{t("Входящие счет фактуры")}</h1>
+        </div>
+        {canEdit && (
+          <div className="flex items-center gap-2">
+            <div ref={menuRef} className="relative">
+              <button type="button" onClick={() => setMenuOpen((value) => !value)} aria-label={t("Меню")} className="flex h-11 w-11 items-center justify-center rounded-full text-[#586174] hover:bg-white">
+                <MoreVertical className="h-6 w-6" />
+              </button>
+              {menuOpen && (
+                <div className="absolute right-0 top-12 z-[60] min-w-[240px] overflow-hidden rounded-md border border-[#e1e5eb] bg-white py-1 shadow-lg">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMenuOpen(false)
+                      setImportOpen(true)
+                    }}
+                    className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-[13px] hover:bg-[#f2f5f8]"
+                  >
+                    <span className="flex h-7 w-7 items-center justify-center rounded-full bg-[#71ce87] text-white">
+                      <FileSpreadsheet className="h-4 w-4" />
+                    </span>
+                    {t("Импортировать с excel")}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMenuOpen(false)
+                      downloadInvoiceTemplate(t)
+                    }}
+                    className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-[13px] hover:bg-[#f2f5f8]"
+                  >
+                    <span className="flex h-7 w-7 items-center justify-center rounded-full bg-[#4f70e7] text-white">
+                      <Download className="h-4 w-4" />
+                    </span>
+                    {t("Скачать шаблон")}
+                  </button>
+                </div>
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={() => setForm(null)}
+              title={t("Добавить счет-фактуру")}
+              aria-label={t("Добавить счет-фактуру")}
+              className="flex h-11 w-11 items-center justify-center rounded-full bg-[rgb(79,113,220)] text-white shadow-md hover:brightness-95"
+            >
+              <Plus className="h-6 w-6" />
+            </button>
+          </div>
+        )}
       </header>
 
-      <section className="overflow-hidden rounded bg-white shadow">
-        <div className="flex flex-wrap items-center gap-4 px-5 py-4">
-          <button type="button" onClick={() => open()} className="text-[17px] text-[#4f71dc] hover:underline">
-            + добавить
-          </button>
-          <label className="relative ml-4 w-72">
-            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Поиск" className="w-full border-b border-slate-300 py-2 pr-10 outline-none focus:border-[#4f71dc]" />
-            <Search className="absolute right-2 top-2 h-5 w-5 text-slate-300" />
-          </label>
-          <span className="ml-auto text-slate-500">Итого: {formatSum(total)}</span>
+      <section className="mx-4 mt-4 overflow-x-auto bg-white shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)] md:mx-6">
+        <div className="grid min-w-[480px] grid-cols-4">
+          {INVOICE_TABS.map((tab) => (
+            <button
+              key={tab}
+              type="button"
+              onClick={() => update({ tab, page: 1 })}
+              className={`flex h-[52px] items-center justify-center gap-2 border-b-[3px] px-2 text-[15px] ${state.tab === tab ? "border-[rgb(79,113,220)] font-semibold text-[#17233b]" : "border-transparent text-[#586174] hover:text-[#17233b]"}`}
+            >
+              {t(INVOICE_TAB_LABELS[tab])}
+              {data && <span className={`rounded-full px-2 text-[12px] ${state.tab === tab ? "bg-[#4f70e7] text-white" : "bg-[#eef1f5] text-[#586174]"}`}>{data.tabCounts[tab]}</span>}
+            </button>
+          ))}
         </div>
-
-        <table className="w-full text-left">
-          <thead className="bg-[#5d6474] text-white">
-            <tr>
-              <th className="px-9 py-4 text-[13px]">№ документа</th>
-              <th className="px-5 py-4 text-[13px]">Поставщик</th>
-              <th className="px-5 py-4 text-[13px]">Дата</th>
-              <th className="px-5 py-4 text-[13px]">Сумма</th>
-              <th className="px-5 py-4 text-[13px]">Филиал</th>
-              <th className="px-5 py-4 text-[13px]">Статус</th>
-              <th className="w-24" />
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((item) => (
-              <tr key={item.id} className="group border-b border-dashed border-slate-300 hover:bg-slate-50">
-                <td className="px-9 py-4">
-                  <div className="flex items-center gap-2 text-slate-700">
-                    <FileText className="h-5 w-5 text-slate-400" />
-                    {item.documentNumber || "—"}
-                  </div>
-                </td>
-                <td className="px-5 py-4 text-slate-600">{item.supplier}</td>
-                <td className="px-5 py-4 text-slate-600">{item.date || "—"}</td>
-                <td className="px-5 py-4 text-slate-600">{formatSum(item.amount)}</td>
-                <td className="px-5 py-4 text-slate-600">{item.branch || "—"}</td>
-                <td className="px-5 py-4">
-                  <span className={`rounded-full px-3 py-1 text-xs font-semibold ${statusColors[item.status] ?? "bg-slate-100 text-slate-500"}`}>
-                    {item.status}
-                  </span>
-                </td>
-                <td>
-                  <div className="hidden items-center justify-end gap-3 pr-4 text-slate-500 group-hover:flex">
-                    <button type="button" onClick={() => open(item)} aria-label="Изменить">
-                      <Pencil className="h-5 w-5" />
-                    </button>
-                    <button type="button" onClick={() => remove(item.id)} aria-label="Удалить">
-                      <Trash2 className="h-5 w-5" />
-                    </button>
-                  </div>
-                </td>
-              </tr>
-            ))}
-            {rows.length === 0 && (
-              <tr>
-                <td colSpan={7} className="px-5 py-10 text-center text-slate-400">
-                  Ничего не найдено
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
       </section>
 
-      {editing && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 p-4">
-          <form onSubmit={save} className="w-full max-w-md rounded-lg bg-white p-6 shadow-xl">
-            <div className="mb-5 flex justify-between">
-              <h2 className="text-xl font-bold">{editing.id ? "Изменить документ" : "Добавить документ"}</h2>
-              <button type="button" onClick={() => setEditing(null)} aria-label="Закрыть">
-                <X />
-              </button>
-            </div>
-            <label className="mb-2 block font-medium">№ документа</label>
-            <input autoFocus value={draft.documentNumber} onChange={(event) => setDraft({ ...draft, documentNumber: event.target.value })} className="mb-4 w-full rounded border border-slate-300 px-3 py-2.5" />
-            <label className="mb-2 block font-medium">Поставщик</label>
-            <input value={draft.supplier} onChange={(event) => setDraft({ ...draft, supplier: event.target.value })} className="mb-4 w-full rounded border border-slate-300 px-3 py-2.5" />
-            <label className="mb-2 block font-medium">Дата</label>
-            <input type="date" value={draft.date} onChange={(event) => setDraft({ ...draft, date: event.target.value })} className="mb-4 w-full rounded border border-slate-300 px-3 py-2.5" />
-            <label className="mb-2 block font-medium">Сумма</label>
-            <input type="number" min={0} value={draft.amount} onChange={(event) => setDraft({ ...draft, amount: Number(event.target.value) })} className="mb-4 w-full rounded border border-slate-300 px-3 py-2.5" />
-            <label className="mb-2 block font-medium">Филиал</label>
-            <input value={draft.branch} onChange={(event) => setDraft({ ...draft, branch: event.target.value })} className="mb-4 w-full rounded border border-slate-300 px-3 py-2.5" />
-            <label className="mb-2 block font-medium">Статус</label>
-            <select value={draft.status} onChange={(event) => setDraft({ ...draft, status: event.target.value })} className="mb-4 w-full rounded border border-slate-300 px-3 py-2.5">
-              {INVOICE_INCOMING_STATUSES.map((status) => (
-                <option key={status} value={status}>
-                  {status}
-                </option>
-              ))}
-            </select>
-            <label className="mb-2 block font-medium">Примечание</label>
-            <input value={draft.note} onChange={(event) => setDraft({ ...draft, note: event.target.value })} className="w-full rounded border border-slate-300 px-3 py-2.5" />
-            <div className="mt-6 flex justify-end gap-3">
-              <button type="button" onClick={() => setEditing(null)} className="rounded border px-4 py-2">
-                Отмена
-              </button>
-              <button type="submit" className="inline-flex items-center gap-2 rounded bg-[#5474e6] px-4 py-2 font-semibold text-white">
-                <Plus className="h-4 w-4" />
-                Сохранить
-              </button>
-            </div>
-          </form>
+      <section className="mx-4 mb-10 mt-4 rounded-sm bg-white shadow-sm md:mx-6">
+        <div className="flex flex-wrap items-center gap-x-5 gap-y-3 border-b border-[#e1e5eb] px-4 py-3 md:px-6">
+          <BalanceFilterChip count={filterCount(state.filters)} onOpen={openFilter} onClear={clearFilters} />
+          <label className="relative min-w-[180px] flex-1 border-b border-[#dbe0e8] pb-1.5 md:max-w-[340px]">
+            <input
+              value={searchDraft}
+              onChange={(event) => setSearchDraft(event.target.value)}
+              placeholder={t("Номер, поставщик или ИНН")}
+              aria-label={t("Поиск")}
+              className="w-full bg-transparent pr-7 text-[15px] outline-none placeholder:text-[#9aa3b6]"
+            />
+            <Search className="pointer-events-none absolute right-0 top-0.5 h-5 w-5 text-[#9aa3b6]" />
+          </label>
+          <div className="ml-auto flex flex-wrap items-center gap-3">
+            <BalancePagination page={state.page} pageSize={state.pageSize} count={data?.count ?? 0} sizes={PAGE_SIZES} onChange={({ page, pageSize }) => update({ page, pageSize })} />
+            <button type="button" onClick={() => void downloadList()} disabled={!data} title={t("Скачать Excel")} aria-label={t("Скачать Excel")} className="flex h-9 w-9 items-center justify-center rounded-full text-[#666] hover:bg-[#f2f5f8] disabled:opacity-40">
+              <FileSpreadsheet className="h-5 w-5" />
+            </button>
+          </div>
         </div>
+
+        {data && data.totals.length > 0 && (
+          <div className="flex flex-wrap gap-3 border-b border-[#e1e5eb] bg-[#f7f9fc] px-4 py-3 md:px-6">
+            {data.totals.map((total) => (
+              <div key={total.currency} className="flex min-w-[260px] flex-1 flex-wrap items-baseline gap-x-5 gap-y-1 rounded-md bg-white px-4 py-2 text-[13px] shadow-sm sm:flex-none">
+                <span className="font-bold text-[#4f70e7]">
+                  {total.currency} · {total.count} {t("док.")}
+                </span>
+                <span className="text-[#586174]">
+                  {t("Без НДС")}: <b className="text-[#17233b]">{formatInvoiceMoney(total.amountWithoutVat, total.currency)}</b>
+                </span>
+                <span className="text-[#586174]">
+                  {t("НДС")}: <b className="text-[#17233b]">{formatInvoiceMoney(total.vatAmount, total.currency)}</b>
+                </span>
+                <span className="text-[#586174]">
+                  {t("Всего")}: <b className="text-[#17233b]">{formatInvoiceMoney(total.total, total.currency)}</b>
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {list.error && (
+          <div className="flex flex-wrap items-center gap-3 px-6 py-3 text-[#e57373]">
+            <span>
+              {t("Не удалось загрузить данные")}: {t(list.error)}
+            </span>
+            <button type="button" onClick={list.reload} className="font-semibold text-[#4f70e7] hover:underline">
+              {t("Повторить")}
+            </button>
+          </div>
+        )}
+
+        <div className={`overflow-x-auto ${list.loading ? "opacity-60" : ""}`}>
+          <table className="w-full min-w-[1180px] border-collapse text-[14px]">
+            <thead>
+              <tr className="border-b border-[#e1e5eb] text-[#17233b]">
+                <th className={`${th} pl-6`}>{t("№ / дата")}</th>
+                <th className={th}>{t("Поставщик")}</th>
+                <th className={th}>{t("Покупатель")}</th>
+                <th className={th}>{t("Договор")}</th>
+                <th className={`${th} text-right`}>{t("Без НДС")}</th>
+                <th className={`${th} text-right`}>{t("НДС")}</th>
+                <th className={`${th} text-right`}>{t("Сумма с НДС")}</th>
+                <th className={`${th} text-center`}>{t("Статус")}</th>
+                <th className={th}>{t("Приход")}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row) => (
+                <tr key={row.id} onClick={() => update({ viewId: row.id })} className="cursor-pointer border-b border-[#efefef] hover:bg-[#f2f5f8]">
+                  <td className={`${td} pl-6`}>
+                    <span className="flex items-center gap-2 font-semibold">
+                      <FileText className="h-4 w-4 shrink-0 text-[#9aa3b6]" />
+                      {row.number || "—"}
+                    </span>
+                    <span className="block pl-6 text-[12px] text-[#7b8497]">{formatInvoiceDate(row.date)}</span>
+                  </td>
+                  <td className={td}>
+                    <span className="block max-w-[260px] truncate" title={row.supplierName}>
+                      {row.supplierName || "—"}
+                    </span>
+                    <span className="block text-[12px] text-[#7b8497]">
+                      {row.supplierInn ? `${t("ИНН")} ${row.supplierInn}` : ""}
+                      {!row.supplierId && <span className="text-[#c77700]">{row.supplierInn ? " · " : ""}{t("не сопоставлен")}</span>}
+                    </span>
+                  </td>
+                  <td className={td}>
+                    <span className="block max-w-[220px] truncate">{row.organizationName || row.buyerName || "—"}</span>
+                    {row.buyerInn && <span className="block text-[12px] text-[#7b8497]">{`${t("ИНН")} ${row.buyerInn}`}</span>}
+                  </td>
+                  <td className={`${td} whitespace-nowrap`}>
+                    {row.contractNumber ? (
+                      <>
+                        № {row.contractNumber}
+                        {row.contractDate && <span className="block text-[12px] text-[#7b8497]">{`${t("от")} ${formatInvoiceDate(row.contractDate)}`}</span>}
+                      </>
+                    ) : (
+                      "—"
+                    )}
+                  </td>
+                  <td className={`${td} whitespace-nowrap text-right`}>{formatInvoiceMoney(row.amountWithoutVat, row.currency)}</td>
+                  <td className={`${td} whitespace-nowrap text-right`}>{formatInvoiceMoney(row.vatAmount, row.currency)}</td>
+                  <td className={`${td} whitespace-nowrap text-right font-semibold`}>{formatInvoiceMoney(row.total, row.currency)}</td>
+                  <td className={`${td} text-center`}>
+                    <InvoiceStatusBadge status={row.status} title={row.status === "rejected" ? row.rejectReason : undefined} />
+                  </td>
+                  <td className={`${td} whitespace-nowrap`} onClick={(event) => event.stopPropagation()}>
+                    {row.incoming ? (
+                      <Link href="/analytics/supplier-incomings" className="font-semibold text-[#4f70e7] hover:underline">
+                        {t("Приход №")} {row.incoming.id}
+                      </Link>
+                    ) : canEdit && row.status === "accepted" ? (
+                      <button type="button" onClick={() => createSupply(row.id)} className="inline-flex items-center gap-1.5 rounded-md bg-[#71ce87] px-3 py-1.5 text-[13px] font-semibold text-white hover:brightness-95">
+                        <Truck className="h-4 w-4" /> {t("Создать приход")}
+                      </button>
+                    ) : canEdit && row.status === "pending" ? (
+                      <span className="inline-flex items-center gap-2">
+                        <button
+                          type="button"
+                          disabled={busyId === row.id}
+                          onClick={() => void quickAccept(row)}
+                          title={t("Принять")}
+                          aria-label={t("Принять")}
+                          className="flex h-8 w-8 items-center justify-center rounded-full border border-[#71ce87] text-[#2e9b52] hover:bg-[#e7f6ec] disabled:opacity-40"
+                        >
+                          <Check className="h-4 w-4" />
+                        </button>
+                        <button
+                          type="button"
+                          disabled={busyId === row.id}
+                          onClick={() => {
+                            setRejectError("")
+                            setRejectTarget(row)
+                          }}
+                          title={t("Отклонить")}
+                          aria-label={t("Отклонить")}
+                          className="flex h-8 w-8 items-center justify-center rounded-full border border-[#fa8072] text-[#d64545] hover:bg-[#fdecec] disabled:opacity-40"
+                        >
+                          <X className="h-4 w-4" />
+                        </button>
+                      </span>
+                    ) : (
+                      <span className="text-[#9aa3b6]">—</span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+              {!rows.length && (
+                <tr>
+                  <td colSpan={9} className="px-4 py-16 text-center text-[#9aa3b6]">
+                    {list.loading ? t("Загрузка...") : list.error ? "" : t("По вашему запросу ничего не найдено")}
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <BalanceFilterDialog open={filterOpen} onClose={() => setFilterOpen(false)} from={seededPeriod.from} to={seededPeriod.to} onApply={applyFilter} dateLabel="Период (дата счет-фактуры)">
+        <p className="text-[12px] text-[#9aa3b6] md:col-span-2">{t("Если период не менять, фильтр по дате не применяется.")}</p>
+        <MultiPick
+          label={t("Поставщик")}
+          options={parties.suppliers}
+          value={filterDraft.supplierIds.map(String)}
+          onChange={(next) => setFilterDraft((current) => ({ ...current, supplierIds: next.map(Number) }))}
+        />
+        <MultiPick
+          label={t("Организация")}
+          options={parties.organizations}
+          value={filterDraft.organizationIds.map(String)}
+          onChange={(next) => setFilterDraft((current) => ({ ...current, organizationIds: next.map(Number) }))}
+        />
+        <MultiPick label={t("Валюта")} options={currencyOptions} value={filterDraft.currencies} onChange={(next) => setFilterDraft((current) => ({ ...current, currencies: next }))} />
+      </BalanceFilterDialog>
+
+      {state.viewId !== null && (
+        <InvoiceViewDialog
+          id={state.viewId}
+          canEdit={canEdit}
+          version={viewVersion}
+          onClose={() => update({ viewId: null })}
+          onEdit={(invoice) => setForm(invoice)}
+          onChanged={list.reload}
+          onCreateSupply={(invoice) => createSupply(invoice.id)}
+          notify={notify}
+        />
       )}
+
+      {form !== undefined && (
+        <InvoiceFormDialog
+          invoice={form}
+          onClose={() => setForm(undefined)}
+          onSaved={(saved) => {
+            setForm(undefined)
+            notify("Успешно сохранено")
+            list.reload()
+            setViewVersion((value) => value + 1)
+            update({ viewId: saved.id })
+          }}
+        />
+      )}
+
+      {rejectTarget && <InvoiceRejectDialog busy={busyId === rejectTarget.id} error={rejectError} onClose={() => setRejectTarget(null)} onConfirm={(reason) => void reject(reason)} />}
+
+      {importOpen && (
+        <InvoiceImportDialog
+          onClose={() => setImportOpen(false)}
+          onDone={(created) => {
+            notify(`${t("Импортировано")}: ${created}`)
+            update({ tab: "pending", page: 1 })
+            list.reload()
+          }}
+        />
+      )}
+
+      <CashSnackbar message={message} onClose={closeSnackbar} />
     </main>
   )
 }

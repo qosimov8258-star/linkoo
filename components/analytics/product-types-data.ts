@@ -1,17 +1,55 @@
-export type ProductType = { id: number; name: string; organization: string; createdDate: string; showInBot: boolean; parentId: number | null }
+import type { DictionaryUsage } from "./dictionaries-data"
 
-export const productTypeOrganizations = ["7777", "05,08,2025", "878", "agent"]
+// "Типы продуктов" (demo #/product-type, API main/product_type/ and the tree
+// main/product_type/as_menu/). Two levels: a top-level type is stored in
+// products.type / raw_materials.type, a child ("Подкатегория") in .subcategory.
 
-export const knownProductTypes: ProductType[] = [
-  { id: 1, name: '02, "OLIVIA" ТВЕРДОЕ МЫЛО', organization: "7777", createdDate: "23 янв. 2026", showInBot: true, parentId: null },
-  { id: 2, name: '01, "OLIVIA" ТУАЛЕТНОЕ МЫЛО', organization: "7777", createdDate: "23 янв. 2026", showInBot: true, parentId: 1 },
-  { id: 3, name: "Агент", organization: "05,08,2025", createdDate: "24 янв. 2026", showInBot: true, parentId: 1 },
-  { id: 4, name: '03, "OLIVIA" ЖИДКОЕ МЫЛО', organization: "7777", createdDate: "23 янв. 2026", showInBot: true, parentId: null },
-  { id: 5, name: '04, "OLIVIA" ШАМПУНЬДЛЯ ВОЛОС', organization: "7777", createdDate: "23 янв. 2026", showInBot: true, parentId: null },
-  { id: 6, name: '06, "OLIVIA" "COTTON BUDS" ВАТНЫЕ ПАЛОЧКИ', organization: "7777", createdDate: "23 янв. 2026", showInBot: true, parentId: null },
-  { id: 7, name: '07, "PALMERA" ВЛАЖНЫЕ САЛФЕТКИ', organization: "7777", createdDate: "23 янв. 2026", showInBot: true, parentId: null },
-  { id: 8, name: '08, "OLIVIA" АНТИПЕРСПЕРАНТ', organization: "7777", createdDate: "23 янв. 2026", showInBot: true, parentId: null },
-  { id: 9, name: '09, "OLIVIA" ДЛЯ ДЕТЕЙ', organization: "7777", createdDate: "23 янв. 2026", showInBot: true, parentId: null },
-  { id: 10, name: '102, "Deo" Твердое мыло', organization: "7777", createdDate: "23 янв. 2026", showInBot: true, parentId: null },
-  { id: 11, name: '11, "PALMERA" ЖИДКОЕ МЫЛО', organization: "7777", createdDate: "23 янв. 2026", showInBot: true, parentId: null },
-]
+export const PRODUCT_TYPES_API = "/api/product-types"
+
+/**
+ * One type. The first six fields are the original GET /api/product-types array shape
+ * (kept for its callers); the rest were added with the demo fields.
+ */
+export type ProductType = {
+  id: number
+  name: string
+  /** Организация (demo division), a name; "" = not set. */
+  organization: string
+  parentId: number | null
+  /** "Показывать в боте" (demo show_in_market). */
+  showInBot: boolean
+  /** "08 окт. 2026". */
+  createdDate: string
+  /** Порядок (demo order). */
+  position: number
+  /** GET /api/product-types/[id]/image?v=… or null. */
+  imageUrl: string | null
+  /** Local ISO "YYYY-MM-DDTHH:MM:SS". */
+  createdAt: string
+}
+
+/** Row of the tree grid (demo as_menu item with nested children). */
+export type ProductTypeNode = ProductType & { parentName: string; children: ProductTypeNode[] }
+
+/** GET /api/product-types?view=tree … — top-level types (paged) with their children. */
+export type ProductTypeTreeResult = { count: number; results: ProductTypeNode[] }
+
+/** GET /api/product-types/[id] (?usage=1 adds `usage`). */
+export type ProductTypeDetail = ProductType & { parentName: string; childCount: number; usage?: DictionaryUsage[] }
+
+/** POST / PUT body. `image`: a data URL = new picture, null = remove, omitted = keep. */
+export type ProductTypePayload = {
+  name: string
+  organization: string
+  parentId: number | null
+  showInBot: boolean
+  position: number
+  image?: string | null
+}
+
+/** Sortable columns (demo ordering names). */
+export const PRODUCT_TYPE_ORDERINGS = ["name", "division", "created_date"] as const
+export type ProductTypeOrderingField = (typeof PRODUCT_TYPE_ORDERINGS)[number]
+
+/** The demo shows every type on one page; the grid still pages top-level types. */
+export const PRODUCT_TYPE_PAGE_SIZE = 100

@@ -1,139 +1,225 @@
 "use client"
 
-import { ChevronDown, ChevronUp } from "lucide-react"
-import { Fragment, useMemo, useState } from "react"
+import { CircleAlert, FileSpreadsheet, Info, Loader2, SearchX } from "lucide-react"
+import { usePathname, useSearchParams } from "next/navigation"
+import { useCallback, useEffect, useMemo, useState } from "react"
+
+import { buildBalanceQuery, useLookup } from "@/components/analytics/balance/use-balance"
+import { ManagementBranchCard, managementBranchName, managementExcelRows } from "@/components/analytics/management-balance-card"
+import { ManagementFilterBar, type ManagementFilters } from "@/components/analytics/management-balance-filters"
 import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
+import { downloadExcelTable } from "@/lib/excel-export"
+import { currencyLabel } from "@/lib/finance/currency"
+import { defaultBalancePeriod, isIsoDay, monthStartIso } from "@/lib/finance/dates"
+import {
+  MANAGEMENT_NAME_PREFIX,
+  MANAGEMENT_NO_BRANCH,
+  MANAGEMENT_NO_BRANCH_LABEL,
+  type ManagementBranchOption,
+  type ManagementReport,
+} from "@/lib/finance-management-balance-types"
+import { useLanguage } from "@/lib/i18n/language-context"
 
-type LineItem = { label: string; value1: number; value2: number }
-type Category = { label: string; value1: number; value2: number; children: LineItem[] }
-type BranchData = { id: number; name: string; categories: Category[] }
+// "Управленческий баланс по филиалам" (demo #/widget-balance/?beginDate&endDate,
+// GET stats/branch_balance/): a balance sheet per branch (Активы / Пассивы /
+// Собственный капитал / Курс) at the start of beginDate and at the end of
+// endDate. Data: GET /api/balances/management-balance (the shared management
+// balance of lib/finance). As in the demo, the filters (beginDate, endDate,
+// division = organizations, branch) live in the URL query; the menu default is
+// the 1st of the current month .. today.
 
-const organizations = ["Все организации", "05,08,2025", "7777", "878"]
-const branchNames = ["777", "878", "agent", "Ташкент", "Samarqand", "buxoro", "Andijon"]
+type Named = { id: number; name: string }
+type ReportState = { data: ManagementReport | null; loading: boolean; error: string; reload: () => void }
 
-const money = (value: number) => value.toLocaleString("ru-RU", { maximumFractionDigits: 2 })
+function useReport(url: string): ReportState {
+  const [data, setData] = useState<ManagementReport | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState("")
+  const [version, setVersion] = useState(0)
 
-function buildBranches(): BranchData[] {
-  return []
+  useEffect(() => {
+    const controller = new AbortController()
+    setLoading(true)
+    setError("")
+    fetch(url, { signal: controller.signal, cache: "no-store" })
+      .then(async (response) => {
+        const body = await response.json().catch(() => null)
+        if (!response.ok) throw new Error((body as { error?: string } | null)?.error || `HTTP ${response.status}`)
+        setData(body as ManagementReport)
+      })
+      .catch((reason: unknown) => {
+        if (controller.signal.aborted) return
+        setError(reason instanceof Error ? reason.message : String(reason))
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoading(false)
+      })
+    return () => controller.abort()
+  }, [url, version])
+
+  const reload = useCallback(() => setVersion((value) => value + 1), [])
+  return { data, loading, error, reload }
+}
+
+/** Applied filters from the URL (demo query beginDate/endDate/division/branch). */
+function useAppliedFilters(): ManagementFilters & { complete: boolean } {
+  const searchParams = useSearchParams()
+  const fallback = defaultBalancePeriod()
+  const pick = (...names: string[]) => names.map((name) => searchParams.get(name) ?? "").find(isIsoDay) ?? ""
+  const endParam = pick("endDate", "toDate")
+  const begin = pick("beginDate", "fromDate") || (endParam ? monthStartIso(endParam) : fallback.from)
+  const end = endParam || (begin > fallback.to ? begin : fallback.to)
+  const [from, to] = begin <= end ? [begin, end] : [end, begin]
+  return {
+    from,
+    to,
+    organizations: [...new Set(searchParams.getAll("division").filter(Boolean))],
+    branch: (searchParams.get("branch") ?? "").trim(),
+    complete: searchParams.get("beginDate") === from && searchParams.get("endDate") === to,
+  }
+}
+
+function filtersQuery(filters: ManagementFilters): string {
+  return buildBalanceQuery({ beginDate: filters.from, endDate: filters.to, division: filters.organizations, branch: filters.branch })
 }
 
 export function ManagementBalanceView() {
-  const [organization, setOrganization] = useState(organizations[0])
-  const [branchFilter, setBranchFilter] = useState("Все филиалы")
-  const [dateFrom, setDateFrom] = useState(() => toInputDate(new Date(2026, 7, 1)))
-  const [dateTo, setDateTo] = useState(() => toInputDate(new Date(2026, 7, 12)))
-  const [appliedFrom, setAppliedFrom] = useState(dateFrom)
-  const [appliedTo, setAppliedTo] = useState(dateTo)
-  const [expanded, setExpanded] = useState<Set<string>>(new Set())
+  const { t, language } = useLanguage()
+  const pathname = usePathname()
+  const applied = useAppliedFilters()
+  const { from, to, organizations, branch, complete } = applied
+  const query = filtersQuery({ from, to, organizations, branch })
+  const { data, loading, error, reload } = useReport(`/api/balances/management-balance?${query}`)
 
-  const branches = useMemo(() => buildBranches(), [])
-  const filterOptions = ["Все филиалы", ...branchNames]
+  // The demo menu link always carries beginDate/endDate: put the defaults into the URL.
+  useEffect(() => {
+    if (!complete) window.history.replaceState(null, "", `${pathname}?${query}`)
+  }, [complete, pathname, query])
 
-  const visibleBranches = branchFilter === "Все филиалы" ? branches : branches.filter((branch) => branch.name === branchFilter)
+  const organizationRows = useLookup<Named>("/api/organizations")
+  const branchRows = useLookup<Named>("/api/branches")
 
-  function toggle(branchId: number, categoryLabel: string) {
-    const key = `${branchId}:${categoryLabel}`
+  const organizationOptions = useMemo(() => {
+    const names = organizationRows.map((row) => row.name).filter(Boolean)
+    return [...new Set([...names.sort((a, b) => a.localeCompare(b, "ru")), ...organizations])]
+  }, [organizationRows, organizations])
+
+  const branchOptions = useMemo<ManagementBranchOption[]>(() => {
+    const options = new Map<string, ManagementBranchOption>()
+    for (const row of [...branchRows].sort((a, b) => a.id - b.id)) options.set(String(row.id), { value: String(row.id), name: row.name, virtual: false })
+    for (const option of data?.options ?? []) if (!options.has(option.value)) options.set(option.value, option)
+    // A filter value from the URL that matches no card ("name:<name>" or an unknown id) stays selectable.
+    if (branch && !options.has(branch)) {
+      const name = branch === MANAGEMENT_NO_BRANCH ? MANAGEMENT_NO_BRANCH_LABEL : branch.startsWith(MANAGEMENT_NAME_PREFIX) ? branch.slice(MANAGEMENT_NAME_PREFIX.length) : branch
+      options.set(branch, { value: branch, name, virtual: true })
+    }
+    return [...options.values()].map((option) => ({ ...option, name: managementBranchName(option, t) }))
+  }, [branchRows, data?.options, branch, t])
+
+  // Expanded sections per card ("<branch value>:<section key>"); collapsed by default as in the demo.
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set())
+  const toggle = (id: string) =>
     setExpanded((current) => {
       const next = new Set(current)
-      if (next.has(key)) next.delete(key)
-      else next.add(key)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
       return next
     })
+
+  const apply = (next: ManagementFilters) => {
+    const nextQuery = filtersQuery(next)
+    // Same filters: refetch like the demo "Применить" does. Compared with the
+    // normalized applied query (not location.search, whose encoding/order may
+    // differ, e.g. "%20" vs "+"), or a no-op pushState would skip the refetch.
+    if (nextQuery === query) reload()
+    else window.history.pushState(null, "", `${pathname}?${nextQuery}`)
   }
 
-  function apply() {
-    setAppliedFrom(dateFrom)
-    setAppliedTo(dateTo)
+  const download = () => {
+    if (data) downloadExcelTable(`management-balance-${data.from}-${data.to}`, managementExcelRows(data, t, language))
   }
+
+  const filtered = organizations.length > 0 || Boolean(branch)
+  const branches = data?.branches ?? []
 
   return (
-    <main className="min-h-[calc(100vh-4rem)] bg-[#f2f5f8] px-7 pb-7">
-      <header className="mb-5 flex items-center text-2xl font-bold text-slate-600">
-        <FavoritesButton className="inline-flex items-center gap-2 text-[#4f71dc]" />
-        <span className="mx-2 text-slate-400">|</span> Управленческий баланс по филиалам
+    <main className="min-h-[calc(100vh-4rem)] bg-[#f1f4f8] px-4 py-5 md:px-9">
+      <header className="mb-5 flex flex-wrap items-center text-2xl font-bold text-slate-600">
+        <FavoritesButton className="inline-flex items-center gap-2 text-[#4f70e7]" />
+        <span className="mx-2 text-slate-400">|</span> {t("Управленческий баланс по филиалам")}
       </header>
 
-      <section className="mb-5 flex flex-wrap items-end gap-6 rounded bg-white p-5 shadow">
-        <label className="block text-sm font-medium text-slate-600">
-          Организация
-          <select value={organization} onChange={(event) => setOrganization(event.target.value)} className="mt-1 block w-48 border-b border-slate-300 bg-white py-1.5 outline-none focus:border-[#4f71dc]">
-            {organizations.map((org) => <option key={org} value={org}>{org}</option>)}
-          </select>
-        </label>
-        <label className="block text-sm font-medium text-slate-600">
-          Филиалы
-          <select value={branchFilter} onChange={(event) => setBranchFilter(event.target.value)} className="mt-1 block w-48 border-b border-slate-300 bg-white py-1.5 outline-none focus:border-[#4f71dc]">
-            {filterOptions.map((name) => <option key={name} value={name}>{name}</option>)}
-          </select>
-        </label>
-        <div className="flex items-center gap-2">
-          <input type="date" value={dateFrom} max={dateTo} onChange={(event) => setDateFrom(event.target.value)} className="border-b border-slate-300 py-1.5 text-sm outline-none focus:border-[#4f71dc]" />
-          <span className="text-slate-400">—</span>
-          <input type="date" value={dateTo} min={dateFrom} onChange={(event) => setDateTo(event.target.value)} className="border-b border-slate-300 py-1.5 text-sm outline-none focus:border-[#4f71dc]" />
-        </div>
-        <button type="button" onClick={apply} className="rounded bg-[#4f71dc] px-6 py-2.5 font-semibold text-white hover:brightness-95">
-          Применить
-        </button>
-      </section>
+      <ManagementFilterBar
+        key={query}
+        initial={{ from, to, organizations, branch }}
+        organizations={organizationOptions}
+        branches={branchOptions}
+        onApply={apply}
+        extra={
+          <button
+            type="button"
+            onClick={download}
+            disabled={!branches.length}
+            className="flex h-11 items-center gap-2 rounded-md bg-[#4caf72] px-5 font-semibold text-white hover:brightness-95 disabled:opacity-50"
+          >
+            <FileSpreadsheet className="h-5 w-5" /> {t("Скачать Excel")}
+          </button>
+        }
+      />
 
-      <div className="space-y-5">
-        {visibleBranches.map((branch) => (
-          <section key={branch.id} className="overflow-hidden rounded bg-white shadow">
-            <h2 className="px-5 pt-4 text-lg font-bold text-slate-700">{branch.name}</h2>
-            <table className="mt-3 w-full text-left">
-              <thead>
-                <tr className="bg-slate-50 text-slate-600">
-                  <th className="px-5 py-3 font-medium">Наименование</th>
-                  <th className="px-5 py-3 font-medium">Баланс на {fmtLabelDate(appliedFrom)}</th>
-                  <th className="px-5 py-3 font-medium">Баланс на {fmtLabelDate(appliedTo)}</th>
-                  <th className="px-5 py-3 font-medium">Разница</th>
-                </tr>
-              </thead>
-              <tbody>
-                {branch.categories.map((category) => {
-                  const key = `${branch.id}:${category.label}`
-                  const isOpen = expanded.has(key)
-                  const diff = category.value2 - category.value1
-                  return (
-                    <Fragment key={key}>
-                      <tr onClick={() => toggle(branch.id, category.label)} className="cursor-pointer bg-[#f4f6fb] hover:bg-[#eaeefa]">
-                        <td className="px-5 py-3 font-medium text-slate-700">
-                          <span className="inline-flex items-center gap-1.5">
-                            {category.label}
-                            {isOpen ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-                          </span>
-                        </td>
-                        <td className="px-5 py-3">{money(category.value1)}</td>
-                        <td className="px-5 py-3">{money(category.value2)}</td>
-                        <td className={`px-5 py-3 ${diff !== 0 ? "text-rose-500" : ""}`}>{money(diff)}</td>
-                      </tr>
-                      {isOpen && category.children.map((child, index) => (
-                        <tr key={`${key}-${index}`} className="border-b border-dashed border-slate-200">
-                          <td className="px-9 py-2.5 text-slate-600">{child.label}</td>
-                          <td className="px-5 py-2.5">{money(child.value1)}</td>
-                          <td className="px-5 py-2.5">{money(child.value2)}</td>
-                          <td className={`px-5 py-2.5 ${child.value2 - child.value1 !== 0 ? "text-rose-500" : ""}`}>{money(child.value2 - child.value1)}</td>
-                        </tr>
-                      ))}
-                    </Fragment>
-                  )
-                })}
-              </tbody>
-            </table>
-          </section>
-        ))}
-      </div>
+      {data && data.missingRates.length > 0 && (
+        <p className="mb-5 flex items-start gap-2 rounded border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          <Info className="mt-0.5 h-4 w-4 shrink-0" />
+          {t("Не задан курс валют: {codes}. Суммы в этих валютах не включены в итоги разделов.").replace("{codes}", data.missingRates.map(currencyLabel).join(", "))}
+        </p>
+      )}
+
+      {error && (
+        <div className="mb-5 flex flex-col items-center gap-3 rounded bg-white py-10 text-center text-slate-600 shadow">
+          <CircleAlert className="h-10 w-10 text-[#E27676]" />
+          <p>
+            {t("Не удалось загрузить данные")}: {t(error)}
+          </p>
+          <button type="button" onClick={reload} className="rounded-md border border-[#4f70e7] px-4 py-2 font-semibold text-[#4f70e7]">
+            {t("Повторить")}
+          </button>
+        </div>
+      )}
+
+      {!data && loading && (
+        <div className="flex items-center justify-center gap-2 rounded bg-white py-24 text-slate-500 shadow">
+          <Loader2 className="h-5 w-5 animate-spin" /> {t("Загрузка...")}
+        </div>
+      )}
+
+      {data && !branches.length && !error && (
+        <div className="flex flex-col items-center gap-3 rounded bg-white py-24 text-center text-sm text-slate-500 shadow">
+          {loading ? <Loader2 className="h-10 w-10 animate-spin text-slate-400" /> : <SearchX className="h-12 w-12 text-slate-400" />}
+          {loading ? t("Загрузка...") : filtered ? t("По вашему запросу ничего не найдено") : t("Нет данных")}
+        </div>
+      )}
+
+      {data && !error && branches.length > 0 && (
+        <div className={`relative space-y-5 transition-opacity ${loading ? "pointer-events-none opacity-60" : ""}`} aria-busy={loading}>
+          {loading && (
+            <div className="absolute inset-x-0 top-10 z-10 flex justify-center">
+              <span className="flex items-center gap-2 rounded bg-white px-4 py-2 text-sm text-slate-600 shadow">
+                <Loader2 className="h-4 w-4 animate-spin" /> {t("Загрузка...")}
+              </span>
+            </div>
+          )}
+          {branches.map((card) => (
+            <ManagementBranchCard
+              key={card.value}
+              branch={card}
+              from={data.from}
+              to={data.to}
+              isOpen={(section) => expanded.has(`${card.value}:${section}`)}
+              onToggle={(section) => toggle(`${card.value}:${section}`)}
+            />
+          ))}
+        </div>
+      )}
     </main>
   )
-}
-
-function toInputDate(date: Date) {
-  return date.toISOString().slice(0, 10)
-}
-
-const monthGenitive = ["января", "февраля", "марта", "апреля", "мая", "июня", "июля", "августа", "сентября", "октября", "ноября", "декабря"]
-function fmtLabelDate(value: string) {
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return value
-  return `${date.getDate()} ${monthGenitive[date.getMonth()]}`
 }

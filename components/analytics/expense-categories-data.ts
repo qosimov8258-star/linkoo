@@ -1,25 +1,33 @@
+// Shared (client + server) shapes of "Категории расходов" (demo #/expensive-category,
+// API finance/expense_category: {id, name, internal_transfer, options[], created_date,
+// parent: {id, name} | null, disable_pl}). Storage rules: lib/expense-categories-repo.ts
+// + lib/categories-common.ts.
+
+import type { CategoryOptionKey } from "@/lib/cash/types"
+
+/** Element of GET /api/expense-categories (plain array) and of the paged list. */
 export type ExpenseCategory = {
   id: number
   name: string
+  /** Russian title of the chosen option ('' = none), kept for older readers. */
   parameter: string
+  /** Option keys (lib/cash/types.ts CATEGORY_OPTIONS); the dialog edits the first one. */
+  options: CategoryOptionKey[]
+  /** "Родительская категория" (null = "Не указано"). */
   parentId: number | null
+  parentName: string
+  /** Demo internal_transfer: "Прямой расход на товар" / "Косвенный расход". */
   direct: boolean
+  /** Demo disable_pl: "Не учитывать в отчёте P&L". */
   excludeFromPnl: boolean
+  /** Local "YYYY-MM-DDTHH:mm:ss" of the creation ('' = unknown). */
   createdDate: string
 }
 
-export const expenseParameterOptions = ["Доп. расход", "Расход на сотрудников", "Поставка", "Клиент"]
+/** GET /api/expense-categories?page=&pageSize=&search=&ordering= (demo {count, results}). */
+export type ExpenseCategoryListResult = { count: number; results: ExpenseCategory[] }
 
-export const knownExpenseCategories: ExpenseCategory[] = [
-  { id: 1, name: "1111", parameter: "Доп. расход", parentId: 4, direct: true, excludeFromPnl: false, createdDate: "06 мар. 2025" },
-  { id: 2, name: "ananas", parameter: "", parentId: null, direct: false, excludeFromPnl: false, createdDate: "10 дек. 2025" },
-  { id: 3, name: "Avans OYlik", parameter: "Расход на сотрудников", parentId: 4, direct: false, excludeFromPnl: false, createdDate: "13 мая 2025" },
-  { id: 4, name: "Firma umumiy rasxod", parameter: "Доп. расход", parentId: null, direct: true, excludeFromPnl: false, createdDate: "15 сент. 2025" },
-  { id: 5, name: "Gruzchik rasxod", parameter: "Поставка", parentId: null, direct: true, excludeFromPnl: false, createdDate: "13 мая 2025" },
-  { id: 6, name: "ishchilaga bonus", parameter: "Расход на сотрудников", parentId: null, direct: false, excludeFromPnl: false, createdDate: "11 июля 2025" },
-  { id: 7, name: "Ishchilaga oylik", parameter: "Расход на сотрудников", parentId: null, direct: false, excludeFromPnl: false, createdDate: "22 дек. 2025" },
-  { id: 8, name: "keshbek", parameter: "Клиент", parentId: null, direct: false, excludeFromPnl: false, createdDate: "10 янв. 2026" },
-  { id: 9, name: "klient", parameter: "Клиент", parentId: null, direct: false, excludeFromPnl: false, createdDate: "05 авг. 2026" },
-  { id: 10, name: "kosvennie", parameter: "Доп. расход", parentId: null, direct: false, excludeFromPnl: false, createdDate: "24 апр. 2025" },
-  { id: 11, name: "PEPSI", parameter: "Доп. расход", parentId: null, direct: false, excludeFromPnl: false, createdDate: "26 июля 2025" },
-]
+export const EXPENSE_CATEGORIES_API = "/api/expense-categories"
+
+/** Header sorting: "Дата создания" (demo) and "Внутренний расход" (by direct); default = name. */
+export type ExpenseCategoryOrdering = "" | "created_date" | "-created_date" | "direct" | "-direct"

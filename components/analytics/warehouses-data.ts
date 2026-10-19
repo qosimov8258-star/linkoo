@@ -1,3 +1,26 @@
+// Shared (client + server) shapes of "Склады" (demo #/stock, API stock/stock/).
+// Storage rules (unique names, rename cascade, delete refused while referenced,
+// inactive warehouses hidden from the pickers) are in lib/warehouses-repo.ts.
+
+export const WAREHOUSES_API = "/api/warehouses"
+
+/** Demo StockTypeSearchField options (stock_type). */
+export type WarehouseStockType = "basic" | "manufacturing"
+
+export const WAREHOUSE_STOCK_TYPES: ReadonlyArray<{ value: WarehouseStockType; label: string }> = [
+  { value: "basic", label: "Основной" },
+  { value: "manufacturing", label: "Производственный" },
+]
+
+export function warehouseStockTypeLabel(value: string): string {
+  return WAREHOUSE_STOCK_TYPES.find((item) => item.value === value)?.label ?? ""
+}
+
+/**
+ * Element of the plain GET /api/warehouses array used by every warehouse picker
+ * (unchanged contract; `online` = Вэнсел). Only active warehouses unless asked
+ * with ?active=all / ?active=false.
+ */
 export type Warehouse = {
   id: number
   name: string
@@ -9,73 +32,75 @@ export type Warehouse = {
   active: boolean
 }
 
-const managers = ["Admin Ritm", "Админ 1", "A Rustam", "Asad Asadov", "Samandar Abdurahmonov", "Temur Raupov"]
-const branchPool = ["Buxoro", "samarqand", "mozdini", "Ташкент", "Bobomotors", "korea kosmetika", "toshkent", "Surxandaryo", "Andijon skladi", "Farg'ona"]
-const addressPool = ["Adana", "Toshkent", "Тест Магазин 01", "Tashkent", "RITM", "Andijon skladi", "Surxandaryo", "Namangan", "Buxoro shahri"]
-
-const monthNames = ["янв.", "февр.", "мар.", "апр.", "мая", "июня", "июля", "авг.", "сент.", "окт.", "нояб.", "дек."]
-function fmt(date: Date) {
-  return `${String(date.getDate()).padStart(2, "0")} ${monthNames[date.getMonth()]} ${date.getFullYear()}`
+/** Full row: paged list, GET /api/warehouses/[id], POST / PUT responses (demo stock/stock/ item). */
+export type WarehouseDetail = Warehouse & {
+  fullName: string
+  stockType: WarehouseStockType
+  /** employees.id of "Зав. склад" (null = legacy name only or none). */
+  managerId: number | null
+  lat: number | null
+  lon: number | null
+  forReturn: boolean
+  trackMinAmount: boolean
+  comment: string
+  /** Local (Asia/Tashkent) ISO date-time of creation; '' when unknown. */
+  createdAt: string
 }
 
-const knownActive: Omit<Warehouse, "active">[] = [
-  { id: 59, name: "05,08,2025(1)", address: "Adana", branch: "Buxoro", manager: "Admin Ritm", createdDate: "05 авг. 2025", online: false },
-  { id: 60, name: "05,08,2025(2)", address: "Adana", branch: "samarqand", manager: "Admin Ritm", createdDate: "05 авг. 2025", online: false },
-  { id: 7, name: "11111", address: "11222", branch: "Mirzo Ulugbek1", manager: "Admin Ritm", createdDate: "23 сент. 2024", online: true },
-  { id: 64, name: "123 test", address: "Toshkent", branch: "mozdini", manager: "Asad Asadov", createdDate: "13 сент. 2025", online: false },
-  { id: 72, name: "250607250607", address: "Тест Магазин 01", branch: "Buxoro", manager: "Admin Ritm", createdDate: "30 сент. 2025", online: false },
-  { id: 22, name: "878", address: "Tashkent", branch: "Ташкент", manager: "Админ 1", createdDate: "12 июня 2025", online: true },
-  { id: 99, name: "All", address: "RITM", branch: "Bobomotors", manager: "Admin Ritm", createdDate: "30 янв. 2026", online: false },
-  { id: 13, name: "Andijon skladi", address: "Andijon skladi", branch: "korea kosmetika", manager: "A Rustam", createdDate: "28 дек. 2024", online: true },
-  { id: 8, name: "ANGOR", address: "Surxandaryo", branch: "toshkent", manager: "Admin Ritm", createdDate: "04 окт. 2024", online: false },
-  { id: 24, name: "anjan marajni", address: "Tashkent", branch: "Ташкент", manager: "Админ 1", createdDate: "12 июня 2025", online: true },
-]
+/** Where a warehouse is referenced (label = Russian i18n key of the section). */
+export type WarehouseUsage = { table: string; label: string; count: number }
 
-const ACTIVE_TOTAL = 105
+export type WarehouseDetailWithUsage = WarehouseDetail & { usage?: WarehouseUsage[] }
 
-function buildWarehouses(): Warehouse[] {
-  const rows: Warehouse[] = knownActive.map((row) => ({ ...row, active: true }))
-  const knownIds = new Set(knownActive.map((row) => row.id))
-  const baseline = new Date(2025, 7, 5)
-  const namePool = ["baby still (сирия)", "sklad 11", "Яндекс Лавка", "ПРОФРЕШ", "Suhrob sklad", "основной", "Asosiy ombor", "Xomashyo", "Tayyor mahsulotlar", "Zaxira sklad"]
+/** GET /api/warehouses?paged=1 (demo {count, results}). */
+export type WarehouseListResult = { count: number; results: WarehouseDetail[] }
 
-  let id = 1
-  while (rows.length < ACTIVE_TOTAL) {
-    if (!knownIds.has(id)) {
-      const date = new Date(baseline)
-      date.setDate(date.getDate() - id * 3)
-      rows.push({
-        id,
-        name: `${namePool[id % namePool.length]}${id % 4 === 0 ? ` ${id}` : ""}`,
-        address: addressPool[id % addressPool.length],
-        branch: branchPool[id % branchPool.length],
-        manager: managers[id % managers.length],
-        createdDate: fmt(date),
-        online: id % 3 === 0,
-        active: true,
-      })
-    }
-    id += 1
-  }
+/** Header sorting of the grid (demo ordering, snake-cased). */
+export const WAREHOUSE_ORDERINGS = ["name", "address", "manager", "branch", "stock_type", "is_van_sell", "created_date", "id"] as const
+export type WarehouseOrderingField = (typeof WAREHOUSE_ORDERINGS)[number]
+export type WarehouseOrdering = "" | WarehouseOrderingField | `-${WarehouseOrderingField}`
 
-  const inactiveNames = ["Закрытый склад Юг", "Старый филиал", "Тест удалён", "Демо склад", "Резерв 2024", "Списан 2023", "Временный склад", "Архив Ташкент", "Архив Бухара", "Неактуальный", "Пробный склад", "Старая точка"]
-  for (let index = 0; index < inactiveNames.length; index += 1) {
-    const date = new Date(2024, index % 12, 10 + index)
-    rows.push({
-      id: 200 + index,
-      name: inactiveNames[index],
-      address: addressPool[index % addressPool.length],
-      branch: branchPool[index % branchPool.length],
-      manager: managers[index % managers.length],
-      createdDate: fmt(date),
-      online: false,
-      active: false,
-    })
-  }
-
-  return rows
+/** Body of POST / PUT /api/warehouses (PUT: omitted fields keep their value). */
+export type WarehousePayload = {
+  name: string
+  fullName?: string
+  address?: string
+  branchId?: number | null
+  /** Branch name (old callers); "" = none. */
+  branch?: string
+  managerId?: number | null
+  /** Employee name (old callers); "" = none. */
+  manager?: string
+  stockType?: WarehouseStockType
+  online?: boolean
+  forReturn?: boolean
+  trackMinAmount?: boolean
+  active?: boolean
+  comment?: string
+  lat?: number | null
+  lon?: number | null
 }
 
-export const warehouseBranchPool = branchPool
-export const warehouseManagerPool = managers
-export const seedWarehouses: Warehouse[] = buildWarehouses()
+export type WarehouseField = "name" | "fullName" | "address" | "branch" | "manager" | "stockType" | "comment" | "location"
+
+/** Error body of the warehouse endpoints (`fields` = inline errors of the dialog). */
+export type WarehouseErrorBody = {
+  error?: string
+  fields?: Partial<Record<string, string>>
+  usage?: WarehouseUsage[]
+  details?: { fieldErrors?: Record<string, string[] | undefined> }
+}
+
+/** Same normalisation as SQL fin_key() / lib/finance/entities.ts nameKey(). */
+export function warehouseNameKey(value: unknown): string {
+  return String(value ?? "")
+    .replace(/[  ]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase()
+}
+
+/** OpenStreetMap link of a point (the "open on the map" link of the dialog). */
+export function warehouseMapUrl(lat: number, lon: number): string {
+  return `https://www.openstreetmap.org/?mlat=${lat}&mlon=${lon}#map=17/${lat}/${lon}`
+}

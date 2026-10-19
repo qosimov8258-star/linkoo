@@ -1,6 +1,13 @@
 import "server-only"
 
+import { z } from "zod"
+
 import { getDb } from "@/lib/db"
+
+// Legacy "Групповая оплата" rows of Баланс клиентов (one amount for N client
+// ids, counted per client by the finance ledger as a payment). The page now
+// saves group payments through POST /api/balances/group-payment
+// (customer_payments); this table stays readable for the rows already stored.
 
 export type ClientBulkPayment = {
   id: number
@@ -62,16 +69,26 @@ export type ClientBulkPaymentInput = {
   comment: string
 }
 
-export function parseClientBulkPaymentInput(body: unknown): ClientBulkPaymentInput | null {
-  if (!body || typeof body !== "object") return null
-  const value = body as Record<string, unknown>
-  const amount = typeof value.amount === "number" ? value.amount : Number(value.amount)
-  if (!Number.isFinite(amount) || amount <= 0) return null
-  const clientIds = Array.isArray(value.clientIds) ? value.clientIds.filter((item): item is number => typeof item === "number") : []
-  const currency = typeof value.currency === "string" && value.currency.trim() ? value.currency.trim() : "sum"
-  const paymentDate = typeof value.paymentDate === "string" && value.paymentDate.trim() ? value.paymentDate.trim() : new Date().toISOString().slice(0, 10)
-  const comment = typeof value.comment === "string" ? value.comment.trim() : ""
-  return { clientIds, currency, amount, paymentDate, comment }
+/** Body of the legacy POST /api/client-bulk-payments (the ledger counts
+ * `amount` once per client id, in `currency`, on `paymentDate`). */
+export const clientBulkPaymentSchema = z.object({
+  clientIds: z.array(z.number().int().positive()).min(1),
+  currency: z.string().trim().regex(/^([A-Za-z]{2,5})?$/).optional(),
+  amount: z.coerce.number().finite().positive(),
+  paymentDate: z
+    .string()
+    .trim()
+    .regex(/^(\d{4}-\d{2}-\d{2})?$/)
+    .optional(),
+  comment: z.string().trim().max(500).optional(),
+})
+
+/** Client ids of `ids` that do not exist (the payment would count for nobody). */
+export async function missingClientIds(ids: number[]): Promise<number[]> {
+  const db = getDb()
+  const rows = (await db.prepare("SELECT id FROM clients WHERE id = ANY(@ids::int[])").all({ ids })) as Array<{ id: number }>
+  const known = new Set(rows.map((row) => Number(row.id)))
+  return ids.filter((id) => !known.has(id))
 }
 
 export async function listClientBulkPayments(): Promise<ClientBulkPayment[]> {

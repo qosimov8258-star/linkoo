@@ -1,34 +1,39 @@
 import { NextResponse } from "next/server"
-import { z } from "zod"
 
+import { cashErrorResponse } from "@/lib/cash/api"
+import {
+  cashbackRequestCreateSchema,
+  cashbackRequestListQuerySchema,
+  createCashbackRequest,
+  listCashbackRequests,
+  searchParamsObject,
+} from "@/lib/cashback-withdrawal-requests-repo"
 import { getCurrentUser } from "@/lib/current-user"
 import { requireRole } from "@/lib/rbac"
 import { parseJsonBody } from "@/lib/validation"
-import { createCashbackWithdrawalRequest, listCashbackWithdrawalRequests } from "@/lib/cashback-withdrawal-requests-repo"
 
-const cashbackWithdrawalRequestSchema = z.object({
-  client: z.string().trim().min(1),
-  amount: z.coerce.number().finite(),
-  currency: z.string().trim().optional(),
-})
-
-export async function GET() {
+// GET /api/cashback-withdrawal-requests?search&status&currency&ordering&page&pageSize
+// — "Запросы на снятие кэшбэка" (demo GET telegram/cashback_request/).
+export async function GET(request: Request) {
   const user = await getCurrentUser()
-  if (!user) return NextResponse.json({ error: "Вы не вошли в систему" }, { status: 401 })
-  return NextResponse.json((await listCashbackWithdrawalRequests()))
+  if (!user) return NextResponse.json({ error: "Tizimga kirilmagan" }, { status: 401 })
+  const query = cashbackRequestListQuerySchema.safeParse(searchParamsObject(new URL(request.url).searchParams))
+  if (!query.success) return NextResponse.json({ error: "Ma'lumotlar noto'g'ri", details: query.error.flatten() }, { status: 400 })
+  return NextResponse.json(await listCashbackRequests(query.data))
 }
 
+// POST /api/cashback-withdrawal-requests {clientId, amount, currency, comment?, source?} — a new
+// pending request. Entry point for the Telegram bot (the demo page itself has no create UI).
 export async function POST(request: Request) {
   const auth = await requireRole("manager")
   if ("error" in auth) return auth.error
 
-  const parsed = await parseJsonBody(request, cashbackWithdrawalRequestSchema)
+  const parsed = await parseJsonBody(request, cashbackRequestCreateSchema)
   if (parsed.error) return parsed.error
 
-  const created = await createCashbackWithdrawalRequest({
-    client: parsed.data.client,
-    amount: parsed.data.amount,
-    currency: parsed.data.currency || "SUM",
-  })
-  return NextResponse.json(created, { status: 201 })
+  try {
+    return NextResponse.json(await createCashbackRequest(parsed.data, auth.user.displayName || auth.user.username), { status: 201 })
+  } catch (error) {
+    return cashErrorResponse(error)
+  }
 }

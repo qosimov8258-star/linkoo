@@ -1,61 +1,61 @@
 import { NextResponse } from "next/server"
-import { z } from "zod"
 
+import { getCurrentUser } from "@/lib/current-user"
+import { invoiceBodySchema, invoiceErrorResponse, invoiceStatusSchema, parseIdParam, toInvoiceInput } from "@/lib/invoice-incomings-api"
+import { changeInvoiceStatus, deleteInvoice, getInvoice, updateInvoice } from "@/lib/invoice-incomings-repo"
 import { requireRole } from "@/lib/rbac"
 import { parseJsonBody } from "@/lib/validation"
-import {
-  deleteInvoiceIncoming,
-  updateInvoiceIncoming,
-  INVOICE_INCOMING_STATUSES,
-  type InvoiceIncomingInput,
-} from "@/lib/invoice-incomings-repo"
-
-const invoiceIncomingSchema = z.object({
-  supplier: z.string().trim().min(1),
-  documentNumber: z.string().trim().optional(),
-  date: z.string().optional(),
-  amount: z.coerce.number().optional(),
-  branch: z.string().trim().optional(),
-  status: z.string().optional(),
-  note: z.string().trim().optional(),
-})
-
-function toInvoiceIncomingInput(data: z.infer<typeof invoiceIncomingSchema>): InvoiceIncomingInput {
-  const status = data.status && (INVOICE_INCOMING_STATUSES as readonly string[]).includes(data.status)
-    ? data.status
-    : INVOICE_INCOMING_STATUSES[0]
-  return {
-    documentNumber: data.documentNumber ?? "",
-    supplier: data.supplier,
-    date: data.date || new Date().toISOString().slice(0, 10),
-    amount: data.amount ?? 0,
-    branch: data.branch ?? "",
-    status,
-    note: data.note ?? "",
-  }
-}
 
 type RouteParams = { params: Promise<{ id: string }> }
+
+const notFound = () => NextResponse.json({ error: "Счет-фактура не найдена" }, { status: 404 })
+
+export async function GET(_request: Request, { params }: RouteParams) {
+  const user = await getCurrentUser()
+  if (!user) return NextResponse.json({ error: "Tizimga kirilmagan" }, { status: 401 })
+  const id = parseIdParam((await params).id)
+  if (!id) return notFound()
+  const invoice = await getInvoice(id)
+  return invoice ? NextResponse.json(invoice) : notFound()
+}
 
 export async function PUT(request: Request, { params }: RouteParams) {
   const auth = await requireRole("manager")
   if ("error" in auth) return auth.error
-
-  const id = Number((await params).id)
-  const parsed = await parseJsonBody(request, invoiceIncomingSchema)
+  const id = parseIdParam((await params).id)
+  if (!id) return notFound()
+  const parsed = await parseJsonBody(request, invoiceBodySchema)
   if (parsed.error) return parsed.error
+  try {
+    return NextResponse.json(await updateInvoice(id, toInvoiceInput(parsed.data)))
+  } catch (error) {
+    return invoiceErrorResponse(error)
+  }
+}
 
-  const item = (await updateInvoiceIncoming(id, toInvoiceIncomingInput(parsed.data)))
-  if (!item) return NextResponse.json({ error: "Запись не найдена" }, { status: 404 })
-  return NextResponse.json(item)
+export async function PATCH(request: Request, { params }: RouteParams) {
+  const auth = await requireRole("manager")
+  if ("error" in auth) return auth.error
+  const id = parseIdParam((await params).id)
+  if (!id) return notFound()
+  const parsed = await parseJsonBody(request, invoiceStatusSchema)
+  if (parsed.error) return parsed.error
+  try {
+    return NextResponse.json(await changeInvoiceStatus(id, parsed.data.action, parsed.data.reason, auth.user.displayName))
+  } catch (error) {
+    return invoiceErrorResponse(error)
+  }
 }
 
 export async function DELETE(_request: Request, { params }: RouteParams) {
   const auth = await requireRole("manager")
   if ("error" in auth) return auth.error
-
-  const id = Number((await params).id)
-  const ok = (await deleteInvoiceIncoming(id))
-  if (!ok) return NextResponse.json({ error: "Запись не найдена" }, { status: 404 })
-  return NextResponse.json({ ok: true })
+  const id = parseIdParam((await params).id)
+  if (!id) return notFound()
+  try {
+    await deleteInvoice(id)
+    return NextResponse.json({ ok: true })
+  } catch (error) {
+    return invoiceErrorResponse(error)
+  }
 }

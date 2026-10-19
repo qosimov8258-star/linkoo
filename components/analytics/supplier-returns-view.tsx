@@ -1,6 +1,7 @@
 "use client"
 
 import {
+  Ban,
   CheckCheck,
   ChevronLeft,
   ChevronRight,
@@ -13,6 +14,7 @@ import {
   Plus,
   Printer,
   Search,
+  Send,
   Trash2,
   Upload,
   X,
@@ -25,7 +27,7 @@ import { downloadExcelTable } from "@/lib/excel-export"
 import { mapHeaderColumns, readExcelRows } from "@/lib/excel-import"
 import { useLanguage } from "@/lib/i18n/language-context"
 import { OrganizationFormModal } from "./organization-form-modal"
-import { returnBranches as branches, returnPaymentTypes as paymentTypes, type ReturnStatus as Status, type SupplierReturn } from "./supplier-returns-data"
+import { returnPaymentTypes as paymentTypes, type ReturnStatus as Status, type SupplierReturn } from "./supplier-returns-data"
 import { SupplierFormModal } from "./supplier-form-modal"
 import { WarehouseFormModal } from "./warehouse-form-modal"
 
@@ -58,7 +60,7 @@ function emptyDraft() {
     supplier: "",
     warehouse: "",
     organization: "",
-    branch: branches[0],
+    branch: "",
     currency: "SUM",
     priceList: "",
     paymentType: paymentTypes[0],
@@ -89,6 +91,10 @@ export function SupplierReturnsView({ embedded = false }: { embedded?: boolean }
   const [organizationOptions, setOrganizationOptions] = useState<string[]>([])
   const [priceListOptions, setPriceListOptions] = useState<string[]>([])
   const [productOptions, setProductOptions] = useState<string[]>([])
+  const [branchOptions, setBranchOptions] = useState<string[]>([])
+  // Return price defaults to the product's current net cost.
+  const [productCosts, setProductCosts] = useState<Record<string, number>>({})
+  const [busy, setBusy] = useState(false)
   const [quickAddSupplierOpen, setQuickAddSupplierOpen] = useState(false)
   const [quickAddWarehouseOpen, setQuickAddWarehouseOpen] = useState(false)
   const [quickAddOrganizationOpen, setQuickAddOrganizationOpen] = useState(false)
@@ -122,22 +128,26 @@ export function SupplierReturnsView({ embedded = false }: { embedded?: boolean }
   useEffect(() => {
     let cancelled = false
     async function loadOptions() {
-      const [suppliersRes, warehousesRes, organizationsRes, priceListsRes, productsRes] = await Promise.all([
+      const [suppliersRes, warehousesRes, organizationsRes, priceListsRes, productsRes, rawMaterialsRes, branchesRes] = await Promise.all([
         fetch("/api/suppliers").catch(() => null),
         fetch("/api/warehouses").catch(() => null),
         fetch("/api/organizations").catch(() => null),
         fetch("/api/price-lists").catch(() => null),
         fetch("/api/products").catch(() => null),
+        fetch("/api/raw-materials").catch(() => null),
+        fetch("/api/branches").catch(() => null),
       ])
       if (cancelled) return
       if (suppliersRes?.ok) setSupplierOptions(((await suppliersRes.json()) as { name: string }[]).map((item) => item.name))
       if (warehousesRes?.ok) setWarehouseOptions(((await warehousesRes.json()) as { name: string }[]).map((item) => item.name))
       if (organizationsRes?.ok) setOrganizationOptions(((await organizationsRes.json()) as { name: string }[]).map((item) => item.name))
       if (priceListsRes?.ok) setPriceListOptions(((await priceListsRes.json()) as { name: string }[]).map((item) => item.name))
-      if (productsRes?.ok) {
-        const data = (await productsRes.json()) as { name: string }[]
-        setProductOptions(Array.from(new Set(data.map((item) => item.name))).sort((a, b) => a.localeCompare(b, "ru")))
-      }
+      if (branchesRes?.ok) setBranchOptions(((await branchesRes.json()) as { name: string }[]).map((item) => item.name))
+      const catalog: { name: string; cost?: number }[] = []
+      if (productsRes?.ok) catalog.push(...((await productsRes.json()) as { name: string; cost: number; deleted?: boolean }[]).filter((item) => !item.deleted))
+      if (rawMaterialsRes?.ok) catalog.push(...((await rawMaterialsRes.json()) as { name: string }[]))
+      setProductOptions(Array.from(new Set(catalog.map((item) => item.name))).sort((a, b) => a.localeCompare(b, "ru")))
+      setProductCosts(Object.fromEntries(catalog.filter((item) => item.cost).map((item) => [item.name, Number(item.cost)])))
     }
     void loadOptions()
     return () => {
@@ -189,11 +199,38 @@ export function SupplierReturnsView({ embedded = false }: { embedded?: boolean }
     setModalOpen(true)
   }
 
+  async function changeStatus(row: SupplierReturn, action: "give" | "cancel") {
+    const question = action === "give" ? `${t("Передать возврат №")} ${row.id} ${t("поставщику?")}` : `${t("Отменить возврат №")} ${row.id}?`
+    if (!window.confirm(question)) return
+    setBusy(true)
+    try {
+      const response = await fetch(`/api/supplier-returns/${row.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action }),
+      })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) {
+        window.alert(data.error ? t(data.error) : t("Не удалось изменить статус возврата"))
+        return
+      }
+      setRows((current) => current.map((item) => (item.id === row.id ? (data as SupplierReturn) : item)))
+    } catch {
+      window.alert(t("Сервер недоступен, попробуйте ещё раз"))
+    } finally {
+      setBusy(false)
+    }
+  }
+
   async function removeRow(row: SupplierReturn) {
     if (!window.confirm(`${t("Удалить возврат №")} ${row.id}?`)) return
     try {
       const response = await fetch(`/api/supplier-returns/${row.id}`, { method: "DELETE" })
-      if (!response.ok) return
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}))
+        window.alert(data.error ? t(data.error) : t("Не удалось удалить возврат"))
+        return
+      }
       setRows((current) => current.filter((item) => item.id !== row.id))
       if (expandedId === row.id) setExpandedId(null)
     } catch {
@@ -202,13 +239,13 @@ export function SupplierReturnsView({ embedded = false }: { embedded?: boolean }
   }
 
   function addBlankItem() {
-    setDraftItems((current) => [...current, { id: Math.max(0, ...current.map((item) => item.id)) + 1, product: productOptions[0] ?? "", qty: 1, series: "", price: 0 }])
+    setDraftItems((current) => [...current, { id: Math.max(0, ...current.map((item) => item.id)) + 1, product: productOptions[0] ?? "", qty: 1, series: "", price: productCosts[productOptions[0] ?? ""] ?? 0 }])
   }
 
   function addFromList(product: string) {
     setDraftItems((current) => {
       if (current.some((item) => item.product === product)) return current
-      return [...current, { id: Math.max(0, ...current.map((item) => item.id)) + 1, product, qty: 1, series: "", price: 0 }]
+      return [...current, { id: Math.max(0, ...current.map((item) => item.id)) + 1, product, qty: 1, series: "", price: productCosts[product] ?? 0 }]
     })
   }
 
@@ -288,7 +325,7 @@ export function SupplierReturnsView({ embedded = false }: { embedded?: boolean }
       })
       if (!response.ok) {
         const data = await response.json().catch(() => ({}))
-        window.alert(data.error || t("Не удалось сохранить возврат"))
+        window.alert(data.error ? t(data.error) : t("Не удалось сохранить возврат"))
         return
       }
       const saved = (await response.json()) as SupplierReturn
@@ -307,14 +344,14 @@ export function SupplierReturnsView({ embedded = false }: { embedded?: boolean }
   }
 
   return (
-    <main className={embedded ? "min-w-0 flex-1" : "min-h-[calc(100vh-4rem)] bg-[#f2f5f8] px-7 pb-7"}>
+    <main className={embedded ? "min-w-0 flex-1" : "min-h-[calc(100vh-4rem)] bg-[#f1f4f8] px-9 py-5"}>
       {!embedded && (
-        <header className="flex h-[60px] flex-wrap items-center justify-between gap-3">
-          <h1 className="flex items-center text-[18px] font-bold text-[#5d6474]">
-            <FavoritesButton className="flex items-center gap-[5px] text-[18px] font-bold text-[#4f71dc]" />
-            <span className="mx-[11px] inline-block h-[21px] w-[2px] bg-[#5d6474]" /> {t("Возврат поставщиков")}
+        <header className="mb-5 flex items-center justify-between">
+          <h1 className="flex items-center text-2xl font-bold text-slate-600">
+            <FavoritesButton className="inline-flex items-center gap-2 text-[#4f70e7]" />
+            <span className="mx-2 text-slate-400">|</span> {t("Возврат поставщиков")}
           </h1>
-          <button type="button" onClick={openCreate} className="inline-flex items-center gap-2 h-[30px] rounded-[5px] bg-[#71ce87] px-4 text-[13px] font-semibold text-white hover:brightness-95">
+          <button type="button" onClick={openCreate} className="inline-flex items-center gap-2 rounded bg-[#6ccd8b] px-5 py-2.5 font-semibold text-white hover:brightness-95">
             <Plus className="h-4 w-4" /> {t("Добавить")}
           </button>
         </header>
@@ -325,7 +362,7 @@ export function SupplierReturnsView({ embedded = false }: { embedded?: boolean }
           {filterActive ? (
             <div className="flex items-center gap-2 text-slate-600">
               <span>{t("Фильтр:")} {includedStatuses.length} {t("элемента")}</span>
-              <button type="button" onClick={() => setFilterEditorOpen(true)} aria-label={t("Изменить фильтр")} className="text-slate-400 hover:text-[#4f71dc]">
+              <button type="button" onClick={() => setFilterEditorOpen(true)} aria-label={t("Изменить фильтр")} className="text-slate-400 hover:text-[#4f70e7]">
                 <Pencil className="h-4 w-4" />
               </button>
               <button type="button" onClick={() => setFilterActive(false)} aria-label={t("Очистить фильтр")} className="text-slate-400 hover:text-rose-500">
@@ -333,13 +370,13 @@ export function SupplierReturnsView({ embedded = false }: { embedded?: boolean }
               </button>
             </div>
           ) : (
-            <button type="button" onClick={() => { setFilterActive(true); setFilterEditorOpen(true) }} className="text-[#4f71dc] hover:underline">
+            <button type="button" onClick={() => { setFilterActive(true); setFilterEditorOpen(true) }} className="text-[#4f70e7] hover:underline">
               {t("Показать фильтр")}
             </button>
           )}
 
           <label className="relative ml-2 w-64">
-            <input value={query} onChange={(event) => { setQuery(event.target.value); setPage(1) }} placeholder={t("Поиск")} className="w-full border-b border-slate-300 py-2 pr-10 outline-none focus:border-[#4f71dc]" />
+            <input value={query} onChange={(event) => { setQuery(event.target.value); setPage(1) }} placeholder={t("Поиск")} className="w-full border-b border-slate-300 py-2 pr-10 outline-none focus:border-[#4f70e7]" />
             <Search className="absolute right-2 top-2 h-5 w-5 text-slate-300" />
           </label>
           <span className="ml-auto text-slate-500">25</span>
@@ -353,26 +390,26 @@ export function SupplierReturnsView({ embedded = false }: { embedded?: boolean }
             <ChevronRight className="h-5 w-5 text-slate-400" />
           </button>
           <ListChecks className="h-5 w-5 text-slate-400" />
-          <button type="button" onClick={downloadList} aria-label={t("Скачать")} className="text-slate-500 hover:text-[#4f71dc]">
+          <button type="button" onClick={downloadList} aria-label={t("Скачать")} className="text-slate-500 hover:text-[#4f70e7]">
             <Download className="h-5 w-5" />
           </button>
           {embedded && (
-            <button type="button" onClick={openCreate} className="inline-flex items-center gap-2 rounded bg-[#71ce87] px-4 py-2 text-sm font-semibold text-white hover:brightness-95">
+            <button type="button" onClick={openCreate} className="inline-flex items-center gap-2 rounded bg-[#6ccd8b] px-4 py-2 text-sm font-semibold text-white hover:brightness-95">
               <Plus className="h-4 w-4" /> {t("Добавить")}
             </button>
           )}
         </div>
 
         <table className="w-full text-left">
-          <thead className="bg-[#5d6474] text-white">
+          <thead className="bg-[#626b7e] text-white">
             <tr>
-              <th className="px-9 py-4 text-[13px]">{t("№")}</th>
-              <th className="px-5 py-4 text-[13px]">{t("От кого")}</th>
-              <th className="px-5 py-4 text-[13px]">{t("Склад")}</th>
-              <th className="px-5 py-4 text-[13px]">{t("Добавил")}</th>
-              <th className="px-5 py-4 text-[13px]">{t("Дата возврата")}</th>
-              <th className="px-5 py-4 text-[13px]">{t("Сумма возврата")}</th>
-              <th className="px-5 py-4 text-[13px]">{t("Статус")}</th>
+              <th className="px-9 py-5">{t("№")}</th>
+              <th className="px-5 py-5">{t("От кого")}</th>
+              <th className="px-5 py-5">{t("Склад")}</th>
+              <th className="px-5 py-5">{t("Добавил")}</th>
+              <th className="px-5 py-5">{t("Дата возврата")}</th>
+              <th className="px-5 py-5">{t("Сумма возврата")}</th>
+              <th className="px-5 py-5">{t("Статус")}</th>
             </tr>
           </thead>
           <tbody>
@@ -381,7 +418,7 @@ export function SupplierReturnsView({ embedded = false }: { embedded?: boolean }
                 {expandedId !== row.id && (
                   <tr onClick={() => toggleExpand(row)} className="cursor-pointer border-b border-dashed border-slate-300 hover:bg-slate-50">
                     <td className="px-9 py-4">{row.id}</td>
-                    <td className="px-5 py-4">{row.fromWhom}</td>
+                    <td className="px-5 py-4 text-[#4f70e7]">{row.fromWhom}</td>
                     <td className="px-5 py-4">{row.warehouse}</td>
                     <td className="px-5 py-4">{row.addedBy}</td>
                     <td className="px-5 py-4">{row.date}, {row.time}</td>
@@ -396,17 +433,31 @@ export function SupplierReturnsView({ embedded = false }: { embedded?: boolean }
                       <div className="m-4 rounded border border-slate-200 bg-white p-6 shadow-sm">
                         <div className="mb-5 flex items-center justify-between">
                           <h2 className="text-xl font-bold text-slate-700">{t("Возврат поставщику №")}{row.id}</h2>
-                          <div className="flex items-center gap-4 text-slate-500">
-                            <button type="button" onClick={() => window.print()} aria-label={t("Печать")} className="hover:text-[#4f71dc]">
+                          <div className="flex flex-wrap items-center gap-3 text-slate-500">
+                            {row.status === "в процессе" && (
+                              <button type="button" disabled={busy} onClick={() => changeStatus(row, "give")} className="inline-flex items-center gap-2 rounded bg-[#6ccd8b] px-4 py-2 text-sm font-semibold text-white hover:brightness-95 disabled:opacity-50">
+                                <Send className="h-4 w-4" /> {t("Передать")}
+                              </button>
+                            )}
+                            {row.status !== "отменен" && (
+                              <button type="button" disabled={busy} onClick={() => changeStatus(row, "cancel")} className="inline-flex items-center gap-2 rounded bg-[#ff8967] px-4 py-2 text-sm font-semibold text-white hover:brightness-95 disabled:opacity-50">
+                                <Ban className="h-4 w-4" /> {t("Отменить")}
+                              </button>
+                            )}
+                            <button type="button" onClick={() => window.print()} aria-label={t("Печать")} className="hover:text-[#4f70e7]">
                               <Printer className="h-5 w-5" />
                             </button>
-                            <button type="button" onClick={() => openEdit(row)} aria-label={t("Изменить")} className="hover:text-[#4f71dc]">
-                              <Pencil className="h-5 w-5" />
-                            </button>
-                            <button type="button" onClick={() => removeRow(row)} aria-label={t("Удалить")} className="hover:text-rose-500">
-                              <Trash2 className="h-5 w-5" />
-                            </button>
-                            <button type="button" onClick={() => toggleExpand(row)} aria-label={t("Свернуть")} className="hover:text-[#4f71dc]">
+                            {row.status === "в процессе" && (
+                              <button type="button" onClick={() => openEdit(row)} aria-label={t("Изменить")} className="hover:text-[#4f70e7]">
+                                <Pencil className="h-5 w-5" />
+                              </button>
+                            )}
+                            {row.status !== "завершен" && (
+                              <button type="button" onClick={() => removeRow(row)} aria-label={t("Удалить")} className="hover:text-rose-500">
+                                <Trash2 className="h-5 w-5" />
+                              </button>
+                            )}
+                            <button type="button" onClick={() => toggleExpand(row)} aria-label={t("Свернуть")} className="hover:text-[#4f70e7]">
                               <X className="h-5 w-5" />
                             </button>
                           </div>
@@ -419,7 +470,7 @@ export function SupplierReturnsView({ embedded = false }: { embedded?: boolean }
                               <div className="flex justify-between gap-4"><dt className="text-slate-500">{t("Поставщик:")}</dt><dd className="font-medium">{row.fromWhom}</dd></div>
                               <div className="flex justify-between gap-4"><dt className="text-slate-500">{t("Организация:")}</dt><dd className="font-medium">{row.organization}</dd></div>
                               <div className="flex justify-between gap-4"><dt className="text-slate-500">{t("Валюта:")}</dt><dd className="font-medium">{row.currency}</dd></div>
-                              <div className="flex justify-between gap-4"><dt className="text-slate-500">{t("Тип оплаты:")}</dt><dd className="font-medium">{row.paymentType}</dd></div>
+                              <div className="flex justify-between gap-4"><dt className="text-slate-500">{t("Тип оплаты:")}</dt><dd className="font-medium">{t(row.paymentType)}</dd></div>
                               <div className="flex justify-between gap-4"><dt className="text-slate-500">{t("Прайс лист:")}</dt><dd className="font-medium">{row.priceList}</dd></div>
                               <div className="flex justify-between gap-4"><dt className="text-slate-500">{t("Дата возврата:")}</dt><dd className="font-medium">{row.date}, {row.time}</dd></div>
                               <div className="flex justify-between gap-4"><dt className="text-slate-500">{t("Филиал:")}</dt><dd className="font-medium">{row.branch}</dd></div>
@@ -428,9 +479,12 @@ export function SupplierReturnsView({ embedded = false }: { embedded?: boolean }
                             <p className="mb-2 mt-5 font-bold uppercase tracking-wide text-slate-700">{t("Склад")}</p>
                             <dl className="space-y-2 text-sm">
                               <div className="flex justify-between gap-4"><dt className="text-slate-500">{t("Склад:")}</dt><dd className="font-medium">{row.warehouse}</dd></div>
-                              <div className="flex justify-between gap-4"><dt className="text-slate-500">{t("Время передачи:")}</dt><dd className="font-medium">{row.transferTime}</dd></div>
-                              <div className="flex justify-between gap-4"><dt className="text-slate-500">{t("Передал:")}</dt><dd className="font-medium">{row.addedBy}</dd></div>
-                              <div className="flex justify-between gap-4"><dt className="text-slate-500">{t("Статус:")}</dt><dd className="font-medium text-emerald-500">{row.status === "завершен" ? t("Завершен") : row.status === "в процессе" ? t("В процессе") : t("Отменен")}</dd></div>
+                              <div className="flex justify-between gap-4"><dt className="text-slate-500">{t("Время передачи:")}</dt><dd className="font-medium">{row.transferTime || t("Не передано")}</dd></div>
+                              <div className="flex justify-between gap-4"><dt className="text-slate-500">{t("Передал:")}</dt><dd className="font-medium">{row.transferredBy || "—"}</dd></div>
+                              <div className="flex justify-between gap-4"><dt className="text-slate-500">{t("Статус:")}</dt><dd className={`font-medium ${row.status === "завершен" ? "text-emerald-500" : row.status === "в процессе" ? "text-amber-500" : "text-rose-500"}`}>{row.status === "завершен" ? t("Завершен") : row.status === "в процессе" ? t("В процессе") : t("Отменен")}</dd></div>
+                              {row.status === "отменен" && row.cancelledBy && (
+                                <div className="flex justify-between gap-4"><dt className="text-slate-500">{t("Отменил:")}</dt><dd className="font-medium">{row.cancelledBy}, {row.cancelledAt}</dd></div>
+                              )}
                             </dl>
 
                             <p className="mb-1 mt-5 font-bold uppercase tracking-wide text-slate-700">{t("Причина возврата:")}</p>
@@ -439,7 +493,7 @@ export function SupplierReturnsView({ embedded = false }: { embedded?: boolean }
 
                           <div>
                             <div className="mb-3 border-b border-slate-200">
-                              <span className="inline-block border-b-2 border-[#4f71dc] pb-2 text-sm font-medium text-[#4f71dc]">{t("Список товаров")}</span>
+                              <span className="inline-block border-b-2 border-[#4f70e7] pb-2 text-sm font-medium text-[#4f70e7]">{t("Список товаров")}</span>
                             </div>
                             <table className="w-full text-left text-sm">
                               <thead>
@@ -507,22 +561,22 @@ export function SupplierReturnsView({ embedded = false }: { embedded?: boolean }
               ))}
             </div>
             <div className="mt-5 flex justify-end">
-              <button type="button" onClick={() => setFilterEditorOpen(false)} className="rounded bg-[#4f71dc] px-4 py-2 font-semibold text-white">{t("Применить")}</button>
+              <button type="button" onClick={() => setFilterEditorOpen(false)} className="rounded bg-[#4f70e7] px-4 py-2 font-semibold text-white">{t("Применить")}</button>
             </div>
           </div>
         </div>
       )}
 
       {modalOpen && (
-        <div className="fixed inset-0 z-50 flex bg-white text-[13px]">
-          <form onSubmit={save} className="flex h-full w-full flex-col bg-white">
-            <header className="flex h-[58px] shrink-0 items-center justify-between border-b border-[#efefef] px-[14px]">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
+          <form onSubmit={save} className="flex max-h-[90vh] w-full max-w-4xl flex-col rounded bg-white">
+            <header className="flex items-center justify-between border-b p-6">
               <b className="uppercase">{editingId !== null ? `${t("Изменить возврат №")}${editingId}` : t("Возврат поставщика")}</b>
               <button type="button" onClick={() => setModalOpen(false)} aria-label={t("Закрыть")}><X className="h-5 w-5" /></button>
             </header>
 
-            <div className="flex-1 overflow-y-auto px-[14px] py-[16px]">
-              <div className="grid gap-[40px] sm:grid-cols-[405px_1fr]">
+            <div className="flex-1 overflow-y-auto p-8">
+              <div className="grid gap-8 sm:grid-cols-[1fr_1.4fr]">
                 <div className="space-y-4">
                   <div className="flex items-end justify-between gap-3 border-b border-slate-200 pb-2">
                     <label className="block flex-1 font-medium">
@@ -532,7 +586,7 @@ export function SupplierReturnsView({ embedded = false }: { embedded?: boolean }
                         {supplierOptions.map((item) => <option key={item}>{item}</option>)}
                       </select>
                     </label>
-                    <button type="button" onClick={() => setQuickAddSupplierOpen(true)} className="whitespace-nowrap pb-2 text-sm font-semibold text-[#4f71dc] hover:underline">
+                    <button type="button" onClick={() => setQuickAddSupplierOpen(true)} className="whitespace-nowrap pb-2 text-sm font-semibold text-[#4f70e7] hover:underline">
                       {t("+добавить")}
                     </button>
                   </div>
@@ -545,7 +599,7 @@ export function SupplierReturnsView({ embedded = false }: { embedded?: boolean }
                         {warehouseOptions.map((item) => <option key={item}>{item}</option>)}
                       </select>
                     </label>
-                    <button type="button" onClick={() => setQuickAddWarehouseOpen(true)} className="whitespace-nowrap pb-2 text-sm font-semibold text-[#4f71dc] hover:underline">
+                    <button type="button" onClick={() => setQuickAddWarehouseOpen(true)} className="whitespace-nowrap pb-2 text-sm font-semibold text-[#4f70e7] hover:underline">
                       {t("+добавить")}
                     </button>
                   </div>
@@ -558,7 +612,7 @@ export function SupplierReturnsView({ embedded = false }: { embedded?: boolean }
                         {organizationOptions.map((item) => <option key={item}>{item}</option>)}
                       </select>
                     </label>
-                    <button type="button" onClick={() => setQuickAddOrganizationOpen(true)} className="whitespace-nowrap pb-2 text-sm font-semibold text-[#4f71dc] hover:underline">
+                    <button type="button" onClick={() => setQuickAddOrganizationOpen(true)} className="whitespace-nowrap pb-2 text-sm font-semibold text-[#4f70e7] hover:underline">
                       {t("+добавить")}
                     </button>
                   </div>
@@ -566,7 +620,9 @@ export function SupplierReturnsView({ embedded = false }: { embedded?: boolean }
                   <label className="block border-b border-slate-200 pb-2 font-medium">
                     {t("Филиал")} *
                     <select value={draft.branch} onChange={(event) => setDraft((value) => ({ ...value, branch: event.target.value }))} className="mt-2 block w-full bg-white outline-none">
-                      {branches.map((item) => <option key={item}>{item}</option>)}
+                      <option value="">{t("Не указано")}</option>
+                      {draft.branch && !branchOptions.includes(draft.branch) && <option>{draft.branch}</option>}
+                      {branchOptions.map((item) => <option key={item}>{item}</option>)}
                     </select>
                   </label>
                   <label className="block border-b border-slate-200 pb-2 font-medium">
@@ -586,7 +642,7 @@ export function SupplierReturnsView({ embedded = false }: { embedded?: boolean }
                   <label className="block border-b border-slate-200 pb-2 font-medium">
                     {t("Тип оплаты")} *
                     <select value={draft.paymentType} onChange={(event) => setDraft((value) => ({ ...value, paymentType: event.target.value }))} className="mt-2 block w-full bg-white outline-none">
-                      {paymentTypes.map((item) => <option key={item}>{item}</option>)}
+                      {paymentTypes.map((item) => <option key={item} value={item}>{t(item)}</option>)}
                     </select>
                   </label>
                   <label className="block border-b border-slate-200 pb-2 font-medium">
@@ -604,13 +660,13 @@ export function SupplierReturnsView({ embedded = false }: { embedded?: boolean }
                     <p className="font-medium text-slate-800">{t("Список товаров")}</p>
                     {draft.supplier && (
                       <div className="flex items-center gap-4 text-sm">
-                        <button type="button" onClick={addBlankItem} className="inline-flex items-center gap-1 text-[#4f71dc] hover:underline">
+                        <button type="button" onClick={addBlankItem} className="inline-flex items-center gap-1 text-[#4f70e7] hover:underline">
                           <Plus className="h-4 w-4" /> {t("добавить товар")}
                         </button>
-                        <button type="button" onClick={() => { setPickerQuery(""); setPickerOpen(true) }} className="inline-flex items-center gap-1 text-[#4f71dc] hover:underline">
+                        <button type="button" onClick={() => { setPickerQuery(""); setPickerOpen(true) }} className="inline-flex items-center gap-1 text-[#4f70e7] hover:underline">
                           <ListPlus className="h-4 w-4" /> {t("добавить из списка")}
                         </button>
-                        <button type="button" onClick={() => importInputRef.current?.click()} className="inline-flex items-center gap-1 rounded bg-slate-100 px-3 py-1.5 text-[#4f71dc] hover:bg-slate-200">
+                        <button type="button" onClick={() => importInputRef.current?.click()} className="inline-flex items-center gap-1 rounded bg-slate-100 px-3 py-1.5 text-[#4f70e7] hover:bg-slate-200">
                           <Upload className="h-4 w-4" /> {t("импортировать с excel")}
                         </button>
                         <input ref={importInputRef} type="file" accept=".csv,.xls,.xlsx,text/csv" onChange={importFromExcel} className="hidden" />
@@ -628,7 +684,7 @@ export function SupplierReturnsView({ embedded = false }: { embedded?: boolean }
                       <FileSpreadsheet className="h-12 w-12" />
                       <p>
                         {t("Вы еще не выбрали ни одного товара.")}{" "}
-                        <button type="button" onClick={addBlankItem} className="text-[#4f71dc] hover:underline">
+                        <button type="button" onClick={addBlankItem} className="text-[#4f70e7] hover:underline">
                           {t("Добавить товар?")}
                         </button>
                       </p>
@@ -649,7 +705,7 @@ export function SupplierReturnsView({ embedded = false }: { embedded?: boolean }
                         {draftItems.map((item) => (
                           <tr key={item.id} className="border-t border-slate-100">
                             <td className="py-2 pr-4">
-                              <select value={item.product} onChange={(event) => updateDraftItem(item.id, { product: event.target.value })} className="bg-white outline-none">
+                              <select value={item.product} onChange={(event) => updateDraftItem(item.id, { product: event.target.value, price: productCosts[event.target.value] ?? item.price })} className="bg-white outline-none">
                                 {(productOptions.includes(item.product) ? productOptions : [item.product, ...productOptions]).map((product) => (
                                   <option key={product}>{product}</option>
                                 ))}
@@ -702,7 +758,7 @@ export function SupplierReturnsView({ embedded = false }: { embedded?: boolean }
               value={pickerQuery}
               onChange={(event) => setPickerQuery(event.target.value)}
               placeholder={t("Поиск товара...")}
-              className="mb-3 w-full border-b border-slate-300 py-2 outline-none focus:border-[#4f71dc]"
+              className="mb-3 w-full border-b border-slate-300 py-2 outline-none focus:border-[#4f70e7]"
             />
             <div className="space-y-2 overflow-y-auto">
               {productOptions.length === 0 && <p className="text-sm text-slate-400">{t("Каталог продуктов пуст")}</p>}
@@ -717,7 +773,7 @@ export function SupplierReturnsView({ embedded = false }: { embedded?: boolean }
                 ))}
             </div>
             <div className="mt-5 flex justify-end">
-              <button type="button" onClick={() => setPickerOpen(false)} className="rounded bg-[#4f71dc] px-4 py-2 font-semibold text-white">{t("Готово")}</button>
+              <button type="button" onClick={() => setPickerOpen(false)} className="rounded bg-[#4f70e7] px-4 py-2 font-semibold text-white">{t("Готово")}</button>
             </div>
           </div>
         </div>

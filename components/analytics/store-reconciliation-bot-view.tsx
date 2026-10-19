@@ -1,374 +1,526 @@
 "use client"
 
-import { useEffect, useMemo, useRef, useState } from "react"
-import { MinusCircle, Pencil, PlusCircle, Send } from "lucide-react"
-import { RI, RefHeader } from "@/components/ref/list-kit"
-import { ReportGridTable, ReportMoneyBox, ReportPage, ReportPager, ReportSearchField } from "@/components/ref/report-kit"
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react"
+import { useSearchParams } from "next/navigation"
+import { ArrowDown, ArrowUp, ArrowUpDown, CalendarClock, FileSpreadsheet, MinusCircle, PlusCircle, Search, Send } from "lucide-react"
+
+import { ClientActDialog } from "@/components/analytics/balance/client-act-dialog"
+import { BalanceDownloadMenu } from "@/components/analytics/balance/download-menu"
+import { ExpandedOverlay, ExpandedViewButton } from "@/components/analytics/balance/expanded-view"
+import { BalanceFilterChip } from "@/components/analytics/balance/filter-bar"
+import { BalancePagination } from "@/components/analytics/balance/pagination"
+import { BalanceSummaryCards, type SummaryBox } from "@/components/analytics/balance/summary-cards"
+import { buildBalanceQuery, type BalanceQuery } from "@/components/analytics/balance/use-balance"
+import { nextOrdering } from "@/components/analytics/balance/balance-table"
+import { CorrectionDialog, DeadlineDialog, TelegramDialog } from "@/components/analytics/store-reconciliation-dialogs"
+import {
+  countReconciliationFilters,
+  emptyReconciliationFilters,
+  ReconciliationFilterDialog,
+  reconciliationQuery,
+  stateFromParams,
+  stateToSearch,
+  type ReconciliationState,
+} from "@/components/analytics/store-reconciliation-filters"
+import { DebtImportDialog } from "@/components/analytics/store-reconciliation-import"
+import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
 import { downloadExcelTable } from "@/lib/excel-export"
+import { currencyLabel, formatMoney, roundMoney } from "@/lib/finance/currency"
+import { formatStatementDate, todayIso } from "@/lib/finance/dates"
+import type { BalanceDateMode, CurrencyBalance } from "@/lib/finance/types"
+import {
+  reconciliationStatusColor,
+  reconciliationStatusLabel,
+  type ReconciliationVariant,
+  type StoreReconciliationListResult,
+  type StoreReconciliationOptions,
+  type StoreReconciliationRow,
+} from "@/lib/finance-store-reconciliation-types"
+import { useLanguage } from "@/lib/i18n/language-context"
 
-type Money = { euro: number; sum: number; usd: number }
-type ClientRow = {
-  id: number
-  client: string
-  connected: boolean
-  debtTerm?: string
-  daysAfterPayment: number
-  daysAfterOrder: number
-  amount: Money
-  sumCash: number
-  sumTransfer: number
-  usdCash: number
-  usdTransfer: number
-  euroCash: number
-  euroTransfer: number
-  orders: number
-  altSumTransfer?: number
-  altAmountSum?: number
+// "Сверка магазина через бот" (demo #/sales-market-balance, variant "client")
+// and "Сверка счетов" (demo #/client-balance, variant "account"): every
+// client's / account's balance on a day per currency split into cash / bank,
+// the base-currency total, the bot reconciliation status, debt term, days since
+// the last payment / order and the number of orders (GET
+// /api/store-reconciliation, shared ledger — totals equal "Баланс клиентов" /
+// "Долги по счетам"). Row actions: debt term, Telegram reconciliation
+// (recorded only: no bot is connected), Списать / Добавить; Excel exports; the
+// client / account act on row click; "Установить долг с Excel" only for shops
+// (the demo "Сверка счетов" has no such button).
+
+const LIST_URL = "/api/store-reconciliation"
+
+const SUMMARY: SummaryBox[] = [
+  { metrics: [{ label: "Наличными", field: "cash" }] },
+  { metrics: [{ label: "Перечисления", field: "bank" }] },
+  { align: "right", metrics: [{ label: "Общий", field: "total" }] },
+]
+
+/** Demo grid colours (4614): Сумма green #92ce95 / red #e27676. */
+function totalColor(value: number): string | undefined {
+  if (value > 0) return "#92ce95"
+  if (value < 0) return "#e27676"
+  return undefined
 }
 
-type ApiRow = {
-  id: number
-  client: string
-  connected: boolean
-  debtTerm: string
-  daysAfterPayment: number
-  daysAfterOrder: number
-  amountSum: number
-  amountEuro: number
-  sumCash: number
-  sumTransfer: number
-  usdCash: number
-  usdTransfer: number
-  euroCash: number
-  euroTransfer: number
-  orders: number
-  altSumTransfer: number
-  altAmountSum: number
+async function fetchJson<T>(url: string): Promise<T> {
+  const response = await fetch(url, { cache: "no-store" })
+  const body = (await response.json().catch(() => null)) as (T & { error?: string }) | null
+  if (!response.ok || !body) throw new Error(body?.error || `HTTP ${response.status}`)
+  return body
 }
 
-function apiRowToClientRow(row: ApiRow): ClientRow {
-  return {
-    id: row.id,
-    client: row.client,
-    connected: row.connected,
-    debtTerm: row.debtTerm || undefined,
-    daysAfterPayment: row.daysAfterPayment,
-    daysAfterOrder: row.daysAfterOrder,
-    amount: { sum: row.amountSum, euro: row.amountEuro, usd: 0 },
-    sumCash: row.sumCash,
-    sumTransfer: row.sumTransfer,
-    usdCash: row.usdCash,
-    usdTransfer: row.usdTransfer,
-    euroCash: row.euroCash,
-    euroTransfer: row.euroTransfer,
-    orders: row.orders,
-    altSumTransfer: row.altSumTransfer,
-    altAmountSum: row.altAmountSum,
-  }
+function useReconciliationList(url: string) {
+  const [data, setData] = useState<StoreReconciliationListResult | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState("")
+  const [version, setVersion] = useState(0)
+  useEffect(() => {
+    const controller = new AbortController()
+    setLoading(true)
+    setError("")
+    fetch(url, { signal: controller.signal, cache: "no-store" })
+      .then(async (response) => {
+        const body = (await response.json().catch(() => null)) as (StoreReconciliationListResult & { error?: string }) | null
+        if (!response.ok || !body) throw new Error(body?.error || `HTTP ${response.status}`)
+        setData(body)
+      })
+      .catch((reason: unknown) => {
+        if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : String(reason))
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoading(false)
+      })
+    return () => controller.abort()
+  }, [url, version])
+  const reload = useCallback(() => setVersion((value) => value + 1), [])
+  return { data, loading, error, reload }
 }
 
-function clientRowToApiInput(row: ClientRow) {
-  return {
-    client: row.client,
-    connected: row.connected,
-    debtTerm: row.debtTerm ?? "",
-    daysAfterPayment: row.daysAfterPayment,
-    daysAfterOrder: row.daysAfterOrder,
-    amountSum: row.amount.sum,
-    amountEuro: row.amount.euro,
-    sumCash: row.sumCash,
-    sumTransfer: row.sumTransfer,
-    usdCash: row.usdCash,
-    usdTransfer: row.usdTransfer,
-    euroCash: row.euroCash,
-    euroTransfer: row.euroTransfer,
-    orders: row.orders,
-    altSumTransfer: row.altSumTransfer ?? 0,
-    altAmountSum: row.altAmountSum ?? 0,
-  }
+type RowDialog = { kind: "telegram" | "deadline" | "expense" | "income"; row: StoreReconciliationRow } | null
+
+const TITLES: Record<ReconciliationVariant, string> = {
+  client: "Сверка магазина через бот",
+  account: "Сверка счетов",
 }
 
-const TOTAL_CLIENTS = 0
-
-const TOTALS_BY_MODE = {
-  created: {
-    cash: { euro: 0, sum: 0, usd: 0 },
-    transfer: { euro: 0, sum: 0, usd: 0 },
-    total: { euro: 0, sum: 0, usd: 0 },
-  },
-  realized: {
-    cash: { euro: 0, sum: 0, usd: 0 },
-    transfer: { euro: 0, sum: 0, usd: 0 },
-    total: { euro: 0, sum: 0, usd: 0 },
-  },
-} as const
-
-const number = (value: number) => new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 2 }).format(value)
-
-function AmountText({ value }: { value: number }) {
-  if (value === 0) return <span>0</span>
-  return <span className={value > 0 ? "text-[#71ce87]" : "text-[#e57373]"}>{number(value)}</span>
-}
-
-export function StoreReconciliationBotView() {
-  const importRef = useRef<HTMLInputElement>(null)
-  const [rows, setRows] = useState<ClientRow[]>([])
-  const [mode, setMode] = useState<"created" | "realized">("created")
-  const [search, setSearch] = useState("")
+export function StoreReconciliationBotView({ variant = "client" }: { variant?: ReconciliationVariant }) {
+  const { t, language } = useLanguage()
+  const isAccount = variant === "account"
+  const title = TITLES[variant]
+  const searchParams = useSearchParams()
+  const [state, setState] = useState<ReconciliationState>(() => stateFromParams(searchParams))
+  const [searchDraft, setSearchDraft] = useState(state.search)
   const [filterOpen, setFilterOpen] = useState(false)
-  const [pageSize, setPageSize] = useState(25)
-  const [page, setPage] = useState(1)
-  const [connectTarget, setConnectTarget] = useState<ClientRow | null>(null)
-  const [editTarget, setEditTarget] = useState<ClientRow | null>(null)
-  const [editName, setEditName] = useState("")
+  const [importOpen, setImportOpen] = useState(false)
+  const [expanded, setExpanded] = useState(false)
+  const [dialog, setDialog] = useState<RowDialog>(null)
+  const [options, setOptions] = useState<StoreReconciliationOptions | null>(null)
+  const [user, setUser] = useState<{ name: string; canEdit: boolean }>({ name: "", canEdit: false })
+  const [notice, setNotice] = useState<{ text: string; error: boolean } | null>(null)
+
+  const query = useMemo(() => reconciliationQuery(state), [state])
+  const listUrl = useCallback((params: BalanceQuery) => `${LIST_URL}?${buildBalanceQuery(isAccount ? { variant, ...params } : params)}`, [isAccount, variant])
+  const { data, loading, error, reload } = useReconciliationList(listUrl(query))
+
+  // The demo keeps everything in the URL query.
+  useEffect(() => {
+    const search = stateToSearch(state)
+    if (window.location.search.slice(1) !== search) window.history.replaceState(window.history.state, "", `${window.location.pathname}?${search}`)
+  }, [state])
 
   useEffect(() => {
-    let cancelled = false
-    fetch("/api/store-reconciliation-rows")
-      .then((response) => (response.ok ? response.json() : []))
-      .then((data: ApiRow[]) => {
-        if (cancelled) return
-        setRows(Array.isArray(data) ? data.map(apiRowToClientRow) : [])
-      })
-      .catch(() => {})
-    return () => {
-      cancelled = true
-    }
+    fetchJson<StoreReconciliationOptions>(`${LIST_URL}/options`)
+      .then(setOptions)
+      .catch(() => setOptions(null))
+    // Row actions / Excel debt import = demo can_add_none_type_client_transaction → manager or admin (the POST routes require manager).
+    fetchJson<{ role?: string; displayName?: string; username?: string }>("/api/auth/me")
+      .then((me) => setUser({ name: me.displayName || me.username || "", canEdit: me.role === "manager" || me.role === "admin" }))
+      .catch(() => setUser({ name: "", canEdit: false }))
   }, [])
 
-  const filtered = useMemo(
-    () => rows.filter((row) => row.client.toLocaleLowerCase("ru").includes(search.trim().toLocaleLowerCase("ru"))),
-    [rows, search],
+  useEffect(() => {
+    if (!notice) return
+    const timer = window.setTimeout(() => setNotice(null), 4500)
+    return () => window.clearTimeout(timer)
+  }, [notice])
+
+  // A page past the end (stale URL, rows gone) jumps to the last page.
+  useEffect(() => {
+    if (!data || loading || data.rows.length || state.page <= 1) return
+    const lastPage = Math.max(1, Math.ceil(data.count / Math.max(1, state.pageSize)))
+    if (state.page > lastPage) setState((current) => ({ ...current, page: lastPage }))
+  }, [data, loading, state.page, state.pageSize])
+
+  const update = (patch: Partial<ReconciliationState>) => setState((current) => ({ ...current, ...patch }))
+  const changeMode = (mode: BalanceDateMode) => {
+    if (mode !== state.mode) update({ mode, page: 1 })
+  }
+
+  const rows = data?.rows ?? []
+  const columnCurrencies = useMemo(() => (data?.currencies ?? []).map((currency) => currency.code), [data])
+  const cardTotals = useMemo(() => {
+    const out: Record<string, CurrencyBalance> = {}
+    for (const [code, money] of Object.entries(data?.totals ?? {})) out[code] = { ...money, begin_balance: 0, end_balance: money.total }
+    return out
+  }, [data])
+  const filterCount = countReconciliationFilters(state.filters)
+  const asOf = data?.asOf ?? (state.filters.debtDate || todayIso())
+
+  const daysText = (value: number | null) => (value === null ? "—" : `${formatMoney(value, 0)} ${t("дня")}`)
+  const deadlineText = (value: string | null) => (value ? formatStatementDate(value, language, false) : t("Не указано"))
+
+  // --- Excel ---------------------------------------------------------------------------------
+  const cashBankHeaders = (codes: string[]) => codes.flatMap((code) => [`${currencyLabel(code)} ${t("нал.")}`, `${currencyLabel(code)} ${t("переч.")}`])
+  const cashBankCells = (row: StoreReconciliationRow, codes: string[]) => codes.flatMap((code) => [roundMoney(row.currencies[code]?.cash ?? 0), roundMoney(row.currencies[code]?.bank ?? 0)])
+
+  /** "Список": the loaded page with the demo's list columns (4613 `re ∪ ie`). */
+  const downloadPage = () => {
+    if (!data) return
+    const codes = columnCurrencies
+    const sheet: Array<Array<string | number | null>> = [
+      [t("Клиент"), t("После прошедшего заказа прошло"), t("Сумма"), ...cashBankHeaders(codes), t("Количество заказов")],
+      ...rows.map((row) => [row.name, row.orderDays === null ? null : `${row.orderDays} ${t("дня")}`, row.total, ...cashBankCells(row, codes), row.orders]),
+    ]
+    downloadExcelTable(t("Статистика баланса клиентов"), sheet)
+  }
+
+  /** "Скачать все": every filtered row with every column + totals. */
+  const downloadAll = async () => {
+    try {
+      const all = await fetchJson<StoreReconciliationListResult>(listUrl({ ...query, page: undefined, pageSize: 0 }))
+      const codes = all.currencies.map((currency) => currency.code)
+      const sheet: Array<Array<string | number | null>> = [
+        [
+          isAccount ? t("ИНН") : "ID",
+          t("Клиент"),
+          t("Статус сверки"),
+          t("Срок долга"),
+          t("Прошло дней после оплаты"),
+          t("Прошло дней после заказа"),
+          `${t("Сумма")} ${currencyLabel(all.baseCurrency)}`,
+          ...cashBankHeaders(codes),
+          t("Кол-во заказов"),
+        ],
+        ...all.rows.map((row) => [
+          isAccount ? row.info.inn : row.id,
+          row.name,
+          t(reconciliationStatusLabel(row.status)),
+          row.paymentDeadline ?? "",
+          row.paymentDays,
+          row.orderDays,
+          row.total,
+          ...cashBankCells(row, codes),
+          row.orders,
+        ]),
+        [t("Итого"), "", "", "", null, null, all.total, ...codes.flatMap((code) => [all.totals[code]?.cash ?? 0, all.totals[code]?.bank ?? 0]), all.rows.reduce((sum, row) => sum + row.orders, 0)],
+      ]
+      downloadExcelTable(`${t(title)} ${all.asOf}`, sheet)
+    } catch (reason) {
+      setNotice({ text: reason instanceof Error ? reason.message : t("Сервер недоступен, попробуйте ещё раз"), error: true })
+    }
+  }
+
+  // --- table ----------------------------------------------------------------------------------
+  const sortHeader = (sortKey: string, label: ReactNode) => {
+    const icon = state.ordering.includes(sortKey) ? (
+      <ArrowUp className="h-3.5 w-3.5" />
+    ) : state.ordering.includes(`-${sortKey}`) ? (
+      <ArrowDown className="h-3.5 w-3.5" />
+    ) : (
+      <ArrowUpDown className="h-3.5 w-3.5 opacity-40" />
+    )
+    return (
+      <button type="button" onClick={() => update({ ordering: nextOrdering(state.ordering, sortKey, "asc-first"), page: 1 })} className="inline-flex items-center gap-1 whitespace-nowrap">
+        {label}
+        {icon}
+      </button>
+    )
+  }
+  const openAct = (row: StoreReconciliationRow) => update({ openClient: { key: row.key, name: row.name } })
+  const columnCount = 7 + columnCurrencies.length * 2
+  const head = "border border-[#6b87e3] px-4 py-3 text-left font-semibold"
+
+  const actionButton = (title: string, icon: ReactNode, onClick: () => void) => (
+    <button
+      type="button"
+      title={t(title)}
+      aria-label={t(title)}
+      onClick={(event) => {
+        event.stopPropagation()
+        onClick()
+      }}
+      className="flex h-[30px] w-[30px] items-center justify-center rounded-full hover:bg-white"
+    >
+      {icon}
+    </button>
   )
 
-  const maxPage = Math.max(1, Math.ceil(filtered.length / pageSize))
-  const safePage = Math.min(page, maxPage)
-  const visible = filtered.slice((safePage - 1) * pageSize, safePage * pageSize)
-  const isDefaultView = !search.trim()
-  const totalLabel = isDefaultView ? TOTAL_CLIENTS : filtered.length
-  const totals = TOTALS_BY_MODE[mode]
-
-  const toggleConnection = async (id: number) => {
-    const target = rows.find((row) => row.id === id)
-    if (!target) return
-    try {
-      const response = await fetch(`/api/store-reconciliation-rows/${id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ connected: !target.connected }),
-      })
-      if (!response.ok) {
-        window.alert("Не удалось изменить подключение")
-        return
-      }
-      const saved = (await response.json()) as ApiRow
-      setRows((current) => current.map((row) => (row.id === id ? apiRowToClientRow(saved) : row)))
-    } catch {
-      window.alert("Сервер недоступен, попробуйте ещё раз")
-    } finally {
-      setConnectTarget(null)
-    }
-  }
-
-  const removeRow = async (id: number) => {
-    try {
-      const response = await fetch(`/api/store-reconciliation-rows/${id}`, { method: "DELETE" })
-      if (!response.ok) {
-        window.alert("Не удалось удалить строку")
-        return
-      }
-      setRows((current) => current.filter((row) => row.id !== id))
-    } catch {
-      window.alert("Сервер недоступен, попробуйте ещё раз")
-    }
-  }
-
-  const duplicateRow = async (row: ClientRow) => {
-    const copy: ClientRow = { ...row, client: `${row.client} (копия)`, connected: false }
-    try {
-      const response = await fetch("/api/store-reconciliation-rows", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(clientRowToApiInput(copy)),
-      })
-      if (!response.ok) {
-        window.alert("Не удалось дублировать строку")
-        return
-      }
-      const saved = (await response.json()) as ApiRow
-      setRows((current) => {
-        const index = current.findIndex((item) => item.id === row.id)
-        const inserted = apiRowToClientRow(saved)
-        return [...current.slice(0, index + 1), inserted, ...current.slice(index + 1)]
-      })
-    } catch {
-      window.alert("Сервер недоступен, попробуйте ещё раз")
-    }
-  }
-
-  const startEdit = (row: ClientRow) => {
-    setEditTarget(row)
-    setEditName(row.client)
-  }
-
-  const saveEdit = async () => {
-    if (!editTarget) return
-    try {
-      const response = await fetch(`/api/store-reconciliation-rows/${editTarget.id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ client: editName || editTarget.client }),
-      })
-      if (!response.ok) {
-        window.alert("Не удалось сохранить клиента")
-        return
-      }
-      const saved = (await response.json()) as ApiRow
-      setRows((current) => current.map((row) => (row.id === editTarget.id ? apiRowToClientRow(saved) : row)))
-    } catch {
-      window.alert("Сервер недоступен, попробуйте ещё раз")
-    } finally {
-      setEditTarget(null)
-    }
-  }
-
-  const downloadAll = () => {
-    const header = ["Клиент", "Статус сверки", "Срок долга", "Прошло дней после оплаты", "Прошло дней после заказа", "Сумма", "Euro нал.", "Euro переч.", "SUM нал.", "SUM переч.", "USD нал.", "USD переч.", "Кол-во заказов"]
-    const body = filtered.map((row) => {
-      const sumTransfer = mode === "realized" && row.altSumTransfer !== undefined ? row.altSumTransfer : row.sumTransfer
-      const amountSum = mode === "realized" && row.altAmountSum !== undefined ? row.altAmountSum : row.amount.sum
-      return [
-        row.client,
-        row.connected ? "Подключен" : "Не подключен",
-        row.debtTerm ?? "Не указано",
-        row.daysAfterPayment,
-        row.daysAfterOrder,
-        amountSum,
-        row.amount.euro,
-        row.euroTransfer,
-        row.sumCash,
-        sumTransfer,
-        row.usdCash,
-        row.usdTransfer,
-        row.orders,
-      ]
-    })
-    downloadExcelTable("store-reconciliation.xls", [header, ...body])
-  }
-
-  const tone = (value: number): "plus" | "minus" | "default" => (value > 0 ? "plus" : value < 0 ? "minus" : "default")
-  const lines = (group: { euro: number; sum: number; usd: number }) => [
-    { text: `${number(group.euro)} Euro`, tone: tone(group.euro) },
-    { text: `${number(group.sum)} SUM`, tone: tone(group.sum) },
-    { text: `${number(group.usd)} USD`, tone: tone(group.usd) },
-  ]
-
   return (
-    <ReportPage>
-      <input ref={importRef} type="file" accept=".xls,.xlsx,.csv" className="hidden" onChange={(event) => { const file = event.target.files?.[0]; if (file) window.alert(file.name); event.target.value = "" }} />
-      <div className="pl-[30px] pr-[38px]">
-        <RefHeader title="Сверка счетов">
-          <div className="flex overflow-hidden rounded-[3px] shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
-            {([["created", "По дате создания"], ["realized", "По дате реализации"]] as const).map(([key, label]) => (
-              <button key={key} onClick={() => setMode(key)} className={`h-[30px] w-[173px] text-[13px] font-medium transition-colors ${mode === key ? "bg-[#71ce87] text-white" : "bg-white text-black"}`}>{label}</button>
-            ))}
-          </div>
-        </RefHeader>
-      </div>
-
-      <div className="mx-[30px] mt-[14px] grid grid-cols-1 gap-[2px] sm:grid-cols-3">
-        <ReportMoneyBox title="Наличными" lines={lines(totals.cash)} className="pb-[14px]" />
-        <ReportMoneyBox title="Перечисления" lines={lines(totals.transfer)} className="pb-[14px]" />
-        <ReportMoneyBox title="Общий" right lines={lines(totals.total)} className="pb-[14px]" />
-      </div>
-
-      <section className="mx-[28px] mt-[16px] bg-white shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
-        <div className="relative flex h-[55px] items-center px-[5px]">
-          <button onClick={() => setFilterOpen((value) => !value)} className="ml-[25px] text-[13px] text-[#4f71dc]">Показать фильтр ⌄</button>
-          <div className="absolute left-[440px]"><ReportSearchField value={search} onChange={(value) => { setSearch(value); setPage(1) }} width={255} /></div>
-          <div className="ml-auto flex items-center gap-[20px] pr-[20px]">
-            <button onClick={() => importRef.current?.click()} className="flex h-[34px] items-center rounded-[3px] bg-[#4f71dc] px-4 text-[13px] font-semibold text-white hover:brightness-95"><svg viewBox="0 0 24 24" className="mr-2 h-[18px] w-[18px] fill-white" aria-hidden><path d="M10 20h4V4h-4v16zm-6 0h4v-8H4v8zM16 9v11h4V9h-4z" /></svg>Установить долг с Excel</button>
-            <button onClick={downloadAll} className="flex h-[34px] items-center rounded-[3px] bg-[#71ce87] px-4 text-[13px] font-semibold text-white hover:brightness-95"><svg viewBox="0 0 24 24" className="mr-2 h-[18px] w-[18px] fill-white" aria-hidden><path d={RI.chart} /></svg>Скачать</button>
-            <ReportPager pageSize={pageSize} onPageSize={(size) => { setPageSize(size); setPage(1) }} rangeLabel={`${filtered.length ? (safePage - 1) * pageSize + 1 : 0} - ${Math.min(safePage * pageSize, filtered.length)} из ${totalLabel}`} canPrev={safePage > 1} canNext={safePage < maxPage} onPrev={() => setPage((value) => Math.max(1, value - 1))} onNext={() => setPage((value) => Math.min(maxPage, value + 1))} />
-            <button aria-label="Полный экран" onClick={() => document.documentElement.requestFullscreen?.()}><svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#444]"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z" /></svg></button>
-          </div>
+    <main className="min-h-screen bg-white text-[#17233b]">
+      <header className="flex min-h-[76px] flex-wrap items-center justify-between gap-4 border-b border-[#d8dee7] bg-[#f2f5f8] px-6 md:px-9">
+        <div className="flex items-center gap-3">
+          <FavoritesButton className="flex items-center gap-3 text-2xl font-bold text-[#4f70e7]" />
+          <span className="text-3xl font-light text-[#586174]">|</span>
+          <span className="text-2xl font-bold text-[#586174]">{t(title)}</span>
         </div>
-        {filterOpen && (
-          <div className="mx-[25px] mb-3 w-[300px] bg-white p-5 shadow-[0_3px_10px_rgba(0,0,0,0.16),0_3px_10px_rgba(0,0,0,0.23)]">
-            <ReportSearchField value={search} onChange={(value) => { setSearch(value); setPage(1) }} width={260} label="Клиент" />
+        <div className="my-3 flex overflow-hidden rounded-md border border-[#dbe0e8]">
+          {(
+            [
+              ["created", "По дате создания"],
+              ["realization", "По дате реализации"],
+            ] as const
+          ).map(([mode, label]) => (
+            <button
+              key={mode}
+              type="button"
+              onClick={() => changeMode(mode)}
+              className={`px-5 py-3 text-[15px] font-semibold ${state.mode === mode ? "bg-[#71ce87] text-white shadow" : "bg-white text-[#586174]"}`}
+            >
+              {t(label)}
+            </button>
+          ))}
+        </div>
+      </header>
+
+      <div className="px-6 pt-4 text-[14px] text-[#586174] md:px-9">
+        {t("Баланс на")} <strong className="text-[#4f70e7]">{formatStatementDate(asOf, language, false)}</strong>
+      </div>
+      <div className="pt-4">
+        <BalanceSummaryCards boxes={SUMMARY} totals={cardTotals} currencies={data?.visibleCurrencies ?? []} loading={loading} />
+      </div>
+      {data && data.missingRates.length > 0 && (
+        <p className="px-6 pb-3 text-[13px] text-[#8a6d3b] md:px-9">
+          {t("Нет курса валюты, не учтено в сумме")}: {data.missingRates.map(currencyLabel).join(", ")}
+        </p>
+      )}
+
+      <ExpandedOverlay expanded={expanded}>
+        <section className="flex flex-wrap items-center gap-3 border-t border-[#efefef] px-6 py-3 md:px-9">
+          <BalanceFilterChip
+            count={filterCount}
+            onOpen={() => setFilterOpen(true)}
+            onClear={() => {
+              setSearchDraft("")
+              update({ filters: emptyReconciliationFilters(), search: "", page: 1, pageSize: 25, ordering: [] })
+            }}
+          />
+          <form
+            className="mx-auto flex min-w-[160px] flex-1 items-center justify-center gap-1"
+            onSubmit={(event) => {
+              event.preventDefault()
+              update({ search: searchDraft.trim(), page: 1 })
+            }}
+          >
+            <input
+              value={searchDraft}
+              onChange={(event) => setSearchDraft(event.target.value)}
+              placeholder={t("Поиск")}
+              aria-label={t("Поиск")}
+              className="h-10 w-full max-w-[260px] border-b border-[#dbe0e8] bg-transparent px-1 text-[15px] outline-none focus:border-[#4f70e7]"
+            />
+            <button type="submit" aria-label={t("Поиск")} className="p-1.5 text-[#ccc]">
+              <Search className="h-5 w-5" />
+            </button>
+          </form>
+          <div className="flex flex-wrap items-center gap-3">
+            {user.canEdit && !isAccount && (
+              <button type="button" onClick={() => setImportOpen(true)} className="flex h-[34px] items-center gap-2 rounded-sm bg-[rgb(79,113,220)] px-4 font-semibold text-white">
+                <FileSpreadsheet className="h-4 w-4" /> {t("Установить долг с Excel")}
+              </button>
+            )}
+            <BalanceDownloadMenu
+              disabled={!data}
+              items={[
+                { label: "Список", onClick: downloadPage },
+                { label: "Скачать все", onClick: () => void downloadAll() },
+              ]}
+            />
+            <BalancePagination page={state.page} pageSize={state.pageSize} count={data?.count ?? 0} onChange={({ page, pageSize }) => update({ page, pageSize })} />
+            <ExpandedViewButton expanded={expanded} onToggle={() => setExpanded((value) => !value)} />
+          </div>
+        </section>
+
+        {error && (
+          <div className="flex items-center gap-3 px-6 py-3 text-[#e57373] md:px-9">
+            <span>
+              {t("Не удалось загрузить данные")}: {error}
+            </span>
+            <button type="button" onClick={reload} className="font-semibold text-[#4f70e7] hover:underline">
+              {t("Повторить")}
+            </button>
           </div>
         )}
 
-        <ReportGridTable
-          minWidth={1750}
-          align="left"
-          colWidths={["300px", "100px", "100px", "100px", "100px", "", "", "", "", "", "", "", ""]}
-          emptyText="Нет данных"
-          heads={["Клиент", "Статус сверки", "Срок долга", "Прошло дней после оплаты", "Прошло дней после заказа", "Сумма", "Euro нал.", "Euro переч.", "SUM нал.", "SUM переч.", "USD нал.", "USD переч.", "Кол-во заказов"]}
-          rows={visible.map((row) => {
-            const sumTransfer = mode === "realized" && row.altSumTransfer !== undefined ? row.altSumTransfer : row.sumTransfer
-            const amountSum = mode === "realized" && row.altAmountSum !== undefined ? row.altAmountSum : row.amount.sum
-            return [
-              <div key="c" className="group relative">
-                <div className="group-hover:invisible">{row.client}</div>
-                <div className="invisible absolute inset-0 flex items-center gap-3 group-hover:visible">
-                  <button aria-label="Редактировать" onClick={() => startEdit(row)} className="text-[#555]"><Pencil className="h-4 w-4" /></button>
-                  <button aria-label="Телеграм" title="Телеграм" onClick={() => setConnectTarget(row)} className="text-[#4f71dc]"><Send className="h-4 w-4" /></button>
-                  <button aria-label="Удалить" onClick={() => removeRow(row.id)} className="text-[#e5484d]"><MinusCircle className="h-4 w-4" /></button>
-                  <button aria-label="Добавить" title="Дублировать" onClick={() => duplicateRow(row)} className="text-[#3aa76d]"><PlusCircle className="h-4 w-4" /></button>
-                </div>
-              </div>,
-              <button key="s" onClick={() => setConnectTarget(row)} className={`text-left font-bold ${row.connected ? "text-[#3aa76d]" : "text-[#4f71dc]"}`}>{row.connected ? "Подключен" : "Не подключен"}</button>,
-              <span key="t" className={row.debtTerm ? "font-bold text-[#f06c6c]" : ""}>{row.debtTerm ?? "Не указано"}</span>,
-              <span key="p" className={row.daysAfterPayment > 0 ? "font-bold text-[#f06c6c]" : ""}>{row.daysAfterPayment} дня</span>,
-              `${row.daysAfterOrder} дня`,
-              <AmountText key="a" value={amountSum} />,
-              <AmountText key="e" value={row.amount.euro} />,
-              <AmountText key="et" value={row.euroTransfer} />,
-              <AmountText key="sc" value={row.sumCash} />,
-              <AmountText key="st" value={sumTransfer} />,
-              <AmountText key="uc" value={row.usdCash} />,
-              <AmountText key="ut" value={row.usdTransfer} />,
-              row.orders,
-            ]
-          })}
+        <div className={`overflow-x-auto ${loading ? "opacity-60" : ""}`}>
+          <table className="w-full min-w-[1150px] border-collapse text-[14px] text-[#666]">
+            <thead className="sticky top-0 z-[1] bg-[#4f71dc] text-white">
+              <tr>
+                <th className={`${head} sticky left-0 z-[2] min-w-[300px] bg-[#4f71dc]`}>{t("Клиент")}</th>
+                <th className={head}>{sortHeader("status", t("Статус сверки"))}</th>
+                <th className={head}>{sortHeader("deadline", t("Срок долга"))}</th>
+                <th className={head}>{sortHeader("payment_days", t("Прошло дней после оплаты"))}</th>
+                <th className={head}>{sortHeader("order_days", t("Прошло дней после заказа"))}</th>
+                <th className={head}>{sortHeader("total", t("Сумма"))}</th>
+                {columnCurrencies.flatMap((code) =>
+                  (["cash", "bank"] as const).map((field) => (
+                    <th key={`${field}.${code}`} className={head}>
+                      {sortHeader(`${field}.${code}`, `${currencyLabel(code)} ${t(field === "cash" ? "нал." : "переч.")}`)}
+                    </th>
+                  )),
+                )}
+                <th className={head}>{sortHeader("orders", t("Кол-во заказов"))}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row, index) => {
+                const background = index % 2 ? "#ffffff" : "#F4F8FB"
+                const cell = "cursor-pointer border-b border-r border-[#efefef] px-4 py-2 whitespace-nowrap"
+                const overdue = Boolean(row.paymentDeadline && row.paymentDeadline < todayIso())
+                return (
+                  <tr key={row.key} style={{ background }} className="group hover:!bg-[#e9f8ff] hover:font-semibold">
+                    <td className="sticky left-0 z-[1] border-b border-r border-[#efefef] px-4 py-2" style={{ background: "inherit" }}>
+                      <div className="relative flex min-h-[30px] w-[300px] items-center">
+                        <span className="truncate">{row.name || "No"}</span>
+                        {user.canEdit && (
+                          <div className="absolute inset-y-0 right-0 flex items-center gap-0.5 bg-gradient-to-r from-transparent to-[#F4F8FB] pl-6 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+
+                            {actionButton("Изменить срок долга", <CalendarClock className="h-5 w-5 text-[rgb(93,100,116)]" />, () => setDialog({ kind: "deadline", row }))}
+                            {actionButton("Телеграм", <Send className="h-5 w-5 text-[rgb(93,100,116)]" />, () => setDialog({ kind: "telegram", row }))}
+                            {actionButton("Списать", <MinusCircle className="h-5 w-5 text-[#ff584b]" />, () => setDialog({ kind: "expense", row }))}
+                            {actionButton("Добавить", <PlusCircle className="h-5 w-5 text-[#8dc572]" />, () => setDialog({ kind: "income", row }))}
+                          </div>
+                        )}
+                      </div>
+                    </td>
+                    <td className={cell} onClick={() => openAct(row)}>
+                      <span className="font-semibold" style={{ color: reconciliationStatusColor(row.status) }}>
+                        {t(reconciliationStatusLabel(row.status))}
+                      </span>
+                    </td>
+                    <td className={cell} onClick={() => openAct(row)}>
+                      <span style={overdue ? { color: "#e27676", fontWeight: 600 } : { color: row.paymentDeadline ? "#000" : undefined }}>{deadlineText(row.paymentDeadline)}</span>
+                    </td>
+                    <td className={cell} onClick={() => openAct(row)}>
+                      <span style={row.paymentDays !== null && row.paymentDays > 20 ? { color: "#e27676", fontWeight: 600 } : undefined}>{daysText(row.paymentDays)}</span>
+                    </td>
+                    <td className={cell} onClick={() => openAct(row)}>
+                      {daysText(row.orderDays)}
+                    </td>
+                    <td className={cell} onClick={() => openAct(row)}>
+                      <span className="font-semibold" style={{ color: totalColor(row.total) }}>
+                        {formatMoney(row.total)}
+                      </span>
+                    </td>
+                    {columnCurrencies.flatMap((code) =>
+                      (["cash", "bank"] as const).map((field) => (
+                        <td key={`${field}.${code}`} className={cell} onClick={() => openAct(row)}>
+                          {formatMoney(row.currencies[code]?.[field] ?? 0)}
+                        </td>
+                      )),
+                    )}
+                    <td className={cell} onClick={() => openAct(row)}>
+                      {formatMoney(row.orders, 0)}
+                    </td>
+                  </tr>
+                )
+              })}
+              {!rows.length && (
+                <tr>
+                  <td colSpan={columnCount} className="border-b border-[#efefef] px-4 py-16 text-center text-[#9aa3b6]">
+                    {loading ? t("Загрузка...") : t("По вашему запросу ничего не найдено")}
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </ExpandedOverlay>
+
+      <ReconciliationFilterDialog
+        open={filterOpen}
+        filters={state.filters}
+        options={options}
+        onClose={() => setFilterOpen(false)}
+        onApply={(filters) => update({ filters, search: searchDraft.trim(), page: 1 })}
+      />
+
+      {state.openClient && (
+        <ClientActDialog
+          key={state.openClient.key}
+          kind={variant}
+          entityKey={state.openClient.key}
+          name={state.openClient.name}
+          from={`${asOf.slice(0, 8)}01`}
+          to={asOf}
+          mode={state.mode}
+          onClose={() => update({ openClient: null })}
         />
-      </section>
-
-      {connectTarget && (
-        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/40" onClick={() => setConnectTarget(null)}>
-          <div onClick={(event) => event.stopPropagation()} className="w-[440px] max-w-[92vw] rounded-md bg-white p-7 shadow-2xl">
-            <h2 className="mb-4 flex items-center gap-2 text-lg font-bold"><Send className="h-5 w-5 text-[#4f71dc]" /> Подключение через Telegram-бот</h2>
-            <p className="mb-6 text-[#586174]">
-              {connectTarget.connected
-                ? <>Клиент <b>{connectTarget.client}</b> подключен к боту сверки. Отключить?</>
-                : <>Отправить клиенту <b>{connectTarget.client}</b> приглашение подключиться к боту сверки в Telegram?</>}
-            </p>
-            <div className="flex justify-end gap-3">
-              <button onClick={() => setConnectTarget(null)} className="rounded-md border border-[#dbe0e8] px-5 py-2.5 font-semibold text-[#586174]">Отмена</button>
-              <button onClick={() => toggleConnection(connectTarget.id)} className="rounded-md bg-[#4f71dc] px-5 py-2.5 font-semibold text-white">
-                {connectTarget.connected ? "Отключить" : "Отправить"}
-              </button>
-            </div>
-          </div>
-        </div>
       )}
 
-      {editTarget && (
-        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/40" onClick={() => setEditTarget(null)}>
-          <div onClick={(event) => event.stopPropagation()} className="w-[440px] max-w-[92vw] rounded-md bg-white p-7 shadow-2xl">
-            <h2 className="mb-4 text-lg font-bold">Редактировать клиента</h2>
-            <label className="mb-6 block border-b border-[#dbe0e8] pb-2 text-[13px] font-medium text-[#586174]">
-              Название
-              <input autoFocus value={editName} onChange={(event) => setEditName(event.target.value)} className="mt-1 block w-full bg-transparent text-[16px] font-semibold text-[#17233b] outline-none" />
-            </label>
-            <div className="flex justify-end gap-3">
-              <button onClick={() => setEditTarget(null)} className="rounded-md border border-[#dbe0e8] px-5 py-2.5 font-semibold text-[#586174]">Отмена</button>
-              <button onClick={saveEdit} className="rounded-md bg-[#4f71dc] px-5 py-2.5 font-semibold text-white">Сохранить</button>
-            </div>
-          </div>
+      {dialog?.kind === "telegram" && (
+        <TelegramDialog
+          entity={{ variant, key: dialog.row.key, name: dialog.row.name }}
+          canSend={user.canEdit}
+          asOf={asOf}
+          mode={state.mode}
+          onClose={() => setDialog(null)}
+          onSent={(text, isError) => {
+            setNotice({ text, error: isError })
+            reload()
+          }}
+        />
+      )}
+      {dialog?.kind === "deadline" && (
+        <DeadlineDialog
+          entity={{ variant, key: dialog.row.key, name: dialog.row.name }}
+          current={dialog.row.paymentDeadline}
+          onClose={() => setDialog(null)}
+          onSaved={() => {
+            setNotice({ text: t("Успешно сохранено"), error: false })
+            reload()
+          }}
+        />
+      )}
+      {(dialog?.kind === "expense" || dialog?.kind === "income") && (
+        <CorrectionDialog
+          row={dialog.row}
+          kind={dialog.kind}
+          options={options}
+          userName={user.name}
+          currencies={data?.visibleCurrencies ?? columnCurrencies}
+          onClose={() => setDialog(null)}
+          onSaved={() => {
+            setNotice({ text: t("Успешно сохранено"), error: false })
+            reload()
+          }}
+        />
+      )}
+
+      {!isAccount && (
+        <DebtImportDialog
+          open={importOpen}
+          options={options}
+          listQuery={query}
+          initialDate={state.filters.debtDate || todayIso()}
+          mode={state.mode}
+          onClose={() => setImportOpen(false)}
+          onImported={(count) => {
+            setNotice({ text: count ? t("Клиенты успешно добавлены") : t("Изменений нет"), error: false })
+            reload()
+          }}
+        />
+      )}
+
+      {notice && (
+        <div
+          role="status"
+          className={`fixed bottom-6 left-1/2 z-[120] max-w-[90vw] -translate-x-1/2 rounded-md px-5 py-3 font-semibold text-white shadow-lg ${notice.error ? "bg-[#e57373]" : "bg-[#48a34b]"}`}
+        >
+          {notice.text}
         </div>
       )}
-    </ReportPage>
+    </main>
   )
 }

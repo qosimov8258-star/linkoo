@@ -1,538 +1,475 @@
 "use client"
 
-import { CheckCircle2, ChevronLeft, ChevronRight, ChevronDown, Search, Upload, XCircle, X } from "lucide-react"
-import { Fragment, FormEvent, useEffect, useMemo, useState } from "react"
+import { Fragment, useCallback, useEffect, useState, type ReactNode } from "react"
+import { useSearchParams } from "next/navigation"
+import { ArrowDown, ArrowUp, ArrowUpDown, ChevronDown, ChevronUp, FileSpreadsheet, Loader2, RefreshCw, Search } from "lucide-react"
 
-import { downloadExcelTable } from "@/lib/excel-export"
+import { BalancePagination } from "@/components/analytics/balance/pagination"
+import { buildCashQuery, useCashJson, type CashQuery } from "@/components/analytics/cash/use-cash"
+import { CashSnackbar, ConfirmDialog, FormField, MultiPick, SearchSelect, useCanWrite, type SnackbarMessage } from "@/components/analytics/cash-management-shared"
+import { NetCostActionDialog, NetCostEntryDialog, NetCostImportDialog } from "@/components/analytics/cost-of-goods-dialogs"
+import { NetCostDetailPanel } from "@/components/analytics/cost-of-goods-detail"
+import { CheckIcon, checksTitle, fmtCost, fmtSum, netCostMutate, netCostSheet, recordDate } from "@/components/analytics/cost-of-goods-shared"
+import { FilterPopup, FilterToggle, PeriodField, orderedPeriod } from "@/components/analytics/internal-transfers-filter"
 import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
+import { downloadExcelTable } from "@/lib/excel-export"
+import { useLanguage } from "@/lib/i18n/language-context"
+import {
+  NET_COST_API,
+  NET_COST_CHECK_KEYS,
+  type NetCostActionKind,
+  type NetCostActionResult,
+  type NetCostCheckKey,
+  type NetCostListResult,
+  type NetCostOptions,
+  type NetCostRecord,
+  type NetCostTotals,
+} from "@/lib/net-cost-types"
 
-type CostRow = {
-  id: number
-  name: string
-  warehouse: string
-  date: Date
-  avgCost: number
-  cost: number
-  passed: boolean
-  supplyNumber: string
-  calculatedBalance: number
-  actualBalance: number
-  totalRevaluation: number
-  lastCheckTime: Date
+// "Себестоимость" (demo #/net-cost, chunk c46: container 4101, list 4344, filter 4345).
+// Header buttons: Пересчитать, Импортировать с excel, Добавить, Проверить, Перерасчет,
+// Перезаписать, Сгенерировать заново. Header table per warehouse ("Общий" first, five
+// rows + "Показать больше"): Накопленная себестоимость | Текущая себестоимость остатки |
+// Разница | Сумма переоценки. List: Наименование | Склад | Дата | Уср. Себестоимость |
+// Себестоимость | Сумма переоценки | Проверка; filter Продукт, Склад, Статус, Период
+// создания, Ошибки; a row opens its detail in place. Data: /api/cost-of-goods/**
+// (lib/net-cost-*); the URL keeps the state.
+
+const PAGE_SIZES = [10, 25, 50, 100, 200, 500] as const
+const COMMON = "__common__"
+
+type Filters = { products: string[]; stocks: string[]; isCorrect: "" | "true" | "false"; fromDate: string; toDate: string; faults: NetCostCheckKey[] }
+const EMPTY: Filters = { products: [], stocks: [], isCorrect: "", fromDate: "", toDate: "", faults: [] }
+type ViewState = { search: string; ordering: string; page: number; pageSize: number; filters: Filters; detailId: number | null }
+type Dialog = { kind: "entry"; record: NetCostRecord | null } | { kind: "action"; action: Exclude<NetCostActionKind, "recheck"> } | { kind: "import" } | { kind: "delete"; record: NetCostRecord } | null
+
+const positiveInt = (value: string | null) => {
+  const number = Number(value)
+  return Number.isInteger(number) && number > 0 ? number : null
 }
 
-const warehouses = ["Общий", "Бухоро склад", "11111"]
-const accumulated: Record<string, number> = { "Общий": 0, "Бухоро склад": 0, "11111": 0 }
-const monthNames = ["янв.", "февр.", "мар.", "апр.", "мая", "июня", "июля", "авг.", "сент.", "окт.", "нояб.", "дек."]
-
-function fmtDate(date: Date) {
-  return `${String(date.getDate()).padStart(2, "0")} ${monthNames[date.getMonth()]} ${date.getFullYear()}`
-}
-function fmtDateTime(date: Date) {
-  return `${fmtDate(date)}, ${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`
-}
-function fmtNum(value: number, maxFrac = 0) {
-  return value.toLocaleString("ru-RU", { minimumFractionDigits: 0, maximumFractionDigits: maxFrac })
-}
-function toInputDate(date: Date) {
-  return date.toISOString().slice(0, 10)
-}
-
-function deriveDetail(seed: number, row: Omit<CostRow, "id" | "supplyNumber" | "calculatedBalance" | "actualBalance" | "totalRevaluation" | "lastCheckTime">): Pick<CostRow, "supplyNumber" | "calculatedBalance" | "actualBalance" | "totalRevaluation" | "lastCheckTime"> {
-  const calculatedBalance = Math.max(1, Math.round(row.cost / 200) + (seed % 50))
-  const actualBalance = row.passed ? calculatedBalance : calculatedBalance + (((seed % 9) - 4) * 10 || 7)
-  const totalRevaluation = row.passed ? 0 : Math.abs(actualBalance - calculatedBalance) * 5
-  const lastCheckTime = new Date(row.date.getTime() + ((seed % 6) + 1) * 3600_000)
+function stateFromParams(params: URLSearchParams): ViewState {
+  const list = (name: string) => [...new Set(params.getAll(name).map((value) => value.trim()).filter(Boolean))]
+  const correct = params.get("is_correct")
   return {
-    supplyNumber: String(200 + (seed % 800)),
-    calculatedBalance,
-    actualBalance,
-    totalRevaluation,
-    lastCheckTime,
+    search: params.get("search") ?? "",
+    ordering: params.get("ordering") ?? "",
+    page: positiveInt(params.get("page")) ?? 1,
+    pageSize: positiveInt(params.get("pageSize")) ?? 25,
+    filters: {
+      products: list("product"),
+      stocks: list("stock"),
+      isCorrect: correct === "true" || correct === "false" ? correct : "",
+      fromDate: params.get("begin_date") ?? "",
+      toDate: params.get("end_date") ?? "",
+      faults: list("faults").filter((key): key is NetCostCheckKey => (NET_COST_CHECK_KEYS as string[]).includes(key)),
+    },
+    detailId: positiveInt(params.get("id")),
   }
 }
 
-type ApiCostRow = {
-  id: number
-  name: string
-  warehouse: string
-  date: string
-  avgCost: number
-  cost: number
-  passed: boolean
-  supplyNumber: string
-  calculatedBalance: number
-  actualBalance: number
-  totalRevaluation: number
-  lastCheckTime: string
+function listQuery(state: ViewState, pageSize = state.pageSize): CashQuery {
+  const f = state.filters
+  return { search: state.search, ordering: state.ordering, page: pageSize ? state.page : 1, pageSize: String(pageSize), product: f.products, stock: f.stocks, is_correct: f.isCorrect, begin_date: f.fromDate, end_date: f.toDate, faults: f.faults }
 }
 
-function apiToCostRow(api: ApiCostRow): CostRow {
-  return {
-    id: api.id,
-    name: api.name,
-    warehouse: api.warehouse,
-    date: new Date(api.date),
-    avgCost: api.avgCost,
-    cost: api.cost,
-    passed: api.passed,
-    supplyNumber: api.supplyNumber,
-    calculatedBalance: api.calculatedBalance,
-    actualBalance: api.actualBalance,
-    totalRevaluation: api.totalRevaluation,
-    lastCheckTime: new Date(api.lastCheckTime),
-  }
+function stateToSearch(state: ViewState): string {
+  return buildCashQuery({ ...listQuery(state), page: state.page > 1 ? state.page : "", pageSize: state.pageSize === 25 ? "" : state.pageSize, id: state.detailId ?? "" })
 }
 
-function costRowToPayload(row: Omit<CostRow, "id">) {
-  return {
-    name: row.name,
-    warehouse: row.warehouse,
-    date: row.date.toISOString(),
-    avgCost: row.avgCost,
-    cost: row.cost,
-    passed: row.passed,
-    supplyNumber: row.supplyNumber,
-    calculatedBalance: row.calculatedBalance,
-    actualBalance: row.actualBalance,
-    totalRevaluation: row.totalRevaluation,
-    lastCheckTime: row.lastCheckTime.toISOString(),
-  }
+function SortIcon({ ordering, sortKey }: { ordering: string; sortKey: string }) {
+  if (ordering === sortKey) return <ArrowUp className="h-3.5 w-3.5" />
+  if (ordering === `-${sortKey}`) return <ArrowDown className="h-3.5 w-3.5" />
+  return <ArrowUpDown className="h-3.5 w-3.5 opacity-40" />
 }
 
-const namePool = ["robot moshina", "Arslan 111111", "sndwch", "seriya test", "Kotlet", "Un", "Sugar", "Sweet 101", "тесто", "Банан СУЛТАНА КУК", "видеокарта", "материнка", "g'ilof", "shkaf3", "moscow prezik", "coco cola 1.5l"]
-
-function buildRows(): CostRow[] {
-  return []
+function NetCostFilter({ filters, options, onClose, onApply }: { filters: Filters; options: NetCostOptions | null; onClose: () => void; onApply: (filters: Filters) => void }) {
+  const { t } = useLanguage()
+  const [draft, setDraft] = useState(filters)
+  const set = (patch: Partial<Filters>) => setDraft((current) => ({ ...current, ...patch }))
+  return (
+    <FilterPopup
+      onClose={onClose}
+      onSubmit={() => {
+        const [fromDate, toDate] = orderedPeriod(draft.fromDate, draft.toDate)
+        onApply({ ...draft, fromDate, toDate })
+      }}
+    >
+      <MultiPick label={t("Продукт")} options={(options?.items ?? []).map((item) => ({ value: item.key, label: item.name }))} value={draft.products} onChange={(products) => set({ products })} />
+      <MultiPick
+        label={t("Склад")}
+        options={[{ value: COMMON, label: t("Общий") }, ...(options?.warehouses ?? []).map((name) => ({ value: name, label: name }))]}
+        value={draft.stocks}
+        onChange={(stocks) => set({ stocks })}
+      />
+      <FormField label={t("Статус")}>
+        <SearchSelect
+          value={draft.isCorrect}
+          options={[
+            { value: "true", label: t("Правильные") },
+            { value: "false", label: t("Неправильные") },
+          ]}
+          placeholder={t("Все")}
+          onChange={(value) => set({ isCorrect: value as Filters["isCorrect"] })}
+        />
+      </FormField>
+      <PeriodField label={t("Период создания")} from={draft.fromDate} to={draft.toDate} onChange={(fromDate, toDate) => set({ fromDate, toDate })} />
+      <MultiPick
+        label={t("Ошибки")}
+        options={(options?.faultTypes ?? []).map((fault) => ({ value: fault.key, label: t(fault.name) }))}
+        value={draft.faults}
+        onChange={(faults) => set({ faults: faults as NetCostCheckKey[] })}
+      />
+    </FilterPopup>
+  )
 }
 
-type ModalKind = "recalc" | "rewrite" | "regenerate" | null
+function TotalsTable({ totals, loading }: { totals: NetCostTotals | null; loading: boolean }) {
+  const { t } = useLanguage()
+  const [expanded, setExpanded] = useState(false)
+  const rows = totals?.rows ?? []
+  const visible = expanded ? rows : rows.slice(0, 5)
+  const currency = totals?.currency ?? ""
+  const th = "whitespace-nowrap border-b border-[#f0f0f0] bg-[#fafafa] px-3 py-2 font-semibold text-[#333]"
+  const td = "border-b border-[#f0f0f0] px-3 py-2 text-[16px] font-semibold text-[#333]"
+  return (
+    <section className={`mx-4 mt-4 overflow-x-auto rounded-xl bg-white p-4 shadow-[0_2px_8px_rgba(0,0,0,0.05)] md:mx-6 ${loading && !totals ? "opacity-60" : ""}`}>
+      <table className="w-full min-w-[640px] border-collapse text-left text-[14px]">
+        <thead>
+          <tr>
+            <th className={th}>{t("Склад")}</th>
+            <th className={`${th} text-right`}>
+              {t("Накопленная себестоимость")} {currency}
+            </th>
+            <th className={`${th} text-right`}>
+              {t("Текущая себестоимость остатки")} {currency}
+            </th>
+            <th className={`${th} text-right`}>
+              {t("Разница")} {currency}
+            </th>
+            <th className={`${th} text-right`}>
+              {t("Сумма переоценки")} {currency}
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {visible.map((row) => (
+            <tr key={row.stock ?? COMMON} className="hover:bg-[#e6f0ff]">
+              <td className={td}>{row.stock ?? t("Общий")}</td>
+              <td className={`${td} text-right font-normal`}>{fmtSum(row.cumulativeCost)}</td>
+              <td className={`${td} text-right font-normal`}>{fmtSum(row.lastCost)}</td>
+              <td className={`${td} text-right font-normal`} style={{ color: row.isCorrect ? "green" : "red" }}>
+                {fmtSum(row.fault)}
+              </td>
+              <td className={`${td} text-right font-normal`}>{fmtSum(row.totalRevaluation)}</td>
+            </tr>
+          ))}
+          {!visible.length && (
+            <tr>
+              <td colSpan={5} className="px-3 py-6 text-center text-[#9aa3b6]">
+                {loading ? t("Загрузка...") : t("Нет данных")}
+              </td>
+            </tr>
+          )}
+        </tbody>
+      </table>
+      {rows.length > 5 && (
+        <div className="mt-3 text-center">
+          <button type="button" onClick={() => setExpanded((value) => !value)} className="inline-flex items-center gap-1 text-[#1890ff]">
+            {t(expanded ? "Скрыть" : "Показать больше")}
+            {expanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+          </button>
+        </div>
+      )}
+    </section>
+  )
+}
 
 export function CostOfGoodsView({ embedded = false }: { embedded?: boolean }) {
-  const [rows, setRows] = useState<CostRow[]>(buildRows)
-  const [query, setQuery] = useState("")
+  const { t, language } = useLanguage()
+  const searchParams = useSearchParams()
+  const canEdit = useCanWrite()
+  const [state, setState] = useState<ViewState>(() => stateFromParams(new URLSearchParams(searchParams.toString())))
+  const [searchDraft, setSearchDraft] = useState(state.search)
   const [filterOpen, setFilterOpen] = useState(false)
-  const [warehouseFilter, setWarehouseFilter] = useState("all")
-  const [statusFilter, setStatusFilter] = useState("all")
-  const [page, setPage] = useState(1)
-  const [expandedId, setExpandedId] = useState<number | null>(null)
-  const [modal, setModal] = useState<ModalKind>(null)
-  const [notice, setNotice] = useState<string | null>(null)
-  const [scopeMode, setScopeMode] = useState<"all" | "common" | "selected">("all")
-  const [scopeWarehouse, setScopeWarehouse] = useState(warehouses[0])
-  const [dateFrom, setDateFrom] = useState(() => toInputDate(new Date(2026, 7, 1)))
-  const [dateTo, setDateTo] = useState(() => toInputDate(new Date(2026, 7, 31)))
-  const [recalcMode, setRecalcMode] = useState<"errors" | "filtered">("errors")
-  const pageSize = 25
+  const [dialog, setDialog] = useState<Dialog>(null)
+  const [checking, setChecking] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const [detailVersion, setDetailVersion] = useState(0)
+  const [message, setMessage] = useState<SnackbarMessage | null>(null)
+
+  const list = useCashJson<NetCostListResult>(`${NET_COST_API}?${buildCashQuery(listQuery(state))}`)
+  const totals = useCashJson<NetCostTotals>(`${NET_COST_API}/total`)
+  const options = useCashJson<NetCostOptions>(`${NET_COST_API}/options`)
+  const data = list.data
+  const rows = data?.results ?? []
 
   useEffect(() => {
-    let cancelled = false
-    fetch("/api/cost-of-goods")
-      .then(async (response) => {
-        if (!response.ok) throw new Error("failed")
-        return (await response.json()) as ApiCostRow[]
-      })
-      .then((data) => {
-        if (!cancelled) setRows(data.map(apiToCostRow))
-      })
-      .catch(() => {})
-    return () => {
-      cancelled = true
+    const search = stateToSearch(state)
+    if (window.location.search.slice(1) !== search) window.history.replaceState(window.history.state, "", `${window.location.pathname}${search ? `?${search}` : ""}`)
+  }, [state])
+
+  useEffect(() => {
+    const value = searchDraft.trim()
+    if (value === state.search) return
+    const timer = window.setTimeout(() => setState((current) => ({ ...current, search: value, page: 1 })), 400)
+    return () => window.clearTimeout(timer)
+  }, [searchDraft, state.search])
+
+  useEffect(() => {
+    if (!data || list.loading || state.page <= 1) return
+    const last = Math.max(1, Math.ceil(data.count / Math.max(1, state.pageSize)))
+    if (state.page > last) setState((current) => ({ ...current, page: last }))
+  }, [data, list.loading, state.page, state.pageSize])
+
+  const update = (patch: Partial<ViewState>) => setState((current) => ({ ...current, ...patch }))
+  const notify = useCallback((text: string, error = false) => setMessage({ text, tone: error ? "error" : "success" }), [])
+  const closeSnackbar = useCallback(() => setMessage(null), [])
+  const refresh = () => {
+    list.reload()
+    totals.reload()
+    setDetailVersion((value) => value + 1)
+  }
+  const sort = (key: string) => update({ ordering: state.ordering === key ? `-${key}` : state.ordering === `-${key}` ? "" : key, page: 1 })
+  const sortHeader = (key: string, label: ReactNode) => (
+    <button type="button" onClick={() => sort(key)} className="inline-flex items-center gap-1 font-semibold">
+      {label}
+      <SortIcon ordering={state.ordering} sortKey={key} />
+    </button>
+  )
+  const f = state.filters
+  const filterCount = [f.products.length > 0, f.stocks.length > 0, Boolean(f.isCorrect), Boolean(f.fromDate || f.toDate), f.faults.length > 0].filter(Boolean).length
+
+  const recheck = async () => {
+    setChecking(true)
+    const result = await netCostMutate<NetCostActionResult>("POST", `${NET_COST_API}/actions/recheck`, {})
+    setChecking(false)
+    if (!result.ok) return notify(result.error, true)
+    notify(`${t("Проверено")}: ${result.data.affected} · ${t("Ошибки")}: ${result.data.incorrect}`)
+    refresh()
+  }
+
+  const remove = async (record: NetCostRecord) => {
+    setDeleting(true)
+    const result = await netCostMutate<{ ok: true }>("DELETE", `${NET_COST_API}/${record.id}`)
+    setDeleting(false)
+    if (!result.ok) return notify(result.error, true)
+    setDialog(null)
+    notify("Успешно удалено")
+    update({ detailId: null })
+    refresh()
+  }
+
+  const downloadExcel = async () => {
+    try {
+      const response = await fetch(`${NET_COST_API}?${buildCashQuery(listQuery(state, 0))}`, { cache: "no-store" })
+      const body = (await response.json().catch(() => null)) as (NetCostListResult & { error?: string }) | null
+      if (!response.ok || !body) throw new Error(body?.error || `HTTP ${response.status}`)
+      downloadExcelTable(t("Себестоимость"), netCostSheet(body.results, t, language))
+    } catch (reason) {
+      notify(reason instanceof Error ? reason.message : "Сервер недоступен, попробуйте ещё раз", true)
     }
-  }, [])
-
-  const currentTotals = useMemo(() => {
-    const totals: Record<string, number> = { "Общий": 0, "Бухоро склад": 0, "11111": 0 }
-    for (const row of rows) totals[row.warehouse] = (totals[row.warehouse] ?? 0) + row.cost
-    return totals
-  }, [rows])
-
-  const filtered = useMemo(() => {
-    return rows.filter((row) => {
-      if (query && !row.name.toLowerCase().includes(query.toLowerCase())) return false
-      if (warehouseFilter !== "all" && row.warehouse !== warehouseFilter) return false
-      if (statusFilter === "passed" && !row.passed) return false
-      if (statusFilter === "failed" && row.passed) return false
-      return true
-    })
-  }, [rows, query, warehouseFilter, statusFilter])
-
-  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize))
-  const safePage = Math.min(page, pageCount)
-  const visible = filtered.slice((safePage - 1) * pageSize, safePage * pageSize)
-  const expanded = rows.find((row) => row.id === expandedId) ?? null
-
-  function flash(message: string) {
-    setNotice(message)
-    setTimeout(() => setNotice((current) => (current === message ? null : current)), 3500)
   }
 
-  async function runCheck() {
-    const now = new Date()
-    const updated = await Promise.all(
-      rows.map(async (row) => {
-        const patched = { ...row, lastCheckTime: now }
-        try {
-          const response = await fetch(`/api/cost-of-goods/${row.id}`, {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(costRowToPayload(patched)),
-          })
-          if (!response.ok) return row
-          return apiToCostRow((await response.json()) as ApiCostRow)
-        } catch {
-          return row
-        }
-      }),
-    )
-    setRows(updated)
-    flash("Проверка выполнена")
-  }
-
-  function inScope(row: CostRow, mode: "all" | "common" | "selected", warehouse: string, from: string, to: string) {
-    const fromDate = new Date(from)
-    const toDate = new Date(to)
-    toDate.setHours(23, 59, 59, 999)
-    if (row.date < fromDate || row.date > toDate) return false
-    if (mode === "common") return row.warehouse === "Общий"
-    if (mode === "selected") return row.warehouse === warehouse
-    return true
-  }
-
-  async function applyRecalc(event: FormEvent) {
-    event.preventDefault()
-    const targets = rows.filter((row) => (recalcMode === "errors" ? !row.passed : filtered.some((item) => item.id === row.id)))
-    const updates = new Map<number, CostRow>()
-    await Promise.all(
-      targets.map(async (row) => {
-        const recalculated = { ...row, cost: Math.round(row.avgCost), passed: true }
-        const next = { ...recalculated, ...deriveDetail(row.id, recalculated) }
-        try {
-          const response = await fetch(`/api/cost-of-goods/${row.id}`, {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(costRowToPayload(next)),
-          })
-          if (response.ok) updates.set(row.id, apiToCostRow((await response.json()) as ApiCostRow))
-        } catch {
-          // ignore individual failures; row keeps its previous persisted value
-        }
-      }),
-    )
-    setRows((current) => current.map((row) => updates.get(row.id) ?? row))
-    setModal(null)
-    flash(`Пересчитано строк: ${updates.size}`)
-  }
-
-  async function applyRewrite(event: FormEvent) {
-    event.preventDefault()
-    const targets = rows.filter((row) => inScope(row, scopeMode, scopeWarehouse, dateFrom, dateTo))
-    const updates = new Map<number, CostRow>()
-    await Promise.all(
-      targets.map(async (row) => {
-        const recalculated = { ...row, passed: true, lastCheckTime: new Date() }
-        const next = { ...recalculated, ...deriveDetail(row.id, recalculated) }
-        try {
-          const response = await fetch(`/api/cost-of-goods/${row.id}`, {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(costRowToPayload(next)),
-          })
-          if (response.ok) updates.set(row.id, apiToCostRow((await response.json()) as ApiCostRow))
-        } catch {
-          // ignore individual failures; row keeps its previous persisted value
-        }
-      }),
-    )
-    setRows((current) => current.map((row) => updates.get(row.id) ?? row))
-    setModal(null)
-    flash(`Перезаписано строк: ${updates.size}`)
-  }
-
-  async function applyRegenerate(event: FormEvent) {
-    event.preventDefault()
-    const toRemove = rows.filter((row) => inScope(row, scopeMode, scopeWarehouse, dateFrom, dateTo))
-    const kept = rows.filter((row) => !inScope(row, scopeMode, scopeWarehouse, dateFrom, dateTo))
-
-    await Promise.all(
-      toRemove.map((row) =>
-        fetch(`/api/cost-of-goods/${row.id}`, { method: "DELETE" }).catch(() => {
-          // ignore; row will simply remain if delete failed
-        }),
-      ),
-    )
-
-    const from = new Date(dateFrom)
-    const to = new Date(dateTo)
-    const spanMs = Math.max(to.getTime() - from.getTime(), 3600_000)
-    const created: CostRow[] = []
-    for (let i = 0; i < toRemove.length; i += 1) {
-      const date = new Date(from.getTime() + ((i * 9973) % spanMs))
-      const warehouse = scopeMode === "selected" ? scopeWarehouse : scopeMode === "common" ? "Общий" : warehouses[i % warehouses.length]
-      const avgCost = Math.round((((i * 137 + 91) % 90000) + 50) * 1000) / 1000
-      const cost = Math.round(avgCost)
-      const base = { name: namePool[i % namePool.length], warehouse, date, avgCost, cost, passed: true }
-      const next = { ...base, ...deriveDetail(i, base) }
-      try {
-        const response = await fetch("/api/cost-of-goods", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(costRowToPayload(next)),
-        })
-        if (response.ok) created.push(apiToCostRow((await response.json()) as ApiCostRow))
-      } catch {
-        // ignore; row simply won't be generated
-      }
-    }
-
-    setRows([...created, ...kept])
-    setModal(null)
-    setExpandedId(null)
-    flash("Себестоимости сгенерированы заново")
-  }
-
-  function downloadList() {
-    downloadExcelTable("sebestoimost", [
-      ["Наименование", "Склад", "Дата", "Уср. Себестоимость", "Себестоимость", "Проверка"],
-      ...filtered.map((row) => [row.name, row.warehouse, fmtDateTime(row.date), row.avgCost, row.cost, row.passed ? "Пройдено" : "Ошибка"]),
-    ])
-  }
-
+  const button = "inline-flex h-[30px] items-center justify-center gap-2 whitespace-nowrap rounded-sm bg-[rgb(79,113,220)] px-3 text-[13px] font-semibold text-white shadow-sm hover:brightness-95 disabled:opacity-50"
+  const th = "whitespace-nowrap px-3 py-3 text-left font-semibold"
+  const td = "px-3 py-3 align-middle"
   return (
-    <main className={embedded ? "min-w-0 flex-1" : "min-h-[calc(100vh-4rem)] bg-[#f2f5f8] px-7 pb-7"}>
-      {!embedded && (
-        <header className="flex h-[60px] flex-wrap items-center justify-between gap-3">
-          <h1 className="flex items-center text-[18px] font-bold text-[#5d6474]">
-            <FavoritesButton className="flex items-center gap-[5px] text-[18px] font-bold text-[#4f71dc]" />
-            <span className="mx-[11px] inline-block h-[21px] w-[2px] bg-[#5d6474]" /> Себестоимость
-          </h1>
-          <div className="flex flex-wrap items-center gap-3">
-            <button type="button" onClick={runCheck} className="rounded bg-[#4f71dc] px-4 py-2.5 font-semibold text-white hover:brightness-95">Проверить</button>
-            <button type="button" onClick={() => setModal("recalc")} className="rounded bg-[#4f71dc] px-4 py-2.5 font-semibold text-white hover:brightness-95">Перерасчет</button>
-            <button type="button" onClick={() => setModal("rewrite")} className="rounded bg-[#4f71dc] px-4 py-2.5 font-semibold text-white hover:brightness-95">Перезаписать</button>
-            <button type="button" onClick={() => setModal("regenerate")} className="rounded bg-[#4f71dc] px-4 py-2.5 font-semibold text-white hover:brightness-95">Сгенерировать заново</button>
+    <main className={embedded ? "min-w-0 flex-1 text-[#17233b]" : "min-h-screen bg-[#f1f4f8] text-[#17233b]"}>
+      <header className="flex min-h-[76px] flex-wrap items-center justify-between gap-4 border-b border-[#d8dee7] bg-[#f2f5f8] px-4 py-3 md:px-9">
+        {!embedded && (
+          <div className="flex min-w-0 items-center gap-3">
+            <FavoritesButton className="flex items-center gap-3 text-2xl font-bold text-[#4f70e7]" />
+            <span className="text-3xl font-light text-[#586174]">|</span>
+            <h1 className="truncate text-xl font-bold text-[#586174] md:text-2xl">{t("Себестоимость")}</h1>
           </div>
-        </header>
-      )}
+        )}
+        {canEdit && (
+          <div className="flex flex-wrap items-center gap-2.5">
+            <button type="button" className={button} onClick={() => setDialog({ kind: "action", action: "recalc-period" })}>
+              {t("Пересчитать")}
+            </button>
+            <button type="button" className={button} onClick={() => setDialog({ kind: "import" })}>
+              {t("Импортировать с excel")}
+            </button>
+            <button type="button" className={button} onClick={() => setDialog({ kind: "entry", record: null })}>
+              {t("Добавить")}
+            </button>
+            <button type="button" className={`${button} min-w-[92px]`} disabled={checking} onClick={() => void recheck()}>
+              {checking ? <Loader2 className="h-4 w-4 animate-spin" /> : t("Проверить")}
+            </button>
+            <button type="button" className={button} onClick={() => setDialog({ kind: "action", action: "recalc" })}>
+              {t("Перерасчет")}
+            </button>
+            <button type="button" className={button} onClick={() => setDialog({ kind: "action", action: "reset-period" })}>
+              {t("Перезаписать")}
+            </button>
+            <button type="button" className={button} onClick={() => setDialog({ kind: "action", action: "regenerate" })}>
+              {t("Сгенерировать заново")}
+            </button>
+          </div>
+        )}
+      </header>
 
-      {notice && (
-        <div className="mb-4 rounded border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm font-medium text-emerald-700">{notice}</div>
-      )}
+      <TotalsTable totals={totals.data} loading={totals.loading} />
 
-      <section className="mb-5 overflow-hidden rounded bg-white shadow">
-        <table className="w-full text-left">
-          <thead className="bg-slate-50 text-slate-600">
-            <tr>
-              <th className="px-6 py-4">Склад</th>
-              <th className="px-6 py-4">Накопленная себестоимость SUM</th>
-              <th className="px-6 py-4">Текущая себестоимость остатки SUM</th>
-              <th className="px-6 py-4">Разница SUM</th>
-            </tr>
-          </thead>
-          <tbody>
-            {warehouses.map((warehouse) => {
-              const diff = (currentTotals[warehouse] ?? 0) - (accumulated[warehouse] ?? 0)
-              return (
-                <tr key={warehouse} className="border-t border-slate-100">
-                  <td className="px-6 py-3 font-medium">{warehouse}</td>
-                  <td className="px-6 py-3">{fmtNum(accumulated[warehouse] ?? 0, 1)}</td>
-                  <td className="px-6 py-3">{fmtNum(currentTotals[warehouse] ?? 0, 1)}</td>
-                  <td className={`px-6 py-3 ${diff !== 0 ? "text-rose-500" : ""}`}>{fmtNum(diff, 1)}</td>
-                </tr>
-              )
-            })}
-          </tbody>
-        </table>
-      </section>
-
-      <section className="overflow-hidden rounded bg-white shadow">
-        <div className="flex flex-wrap items-center gap-4 px-5 py-3">
-          <button type="button" onClick={() => setFilterOpen((value) => !value)} className="inline-flex items-center gap-1 text-[#4f71dc] hover:underline">
-            Показать фильтр <ChevronDown className={`h-4 w-4 transition-transform ${filterOpen ? "rotate-180" : ""}`} />
-          </button>
-          <label className="relative w-64">
-            <input value={query} onChange={(event) => { setQuery(event.target.value); setPage(1) }} placeholder="Поиск" className="w-full border-b border-slate-300 py-2 pr-10 outline-none focus:border-[#4f71dc]" />
-            <Search className="absolute right-2 top-2 h-5 w-5 text-slate-300" />
+      <section className="mx-4 mb-10 mt-4 rounded-sm bg-white shadow-sm md:mx-6">
+        <div className="flex flex-wrap items-center gap-x-5 gap-y-3 border-b border-[#e1e5eb] px-4 py-3 md:px-6">
+          <div className="relative">
+            <FilterToggle
+              count={filterCount}
+              open={filterOpen}
+              onOpen={() => setFilterOpen(true)}
+              onClose={() => setFilterOpen(false)}
+              onClear={() => {
+                setFilterOpen(false)
+                update({ filters: { ...EMPTY }, page: 1, detailId: null })
+              }}
+            />
+            {filterOpen && (
+              <NetCostFilter
+                filters={state.filters}
+                options={options.data}
+                onClose={() => setFilterOpen(false)}
+                onApply={(filters) => {
+                  setFilterOpen(false)
+                  update({ filters, page: 1, detailId: null })
+                }}
+              />
+            )}
+          </div>
+          <label className="relative min-w-[180px] flex-1 border-b border-[#dbe0e8] pb-1.5 md:max-w-[340px]">
+            <input value={searchDraft} onChange={(event) => setSearchDraft(event.target.value)} placeholder={t("Поиск")} aria-label={t("Поиск")} className="w-full bg-transparent pr-7 text-[15px] outline-none placeholder:text-[#9aa3b6]" />
+            <Search className="pointer-events-none absolute right-0 top-0.5 h-5 w-5 text-[#9aa3b6]" />
           </label>
-          <span className="ml-auto text-slate-500">25</span>
-          <span className="text-slate-500">
-            {filtered.length ? (safePage - 1) * pageSize + 1 : 0} - {Math.min(safePage * pageSize, filtered.length)} из {filtered.length}
-          </span>
-          <button type="button" onClick={() => setPage((value) => Math.max(1, value - 1))} disabled={safePage <= 1} aria-label="Назад" className="disabled:opacity-30">
-            <ChevronLeft className="h-5 w-5 text-slate-400" />
-          </button>
-          <button type="button" onClick={() => setPage((value) => Math.min(pageCount, value + 1))} disabled={safePage >= pageCount} aria-label="Вперед" className="disabled:opacity-30">
-            <ChevronRight className="h-5 w-5 text-slate-400" />
-          </button>
-          <button type="button" onClick={downloadList} aria-label="Скачать" className="text-slate-500 hover:text-[#4f71dc]">
-            <Upload className="h-5 w-5 rotate-180" />
-          </button>
+          <div className="ml-auto flex flex-wrap items-center gap-3">
+            <BalancePagination page={state.page} pageSize={state.pageSize} count={data?.count ?? 0} sizes={PAGE_SIZES} onChange={({ page, pageSize }) => update({ page, pageSize, detailId: null })} />
+            <button type="button" onClick={refresh} title={t("Обновить список")} aria-label={t("Обновить список")} className="flex h-9 w-9 items-center justify-center rounded-full text-[#666] hover:bg-[#f2f5f8]">
+              <RefreshCw className={`h-5 w-5 ${list.loading ? "animate-spin" : ""}`} />
+            </button>
+            <button type="button" onClick={() => void downloadExcel()} disabled={!data} title={t("Скачать Excel")} aria-label={t("Скачать Excel")} className="flex h-9 w-9 items-center justify-center rounded-full text-[#666] hover:bg-[#f2f5f8] disabled:opacity-40">
+              <FileSpreadsheet className="h-5 w-5" />
+            </button>
+          </div>
         </div>
 
-        {filterOpen && (
-          <div className="flex flex-wrap items-center gap-4 border-b border-slate-100 bg-slate-50 px-5 py-3">
-            <label className="text-sm text-slate-600">
-              Склад:{" "}
-              <select value={warehouseFilter} onChange={(event) => { setWarehouseFilter(event.target.value); setPage(1) }} className="ml-1 rounded border border-slate-300 px-2 py-1">
-                <option value="all">Все</option>
-                {warehouses.map((warehouse) => <option key={warehouse} value={warehouse}>{warehouse}</option>)}
-              </select>
-            </label>
-            <label className="text-sm text-slate-600">
-              Проверка:{" "}
-              <select value={statusFilter} onChange={(event) => { setStatusFilter(event.target.value); setPage(1) }} className="ml-1 rounded border border-slate-300 px-2 py-1">
-                <option value="all">Все</option>
-                <option value="passed">Пройдено</option>
-                <option value="failed">Ошибка</option>
-              </select>
-            </label>
+        {list.error && (
+          <div className="flex flex-wrap items-center gap-3 px-6 py-3 text-[#e57373]">
+            <span>
+              {t("Не удалось загрузить данные")}: {t(list.error)}
+            </span>
+            <button type="button" onClick={list.reload} className="font-semibold text-[#4f70e7] hover:underline">
+              {t("Повторить")}
+            </button>
           </div>
         )}
 
-        <table className="w-full text-left">
-          <thead className="bg-[#5d6474] text-white">
-            <tr>
-              <th className="px-9 py-4 text-[13px]">Наименование</th>
-              <th className="px-5 py-4 text-[13px]">Склад</th>
-              <th className="px-5 py-4 text-[13px]">Дата</th>
-              <th className="px-5 py-4 text-[13px]">Уср. Себестоимость</th>
-              <th className="px-5 py-4 text-[13px]">Себестоимость</th>
-              <th className="px-5 py-4 text-[13px]">Сумма переоценки</th>
-              <th className="px-5 py-4 text-[13px]">Проверка</th>
-            </tr>
-          </thead>
-          <tbody>
-            {visible.map((row) => (
-              <Fragment key={row.id}>
-                <tr onClick={() => setExpandedId((current) => (current === row.id ? null : row.id))} className="cursor-pointer border-b border-dashed border-slate-300 hover:bg-slate-50">
-                  <td className="px-9 py-4">{row.name}</td>
-                  <td className="px-5 py-4 italic text-slate-500">{row.warehouse}</td>
-                  <td className="px-5 py-4">{fmtDateTime(row.date)}</td>
-                  <td className="px-5 py-4">{fmtNum(row.avgCost, 3)}</td>
-                  <td className="px-5 py-4">{fmtNum(row.cost)}</td>
-                  <td className="px-5 py-4 text-slate-500">Не указано</td>
-                  <td className="px-5 py-4">
-                    {row.passed ? <CheckCircle2 className="h-5 w-5 text-emerald-500" /> : <XCircle className="h-5 w-5 text-rose-500" />}
+        <div className={`overflow-x-auto ${list.loading ? "opacity-60" : ""}`}>
+          <table className="w-full min-w-[860px] border-collapse text-[14px]">
+            <thead>
+              <tr className="border-b border-[#e1e5eb]">
+                <th className={`${th} w-[25%] pl-6`}>{sortHeader("product__name", t("Наименование"))}</th>
+                <th className={`${th} w-[10%]`}>{sortHeader("stock", t("Склад"))}</th>
+                <th className={`${th} w-[15%]`}>{sortHeader("created_date", t("Дата"))}</th>
+                <th className={`${th} w-[15%] text-right`}>{sortHeader("cost", t("Уср. Себестоимость"))}</th>
+                <th className={`${th} w-[15%] text-right`}>{sortHeader("real_cost", t("Себестоимость"))}</th>
+                <th className={`${th} w-[14%] text-right`}>{t("Сумма переоценки")}</th>
+                <th className={`${th} pr-6 text-center`}>{t("Проверка")}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row) => {
+                const open = state.detailId === row.id
+                return (
+                  <Fragment key={row.id}>
+                    <tr onClick={() => update({ detailId: open ? null : row.id })} className={`cursor-pointer border-b border-[#efefef] ${open ? "bg-[#eef2ff]" : "hover:bg-[#f2f5f8]"}`}>
+                      <td className={`${td} pl-6`}>{row.itemName}</td>
+                      <td className={td}>{row.stock || <span className="font-semibold italic text-gray-500">{t("Общий")}</span>}</td>
+                      <td className={`${td} whitespace-nowrap`}>{recordDate(row.date, language)}</td>
+                      <td className={`${td} text-right`}>{fmtCost(row.cost)}</td>
+                      <td className={`${td} text-right`}>{fmtCost(row.realCost)}</td>
+                      <td className={`${td} text-right`}>{row.revaluation === null ? t("Не указано") : fmtCost(row.revaluation)}</td>
+                      <td className={`${td} pr-6`} title={checksTitle(row.checkData, t)}>
+                        <span className="flex justify-center">
+                          <CheckIcon ok={row.isCorrect} title={checksTitle(row.checkData, t)} />
+                        </span>
+                      </td>
+                    </tr>
+                    {open && (
+                      <tr>
+                        <td colSpan={7} className="bg-[#f2f5f8] px-2 py-3 md:px-4">
+                          <NetCostDetailPanel
+                            key={`${row.id}-${detailVersion}`}
+                            id={row.id}
+                            canEdit={canEdit}
+                            onClose={() => update({ detailId: null })}
+                            onEdit={(detail) => setDialog({ kind: "entry", record: detail })}
+                            onDelete={(detail) => setDialog({ kind: "delete", record: detail })}
+                          />
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
+                )
+              })}
+              {!rows.length && (
+                <tr>
+                  <td colSpan={7} className="px-4 py-16 text-center text-[#9aa3b6]">
+                    {list.loading ? t("Загрузка...") : list.error ? "" : t("По вашему запросу ничего не найдено")}
                   </td>
                 </tr>
-                {expandedId === row.id && expanded && (
-                  <tr>
-                    <td colSpan={7} className="bg-slate-50 p-0">
-                      <div className="m-4 rounded border border-slate-200 bg-white p-6 shadow-sm">
-                        <h2 className="mb-5 text-lg font-bold text-slate-700">{expanded.name} №{expanded.id}</h2>
-                        <div className="grid gap-8 lg:grid-cols-3">
-                          <dl className="space-y-2 text-sm">
-                            <div className="flex justify-between gap-4"><dt className="text-slate-500">Поставка №:</dt><dd className="font-medium">{expanded.supplyNumber}</dd></div>
-                            <div className="flex justify-between gap-4"><dt className="text-slate-500">Склад:</dt><dd className="font-medium">Не указано</dd></div>
-                            <div className="flex justify-between gap-4"><dt className="text-slate-500">Дата:</dt><dd className="font-medium">{fmtDateTime(expanded.date)}</dd></div>
-                            <div className="flex justify-between gap-4"><dt className="text-slate-500">Уср. Себестоимость:</dt><dd className="font-medium">{fmtNum(expanded.avgCost, 3)}</dd></div>
-                            <div className="flex justify-between gap-4"><dt className="text-slate-500">Себестоимость:</dt><dd className="font-medium">{fmtNum(expanded.cost)}</dd></div>
-                          </dl>
-                          <div className="space-y-3 text-sm">
-                            <div className="flex items-center justify-between gap-4"><span className="text-slate-600">Анализ баланса:</span>{expanded.passed ? <CheckCircle2 className="h-5 w-5 text-emerald-500" /> : <XCircle className="h-5 w-5 text-rose-500" />}</div>
-                            <div className="flex items-center justify-between gap-4"><span className="text-slate-600">Анализ отрицательного баланса:</span><CheckCircle2 className="h-5 w-5 text-emerald-500" /></div>
-                            <div className="flex items-center justify-between gap-4"><span className="text-slate-600">Анализ времены:</span><CheckCircle2 className="h-5 w-5 text-emerald-500" /></div>
-                          </div>
-                          <div className="space-y-2 text-sm">
-                            <p className="mb-1 font-medium text-slate-800">Характеристика:</p>
-                            <div className="flex justify-between gap-4"><dt className="text-slate-500">Рассчитанный баланс:</dt><dd className="font-medium">{fmtNum(expanded.calculatedBalance)}</dd></div>
-                            <div className="flex justify-between gap-4"><dt className="text-slate-500">Фактический баланс:</dt><dd className="font-medium">{fmtNum(expanded.actualBalance)}</dd></div>
-                            <div className="flex justify-between gap-4"><dt className="text-slate-500">Сумма переоценки:</dt><dd className="font-medium">{fmtNum(expanded.actualBalance - expanded.calculatedBalance)}</dd></div>
-                            <div className="flex justify-between gap-4"><dt className="text-slate-500">Общая сумма переоценки:</dt><dd className="font-medium">{fmtNum(expanded.totalRevaluation)}</dd></div>
-                            <div className="flex justify-between gap-4"><dt className="text-slate-500">Последнее время проверки:</dt><dd className="font-medium">{fmtDateTime(expanded.lastCheckTime)}</dd></div>
-                          </div>
-                        </div>
-                      </div>
-                    </td>
-                  </tr>
-                )}
-              </Fragment>
-            ))}
-          </tbody>
-        </table>
-
-        {visible.length === 0 && (
-          <div className="flex min-h-[240px] flex-col items-center justify-center gap-3 py-10">
-            <p className="text-lg text-slate-400">По вашему запросу ничего не найдено</p>
-          </div>
-        )}
+              )}
+            </tbody>
+          </table>
+        </div>
       </section>
 
-      {modal === "recalc" && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
-          <form onSubmit={applyRecalc} className="w-full max-w-md rounded bg-white">
-            <header className="flex items-center justify-between border-b p-6">
-              <b className="uppercase">Перерасчет</b>
-              <button type="button" onClick={() => setModal(null)} aria-label="Закрыть"><X className="h-5 w-5" /></button>
-            </header>
-            <div className="space-y-3 p-8">
-              <label className="flex items-center gap-3">
-                <input type="radio" checked={recalcMode === "errors"} onChange={() => setRecalcMode("errors")} className="h-4 w-4" />
-                Пересчитать только ошибки
-              </label>
-              <label className="flex items-center gap-3">
-                <input type="radio" checked={recalcMode === "filtered"} onChange={() => setRecalcMode("filtered")} className="h-4 w-4" />
-                Пересчитать выбранные
-              </label>
-            </div>
-            <footer className="flex justify-end border-t p-5">
-              <button type="submit" className="rounded bg-[#71ce87] px-6 py-3 font-semibold text-white hover:brightness-95">Сохранить</button>
-            </footer>
-          </form>
-        </div>
+      {dialog?.kind === "entry" && (
+        <NetCostEntryDialog
+          options={options.data}
+          record={dialog.record}
+          onClose={() => setDialog(null)}
+          onSaved={(saved) => {
+            notify(dialog.record ? "Успешно изменено" : "Успешно сохранено")
+            setDialog(null)
+            refresh()
+            update({ detailId: saved.id, ...(dialog.record ? {} : { page: 1 }) })
+          }}
+        />
       )}
-
-      {(modal === "rewrite" || modal === "regenerate") && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
-          <form onSubmit={modal === "rewrite" ? applyRewrite : applyRegenerate} className="w-full max-w-md rounded bg-white">
-            <header className="flex items-center justify-between border-b p-6">
-              <b className="uppercase">{modal === "rewrite" ? "Перезаписать" : "Сгенерировать заново"}</b>
-              <button type="button" onClick={() => setModal(null)} aria-label="Закрыть"><X className="h-5 w-5" /></button>
-            </header>
-            <div className="space-y-5 p-8">
-              {modal === "regenerate" && (
-                <p className="text-sm text-slate-600">
-                  Себестоимости продуктов будут сгенерированы заново за указанный период. При этом старые данные будут удалены, а текущие значения себестоимостей могут измениться.
-                </p>
-              )}
-              <div className="grid grid-cols-2 gap-4">
-                <label className="text-xs font-medium text-slate-600">
-                  Дата от
-                  <input type="date" value={dateFrom} max={dateTo} onChange={(event) => setDateFrom(event.target.value)} className="mt-1 block w-full border-0 border-b border-slate-300 bg-transparent py-2 text-sm outline-none focus:border-[#4f71dc]" />
-                </label>
-                <label className="text-xs font-medium text-slate-600">
-                  Дата до
-                  <input type="date" value={dateTo} min={dateFrom} onChange={(event) => setDateTo(event.target.value)} className="mt-1 block w-full border-0 border-b border-slate-300 bg-transparent py-2 text-sm outline-none focus:border-[#4f71dc]" />
-                </label>
-              </div>
-              <div className="space-y-3">
-                <label className="flex items-center gap-3">
-                  <input type="radio" checked={scopeMode === "all"} onChange={() => setScopeMode("all")} className="h-4 w-4" />
-                  Все
-                </label>
-                <label className="flex items-center gap-3">
-                  <input type="radio" checked={scopeMode === "common"} onChange={() => setScopeMode("common")} className="h-4 w-4" />
-                  Общие склады
-                </label>
-                <label className="flex items-center gap-3">
-                  <input type="radio" checked={scopeMode === "selected"} onChange={() => setScopeMode("selected")} className="h-4 w-4" />
-                  Выбранный склад
-                </label>
-                {scopeMode === "selected" && (
-                  <select value={scopeWarehouse} onChange={(event) => setScopeWarehouse(event.target.value)} className="ml-7 rounded border border-slate-300 px-2 py-1 text-sm">
-                    {warehouses.map((warehouse) => <option key={warehouse} value={warehouse}>{warehouse}</option>)}
-                  </select>
-                )}
-              </div>
-            </div>
-            <footer className="flex justify-end border-t p-5">
-              <button type="submit" className="rounded bg-[#71ce87] px-6 py-3 font-semibold text-white hover:brightness-95">
-                {modal === "rewrite" ? "Сохранить" : "Сгенерировать"}
-              </button>
-            </footer>
-          </form>
-        </div>
+      {dialog?.kind === "action" && (
+        <NetCostActionDialog
+          kind={dialog.action}
+          options={options.data}
+          onClose={() => setDialog(null)}
+          onDone={(_result, text) => {
+            setDialog(null)
+            notify(text)
+            refresh()
+          }}
+        />
       )}
+      {dialog?.kind === "import" && (
+        <NetCostImportDialog
+          options={options.data}
+          onClose={() => setDialog(null)}
+          onDone={(result) => {
+            setDialog(null)
+            notify(`${t("Успешно сохранено")}: ${result.created + result.updated}`)
+            refresh()
+          }}
+        />
+      )}
+      {dialog?.kind === "delete" && (
+        <ConfirmDialog
+          title={t("Удалить")}
+          text={t("Документы этой себестоимости будут перенесены на предыдущую себестоимость товара. Если предыдущей нет — они останутся без себестоимости.")}
+          busy={deleting}
+          onConfirm={() => void remove(dialog.record)}
+          onClose={() => setDialog(null)}
+        />
+      )}
+      <CashSnackbar message={message} onClose={closeSnackbar} />
     </main>
   )
 }

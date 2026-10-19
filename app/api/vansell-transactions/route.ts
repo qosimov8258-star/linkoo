@@ -1,35 +1,33 @@
 import { NextResponse } from "next/server"
-import { z } from "zod"
 
 import { getCurrentUser } from "@/lib/current-user"
+import { vansellTransactionCreateSchema } from "@/lib/finance-vansell-balance-api"
 import { requireRole } from "@/lib/rbac"
 import { parseJsonBody } from "@/lib/validation"
-import { createVansellTransaction, listVansels, parseVansellTransactionInput } from "@/lib/vansell-transactions-repo"
+import { createVansellTransaction, listVansellTransactions } from "@/lib/vansell-transactions-repo"
 
-const vansellTransactionSchema = z.object({
-  vanselId: z.coerce.number().finite().positive(),
-  amount: z.coerce.number().finite().positive(),
-  currency: z.enum(["sum", "usd", "eur"]).optional(),
-  kind: z.enum(["add", "expense"]).optional(),
-})
+// Manual van-sell movements ("Баланс вансел"). Balances / statements are
+// served by the shared ledger: GET /api/balances/vansell[/statement].
 
-export async function GET() {
+/** GET ?employeeId= → manual movements, newest first. */
+export async function GET(request: Request) {
   const user = await getCurrentUser()
-  if (!user) return NextResponse.json({ error: "Вы не вошли в систему" }, { status: 401 })
-  return NextResponse.json((await listVansels()))
+  if (!user) return NextResponse.json({ error: "Tizimga kirilmagan" }, { status: 401 })
+  const employeeId = Number(new URL(request.url).searchParams.get("employeeId") ?? "")
+  return NextResponse.json(await listVansellTransactions(Number.isInteger(employeeId) && employeeId > 0 ? { employeeId } : {}))
 }
 
+/** "Добавить" (kind add) / "Добавить расход" (kind expense). */
 export async function POST(request: Request) {
   const auth = await requireRole("manager")
   if ("error" in auth) return auth.error
 
-  const parsed = await parseJsonBody(request, vansellTransactionSchema)
+  const parsed = await parseJsonBody(request, vansellTransactionCreateSchema)
   if (parsed.error) return parsed.error
 
-  const input = parseVansellTransactionInput(parsed.data)
-  if (!input) return NextResponse.json({ error: "Обязательные поля не заполнены" }, { status: 400 })
-
-  const vansel = (await createVansellTransaction(input))
-  if (!vansel) return NextResponse.json({ error: "Вансел не найден" }, { status: 404 })
-  return NextResponse.json(vansel, { status: 201 })
+  const result = await createVansellTransaction(parsed.data, auth.user.displayName)
+  if (result === "employee_not_found") return NextResponse.json({ error: "Вансел не найден" }, { status: 404 })
+  if (result === "currency_not_found") return NextResponse.json({ error: "Валюта не найдена" }, { status: 400 })
+  if (typeof result === "string") return NextResponse.json({ error: "Запись не найдена" }, { status: 404 })
+  return NextResponse.json(result, { status: 201 })
 }

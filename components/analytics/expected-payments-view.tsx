@@ -1,428 +1,382 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
+import { useSearchParams } from "next/navigation"
+import { ArrowDown, ArrowUp, ArrowUpDown, Banknote, CheckSquare, CreditCard, Download, RefreshCw, Search, Square } from "lucide-react"
+
+import { nextOrdering } from "@/components/analytics/balance/balance-table"
+import { BalanceFilterChip } from "@/components/analytics/balance/filter-bar"
+import { BalancePagination } from "@/components/analytics/balance/pagination"
+import { buildCashQuery, useCashJson } from "@/components/analytics/cash/use-cash"
 import {
-  AlignJustify,
-  Calendar,
-  ChevronDown,
-  ChevronLeft,
-  ChevronRight,
-  CreditCard,
-  Download,
-  Filter,
-  ListChecks,
-  Search,
-  X,
-} from "lucide-react"
+  countExpectedFilters,
+  emptyExpectedFilters,
+  expectedListQuery,
+  expectedStateFromParams,
+  expectedStateToSearch,
+  ExpectedPaymentsFilterDialog,
+  type ExpectedPaymentsState,
+} from "@/components/analytics/expected-payments-filters"
+import { ExpectedPaymentPayDialog } from "@/components/analytics/expected-payments-pay-dialog"
+import { formatRuDate } from "@/components/analytics/customer-payments-filters"
 import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
 import { downloadExcelTable } from "@/lib/excel-export"
+import type { CustomerPaymentOptions, ExpectedOrderRow, ExpectedOrdersResult, ExpectedOrderTotal } from "@/lib/cash/customer-payments-types"
+import { currencyLabel, formatMoney } from "@/lib/finance/currency"
+import { useLanguage } from "@/lib/i18n/language-context"
 
-type PaymentType = "cash" | "transfer"
+// "Ожидаемые оплаты" (demo #/pending-payments, chunk 72 module 4127): orders
+// (not cancelled) with an unpaid remainder, one row per order × currency,
+// server paging / sorting / search and the demo's 10 filters in the URL;
+// header cards per currency (Σ order totals with the cash / bank split, green
+// and computed from the rows when some are selected); a row click opens the
+// shared "Приход" dialog in order mode, which pays the order through the cash
+// core (customer payment with order_id).
 
-type OrderRow = {
-  id: number
-  client: string
-  clientBranch?: string
-  createdAt: string
-  createdAtDate: string
-  paidAt: string
-  organization: string
-  amount: number
-  currency: "SUM" | "USD"
-  remaining: number
-  paymentType: PaymentType
+const LIST_URL = "/api/cash/customer-payments/expected"
+
+type ColumnId = "id" | "client" | "created_date" | "payment_date" | "division" | "total_price" | "total_balance"
+
+const COLUMNS: Array<{ id: ColumnId; label: string; sortable: boolean; align?: "right" }> = [
+  { id: "id", label: "№ зак.", sortable: true },
+  { id: "client", label: "Клиент", sortable: false },
+  { id: "created_date", label: "Дата создания", sortable: true },
+  { id: "payment_date", label: "Дата оплаты", sortable: true },
+  { id: "division", label: "Организация", sortable: false },
+  { id: "total_price", label: "Сумма заказа", sortable: true, align: "right" },
+  { id: "total_balance", label: "Остаток", sortable: true, align: "right" },
+]
+
+/** Demo getTotalsFromList(selectedRows): Σ order totals by currency and payment type. */
+function totalsOf(rows: ExpectedOrderRow[]): ExpectedOrderTotal[] {
+  const map = new Map<string, ExpectedOrderTotal>()
+  for (const row of rows) {
+    let item = map.get(row.currency)
+    if (!item) {
+      item = {
+        currency: row.currency,
+        total: 0,
+        remaining: 0,
+        paymentTypes: [
+          { paymentType: "cash", total: 0, remaining: 0 },
+          { paymentType: "bank", total: 0, remaining: 0 },
+        ],
+      }
+      map.set(row.currency, item)
+    }
+    item.total += row.total
+    item.remaining += row.remaining
+    const part = item.paymentTypes.find((entry) => entry.paymentType === row.paymentType)!
+    part.total += row.total
+    part.remaining += row.remaining
+  }
+  return [...map.values()]
 }
 
-const initialRows: OrderRow[] = []
-
-const TOTAL_RECORDS = 0
-
-const number = (value: number, fraction = 0) =>
-  new Intl.NumberFormat("ru-RU", { minimumFractionDigits: fraction, maximumFractionDigits: 2 }).format(value)
-
-const RU_MONTHS: Record<string, number> = {
-  "янв.": 0, "февр.": 1, "мар.": 2, "апр.": 3, "мая": 4, "июня": 5,
-  "июля": 6, "авг.": 7, "сент.": 8, "окт.": 9, "нояб.": 10, "дек.": 11,
-}
-
-function parseRuDate(value: string): number {
-  const match = value.match(/(\d{1,2})\s+([а-яё.]+)\s+(\d{4})(?:,\s*(\d{1,2}):(\d{2}))?/i)
-  if (!match) return 0
-  const [, day, monthName, year, hour, minute] = match
-  const month = RU_MONTHS[monthName.toLocaleLowerCase("ru")]
-  if (month === undefined) return 0
-  return new Date(Number(year), month, Number(day), Number(hour ?? 0), Number(minute ?? 0)).getTime()
-}
-
-function PaymentIcon({ type }: { type: PaymentType }) {
-  if (type === "transfer") return <CreditCard className="inline h-4 w-4 text-[#4f71dc]" />
+function TotalsCards({ totals, selected, loading }: { totals: ExpectedOrderTotal[]; selected: boolean; loading: boolean }) {
+  const { t } = useLanguage()
+  if (!totals.length) return null
+  const color = selected ? "#09890f" : "rgb(79, 113, 220)"
   return (
-    <span className="inline-flex h-4 w-4 items-center justify-center rounded-[3px] border border-[#4f71dc] text-[10px] font-bold text-[#4f71dc]">$</span>
+    <div className={`grid w-full grid-cols-1 gap-3 sm:grid-cols-2 lg:w-auto lg:min-w-[540px] lg:grid-cols-3 ${loading ? "opacity-60" : ""}`}>
+      {totals.map((item) => {
+        const cash = item.paymentTypes.find((entry) => entry.paymentType === "cash")?.total ?? 0
+        const bank = item.paymentTypes.find((entry) => entry.paymentType === "bank")?.total ?? 0
+        return (
+          <div key={item.currency} className="rounded-md bg-white px-4 py-3 shadow-sm">
+            <p className="text-right text-[20px] font-bold" style={{ color }}>
+              {formatMoney(item.total, 3)} {currencyLabel(item.currency)}
+            </p>
+            <div className="mt-2 border-t border-[#e1e5eb] pt-2 text-[13px] text-[#586174]">
+              <p className="flex items-center justify-between gap-2">
+                <span className="flex items-center gap-1.5">
+                  <Banknote className="h-4 w-4 text-[#4f70e7]" /> {t("Наличными")}
+                </span>
+                <span className="font-semibold text-[#17233b]">{formatMoney(cash, 3)}</span>
+              </p>
+              <p className="flex items-center justify-between gap-2">
+                <span className="flex items-center gap-1.5">
+                  <CreditCard className="h-4 w-4 text-[#8e5ad8]" /> {t("Перечислением")}
+                </span>
+                <span className="font-semibold text-[#17233b]">{formatMoney(bank, 3)}</span>
+              </p>
+            </div>
+          </div>
+        )
+      })}
+    </div>
   )
 }
 
-const paymentTypeLabel: Record<PaymentType, string> = {
-  cash: "Наличные",
-  transfer: "Перечислением",
-}
-
-const filials = ["Tashkent", "Xorazm", "Andijon", "spark", "chilonzor"]
-const kassas = ["naqd", "payme", "click", "Salohiddin Kassa Tashkent"]
-const incomeCategories = ["Заказ", "Предоплата", "Возврат долга", "Прочее"]
-const contracts = ["Договор №1", "Договор №2", "Без договора"]
-const responsiblePersons = ["Admin Ritm", "Temur Raupov", "Samandar Abdurahmonov", "Шохрух Туляганов"]
-
 export function ExpectedPaymentsView() {
-  const [rows, setRows] = useState(initialRows)
-  const [search, setSearch] = useState("")
+  const { t, language } = useLanguage()
+  const searchParams = useSearchParams()
+  const [state, setState] = useState<ExpectedPaymentsState>(() => expectedStateFromParams(searchParams))
+  const [searchDraft, setSearchDraft] = useState(state.search)
   const [filterOpen, setFilterOpen] = useState(false)
-  const [organizationFilter, setOrganizationFilter] = useState("Все организации")
-  const [pageSize, setPageSize] = useState(25)
-  const [page, setPage] = useState(1)
-  const [sortKey, setSortKey] = useState<keyof OrderRow | null>(null)
-  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc")
-  const [activeRowId, setActiveRowId] = useState<number | null>(null)
+  const [selected, setSelected] = useState<Record<string, ExpectedOrderRow>>({})
+  const [paying, setPaying] = useState<ExpectedOrderRow | null>(null)
+  const [notice, setNotice] = useState<{ text: string; error: boolean } | null>(null)
 
-  const toggleSort = (key: keyof OrderRow) => {
-    if (sortKey === key) setSortDir((current) => (current === "asc" ? "desc" : "asc"))
-    else { setSortKey(key); setSortDir("asc") }
-  }
+  const list = useCashJson<ExpectedOrdersResult>(`${LIST_URL}?${buildCashQuery(expectedListQuery(state))}`)
+  const optionsState = useCashJson<CustomerPaymentOptions>("/api/cash/customer-payments/options")
+  const rows = useMemo(() => list.data?.rows ?? [], [list.data])
+  const selectedRows = Object.values(selected)
+  const hasSelection = selectedRows.length > 0
+  const cards = hasSelection ? totalsOf(selectedRows) : (list.data?.totals ?? [])
 
-  const organizations = ["Все организации", ...new Set(rows.map((row) => row.organization))]
+  useEffect(() => {
+    const search = expectedStateToSearch(state)
+    if (window.location.search.slice(1) !== search) window.history.replaceState(window.history.state, "", `${window.location.pathname}?${search}`)
+  }, [state])
 
-  const filtered = useMemo(() => {
-    return rows.filter((row) => {
-      if (search.trim()) {
-        const needle = search.trim().toLocaleLowerCase("ru")
-        const haystack = `${row.client} ${row.clientBranch ?? ""} ${row.id}`.toLocaleLowerCase("ru")
-        if (!haystack.includes(needle)) return false
-      }
-      if (organizationFilter !== "Все организации" && row.organization !== organizationFilter) return false
-      return true
+  useEffect(() => {
+    const value = searchDraft.trim()
+    if (value === state.search) return
+    const timer = window.setTimeout(() => setState((current) => ({ ...current, search: value, page: 1 })), 400)
+    return () => window.clearTimeout(timer)
+  }, [searchDraft, state.search])
+
+  useEffect(() => {
+    const data = list.data
+    if (!data || list.loading || data.rows.length || state.page <= 1) return
+    const last = Math.max(1, Math.ceil(data.count / Math.max(1, state.pageSize)))
+    if (state.page > last) setState((current) => ({ ...current, page: last }))
+  }, [list.data, list.loading, state.page, state.pageSize])
+
+  useEffect(() => {
+    if (!notice) return
+    const timer = window.setTimeout(() => setNotice(null), 3500)
+    return () => window.clearTimeout(timer)
+  }, [notice])
+
+  const update = (patch: Partial<ExpectedPaymentsState>) => setState((current) => ({ ...current, ...patch }))
+  const sort = (id: ColumnId) => update({ ordering: nextOrdering(state.ordering ? [state.ordering] : [], id, "asc-first")[0] ?? "", page: 1 })
+  const sortIcon = (id: ColumnId) =>
+    state.ordering === id ? <ArrowUp className="h-3.5 w-3.5" /> : state.ordering === `-${id}` ? <ArrowDown className="h-3.5 w-3.5" /> : <ArrowUpDown className="h-3.5 w-3.5 opacity-40" />
+
+  const toggleRow = (row: ExpectedOrderRow) =>
+    setSelected((current) => {
+      const next = { ...current }
+      if (next[row.key]) delete next[row.key]
+      else next[row.key] = row
+      return next
     })
-  }, [organizationFilter, rows, search])
-
-  const sorted = useMemo(() => {
-    if (!sortKey) return filtered
-    const isDateKey = sortKey === "createdAt" || sortKey === "paidAt"
-    const copy = [...filtered]
-    copy.sort((a, b) => {
-      const av = a[sortKey]
-      const bv = b[sortKey]
-      let result: number
-      if (isDateKey) {
-        result = parseRuDate(String(av)) - parseRuDate(String(bv))
-      } else if (typeof av === "string" && typeof bv === "string") {
-        result = av.localeCompare(bv, "ru")
-      } else {
-        result = Number(av) - Number(bv)
+  const allOnPage = rows.length > 0 && rows.every((row) => selected[row.key])
+  const toggleAll = () =>
+    setSelected((current) => {
+      const next = { ...current }
+      for (const row of rows) {
+        if (allOnPage) delete next[row.key]
+        else next[row.key] = row
       }
-      return sortDir === "asc" ? result : -result
+      return next
     })
-    return copy
-  }, [filtered, sortDir, sortKey])
 
-  const maxPage = Math.max(1, Math.ceil(sorted.length / pageSize))
-  const safePage = Math.min(page, maxPage)
-  const visible = sorted.slice((safePage - 1) * pageSize, safePage * pageSize)
+  const created = (iso: string) => (iso ? formatRuDate(iso, true, language) : "")
+  const due = (iso: string) => (iso ? formatRuDate(iso, false, language) : t("Не указано"))
 
-  const isDefaultFilters = !search.trim() && organizationFilter === "Все организации"
-  const totalLabel = isDefaultFilters ? TOTAL_RECORDS : filtered.length
-
-  const activeRow = rows.find((row) => row.id === activeRowId) ?? null
-
-  const applyPayment = async (id: number, amount: number, confirmed: boolean) => {
-    if (!confirmed) {
-      setActiveRowId(null)
-      return
-    }
-    const row = rows.find((item) => item.id === id)
-    try {
-      await fetch("/api/expected-payment-confirmations", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          orderId: id,
-          client: row?.client ?? "",
-          amount,
-          currency: row?.currency ?? "SUM",
-          date: new Date().toISOString(),
-        }),
-      })
-    } catch {
-      window.alert("Сервер недоступен, оплата не сохранена")
-      return
-    }
-    setRows((current) =>
-      current.map((item) => {
-        if (item.id !== id) return item
-        const nextRemaining = Math.max(0, item.remaining - amount)
-        return { ...item, remaining: nextRemaining }
-      }),
-    )
-    setActiveRowId(null)
-  }
-
-  const downloadExcel = () => {
-    const header = ["№ зак.", "Клиент", "Дата создания", "Дата оплаты", "Организация", "Сумма заказа", "Остаток"]
-    const body = filtered.map((row) => [
-      row.id,
-      row.clientBranch ? `${row.client} (${row.clientBranch})` : row.client,
-      row.createdAt,
-      row.paidAt,
-      row.organization,
-      `${number(row.amount, 2)} ${row.currency}`,
-      number(row.remaining, 2),
+  const exportPage = () =>
+    downloadExcelTable(t("Ожидаемые оплаты"), [
+      COLUMNS.map((column) => t(column.label)),
+      ...rows.map((row) => [
+        row.orderId,
+        row.client.name,
+        row.createdAt ? formatRuDate(row.createdAt, false, language) : "",
+        due(row.paymentDate),
+        row.organization,
+        `${formatMoney(row.total, 3)} ${currencyLabel(row.currency)}`,
+        formatMoney(row.remaining, 3),
+      ]),
     ])
-    downloadExcelTable("expected-payments.xls", [header, ...body])
-  }
+
+  const filterCount = countExpectedFilters(state.filters)
+  const columnCount = COLUMNS.length + (state.showCheckboxes ? 1 : 0)
 
   return (
-    <main className="min-h-screen bg-[#f2f5f8] text-[#17233b]">
-      <header className="flex min-h-[76px] items-center justify-between border-b border-[#d8dee7] bg-[#f2f5f8] px-6 md:px-9">
-        <div className="flex items-center gap-3">
-          <FavoritesButton className="flex items-center gap-2 text-2xl font-bold text-[#4f71dc]" /><span className="text-3xl font-light text-[#586174]">|</span>
-          <span className="text-2xl font-bold text-[#586174]">Ожидаемые оплаты</span>
+    <main className="min-h-screen bg-white text-[#17233b]">
+      <header className="flex min-h-[76px] flex-wrap items-center justify-between gap-4 border-b border-[#d8dee7] bg-[#f2f5f8] px-4 py-3 md:px-9">
+        <div className="flex min-w-0 items-center gap-3">
+          <FavoritesButton className="flex items-center gap-3 text-2xl font-bold text-[#4f70e7]" />
+          <span className="text-3xl font-light text-[#586174]">|</span>
+          <h1 className="truncate text-xl font-bold text-[#586174] md:text-2xl">{t("Ожидаемые оплаты")}</h1>
         </div>
+        <TotalsCards totals={cards} selected={hasSelection} loading={list.loading && !hasSelection} />
       </header>
 
-      <section className="flex flex-wrap items-center gap-5 border-b border-[#e1e5eb] bg-white px-6 py-3 md:px-9">
-        <button onClick={() => setFilterOpen((value) => !value)} className="flex items-center gap-1 font-medium text-[#4f71dc]">
-          <Filter className="h-4 w-4" /> Показать фильтр <ChevronDown className={`h-4 w-4 transition ${filterOpen ? "rotate-180" : ""}`} />
-        </button>
-
-        <label className="relative min-w-[220px] flex-1 border-b border-[#dbe0e8] pb-1.5">
-          <input value={search} onChange={(event) => { setSearch(event.target.value); setPage(1) }} placeholder="Поиск" className="w-full bg-transparent pr-7 text-[15px] outline-none placeholder:text-[#9aa3b6]" />
+      <section className="flex flex-wrap items-center gap-3 border-b border-[#e1e5eb] bg-white px-4 py-3 md:px-9">
+        <BalanceFilterChip
+          count={filterCount}
+          onOpen={() => setFilterOpen(true)}
+          onClear={() => {
+            setSearchDraft("")
+            update({ filters: emptyExpectedFilters(), search: "", page: 1 })
+          }}
+        />
+        <label className="relative min-w-[160px] flex-1 border-b border-[#dbe0e8] pb-1.5 md:max-w-[320px]">
+          <input
+            value={searchDraft}
+            onChange={(event) => setSearchDraft(event.target.value)}
+            placeholder={t("Поиск")}
+            aria-label={t("Поиск")}
+            className="w-full bg-transparent pr-7 text-[15px] outline-none placeholder:text-[#9aa3b6]"
+          />
           <Search className="pointer-events-none absolute right-0 top-0.5 h-5 w-5 text-[#9aa3b6]" />
         </label>
-
-        <select value={pageSize} onChange={(event) => { setPageSize(Number(event.target.value)); setPage(1) }} className="h-9 bg-transparent text-[#586174]">
-          <option value={10}>10</option>
-          <option value={25}>25</option>
-          <option value={50}>50</option>
-        </select>
-
-        <span className="text-[#586174]">{filtered.length ? (safePage - 1) * pageSize + 1 : 0} - {Math.min(safePage * pageSize, filtered.length)} из {totalLabel}</span>
-
-        <button disabled={safePage === 1} onClick={() => setPage((value) => Math.max(1, value - 1))} className="rounded-full border border-[#dbe0e8] p-1 text-[#9aa3b6] disabled:opacity-40">
-          <ChevronLeft className="h-5 w-5" />
-        </button>
-        <button disabled={safePage === maxPage} onClick={() => setPage((value) => Math.min(maxPage, value + 1))} className="rounded-full border border-[#4f71dc] p-1 text-[#4f71dc] disabled:opacity-40">
-          <ChevronRight className="h-5 w-5" />
-        </button>
-
-        <button onClick={downloadExcel} aria-label="Скачать" className="ml-auto text-[#586174] hover:text-[#17233b]"><Download className="h-5 w-5" /></button>
-        <ListChecks className="h-5 w-5 text-[#586174]" />
-        <AlignJustify className="h-5 w-5 text-[#586174]" />
+        <div className="ml-auto flex flex-wrap items-center gap-2">
+          {hasSelection && (
+            <span className="font-semibold text-[#17233b]">
+              {t("Выбрано")}: {selectedRows.length}
+            </span>
+          )}
+          <BalancePagination page={state.page} pageSize={state.pageSize} count={list.data?.count ?? 0} onChange={({ page, pageSize }) => update({ page, pageSize })} />
+          <button
+            type="button"
+            title={t(state.showCheckboxes ? "Спрятать флажки" : "Выбрать из списка")}
+            aria-label={t(state.showCheckboxes ? "Спрятать флажки" : "Выбрать из списка")}
+            onClick={() => {
+              setSelected({})
+              update({ showCheckboxes: !state.showCheckboxes })
+            }}
+            className="p-1 text-[#586174] hover:text-[#4f70e7]"
+          >
+            {state.showCheckboxes ? <CheckSquare className="h-5 w-5" /> : <Square className="h-5 w-5" />}
+          </button>
+          <button type="button" title={t("Скачать")} aria-label={t("Скачать")} disabled={!rows.length} onClick={exportPage} className="p-1 text-[#586174] hover:text-[#4f70e7] disabled:opacity-40">
+            <Download className="h-5 w-5" />
+          </button>
+          <button type="button" title={t("Обновить список")} aria-label={t("Обновить список")} onClick={list.reload} className="p-1 text-[#586174] hover:text-[#4f70e7]">
+            <RefreshCw className={`h-5 w-5 ${list.loading ? "animate-spin" : ""}`} />
+          </button>
+        </div>
       </section>
 
-      {filterOpen && (
-        <section className="relative border-b border-[#e1e5eb] bg-white px-6 py-6 md:px-9">
-          <button onClick={() => setFilterOpen(false)} aria-label="Закрыть фильтр" className="absolute right-6 top-6 text-[#9aa3b6] hover:text-[#17233b]">
-            <X className="h-5 w-5" />
+      {list.error && (
+        <div className="flex flex-wrap items-center gap-3 px-4 py-3 text-[#e57373] md:px-9">
+          <span>
+            {t("Не удалось загрузить данные")}: {t(list.error)}
+          </span>
+          <button type="button" onClick={list.reload} className="font-semibold text-[#4f70e7] hover:underline">
+            {t("Повторить")}
           </button>
-          <h3 className="mb-5 text-[15px] font-semibold text-[#586174]">Фильтр</h3>
-          <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
-            <label className="relative block border-b border-[#dbe0e8] pb-2 text-[15px] font-medium">
-              Организация
-              <select value={organizationFilter} onChange={(event) => { setOrganizationFilter(event.target.value); setPage(1) }} className="mt-1 block w-full appearance-none bg-transparent pr-6 text-[15px] font-normal outline-none">
-                {organizations.map((option) => <option key={option}>{option}</option>)}
-              </select>
-              <ChevronDown className="pointer-events-none absolute right-0 top-6 h-4 w-4 text-[#9aa3b6]" />
-            </label>
-          </div>
-        </section>
+        </div>
       )}
 
-      <section className="overflow-x-auto bg-white pb-10">
-        <table className="min-w-[1300px] w-full border-collapse text-[14px]">
-          <thead className="bg-[#5d6474] text-white">
-            <tr>
-              {(
-                [
-                  ["№ зак.", "id"],
-                  ["Клиент", "client"],
-                  ["Дата создания", "createdAt"],
-                  ["Дата оплаты", "paidAt"],
-                  ["Организация", "organization"],
-                  ["Сумма заказа", "amount"],
-                  ["Остаток", "remaining"],
-                ] as const
-              ).map(([title, key]) => (
-                <th
-                  key={title}
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => toggleSort(key)}
-                  onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); toggleSort(key) } }}
-                  className={`whitespace-nowrap px-4 py-4 font-semibold cursor-pointer select-none hover:bg-[#727b8e] ${key === "amount" || key === "remaining" ? "text-right" : "text-left"}`}
-                >
-                  <span className={`inline-flex items-center gap-1.5 ${key === "amount" || key === "remaining" ? "flex-row-reverse" : ""}`}>
-                    {title}
-                    <ChevronDown className={`h-3.5 w-3.5 transition ${sortKey === key ? "opacity-100" : "opacity-50"} ${sortKey === key && sortDir === "desc" ? "rotate-180" : ""}`} />
-                  </span>
+      <section className={`overflow-x-auto pb-10 ${list.loading ? "opacity-60" : ""}`}>
+        <table className="w-full min-w-[900px] border-collapse text-[14px]">
+          <thead>
+            <tr className="bg-[#edf2f7] text-[#253653]">
+              {state.showCheckboxes && (
+                <th className="w-10 border-b border-[#e1e5eb] px-2 py-3">
+                  <input type="checkbox" checked={allOnPage} onChange={toggleAll} aria-label={t("Выбрать все")} className="h-4 w-4 accent-[#4f70e7]" />
+                </th>
+              )}
+              {COLUMNS.map((column) => (
+                <th key={column.id} className={`border-b border-[#e1e5eb] px-3 py-3 font-semibold whitespace-nowrap ${column.align === "right" ? "text-right" : "text-left"}`}>
+                  {column.sortable ? (
+                    <button type="button" onClick={() => sort(column.id)} className="inline-flex items-center gap-1">
+                      {t(column.label)}
+                      {sortIcon(column.id)}
+                    </button>
+                  ) : (
+                    t(column.label)
+                  )}
                 </th>
               ))}
             </tr>
           </thead>
           <tbody>
-            {visible.map((row, index) => (
-              <tr
-                key={row.id}
-                onClick={() => setActiveRowId(row.id)}
-                className={`cursor-pointer border-b border-dashed border-slate-200 ${index % 2 ? "bg-[#f6f9fc]" : "bg-white"} hover:bg-[#eef2ff]`}
-              >
-                <td className="px-4 py-4 align-top">{row.id}</td>
-                <td className="px-4 py-4 align-top">
-                  <div>{row.client}</div>
-                  {row.clientBranch && <div className="text-[13px] font-medium text-[#4f71dc] underline">{row.clientBranch}</div>}
+            {rows.map((row, index) => {
+              const background = selected[row.key] ? "#eaf0fd" : index % 2 ? "#F4F8FB" : "#ffffff"
+              return (
+                <tr
+                  key={row.key}
+                  onClick={() => setPaying(row)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") setPaying(row)
+                  }}
+                  tabIndex={0}
+                  className="cursor-pointer border-b border-dashed border-[#e1e5eb] hover:bg-[#eef3fb]"
+                  style={{ background }}
+                >
+                  {state.showCheckboxes && (
+                    <td className="px-2 py-3 text-center" onClick={(event) => event.stopPropagation()}>
+                      <input type="checkbox" checked={Boolean(selected[row.key])} onChange={() => toggleRow(row)} aria-label={`№ ${row.orderId}`} className="h-4 w-4 accent-[#4f70e7]" />
+                    </td>
+                  )}
+                  <td className="px-3 py-3">{row.orderId}</td>
+                  <td className="px-3 py-3">
+                    <div>{row.client.name}</div>
+                    {row.zone && <div className="text-[13px] text-[#4f70e7]">{row.zone}</div>}
+                  </td>
+                  <td className="whitespace-nowrap px-3 py-3">{created(row.createdAt)}</td>
+                  <td className="whitespace-nowrap px-3 py-3">{due(row.paymentDate)}</td>
+                  <td className="px-3 py-3">{row.organization}</td>
+                  <td className="px-3 py-3 text-right">
+                    <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
+                      {formatMoney(row.total, 3)} {currencyLabel(row.currency)}
+                      {row.paymentType === "bank" ? (
+                        <span title={t("банковский счет")} className="inline-flex">
+                          <CreditCard className="h-4 w-4 text-[#8e5ad8]" />
+                        </span>
+                      ) : (
+                        <span title={t("наличный")} className="inline-flex">
+                          <Banknote className="h-4 w-4 text-[#4f70e7]" />
+                        </span>
+                      )}
+                    </span>
+                  </td>
+                  <td className="whitespace-nowrap px-3 py-3 text-right font-semibold">{formatMoney(row.remaining, 3)}</td>
+                </tr>
+              )
+            })}
+            {!rows.length && (
+              <tr>
+                <td colSpan={columnCount} className="px-4 py-16 text-center text-[#9aa3b6]">
+                  {list.loading ? t("Загрузка...") : list.error ? "" : t("По вашему запросу ничего не найдено")}
                 </td>
-                <td className="px-4 py-4 align-top">{row.createdAt}</td>
-                <td className="px-4 py-4 align-top">{row.paidAt}</td>
-                <td className="px-4 py-4 align-top">{row.organization}</td>
-                <td className="px-4 py-4 align-top text-right">
-                  <div className="flex items-center justify-end gap-1.5 font-semibold text-[#17233b]">
-                    {number(row.amount, 2)} {row.currency} <PaymentIcon type={row.paymentType} />
-                  </div>
-                </td>
-                <td className="px-4 py-4 align-top text-right font-semibold text-[#17233b]">{number(row.remaining, 2)}</td>
               </tr>
-            ))}
-            {visible.length === 0 && (
-              <tr><td colSpan={7} className="px-4 py-16 text-center text-[#9aa3b6]">Ничего не найдено по заданным фильтрам</td></tr>
             )}
           </tbody>
         </table>
       </section>
 
-      {activeRow && (
-        <PaymentModal
-          row={activeRow}
-          onClose={() => setActiveRowId(null)}
-          onSubmit={(amount, confirmed) => applyPayment(activeRow.id, amount, confirmed)}
+      {filterOpen && (
+        <ExpectedPaymentsFilterDialog
+          filters={state.filters}
+          options={optionsState.data}
+          onClose={() => setFilterOpen(false)}
+          onApply={(filters) => {
+            setFilterOpen(false)
+            update({ filters, page: 1 })
+          }}
         />
       )}
+
+      {paying && (
+        <ExpectedPaymentPayDialog
+          key={paying.key}
+          orderId={paying.orderId}
+          currency={paying.currency}
+          options={optionsState.data}
+          onClose={() => setPaying(null)}
+          onDone={() => {
+            setPaying(null)
+            setSelected({})
+            list.reload()
+            setNotice({ text: t("Успешно сохранено"), error: false })
+          }}
+        />
+      )}
+
+      {notice && (
+        <div
+          role="status"
+          className={`fixed bottom-6 left-1/2 z-[120] -translate-x-1/2 rounded-md px-5 py-3 font-semibold text-white shadow-lg ${notice.error ? "bg-[#e57373]" : "bg-[#48a34b]"}`}
+        >
+          {notice.text}
+        </div>
+      )}
     </main>
-  )
-}
-
-function PaymentModal({
-  row,
-  onClose,
-  onSubmit,
-}: {
-  row: OrderRow
-  onClose: () => void
-  onSubmit: (amount: number, confirmed: boolean) => void
-}) {
-  const [date, setDate] = useState(row.createdAtDate)
-  const [filial, setFilial] = useState("")
-  const [kassa, setKassa] = useState("")
-  const [incomeCategory, setIncomeCategory] = useState("Заказ")
-  const [contract, setContract] = useState("")
-  const [amount, setAmount] = useState(String(row.remaining))
-  const [responsible, setResponsible] = useState("")
-  const [comment, setComment] = useState("")
-  const [confirmed, setConfirmed] = useState(true)
-
-  const submit = () => {
-    const parsed = Number(amount.replace(",", "."))
-    onSubmit(Number.isFinite(parsed) ? parsed : 0, confirmed)
-  }
-
-  return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/30 p-4" onClick={onClose}>
-      <div onClick={(event) => event.stopPropagation()} className="max-h-[90vh] w-[560px] overflow-y-auto rounded-md bg-white shadow-2xl">
-        <div className="relative bg-[#eef1f6] px-6 py-5">
-          <button onClick={onClose} aria-label="Закрыть" className="absolute right-4 top-4 text-[#9aa3b6] hover:text-[#17233b]">
-            <X className="h-5 w-5" />
-          </button>
-          <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-[14px]">
-            <div>Заказ №{row.id}</div>
-            <div>Тип оплаты: <span className="font-semibold text-[#4f71dc]">{paymentTypeLabel[row.paymentType]}</span></div>
-            <div>Клиент: <span className="font-semibold">{row.client}</span></div>
-            <div>Сумма заказа: <span className="font-semibold">{number(row.amount, 2)} {row.currency}</span></div>
-            <div>Организация: <span className="font-semibold">{row.organization}</span></div>
-            <div>Остаток: <span className="font-semibold">{number(row.remaining, 2)} {row.currency}</span></div>
-          </div>
-        </div>
-
-        <div className="space-y-5 px-6 py-6">
-          <label className="relative block border-b border-[#dbe0e8] pb-2 text-[13px] text-[#586174]">
-            Дата создания
-            <input value={date} onChange={(event) => setDate(event.target.value)} className="mt-1 block w-full bg-transparent pr-6 text-[15px] font-medium text-[#17233b] outline-none" />
-            <Calendar className="pointer-events-none absolute right-0 top-6 h-4 w-4 text-[#9aa3b6]" />
-          </label>
-
-          <label className="relative block border-b border-[#dbe0e8] pb-2 text-[15px] font-medium">
-            Филиал
-            <select value={filial} onChange={(event) => setFilial(event.target.value)} className="mt-1 block w-full appearance-none bg-transparent pr-6 text-[15px] font-normal outline-none">
-              <option value=""></option>
-              {filials.map((option) => <option key={option}>{option}</option>)}
-            </select>
-            <ChevronDown className="pointer-events-none absolute right-0 top-6 h-4 w-4 text-[#9aa3b6]" />
-          </label>
-
-          <label className="relative block border-b border-[#dbe0e8] pb-2 text-[15px] font-medium">
-            Касса
-            <select value={kassa} onChange={(event) => setKassa(event.target.value)} className="mt-1 block w-full appearance-none bg-transparent pr-6 text-[15px] font-normal outline-none">
-              <option value=""></option>
-              {kassas.map((option) => <option key={option}>{option}</option>)}
-            </select>
-            <ChevronDown className="pointer-events-none absolute right-0 top-6 h-4 w-4 text-[#9aa3b6]" />
-          </label>
-
-          <label className="relative block border-b border-[#dbe0e8] pb-2 text-[15px] font-medium">
-            Категория прихода
-            <select value={incomeCategory} onChange={(event) => setIncomeCategory(event.target.value)} className="mt-1 block w-full appearance-none bg-transparent pr-12 text-[15px] font-normal outline-none">
-              {incomeCategories.map((option) => <option key={option}>{option}</option>)}
-            </select>
-            {incomeCategory && (
-              <button type="button" onClick={() => setIncomeCategory("")} aria-label="Очистить" className="absolute right-6 top-6 text-[#9aa3b6] hover:text-[#17233b]">
-                <X className="h-4 w-4" />
-              </button>
-            )}
-            <ChevronDown className="pointer-events-none absolute right-0 top-6 h-4 w-4 text-[#9aa3b6]" />
-          </label>
-
-          <label className="relative block border-b border-[#dbe0e8] pb-2 text-[15px] font-medium">
-            Контракт
-            <select value={contract} onChange={(event) => setContract(event.target.value)} className="mt-1 block w-full appearance-none bg-transparent pr-6 text-[15px] font-normal outline-none">
-              <option value=""></option>
-              {contracts.map((option) => <option key={option}>{option}</option>)}
-            </select>
-            <ChevronDown className="pointer-events-none absolute right-0 top-6 h-4 w-4 text-[#9aa3b6]" />
-          </label>
-
-          <label className="block border-b border-[#dbe0e8] pb-2 text-[13px] text-[#586174]">
-            Сумма
-            <input value={amount} onChange={(event) => setAmount(event.target.value)} inputMode="decimal" className="mt-1 block w-full bg-transparent text-[15px] font-medium text-[#17233b] outline-none" />
-          </label>
-
-          <label className="relative block border-b border-[#dbe0e8] pb-2 text-[15px] font-medium">
-            Ответственный персонал
-            <select value={responsible} onChange={(event) => setResponsible(event.target.value)} className="mt-1 block w-full appearance-none bg-transparent pr-6 text-[15px] font-normal outline-none">
-              <option value=""></option>
-              {responsiblePersons.map((option) => <option key={option}>{option}</option>)}
-            </select>
-            <ChevronDown className="pointer-events-none absolute right-0 top-6 h-4 w-4 text-[#9aa3b6]" />
-          </label>
-
-          <label className="block border-b border-[#dbe0e8] pb-2 text-[15px]">
-            <textarea value={comment} onChange={(event) => setComment(event.target.value)} placeholder="Комментарий..." rows={2} className="mt-1 block w-full resize-none bg-transparent text-[15px] outline-none placeholder:text-[#9aa3b6]" />
-          </label>
-
-          <label className="flex items-center gap-2 text-[14px]">
-            <input type="checkbox" checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} className="h-4 w-4 rounded border-[#9aa3b6] accent-[#4f71dc]" />
-            Подтвержденный приход (Я получил деньги)
-          </label>
-
-          <div className="flex justify-end gap-3 pt-2">
-            <button onClick={onClose} className="rounded-md border border-[#dbe0e8] px-5 py-2.5 text-sm font-semibold text-[#586174] hover:bg-[#f6f9fc]">Отмена</button>
-            <button onClick={submit} className="rounded-md bg-[#4f5fd9] px-5 py-2.5 text-sm font-semibold text-white hover:bg-[#3f4ec9]">Сохранить</button>
-          </div>
-        </div>
-      </div>
-    </div>
   )
 }

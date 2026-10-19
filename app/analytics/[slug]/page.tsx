@@ -18,7 +18,7 @@ import { AbcAnalysisView } from "@/components/analytics/abc-analysis-view"
 import { SalesByAgentsView } from "@/components/analytics/sales-by-agents-view"
 import { SalesByProductsView } from "@/components/analytics/sales-by-products-view"
 import { ClientSalesPaymentsView } from "@/components/analytics/client-sales-payments-view"
-import { ClientDebtsView } from "@/components/analytics/client-debts-view"
+import { OrderDebtsView } from "@/components/analytics/order-debts-view"
 import { ClientDynamicsView } from "@/components/analytics/client-dynamics-view"
 import { CoverageAnalysisView } from "@/components/analytics/coverage-analysis-view"
 import { AttendanceView } from "@/components/analytics/attendance-view"
@@ -28,7 +28,7 @@ import { ProductionBatchesView } from "@/components/analytics/production-batches
 import { ProductionStagesView } from "@/components/analytics/production-stages-view"
 import { StockLevelView } from "@/components/analytics/stock-level-view"
 import { MaterialReportView } from "@/components/analytics/material-report-view"
-import { GoodsMovementView } from "@/components/analytics/goods-movement-dashboard"
+import { StockPlanView } from "@/components/analytics/stock-plan-view"
 import { ReportBuilderView } from "@/components/analytics/report-builder-view"
 import { CustomerPaymentsView } from "@/components/analytics/customer-payments-view"
 import { SupplierPaymentsView } from "@/components/analytics/supplier-payments-view"
@@ -208,7 +208,7 @@ export default async function AnalyticsPage({ params }: PageProps) {
   }
 
   if (report.slug === "order-debts") {
-    return <ClientDebtsView />
+    return <OrderDebtsView />
   }
   if (report.slug === "client-dynamics") {
     return <ClientDynamicsView />
@@ -237,15 +237,12 @@ export default async function AnalyticsPage({ params }: PageProps) {
   if (report.slug === "stock-level") {
     return <StockLevelView />
   }
-  if (report.slug === "stock-by-date" || report.slug === "material-report") {
+  if (report.slug === "stock-by-date" || report.slug === "material-report" || report.slug === "goods-movement") {
     return <MaterialReportView />
-  }
-  if (report.slug === "goods-movement") {
-    return <GoodsMovementView initialTab="movement" />
   }
 
   if (report.slug === "receipt-transfer-plan") {
-    return <GoodsMovementView />
+    return <StockPlanView />
   }
 
   if (report.slug === "current-stock-report-builder") {
@@ -332,8 +329,12 @@ export default async function AnalyticsPage({ params }: PageProps) {
     return <ExpectedExpensesView />
   }
 
-  if (report.slug === "store-reconciliation-bot" || report.slug === "account-reconciliation") {
+  if (report.slug === "store-reconciliation-bot") {
     return <StoreReconciliationBotView />
+  }
+
+  if (report.slug === "account-reconciliation") {
+    return <StoreReconciliationBotView variant="account" />
   }
 
   if (report.slug === "loyalty-card") {

@@ -1,15 +1,31 @@
+// Shared (client + server) shapes of "Организация" (demo #/division, API main/division/).
+// See lib/organizations-repo.ts for the storage rules (unique names, rename cascade,
+// delete refused while referenced).
+
+/** Element of the plain GET /api/organizations array used by every organization select. */
 export type Organization = { id: number; name: string; limitByDebt: boolean }
 
-export const knownOrganizations: Organization[] = [
-  { id: 1, name: "05,08,2025", limitByDebt: true },
-  { id: 2, name: "111111111111111111111111", limitByDebt: false },
-  { id: 3, name: "1112233", limitByDebt: true },
-  { id: 4, name: "7777", limitByDebt: false },
-  { id: 5, name: "878", limitByDebt: false },
-  { id: 6, name: "avto organizatsiya 2", limitByDebt: false },
-  { id: 7, name: "baby still", limitByDebt: false },
-  { id: 8, name: "Buxoro 2", limitByDebt: false },
-  { id: 9, name: "ddr", limitByDebt: false },
-  { id: 10, name: "ddr1", limitByDebt: false },
-  { id: 11, name: "doston2organizationCola", limitByDebt: false },
-]
+/** Row of the paged list (demo {id, name, created_date, use_limit_for_debt}). */
+export type OrganizationListItem = Organization & { createdDate: string }
+
+/** GET /api/organizations?page=&pageSize=&search=&ordering= (demo {count, results}). */
+export type OrganizationListResult = { count: number; results: OrganizationListItem[] }
+
+/** Where an organization is referenced (label = Russian i18n key of the section). */
+export type OrganizationUsage = { table: string; label: string; count: number }
+
+/** GET /api/organizations/[id] (`usage` only with ?usage=1). */
+export type OrganizationDetail = OrganizationListItem & { usage?: OrganizationUsage[] }
+
+/** Error body of the organization endpoints (`fields.name` = inline error of the dialog). */
+export type OrganizationErrorBody = {
+  error?: string
+  fields?: { name?: string }
+  usage?: OrganizationUsage[]
+  details?: { fieldErrors?: Record<string, string[] | undefined> }
+}
+
+export const ORGANIZATIONS_API = "/api/organizations"
+
+/** Header sorting of the grid: only "Наименование" is sortable in the demo. */
+export type OrganizationOrdering = "" | "name" | "-name"

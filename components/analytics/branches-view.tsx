@@ -3,7 +3,6 @@
 import { ChevronLeft, ChevronRight, FileText, Pencil, Plus, Search, Trash2, X } from "lucide-react"
 import { ChangeEvent, Fragment, FormEvent, useEffect, useMemo, useRef, useState } from "react"
 
-import { CheckBox, LineField, LineSelect, Modal, SaveLink } from "@/components/analytics/catalog-ui"
 import { downloadExcelTable } from "@/lib/excel-export"
 import { mapHeaderColumns, readExcelRows } from "@/lib/excel-import"
 
@@ -23,8 +22,6 @@ type Branch = {
   currency: "SUM" | "USD" | "Euro"
 }
 
-const priceLists = ["donalik", "11111", "123123123", "asus vivobook", "attack", "Attack250", "Шт14", "savdo", "Bozor narx", "tovar"]
-
 const seedBranches: Branch[] = []
 
 export const branchNames = seedBranches.map((branch) => branch.name)
@@ -35,13 +32,28 @@ export function BranchesView({ embedded = false }: { embedded?: boolean }) {
   const [page, setPage] = useState(1)
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const [editing, setEditing] = useState<Branch | null>(null)
-  const [draft, setDraft] = useState({ name: "", priceList: priceLists[0], currency: "SUM" as Branch["currency"], debtTracking: true, isMain: false })
+  // Price lists come from "Прайс-листы" (active ones); "" = not set.
+  const [priceLists, setPriceLists] = useState<string[]>([])
+  const [draft, setDraft] = useState({ name: "", priceList: "", currency: "SUM" as Branch["currency"], debtTracking: true, isMain: false })
   const [importOpen, setImportOpen] = useState(false)
   const [importFile, setImportFile] = useState<File | null>(null)
   const [importSaving, setImportSaving] = useState(false)
   const importInputRef = useRef<HTMLInputElement>(null)
   const [loadError, setLoadError] = useState("")
   const pageSize = 25
+
+  useEffect(() => {
+    let cancelled = false
+    fetch("/api/price-lists")
+      .then(async (response) => (response.ok ? ((await response.json()) as { name: string }[]) : []))
+      .then((data) => {
+        if (!cancelled) setPriceLists(data.map((item) => item.name).filter(Boolean))
+      })
+      .catch(() => undefined)
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -71,8 +83,8 @@ export function BranchesView({ embedded = false }: { embedded?: boolean }) {
   const selected = selectedId !== null ? branches.find((branch) => branch.id === selectedId) ?? null : null
 
   function openCreate() {
-    setDraft({ name: "", priceList: "", currency: "" as Branch["currency"], debtTracking: false, isMain: false })
-    setEditing({ id: 0, name: "", date: "", debtTracking: true, isMain: false, priceList: "", currency: "" as Branch["currency"] })
+    setDraft({ name: "", priceList: priceLists[0] ?? "", currency: "SUM", debtTracking: true, isMain: false })
+    setEditing({ id: 0, name: "", date: "", debtTracking: true, isMain: false, priceList: priceLists[0] ?? "", currency: "SUM" })
   }
 
   function openEdit(branch: Branch) {
@@ -83,7 +95,7 @@ export function BranchesView({ embedded = false }: { embedded?: boolean }) {
   async function save(event: FormEvent) {
     event.preventDefault()
     if (!draft.name.trim()) return
-    const payload = { ...draft, name: draft.name.trim(), currency: draft.currency || "SUM" }
+    const payload = { ...draft, name: draft.name.trim() }
     try {
       if (editing?.id) {
         const response = await fetch(`/api/branches/${editing.id}`, {
@@ -171,7 +183,7 @@ export function BranchesView({ embedded = false }: { embedded?: boolean }) {
         const currency = (["SUM", "USD", "Euro"] as const).find((item) => item.toLowerCase() === record.currency?.toLowerCase()) ?? "SUM"
         parsed.push({
           name: record.name,
-          priceList: priceLists.includes(record.priceList) ? record.priceList : priceLists[0],
+          priceList: priceLists.find((item) => item.toLowerCase() === record.priceList?.trim().toLowerCase()) ?? "",
           currency,
         })
       }
@@ -206,15 +218,18 @@ export function BranchesView({ embedded = false }: { embedded?: boolean }) {
   }
 
   return (
-    <main className={embedded ? "min-w-0 flex-1" : "min-h-[calc(100vh-4rem)] bg-[#f2f5f8] px-7 pb-7"}>
+    <main className={embedded ? "min-w-0 flex-1" : "min-h-[calc(100vh-4rem)] bg-[#f1f4f8] px-9 py-5"}>
       <div className={embedded ? "" : "overflow-hidden rounded bg-white shadow"}>
         {loadError && <p className="px-5 pt-4 text-sm text-red-500">{loadError}</p>}
         <div className="flex flex-wrap items-center gap-4 px-5 py-4">
-          <button type="button" onClick={openCreate} className="text-[13px] text-[#4f71dc] hover:underline">
+          <button type="button" onClick={openCreate} className="text-[17px] text-[#4f70e7] hover:underline">
             + Добавить филиал
           </button>
+          <button type="button" onClick={() => setImportOpen(true)} className="inline-flex items-center gap-2 rounded bg-[#4f70e7] px-5 py-2.5 font-semibold text-white hover:brightness-95">
+            <FileText className="h-4 w-4" /> Импорт с Excel
+          </button>
           <label className="relative ml-4 w-72">
-            <input value={query} onChange={(event) => { setQuery(event.target.value); setPage(1) }} placeholder="Поиск" className="w-full border-b border-slate-300 py-2 pr-10 outline-none focus:border-[#4f71dc]" />
+            <input value={query} onChange={(event) => { setQuery(event.target.value); setPage(1) }} placeholder="Поиск" className="w-full border-b border-slate-300 py-2 pr-10 outline-none focus:border-[#4f70e7]" />
             <Search className="absolute right-2 top-2 h-5 w-5 text-slate-300" />
           </label>
           <span className="ml-auto text-slate-500">25</span>
@@ -230,24 +245,24 @@ export function BranchesView({ embedded = false }: { embedded?: boolean }) {
         </div>
 
         <table className="w-full text-left">
-          <thead className="bg-[#5d6474] text-white">
+          <thead className="bg-[#626b7e] text-white">
             <tr>
-              <th className="px-9 py-4 text-[13px]">№</th>
-              <th className="px-5 py-4 text-[13px]">Наименование</th>
-              <th className="px-5 py-4 text-[13px]">Дата</th>
-              <th className="px-5 py-4 text-[13px]">Учет долга</th>
-              <th className="px-5 py-4 text-[13px]">Основной филиал</th>
+              <th className="px-9 py-5">№</th>
+              <th className="px-5 py-5">Наименование</th>
+              <th className="px-5 py-5">Дата</th>
+              <th className="px-5 py-5">Учет долга</th>
+              <th className="px-5 py-5">Основной филиал</th>
             </tr>
           </thead>
           <tbody>
-            {visible.map((branch, index) => (
+            {visible.map((branch) => (
               <Fragment key={branch.id}>
                 <tr className="cursor-pointer border-b border-dashed border-slate-300 hover:bg-slate-50" onClick={() => setSelectedId((current) => (current === branch.id ? null : branch.id))}>
-                  <td className="px-9 py-4">{(safePage - 1) * pageSize + index + 1}</td>
-                  <td className="px-5 py-4">{branch.name}</td>
+                  <td className="px-9 py-4">{branch.id}</td>
+                  <td className="px-5 py-4 text-[#4f70e7]">{branch.name}</td>
                   <td className="px-5 py-4">{branch.date}</td>
-                  <td className={`px-5 py-4 ${branch.debtTracking ? "text-[#71ce87]" : "text-red-400"}`}>{branch.debtTracking ? "Включен" : "Отключен"}</td>
-                  <td className={`px-5 py-4 ${branch.isMain ? "text-[#71ce87]" : "text-red-400"}`}>{branch.isMain ? "Да" : "Нет"}</td>
+                  <td className={`px-5 py-4 ${branch.debtTracking ? "text-[#6ccd8b]" : "text-red-400"}`}>{branch.debtTracking ? "Включен" : "Отключен"}</td>
+                  <td className={`px-5 py-4 ${branch.isMain ? "text-[#6ccd8b]" : "text-red-400"}`}>{branch.isMain ? "Да" : "Нет"}</td>
                 </tr>
                 {selected?.id === branch.id && (
                   <tr>
@@ -256,10 +271,10 @@ export function BranchesView({ embedded = false }: { embedded?: boolean }) {
                         <div className="mb-6 flex items-center justify-between">
                           <h2 className="text-2xl font-semibold text-slate-800">{branch.name}</h2>
                           <div className="flex items-center gap-4">
-                            <button type="button" className="inline-flex items-center gap-2 h-[30px] rounded-[5px] bg-[#4f71dc] px-4 text-[13px] font-semibold text-white hover:brightness-95">
+                            <button type="button" className="inline-flex items-center gap-2 rounded bg-[#4f70e7] px-5 py-2.5 font-semibold text-white hover:brightness-95">
                               <Plus className="h-4 w-4" /> Добавить план
                             </button>
-                            <button type="button" onClick={() => openEdit(branch)} aria-label="Изменить" className="text-slate-500 hover:text-[#4f71dc]">
+                            <button type="button" onClick={() => openEdit(branch)} aria-label="Изменить" className="text-slate-500 hover:text-[#4f70e7]">
                               <Pencil className="h-5 w-5" />
                             </button>
                             <button type="button" onClick={() => remove(branch.id)} aria-label="Удалить" className="text-slate-500 hover:text-red-500">
@@ -278,10 +293,10 @@ export function BranchesView({ embedded = false }: { embedded?: boolean }) {
                             Валюта: <b className="ml-2">{branch.currency === "SUM" ? "SUM" : branch.currency}</b>
                           </p>
                           <p>
-                            Основной филиал: <b className={`ml-2 ${branch.isMain ? "text-[#71ce87]" : "text-red-400"}`}>{branch.isMain ? "Включено" : "Выключено"}</b>
+                            Основной филиал: <b className={`ml-2 ${branch.isMain ? "text-[#6ccd8b]" : "text-red-400"}`}>{branch.isMain ? "Включено" : "Выключено"}</b>
                           </p>
                           <p>
-                            Учет долга: <b className={`ml-2 ${branch.debtTracking ? "text-[#71ce87]" : "text-red-400"}`}>{branch.debtTracking ? "Включено" : "Выключено"}</b>
+                            Учет долга: <b className={`ml-2 ${branch.debtTracking ? "text-[#6ccd8b]" : "text-red-400"}`}>{branch.debtTracking ? "Включено" : "Выключено"}</b>
                           </p>
                         </div>
                       </div>
@@ -302,17 +317,48 @@ export function BranchesView({ embedded = false }: { embedded?: boolean }) {
       </div>
 
       {editing && (
-        <Modal
-          title={editing.id ? "Изменить филиал" : "Добавить филиал"}
-          onClose={() => setEditing(null)}
-          footer={<SaveLink onClick={() => void save({ preventDefault() {} } as FormEvent)}>Сохранить</SaveLink>}
-        >
-          <LineField label="Название филиала" required value={draft.name} onChange={(value) => setDraft({ ...draft, name: value })} />
-          <div className="mt-[10px]"><LineSelect label="Прайс лист" value={draft.priceList} onChange={(value) => setDraft({ ...draft, priceList: value })} options={priceLists} /></div>
-          <div className="mt-[10px]"><LineSelect label="Валюта" value={draft.currency} onChange={(value) => setDraft({ ...draft, currency: value as Branch["currency"] })} options={["SUM", "USD", "Euro"]} /></div>
-          <div className="mt-[18px]"><CheckBox checked={draft.debtTracking} onChange={(value) => setDraft({ ...draft, debtTracking: value })} label="Учет долга" /></div>
-          <div className="mt-[16px]"><CheckBox checked={draft.isMain} onChange={(value) => setDraft({ ...draft, isMain: value })} label="Основной филиал" /></div>
-        </Modal>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 p-4">
+          <form onSubmit={save} className="w-full max-w-md rounded-lg bg-white p-6 shadow-xl">
+            <div className="mb-5 flex justify-between">
+              <h2 className="text-xl font-bold">{editing.id ? "Изменить филиал" : "Добавить филиал"}</h2>
+              <button type="button" onClick={() => setEditing(null)} aria-label="Закрыть">
+                <X />
+              </button>
+            </div>
+            <label className="mb-2 block font-medium">Наименование</label>
+            <input autoFocus value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} className="mb-4 w-full rounded border border-slate-300 px-3 py-2.5" />
+            <label className="mb-2 block font-medium">Прайс лист</label>
+            <select value={draft.priceList} onChange={(event) => setDraft({ ...draft, priceList: event.target.value })} className="mb-4 w-full rounded border border-slate-300 px-3 py-2.5">
+              <option value="">Не указано</option>
+              {[...priceLists, ...(draft.priceList && !priceLists.includes(draft.priceList) ? [draft.priceList] : [])].map((item) => (
+                <option key={item}>{item}</option>
+              ))}
+            </select>
+            <label className="mb-2 block font-medium">Валюта</label>
+            <select value={draft.currency} onChange={(event) => setDraft({ ...draft, currency: event.target.value as Branch["currency"] })} className="mb-4 w-full rounded border border-slate-300 px-3 py-2.5">
+              <option value="SUM">SUM</option>
+              <option value="USD">USD</option>
+              <option value="Euro">Euro</option>
+            </select>
+            <label className="mb-2 flex items-center gap-2">
+              <input type="checkbox" checked={draft.debtTracking} onChange={(event) => setDraft({ ...draft, debtTracking: event.target.checked })} />
+              Учет долга
+            </label>
+            <label className="mb-4 flex items-center gap-2">
+              <input type="checkbox" checked={draft.isMain} onChange={(event) => setDraft({ ...draft, isMain: event.target.checked })} />
+              Основной филиал
+            </label>
+            <div className="mt-6 flex justify-end gap-3">
+              <button type="button" onClick={() => setEditing(null)} className="rounded border px-4 py-2">
+                Отмена
+              </button>
+              <button type="submit" className="inline-flex items-center gap-2 rounded bg-[#5474e6] px-4 py-2 font-semibold text-white">
+                <Plus className="h-4 w-4" />
+                Сохранить
+              </button>
+            </div>
+          </form>
+        </div>
       )}
 
       {importOpen && (
@@ -325,21 +371,21 @@ export function BranchesView({ embedded = false }: { embedded?: boolean }) {
               </button>
             </header>
             <div className="p-8">
-              <button type="button" onClick={downloadTemplate} className="mb-4 font-semibold text-[#4f71dc] hover:underline">
+              <button type="button" onClick={downloadTemplate} className="mb-4 font-semibold text-[#4f70e7] hover:underline">
                 1. Скачать шаблон
               </button>
               <input ref={importInputRef} type="file" accept=".csv,.xls,.xlsx" onChange={pickImportFile} className="hidden" />
               <button
                 type="button"
                 onClick={() => importInputRef.current?.click()}
-                className="flex w-full flex-col items-center justify-center gap-3 rounded border-2 border-dashed border-slate-300 py-10 text-slate-500 hover:border-[#4f71dc] hover:text-[#4f71dc]"
+                className="flex w-full flex-col items-center justify-center gap-3 rounded border-2 border-dashed border-slate-300 py-10 text-slate-500 hover:border-[#4f70e7] hover:text-[#4f70e7]"
               >
                 <FileText className="h-8 w-8" />
                 {importFile ? importFile.name : "Добавьте файл Excel или нажмите для выбора"}
               </button>
             </div>
             <footer className="flex justify-end border-t p-5">
-              <button type="button" disabled={!importFile || importSaving} onClick={saveImport} className="inline-flex items-center h-[30px] rounded-[5px] bg-[#71ce87] px-4 text-[13px] font-semibold text-white hover:brightness-95 disabled:opacity-40">
+              <button type="button" disabled={!importFile || importSaving} onClick={saveImport} className="rounded bg-[#6ccd8b] px-5 py-3 font-semibold text-white hover:brightness-95 disabled:opacity-40">
                 {importSaving ? "Импорт..." : "Сохранить"}
               </button>
             </footer>

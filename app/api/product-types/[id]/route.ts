@@ -1,43 +1,50 @@
 import { NextResponse } from "next/server"
-import { z } from "zod"
 
+import { getCurrentUser } from "@/lib/current-user"
+import { productTypeBodySchema, productTypeInput } from "@/lib/dictionaries-api"
+import { dictionaryWrite, parseDictionaryId } from "@/lib/dictionaries-schema"
+import { deleteProductType, getProductTypeDetail, updateProductType } from "@/lib/product-types-repo"
 import { requireRole } from "@/lib/rbac"
 import { parseJsonBody } from "@/lib/validation"
-import { deleteProductType, updateProductType } from "@/lib/product-types-repo"
-
-const productTypeSchema = z.object({
-  name: z.string().trim().min(1),
-  organization: z.string().trim().min(1),
-  parentId: z.number().finite().nullable().optional(),
-  showInBot: z.boolean().optional(),
-})
 
 type RouteParams = { params: Promise<{ id: string }> }
 
-export async function PUT(request: Request, { params }: RouteParams) {
-  const auth = await requireRole("manager")
-  if ("error" in auth) return auth.error
+const NOT_FOUND = { error: "Тип продукта не найден" }
 
-  const id = Number((await params).id)
-  const parsed = await parseJsonBody(request, productTypeSchema)
-  if (parsed.error) return parsed.error
-
-  const type = (await updateProductType(id, {
-    name: parsed.data.name,
-    organization: parsed.data.organization,
-    parentId: parsed.data.parentId ?? null,
-    showInBot: parsed.data.showInBot ?? false,
-  }))
-  if (!type) return NextResponse.json({ error: "Тип продукта не найден" }, { status: 404 })
+// GET /api/product-types/[id] — the type with parentName / childCount; ?usage=1 adds where it is used.
+export async function GET(request: Request, { params }: RouteParams) {
+  const user = await getCurrentUser()
+  if (!user) return NextResponse.json({ error: "Tizimga kirilmagan" }, { status: 401 })
+  const id = parseDictionaryId((await params).id)
+  const type = id ? await getProductTypeDetail(id, new URL(request.url).searchParams.get("usage") === "1") : null
+  if (!type) return NextResponse.json(NOT_FOUND, { status: 404 })
   return NextResponse.json(type)
 }
 
+// PUT /api/product-types/[id] — omitted fields keep their value; a rename / move is carried
+// into products and raw materials in the same transaction (listed in `renamed`).
+export async function PUT(request: Request, { params }: RouteParams) {
+  const auth = await requireRole("manager")
+  if ("error" in auth) return auth.error
+  const id = parseDictionaryId((await params).id)
+  if (!id) return NextResponse.json(NOT_FOUND, { status: 404 })
+  const parsed = await parseJsonBody(request, productTypeBodySchema)
+  if (parsed.error) return parsed.error
+  return dictionaryWrite(async () => {
+    const result = await updateProductType(id, productTypeInput(parsed.data))
+    if (!result) return NextResponse.json(NOT_FOUND, { status: 404 })
+    return NextResponse.json({ ...result.type, renamed: result.renamed })
+  })
+}
+
+// DELETE /api/product-types/[id] — 409 {error, usage} while items use the type or it has children.
 export async function DELETE(_request: Request, { params }: RouteParams) {
   const auth = await requireRole("manager")
   if ("error" in auth) return auth.error
-
-  const id = Number((await params).id)
-  const ok = (await deleteProductType(id))
-  if (!ok) return NextResponse.json({ error: "Тип продукта не найден" }, { status: 404 })
-  return NextResponse.json({ ok: true })
+  const id = parseDictionaryId((await params).id)
+  if (!id) return NextResponse.json(NOT_FOUND, { status: 404 })
+  return dictionaryWrite(async () => {
+    if (!(await deleteProductType(id))) return NextResponse.json(NOT_FOUND, { status: 404 })
+    return NextResponse.json({ ok: true })
+  })
 }

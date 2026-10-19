@@ -18,11 +18,14 @@ const orderSchema = z.object({
   status: z.string().trim().optional(),
   discount: z.string().trim().optional(),
   negative: z.boolean().optional(),
+  paymentDate: z.union([z.string().regex(/^\d{4}-\d{2}-\d{2}$/), z.literal("")]).optional(),
+  paymentType: z.enum(["cash", "bank", ""]).optional(),
+  organization: z.string().trim().max(200).optional(),
 })
 
 export async function GET(request: NextRequest) {
   const user = await getCurrentUser()
-  if (!user) return NextResponse.json({ error: "Вы не вошли в систему" }, { status: 401 })
+  if (!user) return NextResponse.json({ error: "Tizimga kirilmagan" }, { status: 401 })
 
   const search = request.nextUrl.searchParams.get("q") ?? undefined
   return NextResponse.json((await listOrders(search)))
