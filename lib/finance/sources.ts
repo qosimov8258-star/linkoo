@@ -691,7 +691,7 @@ function vansellSources(ctx: SourceContext): string[] {
         },
         `FROM internal_transfers t JOIN wh w ON w.k = fin_key(t.${side}_warehouse) JOIN emp_keys ek ON ek.k = w.manager_k
          LEFT JOIN wh w2 ON w2.k = fin_key(t.${other}_warehouse)
-         WHERE t.status <> 'отменен' AND w.manager_k <> '' AND w2.manager_k IS DISTINCT FROM w.manager_k`,
+         WHERE t.status IN ('в пути', 'принят') AND w.manager_k <> '' AND w2.manager_k IS DISTINCT FROM w.manager_k`,
       ),
     )
   }
@@ -757,6 +757,7 @@ function branchSources(ctx: SourceContext): string[] {
   }
   // Goods moved between warehouses of different branches: the receiver owes
   // (stock_transfer_minus), the sender is credited (stock_transfer_plus).
+  // Only transfers that left the warehouse count (given / accepted).
   const transferTs = ts("fin_ts(t.delivered_at)", "fin_ts(t.created_at_label)", utcTs("t.created_at"))
   for (const side of ["to", "from"] as const) {
     const other = side === "to" ? "from" : "to"
@@ -779,7 +780,7 @@ function branchSources(ctx: SourceContext): string[] {
           href: "'/analytics/internal-transfers'",
         },
         `FROM internal_transfers t JOIN wh w ON w.k = fin_key(t.${side}_warehouse) LEFT JOIN wh w2 ON w2.k = fin_key(t.${other}_warehouse)
-         WHERE t.status <> 'отменен' AND w.branch_id IS NOT NULL AND w2.branch_id IS DISTINCT FROM w.branch_id`,
+         WHERE t.status IN ('в пути', 'принят') AND w.branch_id IS NOT NULL AND w2.branch_id IS DISTINCT FROM w.branch_id`,
       ),
     )
   }

@@ -28,7 +28,7 @@ import { ProductionBatchesView } from "@/components/analytics/production-batches
 import { ProductionStagesView } from "@/components/analytics/production-stages-view"
 import { StockLevelView } from "@/components/analytics/stock-level-view"
 import { MaterialReportView } from "@/components/analytics/material-report-view"
-import { GoodsMovementView } from "@/components/analytics/goods-movement-dashboard"
+import { StockPlanView } from "@/components/analytics/stock-plan-view"
 import { ReportBuilderView } from "@/components/analytics/report-builder-view"
 import { CustomerPaymentsView } from "@/components/analytics/customer-payments-view"
 import { SupplierPaymentsView } from "@/components/analytics/supplier-payments-view"
@@ -243,7 +243,7 @@ export default async function AnalyticsPage({ params }: PageProps) {
   }
 
   if (report.slug === "receipt-transfer-plan") {
-    return <GoodsMovementView />
+    return <StockPlanView />
   }
 
   if (report.slug === "current-stock-report-builder") {

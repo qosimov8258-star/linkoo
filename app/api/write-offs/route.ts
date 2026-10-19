@@ -1,33 +1,26 @@
 import { NextRequest, NextResponse } from "next/server"
-import { z } from "zod"
 
 import { getCurrentUser } from "@/lib/current-user"
 import { requireRole } from "@/lib/rbac"
 import { parseJsonBody } from "@/lib/validation"
-import { createWriteOff, listWriteOffs, parseWriteOffInput } from "@/lib/write-offs-repo"
+import { parseWriteOffListQuery, toWriteOffInput, writeOffBodySchema, writeOffResponse } from "@/lib/write-offs-api"
+import { createWriteOff, listAllWriteOffs, listWriteOffs } from "@/lib/write-offs-repo"
 
-const writeOffSchema = z.object({
-  warehouse: z.string().trim().min(1),
-  reason: z.string().trim().min(1),
-  comment: z.string().optional(),
-  items: z.array(z.record(z.string(), z.unknown())).min(1),
-})
-
-export async function GET() {
+/** List. With page / pageSize: `{count, page, pageSize, results}`; without: the legacy array. */
+export async function GET(request: NextRequest) {
   const user = await getCurrentUser()
   if (!user) return NextResponse.json({ error: "Tizimga kirilmagan" }, { status: 401 })
-  return NextResponse.json((await listWriteOffs()))
+  const query = parseWriteOffListQuery(request.url)
+  return NextResponse.json(query ? await listWriteOffs(query) : await listAllWriteOffs())
 }
 
+/** "Списать": created finished (status 'закрыт', refused beyond the available stock) unless status 'ожидает'. */
 export async function POST(request: NextRequest) {
   const auth = await requireRole("manager")
   if ("error" in auth) return auth.error
 
-  const parsed = await parseJsonBody(request, writeOffSchema)
+  const parsed = await parseJsonBody(request, writeOffBodySchema)
   if (parsed.error) return parsed.error
 
-  const input = parseWriteOffInput(parsed.data)
-  if (!input) return NextResponse.json({ error: "Склад, причина и товары обязательны" }, { status: 400 })
-
-  return NextResponse.json((await createWriteOff(input)), { status: 201 })
+  return writeOffResponse(await createWriteOff(toWriteOffInput(parsed.data), auth.user.displayName), true)
 }

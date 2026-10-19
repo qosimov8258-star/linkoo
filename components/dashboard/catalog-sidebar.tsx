@@ -51,6 +51,10 @@ const groups: MenuGroup[] = [
     ],
   },
   {
+    title: "Склад",
+    items: [{ label: "Склады", href: "/analytics/warehouses" }],
+  },
+  {
     title: "Разное",
     items: [
       { label: "Прайс-листы", href: "/analytics/price-lists" },

@@ -74,7 +74,10 @@ function namesCte(t: StockTables): string {
     const alive = t.col("products", "deleted") ? "WHERE COALESCE(deleted, 0) = 0" : ""
     parts.push(`SELECT fin_key(name) AS k, 'product:' || id AS item_key, 0 AS pri, id FROM products ${alive}`)
   }
-  if (t.has("raw_materials")) parts.push("SELECT fin_key(name), 'raw_material:' || id, 1, id FROM raw_materials")
+  if (t.has("raw_materials")) {
+    const alive = t.col("raw_materials", "deleted") ? "WHERE COALESCE(deleted, 0) = 0" : ""
+    parts.push(`SELECT fin_key(name), 'raw_material:' || id, 1, id FROM raw_materials ${alive}`)
+  }
   if (!parts.length) return "stk_names AS MATERIALIZED (SELECT NULL::text AS k, NULL::text AS item_key WHERE false)"
   return `stk_names AS MATERIALIZED (
     SELECT DISTINCT ON (k) k, item_key FROM (${parts.join(" UNION ALL ")}) x WHERE k <> '' ORDER BY k, pri, id
@@ -151,10 +154,10 @@ export function buildMovementsSql(t: StockTables): string {
     )
   }
 
-  // Списано: write-offs are created closed ("закрыт"); only an explicitly
-  // open one ("открыт") has not left the warehouse yet.
+  // Списано: only finished write-offs ("закрыт") leave the warehouse;
+  // pending ("ожидает", legacy "открыт") and cancelled ("отменен") do not.
   if (t.has("write_offs")) {
-    const status = t.col("write_offs", "status") ? "COALESCE(w.status, '') <> 'открыт'" : "true"
+    const status = t.col("write_offs", "status") ? "w.status = 'закрыт'" : "true"
     ctes.push(`stk_wo_doc AS MATERIALIZED (
       SELECT w.id, w.warehouse, ${dayOf("fin_ts(w.date)", "fin_ts(w.created_at, true)")} AS day, ${jsonDoc("w.items")} AS js
       FROM write_offs w WHERE ${status}
@@ -164,16 +167,20 @@ export function buildMovementsSql(t: StockTables): string {
     )
   }
 
-  // Внутренние перемещения: leave the source once sent ("потвержден"), reach
-  // the target once accepted ("принят"). Line prices are price-list prices,
-  // not costs, so the value is unknown (0).
+  // Внутренние перемещения: leave the source once given ("в пути", on the
+  // given day), reach the target once accepted ("принят", on the accepted
+  // day). "ожидает" / "потвержден" / "отменен" do not move goods. Rows from
+  // before the given / accepted columns fall back to the document dates. Line
+  // prices are price-list prices, not costs, so the value is unknown (0).
   if (t.has("internal_transfers")) {
     const created = t.col("internal_transfers", "created_at_label") ? "fin_ts(tr.created_at_label)" : "NULL::timestamp"
     const delivered = t.col("internal_transfers", "delivered_at") ? "fin_ts(tr.delivered_at)" : "NULL::timestamp"
+    const given = t.col("internal_transfers", "given_at") ? "fin_ts(tr.given_at)" : "NULL::timestamp"
+    const accepted = t.col("internal_transfers", "accepted_at") ? "fin_ts(tr.accepted_at)" : "NULL::timestamp"
     ctes.push(`stk_tr_doc AS MATERIALIZED (
-      SELECT tr.id, tr.status, tr.from_warehouse, tr.to_warehouse, ${dayOf(created, "fin_ts(tr.created_at, true)")} AS out_day,
-             ${dayOf(delivered, created, "fin_ts(tr.created_at, true)")} AS in_day, ${jsonDoc("tr.items")} AS js
-      FROM internal_transfers tr WHERE tr.status IN ('потвержден', 'принят')
+      SELECT tr.id, tr.status, tr.from_warehouse, tr.to_warehouse, ${dayOf(given, created, "fin_ts(tr.created_at, true)")} AS out_day,
+             ${dayOf(accepted, delivered, created, "fin_ts(tr.created_at, true)")} AS in_day, ${jsonDoc("tr.items")} AS js
+      FROM internal_transfers tr WHERE tr.status IN ('в пути', 'принят')
     )`)
     ctes.push(`stk_tr AS MATERIALIZED (
       SELECT d.id, d.status, d.from_warehouse, d.to_warehouse, d.out_day, d.in_day, l.j ->> 'product' AS raw, ${jsonNum("l.j", "quantity")} AS qty
@@ -278,7 +285,7 @@ export function buildMovementsSql(t: StockTables): string {
 }
 
 /** Pending quantities: reserved by orders still in the warehouse, and
- * internal transfers sent but not yet accepted (towards the target). Columns:
+ * internal transfers given but not yet accepted ("в пути", towards the target). Columns:
  * warehouse, item_key, reserved, transit. No parameters. */
 export function buildPendingSql(t: StockTables): string {
   const parts: string[] = []
@@ -293,7 +300,7 @@ export function buildPendingSql(t: StockTables): string {
     parts.push(`SELECT tr.to_warehouse::text, (${KEY_OF("n", "l.j ->> 'product'")})::text, 0::double precision, ${jsonNum("l.j", "quantity")}
       FROM internal_transfers tr CROSS JOIN LATERAL jsonb_array_elements(${jsonLines("tr.items")}) AS l(j)
       ${KEY_JOIN("n", "l.j ->> 'product'")}
-      WHERE tr.status = 'потвержден' AND fin_key(l.j ->> 'product') <> ''`)
+      WHERE tr.status = 'в пути' AND fin_key(l.j ->> 'product') <> ''`)
   }
   const body = parts.length
     ? parts.join("\nUNION ALL\n")

@@ -1,43 +1,65 @@
-import { NextRequest, NextResponse } from "next/server"
-import { z } from "zod"
+import { NextResponse } from "next/server"
 
+import { getCurrentUser } from "@/lib/current-user"
 import { requireRole } from "@/lib/rbac"
 import { parseJsonBody } from "@/lib/validation"
-import { deleteWarehouse, parseWarehouseInput, updateWarehouse } from "@/lib/warehouses-repo"
-
-const warehouseSchema = z.object({
-  name: z.string().trim().min(1),
-  address: z.string().trim().min(1),
-  branch: z.string().optional(),
-  manager: z.string().optional(),
-  online: z.boolean().optional(),
-  active: z.boolean().optional(),
-})
+import { deleteWarehouse, getWarehouseDetail, updateWarehouse, warehouseErrorResponse } from "@/lib/warehouses-repo"
+import { parseWarehouseId, warehouseInput, warehouseInputSchema } from "@/lib/warehouses-schema"
 
 type RouteParams = { params: Promise<{ id: string }> }
 
-export async function PUT(request: NextRequest, { params }: RouteParams) {
-  const auth = await requireRole("manager")
-  if ("error" in auth) return auth.error
+const NOT_FOUND = { error: "Склад не найден" }
 
-  const id = Number((await params).id)
-  const parsed = await parseJsonBody(request, warehouseSchema)
-  if (parsed.error) return parsed.error
-
-  const input = parseWarehouseInput(parsed.data)
-  if (!input) return NextResponse.json({ error: "Наименование и адрес обязательны" }, { status: 400 })
-
-  const warehouse = (await updateWarehouse(id, input))
-  if (!warehouse) return NextResponse.json({ error: "Склад не найден" }, { status: 404 })
+// GET /api/warehouses/[id] — demo GET stock/stock/:id/ (full row); ?usage=1 adds where it is used.
+export async function GET(request: Request, { params }: RouteParams) {
+  const user = await getCurrentUser()
+  if (!user) return NextResponse.json({ error: "Tizimga kirilmagan" }, { status: 401 })
+  const id = parseWarehouseId((await params).id)
+  const withUsage = new URL(request.url).searchParams.get("usage") === "1"
+  const warehouse = id ? await getWarehouseDetail(id, withUsage) : null
+  if (!warehouse) return NextResponse.json(NOT_FOUND, { status: 404 })
   return NextResponse.json(warehouse)
 }
 
-export async function DELETE(_request: NextRequest, { params }: RouteParams) {
+// PUT /api/warehouses/[id] — demo PUT stock/stock/:id. Omitted fields keep their value; a rename
+// is carried over in the same transaction to every document that stores the warehouse name
+// (the response lists them in `renamed`).
+export async function PUT(request: Request, { params }: RouteParams) {
   const auth = await requireRole("manager")
   if ("error" in auth) return auth.error
 
-  const id = Number((await params).id)
-  const ok = (await deleteWarehouse(id))
-  if (!ok) return NextResponse.json({ error: "Склад не найден" }, { status: 404 })
-  return NextResponse.json({ ok: true })
+  const id = parseWarehouseId((await params).id)
+  if (!id) return NextResponse.json(NOT_FOUND, { status: 404 })
+  const parsed = await parseJsonBody(request, warehouseInputSchema)
+  if (parsed.error) return parsed.error
+  const input = warehouseInput(parsed.data)
+  if ("fields" in input) return NextResponse.json({ error: "Ma'lumotlar noto'g'ri", fields: input.fields }, { status: 400 })
+
+  try {
+    const result = await updateWarehouse(id, input.input)
+    if (!result) return NextResponse.json(NOT_FOUND, { status: 404 })
+    return NextResponse.json({ ...result.warehouse, renamed: result.renamed })
+  } catch (error) {
+    const response = warehouseErrorResponse(error)
+    if (response) return response
+    throw error
+  }
+}
+
+// DELETE /api/warehouses/[id] — 409 {error, usage} while any document references the warehouse.
+export async function DELETE(_request: Request, { params }: RouteParams) {
+  const auth = await requireRole("manager")
+  if ("error" in auth) return auth.error
+
+  const id = parseWarehouseId((await params).id)
+  if (!id) return NextResponse.json(NOT_FOUND, { status: 404 })
+  try {
+    const ok = await deleteWarehouse(id)
+    if (!ok) return NextResponse.json(NOT_FOUND, { status: 404 })
+    return NextResponse.json({ ok: true })
+  } catch (error) {
+    const response = warehouseErrorResponse(error)
+    if (response) return response
+    throw error
+  }
 }
