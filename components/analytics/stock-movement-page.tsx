@@ -79,7 +79,7 @@ export function StockMovementPage() {
   return (
     <main className="min-h-[calc(100vh-64px)] bg-[#f2f5f8] pb-10 text-[#17233b]">
       <header className="flex min-h-[76px] items-center border-b border-slate-200 bg-[#f1f4f7] px-9">
-        <FavoritesButton className="flex items-center text-[26px] font-semibold text-[#4f72e5]" />
+        <FavoritesButton className="flex items-center gap-[5px] text-[18px] font-bold text-[#4f71dc]" />
         <span className="mx-4 h-8 w-px bg-[#5d6474]" />
         <h1 className="text-[25px] font-semibold text-[#596273]">План приемок и передач</h1>
       </header>

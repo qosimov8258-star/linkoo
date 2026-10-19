@@ -36,7 +36,7 @@ const clientSchema = z.object({
 
 export async function GET(request: NextRequest) {
   const user = await getCurrentUser()
-  if (!user) return NextResponse.json({ error: "Tizimga kirilmagan" }, { status: 401 })
+  if (!user) return NextResponse.json({ error: "Вы не вошли в систему" }, { status: 401 })
 
   const search = request.nextUrl.searchParams.get("q") ?? undefined
   return NextResponse.json((await listClients(search)))

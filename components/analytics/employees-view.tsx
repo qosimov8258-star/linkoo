@@ -402,7 +402,7 @@ export function EmployeesView() {
                 <td className="px-5 py-4">{employee.phone}</td>
                 <td className="px-5 py-4">{employee.position}</td>
                 <td className="px-5 py-4">
-                  <span className={employee.active ? "text-[#71ce87]" : "text-slate-400"}>{employee.active ? "Активный" : "Удален"}</span>
+                  <span className={employee.active ? "" : "text-slate-400"}>{employee.active ? "Активный" : "Удален"}</span>
                 </td>
                 <td className="px-5 py-4">
                   <div className="hidden items-center justify-end gap-3 text-slate-500 group-hover:flex">
@@ -429,31 +429,31 @@ export function EmployeesView() {
 
       {editing !== null && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
-          <form onSubmit={save} className="flex max-h-[88vh] w-full max-w-3xl flex-col rounded bg-white">
-            <header className="flex items-center justify-between border-b p-6">
+          <form onSubmit={save} className="flex max-h-[96vh] w-[700px] max-w-full flex-col bg-white text-[13px]">
+            <header className="flex h-[60px] shrink-0 items-center justify-between border-b border-[#e8ebf0] pl-[30px] pr-[28px]">
               <b className="uppercase">{editing === "new" ? "Добавить сотрудника" : "Изменить сотрудника"}</b>
               <button type="button" onClick={() => setEditing(null)} aria-label="Закрыть">
                 <X className="h-5 w-5" />
               </button>
             </header>
-            <div className="flex-1 overflow-y-auto p-8">
+            <div className="flex-1 overflow-y-auto px-[30px] pb-[20px] pt-[20px]">
               <div className="grid gap-6 md:grid-cols-[1fr_190px]">
-                <div className="space-y-5">
-                  <label className="block border-b border-slate-200 pb-2 font-medium">
+                <div className="space-y-[16px]">
+                  <label className="block border-b border-[#d5dae1] pb-[4px] text-[10px] font-semibold">
                     Имя <span className="text-red-500">*</span>
-                    <input required value={draft.firstName} onChange={(event) => setDraft((value) => ({ ...value, firstName: event.target.value }))} className="mt-2 block w-full outline-none" />
+                    <input required value={draft.firstName} onChange={(event) => setDraft((value) => ({ ...value, firstName: event.target.value }))} className="mt-[6px] block h-[24px] w-full text-[13px] font-normal outline-none" />
                   </label>
-                  <label className="block border-b border-slate-200 pb-2 font-medium">
+                  <label className="block border-b border-[#d5dae1] pb-[4px] text-[10px] font-semibold">
                     Фамилия <span className="text-red-500">*</span>
-                    <input required value={draft.lastName} onChange={(event) => setDraft((value) => ({ ...value, lastName: event.target.value }))} className="mt-2 block w-full outline-none" />
+                    <input required value={draft.lastName} onChange={(event) => setDraft((value) => ({ ...value, lastName: event.target.value }))} className="mt-[6px] block h-[24px] w-full text-[13px] font-normal outline-none" />
                   </label>
-                  <label className="block border-b border-slate-200 pb-2 font-medium">
+                  <label className="block border-b border-[#d5dae1] pb-[4px] text-[10px] font-semibold">
                     Телефон <span className="text-red-500">*</span>
-                    <input required value={draft.phone} onChange={(event) => setDraft((value) => ({ ...value, phone: event.target.value }))} className="mt-2 block w-full outline-none" />
+                    <input required value={draft.phone} onChange={(event) => setDraft((value) => ({ ...value, phone: event.target.value }))} className="mt-[6px] block h-[24px] w-full text-[13px] font-normal outline-none" />
                   </label>
-                  <label className="block border-b border-slate-200 pb-2 font-medium">
+                  <label className="block border-b border-[#d5dae1] pb-[4px] text-[10px] font-semibold">
                     Код для интеграции
-                    <input value={draft.integrationCode} onChange={(event) => setDraft((value) => ({ ...value, integrationCode: event.target.value }))} className="mt-2 block w-full outline-none" />
+                    <input value={draft.integrationCode} onChange={(event) => setDraft((value) => ({ ...value, integrationCode: event.target.value }))} className="mt-[6px] block h-[24px] w-full text-[13px] font-normal outline-none" />
                   </label>
                 </div>
                 <div className="flex h-[135px] flex-col items-center justify-center gap-2 self-start border-2 border-dashed border-slate-200 text-center text-sm text-slate-400">
@@ -463,7 +463,7 @@ export function EmployeesView() {
               </div>
 
               <div className="mt-5 grid gap-6 md:grid-cols-2">
-                <label className="block border-b border-slate-200 pb-2 font-medium">
+                <label className="block border-b border-[#d5dae1] pb-[4px] text-[10px] font-semibold">
                   Должность <span className="text-red-500">*</span>
                   <select value={draft.position} onChange={(event) => setDraft((value) => ({ ...value, position: event.target.value }))} className="mt-2 block w-full bg-white outline-none">
                     {positions.map((item) => (
@@ -471,7 +471,7 @@ export function EmployeesView() {
                     ))}
                   </select>
                 </label>
-                <label className="block border-b border-slate-200 pb-2 font-medium">
+                <label className="block border-b border-[#d5dae1] pb-[4px] text-[10px] font-semibold">
                   Филиалы <span className="text-red-500">*</span>
                   <select value={draft.branch} onChange={(event) => setDraft((value) => ({ ...value, branch: event.target.value }))} className="mt-2 block w-full bg-white outline-none">
                     {branches.map((item) => (
@@ -539,8 +539,8 @@ export function EmployeesView() {
                 ))}
               </div>
             </div>
-            <footer className="flex justify-end border-t p-5">
-              <button type="submit" disabled={saving} className="rounded bg-[#71ce87] px-6 py-3 font-semibold text-white hover:brightness-95 disabled:opacity-60">
+            <footer className="flex h-[57px] shrink-0 items-center justify-end border-t border-[#e8ebf0] pr-[10px]">
+              <button type="submit" disabled={saving} className="h-9 px-[16px] text-[12px] font-bold uppercase text-[#1ea1f2] hover:opacity-80 disabled:opacity-60">
                 {saving ? "Сохранение..." : "Сохранить"}
               </button>
             </footer>

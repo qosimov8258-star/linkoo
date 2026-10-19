@@ -7,6 +7,15 @@ import { deleteClientRestriction, updateClientRestriction } from "@/lib/client-r
 
 const clientRestrictionSchema = z.object({
   name: z.string().trim().min(1),
+  config: z
+    .object({
+      type: z.string().optional(),
+      by: z.string().optional(),
+      minQty: z.boolean().optional(),
+      clients: z.array(z.string()).optional(),
+      items: z.array(z.object({ name: z.string(), qty: z.number() })).optional(),
+    })
+    .optional(),
 })
 
 type RouteParams = { params: Promise<{ id: string }> }

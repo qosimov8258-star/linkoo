@@ -128,7 +128,7 @@ export function SettingsMenu({ onClose }: SettingsMenuProps) {
           <p className="text-[20px] font-bold leading-7 text-[#333]">+998 78 555-55-25</p>
         </div>
 
-        <div className="flex border-b border-[#efefef] px-[25px] pb-[14px]">
+        <div className="flex border-b border-[#efefef] px-[26px] pr-[34px] pb-[14px]">
           {languages.map(({ code, label }) => (
             <button
               key={code}
@@ -143,7 +143,7 @@ export function SettingsMenu({ onClose }: SettingsMenuProps) {
           ))}
         </div>
 
-        <div className="border-b border-[#efefef] px-[15px] py-[10px]">
+        <div className="border-b border-[#efefef] px-[26px] py-[10px]">
           <Link
             href="/analytics/knowledge-base"
             onClick={onClose}
@@ -158,18 +158,18 @@ export function SettingsMenu({ onClose }: SettingsMenuProps) {
         <div className="min-h-0 flex-1 overflow-y-auto px-[30px] py-[15px]">
           {sections.map((section, index) => (
             <div key={section.title} className={index > 0 ? "mt-[22px]" : ""}>
-              <h3 className="text-[13px] font-bold text-black">{t(section.title)}</h3>
-              <ul className="mt-[8px] pl-[20px]">
+              <h3 className="text-[13px] font-bold leading-[13px] text-black">{t(section.title)}</h3>
+              <ul className="mt-[11px] pl-[20px]">
                 {section.items.map((item) =>
                   item.href ? (
                     <li key={item.label}>
-                      <Link href={item.href} onClick={onClose} className="block py-[6.5px] text-[13px] text-[#333] hover:text-[#4f71dc]">
+                      <Link href={item.href} onClick={onClose} className="block py-[6.5px] text-[13px] leading-[13px] text-[#333] hover:text-[#4f71dc]">
                         {t(item.label)}
                       </Link>
                     </li>
                   ) : (
                     <li key={item.label}>
-                      <span className="block cursor-not-allowed py-[6.5px] text-[13px] text-[#999]" title={t("Скоро будет доступно")}>
+                      <span className="block cursor-not-allowed py-[6.5px] text-[13px] leading-[13px] text-[#999]" title={t("Скоро будет доступно")}>
                         {t(item.label)}
                       </span>
                     </li>

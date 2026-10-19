@@ -1,47 +1,12 @@
 "use client"
 
-import Image from "next/image"
-import { Search, X } from "lucide-react"
+import { Eye, Trash2, X } from "lucide-react"
+import { CatalogPageLayout } from "@/components/dashboard/catalog-sidebar"
+import { ReportEmpty, ReportSearchField } from "@/components/ref/report-kit"
 import { useEffect, useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
 
-const menu = [
-  ["Персонал", "Подписки", "Сотрудники", "Смены", "Должности", "Права доступа", "Транспорт", "Сессия"],
-  ["Финансы", "Валюты", "Кассы", "Категории приходов", "Категории расходов"],
-  ["Продукты", "Типы продуктов", "Измерения", "Бренд", "Атрибуты", "Значение атрибута", "Продукты конкурентов"],
-  ["Клиенты", "Типы клиентов", "Атрибуты", "Значение атрибута", "Категория магазина"],
-  ["Конструкторы", "Конструктор документов", "Дашборды", "Настройка EXCEL заказов"],
-  ["Поставщики", "Категории поставщиков"],
-  ["Склад", "Склады", "Настройка чека", "Тип ячейки", "Ячейки"],
-  ["Разное", "Прайс-листы", "Тип отказа", "Филиалы", "Оборудования", "Организация", "Объединение", "Ограничение времени", "Закрытия дня/месяца", "Интеграция", "Уведомления"],
-]
 type Dashboard = { id: number; name: string }
-
-const sidebarLinks: Record<string, string> = {
-  "Персонал:Сотрудники": "/analytics/employees",
-  "Персонал:Смены": "/analytics/shifts",
-  "Персонал:Должности": "/analytics/positions",
-  "Персонал:Права доступа": "/analytics/access-rights",
-  "Финансы:Кассы": "/analytics/cashboxes",
-  "Финансы:Категории приходов": "/analytics/income-categories",
-  "Финансы:Категории расходов": "/analytics/expense-categories",
-  "Продукты:Типы продуктов": "/analytics/product-types",
-  "Продукты:Измерения": "/analytics/units-of-measure",
-  "Продукты:Бренд": "/analytics/brands",
-  "Клиенты:Типы клиентов": "/clients/client-types",
-  "Клиенты:Атрибуты": "/clients/attributes",
-  "Клиенты:Значение атрибута": "/clients/attribute-values",
-  "Поставщики:Категории поставщиков": "/analytics/supplier-categories",
-  "Склад:Склады": "/analytics/warehouses",
-  "Разное:Прайс-листы": "/analytics/price-lists",
-  "Разное:Тип отказа": "/analytics/refusal-types",
-  "Разное:Объединение": "/analytics/duplicate-analysis",
-  "Разное:Филиалы": "/analytics/branches",
-  "Разное:Организация": "/analytics/organization",
-  "Разное:Ограничение времени": "/analytics/time-restrictions",
-  "Разное:Интеграция": "/settings/integrations",
-  "Разное:Уведомления": "/settings/notifications",
-}
 
 export function DashboardSettingsView() {
   const router = useRouter(); const [items,setItems]=useState<Dashboard[]>([]); const [query,setQuery]=useState(""); const [editing,setEditing]=useState<Dashboard|null>(null); const [name,setName]=useState(""); const [dialogOpen,setDialogOpen]=useState(false); const [saving,setSaving]=useState(false)
@@ -79,6 +44,41 @@ export function DashboardSettingsView() {
       window.alert("Сервер недоступен, попробуйте ещё раз")
     }
   }
-  const isDialog=dialogOpen
-  return <main className="min-h-[calc(100vh-16px)] bg-white text-[#263246]"><div className="flex"><aside className="h-[calc(100vh-64px)] w-[280px] shrink-0 overflow-y-auto bg-[#f2f5f8] px-9 py-9">{menu.map(([title,...links])=><section key={title} className="mb-8"><h2 className="mb-3 font-bold">{title}</h2><div className="space-y-3 pl-8">{links.map(link=>{const href=sidebarLinks[`${title}:${link}`];return <button key={link} onClick={()=>{if(href)router.push(href)}} className={`block text-left leading-4 hover:text-[#4868e8] ${link==="Дашборды"?"text-[#4868e8]":""}`}>{link}</button>})}</div></section>)}</aside><section className="min-w-0 flex-1"><div className="flex items-center justify-between px-5 py-6"><label className="relative w-[375px]"><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Поиск" className="w-full border-b border-slate-300 py-2 pr-10 outline-none focus:border-[#4868e8]"/><Search className="absolute right-2 top-2 text-slate-300"/></label><button onClick={openNew} className="text-lg text-[#4868e8]">+ добавить дашборд</button></div><table className="w-full text-left"><thead className="bg-[#5d6474] text-white"><tr><th className="px-10 py-5">№</th><th className="px-5 py-5">Наименование</th><th className="px-5 py-5">Просмотреть</th><th className="px-5 py-5">Изменить</th><th className="px-5 py-5">Удалить</th></tr></thead><tbody>{rows.map((item,index)=><tr key={item.id} className="border-b"><td className="px-10 py-4">{index+1}</td><td className="px-5 py-4">{item.name}</td><td className="px-5 py-4"><button onClick={()=>router.push("/analytics/flexible-dashboard")} className="text-[#4868e8]">Просмотреть</button></td><td className="px-5 py-4"><button onClick={()=>{setEditing(item);setName(item.name)}} className="text-[#4868e8]">Изменить</button></td><td className="px-5 py-4"><button onClick={()=>remove(item.id)} className="text-red-500">Удалить</button></td></tr>)}</tbody></table>{!rows.length&&<div className="flex h-[590px] flex-col items-center justify-center"><Image src="/robot-mascot.png" alt="Нет данных" width={160} height={160}/><p className="mt-5 text-[#657089]">По вашему запросу ничего не найдено</p></div>}</section></div>{isDialog&&<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"><section role="dialog" className="w-[620px] bg-white shadow-2xl"><header className="flex items-center justify-between border-b px-9 py-6"><h2 className="font-bold uppercase">{editing?"Изменить дашборд":"Создать дашборд"}</h2><button onClick={()=>{setEditing(null);setName("")}}><X/></button></header><div className="px-9 py-16"><label className="block border-b pb-2 font-semibold">Наименование <span className="text-red-500">*</span><input autoFocus value={name} onChange={e=>setName(e.target.value)} onKeyDown={e=>e.key==="Enter"&&save()} className="mt-4 block w-full outline-none"/></label></div><footer className="flex justify-end border-t px-9 py-5"><button disabled={!name.trim()||saving} onClick={save} className="rounded bg-[#71ce87] px-5 py-3 font-bold text-white disabled:opacity-40">{saving?"СОХРАНЕНИЕ...":"СОХРАНИТЬ"}</button></footer></section></div>}</main>
+  return (
+    <CatalogPageLayout>
+      <section className="min-w-0 flex-1">
+        <div className="flex h-[60px] items-center justify-between px-[15px]">
+          <ReportSearchField value={query} onChange={setQuery} width={300} />
+          <button onClick={openNew} className="mr-[3px] text-[13px] text-[#4f71dc]">+ добавить дашборд</button>
+        </div>
+        <table className="w-full table-fixed border-collapse text-left text-[13px]">
+          <thead className="bg-[#5d6474] text-white">
+            <tr className="h-[50px]"><th className="w-[130px] px-[30px] font-semibold">№</th><th className="px-[5px] font-semibold">Наименование</th><th className="w-[178px] font-semibold">Просмотреть</th><th className="w-[178px] font-semibold">Изменить</th><th className="w-[178px] font-semibold">Удалить</th></tr>
+          </thead>
+          <tbody>
+            {rows.map((item, index) => (
+              <tr key={item.id} className={`h-[50px] ${index % 2 ? "bg-white" : "bg-[#f2f5f8]"}`}>
+                <td className="px-[30px]">{item.id}</td>
+                <td className="px-[5px]">{item.name}</td>
+                <td><button onClick={() => router.push("/analytics/flexible-dashboard")} className="flex h-[30px] w-[141px] items-center justify-center rounded-[3px] bg-[#71ce87] text-[13px] font-semibold text-white hover:brightness-95"><Eye className="mr-2 h-4 w-4" />Просмотреть</button></td>
+                <td><button onClick={() => { setEditing(item); setName(item.name); setDialogOpen(true) }} className="flex h-[30px] w-[154px] items-center justify-center rounded-[3px] bg-[#4f71dc] text-[13px] font-semibold text-white hover:brightness-95">Изменить статус</button></td>
+                <td><button onClick={() => remove(item.id)} className="flex h-[30px] w-[109px] items-center justify-center rounded-[3px] bg-[#fa8072] text-[13px] font-semibold text-white hover:brightness-95"><Trash2 className="mr-2 h-4 w-4" />Удалить</button></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {!rows.length && <ReportEmpty className="pb-[40px] pt-[120px]" text="По вашему запросу ничего не найдено" />}
+      </section>
+
+      {dialogOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <section role="dialog" className="w-[620px] bg-white shadow-2xl">
+            <header className="flex items-center justify-between border-b px-9 py-6"><h2 className="text-[15px] font-bold uppercase">{editing ? "Изменить дашборд" : "Создать дашборд"}</h2><button onClick={() => { setEditing(null); setName(""); setDialogOpen(false) }}><X /></button></header>
+            <div className="px-9 py-16"><label className="block border-b pb-2 text-[13px] font-semibold">Наименование <span className="text-red-500">*</span><input autoFocus value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && save()} className="mt-4 block w-full outline-none" /></label></div>
+            <footer className="flex justify-end border-t px-9 py-5"><button disabled={!name.trim() || saving} onClick={save} className="rounded-[3px] bg-[#71ce87] px-5 py-3 text-[13px] font-bold text-white disabled:opacity-40">{saving ? "СОХРАНЕНИЕ..." : "СОХРАНИТЬ"}</button></footer>
+          </section>
+        </div>
+      )}
+    </CatalogPageLayout>
+  )
 }

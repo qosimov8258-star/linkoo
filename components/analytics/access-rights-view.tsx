@@ -166,22 +166,22 @@ export function AccessRightsView() {
       <table className="w-full border-collapse text-left">
         <thead>
           <tr className="border-b border-slate-200">
-            <th className="w-64 px-5 py-4 font-semibold text-slate-800">Права доступа</th>
-            <th className="px-5 py-4 font-semibold text-slate-800">Возможности</th>
+            <th className="w-[155px] px-5 py-3 text-[13px] font-bold text-black">Права доступа</th>
+            <th className="px-5 py-3 text-[13px] font-bold text-black">Возможности</th>
             <th className="w-20" />
           </tr>
         </thead>
         <tbody>
           {visible.map((role) => (
             <tr key={role.id} className="group border-b border-dashed border-slate-200 align-top hover:bg-slate-50">
-              <td className="whitespace-nowrap px-5 py-5 font-medium text-slate-800">{role.name}</td>
-              <td className="px-5 py-5">
-                <div className="flex flex-wrap gap-3">
+              <td className="whitespace-nowrap px-5 py-[12px] text-[13px]">{role.name}</td>
+              <td className="px-5 py-[7px]">
+                <div className="flex flex-wrap gap-[10px]">
                   {role.capabilityIds.map((id) => {
                     const capability = capabilityById.get(id)
                     if (!capability) return null
                     return (
-                      <span key={id} className="rounded bg-slate-100 px-4 py-2 text-sm text-slate-700">
+                      <span key={id} className="rounded-[3px] bg-[#eceff3] px-[14px] py-[8px] text-[13px] text-black">
                         {capability.name}
                       </span>
                     )
@@ -212,19 +212,19 @@ export function AccessRightsView() {
 
       {editing !== null && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
-          <form onSubmit={save} className="flex max-h-[85vh] w-full max-w-2xl flex-col rounded bg-white">
-            <header className="flex items-center justify-between border-b p-6">
-              <b className="uppercase">{editing === "new" ? "Создать права доступа" : "Изменить права доступа"}</b>
+          <form onSubmit={save} className="flex max-h-[92vh] w-[800px] max-w-full flex-col bg-white text-[13px]">
+            <header className="flex h-[60px] shrink-0 items-center justify-between border-b border-[#e8ebf0] pl-[30px] pr-[28px]">
+              <b className="uppercase">{editing === "new" ? "Добавление должности" : "Изменить права доступа"}</b>
               <button type="button" onClick={() => setEditing(null)} aria-label="Закрыть">
                 <X className="h-5 w-5" />
               </button>
             </header>
-            <div className="flex-1 overflow-y-auto p-8">
-              <label className="mb-6 block border-b border-slate-200 pb-2 font-medium">
+            <div className="flex-1 overflow-y-auto px-[30px] pb-[20px] pt-[20px]">
+              <label className="mb-[18px] block border-b border-[#d5dae1] pb-[4px] text-[10px] font-semibold">
                 Наименование <span className="text-red-500">*</span>
-                <input autoFocus value={draft.name} onChange={(event) => setDraft((value) => ({ ...value, name: event.target.value }))} className="mt-2 block w-full outline-none" />
+                <input autoFocus value={draft.name} onChange={(event) => setDraft((value) => ({ ...value, name: event.target.value }))} className="mt-[6px] block h-[24px] w-full text-[13px] font-normal outline-none" />
               </label>
-              <p className="mb-3 font-medium text-slate-700">Возможности</p>
+              
               <div className="grid gap-x-6 gap-y-2 sm:grid-cols-2">
                 {capabilities.map((item) => (
                   <div key={item.id} className="flex items-center gap-2 text-sm">
@@ -239,8 +239,8 @@ export function AccessRightsView() {
                 ))}
               </div>
             </div>
-            <footer className="flex justify-end border-t p-5">
-              <button type="submit" disabled={saving} className="rounded bg-[#71ce87] px-6 py-3 font-semibold text-white hover:brightness-95 disabled:opacity-60">
+            <footer className="flex h-[57px] shrink-0 items-center justify-end border-t border-[#e8ebf0] pr-[10px]">
+              <button type="submit" disabled={saving} className="h-9 min-w-[111px] rounded-[3px] bg-[#71ce87] px-[16px] text-[12px] font-bold uppercase text-white hover:brightness-95 disabled:opacity-60">
                 {saving ? "Сохранение..." : "Сохранить"}
               </button>
             </footer>

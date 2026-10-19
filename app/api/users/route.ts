@@ -26,6 +26,6 @@ export async function POST(request: Request) {
   if (parsed.error) return parsed.error
 
   const user = await createUser(parsed.data)
-  if (!user) return NextResponse.json({ error: "Bu login band" }, { status: 409 })
+  if (!user) return NextResponse.json({ error: "Этот логин уже занят" }, { status: 409 })
   return NextResponse.json(user, { status: 201 })
 }

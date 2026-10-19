@@ -421,7 +421,7 @@ const toolReports: AnalyticsReport[] = [
   {
     slug: "goods-movement",
     label: "Движение товаров",
-    href: "/analytics/stock-by-date",
+    href: "/analytics/goods-movement",
     description: "Движение товаров: поставки, возвраты, выдача и списание за период.",
     group: "tools",
   },
@@ -750,7 +750,7 @@ const toolReports: AnalyticsReport[] = [
   {
     slug: "debt-limits",
     label: "Установка ограничение на долги",
-    href: "/analytics/debt-limits",
+    href: "/clients",
     description: "Установка и контроль лимитов задолженности по клиентам.",
     group: "tools",
   },

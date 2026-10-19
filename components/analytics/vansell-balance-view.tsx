@@ -1,18 +1,9 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
-import {
-  ChevronDown,
-  Expand,
-  Filter,
-  Info,
-  MinusCircle,
-  Pencil,
-  PlusCircle,
-  Search,
-  X,
-} from "lucide-react"
-import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
+import { ChevronDown, Info, MinusCircle, Pencil, PlusCircle, X } from "lucide-react"
+import { RefHeader } from "@/components/ref/list-kit"
+import { ReportBalanceBoxes, ReportGridTable, ReportPage, ReportPager, ReportSearchField, type BalanceTone } from "@/components/ref/report-kit"
 
 type Money = { sum: number; usd: number; eur: number }
 type Vansel = {
@@ -127,182 +118,60 @@ export function VansellBalanceView() {
     }
   }
 
+  const lines = (m: Money) => (["eur", "sum", "usd"] as const).map((key) => ({ text: `${number(m[key])} ${key === "eur" ? "Euro" : key.toUpperCase()}`, tone: (m[key] > 0 ? "plus" : m[key] < 0 ? "minus" : "default") as BalanceTone }))
+  const zeros = [{ text: "0 Euro" }, { text: "0 SUM" }, { text: "0 USD" }]
+  const infoZeros = zeros.map((line) => ({ ...line, info: true }))
+  const cur = ["SUM", "USD", "Euro"]
+  const money = (m: Money) => [m.sum, m.usd, m.eur].map((value, index) => <AmountCell key={index} value={value} />)
+
   return (
-    <main className="min-h-screen bg-[#f2f5f8] text-[#17233b]">
-      <header className="flex min-h-[76px] items-center border-b border-[#d8dee7] bg-[#f2f5f8] px-6 md:px-9">
-        <div className="flex items-center gap-3">
-          <FavoritesButton className="flex items-center gap-3 text-2xl font-bold text-[#4f71dc]" />
-          <span className="text-3xl font-light text-[#586174]">|</span>
-          <span className="text-2xl font-bold text-[#586174]">Баланс вансел</span>
-        </div>
-      </header>
+    <ReportPage>
+      <div className="pl-[30px] pr-[38px]"><RefHeader title="Баланс вансел" /></div>
 
-      <section className="grid grid-cols-1 gap-6 border-b border-[#e1e5eb] bg-white px-6 py-6 sm:grid-cols-2 lg:grid-cols-4 md:px-9">
-        <div className="space-y-6">
-          <div>
-            <p className="text-[#586174]">Передача на склад</p>
-            <p className="font-semibold"><AmountCell value={transferToWarehouseTotal.eur} /> Euro</p>
-            <p className="font-semibold"><AmountCell value={transferToWarehouseTotal.sum} /> SUM</p>
-            <p className="font-semibold"><AmountCell value={transferToWarehouseTotal.usd} /> USD</p>
-          </div>
-          <div>
-            <p className="text-[#586174]">Возврат передачи</p>
-            <p className="font-semibold"><AmountCell value={transferReturnTotal.eur} /> Euro</p>
-            <p className="font-semibold"><AmountCell value={transferReturnTotal.sum} /> SUM</p>
-            <p className="font-semibold"><AmountCell value={transferReturnTotal.usd} /> USD</p>
-          </div>
-        </div>
+      <section className="border-b border-[#d9d9d9] bg-white pb-[1px] pt-[10px]">
+        <ReportBalanceBoxes
+          columns={[
+            { blocks: [{ title: "Передача на склад", lines: lines(transferToWarehouseTotal) }, { title: "Возврат передачи", lines: lines(transferReturnTotal) }] },
+            { blocks: [{ title: "Принятие оплаты", lines: infoZeros }, { title: "Отход", lines: zeros }] },
+            { blocks: [{ title: "Прочие приходы", lines: zeros }, { title: "Прочие расходы", lines: zeros }] },
+            { right: true, blocks: [{ title: "Баланс на начало периода", lines: lines(openingTotal) }, { title: "Баланс на конец периода", lines: lines(closingTotal) }] },
+          ]}
+        />
 
-        <div className="space-y-6">
-          <div>
-            <p className="text-[#586174]">Принятие оплаты</p>
-            <p className="flex items-center gap-1.5 font-semibold"><Info className="h-4 w-4 text-[#9aa3b6]" /> 0 Euro</p>
-            <p className="flex items-center gap-1.5 font-semibold"><Info className="h-4 w-4 text-[#9aa3b6]" /> 0 SUM</p>
-            <p className="flex items-center gap-1.5 font-semibold"><Info className="h-4 w-4 text-[#9aa3b6]" /> 0 USD</p>
-          </div>
-          <div>
-            <p className="text-[#586174]">Отход</p>
-            <p className="font-semibold">0 Euro</p>
-            <p className="font-semibold">0 SUM</p>
-            <p className="font-semibold">0 USD</p>
+        <div className="relative mx-[10px] mt-[16px] flex h-[50px] items-center border-t border-[#e8e8e8]">
+          <button onClick={() => setFilterOpen((value) => !value)} className="text-[13px] text-[#1ea1f2]">Показать фильтр ⌄</button>
+          {filterOpen && (
+            <div className="absolute left-0 top-[46px] z-20 w-[300px] bg-white p-5 shadow-[0_3px_10px_rgba(0,0,0,0.16),0_3px_10px_rgba(0,0,0,0.23)]">
+              <ReportSearchField value={search} onChange={(value) => { setSearch(value); setPage(1) }} width={260} label="Вансел" />
+            </div>
+          )}
+          <div className="absolute left-[490px]"><ReportSearchField value={search} onChange={(value) => { setSearch(value); setPage(1) }} width={180} /></div>
+          <div className="ml-auto flex items-center gap-[20px]">
+            <button onClick={() => setLimitModalOpen(true)} className="flex h-[30px] items-center rounded-[3px] bg-[#4f71dc] px-4 text-[13px] font-semibold text-white hover:brightness-95"><Pencil className="mr-[10px] h-[16px] w-[16px]" />Изменить лимит</button>
+            <ReportPager pageSize={pageSize} onPageSize={(size) => { setPageSize(size); setPage(1) }} rangeLabel={`${filtered.length ? (safePage - 1) * pageSize + 1 : 0} - ${Math.min(safePage * pageSize, filtered.length)} из ${filtered.length}`} canPrev={safePage > 1} canNext={safePage < maxPage} onPrev={() => setPage((value) => Math.max(1, value - 1))} onNext={() => setPage((value) => Math.min(maxPage, value + 1))} />
+            <button aria-label="Полный экран" onClick={() => document.documentElement.requestFullscreen?.()}><svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#444]"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z" /></svg></button>
           </div>
         </div>
 
-        <div className="space-y-6">
-          <div>
-            <p className="text-[#586174]">Прочие приходы</p>
-            <p className="font-semibold">0 Euro</p>
-            <p className="font-semibold">0 SUM</p>
-            <p className="font-semibold">0 USD</p>
-          </div>
-          <div>
-            <p className="text-[#586174]">Прочие расходы</p>
-            <p className="font-semibold">0 Euro</p>
-            <p className="font-semibold">0 SUM</p>
-            <p className="font-semibold">0 USD</p>
-          </div>
-        </div>
-
-        <div className="space-y-6 lg:text-right">
-          <div>
-            <p className="text-[#586174]">Баланс на начало периода</p>
-            <p className="font-semibold"><AmountCell value={openingTotal.eur} /> Euro</p>
-            <p className="font-semibold"><AmountCell value={openingTotal.sum} /> SUM</p>
-            <p className="font-semibold"><AmountCell value={openingTotal.usd} /> USD</p>
-          </div>
-          <div>
-            <p className="text-[#586174]">Баланс на конец периода</p>
-            <p className="font-semibold"><AmountCell value={closingTotal.eur} /> Euro</p>
-            <p className="font-semibold"><AmountCell value={closingTotal.sum} /> SUM</p>
-            <p className="font-semibold"><AmountCell value={closingTotal.usd} /> USD</p>
-          </div>
-        </div>
-      </section>
-
-      <section className="flex flex-wrap items-center gap-5 border-b border-[#e1e5eb] bg-white px-6 py-3 md:px-9">
-        <button onClick={() => setFilterOpen((value) => !value)} className="flex items-center gap-1 font-medium text-[#4f71dc]">
-          <Filter className="h-4 w-4" /> Показать фильтр <ChevronDown className={`h-4 w-4 transition ${filterOpen ? "rotate-180" : ""}`} />
-        </button>
-
-        <label className="relative min-w-[220px] flex-1 border-b border-[#dbe0e8] pb-1.5">
-          <input value={search} onChange={(event) => { setSearch(event.target.value); setPage(1) }} placeholder="Поиск" className="w-full bg-transparent pr-7 text-[15px] outline-none placeholder:text-[#9aa3b6]" />
-          <Search className="pointer-events-none absolute right-0 top-0.5 h-5 w-5 text-[#9aa3b6]" />
-        </label>
-
-        <button onClick={() => setLimitModalOpen(true)} className="flex h-11 items-center gap-2 rounded-md bg-[#4f71dc] px-5 font-semibold text-white">
-          <Pencil className="h-5 w-5" /> Изменить лимит
-        </button>
-
-        <select value={pageSize} onChange={(event) => { setPageSize(Number(event.target.value)); setPage(1) }} className="h-9 bg-transparent text-[#586174]">
-          <option value={10}>10</option>
-          <option value={25}>25</option>
-          <option value={50}>50</option>
-        </select>
-
-        <span className="text-[#586174]">{filtered.length ? (safePage - 1) * pageSize + 1 : 0} - {Math.min(safePage * pageSize, filtered.length)} из {filtered.length}</span>
-
-        <button disabled={safePage === 1} onClick={() => setPage((value) => Math.max(1, value - 1))} className="rounded-full border border-[#dbe0e8] p-1 text-[#9aa3b6] disabled:opacity-40">
-          <ChevronDown className="h-5 w-5 rotate-90" />
-        </button>
-        <button disabled={safePage === maxPage} onClick={() => setPage((value) => Math.min(maxPage, value + 1))} className="rounded-full border border-[#4f71dc] p-1 text-[#4f71dc] disabled:opacity-40">
-          <ChevronDown className="h-5 w-5 -rotate-90" />
-        </button>
-        <button aria-label="Полный экран" onClick={() => document.documentElement.requestFullscreen?.()} className="text-[#586174]"><Expand className="h-5 w-5" /></button>
-      </section>
-
-      {filterOpen && (
-        <section className="grid grid-cols-1 gap-6 border-b border-[#e1e5eb] bg-white px-6 py-6 sm:grid-cols-3 md:px-9">
-          <label className="block border-b border-[#dbe0e8] pb-2 text-[15px] font-medium">
-            Вансел
-            <input placeholder="Введите имя..." className="mt-1 block w-full bg-transparent text-[15px] font-normal outline-none placeholder:text-[#9aa3b6]" onChange={(event) => setSearch(event.target.value)} value={search} />
-          </label>
-        </section>
-      )}
-
-      <section className="overflow-x-auto bg-white pb-10">
-        <table className="min-w-[1750px] w-full border-collapse text-[14px]">
-          <thead className="bg-[#edf2f7] text-[#253653]">
-            <tr>
-              <th className="border border-[#e1e5eb] px-4 py-2" />
-              <th className="border border-[#e1e5eb] px-2 py-2" />
-              <th colSpan={3} className="border border-[#e1e5eb] px-4 py-2 text-center font-medium">Баланс на начало периода</th>
-              <th colSpan={3} className="border border-[#e1e5eb] px-4 py-2 text-center font-medium">Передача на склад</th>
-              <th colSpan={3} className="border border-[#e1e5eb] px-4 py-2 text-center font-medium">Возврат передачи</th>
-              <th colSpan={3} className="border border-[#e1e5eb] px-4 py-2 text-center font-medium">Наличные</th>
-              <th colSpan={3} className="border border-[#e1e5eb] px-4 py-2 text-center font-medium">Перечисление</th>
-              <th colSpan={3} className="border border-[#e1e5eb] px-4 py-2 text-center font-medium">Баланс на конец периода</th>
-            </tr>
-            <tr>
-              <th className="border border-[#e1e5eb] px-4 py-2 text-left font-semibold">Вансел</th>
-              <th className="border border-[#e1e5eb] px-2 py-2"><input type="checkbox" checked={allSelected} onChange={toggleAll} className="h-4 w-4 accent-[#4f71dc]" /></th>
-              {Array.from({ length: 6 }).map((_, groupIndex) =>
-                ["SUM", "USD", "Euro"].map((currency) => (
-                  <th key={`${groupIndex}-${currency}`} className="border border-[#e1e5eb] px-4 py-2 font-semibold">{currency}</th>
-                )),
-              )}
-            </tr>
-          </thead>
-          <tbody>
-            {visible.map((vansel, index) => {
-              const closing = closingBalance(vansel)
-              return (
-                <tr key={vansel.id} className={index % 2 ? "bg-[#f6f9fc]" : "bg-white"}>
-                  <td className="border border-[#e1e5eb] px-4 py-4">
-                    <div className="flex items-center gap-2">
-                      <button aria-label="Добавить расход" onClick={() => setModal({ type: "expense", vanselId: vansel.id })} className="text-[#ff5d63] hover:text-[#e5484d]"><MinusCircle className="h-6 w-6 fill-[#ff5d63] text-white" /></button>
-                      <button aria-label="Добавить" onClick={() => setModal({ type: "add", vanselId: vansel.id })} className="text-[#39ca79] hover:text-[#2fb56b]"><PlusCircle className="h-6 w-6 fill-[#39ca79] text-white" /></button>
-                      <span>{vansel.name}</span>
-                    </div>
-                  </td>
-                  <td className="border border-[#e1e5eb] px-2 py-4 text-center">
-                    <input type="checkbox" checked={selected.has(vansel.id)} onChange={() => toggleOne(vansel.id)} className="h-4 w-4 accent-[#4f71dc]" />
-                  </td>
-                  <td className="border border-[#e1e5eb] px-4 py-4"><AmountCell value={vansel.opening.sum} /></td>
-                  <td className="border border-[#e1e5eb] px-4 py-4"><AmountCell value={vansel.opening.usd} /></td>
-                  <td className="border border-[#e1e5eb] px-4 py-4"><AmountCell value={vansel.opening.eur} /></td>
-                  <td className="border border-[#e1e5eb] px-4 py-4"><AmountCell value={vansel.transferToWarehouse.sum} /></td>
-                  <td className="border border-[#e1e5eb] px-4 py-4"><AmountCell value={vansel.transferToWarehouse.usd} /></td>
-                  <td className="border border-[#e1e5eb] px-4 py-4"><AmountCell value={vansel.transferToWarehouse.eur} /></td>
-                  <td className="border border-[#e1e5eb] px-4 py-4"><AmountCell value={vansel.transferReturn.sum} /></td>
-                  <td className="border border-[#e1e5eb] px-4 py-4"><AmountCell value={vansel.transferReturn.usd} /></td>
-                  <td className="border border-[#e1e5eb] px-4 py-4"><AmountCell value={vansel.transferReturn.eur} /></td>
-                  <td className="border border-[#e1e5eb] px-4 py-4"><AmountCell value={vansel.cash.sum} /></td>
-                  <td className="border border-[#e1e5eb] px-4 py-4"><AmountCell value={vansel.cash.usd} /></td>
-                  <td className="border border-[#e1e5eb] px-4 py-4"><AmountCell value={vansel.cash.eur} /></td>
-                  <td className="border border-[#e1e5eb] px-4 py-4"><AmountCell value={vansel.transferred.sum} /></td>
-                  <td className="border border-[#e1e5eb] px-4 py-4"><AmountCell value={vansel.transferred.usd} /></td>
-                  <td className="border border-[#e1e5eb] px-4 py-4"><AmountCell value={vansel.transferred.eur} /></td>
-                  <td className="border border-[#e1e5eb] px-4 py-4"><AmountCell value={closing.sum} /></td>
-                  <td className="border border-[#e1e5eb] px-4 py-4"><AmountCell value={closing.usd} /></td>
-                  <td className="border border-[#e1e5eb] px-4 py-4"><AmountCell value={closing.eur} /></td>
-                </tr>
-              )
-            })}
-            {visible.length === 0 && (
-              <tr><td colSpan={20} className="border border-[#e1e5eb] px-4 py-16 text-center text-[#9aa3b6]">Ничего не найдено</td></tr>
-            )}
-          </tbody>
-        </table>
+        <ReportGridTable
+          minWidth={1750}
+          loading={loading}
+          colWidths={["230px", "30px", ...Array.from({ length: 15 }, () => "")]}
+          groups={[{ title: "", span: 2 }, ...["Баланс на начало периода", "Передача на склад", "Возврат передачи", "Наличные", "Перечисление", "Баланс на конец периода"].map((title) => ({ title, span: 3 }))]}
+          heads={["Вансел", <input key="all" type="checkbox" checked={allSelected} onChange={toggleAll} className="h-[14px] w-[14px] accent-[#444]" />, ...Array.from({ length: 6 }).flatMap(() => cur)]}
+          rows={visible.map((vansel) => {
+            const closing = closingBalance(vansel)
+            return [
+              <div key="n" className="flex items-center gap-[10px]">
+                <span className="w-[100px] truncate">{vansel.name}</span>
+                <button aria-label="Добавить расход" onClick={() => setModal({ type: "expense", vanselId: vansel.id })}><MinusCircle className="h-[22px] w-[22px] fill-[#ff5d63] text-white" /></button>
+                <button aria-label="Добавить" onClick={() => setModal({ type: "add", vanselId: vansel.id })}><PlusCircle className="h-[22px] w-[22px] fill-[#71ce87] text-white" /></button>
+              </div>,
+              <input key="c" type="checkbox" checked={selected.has(vansel.id)} onChange={() => toggleOne(vansel.id)} className="h-[14px] w-[14px] accent-[#444]" />,
+              ...money(vansel.opening), ...money(vansel.transferToWarehouse), ...money(vansel.transferReturn), ...money(vansel.cash), ...money(vansel.transferred), ...money(closing),
+            ]
+          })}
+        />
       </section>
 
       {modal && (
@@ -318,7 +187,7 @@ export function VansellBalanceView() {
       )}
 
       {limitModalOpen && <LimitModal count={selected.size || visible.length} onClose={() => setLimitModalOpen(false)} />}
-    </main>
+    </ReportPage>
   )
 }
 

@@ -153,8 +153,8 @@ export function AnalyticsReportView({ report }: { report: AnalyticsReport }) {
               <ArrowLeft className="h-4 w-4" />
               На главную
             </Link>
-            <div className="flex items-center gap-3">
-              <h1 className="text-2xl font-bold text-slate-800 sm:text-3xl">{report.label}</h1>
+            <div className="flex h-[60px] flex-wrap items-center justify-between gap-3">
+              <h1 className="flex items-center text-[18px] font-bold text-[#5d6474]">{report.label}</h1>
               <button
                 type="button"
                 onClick={toggleFavorite}

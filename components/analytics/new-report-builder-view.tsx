@@ -1,9 +1,11 @@
 "use client"
 
 import { useEffect, useMemo, useRef, useState } from "react"
-import { Bookmark, ChevronDown, ChevronUp, Download, FileText, FolderOpen, Pencil, Search, Trash2, X } from "lucide-react"
+import { Bookmark, ChevronDown, Download, FileText, FolderOpen, Info, Pencil, Search, Trash2, X } from "lucide-react"
 import { downloadExcelTable } from "@/lib/excel-export"
-import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
+import { RefHeader } from "@/components/ref/list-kit"
+import { ReportPage } from "@/components/ref/report-kit"
+import { CHECKBOX, INFO_ITEMS } from "./visit-builder-view"
 import { useLanguage } from "@/lib/i18n/language-context"
 import type { NewReportBuilderSave } from "@/lib/new-report-builder-repo"
 
@@ -20,7 +22,25 @@ function List({ title, items, selected, setSelected }: { title: string; items: s
   const [query, setQuery] = useState("")
   const visible = items.filter((item) => item.toLowerCase().includes(query.toLowerCase()))
   const toggle = (item: string) => setSelected(selected.includes(item) ? selected.filter((value) => value !== item) : [...selected, item])
-  return <section className="min-w-0 border-r border-slate-200 px-6 last:border-0"><h2 className="mb-3 text-xl font-semibold">{t(title)}</h2><label className="relative mb-4 block"><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={`${t("Поиск")} ${t(title).toLowerCase()}...`} className="w-full border border-slate-300 bg-slate-50 px-3 py-3 pr-10 outline-none focus:border-[#4f71dc]" /><Search className="absolute right-3 top-3 h-6 w-6 text-slate-600" /></label><div className="space-y-3">{visible.map((item) => <label key={item} className="flex cursor-pointer items-center gap-3 text-[16px] font-medium"><input type="checkbox" checked={selected.includes(item)} onChange={() => toggle(item)} className="h-5 w-5 accent-[#4f71dc]" />{t(item)}</label>)}{visible.length === 0 && <p className="text-slate-400">{t("Ничего не найдено")}</p>}</div></section>
+  return (
+    <section className="min-w-0 border-r border-[#ececec] px-[20px] pb-[30px] pt-[20px] last:border-0">
+      <h2 className="text-[15px] font-bold leading-[18px]">{t(title)}</h2>
+      <label className="relative mt-[11px] block">
+        <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={`${t("Поиск")} ${t(title).toLowerCase()}...`} className="h-[42px] w-full rounded-[3px] bg-[#f2f5f8] px-[11px] pr-10 text-[12px] outline-none placeholder:text-[#999]" />
+        <Search className="absolute right-3 top-1/2 h-5 w-5 -translate-y-1/2" />
+      </label>
+      <div className="mt-[14px]">
+        {visible.map((item) => (
+          <label key={item} className="flex min-h-[30px] cursor-pointer items-center gap-[9px] text-[13px] font-medium">
+            <input type="checkbox" checked={selected.includes(item)} onChange={() => toggle(item)} className={CHECKBOX} />
+            {t(item)}
+            {INFO_ITEMS.has(item) && <Info className="h-[18px] w-[18px] text-[#555]" />}
+          </label>
+        ))}
+        {visible.length === 0 && <p className="text-[#999]">{t("Ничего не найдено")}</p>}
+      </div>
+    </section>
+  )
 }
 
 export function NewReportBuilderView() {
@@ -146,12 +166,51 @@ export function NewReportBuilderView() {
     }
   }
 
-  return <main className="min-h-[calc(100vh-4rem)] bg-[#f2f5f8] text-[#17233b]">
-    <header className="flex flex-wrap items-center gap-5 border-b border-slate-200 px-9 py-4"><FavoritesButton className="flex items-center gap-2 text-2xl font-bold text-[#4f71dc]" /><span className="text-3xl text-slate-500">|</span><span className="text-2xl font-bold text-slate-600">{t("Конструктор")}</span><div className="ml-auto flex flex-wrap shadow-sm">{mainReportTypes.map((item, index) => <button type="button" key={item} onClick={() => { setType(item); setGenerated(false); setOthersOpen(false) }} className={`border border-slate-200 px-5 py-3 text-sm font-medium ${index === 0 ? "rounded-l-md" : "-ml-px"} ${type === item ? "bg-[#27cd58] text-white" : "bg-white"}`}>{t(item)}</button>)}<div ref={othersRef} className="relative -ml-px"><button type="button" onClick={() => setOthersOpen((value) => !value)} className={`rounded-r-md border border-slate-200 px-5 py-3 text-sm font-medium ${isOtherActive ? "bg-[#27cd58] text-white" : "bg-white"}`}>{t("ДРУГИЕ")}</button>{othersOpen && <div role="menu" className="absolute right-0 top-full z-50 mt-1 max-h-[420px] w-[380px] overflow-y-auto rounded-md border border-slate-200 bg-white shadow-xl">{otherReportTypes.map((item) => <button type="button" role="menuitem" key={item} onClick={() => { setType(item); setGenerated(true); setSettings(false); setOthersOpen(false) }} className={`block w-full border-b border-slate-100 px-5 py-4 text-left text-[15px] last:border-b-0 hover:bg-slate-100 ${type === item ? "bg-slate-100 font-semibold text-[#4f71dc]" : "text-slate-700"}`}>{t(item)}</button>)}</div>}</div></div></header>
-    <section className="flex flex-wrap items-center gap-4 border-b bg-white px-9 py-4"><button onClick={openSaveModal} className="flex items-center gap-2 rounded-md bg-[#4f71dc] px-5 py-3 font-semibold text-white"><Bookmark className="h-5 w-5" />{saved ? t("Сохранено ✓") : t("Сохранить")}</button><button onClick={openReports} className="flex items-center gap-2 rounded-md bg-[#ff8967] px-5 py-3 font-semibold text-white"><FolderOpen className="h-5 w-5" />{t("Отчеты")}</button><button onClick={exportExcel} className="flex items-center gap-2 rounded-md bg-[#4db6ac] px-5 py-3 font-semibold text-white"><Download className="h-5 w-5" />{t("Скачать")}</button><span className="ml-auto font-bold text-[#4f71dc]">{t("01 Авг. 2026 - 31 Авг. 2026")}</span><button onClick={() => setSettings((value) => !value)} className="flex items-center gap-2 rounded-md bg-[#4f71dc] px-5 py-3 font-semibold text-white">{settings ? t("СКРЫТЬ НАСТРОЙКИ") : t("ПОКАЗАТЬ НАСТРОЙКИ")}{settings ? <ChevronUp /> : <ChevronDown />}</button><button onClick={generate} className="rounded-md bg-[#27cd58] px-6 py-3 font-semibold text-white">{t("СФОРМИРОВАТЬ ОТЧЕТ")}</button></section>
-    {message && <div className="flex items-center justify-between border-b border-blue-100 bg-blue-50 px-9 py-2 text-sm text-blue-700">{message}<button type="button" onClick={() => setMessage("")} aria-label={t("Закрыть сообщение")}>×</button></div>}
-    {settings && <section className="grid grid-cols-1 bg-white py-3 xl:grid-cols-[1fr_1fr_1fr_1.05fr]"><List title="Колонки" items={columns} selected={selectedColumns} setSelected={setSelectedColumns} /><List title="Вертикальная группировка" items={groups} selected={vertical} setSelected={setVertical} /><List title="Горизонтальная группировка" items={groups} selected={horizontal} setSelected={setHorizontal} /><section className="px-8"><h2 className="mb-3 text-xl font-semibold">{t("Фильтр")}</h2><label className="mb-5 flex items-center gap-3 font-semibold"><input type="checkbox" checked={showTotals} onChange={(event) => setShowTotals(event.target.checked)} className="h-5 w-5 accent-[#4f71dc]" />{t("Показать итоги")}</label><div>{filters.map((filter) => <button type="button" key={filter} onClick={() => setActiveFilters((current) => current.includes(filter) ? current.filter((item) => item !== filter) : [...current, filter])} className={`flex w-full items-center justify-between border-b py-4 text-left ${activeFilters.includes(filter) ? "font-semibold text-[#4f71dc]" : ""}`}>{t(filter)}<ChevronDown className="h-4 w-4 text-slate-400" /></button>)}</div>{customFilters.map((filter, index) => <input key={`${filter}-${index}`} placeholder={t("Значение фильтра")} className="mt-3 w-full border-b p-2 outline-none" />)}<button onClick={() => setCustomFilters((current) => [...current, ""])} className="mt-5 w-full rounded-md bg-[#4f71dc] py-3 font-semibold text-white">{t("ДОБАВИТЬ ИНДИВИДУАЛЬНЫЙ ФИЛЬТР")}</button></section></section>}
-    {generated && <section className="m-8 overflow-x-auto rounded-md bg-white shadow-sm"><header className="flex items-center gap-2 border-b px-6 py-4 font-semibold"><FileText className="h-5 w-5 text-[#4f71dc]" />{t(type)}</header><table className="min-w-full border-collapse"><thead className="bg-slate-100"><tr>{displayGroups.map((item) => <th key={item} className="border px-4 py-3 text-left">{t(item)}</th>)}{displayColumns.map((item) => <th key={item} className="border px-4 py-3 text-right">{t(item)}</th>)}</tr></thead><tbody>{resultRows.map((row) => <tr key={row.name}><td className="border px-4 py-3">{row.name}</td>{row.values.map((value, index) => <td key={index} className="border px-4 py-3 text-right">{value.toLocaleString("ru-RU")}</td>)}</tr>)}{showTotals && <tr className="bg-slate-100 font-bold"><td className="border px-4 py-3">{t("Итого")}</td>{displayColumns.map((_, index) => <td key={index} className="border px-4 py-3 text-right">{resultRows.reduce((sum, row) => sum + row.values[index], 0).toLocaleString("ru-RU")}</td>)}</tr>}</tbody></table></section>}
+  return <ReportPage>
+    <div className="pl-[30px] pr-[38px]">
+      <RefHeader title={t("Конструктор")}>
+        <div className="flex shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
+          {mainReportTypes.map((item, index) => <button type="button" key={item} onClick={() => { setType(item); setGenerated(false); setOthersOpen(false) }} className={`h-[30px] px-4 text-[13px] font-medium transition-colors ${index === 0 ? "rounded-l-[3px]" : ""} ${type === item ? "bg-[#2bcd53] text-white" : "bg-white text-black hover:bg-[#f2f5f8]"}`}>{t(item)}</button>)}
+          <div ref={othersRef} className="relative">
+            <button type="button" onClick={() => setOthersOpen((value) => !value)} className={`h-[30px] rounded-r-[3px] px-4 text-[13px] font-medium ${isOtherActive ? "bg-[#2bcd53] text-white" : "bg-white text-black"}`}>{t("ДРУГИЕ")}</button>
+            {othersOpen && <div role="menu" className="absolute right-0 top-full z-50 mt-1 max-h-[420px] w-[380px] overflow-y-auto border border-[#e8e8e8] bg-white shadow-xl">{otherReportTypes.map((item) => <button type="button" role="menuitem" key={item} onClick={() => { setType(item); setGenerated(true); setSettings(false); setOthersOpen(false) }} className={`block w-full border-b border-[#f1f1f1] px-5 py-3 text-left text-[13px] last:border-b-0 hover:bg-[#f2f5f8] ${type === item ? "bg-[#f2f5f8] font-semibold text-[#4f71dc]" : ""}`}>{t(item)}</button>)}</div>}
+          </div>
+        </div>
+      </RefHeader>
+    </div>
+    <section className="mx-7 bg-white shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
+      <div className="flex h-[60px] flex-wrap items-center gap-[15px] px-[30px]">
+        <button onClick={() => { if (generated) openSaveModal() }} className="flex h-[38px] items-center rounded-[3px] bg-[#4f71dc] px-[15px] text-[13px] font-semibold text-white hover:brightness-95"><Bookmark className="mr-3 h-[18px] w-[18px] fill-white" />{saved ? t("Сохранено ✓") : t("Сохранить")}</button>
+        <button onClick={openReports} className="flex h-[38px] items-center rounded-[3px] bg-[#ff8a6f] px-[15px] text-[13px] font-semibold text-white hover:brightness-95"><FolderOpen className="mr-3 h-[18px] w-[18px] fill-white" />{t("Отчеты")}</button>
+        <button onClick={() => { if (generated) exportExcel() }} className="flex h-[38px] items-center rounded-[3px] bg-[#4db6ac] px-[15px] text-[13px] font-semibold text-white hover:brightness-95"><Download className="mr-3 h-[18px] w-[18px]" />{t("Скачать")}</button>
+        <div className="ml-auto flex flex-wrap items-center gap-[19px]">
+          <span className="text-[12px] font-bold text-[#4f71dc]">{t("01 Авг. 2026 - 31 Авг. 2026")}</span>
+          <button onClick={() => setSettings((value) => !value)} className="h-[38px] w-[215px] rounded-[3px] bg-[#4f71dc] text-[13px] font-medium text-white shadow-[0_2px_5px_rgba(0,0,0,0.2)] hover:brightness-95">{settings ? t("СКРЫТЬ НАСТРОЙКИ") : t("ПОКАЗАТЬ НАСТРОЙКИ")} {settings ? "▲" : "▼"}</button>
+          <button onClick={generate} className="h-[38px] w-[195px] rounded-[3px] bg-[#2bcd53] text-[13px] font-medium text-white shadow-[0_2px_5px_rgba(0,0,0,0.2)] hover:brightness-95">{t("СФОРМИРОВАТЬ ОТЧЕТ")}</button>
+        </div>
+      </div>
+      {message && <div className="flex items-center justify-between border-b border-blue-100 bg-blue-50 px-9 py-2 text-[13px] text-blue-700">{message}<button type="button" onClick={() => setMessage("")} aria-label={t("Закрыть сообщение")}>×</button></div>}
+      {settings && (
+        <div className="grid grid-cols-1 border-t border-[#ececec] shadow-[0_2px_6px_rgba(0,0,0,0.12)] lg:grid-cols-4">
+          <List title="Колонки" items={columns} selected={selectedColumns} setSelected={setSelectedColumns} />
+          <List title="Вертикальная группировка" items={groups} selected={vertical} setSelected={setVertical} />
+          <List title="Горизонтальная группировка" items={groups} selected={horizontal} setSelected={setHorizontal} />
+          <section className="px-[20px] pb-[20px] pt-[20px]">
+            <h2 className="text-[15px] font-bold leading-[18px]">{t("Фильтр")}</h2>
+            <label className="mt-[11px] flex cursor-pointer items-center gap-[9px] text-[13px] font-medium"><input type="checkbox" checked={showTotals} onChange={(event) => setShowTotals(event.target.checked)} className={CHECKBOX} />{t("Показать итоги")}</label>
+            <div className="mt-[8px]">{filters.map((filter) => (
+              <button type="button" key={filter} onClick={() => setActiveFilters((current) => current.includes(filter) ? current.filter((item) => item !== filter) : [...current, filter])} className={`relative mt-[22px] block h-[45px] w-full border-b border-[#e0e0e0] text-left text-[13px] ${activeFilters.includes(filter) ? "font-semibold text-[#4f71dc]" : ""}`}>
+                <span className="absolute inset-x-0 top-[18px]">{t(filter)}</span>
+                <svg viewBox="0 0 24 24" className="pointer-events-none absolute bottom-[4px] right-0 h-6 w-6 fill-[#999]" aria-hidden><path d="M7 10l5 5 5-5z" /></svg>
+              </button>
+            ))}</div>
+            {customFilters.map((filter, index) => <input key={`${filter}-${index}`} placeholder={t("Значение фильтра")} className="mt-3 w-full border-b p-2 outline-none" />)}
+            <button onClick={() => setCustomFilters((current) => [...current, ""])} className="mt-[18px] h-9 w-full rounded-[3px] bg-[#4f71dc] text-[13px] font-medium uppercase text-white hover:brightness-95">{t("ДОБАВИТЬ ИНДИВИДУАЛЬНЫЙ")}</button>
+          </section>
+        </div>
+      )}
+    </section>
+    {generated && <section className="mx-7 mt-3 overflow-x-auto bg-white shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]"><header className="flex items-center gap-2 border-b px-6 py-4 font-semibold"><FileText className="h-5 w-5 text-[#4f71dc]" />{t(type)}</header><table className="min-w-full border-collapse"><thead className="bg-slate-100"><tr>{displayGroups.map((item) => <th key={item} className="border px-4 py-3 text-left">{t(item)}</th>)}{displayColumns.map((item) => <th key={item} className="border px-4 py-3 text-right">{t(item)}</th>)}</tr></thead><tbody>{resultRows.map((row) => <tr key={row.name}><td className="border px-4 py-3">{row.name}</td>{row.values.map((value, index) => <td key={index} className="border px-4 py-3 text-right">{value.toLocaleString("ru-RU")}</td>)}</tr>)}{showTotals && <tr className="bg-slate-100 font-bold"><td className="border px-4 py-3">{t("Итого")}</td>{displayColumns.map((_, index) => <td key={index} className="border px-4 py-3 text-right">{resultRows.reduce((sum, row) => sum + row.values[index], 0).toLocaleString("ru-RU")}</td>)}</tr>}</tbody></table></section>}
 
     {saveModalOpen && (
       <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/45 p-4" onMouseDown={() => setSaveModalOpen(false)}>
@@ -224,5 +283,5 @@ export function NewReportBuilderView() {
         </div>
       </aside>
     )}
-  </main>
+  </ReportPage>
 }

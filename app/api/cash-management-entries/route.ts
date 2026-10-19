@@ -20,7 +20,7 @@ const cashManagementEntrySchema = z.object({
 
 export async function GET(request: NextRequest) {
   const user = await getCurrentUser()
-  if (!user) return NextResponse.json({ error: "Tizimga kirilmagan" }, { status: 401 })
+  if (!user) return NextResponse.json({ error: "Вы не вошли в систему" }, { status: 401 })
 
   const cashboxIdParam = request.nextUrl.searchParams.get("cashboxId")
   const cashboxId = cashboxIdParam ? Number(cashboxIdParam) : undefined

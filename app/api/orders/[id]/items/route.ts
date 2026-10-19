@@ -21,7 +21,7 @@ const orderItemSchema = z.object({
 
 export async function GET(_request: Request, { params }: RouteParams) {
   const user = await getCurrentUser()
-  if (!user) return NextResponse.json({ error: "Tizimga kirilmagan" }, { status: 401 })
+  if (!user) return NextResponse.json({ error: "Вы не вошли в систему" }, { status: 401 })
 
   const orderId = Number((await params).id)
   return NextResponse.json(await listOrderItems(orderId))

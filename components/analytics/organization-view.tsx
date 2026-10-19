@@ -200,7 +200,7 @@ export function OrganizationView({ embedded = false }: { embedded?: boolean }) {
             <tr><td colSpan={3} className="px-9 py-10 text-center text-red-600">{loadError}</td></tr>
           ) : visible.map((organization) => (
             <tr key={organization.id} className="group border-b border-dashed border-slate-300 hover:bg-slate-50">
-              <td className="px-9 py-4 font-medium text-[#4f71dc]">{organization.name}</td>
+              <td className="px-9 py-4 font-medium">{organization.name}</td>
               <td className="px-5 py-4">{organization.limitByDebt ? "С ограничением" : "Без ограничения"}</td>
               <td className="px-5 py-4">
                 <div className="hidden items-center justify-end gap-3 text-slate-500 group-hover:flex">

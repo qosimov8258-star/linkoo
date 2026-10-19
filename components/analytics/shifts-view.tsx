@@ -37,10 +37,10 @@ export function ShiftsView({ embedded = false }: { embedded?: boolean }) {
   return (
     <main className={embedded ? "min-w-0 flex-1" : "min-h-[calc(100vh-4rem)] bg-[#f2f5f8] px-7 pb-7"}>
       {!embedded && (
-        <header className="mb-5">
-          <h1 className="text-2xl font-bold text-slate-600">
-            <FavoritesButton className="inline-flex items-center gap-2 text-[#4f71dc]" />
-            <span className="mx-2 text-slate-400">|</span> Смена
+        <header className="flex h-[60px] flex-wrap items-center justify-between gap-3">
+          <h1 className="flex items-center text-[18px] font-bold text-[#5d6474]">
+            <FavoritesButton className="flex items-center gap-[5px] text-[18px] font-bold text-[#4f71dc]" />
+            <span className="mx-[11px] inline-block h-[21px] w-[2px] bg-[#5d6474]" /> Смена
           </h1>
         </header>
       )}
@@ -62,22 +62,22 @@ export function ShiftsView({ embedded = false }: { embedded?: boolean }) {
         <table className="w-full text-left">
           <thead className="bg-[#5d6474] text-white">
             <tr>
-              <th className="px-9 py-5">Смена</th>
-              <th className="px-5 py-5">Пользователь</th>
-              <th className="px-5 py-5">Дата создания</th>
-              <th className="px-5 py-5">В начале</th>
-              <th className="px-5 py-5">Пришло</th>
-              <th className="px-5 py-5">Расход</th>
-              <th className="px-5 py-5">Ожидается</th>
-              <th className="px-5 py-5">Фактически</th>
-              <th className="px-5 py-5">Разнится</th>
-              <th className="px-5 py-5">Дата закрытия</th>
+              <th className="px-9 py-4 text-[13px]">Смена</th>
+              <th className="px-5 py-4 text-[13px]">Пользователь</th>
+              <th className="px-5 py-4 text-[13px]">Дата создания</th>
+              <th className="px-5 py-4 text-[13px]">В начале</th>
+              <th className="px-5 py-4 text-[13px]">Пришло</th>
+              <th className="px-5 py-4 text-[13px]">Расход</th>
+              <th className="px-5 py-4 text-[13px]">Ожидается</th>
+              <th className="px-5 py-4 text-[13px]">Фактически</th>
+              <th className="px-5 py-4 text-[13px]">Разнится</th>
+              <th className="px-5 py-4 text-[13px]">Дата закрытия</th>
             </tr>
           </thead>
           <tbody>
             {rows.map((shift) => (
               <tr key={shift.id} className="border-b border-dashed border-slate-300 hover:bg-slate-50">
-                <td className="px-9 py-4 text-[#4f71dc]">{shift.name}</td>
+                <td className="px-9 py-4">{shift.name}</td>
                 <td className="px-5 py-4">{shift.user}</td>
                 <td className="px-5 py-4">{shift.createdAt}</td>
                 <td className="px-5 py-4">{formatSum(shift.opening)}</td>
@@ -94,7 +94,7 @@ export function ShiftsView({ embedded = false }: { embedded?: boolean }) {
 
         {rows.length === 0 && (
           <div className="flex min-h-[340px] flex-col items-center justify-center gap-4 py-10">
-            <Image src="/robot-mascot.png" alt="Робот-помощник" width={150} height={150} priority className="h-36 w-36 object-contain" />
+            <Image src="/robot-empty.png" alt="Робот-помощник" width={150} height={150} priority className="h-36 w-36 object-contain" />
             <p className="text-lg text-slate-400">По вашему запросу ничего не найдено</p>
           </div>
         )}

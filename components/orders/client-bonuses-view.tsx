@@ -346,7 +346,7 @@ export function ClientBonusesView() {
                   )) : (
                     <tr>
                       <td colSpan={7} className="py-10 text-center text-[#7e8792]">
-                        <img src="/robot-mascot.png" alt="" className="mx-auto mb-3 h-48 w-48 object-contain" />
+                        <img src="/robot-empty.png" alt="" className="mx-auto mb-3 h-48 w-48 object-contain" />
                         {t("У этого клиента нету бонусов")}
                       </td>
                     </tr>

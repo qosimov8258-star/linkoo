@@ -4,8 +4,9 @@ import { ChangeEvent, FormEvent, useEffect, useState } from "react"
 
 import { downloadExcelTable } from "@/lib/excel-export"
 import { mapHeaderColumns, readExcelRows } from "@/lib/excel-import"
-import { EmptyState, HoverActions, ImportDialog, LineField, ListToolbar, Modal, SaveButton, grayHead, listRow } from "@/components/analytics/catalog-ui"
+import { CheckBox, EmptyState, HoverActions, ImportDialog, LineField, LineSelect, ListToolbar, Modal, SaveLink, ToggleRow, grayHead, listRow } from "@/components/analytics/catalog-ui"
 import { useLanguage } from "@/lib/i18n/language-context"
+import { refDate } from "@/lib/ref-date"
 
 type ClientType = { id: number; name: string; supplier: string; date: string }
 
@@ -24,11 +25,23 @@ export function ClientTypesView({ embedded = false }: { embedded?: boolean }) {
   const { t } = useLanguage()
   const [items, setItems] = useState(initialTypes)
   const [query, setQuery] = useState("")
+  const [parentCategory, setParentCategory] = useState(false)
+  const [needInn, setNeedInn] = useState(false)
   const [editing, setEditing] = useState<ClientType | null>(null)
   const [draft, setDraft] = useState({ name: "", supplier: "" })
   const [importOpen, setImportOpen] = useState(false)
   const [importFile, setImportFile] = useState<File | null>(null)
   const [importSaving, setImportSaving] = useState(false)
+  const [suppliers, setSuppliers] = useState<string[]>([])
+
+  useEffect(() => {
+    fetch("/api/clients")
+      .then((response) => (response.ok ? response.json() : []))
+      .then((rows: { deliverer?: string }[]) => {
+        if (Array.isArray(rows)) setSuppliers([...new Set(rows.map((row) => row.deliverer ?? "").filter((name) => name && name !== "Не указано"))].sort((a, b) => a.localeCompare(b, "ru")))
+      })
+      .catch(() => {})
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -155,24 +168,22 @@ export function ClientTypesView({ embedded = false }: { embedded?: boolean }) {
   }
 
   void embedded
-  const gridCols = "grid-cols-[456px_336px_1fr]"
+  const gridCols = "grid-cols-[422px_312px_1fr]"
   return (
     <div className="min-h-[calc(100vh-50px)] min-w-0 flex-1 bg-white text-[13px] text-[#333]">
       <ListToolbar
+        slim
         addLabel={t("добавить тип клиента")}
         onAdd={openAdd}
-        query={query}
-        onQuery={setQuery}
-        extra={<button type="button" onClick={() => setImportOpen(true)} className="ml-[24px] pt-[8px] text-[13px] text-[#4f71dc] hover:underline">{t("Импорт с Excel")}</button>}
       />
       <div className={`${grayHead} ${gridCols}`}>
         <span>{t("Наименование")}</span><span>{t("Доставщик")}</span><span>{t("Дата создания")}</span>
       </div>
       {visible.map((item) => (
-        <div key={item.id} onClick={() => openEdit(item)} className={`${listRow} ${gridCols}`}>
+        <div key={item.id} className={`${listRow} ${gridCols}`}>
           <span className="pr-4 font-bold">{item.name}</span>
           <span>{item.supplier}</span>
-          <span>{item.date.replace(/\s*г\.$/, "")}</span>
+          <span>{refDate(item.date) || item.date.replace(/\s*г\.$/, "")}</span>
           <HoverActions offset={70} onEdit={() => openEdit(item)} onDelete={() => void remove(item.id)} />
         </div>
       ))}
@@ -182,10 +193,12 @@ export function ClientTypesView({ embedded = false }: { embedded?: boolean }) {
         <Modal
           title={editing.id ? t("Изменить тип клиента") : t("Добавить тип клиента")}
           onClose={() => setEditing(null)}
-          footer={<SaveButton disabled={!draft.name.trim()} onClick={() => void save({ preventDefault() {} } as FormEvent)}>{t("Сохранить")}</SaveButton>}
+          footer={<SaveLink onClick={() => void save({ preventDefault() {} } as FormEvent)}>{t("Сохранить")}</SaveLink>}
         >
-          <LineField label={t("Наименование")} required value={draft.name} onChange={(value) => setDraft({ ...draft, name: value })} />
-          <div className="mt-[27px]"><LineField label={t("Доставщик")} value={draft.supplier} onChange={(value) => setDraft({ ...draft, supplier: value })} /></div>
+          <ToggleRow checked={parentCategory} onChange={setParentCategory} label={t("Добавить родительскую категорию")} />
+          <div className="mt-[27px]"><LineField label={t("Наименование")} required value={draft.name} onChange={(value) => setDraft({ ...draft, name: value })} /></div>
+          <div className="mt-[27px]"><LineSelect label={t("Доставщик")} required value={draft.supplier} onChange={(value) => setDraft({ ...draft, supplier: value })} onClear={() => setDraft({ ...draft, supplier: "" })} options={[...new Set([...(draft.supplier ? [draft.supplier] : []), ...suppliers])]} /></div>
+          <div className="mt-[16px]"><CheckBox checked={needInn} onChange={setNeedInn} label={t("Требуется ИНН")} /></div>
         </Modal>
       )}
 

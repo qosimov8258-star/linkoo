@@ -17,7 +17,7 @@ import {
 
 import { downloadExcelTable } from "@/lib/excel-export"
 import { mapHeaderColumns, readExcelRows } from "@/lib/excel-import"
-import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
+import { RefHeader, RefPage } from "@/components/ref/list-kit"
 import { useLanguage } from "@/lib/i18n/language-context"
 
 const PRODUCT_IMPORT_ALIASES: Record<string, string> = {
@@ -37,7 +37,22 @@ type Product = { id: number; stageId: number; name: string; type: string; quanti
 type Operation = { id: number; stageId: number; name: string; type: string; equipment: string }
 type SimpleRow = { id: number; stageId: number; name: string; role: string; value: string }
 
-const initialStages: Stage[] = []
+const initialStages: Stage[] = [
+  { id: 1, name: "Konditer maxsulotlari" },
+  { id: 2, name: "demotest_proizvotsva_1" },
+  { id: 3, name: "Sendvich Bolochka" },
+  { id: 4, name: "Klub Sendvich" },
+  { id: 5, name: "NEW MANAFACTURING" },
+  { id: 6, name: "УПК" },
+  { id: 7, name: "Мойка" },
+  { id: 8, name: "1-chistka" },
+  { id: 9, name: "Supervayzer funksiyalari" },
+  { id: 10, name: "Agent funksiyalari" },
+  { id: 11, name: "DSP" },
+  { id: 12, name: "buxanka" },
+  { id: 13, name: "etap 1" },
+  { id: 14, name: "Производства1" },
+]
 
 const initialProducts: Product[] = initialStages.map((stage, index) => ({
   id: index + 1,
@@ -361,42 +376,35 @@ export function ProductionStagesView() {
     : ["Все типы", "Eagle", "Готовая продукция", "Полуфабрикат"]
 
   return (
-    <main className="min-h-[calc(100vh-4rem)] bg-slate-100 text-slate-800">
-      <header className="px-8 py-4">
-        <div className="flex items-center gap-3">
-          <FavoritesButton className="flex items-center gap-2 text-2xl font-semibold text-blue-600" />
-          <span className="text-2xl text-slate-500">|</span>
-          <span className="text-2xl font-semibold text-slate-600">Этапы производства</span>
-        </div>
-      </header>
-
-      <div className="grid min-h-[calc(100vh-8.5rem)] grid-cols-[350px_minmax(0,1fr)]">
-        <aside className="border-r border-slate-300 bg-slate-100">
-          <h2 className="border-b border-slate-300 px-9 py-6 text-lg font-semibold">Этапы производства</h2>
-          <div className="max-h-[calc(100vh-14rem)] overflow-y-auto">
+    <RefPage>
+      <RefHeader title="Этапы производства" />
+      <div className="-mx-7 grid min-h-[calc(100vh-130px)] grid-cols-[280px_minmax(0,1fr)] gap-[30px]">
+        <aside>
+          <h2 className="px-[30px] pb-[16px] pt-[14px] text-[13px] font-bold">Этапы производства</h2>
+          <div className="bg-white shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
             {stages.map((stage) => (
               <button
                 key={stage.id}
                 onClick={() => chooseStage(stage.id)}
-                className={`flex w-full items-center gap-3 border-b border-slate-200 px-9 py-5 text-left text-lg transition ${
-                  selectedStage === stage.id ? "bg-white text-blue-600 shadow-sm" : "hover:bg-white/70"
+                className={`flex h-[50px] w-full items-center gap-[10px] border-b border-[#efefef] px-[30px] text-left text-[13px] transition ${
+                  selectedStage === stage.id ? "bg-[#f2f5f8] text-[#4f71dc]" : "hover:bg-[#f7f9fb]"
                 }`}
               >
-                <Factory className="h-6 w-6 shrink-0 text-slate-600" />
+                <Factory className="h-5 w-5 shrink-0 text-[#555]" />
                 <span>{stage.name}</span>
               </button>
             ))}
           </div>
         </aside>
 
-        <section className="min-w-0 px-9">
-          <nav className="grid grid-cols-5 overflow-hidden rounded-sm bg-white shadow">
+        <section className="min-w-0 pr-[30px]">
+          <nav className="flex h-[54px] overflow-hidden rounded-[2px] bg-white shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
             {tabs.map((item) => (
               <button
                 key={item.id}
                 onClick={() => { setTab(item.id); setQuery(""); setTypeFilter("Все типы") }}
-                className={`border-b-2 px-4 py-6 text-lg ${
-                  tab === item.id ? "border-blue-600 font-semibold text-blue-600" : "border-transparent text-black"
+                className={`border-b-[3px] px-[22px] text-[13px] font-medium ${
+                  tab === item.id ? "border-[#4f71dc] text-[#4f71dc]" : "border-transparent text-black"
                 }`}
               >
                 {item.label}
@@ -405,9 +413,9 @@ export function ProductionStagesView() {
           </nav>
 
           {!selectedStage ? (
-            <div className="mt-6 flex min-h-[370px] flex-col items-center justify-center bg-white shadow">
-              <Image src="/robot-mascot.png" alt="Робот-помощник" width={190} height={190} priority />
-              <p className="mt-5 text-xl text-slate-500">Выберите производство...</p>
+            <div className="mt-[20px] flex min-h-[294px] flex-col items-center justify-center bg-white shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
+              <Image src="/robot-empty.png" alt="Робот-помощник" width={190} height={190} priority className="h-[160px] w-[160px] object-contain" />
+              <p className="mt-[8px] text-[13px] text-[#666]">Выберите производство...</p>
             </div>
           ) : (
             <div className="mt-6">
@@ -557,6 +565,6 @@ export function ProductionStagesView() {
           </div>
         </div>
       )}
-    </main>
+    </RefPage>
   )
 }

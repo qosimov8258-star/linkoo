@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
+import { useSearchParams } from "next/navigation"
 import type { PeriodKey } from "@/lib/dashboard-date-range"
 import { useLanguage } from "@/lib/i18n/language-context"
 import { WidgetsPanel } from "./widgets-panel"
@@ -29,8 +30,14 @@ export function DateRangeBar({
 }) {
   const { t } = useLanguage()
   const [displayName, setDisplayName] = useState("Admin Ritm")
-  const [widgetsOpen, setWidgetsOpen] = useState(false)
+  const searchParams = useSearchParams()
+  const [widgetsOpen, setWidgetsOpen] = useState(searchParams.get("widgets") === "1")
   const [pickerOpen, setPickerOpen] = useState(false)
+
+  // the Analytics menu's "Виджеты" entry links to /?widgets=1
+  useEffect(() => {
+    if (searchParams.get("widgets") === "1") setWidgetsOpen(true)
+  }, [searchParams])
 
   useEffect(() => {
     let cancelled = false

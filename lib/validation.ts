@@ -16,11 +16,11 @@ export async function parseJsonBody<T>(request: Request, schema: ZodType<T>): Pr
   try {
     json = await request.json()
   } catch {
-    return { error: NextResponse.json({ error: "So'rov tanasi JSON emas" }, { status: 400 }) }
+    return { error: NextResponse.json({ error: "Тело запроса не является JSON" }, { status: 400 }) }
   }
   const result = schema.safeParse(json)
   if (!result.success) {
-    return { error: NextResponse.json({ error: "Ma'lumotlar noto'g'ri", details: result.error.flatten() }, { status: 400 }) }
+    return { error: NextResponse.json({ error: "Неверные данные", details: result.error.flatten() }, { status: 400 }) }
   }
   return { data: result.data }
 }

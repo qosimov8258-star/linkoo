@@ -1,8 +1,9 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
-import { ChevronDown, ChevronsRight, DollarSign, Filter, MinusCircle, PlusCircle, X } from "lucide-react"
-import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
+import { ChevronDown, DollarSign, MinusCircle, PlusCircle, X } from "lucide-react"
+import { RefHeader } from "@/components/ref/list-kit"
+import { ReportAmount, ReportBalanceBoxes, ReportBalanceToolbar, ReportFilterPanel, ReportGridTable, ReportModeButtons, ReportPage, ReportPager, ReportRangeField, ReportSelectField, ReportTopRow, type BalanceTone } from "@/components/ref/report-kit"
 import { downloadExcelTable } from "@/lib/excel-export"
 
 type Money = { sum: number; usd: number; eur: number }
@@ -30,12 +31,6 @@ const requestGroups = ["Баланс на конец периода", "Запа�
 
 const money = (value: number) => new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 2 }).format(value)
 
-function AmountCell({ value }: { value: number }) {
-  if (value === 0) return <span>0</span>
-  const color = value > 0 ? "text-[#3aa76d]" : "text-[#e5484d]"
-  return <span className={`font-semibold ${color}`}>{money(value)}</span>
-}
-
 function pad(value: number) {
   return String(value).padStart(2, "0")
 }
@@ -43,8 +38,8 @@ function pad(value: number) {
 export function SupplierBalanceView() {
   const [tab, setTab] = useState<"balance" | "requests">("balance")
   const [filterOpen, setFilterOpen] = useState(false)
-  const [organization, setOrganization] = useState("Все организации")
-  const [paymentType, setPaymentType] = useState("Любой")
+  const [organization, setOrganization] = useState("")
+  const [paymentType, setPaymentType] = useState("")
   const [search, setSearch] = useState("")
   const [pageSize, setPageSize] = useState(25)
   const [page, setPage] = useState(1)
@@ -174,239 +169,74 @@ export function SupplierBalanceView() {
     downloadExcelTable("supplier-balance.xls", [header, ...body])
   }
 
+  const eur = (value: number): { text: string; tone: BalanceTone } => ({ text: new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 3 }).format(value), tone: value > 0 ? "plus" : value < 0 ? "minus" : "default" })
+  const zeros = [{ text: "0" }, { text: "0" }, { text: "0" }]
+  const openingLines = [eur(FIXED_TOTALS.opening.eur), eur(FIXED_TOTALS.opening.sum), eur(FIXED_TOTALS.opening.usd)]
+  const activeGroups = tab === "balance" ? groups : requestGroups
+  const cur = ["SUM", "USD", "Euro"]
+  const triple = (m: Money) => [m.sum, m.usd, m.eur].map((value, index) => <ReportAmount key={index} value={value} />)
+
   return (
-    <main className="min-h-screen bg-white text-[#17233b]">
-      <header className="flex min-h-[76px] items-center border-b border-[#d8dee7] bg-[#f2f5f8] px-6 md:px-9">
-        <div className="flex items-center gap-3">
-          <FavoritesButton className="flex items-center gap-3 text-2xl font-bold text-[#4f71dc]" />
-          <span className="text-3xl font-light text-[#586174]">|</span>
-          <span className="text-2xl font-bold text-[#586174]">Баланс поставщиков</span>
-        </div>
-      </header>
+    <ReportPage>
+      <div className="pl-[30px] pr-[38px]"><RefHeader title="Баланс поставщиков" /></div>
 
-      <section className="flex flex-wrap items-center gap-4 px-6 py-4 md:px-9">
-        <button onClick={() => setFilterOpen(true)} className="flex h-11 items-center gap-2 rounded-md bg-[#4f71dc] px-5 font-semibold text-white">
-          <Filter className="h-4 w-4" /> Фильтр
-        </button>
-        <span className="font-semibold text-[#4f71dc]">Во всей организации</span>
-        <button onClick={downloadAll} className="ml-auto flex h-11 items-center gap-2 rounded-md bg-[#4caf72] px-5 font-semibold text-white">
-          <BarChart className="h-5 w-5" /> Скачать
-        </button>
-      </section>
-
-      <section className="grid grid-cols-1 gap-6 px-6 pb-6 sm:grid-cols-2 lg:grid-cols-4 md:px-9">
-        <div>
-          <p className="text-[#586174]">Баланс на начало периода</p>
-          <p className="font-semibold"><AmountCell value={FIXED_TOTALS.opening.eur} /></p>
-          <p className="font-semibold"><AmountCell value={FIXED_TOTALS.opening.sum} /></p>
-          <p className="font-semibold"><AmountCell value={FIXED_TOTALS.opening.usd} /></p>
-        </div>
-        <div>
-          <p className="text-[#586174]">Возврат</p>
-          <p className="font-semibold">0</p>
-          <p className="font-semibold">0</p>
-          <p className="font-semibold">0</p>
-        </div>
-        <div>
-          <p className="text-[#586174]">Прочие приходы</p>
-          <p className="font-semibold">0</p>
-          <p className="font-semibold">0</p>
-          <p className="font-semibold">0</p>
-        </div>
-        <div className="lg:text-right">
-          <p className="text-[#586174]">Баланс на конец периода</p>
-          <p className="font-semibold"><AmountCell value={FIXED_TOTALS.opening.eur} /></p>
-          <p className="font-semibold"><AmountCell value={FIXED_TOTALS.opening.sum} /></p>
-          <p className="font-semibold"><AmountCell value={FIXED_TOTALS.opening.usd} /></p>
-        </div>
-        <div className="sm:col-start-2 lg:col-start-2">
-          <p className="text-[#586174]">Поставки</p>
-          <p className="font-semibold">0</p>
-          <p className="font-semibold">0</p>
-          <p className="font-semibold">0</p>
-        </div>
-        <div>
-          <p className="text-[#586174]">Оплачено</p>
-          <p className="font-semibold">0</p>
-          <p className="font-semibold">0</p>
-          <p className="font-semibold">0</p>
-        </div>
-        <div>
-          <p className="text-[#586174]">Прочие расходы</p>
-          <p className="font-semibold">0</p>
-          <p className="font-semibold">0</p>
-          <p className="font-semibold">0</p>
-        </div>
-      </section>
-
-      <section className="flex flex-wrap items-center gap-3 border-t border-[#e1e5eb] px-6 py-4 md:px-9">
-        <div className="flex overflow-hidden rounded-sm">
-          <button
-            onClick={() => setTab("balance")}
-            className={`px-5 py-2.5 text-[13px] font-bold uppercase tracking-wide ${tab === "balance" ? "bg-[#4f71dc] text-white" : "border border-[#4f71dc] text-[#4f71dc]"}`}
-          >
-            Баланс поставщиков
-          </button>
-          <button
-            onClick={() => setTab("requests")}
-            className={`px-5 py-2.5 text-[13px] font-bold uppercase tracking-wide ${tab === "requests" ? "bg-[#4f71dc] text-white" : "border border-[#4f71dc] text-[#4f71dc]"}`}
-          >
-            Запрос средств
-          </button>
-        </div>
-
-        <label className="relative mx-auto min-w-[220px] border-b border-[#dbe0e8] pb-1.5 text-center">
-          <input
-            value={search}
-            onChange={(event) => { setSearch(event.target.value); setPage(1) }}
-            placeholder="Поиск"
-            className="w-full bg-transparent text-center text-[15px] font-medium outline-none placeholder:text-[#17233b]"
+      <section className="border-b border-[#d9d9d9] bg-white pb-[1px] pt-[21px]">
+        <div className="px-[30px]"><ReportTopRow filterLabel="Фильтр" scope="Во всей организации" onFilter={() => setFilterOpen(true)} onDownload={downloadAll} /></div>
+        <div className="mt-[15px]">
+          <ReportBalanceBoxes
+            className="mx-[30px]"
+            columns={[
+              { blocks: [{ title: "Баланс на начало периода", lines: openingLines }, { title: "Поставки", lines: zeros }] },
+              { blocks: [{ title: "Возврат", lines: zeros }, { title: "Оплачено", lines: zeros }] },
+              { blocks: [{ title: "Прочие приходы", lines: zeros }, { title: "Прочие расходы", lines: zeros }] },
+              { right: true, blocks: [{ title: "Баланс на конец периода", lines: openingLines }] },
+            ]}
           />
-        </label>
+        </div>
 
-        <select value={pageSize} onChange={(event) => { setPageSize(Number(event.target.value)); setPage(1) }} className="h-9 bg-transparent text-[#586174]">
-          <option value={10}>10</option>
-          <option value={25}>25</option>
-          <option value={50}>50</option>
-        </select>
-        <span className="text-[#586174]">{filtered.length ? (safePage - 1) * pageSize + 1 : 0} - {Math.min(safePage * pageSize, filtered.length)} из {totalLabel}</span>
-        <button disabled={safePage === 1} onClick={() => setPage((value) => Math.max(1, value - 1))} className="rounded-full border border-[#dbe0e8] p-1 text-[#9aa3b6] disabled:opacity-40">
-          <ChevronDown className="h-5 w-5 rotate-90" />
-        </button>
-        <button disabled={safePage === maxPage} onClick={() => setPage((value) => Math.min(maxPage, value + 1))} className="rounded-full border border-[#4f71dc] p-1 text-[#4f71dc] disabled:opacity-40">
-          <ChevronDown className="h-5 w-5 -rotate-90" />
-        </button>
-        <button aria-label="Полный экран" onClick={() => document.documentElement.requestFullscreen?.()} className="text-[#586174]"><ChevronsRight className="h-5 w-5 rotate-45" /></button>
-      </section>
-
-      <section className="overflow-x-auto pb-10">
-        {tab === "balance" ? (
-          <table className="min-w-[2300px] w-full border-collapse text-[14px]">
-            <thead>
-              <tr className="bg-[#edf2f7] text-[#253653]">
-                <th className="border border-[#e1e5eb] px-4 py-2" colSpan={3} />
-                {groups.map((group) => (
-                  <th key={group} colSpan={3} className="border border-[#e1e5eb] px-4 py-2 text-center font-medium">{group}</th>
-                ))}
-              </tr>
-              <tr className="bg-white text-[#17233b]">
-                <th className="border-b border-[#e1e5eb] px-4 py-2 text-left font-semibold" colSpan={3}>Поставщик</th>
-                {groups.map((group) =>
-                  ["SUM", "USD", "Euro"].map((currency) => (
-                    <th key={`${group}-${currency}`} className="border-b border-[#e1e5eb] px-4 py-2 font-semibold">{currency}</th>
-                  )),
-                )}
-              </tr>
-            </thead>
-            <tbody>
-              {visible.map((supplier, index) => (
-                <tr key={supplier.id} className={index % 2 ? "bg-[#f6f9fc]" : "bg-white"}>
-                  <td className="border-b border-[#e1e5eb] px-4 py-3.5">{supplier.name}</td>
-                  <td className="border-b border-[#e1e5eb] px-1 py-3.5">
-                    <button aria-label="Добавить расход" onClick={() => setModal({ type: "expense", supplierId: supplier.id })} className="text-[#e5484d]"><MinusCircle className="h-6 w-6 fill-[#ff5d63] text-white" /></button>
-                  </td>
-                  <td className="border-b border-[#e1e5eb] px-1 py-3.5">
-                    <button aria-label="Добавить" onClick={() => setModal({ type: "add", supplierId: supplier.id })} className="text-[#39ca79]"><PlusCircle className="h-6 w-6 fill-[#39ca79] text-white" /></button>
-                  </td>
-                  <td className="border-b border-[#e1e5eb] px-4 py-3.5"><AmountCell value={supplier.opening.sum} /></td>
-                  <td className="border-b border-[#e1e5eb] px-4 py-3.5"><AmountCell value={supplier.opening.usd} /></td>
-                  <td className="border-b border-[#e1e5eb] px-4 py-3.5"><AmountCell value={supplier.opening.eur} /></td>
-                  {Array.from({ length: 18 }).map((_, cellIndex) => (
-                    <td key={cellIndex} className="border-b border-[#e1e5eb] px-4 py-3.5">0</td>
-                  ))}
-                </tr>
-              ))}
-              {visible.length === 0 && (
-                <tr><td colSpan={24} className="border-b border-[#e1e5eb] px-4 py-16 text-center text-[#9aa3b6]">Ничего не найдено</td></tr>
-              )}
-            </tbody>
-          </table>
-        ) : (
-          <table className="min-w-[1700px] w-full border-collapse text-[14px]">
-            <thead>
-              <tr className="bg-[#edf2f7] text-[#253653]">
-                <th className="border border-[#e1e5eb] px-4 py-2" />
-                {requestGroups.map((group) => (
-                  <th key={group} colSpan={3} className="border border-[#e1e5eb] px-4 py-2 text-center font-medium">{group}</th>
-                ))}
-              </tr>
-              <tr className="bg-white text-[#17233b]">
-                <th className="border-b border-[#e1e5eb] px-4 py-2 text-left font-semibold">Поставщик</th>
-                {requestGroups.map((group) =>
-                  ["SUM", "USD", "Euro"].map((currency) => (
-                    <th key={`${group}-${currency}`} className="border-b border-[#e1e5eb] px-4 py-2 font-semibold">{currency}</th>
-                  )),
-                )}
-              </tr>
-            </thead>
-            <tbody>
-              {visible.map((supplier, index) => (
-                <tr key={supplier.id} className={index % 2 ? "bg-[#f6f9fc]" : "bg-white"}>
-                  <td className="border-b border-[#e1e5eb] px-4 py-3.5">
-                    <button aria-label="Запросить средства" onClick={() => setRequestModalId(supplier.id)} className="flex items-center gap-2 text-left">
-                      <DollarSign className="h-4 w-4 text-[#3aa76d]" /> {supplier.name}
-                    </button>
-                  </td>
-                  <td className="border-b border-[#e1e5eb] px-4 py-3.5"><AmountCell value={supplier.opening.sum} /></td>
-                  <td className="border-b border-[#e1e5eb] px-4 py-3.5"><AmountCell value={supplier.opening.usd} /></td>
-                  <td className="border-b border-[#e1e5eb] px-4 py-3.5"><AmountCell value={supplier.opening.eur} /></td>
-                  <td className="border-b border-[#e1e5eb] px-4 py-3.5">0</td>
-                  <td className="border-b border-[#e1e5eb] px-4 py-3.5">0</td>
-                  <td className="border-b border-[#e1e5eb] px-4 py-3.5">0</td>
-                  <td className="border-b border-[#e1e5eb] px-4 py-3.5"><AmountCell value={supplier.opening.sum} /></td>
-                  <td className="border-b border-[#e1e5eb] px-4 py-3.5"><AmountCell value={supplier.opening.usd} /></td>
-                  <td className="border-b border-[#e1e5eb] px-4 py-3.5"><AmountCell value={supplier.opening.eur} /></td>
-                  <td className="border-b border-[#e1e5eb] px-4 py-3.5"><AmountCell value={supplier.pendingRequest.sum} /></td>
-                  <td className="border-b border-[#e1e5eb] px-4 py-3.5"><AmountCell value={supplier.pendingRequest.usd} /></td>
-                  <td className="border-b border-[#e1e5eb] px-4 py-3.5"><AmountCell value={supplier.pendingRequest.eur} /></td>
-                </tr>
-              ))}
-              {visible.length === 0 && (
-                <tr><td colSpan={13} className="border-b border-[#e1e5eb] px-4 py-16 text-center text-[#9aa3b6]">Ничего не найдено</td></tr>
-              )}
-            </tbody>
-          </table>
-        )}
+        <ReportBalanceToolbar
+          search={search}
+          onSearch={(value) => { setSearch(value); setPage(1) }}
+          searchLeft={560}
+          left={<ReportModeButtons labels={["БАЛАНС ПОСТАВЩИКОВ", "ЗАПРОС СРЕДСТВ"]} value={tab === "balance" ? "БАЛАНС ПОСТАВЩИКОВ" : "ЗАПРОС СРЕДСТВ"} onChange={(label) => setTab(label === "БАЛАНС ПОСТАВЩИКОВ" ? "balance" : "requests")} />}
+          pager={
+            <div className="flex items-center gap-[20px]">
+              <ReportPager pageSize={pageSize} onPageSize={(size) => { setPageSize(size); setPage(1) }} rangeLabel={`${filtered.length ? (safePage - 1) * pageSize + 1 : 0} - ${Math.min(safePage * pageSize, filtered.length)} из ${totalLabel}`} canPrev={safePage > 1} canNext={safePage < maxPage} onPrev={() => setPage((value) => Math.max(1, value - 1))} onNext={() => setPage((value) => Math.min(maxPage, value + 1))} />
+              <button aria-label="Полный экран" onClick={() => document.documentElement.requestFullscreen?.()}><svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#444]"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z" /></svg></button>
+            </div>
+          }
+        >
+        </ReportBalanceToolbar>
+        <ReportGridTable
+          minWidth={tab === "balance" ? 2300 : 1700}
+          colWidths={["220px", ...Array.from({ length: activeGroups.length * 3 }, () => "")]}
+          groups={[{ title: "", span: 1 }, ...activeGroups.map((group) => ({ title: group, span: 3 }))]}
+          heads={["Поставщик", ...activeGroups.flatMap(() => cur)]}
+          rows={visible.map((supplier) => {
+            const first = tab === "balance" ? (
+              <div key="n" className="flex items-center gap-[10px]">
+                <span className="w-[130px] truncate">{supplier.name}</span>
+                <button aria-label="Добавить расход" onClick={() => setModal({ type: "expense", supplierId: supplier.id })}><MinusCircle className="h-[22px] w-[22px] fill-[#ff5d63] text-white" /></button>
+                <button aria-label="Добавить" onClick={() => setModal({ type: "add", supplierId: supplier.id })}><PlusCircle className="h-[22px] w-[22px] fill-[#71ce87] text-white" /></button>
+              </div>
+            ) : (
+              <button key="n" aria-label="Запросить средства" onClick={() => setRequestModalId(supplier.id)} className="flex items-center gap-2 text-left"><DollarSign className="h-4 w-4 text-[#71ce87]" /> {supplier.name}</button>
+            )
+            const cells =
+              tab === "balance"
+                ? [...triple(supplier.opening), ...Array.from({ length: 18 }, () => 0)]
+                : [...triple(supplier.opening), 0, 0, 0, ...triple(supplier.opening), ...triple(supplier.pendingRequest)]
+            return [first, ...cells]
+          })}
+        />
       </section>
 
       {filterOpen && (
-        <div className="fixed inset-0 z-[100] flex items-start justify-center bg-black/30 pt-24" onClick={() => setFilterOpen(false)}>
-          <div onClick={(event) => event.stopPropagation()} className="w-[900px] max-w-[94vw] rounded-md bg-white shadow-2xl">
-            <header className="flex items-center justify-between border-b px-8 py-6">
-              <h2 className="text-lg font-semibold text-[#586174]">Фильтр</h2>
-              <button aria-label="Закрыть" onClick={() => setFilterOpen(false)}><X className="h-6 w-6 rounded-full border-2 border-[#9aa3b6] p-0.5 text-[#9aa3b6]" /></button>
-            </header>
-            <div className="grid grid-cols-1 gap-8 px-8 py-7 sm:grid-cols-3">
-              <div>
-                <div className="mb-1 flex items-center justify-between text-[13px] font-medium text-[#586174]">
-                  <span>Диапазон дат</span>
-                </div>
-                <div className="flex items-center gap-2 border-b border-[#dbe0e8] pb-2 text-[15px]">
-                  <input type="date" value={rangeFrom} onChange={(event) => setRangeFrom(event.target.value)} className="w-full bg-transparent outline-none" />
-                  <span className="text-[#9aa3b6]">—</span>
-                  <input type="date" value={rangeTo} onChange={(event) => setRangeTo(event.target.value)} className="w-full bg-transparent outline-none" />
-                </div>
-              </div>
-              <label className="relative block border-b border-[#dbe0e8] pb-2 text-[15px] font-medium">
-                Организация
-                <select value={organization} onChange={(event) => setOrganization(event.target.value)} className="mt-1 block w-full appearance-none bg-transparent pr-6 text-[15px] font-normal outline-none">
-                  {["Все организации", "Linko"].map((option) => <option key={option}>{option}</option>)}
-                </select>
-                <ChevronDown className="pointer-events-none absolute right-0 top-7 h-4 w-4 text-[#9aa3b6]" />
-              </label>
-              <label className="relative block border-b border-[#dbe0e8] pb-2 text-[15px] font-medium">
-                Тип оплаты
-                <select value={paymentType} onChange={(event) => setPaymentType(event.target.value)} className="mt-1 block w-full appearance-none bg-transparent pr-6 text-[15px] font-normal outline-none">
-                  {["Любой", "Наличными", "Перечислением"].map((option) => <option key={option}>{option}</option>)}
-                </select>
-                <ChevronDown className="pointer-events-none absolute right-0 top-7 h-4 w-4 text-[#9aa3b6]" />
-              </label>
-            </div>
-            <div className="px-8 pb-8">
-              <button onClick={applyFilter} className="block w-full rounded-md bg-[#6fcf97] py-3.5 text-center font-semibold text-white hover:bg-[#5fbf87]">Применить</button>
-            </div>
-          </div>
-        </div>
+        <ReportFilterPanel onClose={() => setFilterOpen(false)} onApply={applyFilter}>
+          <ReportRangeField label="Диапазон дат" from={rangeFrom} to={rangeTo} onFrom={setRangeFrom} onTo={setRangeTo} />
+          <ReportSelectField label="Организация" value={organization} onChange={setOrganization} options={["Linko"]} />
+          <ReportSelectField label="Тип оплаты" value={paymentType} onChange={setPaymentType} options={["Наличными", "Перечислением"]} />
+        </ReportFilterPanel>
       )}
 
       {modal && (
@@ -433,17 +263,10 @@ export function SupplierBalanceView() {
           }}
         />
       )}
-    </main>
+    </ReportPage>
   )
 }
 
-function BarChart({ className }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" className={className}>
-      <path d="M4 20V10M12 20V4M20 20v-7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  )
-}
 
 function TransactionModal({
   supplier,

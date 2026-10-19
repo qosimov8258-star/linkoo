@@ -2,7 +2,9 @@
 
 import { useEffect, useMemo, useState } from "react"
 import { Bookmark, ChevronDown, ChevronUp, Download, FolderOpen, Search, X } from "lucide-react"
-import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
+import { RefHeader } from "@/components/ref/list-kit"
+import { ReportPage } from "@/components/ref/report-kit"
+import { CHECKBOX } from "./visit-builder-view"
 import { downloadExcelTable } from "@/lib/excel-export"
 
 type Row = {
@@ -79,28 +81,26 @@ function CheckboxColumn({
 }) {
   const filtered = options.filter(([, label]) => label.toLocaleLowerCase("ru").includes(search.trim().toLocaleLowerCase("ru")))
   return (
-    <div className="min-w-0">
-      <h3 className="mb-4 text-[19px] font-semibold text-[#17233b]">{title}</h3>
-      <label className="relative mb-3 block border-b border-[#dbe0e8] pb-2">
+    <div className="min-w-0 border-r border-[#ececec] px-[20px] pb-[30px] pt-[20px] last:border-0">
+      <h3 className="text-[15px] font-bold leading-[18px]">{title}</h3>
+      <label className="relative mt-[11px] block">
         <input
           value={search}
           onChange={(event) => onSearch(event.target.value)}
           placeholder={`Поиск ${title.toLocaleLowerCase("ru").startsWith("колон") ? "колонки" : title.toLocaleLowerCase("ru").includes("вертик") ? "вертикальных группировки" : "горизонтальных группировки"}...`}
-          className="w-full bg-transparent pr-7 text-[15px] text-[#17233b] outline-none placeholder:text-[#9aa3b6]"
+          className="h-[42px] w-full rounded-[3px] bg-[#f2f5f8] px-[11px] pr-10 text-[12px] outline-none placeholder:text-[#999]"
         />
-        <Search className="absolute right-0 top-0.5 h-5 w-5 text-[#9aa3b6]" />
+        <Search className="absolute right-3 top-1/2 h-5 w-5 -translate-y-1/2" />
       </label>
-      <ul className="space-y-3">
+      <div className="mt-[14px]">
         {filtered.map(([key, label]) => (
-          <li key={key}>
-            <label className="flex cursor-pointer items-center gap-3 text-[15px] text-[#17233b]">
-              <input type="checkbox" checked={selected.has(key)} onChange={() => onToggle(key)} className="h-[18px] w-[18px] shrink-0 accent-[#4f71dc]" />
-              {label}
-            </label>
-          </li>
+          <label key={key} className="flex min-h-[30px] cursor-pointer items-center gap-[9px] text-[13px] font-medium">
+            <input type="checkbox" checked={selected.has(key)} onChange={() => onToggle(key)} className={CHECKBOX} />
+            {label}
+          </label>
         ))}
-        {filtered.length === 0 && <li className="text-sm text-[#9aa3b6]">Ничего не найдено</li>}
-      </ul>
+        {filtered.length === 0 && <p className="text-[13px] text-[#999]">Ничего не найдено</p>}
+      </div>
     </div>
   )
 }
@@ -253,87 +253,62 @@ export function ReportBuilderView() {
   const organizationOptions = ["Все организации", ...new Set(rows.map((row) => row.organization))]
 
   return (
-    <main className="min-h-screen bg-[#f2f5f8] text-[#17233b]">
-      <header className="flex min-h-[76px] items-center justify-between border-b border-[#d8dee7] bg-[#f2f5f8] px-6 md:px-9">
-        <div className="flex items-center gap-3">
-          <FavoritesButton className="flex items-center gap-2 text-2xl font-bold text-[#4f71dc]" /><span className="text-3xl font-light text-[#586174]">|</span>
-          <span className="text-2xl font-bold text-[#586174]">Конструктор</span>
-        </div>
+    <ReportPage>
+      <div className="pl-[30px] pr-[38px]">
+        <RefHeader title="Конструктор">
+          <div className="flex overflow-hidden rounded-[3px] shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
+            {([["stock", "ТЕКУЩИЙ ОСТАТОК"], ["warehouse", "СКЛАД"]] as const).map(([key, label]) => (
+              <button key={key} onClick={() => setMode(key)} className={`h-[30px] px-4 text-[13px] font-medium ${mode === key ? "bg-[#2bcd53] text-white" : "bg-white text-black"}`}>{label}</button>
+            ))}
+          </div>
+        </RefHeader>
+      </div>
 
-        <div className="flex overflow-hidden rounded-full shadow-sm">
-          <button
-            onClick={() => setMode("stock")}
-            className={`px-6 py-2.5 text-[15px] font-bold tracking-wide ${mode === "stock" ? "bg-[#2bcd53] text-white" : "bg-white text-[#17233b]"}`}
-          >
-            ТЕКУЩИЙ ОСТАТОК
-          </button>
-          <button
-            onClick={() => setMode("warehouse")}
-            className={`px-6 py-2.5 text-[15px] font-bold tracking-wide ${mode === "warehouse" ? "bg-[#2bcd53] text-white" : "bg-white text-[#17233b]"}`}
-          >
-            СКЛАД
-          </button>
-        </div>
-      </header>
-
-      <section className="flex flex-wrap items-center gap-4 border-b border-[#e1e5eb] bg-white px-6 py-4 md:px-9">
-        <button onClick={() => void saveReport()} disabled={saving} className="flex h-11 items-center gap-2 rounded-md bg-[#4f71dc] px-5 font-semibold text-white disabled:opacity-60">
-          <Bookmark className="h-5 w-5" /> {savedFlash ? "Сохранено ✓" : saving ? "Сохранение..." : "Сохранить"}
+      <div className="mx-7 bg-white shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
+      <section className="flex h-[60px] flex-wrap items-center gap-[15px] px-[30px]">
+        <button onClick={() => void saveReport()} disabled={saving} className="flex h-[38px] items-center rounded-[3px] bg-[#4f71dc] px-[15px] text-[13px] font-semibold text-white hover:brightness-95 disabled:opacity-60">
+          <Bookmark className="mr-3 h-[18px] w-[18px] fill-white" /> {savedFlash ? "Сохранено ✓" : saving ? "Сохранение..." : "Сохранить"}
         </button>
 
         <div className="relative">
-          <button onClick={() => setReportsOpen((value) => !value)} className="flex h-11 items-center gap-2 rounded-md bg-[#ff8a65] px-5 font-semibold text-white">
-            <FolderOpen className="h-5 w-5" /> Отчеты
+          <button onClick={() => setReportsOpen((value) => !value)} className="flex h-[38px] items-center rounded-[3px] bg-[#ff8a6f] px-[15px] text-[13px] font-semibold text-white hover:brightness-95">
+            <FolderOpen className="mr-3 h-[18px] w-[18px] fill-white" /> Отчеты
           </button>
           {reportsOpen && (
-            <div className="absolute left-0 top-12 z-30 w-64 rounded-md border border-[#e1e5eb] bg-white p-3 shadow-xl">
-              {savedReports.length === 0 && <p className="px-2 py-3 text-sm text-[#9aa3b6]">Пока нет сохранённых отчётов</p>}
+            <div className="absolute left-0 top-[42px] z-30 w-64 border border-[#e8e8e8] bg-white p-3 shadow-xl">
+              {savedReports.length === 0 && <p className="px-2 py-3 text-[13px] text-[#999]">Пока нет сохранённых отчётов</p>}
               {savedReports.map((saved) => (
-                <button
-                  key={saved.id}
-                  onClick={() => { setReportsOpen(false); generateReport() }}
-                  className="block w-full rounded px-2 py-2 text-left text-sm hover:bg-[#f2f5f8]"
-                >
-                  {saved.name}
-                </button>
+                <button key={saved.id} onClick={() => { setReportsOpen(false); generateReport() }} className="block w-full rounded px-2 py-2 text-left text-[13px] hover:bg-[#f2f5f8]">{saved.name}</button>
               ))}
             </div>
           )}
         </div>
 
-        <button onClick={exportReport} className="flex h-11 items-center gap-2 rounded-md bg-[#4db6ac] px-5 font-semibold text-white">
-          <Download className="h-5 w-5" /> Скачать
+        <button onClick={exportReport} className="flex h-[38px] items-center rounded-[3px] bg-[#4db6ac] px-[15px] text-[13px] font-semibold text-white hover:brightness-95">
+          <Download className="mr-3 h-[18px] w-[18px]" /> Скачать
         </button>
 
-        <input
-          value={dateRange}
-          onChange={(event) => setDateRange(event.target.value)}
-          className="h-11 min-w-[220px] bg-transparent px-2 text-[15px] font-semibold text-[#4f71dc] outline-none"
-        />
-
-        <button
-          onClick={() => setSettingsOpen((value) => !value)}
-          className="ml-auto flex h-11 items-center gap-2 rounded-md bg-[#4f71dc] px-5 font-semibold uppercase tracking-wide text-white"
-        >
-          {settingsOpen ? "Скрыть настройки" : "Показать настройки"}
-          {settingsOpen ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-        </button>
-
-        <button onClick={generateReport} className="flex h-11 items-center gap-2 rounded-md bg-[#2bcd53] px-6 font-semibold uppercase tracking-wide text-white">
-          Сформировать отчет
-        </button>
+        <div className="ml-auto flex items-center gap-[19px]">
+          <input value={dateRange} onChange={(event) => setDateRange(event.target.value)} className="w-[190px] bg-transparent text-right text-[12px] font-bold text-[#4f71dc] outline-none" />
+          <button onClick={() => setSettingsOpen((value) => !value)} className="h-[38px] w-[215px] rounded-[3px] bg-[#4f71dc] text-[13px] font-medium uppercase text-white shadow-[0_2px_5px_rgba(0,0,0,0.2)] hover:brightness-95">
+            {settingsOpen ? "Скрыть настройки ▲" : "Показать настройки ▼"}
+          </button>
+          <button onClick={generateReport} className="h-[38px] w-[195px] rounded-[3px] bg-[#2bcd53] text-[13px] font-medium uppercase text-white shadow-[0_2px_5px_rgba(0,0,0,0.2)] hover:brightness-95">
+            Сформировать отчет
+          </button>
+        </div>
       </section>
 
       {settingsOpen && (
-        <section className="grid grid-cols-1 gap-8 bg-white px-6 py-8 md:grid-cols-4 md:px-9">
+        <section className="grid grid-cols-1 border-t border-[#ececec] shadow-[0_2px_6px_rgba(0,0,0,0.12)] md:grid-cols-4">
           <CheckboxColumn title="Колонки" search={columnSearch} onSearch={setColumnSearch} options={columnFields} selected={selectedColumns} onToggle={(key) => setSelectedColumns((current) => toggleInSet(current, key as ColumnKey))} />
           <CheckboxColumn title="Вертикальная группировка" search={verticalSearch} onSearch={setVerticalSearch} options={groupFields} selected={verticalGroups} onToggle={(key) => setVerticalGroups((current) => toggleInSet(current, key as GroupKey))} />
-          <CheckboxColumn title="Горизонтальнаяя группировка" search={horizontalSearch} onSearch={setHorizontalSearch} options={groupFields} selected={horizontalGroups} onToggle={(key) => setHorizontalGroups((current) => toggleInSet(current, key as GroupKey))} />
+          <CheckboxColumn title="Горизонтальная группировка" search={horizontalSearch} onSearch={setHorizontalSearch} options={groupFields} selected={horizontalGroups} onToggle={(key) => setHorizontalGroups((current) => toggleInSet(current, key as GroupKey))} />
 
-          <div className="min-w-0">
-            <h3 className="mb-4 text-[19px] font-semibold text-[#17233b]">Фильтр</h3>
-            <label className="mb-6 flex items-center gap-3 text-[15px] font-medium">
-              <input type="checkbox" checked={showTotals} onChange={(event) => setShowTotals(event.target.checked)} className="h-[18px] w-[18px] accent-[#4f71dc]" />
+          <div className="min-w-0 px-[20px] pb-[20px] pt-[20px]">
+            <h3 className="text-[15px] font-bold leading-[18px]">Фильтр</h3>
+            <label className="mb-[8px] mt-[11px] flex cursor-pointer items-center gap-[9px] text-[13px] font-medium">
+              <input type="checkbox" checked={showTotals} onChange={(event) => setShowTotals(event.target.checked)} className={CHECKBOX} />
               Показать итоги
             </label>
 
@@ -346,12 +321,12 @@ export function ReportBuilderView() {
                 ["Организация", filterOrganization, setFilterOrganization, organizationOptions],
               ] as const
             ).map(([label, value, setter, options]) => (
-              <label key={label} className="relative mb-7 block border-b border-[#dbe0e8] pb-2 text-[15px] font-medium">
-                {label}
-                <select value={value} onChange={(event) => setter(event.target.value)} className="mt-1 block w-full appearance-none bg-transparent pr-6 text-[15px] font-normal outline-none">
+              <label key={label} className="relative mt-[22px] block h-[45px] border-b border-[#e0e0e0]">
+                <span className="absolute inset-x-0 top-[18px] text-[13px] leading-[18px]">{value && !value.startsWith("Все") ? value : label}</span>
+                <select value={value} onChange={(event) => setter(event.target.value)} className="absolute inset-0 h-full w-full cursor-pointer appearance-none opacity-0">
                   {options.map((option) => <option key={option}>{option}</option>)}
                 </select>
-                <ChevronDown className="pointer-events-none absolute right-0 top-6 h-4 w-4 text-[#9aa3b6]" />
+                <ChevronDown className="pointer-events-none absolute bottom-[8px] right-0 h-4 w-4 text-[#999]" />
               </label>
             ))}
 
@@ -374,15 +349,16 @@ export function ReportBuilderView() {
               </div>
             ))}
 
-            <button onClick={addCustomFilter} className="w-full rounded-md bg-[#4f71dc] py-3 font-semibold uppercase tracking-wide text-white">
+            <button onClick={addCustomFilter} className="mt-[18px] h-9 w-full rounded-[3px] bg-[#4f71dc] text-[13px] font-medium uppercase text-white hover:brightness-95">
               Добавить индивидуальный фильтр
             </button>
           </div>
         </section>
       )}
+      </div>
 
       {generated && (
-        <section className="overflow-x-auto bg-white px-6 pb-10 md:px-9">
+        <section className="mx-7 mt-3 overflow-x-auto bg-white shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
           <table className="min-w-[900px] w-full border-collapse text-[15px]">
             <thead className="bg-[#edf2f7] text-[#253653]">
               <tr>
@@ -422,6 +398,6 @@ export function ReportBuilderView() {
           </table>
         </section>
       )}
-    </main>
+    </ReportPage>
   )
 }

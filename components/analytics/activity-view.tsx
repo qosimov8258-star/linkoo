@@ -102,7 +102,7 @@ export function ActivityView() {
       </section>
 
       <section className="flex min-h-[420px] flex-col items-center justify-center gap-4 py-12">
-        <Image src="/robot-mascot.png" alt="Робот-помощник" width={150} height={150} priority className="h-36 w-36 object-contain" />
+        <Image src="/robot-empty.png" alt="Робот-помощник" width={150} height={150} priority className="h-36 w-36 object-contain" />
         <p className="text-lg text-slate-400">По вашему запросу ничего не найдено...</p>
       </section>
 

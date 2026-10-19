@@ -271,3 +271,11 @@ section > div.flex.flex-wrap.items-center.gap-4.px-5.py-3 svg.h-5 { width: 24px;
 @media (prefers-reduced-motion: reduce) {
   ul.absolute, [role="menu"], [role="listbox"], div.fixed.inset-0, .nav-menu-in { animation: none; }
 }
+
+table thead th { cursor: pointer; }
+table thead th:has(input[type='checkbox']) { cursor: default; }
+
+.zone-label { background: transparent !important; border: 0 !important; box-shadow: none !important; font-size: 15px; font-weight: 700; color: #1d2b44; text-shadow: 0 0 3px #fff, 0 0 3px #fff; padding: 0 !important; }
+.zone-label::before { display: none !important; }
+
+.leaflet-tile-pane { filter: saturate(0.35) brightness(1.06) contrast(0.95); }

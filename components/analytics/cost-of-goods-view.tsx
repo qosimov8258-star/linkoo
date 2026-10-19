@@ -301,10 +301,10 @@ export function CostOfGoodsView({ embedded = false }: { embedded?: boolean }) {
   return (
     <main className={embedded ? "min-w-0 flex-1" : "min-h-[calc(100vh-4rem)] bg-[#f2f5f8] px-7 pb-7"}>
       {!embedded && (
-        <header className="mb-5 flex flex-wrap items-center justify-between gap-3">
-          <h1 className="flex items-center text-2xl font-bold text-slate-600">
-            <FavoritesButton className="inline-flex items-center gap-2 text-[#4f71dc]" />
-            <span className="mx-2 text-slate-400">|</span> Себестоимость
+        <header className="flex h-[60px] flex-wrap items-center justify-between gap-3">
+          <h1 className="flex items-center text-[18px] font-bold text-[#5d6474]">
+            <FavoritesButton className="flex items-center gap-[5px] text-[18px] font-bold text-[#4f71dc]" />
+            <span className="mx-[11px] inline-block h-[21px] w-[2px] bg-[#5d6474]" /> Себестоимость
           </h1>
           <div className="flex flex-wrap items-center gap-3">
             <button type="button" onClick={runCheck} className="rounded bg-[#4f71dc] px-4 py-2.5 font-semibold text-white hover:brightness-95">Проверить</button>
@@ -392,13 +392,13 @@ export function CostOfGoodsView({ embedded = false }: { embedded?: boolean }) {
         <table className="w-full text-left">
           <thead className="bg-[#5d6474] text-white">
             <tr>
-              <th className="px-9 py-5">Наименование</th>
-              <th className="px-5 py-5">Склад</th>
-              <th className="px-5 py-5">Дата</th>
-              <th className="px-5 py-5">Уср. Себестоимость</th>
-              <th className="px-5 py-5">Себестоимость</th>
-              <th className="px-5 py-5">Сумма переоценки</th>
-              <th className="px-5 py-5">Проверка</th>
+              <th className="px-9 py-4 text-[13px]">Наименование</th>
+              <th className="px-5 py-4 text-[13px]">Склад</th>
+              <th className="px-5 py-4 text-[13px]">Дата</th>
+              <th className="px-5 py-4 text-[13px]">Уср. Себестоимость</th>
+              <th className="px-5 py-4 text-[13px]">Себестоимость</th>
+              <th className="px-5 py-4 text-[13px]">Сумма переоценки</th>
+              <th className="px-5 py-4 text-[13px]">Проверка</th>
             </tr>
           </thead>
           <tbody>

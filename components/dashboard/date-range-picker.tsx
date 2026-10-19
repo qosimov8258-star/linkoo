@@ -110,11 +110,13 @@ export function DateRangePicker({
   end,
   onApply,
   onClose,
+  placement = "below",
 }: {
   begin: string
   end: string
   onApply: (begin: string, end: string) => void
   onClose: () => void
+  placement?: "below" | "above"
 }) {
   const { t } = useLanguage()
   const initial = fromIso(begin)
@@ -151,7 +153,7 @@ export function DateRangePicker({
   return (
     <>
       <button type="button" aria-label="close" onClick={onClose} className="fixed inset-0 z-30 cursor-default" />
-      <div className="absolute left-0 top-[calc(100%+8px)] z-40 flex w-[750px] gap-[10px] rounded-[10px] bg-white p-[10px] font-sans text-[#333] shadow-[0_1px_6px_rgba(0,0,0,0.2),0_1px_4px_rgba(0,0,0,0.2)]">
+      <div className={`absolute left-0 ${placement === "above" ? "bottom-[calc(100%+8px)]" : "top-[calc(100%+8px)]"} z-40 flex w-[750px] gap-[10px] rounded-[10px] bg-white p-[10px] font-sans text-[#333] shadow-[0_1px_6px_rgba(0,0,0,0.2),0_1px_4px_rgba(0,0,0,0.2)]`}>
         <div className="flex w-[140px] shrink-0 flex-col gap-[6px] pt-[2px]">
           {PRESETS.map((item) => (
             <button

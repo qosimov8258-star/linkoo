@@ -3,24 +3,20 @@
 import { ChangeEvent, Fragment, useEffect, useMemo, useRef, useState } from "react"
 import {
   ChevronDown,
-  ChevronLeft,
-  ChevronRight,
   Clock,
   Download,
-  Filter,
   ListChecks,
   Pencil,
-  Plus,
   Printer,
   RefreshCw,
-  Search,
   Trash2,
   Upload,
   X,
 } from "lucide-react"
 
 import { readExcelRows } from "@/lib/excel-import"
-import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
+import { RI, RefButton, RefCard, RefHeader, RefPage, RefTable, RefToolbar } from "@/components/ref/list-kit"
+import { ReportCheckboxField, ReportSelectField } from "@/components/ref/report-kit"
 
 import { transferWarehouses as warehouses, type Transfer, type TransferItem as Item } from "./internal-transfers-data"
 import { downloadExcelTable } from "@/lib/excel-export"
@@ -28,8 +24,8 @@ import { downloadExcelTable } from "@/lib/excel-export"
 const number = (value: number) => new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 2 }).format(value)
 
 function statusColor(status: Transfer["status"]) {
-  if (status === "принят") return "#39ca79"
-  if (status === "потвержден") return "#4f8ff0"
+  if (status === "принят") return "#71ce87"
+  if (status === "потвержден") return "#4f9cf0"
   return "#e5484d"
 }
 
@@ -43,8 +39,8 @@ export function InternalTransfersView() {
   const [loadError, setLoadError] = useState("")
   const [search, setSearch] = useState("")
   const [filterOpen, setFilterOpen] = useState(false)
-  const [fromFilter, setFromFilter] = useState("Все склады")
-  const [toFilter, setToFilter] = useState("Все склады")
+  const [fromFilter, setFromFilter] = useState("")
+  const [toFilter, setToFilter] = useState("")
   const [showCancelled, setShowCancelled] = useState(false)
   const [pageSize, setPageSize] = useState(25)
   const [page, setPage] = useState(1)
@@ -80,8 +76,8 @@ export function InternalTransfersView() {
     return transfers.filter((transfer) => {
       if (!showCancelled && transfer.status === "отменен") return false
       if (search.trim() && !String(transfer.id).includes(search.trim()) && !transfer.fromWarehouse.toLocaleLowerCase("ru").includes(search.trim().toLocaleLowerCase("ru")) && !transfer.toWarehouse.toLocaleLowerCase("ru").includes(search.trim().toLocaleLowerCase("ru"))) return false
-      if (fromFilter !== "Все склады" && transfer.fromWarehouse !== fromFilter) return false
-      if (toFilter !== "Все склады" && transfer.toWarehouse !== toFilter) return false
+      if (fromFilter !== "" && transfer.fromWarehouse !== fromFilter) return false
+      if (toFilter !== "" && transfer.toWarehouse !== toFilter) return false
       return true
     })
   }, [fromFilter, search, showCancelled, toFilter, transfers])
@@ -132,139 +128,66 @@ export function InternalTransfersView() {
     downloadExcelTable("internal-transfers.xls", [header, ...body])
   }
 
+  const filterPanel = (
+    <div className="grid w-[320px] gap-[13px] bg-white p-6 text-[13px] shadow-[0_3px_10px_rgba(0,0,0,0.16),0_3px_10px_rgba(0,0,0,0.23)]">
+      <ReportSelectField label="Со склада" value={fromFilter} onChange={(value) => { setFromFilter(value); setPage(1) }} options={warehouses} />
+      <ReportSelectField label="На склад" value={toFilter} onChange={(value) => { setToFilter(value); setPage(1) }} options={warehouses} />
+      <ReportCheckboxField label="Показать отмененные передачи" checked={showCancelled} onChange={(value) => { setShowCancelled(value); setPage(1) }} />
+      <button onClick={() => setFilterOpen(false)} className="h-9 w-fit rounded-[3px] bg-[#5d6474] px-5 text-[13px] font-semibold uppercase text-white shadow">Применить</button>
+    </div>
+  )
+
   return (
-    <main className="min-h-screen bg-white text-[#17233b]">
-      <header className="flex flex-wrap items-center justify-between gap-4 border-b border-[#e1e5eb] px-6 py-5 md:px-9">
-        <div className="flex items-center gap-3">
-          <FavoritesButton className="flex items-center gap-3 text-2xl font-bold text-[#4f71dc]" />
-          <span className="text-3xl font-light text-[#586174]">|</span>
-          <span className="text-2xl font-bold text-[#586174]">Передачи между складами</span>
-        </div>
-        <button onClick={() => setFormOpen({ mode: "add", transfer: null })} className="flex h-11 items-center gap-2 rounded-md bg-[#69cd87] px-5 font-semibold text-white">
-          <Plus className="h-5 w-5" /> Добавить
-        </button>
-      </header>
-
-      <section className="flex flex-wrap items-center gap-5 px-6 py-4 md:px-9">
-        <button onClick={() => setFilterOpen((value) => !value)} className="flex items-center gap-1 font-medium text-[#4f71dc]">
-          <Filter className="h-4 w-4" /> Показать фильтр <ChevronDown className={`h-4 w-4 transition ${filterOpen ? "rotate-180" : ""}`} />
-        </button>
-
-        <label className="relative min-w-[220px] flex-1 border-b border-[#dbe0e8] pb-1.5">
-          <input value={search} onChange={(event) => { setSearch(event.target.value); setPage(1) }} placeholder="Поиск" className="w-full bg-transparent pr-7 text-[15px] outline-none placeholder:text-[#9aa3b6]" />
-          <Search className="pointer-events-none absolute right-0 top-0.5 h-5 w-5 text-[#9aa3b6]" />
-        </label>
-
-        <select value={pageSize} onChange={(event) => { setPageSize(Number(event.target.value)); setPage(1) }} className="h-9 bg-transparent text-[#586174]">
-          <option value={10}>10</option>
-          <option value={25}>25</option>
-          <option value={50}>50</option>
-        </select>
-
-        <span className="text-[#586174]">{filtered.length ? (safePage - 1) * pageSize + 1 : 0} - {Math.min(safePage * pageSize, filtered.length)} из {filtered.length}</span>
-
-        <button disabled={safePage === 1} onClick={() => setPage((value) => Math.max(1, value - 1))} className="rounded-full border border-[#dbe0e8] p-1 text-[#9aa3b6] disabled:opacity-40">
-          <ChevronLeft className="h-5 w-5" />
-        </button>
-        <button disabled={safePage === maxPage} onClick={() => setPage((value) => Math.min(maxPage, value + 1))} className="rounded-full border border-[#4f71dc] p-1 text-[#4f71dc] disabled:opacity-40">
-          <ChevronRight className="h-5 w-5" />
-        </button>
-        <ListChecks className="h-5 w-5 text-[#586174]" />
-        <button onClick={downloadAll} aria-label="Скачать"><Download className="h-5 w-5 text-[#586174]" /></button>
-      </section>
-
-      {filterOpen && (
-        <section className="border-b border-[#e1e5eb] px-6 py-6 md:px-9">
-          <div className="mb-5 flex items-center justify-between">
-            <h2 className="text-lg text-[#586174]">Фильтр</h2>
-            <button aria-label="Закрыть" onClick={() => setFilterOpen(false)}><X className="h-6 w-6 rounded-full border-2 border-[#9aa3b6] p-0.5 text-[#9aa3b6]" /></button>
-          </div>
-          <div className="grid max-w-md gap-8">
-            <label className="relative block border-b border-[#dbe0e8] pb-2 text-[15px] font-medium">
-              Со склада
-              <select value={fromFilter} onChange={(event) => { setFromFilter(event.target.value); setPage(1) }} className="mt-1 block w-full appearance-none bg-transparent pr-6 text-[15px] font-normal outline-none">
-                {["Все склады", ...warehouses].map((option) => <option key={option}>{option}</option>)}
-              </select>
-              <ChevronDown className="pointer-events-none absolute right-0 top-7 h-4 w-4 text-[#9aa3b6]" />
-            </label>
-            <label className="relative block border-b border-[#dbe0e8] pb-2 text-[15px] font-medium">
-              На склад
-              <select value={toFilter} onChange={(event) => { setToFilter(event.target.value); setPage(1) }} className="mt-1 block w-full appearance-none bg-transparent pr-6 text-[15px] font-normal outline-none">
-                {["Все склады", ...warehouses].map((option) => <option key={option}>{option}</option>)}
-              </select>
-              <ChevronDown className="pointer-events-none absolute right-0 top-7 h-4 w-4 text-[#9aa3b6]" />
-            </label>
-            <label className="flex items-center gap-3 text-[15px] font-medium">
-              <input type="checkbox" checked={showCancelled} onChange={(event) => { setShowCancelled(event.target.checked); setPage(1) }} className="h-[18px] w-[18px] accent-[#4f71dc]" />
-              Показать отмененные передачи
-            </label>
-          </div>
-          <button onClick={() => setFilterOpen(false)} className="mt-6 rounded-sm bg-[#586174] px-6 py-3 font-bold uppercase tracking-wide text-white">Применить</button>
-        </section>
-      )}
-
-      <section className="overflow-x-auto">
-        <table className="min-w-[1300px] w-full border-collapse text-[15px]">
-          <thead className="bg-[#5d6474] text-white">
-            <tr>
-              <th className="px-4 py-4 text-left font-semibold">№</th>
-              <th className="px-4 py-4 text-left font-semibold">Со склада</th>
-              <th className="px-4 py-4 text-left font-semibold">На склад</th>
-              <th className="px-4 py-4 text-left font-semibold">Создал</th>
-              <th className="px-4 py-4 text-left font-semibold">Дата создания</th>
-              <th className="px-4 py-4 text-left font-semibold">Дата доставки</th>
-              <th className="px-4 py-4 text-left font-semibold">Сумма</th>
-              <th className="px-4 py-4 text-left font-semibold">Статус</th>
-            </tr>
-          </thead>
-          <tbody>
-            {loading ? (
-              <tr><td colSpan={8} className="px-4 py-16 text-center text-[#9aa3b6]">Загрузка передач...</td></tr>
-            ) : loadError ? (
-              <tr><td colSpan={8} className="px-4 py-16 text-center text-red-600">{loadError}</td></tr>
-            ) : visible.map((transfer, index) => (
-              <Fragment key={transfer.id}>
-                <tr
-                  onClick={() => { setExpandedId((current) => (current === transfer.id ? null : transfer.id)); setDetailTab("items") }}
-                  className={`cursor-pointer border-b border-dashed border-slate-200 hover:bg-[#eef2fb] ${index % 2 ? "bg-[#f6f9fc]" : "bg-white"}`}
-                >
-                  <td className="px-4 py-4">{transfer.id}</td>
-                  <td className="px-4 py-4 text-[#4f71dc]">{transfer.fromWarehouse}</td>
-                  <td className="px-4 py-4 text-[#4f71dc]">{transfer.toWarehouse}</td>
-                  <td className="px-4 py-4">{transfer.createdBy}</td>
-                  <td className="px-4 py-4">{transfer.createdAt}</td>
-                  <td className="px-4 py-4">{transfer.deliveredAt}</td>
-                  <td className="px-4 py-4">
-                    <div>{number(transfer.amount)}</div>
-                    <div className="text-[#4f71dc]">{number(transfer.weight)} кг</div>
-                  </td>
-                  <td className="px-4 py-4">
-                    <span className="inline-flex items-center gap-2">
-                      <span className="h-2.5 w-2.5 rounded-full" style={{ background: statusColor(transfer.status) }} /> {transfer.status}
-                    </span>
-                  </td>
-                </tr>
-                {expandedId === transfer.id && (
-                  <tr key={`${transfer.id}-detail`}>
-                    <td colSpan={8} className="bg-white p-0">
-                      <TransferDetail
-                        transfer={transfer}
-                        tab={detailTab}
-                        onTabChange={setDetailTab}
-                        onEdit={() => setFormOpen({ mode: "edit", transfer })}
-                        onDelete={() => deleteTransfer(transfer.id)}
-                      />
-                    </td>
-                  </tr>
-                )}
-              </Fragment>
-            ))}
-            {!loading && !loadError && visible.length === 0 && (
-              <tr><td colSpan={8} className="px-4 py-16 text-center text-[#9aa3b6]">Ничего не найдено</td></tr>
-            )}
-          </tbody>
-        </table>
-      </section>
+    <RefPage>
+      <RefHeader title="Передачи между складами">
+        <RefButton icon={RI.add} green label="Добавить" onClick={() => setFormOpen({ mode: "add", transfer: null })} />
+      </RefHeader>
+      <RefCard>
+        <RefToolbar
+          linkFilter
+          filterOpen={filterOpen}
+          onToggleFilter={() => setFilterOpen((value) => !value)}
+          filterPanel={filterPanel}
+          query={search}
+          onQuery={(value) => { setSearch(value); setPage(1) }}
+          pageSize={pageSize}
+          onPageSize={(size) => { setPageSize(size); setPage(1) }}
+          from={filtered.length ? (safePage - 1) * pageSize + 1 : 0}
+          to={Math.min(safePage * pageSize, filtered.length)}
+          total={filtered.length}
+          page={safePage}
+          pageCount={maxPage}
+          onPage={setPage}
+          icons={<><svg viewBox="0 0 24 24" className="mr-[22px] h-6 w-6 fill-[#555]" aria-hidden><path d={RI.checklist} /></svg><button onClick={downloadAll} aria-label="Скачать"><svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#555]"><path d={RI.download} /></svg></button></>}
+        />
+        <RefTable
+          cols="0.54fr repeat(7,minmax(0,1fr))"
+          heads={["№", "Со склада", "На склад", "Создал", "Дата создания", "Дата доставки", "Сумма", "Статус"]}
+          rows={loading || loadError ? [] : visible}
+          rowKey={(transfer) => transfer.id}
+          onRowClick={(transfer) => { setExpandedId((current) => (current === transfer.id ? null : transfer.id)); setDetailTab("items") }}
+          empty={loading ? "Загрузка передач..." : loadError || "Ничего не найдено"}
+          render={(transfer) => [
+            transfer.id,
+            transfer.fromWarehouse,
+            transfer.toWarehouse,
+            transfer.createdBy,
+            transfer.createdAt,
+            transfer.deliveredAt,
+            <div key="a"><div>{number(transfer.amount)}</div><div className="text-[#4f71dc]">{number(transfer.weight)} кг</div></div>,
+            <span key="s" className="flex items-center gap-2"><span className="h-2 w-2 rounded-full" style={{ background: statusColor(transfer.status) }} />{transfer.status}</span>,
+          ]}
+          expanded={(transfer) => expandedId === transfer.id ? (
+            <TransferDetail
+              transfer={transfer}
+              tab={detailTab}
+              onTabChange={setDetailTab}
+              onEdit={() => setFormOpen({ mode: "edit", transfer })}
+              onDelete={() => deleteTransfer(transfer.id)}
+            />
+          ) : null}
+        />
+      </RefCard>
 
       {formOpen && (
         <TransferFormModal
@@ -274,7 +197,7 @@ export function InternalTransfersView() {
           onSave={saveTransfer}
         />
       )}
-    </main>
+    </RefPage>
   )
 }
 
@@ -470,69 +393,69 @@ function TransferFormModal({
 
   return (
     <div className="fixed inset-0 z-[110] flex flex-col bg-white">
-      <header className="flex items-center justify-between border-b px-9 py-6">
-        <h2 className="text-lg font-bold uppercase tracking-wide">{mode === "add" ? "Добавить передачу товаров" : "Изменить передачу товаров"}</h2>
+      <header className="flex items-center justify-between border-b px-[14px] py-[16px]">
+        <h2 className="text-[13px] font-bold uppercase">{mode === "add" ? "Добавить передачу товаров" : "Изменить передачу товаров"}</h2>
         <button aria-label="Закрыть" onClick={onClose}><X className="h-6 w-6 text-slate-500" /></button>
       </header>
-      <div className="grid min-h-0 flex-1 grid-cols-1 overflow-y-auto md:grid-cols-[380px_1fr]">
-        <div className="space-y-7 border-b px-9 py-8 md:border-b-0 md:border-r">
+      <div className="grid min-h-0 flex-1 grid-cols-1 overflow-y-auto md:grid-cols-[405px_1fr]">
+        <div className="space-y-[14px] border-b px-[14px] py-[12px] md:border-b-0 md:border-r">
           <h3 className="font-medium text-[#586174]">Условия передачи товара</h3>
-          <label className="relative block border-b border-[#dbe0e8] pb-2 text-[15px] font-medium">
+          <label className="relative block border-b border-[#dbe0e8] pb-2 text-[13px] font-medium">
             Со склада <span className="text-red-500">*</span>
-            <select value={fromWarehouse} onChange={(event) => setFromWarehouse(event.target.value)} className="mt-1 block w-full appearance-none bg-transparent pr-6 text-[15px] font-normal outline-none">
+            <select value={fromWarehouse} onChange={(event) => setFromWarehouse(event.target.value)} className="mt-1 block w-full appearance-none bg-transparent pr-6 text-[13px] font-normal outline-none">
               <option value="" />
               {warehouses.map((item) => <option key={item}>{item}</option>)}
             </select>
             <ChevronDown className="pointer-events-none absolute right-0 top-7 h-4 w-4 text-[#9aa3b6]" />
             {touched && !fromWarehouse && <p className="mt-1 text-sm text-[#e5484d]">Склад не выбран</p>}
           </label>
-          <label className="relative block border-b border-[#dbe0e8] pb-2 text-[15px] font-medium">
+          <label className="relative block border-b border-[#dbe0e8] pb-2 text-[13px] font-medium">
             На склад <span className="text-red-500">*</span>
-            <select value={toWarehouse} onChange={(event) => setToWarehouse(event.target.value)} className="mt-1 block w-full appearance-none bg-transparent pr-6 text-[15px] font-normal outline-none">
+            <select value={toWarehouse} onChange={(event) => setToWarehouse(event.target.value)} className="mt-1 block w-full appearance-none bg-transparent pr-6 text-[13px] font-normal outline-none">
               <option value="" />
               {warehouses.map((item) => <option key={item}>{item}</option>)}
             </select>
             <ChevronDown className="pointer-events-none absolute right-0 top-7 h-4 w-4 text-[#9aa3b6]" />
             {touched && !toWarehouse && <p className="mt-1 text-sm text-[#e5484d]">Склад не выбран</p>}
           </label>
-          <label className="block border-b border-[#dbe0e8] pb-2 text-[15px] font-medium">
+          <label className="block border-b border-[#dbe0e8] pb-2 text-[13px] font-medium">
             Дата доставки <span className="text-red-500">*</span>
-            <input type="date" value={deliveredAt} onChange={(event) => setDeliveredAt(event.target.value)} className="mt-1 block w-full bg-transparent text-[15px] font-normal outline-none" />
+            <input type="date" value={deliveredAt} onChange={(event) => setDeliveredAt(event.target.value)} className="mt-1 block w-full bg-transparent text-[13px] font-normal outline-none" />
           </label>
-          <label className="block border-b border-[#dbe0e8] pb-2 text-[15px] font-medium">
+          <label className="block border-b border-[#dbe0e8] pb-2 text-[13px] font-medium">
             Дата создания <span className="text-red-500">*</span>
-            <input type="date" value={createdAt} onChange={(event) => setCreatedAt(event.target.value)} className="mt-1 block w-full bg-transparent text-[15px] font-normal outline-none" />
+            <input type="date" value={createdAt} onChange={(event) => setCreatedAt(event.target.value)} className="mt-1 block w-full bg-transparent text-[13px] font-normal outline-none" />
           </label>
-          <label className="relative block border-b border-[#dbe0e8] pb-2 text-[15px] font-medium">
+          <label className="relative block border-b border-[#dbe0e8] pb-2 text-[13px] font-medium">
             Прайс лист <span className="text-red-500">*</span>
-            <input value={priceList} onChange={(event) => setPriceList(event.target.value)} className="mt-1 block w-full bg-transparent text-[15px] font-normal outline-none" />
+            <input value={priceList} onChange={(event) => setPriceList(event.target.value)} className="mt-1 block w-full bg-transparent text-[13px] font-normal outline-none" />
           </label>
-          <label className="relative block border-b border-[#dbe0e8] pb-2 text-[15px] font-medium">
+          <label className="relative block border-b border-[#dbe0e8] pb-2 text-[13px] font-medium">
             Валюта
-            <select value={currency} onChange={(event) => setCurrency(event.target.value)} className="mt-1 block w-full appearance-none bg-transparent pr-6 text-[15px] font-normal outline-none">
+            <select value={currency} onChange={(event) => setCurrency(event.target.value)} className="mt-1 block w-full appearance-none bg-transparent pr-6 text-[13px] font-normal outline-none">
               <option>SUM</option><option>USD</option><option>Euro</option>
             </select>
             <ChevronDown className="pointer-events-none absolute right-0 top-7 h-4 w-4 text-[#9aa3b6]" />
           </label>
-          <label className="block border-b border-[#dbe0e8] pb-2 text-[15px] font-medium">
+          <label className="block border-b border-[#dbe0e8] pb-2 text-[13px] font-medium">
             Организация
-            <input value={organization} onChange={(event) => setOrganization(event.target.value)} className="mt-1 block w-full bg-transparent text-[15px] font-normal outline-none" />
+            <input value={organization} onChange={(event) => setOrganization(event.target.value)} className="mt-1 block w-full bg-transparent text-[13px] font-normal outline-none" />
           </label>
-          <label className="block border-b border-[#dbe0e8] pb-2 text-[15px] font-medium">
+          <label className="block border-b border-[#dbe0e8] pb-2 text-[13px] font-medium">
             Номер накладной
-            <input value={invoiceNumber} onChange={(event) => setInvoiceNumber(event.target.value)} className="mt-1 block w-full bg-transparent text-[15px] font-normal outline-none" />
+            <input value={invoiceNumber} onChange={(event) => setInvoiceNumber(event.target.value)} className="mt-1 block w-full bg-transparent text-[13px] font-normal outline-none" />
           </label>
-          <label className="block border-b border-[#dbe0e8] pb-2 text-[15px] font-medium">
+          <label className="block border-b border-[#dbe0e8] pb-2 text-[13px] font-medium">
             Номер транспорта
-            <input value={transportNumber} onChange={(event) => setTransportNumber(event.target.value)} className="mt-1 block w-full bg-transparent text-[15px] font-normal outline-none" />
+            <input value={transportNumber} onChange={(event) => setTransportNumber(event.target.value)} className="mt-1 block w-full bg-transparent text-[13px] font-normal outline-none" />
           </label>
-          <label className="block border-b border-[#dbe0e8] pb-2 text-[15px] font-medium">
+          <label className="block border-b border-[#dbe0e8] pb-2 text-[13px] font-medium">
             Водитель
-            <input value={driver} onChange={(event) => setDriver(event.target.value)} className="mt-1 block w-full bg-transparent text-[15px] font-normal outline-none" />
+            <input value={driver} onChange={(event) => setDriver(event.target.value)} className="mt-1 block w-full bg-transparent text-[13px] font-normal outline-none" />
           </label>
         </div>
 
-        <div className="px-9 py-8">
+        <div className="px-[14px] py-[12px]">
           <div className="mb-4 flex items-center justify-between">
             <h3 className="font-medium text-[#586174]">Список товаров</h3>
             <div className="flex items-center gap-6">
@@ -547,9 +470,9 @@ function TransferFormModal({
             </div>
             {items.map((item) => (
               <div key={item.id} className="grid grid-cols-[1fr_140px_140px_60px] items-center gap-6 border-t border-white px-4 py-3">
-                <input value={item.product} onChange={(event) => updateItem(item.id, { product: event.target.value })} placeholder="Наименование" className="border-b border-[#dbe0e8] bg-transparent py-1 text-[15px] outline-none" />
-                <input type="number" value={item.quantity || ""} onChange={(event) => updateItem(item.id, { quantity: Number(event.target.value) })} className="border-b border-[#dbe0e8] bg-transparent py-1 text-[15px] outline-none" />
-                <input type="number" value={item.price || ""} onChange={(event) => updateItem(item.id, { price: Number(event.target.value) })} className="border-b border-[#dbe0e8] bg-transparent py-1 text-[15px] outline-none" />
+                <input value={item.product} onChange={(event) => updateItem(item.id, { product: event.target.value })} placeholder="Наименование" className="border-b border-[#dbe0e8] bg-transparent py-1 text-[13px] outline-none" />
+                <input type="number" value={item.quantity || ""} onChange={(event) => updateItem(item.id, { quantity: Number(event.target.value) })} className="border-b border-[#dbe0e8] bg-transparent py-1 text-[13px] outline-none" />
+                <input type="number" value={item.price || ""} onChange={(event) => updateItem(item.id, { price: Number(event.target.value) })} className="border-b border-[#dbe0e8] bg-transparent py-1 text-[13px] outline-none" />
                 <button aria-label="Удалить товар" onClick={() => removeItem(item.id)} className="text-[#9aa3b6] hover:text-[#e5484d]"><Trash2 className="h-4 w-4" /></button>
               </div>
             ))}
@@ -558,7 +481,7 @@ function TransferFormModal({
         </div>
       </div>
       <footer className="flex items-center justify-between border-t px-9 py-5">
-        <div className="flex items-center gap-6 text-[15px]">
+        <div className="flex items-center gap-6 text-[13px]">
           <span className="text-[#586174]">Сумма: <b className="text-[#17233b]">{number(totalSum)}</b></span>
           <span className="text-[#586174]">Общее кол-во: <b className="text-[#4f71dc]">{number(totalQuantity)} ед</b></span>
         </div>

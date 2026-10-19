@@ -34,7 +34,7 @@ function formatDate(sqliteDate: string): string {
   const isoLike = sqliteDate.includes("T") ? sqliteDate : `${sqliteDate.replace(" ", "T")}Z`
   const date = new Date(isoLike)
   if (Number.isNaN(date.getTime())) return sqliteDate
-  return new Intl.DateTimeFormat("ru-RU", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }).format(date)
+  return new Intl.DateTimeFormat("ru-RU", { timeZone: "UTC", day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }).format(date)
 }
 
 function normalizeCurrency(value: unknown): keyof Money {

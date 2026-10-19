@@ -27,7 +27,7 @@ export type PriceListInput = { name: string; currency: string; linkedList: strin
 
 export async function listPriceLists(): Promise<PriceList[]> {
   const db = getDb()
-  const rows = (await db.prepare("SELECT * FROM price_lists ORDER BY id DESC").all()) as Row[]
+  const rows = (await db.prepare("SELECT * FROM price_lists ORDER BY id ASC").all()) as Row[]
   return rows.map(rowToPriceList)
 }
 

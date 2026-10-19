@@ -1,6 +1,7 @@
 import "server-only"
 
 import { getDb } from "@/lib/db"
+import { refDate } from "@/lib/ref-date"
 
 export type ClientType = {
   id: number
@@ -26,7 +27,7 @@ async function ensureSchema(db: ReturnType<typeof getDb>) {
 function dateLabel(iso: string): string {
   const parsed = new Date(iso.replace(" ", "T") + "Z")
   if (Number.isNaN(parsed.getTime())) return iso
-  return new Intl.DateTimeFormat("ru-RU", { day: "2-digit", month: "short", year: "numeric" }).format(parsed)
+  return refDate(new Date(parsed.getUTCFullYear(), parsed.getUTCMonth(), parsed.getUTCDate()))
 }
 
 function rowToClientType(row: Row): ClientType {

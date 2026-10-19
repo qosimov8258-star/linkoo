@@ -42,7 +42,8 @@ type Row = {
 function formatDate(raw: string): string {
   const date = new Date(`${raw.replace(" ", "T")}Z`)
   if (Number.isNaN(date.getTime())) return raw
-  return new Intl.DateTimeFormat("ru-RU", { day: "2-digit", month: "short", year: "numeric" }).format(date).replace(".", "")
+  const months = ["янв.", "февр.", "мар.", "апр.", "мая", "июня", "июля", "авг.", "сент.", "окт.", "нояб.", "дек."]
+  return `${String(date.getUTCDate()).padStart(2, "0")} ${months[date.getUTCMonth()]} ${date.getUTCFullYear()}`
 }
 
 function toCurrency(value: string): BranchCurrency {
@@ -86,7 +87,7 @@ export function parseBranchInput(body: unknown): BranchInput | null {
 export async function listBranches(): Promise<BranchRecord[]> {
   const db = getDb()
   await ensureSchema(db)
-  return ((await db.prepare("SELECT * FROM branches ORDER BY id DESC").all()) as Row[]).map(rowToBranch)
+  return ((await db.prepare("SELECT * FROM branches ORDER BY LOWER(name) COLLATE \"C\" ASC").all()) as Row[]).map(rowToBranch)
 }
 
 export async function getBranch(id: number): Promise<BranchRecord | null> {

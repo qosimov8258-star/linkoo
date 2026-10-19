@@ -33,9 +33,9 @@ function rowToEmployee(row: Row): Employee {
     id: row.id,
     name: `${row.first_name} ${row.last_name}`.trim(),
     login: row.login,
-    role: row.position,
+    role: row.position.split("|")[0],
     phone: row.phone,
-    position: row.position,
+    position: row.position.includes("|") ? row.position.split("|")[1] : row.position,
     active: row.active === 1,
     firstName: row.first_name,
     lastName: row.last_name,
@@ -70,7 +70,7 @@ export type EmployeeInput = {
 
 export async function listEmployees(): Promise<Employee[]> {
   const db = getDb()
-  const rows = (await db.prepare("SELECT * FROM employees ORDER BY id DESC").all()) as Row[]
+  const rows = (await db.prepare("SELECT * FROM employees ORDER BY id ASC").all()) as Row[]
   return rows.map(rowToEmployee)
 }
 

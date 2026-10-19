@@ -345,10 +345,10 @@ export function RawMaterialsView({ embedded = false }: { embedded?: boolean }) {
   return (
     <main className={embedded ? "min-w-0 flex-1" : "min-h-[calc(100vh-4rem)] bg-[#f2f5f8] px-7 pb-7"}>
       {!embedded && (
-        <header className="mb-5 flex items-center justify-between">
-          <h1 className="flex items-center text-2xl font-bold text-slate-600">
-            <FavoritesButton className="inline-flex items-center gap-2 text-[#4f71dc]" />
-            <span className="mx-2 text-slate-400">|</span> {t("Сырье")}
+        <header className="flex h-[60px] flex-wrap items-center justify-between gap-3">
+          <h1 className="flex items-center text-[18px] font-bold text-[#5d6474]">
+            <FavoritesButton className="flex items-center gap-[5px] text-[18px] font-bold text-[#4f71dc]" />
+            <span className="mx-[11px] inline-block h-[21px] w-[2px] bg-[#5d6474]" /> {t("Сырье")}
           </h1>
           <div className="flex items-center gap-3">
             <button type="button" onClick={() => importInputRef.current?.click()} className="inline-flex items-center gap-2 rounded bg-[#4f71dc] px-4 py-2.5 font-semibold text-white hover:brightness-95">
@@ -357,7 +357,7 @@ export function RawMaterialsView({ embedded = false }: { embedded?: boolean }) {
             <button type="button" onClick={() => updateInputRef.current?.click()} className="inline-flex items-center gap-2 rounded bg-[#4f71dc] px-4 py-2.5 font-semibold text-white hover:brightness-95">
               <BarChart3 className="h-4 w-4" /> {t("Обновить с excel")}
             </button>
-            <button type="button" onClick={openCreate} className="inline-flex items-center gap-2 rounded bg-[#71ce87] px-5 py-2.5 font-semibold text-white hover:brightness-95">
+            <button type="button" onClick={openCreate} className="inline-flex items-center gap-2 h-[30px] rounded-[5px] bg-[#71ce87] px-4 text-[13px] font-semibold text-white hover:brightness-95">
               <Plus className="h-4 w-4" /> {t("Добавить")}
             </button>
             <input ref={importInputRef} type="file" accept=".csv,.xls,.xlsx,text/csv" onChange={parseImport} className="hidden" />
@@ -368,25 +368,10 @@ export function RawMaterialsView({ embedded = false }: { embedded?: boolean }) {
 
       <section className="overflow-hidden rounded bg-white shadow">
         <div className="flex flex-wrap items-center gap-4 px-5 py-3">
-          <button type="button" onClick={() => setFilterOpen((value) => !value)} className="inline-flex items-center gap-1 text-[#4f71dc] hover:underline">
+          <button type="button" onClick={() => setFilterOpen((value) => !value)} className="inline-flex w-[318px] shrink-0 items-center gap-1 pl-[5px] text-[13px] text-[#4f71dc] hover:underline">
             {t("Показать фильтр")} <ChevronDown className={`h-4 w-4 transition-transform ${filterOpen ? "rotate-180" : ""}`} />
           </button>
-        </div>
-
-        {filterOpen && (
-          <div className="flex flex-wrap items-center gap-4 border-b border-slate-100 bg-slate-50 px-5 py-3">
-            <label className="text-sm text-slate-600">
-              {t("Тип товара:")}{" "}
-              <select value={typeFilter} onChange={(event) => { setTypeFilter(event.target.value); setPage(1) }} className="ml-1 rounded border border-slate-300 px-2 py-1">
-                <option value="all">{t("Все")}</option>
-                {availableTypes.map((type) => <option key={type} value={type}>{type}</option>)}
-              </select>
-            </label>
-          </div>
-        )}
-
-        <div className="flex flex-wrap items-center gap-4 px-5 py-3">
-          <label className="relative w-64">
+          <label className="relative ml-[18px] w-[248px]">
             <input value={query} onChange={(event) => { setQuery(event.target.value); setPage(1) }} placeholder={t("Поиск")} className="w-full border-b border-slate-300 py-2 pr-10 outline-none focus:border-[#4f71dc]" />
             <Search className="absolute right-2 top-2 h-5 w-5 text-slate-300" />
           </label>
@@ -411,17 +396,29 @@ export function RawMaterialsView({ embedded = false }: { embedded?: boolean }) {
           )}
         </div>
 
+        {filterOpen && (
+          <div className="flex flex-wrap items-center gap-4 border-b border-slate-100 bg-slate-50 px-5 py-3">
+            <label className="text-sm text-slate-600">
+              {t("Тип товара:")}{" "}
+              <select value={typeFilter} onChange={(event) => { setTypeFilter(event.target.value); setPage(1) }} className="ml-1 rounded border border-slate-300 px-2 py-1">
+                <option value="all">{t("Все")}</option>
+                {availableTypes.map((type) => <option key={type} value={type}>{type}</option>)}
+              </select>
+            </label>
+          </div>
+        )}
+
         <table className="w-full text-left">
           <thead className="bg-[#5d6474] text-white">
             <tr>
-              <th className="px-9 py-5">{t("Наименование")}</th>
-              <th className="px-5 py-5">{t("Штрих - код товара")}</th>
-              <th className="px-5 py-5">{t("Артикул")}</th>
-              <th className="px-5 py-5">{t("Тип товара")}</th>
-              <th className="px-5 py-5">{t("Организация")}</th>
-              <th className="px-5 py-5">{t("Мера")}</th>
-              <th className="px-5 py-5">{t("Дата создания")}</th>
-              <th className="px-5 py-5">{t("Порядковый номер")}</th>
+              <th className="px-9 py-4 text-[13px]">{t("Наименование")}</th>
+              <th className="px-5 py-4 text-[13px]">{t("Штрих - код товара")}</th>
+              <th className="px-5 py-4 text-[13px]">{t("Артикул")}</th>
+              <th className="px-5 py-4 text-[13px]">{t("Тип товара")}</th>
+              <th className="px-5 py-4 text-[13px]">{t("Организация")}</th>
+              <th className="px-5 py-4 text-[13px]">{t("Мера")}</th>
+              <th className="px-5 py-4 text-[13px]">{t("Дата создания")}</th>
+              <th className="px-5 py-4 text-[13px]">{t("Порядковый номер")}</th>
               <th className="w-12" />
             </tr>
           </thead>

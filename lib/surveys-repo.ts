@@ -39,9 +39,9 @@ async function ensureSchema(db: ReturnType<typeof getDb>) {
 
 function formatDate(iso: string): string {
   try {
-    return new Intl.DateTimeFormat("ru-RU", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })
+    return new Intl.DateTimeFormat("ru-RU", { timeZone: "UTC", day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })
       .format(new Date(iso.replace(" ", "T") + "Z"))
-      .replace(".", "")
+      .replace(" г.", "")
   } catch {
     return iso
   }

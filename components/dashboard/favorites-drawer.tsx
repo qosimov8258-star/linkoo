@@ -1,34 +1,73 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { usePathname, useRouter } from "next/navigation"
 import { Star } from "lucide-react"
 
 import { useLanguage } from "@/lib/i18n/language-context"
 
-const FAVORITE_ITEMS = ["Клиенты", "Заказы", "Виджеты", "Заказы", "Ограничение продуктов", "Продукты"]
+type FavoriteItem = { label: string; href: string }
 
-const FAVORITE_ROUTES: Record<string, string> = {
-  "Клиенты": "/clients",
-  "Заказы": "/analytics/sales",
-  "Виджеты": "/",
-  "Ограничение продуктов": "/analytics/product-restrictions",
-  "Продукты": "/analytics/products",
+const DEFAULT_ITEMS: FavoriteItem[] = [
+  { label: "Клиенты", href: "/clients" },
+  { label: "Заказы", href: "/analytics/sales" },
+  { label: "Виджеты", href: "/" },
+  { label: "Заказы", href: "/analytics/sales" },
+  { label: "Ограничение продуктов", href: "/analytics/product-restrictions" },
+  { label: "Продукты", href: "/analytics/products" },
+]
+
+const STORAGE_KEY = "linko-favorites"
+
+function loadItems(): FavoriteItem[] {
+  try {
+    const raw = window.localStorage.getItem(STORAGE_KEY)
+    if (raw) {
+      const parsed = JSON.parse(raw) as FavoriteItem[]
+      if (Array.isArray(parsed)) return parsed
+    }
+  } catch {}
+  return DEFAULT_ITEMS
 }
 
 /**
- * Shared "★ Избранные" trigger + slide-in drawer used across page headers.
- * Renders its own trigger button, so callers just drop it where the old
- * decorative star/label used to live.
+ * Shared "★ | Избранные" header trigger. The star adds / removes the current page
+ * (like the reference app); the label opens the slide-in favorites drawer.
  */
 export function FavoritesButton({ className = "flex items-center gap-2 text-[#4f71dc]" }: { className?: string }) {
   const { t } = useLanguage()
   const router = useRouter()
   const pathname = usePathname()
-  const [favorite, setFavorite] = useState(false)
   const [open, setOpen] = useState(false)
-  const [items, setItems] = useState(FAVORITE_ITEMS)
+  const [items, setItems] = useState<FavoriteItem[]>(DEFAULT_ITEMS)
   const [hovered, setHovered] = useState<number | null>(null)
+  const [tip, setTip] = useState(false)
+  const [pageTitle, setPageTitle] = useState("")
+  const rowRef = useRef<HTMLSpanElement>(null)
+
+  useEffect(() => {
+    setItems(loadItems())
+  }, [])
+
+  const save = (next: FavoriteItem[]) => {
+    setItems(next)
+    try {
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next))
+    } catch {}
+  }
+
+  const isFavorite = items.some((item) => item.href === pathname)
+
+  const toggleFavorite = () => {
+    if (isFavorite) {
+      save(items.filter((item) => item.href !== pathname))
+      return
+    }
+    const heading = rowRef.current?.closest("h1")
+    const label = (heading?.textContent ?? pageTitle).replace(t("Избранные"), "").trim() || document.title.split("—")[0].trim()
+    save([...items, { label, href: pathname }])
+    setPageTitle(label)
+  }
 
   useEffect(() => {
     if (!open) return
@@ -39,22 +78,18 @@ export function FavoritesButton({ className = "flex items-center gap-2 text-[#4f
     return () => window.removeEventListener("keydown", onKeyDown)
   }, [open])
 
-  const removeItem = (index: number) => {
-    setItems((current) => current.filter((_, itemIndex) => itemIndex !== index))
-  }
+  const removeItem = (index: number) => save(items.filter((_, itemIndex) => itemIndex !== index))
 
-  const goTo = (item: string) => {
-    setFavorite(true)
+  const goTo = (item: FavoriteItem) => {
     setOpen(false)
-    const href = FAVORITE_ROUTES[item]
-    if (href) router.push(href)
+    router.push(item.href)
   }
 
   return (
     <>
-      <button
-        type="button"
+      <span
         ref={(node) => {
+          rowRef.current = node
           // Mark the title row and its page header so global CSS can give every page the reference look.
           const row = node?.parentElement
           if (!row) return
@@ -62,12 +97,27 @@ export function FavoritesButton({ className = "flex items-center gap-2 text-[#4f
           const header = row.closest("header")
           if (header) header.setAttribute("data-ref-header", "")
         }}
-        onClick={() => setOpen(true)}
-        className={className}
+        className="relative flex items-center"
       >
-        <Star className={`h-6 w-6 ${favorite ? "fill-[#4f71dc] text-[#4f71dc]" : "fill-slate-500 text-slate-500"}`} />
-        {t("Избранные")}
-      </button>
+        <button
+          type="button"
+          onClick={toggleFavorite}
+          onMouseEnter={() => setTip(true)}
+          onMouseLeave={() => setTip(false)}
+          aria-label={isFavorite ? t("Удалить из избранного") : t("Добавить в избранные")}
+          className="flex items-center"
+        >
+          <Star className={`h-6 w-6 ${isFavorite ? "fill-[#4f71dc] text-[#4f71dc]" : "fill-slate-500 text-slate-500"}`} />
+        </button>
+        {tip && (
+          <span className="pointer-events-none absolute left-[30px] top-[-6px] z-50 whitespace-nowrap rounded-[2px] bg-[#333] px-[21px] py-[8px] text-[13px] font-bold text-white opacity-90">
+            {isFavorite ? t("Удалить из избранного") : t("Добавить в избранные")}
+          </span>
+        )}
+        <button type="button" onClick={() => setOpen(true)} className={className.replace(/gap-\[5px\]|gap-2/, "ml-[5px]")}>
+          {t("Избранные")}
+        </button>
+      </span>
 
       <div
         aria-hidden={!open}
@@ -89,10 +139,10 @@ export function FavoritesButton({ className = "flex items-center gap-2 text-[#4f
         <ul className="m-0 mb-5 list-none p-0">
           {items.map((item, index) => {
             const isHovered = hovered === index
-            const isActive = FAVORITE_ROUTES[item] === pathname
+            const isActive = item.href === pathname
             return (
               <li
-                key={`${item}-${index}`}
+                key={`${item.label}-${index}`}
                 onMouseEnter={() => setHovered(index)}
                 onMouseLeave={() => setHovered((current) => (current === index ? null : current))}
                 className={`flex items-center border-b border-[#f1f1f1] p-[10px] ${isHovered ? "bg-[rgba(13,153,255,0.22)]" : ""}`}
@@ -114,7 +164,7 @@ export function FavoritesButton({ className = "flex items-center gap-2 text-[#4f
                   onClick={() => goTo(item)}
                   className={`flex h-5 flex-1 cursor-pointer items-center justify-between px-[10px] text-left text-[13px] font-semibold leading-[16.25px] ${isActive ? "text-[#4f71dc]" : "text-[#333]"}`}
                 >
-                  <span>{t(item)}</span>
+                  <span>{t(item.label)}</span>
                   <svg viewBox="0 0 24 24" className="h-5 w-5 fill-[#5d6474]">
                     <path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z" />
                   </svg>

@@ -93,12 +93,12 @@ const groups: MenuGroup[] = [
 
 export const catalogSidebarHrefs: string[] = groups.flatMap((group) => group.items.flatMap((item) => (item.href ? [item.href] : [])))
 
-export function CatalogSidebar() {
+export function CatalogSidebar({ width = 225 }: { width?: number }) {
   const pathname = usePathname()
   const { t } = useLanguage()
 
   return (
-    <aside className="hidden w-[225px] shrink-0 bg-[#f2f5f8] pb-6 pt-[30px] text-[13px] text-[#333] lg:block">
+    <aside style={{ width }} className="hidden shrink-0 bg-[#f2f5f8] pb-6 pt-[30px] text-[13px] text-[#333] lg:block">
       {groups.map((group) => (
         <section key={group.title} className="mb-[20px]">
           <h2 className="mb-[10px] pl-[30px] font-bold leading-4">{t(group.title)}</h2>
@@ -121,11 +121,11 @@ export function CatalogSidebar() {
   )
 }
 
-export function CatalogPageLayout({ children }: { children: ReactNode }) {
+export function CatalogPageLayout({ children, sidebarWidth }: { children: ReactNode; sidebarWidth?: number }) {
   return (
     <main className="min-h-[calc(100vh-50px)] bg-white">
       <div className="flex min-h-[calc(100vh-50px)]">
-        <CatalogSidebar />
+        <CatalogSidebar width={sidebarWidth} />
         {children}
       </div>
     </main>

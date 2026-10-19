@@ -1,23 +1,9 @@
 "use client"
 
 import { useMemo, useState } from "react"
-import { useRouter } from "next/navigation"
-import { ChevronDown, Download } from "lucide-react"
-import { downloadExcelTable } from "@/lib/excel-export"
-import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
+import { CashOverview, WarehouseOverview } from "@/components/analytics/balance-sections"
+import { ReportPage, WidgetHeader, WidgetUserCard } from "@/components/ref/report-kit"
 
-const tabs = ["ВИДЖЕТЫ", "KPI", "БАЛАНС", "ОХВАТ", "ФИЛИАЛ", "P&L", "ДОЛГ КЛИЕНТОВ", "ПРОДАЖА", "ГИБКИЙ ДАШБОРД"] as const
-const tabHref: Partial<Record<(typeof tabs)[number], string>> = {
-  "ВИДЖЕТЫ": "/",
-  "ОХВАТ": "/analytics/coverage-analysis",
-  "P&L": "/analytics/pnl",
-  "ДОЛГ КЛИЕНТОВ": "/analytics/client-debts",
-  "ГИБКИЙ ДАШБОРД": "/analytics/flexible-dashboard",
-  "ФИЛИАЛ": "/analytics/branch-tab",
-  "ПРОДАЖА": "/analytics/sales-tab",
-  "KPI": "/analytics/kpi-performance",
-  "БАЛАНС": "/analytics/balance-tab",
-}
 
 type Money = { sum: number; usd: number }
 type Branch = { id: number; name: string; opening: Money }
@@ -27,11 +13,6 @@ const branches: Branch[] = []
 const FIXED_TOTALS = { sum: 0, usd: 0 }
 const groups = ["Баланс на начало периода", "Передача на склад", "Возврат передачи", "Оплата", "Прочие приходы", "Прочие расходы", "Баланс на конец"] as const
 
-type WarehouseRow = { id: number; name: string; balance: number; sharePercent: number }
-const warehouses: WarehouseRow[] = []
-const WAREHOUSE_TOTAL = 0
-const DONUT_COLORS = ["#3b82f6", "#22c55e", "#ef4444", "#8b5cf6", "#f59e0b", "#06b6d4", "#ec4899", "#84cc16"]
-
 const money = (value: number) => new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 2 }).format(value)
 
 function AmountCell({ value }: { value: number }) {
@@ -40,27 +21,10 @@ function AmountCell({ value }: { value: number }) {
   return <span className={`font-semibold ${color}`}>{money(value)}</span>
 }
 
-function pad(value: number) {
-  return String(value).padStart(2, "0")
-}
-function toInputDate(date: Date) {
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
-}
-
 export function BranchTabView() {
-  const router = useRouter()
   const [chartMode, setChartMode] = useState<"type" | "brand">("type")
   const [sortKey, setSortKey] = useState<"opening" | "closing" | null>(null)
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc")
-  const [warehouseTab, setWarehouseTab] = useState<"cost" | "priceList">("cost")
-  const [warehouseDisplay, setWarehouseDisplay] = useState<"text" | "chart">("text")
-  const [warehouseMetric, setWarehouseMetric] = useState<"qty" | "sum">("sum")
-  const [warehouseSort, setWarehouseSort] = useState<{ key: "balance"; dir: "asc" | "desc" } | null>(null)
-
-  const today = useMemo(() => new Date(), [])
-  const monthStart = useMemo(() => new Date(today.getFullYear(), today.getMonth(), 1), [today])
-  const [rangeFrom] = useState(() => toInputDate(monthStart))
-  const [rangeTo] = useState(() => toInputDate(today))
 
   const sortedBranches = useMemo(() => {
     if (!sortKey) return branches
@@ -77,204 +41,76 @@ export function BranchTabView() {
     else { setSortKey(key); setSortDir("asc") }
   }
 
-  const sortedWarehouses = useMemo(() => {
-    if (!warehouseSort) return warehouses
-    const copy = [...warehouses]
-    copy.sort((a, b) => (warehouseSort.dir === "asc" ? a.balance - b.balance : b.balance - a.balance))
-    return copy
-  }, [warehouseSort])
-
-  const gradientStops = useMemo(() => {
-    return warehouses.reduce<{ acc: number; parts: string[] }>(
-      (state, row, index) => {
-        const start = state.acc
-        const end = start + row.sharePercent
-        return { acc: end, parts: [...state.parts, `${DONUT_COLORS[index % DONUT_COLORS.length]} ${start}% ${end}%`] }
-      },
-      { acc: 0, parts: [] },
-    ).parts
-  }, [])
-
   return (
-    <main className="min-h-screen bg-white text-[#17233b]">
-      <header className="flex flex-wrap items-center gap-4 border-b border-[#d8dee7] bg-[#f2f5f8] px-6 py-4 md:px-9">
-        <div className="flex items-center gap-3">
-          <FavoritesButton className="flex items-center gap-2 text-xl font-bold text-[#4f71dc]" /><span className="text-2xl font-light text-[#586174]">|</span>
-          <span className="text-xl font-bold text-[#586174]">Виджеты</span>
-        </div>
-        <nav className="ml-auto flex flex-wrap gap-2">
-          {tabs.map((tab) => (
-            <button
-              key={tab}
-              onClick={() => { const href = tabHref[tab]; if (href) router.push(href) }}
-              className={`rounded-md px-4 py-2.5 text-sm font-bold ${tab === "ФИЛИАЛ" ? "bg-[#3aca6a] text-white" : "bg-white text-[#586174] hover:bg-slate-100"}`}
-            >
-              {tab}
-            </button>
+    <ReportPage>
+      <WidgetHeader active="ФИЛИАЛ" />
+      <WidgetUserCard />
+      <section className="mx-[30px] mt-[20px] rounded-[12px] bg-white p-[14px] shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
+        <div className="relative h-[340px]">
+          {[5, 4, 3, 2, 1, 0].map((tick, index) => (
+            <div key={tick} className="absolute left-0 right-[24px] border-t border-[#e8ecf1]" style={{ top: 8 + index * 62 }}>
+              <span className="absolute -top-[8px] -right-[20px] w-[16px] text-[11px] text-[#777]">{tick}</span>
+            </div>
           ))}
-        </nav>
-      </header>
-
-      <section className="flex flex-wrap items-center gap-4 px-6 py-4 md:px-9">
-        <div className="flex items-center gap-3 text-lg font-semibold">
-          <span className="flex h-10 w-10 items-center justify-center rounded-full bg-slate-500 text-white">A</span>
-          Admin Ritm <small className="text-slate-400">Сервер: (https://time3.linko.uz)</small>
-        </div>
-        <strong className="ml-auto text-[#5470e8]">{rangeFrom.split("-").reverse().join(".")} - {rangeTo.split("-").reverse().join(".")}</strong>
-      </section>
-
-      <section className="mx-6 mb-6 rounded-md bg-white p-6 shadow-sm md:mx-9">
-        <div className="mb-5 flex h-64 items-end justify-center border-b border-l border-[#e1e5eb] text-[#9aa3b6]">
-          <span>Нет данных за выбранный период</span>
-        </div>
-        <div className="flex overflow-hidden rounded-sm">
-          <button onClick={() => setChartMode("type")} className={`px-5 py-2.5 text-[13px] font-bold uppercase tracking-wide ${chartMode === "type" ? "bg-[#4f71dc] text-white" : "border border-[#4f71dc] text-[#4f71dc]"}`}>Тип продукта</button>
-          <button onClick={() => setChartMode("brand")} className={`px-5 py-2.5 text-[13px] font-bold uppercase tracking-wide ${chartMode === "brand" ? "bg-[#4f71dc] text-white" : "border border-[#4f71dc] text-[#4f71dc]"}`}>Бренд</button>
         </div>
       </section>
+      <div className="mx-[30px] mt-[1px] flex">
+        <button onClick={() => setChartMode("type")} className={`h-[32px] rounded-l-[3px] border px-[16px] text-[13px] font-medium uppercase ${chartMode === "type" ? "border-[#4f71dc] bg-[#4f71dc] text-white" : "border-[#e8e8e8] bg-white text-black"}`}>Тип продукта</button>
+        <button onClick={() => setChartMode("brand")} className={`h-[32px] rounded-r-[3px] border px-[16px] text-[13px] font-medium uppercase ${chartMode === "brand" ? "border-[#4f71dc] bg-[#4f71dc] text-white" : "border-[#e8e8e8] bg-white text-black"}`}>Бренд</button>
+      </div>
 
-      <section className="mx-6 mb-6 grid grid-cols-1 gap-6 rounded-md bg-white p-6 shadow-sm sm:grid-cols-2 lg:grid-cols-4 md:mx-9">
-        <div>
-          <p className="font-semibold"><AmountCell value={FIXED_TOTALS.sum} /> SUM, <AmountCell value={FIXED_TOTALS.usd} /> USD</p>
-          <p className="text-[#586174]">Баланс на начало периода</p>
+      <section className="mx-[30px] mt-[30px] overflow-hidden rounded-[12px] bg-white shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
+        <div className="grid grid-cols-2 divide-x divide-[#efefef] border-b border-[#efefef] text-center text-[13px] sm:grid-cols-4 lg:grid-cols-7">
+          {([
+            ["Баланс на начало периода", `${money(FIXED_TOTALS.sum)} SUM, ${money(FIXED_TOTALS.usd)} USD`, "text-[#1ea1f2]"],
+            ["Передача на склад", "0 SUM, 0 USD", "text-[#e57373]"],
+            ["Возврат передачи", "0 SUM, 0 USD", "text-[#71ce87]"],
+            ["Принятие оплаты", "0 SUM, 0 USD", "text-[#71ce87]"],
+            ["Прочие приходы", "0 SUM, 0 USD", "text-[#71ce87]"],
+            ["Прочие расходы", "0 SUM, 0 USD", "text-[#e57373]"],
+            ["Баланс на конец периода", `${money(FIXED_TOTALS.sum)} SUM, ${money(FIXED_TOTALS.usd)} USD`, "text-[#1ea1f2]"],
+          ] as const).map(([label, value, tone]) => (
+            <div key={label} className="px-[10px] py-[14px]"><p className={`text-[15px] font-semibold leading-[19px] ${tone}`}>{value}</p><p className="mt-[2px] leading-4 text-[#555]">{label}</p></div>
+          ))}
         </div>
-        <div>
-          <p className="font-semibold">0 SUM, 0 USD</p>
-          <p className="text-[#586174]">Передача на склад</p>
-        </div>
-        <div>
-          <p className="font-semibold">0 SUM, 0 USD</p>
-          <p className="text-[#586174]">Принятие оплаты</p>
-        </div>
-        <div>
-          <p className="font-semibold">0 SUM, 0 USD</p>
-          <p className="text-[#586174]">Прочие приходы</p>
-        </div>
-        <div>
-          <p className="font-semibold">0 SUM, 0 USD</p>
-          <p className="text-[#586174]">Возврат передачи</p>
-        </div>
-        <div>
-          <p className="font-semibold">0 SUM, 0 USD</p>
-          <p className="text-[#586174]">Прочие расходы</p>
-        </div>
-        <div className="lg:col-start-4">
-          <p className="font-semibold"><AmountCell value={FIXED_TOTALS.sum} /> SUM, <AmountCell value={FIXED_TOTALS.usd} /> USD</p>
-          <p className="text-[#586174]">Баланс на конец</p>
-        </div>
-      </section>
-
-      <section className="mx-6 mb-6 overflow-x-auto rounded-md bg-white shadow-sm md:mx-9">
-        <table className="min-w-[1750px] w-full border-collapse text-[14px]">
-          <thead>
-            <tr className="bg-white text-[#253653]">
-              <th className="border border-[#e1e5eb] px-4 py-2" />
-              {groups.map((group) => (
-                <th key={group} colSpan={2} className="border border-[#e1e5eb] px-4 py-2 text-center font-medium">{group}</th>
-              ))}
-            </tr>
-            <tr className="bg-white text-[#17233b]">
-              <th className="border-b border-[#e1e5eb] px-4 py-2 text-left font-semibold">Филиал</th>
-              {groups.map((group) =>
-                ["SUM", "USD"].map((currency) => (
-                  <th
-                    key={`${group}-${currency}`}
-                    onClick={() => (group === "Баланс на начало периода" ? toggleSort("opening") : group === "Баланс на конец" ? toggleSort("closing") : undefined)}
-                    className={`cursor-pointer select-none border-b border-[#e1e5eb] px-4 py-2 font-semibold hover:bg-[#f6f9fc] ${(group === "Баланс на начало периода" && sortKey === "opening") || (group === "Баланс на конец" && sortKey === "closing") ? "text-[#4f71dc]" : ""}`}
-                  >
-                    <span className="inline-flex items-center gap-1">{currency}<ChevronDown className="h-3 w-3" /></span>
-                  </th>
-                )),
-              )}
-            </tr>
-          </thead>
-          <tbody>
-            {sortedBranches.slice(0, 7).map((branch, index) => (
-              <tr key={branch.id} className={index % 2 ? "bg-[#f6f9fc]" : "bg-white"}>
-                <td className="border-b border-[#e1e5eb] px-4 py-3.5">{branch.name}</td>
-                <td className="border-b border-[#e1e5eb] px-4 py-3.5"><AmountCell value={branch.opening.sum} /></td>
-                <td className="border-b border-[#e1e5eb] px-4 py-3.5"><AmountCell value={branch.opening.usd} /></td>
-                {Array.from({ length: 10 }).map((_, cellIndex) => (
-                  <td key={cellIndex} className="border-b border-[#e1e5eb] px-4 py-3.5">0</td>
-                ))}
-                <td className="border-b border-[#e1e5eb] px-4 py-3.5"><AmountCell value={branch.opening.sum} /></td>
-                <td className="border-b border-[#e1e5eb] px-4 py-3.5"><AmountCell value={branch.opening.usd} /></td>
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[1500px] border-collapse text-[13px]">
+            <thead className="bg-[#f2f5f8]">
+              <tr className="h-[36px]">
+                <th className="w-[220px]" />
+                {groups.map((group) => <th key={group} colSpan={2} className="px-2 text-left font-semibold">{group}</th>)}
               </tr>
-            ))}
-          </tbody>
-        </table>
-        <div className="flex justify-center py-3"><span className="text-[#586174]">Показано {Math.min(sortedBranches.length, 7)} из {sortedBranches.length} филиалов</span></div>
-      </section>
-
-      <section className="mx-6 mb-10 rounded-md bg-white p-6 shadow-sm md:mx-9">
-        <div className="mb-6 flex overflow-hidden rounded-sm">
-          <button onClick={() => setWarehouseTab("cost")} className={`px-5 py-2.5 text-[13px] font-bold uppercase tracking-wide ${warehouseTab === "cost" ? "bg-[#4f71dc] text-white" : "border border-[#4f71dc] text-[#4f71dc]"}`}>Себестоимость</button>
-          <button onClick={() => setWarehouseTab("priceList")} className={`px-5 py-2.5 text-[13px] font-bold uppercase tracking-wide ${warehouseTab === "priceList" ? "bg-[#4f71dc] text-white" : "border border-[#4f71dc] text-[#4f71dc]"}`}>Прайс лист</button>
-        </div>
-
-        <div className="grid grid-cols-1 gap-8 lg:grid-cols-[320px_1fr]">
-          <div className="mx-auto flex h-[300px] w-[300px] items-center justify-center rounded-full" style={{ background: `conic-gradient(${gradientStops.join(", ")})` }}>
-            <div className="flex h-[210px] w-[210px] flex-col items-center justify-center rounded-full bg-white text-center">
-              <strong className="text-lg">{money(warehouseTab === "cost" ? WAREHOUSE_TOTAL : WAREHOUSE_TOTAL * 1.18)} SUM</strong>
-              <span className="mt-1 text-[13px] uppercase text-[#9aa3b6]">Сумма на складе<br />на конец периода</span>
-            </div>
-          </div>
-
-          <div>
-            <table className="w-full border-collapse text-[14px]">
-              <thead className="bg-[#f6f9fc] text-[#586174]">
-                <tr>
-                  <th className="px-4 py-3 text-left font-semibold">Склад</th>
-                  <th className="px-4 py-3 text-left font-semibold">Баланс на начало</th>
-                  <th onClick={() => setWarehouseSort((current) => ({ key: "balance", dir: current?.dir === "asc" ? "desc" : "asc" }))} className="cursor-pointer px-4 py-3 text-left font-semibold hover:text-[#4f71dc]">
-                    <span className="inline-flex items-center gap-1">Баланс на конец<ChevronDown className="h-3.5 w-3.5" /></span>
-                  </th>
-                  <th className="px-4 py-3 text-left font-semibold">Разница</th>
+              <tr className="h-[36px]">
+                <th className="px-[16px] text-left font-semibold">Филиал</th>
+                {groups.map((group) =>
+                  ["SUM", "USD"].map((currency) => (
+                    <th key={`${group}-${currency}`} onClick={() => (group === "Баланс на начало периода" ? toggleSort("opening") : group === "Баланс на конец" ? toggleSort("closing") : undefined)} className="cursor-pointer select-none px-2 text-left font-semibold">
+                      {currency} <span className="text-[10px] text-[#777]">⇅</span>
+                    </th>
+                  )),
+                )}
+              </tr>
+            </thead>
+            <tbody>
+              {sortedBranches.slice(0, 7).map((branch, index) => (
+                <tr key={branch.id} className={`h-[40px] border-t border-[#efefef] ${index % 2 ? "bg-[#f2f5f8]" : "bg-white"}`}>
+                  <td className="px-[16px]">{branch.name}</td>
+                  <td className="px-2"><AmountCell value={branch.opening.sum} /></td>
+                  <td className="px-2"><AmountCell value={branch.opening.usd} /></td>
+                  {Array.from({ length: 10 }).map((_, cellIndex) => <td key={cellIndex} className="px-2">0</td>)}
+                  <td className="px-2"><AmountCell value={branch.opening.sum} /></td>
+                  <td className="px-2"><AmountCell value={branch.opening.usd} /></td>
                 </tr>
-              </thead>
-              <tbody>
-                {sortedWarehouses.map((row, index) => (
-                  <tr key={row.id} className={index % 2 ? "bg-[#f6f9fc]" : "bg-white"}>
-                    <td className="border-t border-[#e1e5eb] px-4 py-3.5">{row.name}</td>
-                    <td className="border-t border-[#e1e5eb] px-4 py-3.5">{money(warehouseTab === "cost" ? row.balance : row.balance * 1.18)} SUM</td>
-                    <td className="border-t border-[#e1e5eb] px-4 py-3.5">{money(warehouseTab === "cost" ? row.balance : row.balance * 1.18)} SUM</td>
-                    <td className="border-t border-[#e1e5eb] px-4 py-3.5">(0 %) 0 SUM</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
-          <div className="flex overflow-hidden rounded-sm">
-            <button onClick={() => setWarehouseDisplay("text")} className={`px-5 py-2.5 text-[13px] font-bold uppercase tracking-wide ${warehouseDisplay === "text" ? "bg-[#3aca6a] text-white" : "border border-[#3aca6a] text-[#3aca6a]"}`}>Текст</button>
-            <button onClick={() => setWarehouseDisplay("chart")} className={`px-5 py-2.5 text-[13px] font-bold uppercase tracking-wide ${warehouseDisplay === "chart" ? "bg-[#3aca6a] text-white" : "border border-[#3aca6a] text-[#3aca6a]"}`}>График</button>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="flex overflow-hidden rounded-sm">
-              <button onClick={() => setWarehouseMetric("qty")} className={`px-5 py-2.5 text-[13px] font-bold uppercase tracking-wide ${warehouseMetric === "qty" ? "bg-[#3aca6a] text-white" : "border border-[#3aca6a] text-[#3aca6a]"}`}>Кол-во</button>
-              <button onClick={() => setWarehouseMetric("sum")} className={`px-5 py-2.5 text-[13px] font-bold uppercase tracking-wide ${warehouseMetric === "sum" ? "bg-[#3aca6a] text-white" : "border border-[#3aca6a] text-[#3aca6a]"}`}>Сумма</button>
-            </div>
-            <button
-              type="button"
-              aria-label="Скачать"
-              onClick={() =>
-                downloadExcelTable("branch-warehouse-balance.xls", [
-                  ["Склад", "Баланс на начало", "Баланс на конец", "Разница"],
-                  ...sortedWarehouses.map((row) => {
-                    const balance = money(warehouseTab === "cost" ? row.balance : row.balance * 1.18)
-                    return [row.name, `${balance} SUM`, `${balance} SUM`, "(0 %) 0 SUM"]
-                  }),
-                ])
-              }
-              className="text-[#586174] hover:text-[#17233b]"
-            >
-              <Download className="h-5 w-5" />
-            </button>
-          </div>
+              ))}
+            </tbody>
+          </table>
+          <div className="flex justify-center py-3 text-[13px] text-[#555]">Показано {Math.min(sortedBranches.length, 7)} из {sortedBranches.length} филиалов</div>
         </div>
       </section>
-    </main>
+
+      <WarehouseOverview />
+      <div className="mt-[30px]"><CashOverview /></div>
+      <div className="h-[30px]" />
+    </ReportPage>
   )
 }

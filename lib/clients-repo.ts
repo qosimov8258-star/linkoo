@@ -22,6 +22,8 @@ async function ensureSchema(db: ReturnType<typeof getDb>) {
   await db.exec(`ALTER TABLE clients ADD COLUMN IF NOT EXISTS auto_delivery INTEGER NOT NULL DEFAULT 0;`)
   await db.exec(`ALTER TABLE clients ADD COLUMN IF NOT EXISTS unlimited_debt INTEGER NOT NULL DEFAULT 0;`)
   await db.exec(`ALTER TABLE clients ADD COLUMN IF NOT EXISTS attributes TEXT NOT NULL DEFAULT '{}';`)
+  await db.exec(`ALTER TABLE clients ADD COLUMN IF NOT EXISTS in_route INTEGER NOT NULL DEFAULT 0;`)
+  await db.exec(`ALTER TABLE clients ADD COLUMN IF NOT EXISTS is_problem INTEGER NOT NULL DEFAULT 0;`)
 }
 
 type ClientRow = {
@@ -36,6 +38,7 @@ type ClientRow = {
   deliverer: string
   collector: string
   balance: number | null
+  created_at?: string | null
   tab: Client["tab"]
   branch: string
   sales_channel: string
@@ -51,6 +54,8 @@ type ClientRow = {
   auto_delivery: number
   unlimited_debt: number
   attributes?: string | null
+  in_route?: number | null
+  is_problem?: number | null
 }
 
 function rowToClient(row: ClientRow): Client {
@@ -67,6 +72,8 @@ function rowToClient(row: ClientRow): Client {
     collector: row.collector,
     balance: row.balance ?? undefined,
     tab: row.tab,
+    inRoute: row.in_route === 1,
+    isProblem: row.is_problem === 1,
     branch: row.branch || undefined,
     salesChannel: row.sales_channel || undefined,
     realizationBy: row.realization_by || undefined,
@@ -81,6 +88,18 @@ function rowToClient(row: ClientRow): Client {
     autoDelivery: row.auto_delivery === 1,
     unlimitedDebt: row.unlimited_debt === 1,
     attributes: parseAttributes(row.attributes),
+    balanceLines: parseBalanceLines(row.attributes),
+    createdAt: row.created_at ?? undefined,
+  }
+}
+
+function parseBalanceLines(raw: string | null | undefined): string[] | undefined {
+  if (!raw) return undefined
+  try {
+    const value = (JSON.parse(raw) as Record<string, unknown>)._balances
+    return typeof value === "string" && value ? value.split("|") : undefined
+  } catch {
+    return undefined
   }
 }
 
@@ -89,7 +108,7 @@ function parseAttributes(raw: string | null | undefined): Record<string, string>
   try {
     const parsed = JSON.parse(raw) as unknown
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return undefined
-    const entries = Object.entries(parsed as Record<string, unknown>).filter(([, v]) => typeof v === "string" && v !== "") as [string, string][]
+    const entries = Object.entries(parsed as Record<string, unknown>).filter(([k, v]) => !k.startsWith("_") && typeof v === "string" && v !== "") as [string, string][]
     return entries.length ? Object.fromEntries(entries) : undefined
   } catch {
     return undefined

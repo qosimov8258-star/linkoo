@@ -101,10 +101,10 @@ export function SessionsView({ embedded = false }: { embedded?: boolean }) {
   return (
     <main className={embedded ? "min-w-0 flex-1" : "min-h-[calc(100vh-4rem)] bg-[#f2f5f8] px-7 pb-7"}>
       {!embedded && (
-        <header className="mb-5">
-          <h1 className="text-2xl font-bold text-slate-600">
-            <FavoritesButton className="inline-flex items-center gap-2 text-[#4f71dc]" />
-            <span className="mx-2 text-slate-400">|</span> Сессия
+        <header className="flex h-[60px] flex-wrap items-center justify-between gap-3">
+          <h1 className="flex items-center text-[18px] font-bold text-[#5d6474]">
+            <FavoritesButton className="flex items-center gap-[5px] text-[18px] font-bold text-[#4f71dc]" />
+            <span className="mx-[11px] inline-block h-[21px] w-[2px] bg-[#5d6474]" /> Сессия
           </h1>
         </header>
       )}
@@ -126,10 +126,10 @@ export function SessionsView({ embedded = false }: { embedded?: boolean }) {
         <table className="w-full text-left">
           <thead className="bg-[#5d6474] text-white">
             <tr>
-              <th className="px-9 py-5">Устройство</th>
-              <th className="px-5 py-5">IP-адрес</th>
-              <th className="px-5 py-5">Начало</th>
-              <th className="px-5 py-5">Последняя активность</th>
+              <th className="px-9 py-4 text-[13px]">Устройство</th>
+              <th className="px-5 py-4 text-[13px]">IP-адрес</th>
+              <th className="px-5 py-4 text-[13px]">Начало</th>
+              <th className="px-5 py-4 text-[13px]">Последняя активность</th>
               <th className="w-40" />
             </tr>
           </thead>

@@ -10,9 +10,9 @@ export async function DELETE(_request: Request, { params }: RouteParams) {
   if ("error" in auth) return auth.error
 
   const id = Number((await params).id)
-  if (id === auth.user.id) return NextResponse.json({ error: "O'zingizni o'chira olmaysiz" }, { status: 400 })
+  if (id === auth.user.id) return NextResponse.json({ error: "Нельзя удалить самого себя" }, { status: 400 })
 
   const ok = await deleteUser(id)
-  if (!ok) return NextResponse.json({ error: "Foydalanuvchi topilmadi" }, { status: 404 })
+  if (!ok) return NextResponse.json({ error: "Пользователь не найден" }, { status: 404 })
   return NextResponse.json({ ok: true })
 }

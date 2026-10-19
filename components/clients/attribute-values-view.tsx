@@ -159,16 +159,15 @@ export function AttributeValuesView({ embedded = false }: { embedded?: boolean }
         from={listed.length ? 1 : 0}
         to={listed.length}
         total={listed.length}
-        extra={<button type="button" onClick={() => setImportOpen(true)} className="ml-[24px] text-[13px] text-[#4f71dc] hover:underline">{t("Импорт с Excel")}</button>}
       />
-      <div className={`grid grid-cols-[389px_1fr] ${dottedRow} h-[49px] items-center pt-[3px] font-bold`}>
+      <div className={`grid grid-cols-[364px_1fr] ${dottedRow} h-[50px] items-center pt-[3px] font-bold`}>
         <span>{t("Атрибут")}</span><span>{t("Значение")}</span>
       </div>
       {listed.map(({ attr, row }) => (
-        <div key={attr.id} onClick={() => attr.fieldType === "Выбор вариантов" && open(row, attr.name)} className={`group relative grid min-h-[50px] grid-cols-[389px_1fr] items-center ${dottedRow} ${attr.fieldType === "Выбор вариантов" ? "cursor-pointer hover:bg-[#f8f9fb]" : ""}`}>
+        <div key={attr.id} className={`group relative grid min-h-[50px] grid-cols-[364px_1fr] items-center ${dottedRow}`}>
           <span>{attr.name}</span>
           <span className="flex flex-wrap gap-[10px] py-[7px]">
-            {(row?.values ?? []).map((value) => <span key={value} className="rounded-[3px] bg-[#e9ecef] px-[10px] py-[6px]">{value}</span>)}
+            {(row?.values ?? []).map((value) => <span key={value} className="rounded-[3px] bg-[#e9ecef] px-[10px] py-[4px] leading-[18px]">{value}</span>)}
           </span>
           {attr.fieldType === "Выбор вариантов" && <HoverActions offset={70} onEdit={() => open(row, attr.name)} />}
         </div>

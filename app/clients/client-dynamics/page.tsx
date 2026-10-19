@@ -1,2 +1,2 @@
-import { ClientDynamicsView } from "@/components/clients/client-dynamics-view"
+import { ClientDynamicsView } from "@/components/analytics/client-dynamics-view"
 export default function ClientDynamicsPage() { return <ClientDynamicsView /> }

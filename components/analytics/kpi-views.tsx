@@ -1,10 +1,11 @@
 "use client"
 
 import Image from "next/image"
-import { Fragment, FormEvent, useEffect, useMemo, useState } from "react"
-import { Copy, Download, ListFilter, Lock, Pencil, PlusCircle, RefreshCw, Search, Trash2, X } from "lucide-react"
+import { FormEvent, useEffect, useMemo, useState } from "react"
+import { Copy, ListFilter, Lock, Pencil, Trash2, X } from "lucide-react"
 import { useRouter } from "next/navigation"
-import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
+import { RI, RefButton, RefCard, RefHeader, RefPage, RefTable, RefTabs, RefToolbar } from "@/components/ref/list-kit"
+import { ReportEmpty, ReportPage, ReportSelectField, WidgetHeader, WidgetUserCard } from "@/components/ref/report-kit"
 import { useLanguage } from "@/lib/i18n/language-context"
 
 type KpiTask = {
@@ -47,6 +48,7 @@ export function KpiPerformanceView() {
   const [month, setMonth] = useState(today.getMonth())
   const [year, setYear] = useState(today.getFullYear())
   const [recalculating, setRecalculating] = useState(false)
+  const [showFilter, setShowFilter] = useState(false)
 
   function downloadCsv() {
     const csv = `${t("Месяц")};${t("Год")};KPI;${t("Значение")}\n${month + 1};${year};${t("Общий объем во всех KPI")};0`
@@ -58,28 +60,49 @@ export function KpiPerformanceView() {
     URL.revokeObjectURL(url)
   }
 
+  const MONTHS = ["Январь", "Февраль", "Март", "Апрель", "Май", "Июнь", "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"]
+  const recalc = () => {
+    setRecalculating(true)
+    window.setTimeout(() => setRecalculating(false), 600)
+  }
+
   return (
-    <main className="min-h-[calc(100vh-4rem)] bg-slate-100 px-4 pb-10">
-      <header className="flex flex-wrap items-center justify-between gap-4 py-4 sm:px-5">
-        <FavoritesButton className="flex items-center gap-2 text-2xl font-bold text-[#5470e8]" />
-        <div className="flex flex-wrap gap-7">
-          <button type="button" onClick={() => router.push("/analytics/kpi-tasks")} className="rounded-md bg-[#71ce87] px-6 py-2.5 font-bold text-white">{t("KPI задачи")}</button>
-          <button type="button" onClick={() => router.push("/analytics/salary-planning")} className="rounded-md bg-[#5470e8] px-6 py-2.5 font-bold text-white">{t("Зарплата и установка планов")}</button>
-          <button type="button" onClick={() => router.push("/analytics/visits-by-day")} className="rounded-md bg-[#ff786e] px-6 py-2.5 font-bold text-white">{t("Посещения")}</button>
+    <ReportPage>
+      <WidgetHeader active="KPI" />
+      <WidgetUserCard showPeriods={false}>
+        <div className="ml-auto flex gap-[10px]">
+          <button type="button" onClick={() => router.push("/analytics/kpi-tasks")} className="h-[30px] rounded-[3px] bg-[#71ce87] px-4 text-[13px] font-semibold text-white hover:brightness-95">{t("KPI задачи")}</button>
+          <button type="button" onClick={() => router.push("/analytics/salary-planning")} className="h-[30px] rounded-[3px] bg-[#4f71dc] px-4 text-[13px] font-semibold text-white hover:brightness-95">{t("Зарплата и установка планов")}</button>
+          <button type="button" onClick={() => router.push("/analytics/visits-by-day")} className="h-[30px] rounded-[3px] bg-[#fa8072] px-4 text-[13px] font-semibold text-white hover:brightness-95">{t("Посещения")}</button>
+          <button type="button" onClick={() => setShowFilter((value) => !value)} className="flex h-[30px] items-center gap-[6px] rounded-[3px] bg-[#4f71dc] px-4 text-[13px] font-semibold text-white hover:brightness-95"><ListFilter className="h-4 w-4" />{showFilter ? t("Скрыть фильтр") : t("Показать фильтр")}</button>
         </div>
-      </header>
-      <section className="grid gap-6 bg-white px-9 py-4 shadow md:grid-cols-2">
-        <label className="text-xs">{t("Месяц")}<select value={month} onChange={(event) => setMonth(Number(event.target.value))} className="mt-1 block w-full border-0 border-b py-2 text-base"><option value={0}>{t("Январь")}</option><option value={1}>{t("Февраль")}</option><option value={2}>{t("Март")}</option><option value={3}>{t("Апрель")}</option><option value={4}>{t("Май")}</option><option value={5}>{t("Июнь")}</option><option value={6}>{t("Июль")}</option><option value={7}>{t("Август")}</option><option value={8}>{t("Сентябрь")}</option><option value={9}>{t("Октябрь")}</option><option value={10}>{t("Ноябрь")}</option><option value={11}>{t("Декабрь")}</option></select></label>
-        <label className="text-xs">{t("Год")}<select value={year} onChange={(event) => setYear(Number(event.target.value))} className="mt-1 block w-full border-0 border-b py-2 text-base">{[2024, 2025, 2026, 2027].map((item) => <option key={item}>{item}</option>)}</select></label>
-      </section>
-      <section className="mt-10 grid gap-8 md:grid-cols-[312px_1fr]">
-        <div><h2 className="mb-3 font-semibold">KPI</h2><div className="min-h-[600px] bg-white shadow"><button type="button" aria-current="true" onClick={() => { setRecalculating(true); window.setTimeout(() => setRecalculating(false), 600) }} className="w-full bg-slate-100 px-5 py-4 text-left font-semibold text-[#17233b]">{t("Общий объем во всех KPI")}</button></div></div>
+      </WidgetUserCard>
+      {showFilter && (
+        <div className="mx-[30px] mt-[10px] grid h-[77px] grid-cols-[240px_240px] gap-[15px] bg-white px-[30px] pt-[8px] shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
+          <ReportSelectField label="Месяц" value={MONTHS[month]} onChange={(value) => setMonth(value ? MONTHS.indexOf(value) : today.getMonth())} options={MONTHS} />
+          <ReportSelectField label="Год" value={String(year)} onChange={(value) => setYear(value ? Number(value) : today.getFullYear())} options={["2024", "2025", "2026", "2027"]} />
+        </div>
+      )}
+      <section className="mx-[30px] mt-[16px] grid gap-[16px] md:grid-cols-[249px_1fr]">
         <div>
-          <div className="mb-3 flex items-center justify-between"><h2 className="font-semibold">{t("Общий объем")}</h2><div className="flex gap-7"><button type="button" onClick={downloadCsv} aria-label={t("Скачать")}><Download /></button><span>{t("данные за")}</span><button type="button" onClick={() => { setRecalculating(true); window.setTimeout(() => setRecalculating(false), 600) }} className="text-[#71ce87]"><RefreshCw className={`mr-2 inline h-4 w-4 ${recalculating ? "animate-spin" : ""}`} />{t("Перерасчет")}</button></div></div>
-          <div className="flex min-h-[370px] flex-col items-center justify-center bg-white shadow"><Image src="/robot-mascot.png" alt={t("Робот-помощник")} width={150} height={150} priority /><p className="mt-6 text-slate-400">{t("По вашему запросу ничего не найдено...")}</p></div>
+          <h2 className="mb-[10px] text-[13px] font-semibold leading-4">KPI</h2>
+          <div className="min-h-[631px] bg-white shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
+            <button type="button" aria-current="true" onClick={recalc} className="h-11 w-full bg-[#f2f5f8] px-[18px] text-left text-[13px] text-[#333]">{t("Общий объем во всех кпэ")}</button>
+          </div>
+        </div>
+        <div>
+          <div className="mb-[2px] flex h-[16px] items-center justify-between">
+            <h2 className="text-[13px] font-semibold leading-4">{t("Общий объем")}</h2>
+            <div className="flex items-center gap-[10px] text-[13px] font-semibold">
+              <button type="button" onClick={downloadCsv} className="flex h-[30px] items-center gap-[6px] rounded-[3px] bg-[#71ce87] px-4 text-[13px] font-semibold text-white hover:brightness-95"><svg viewBox="0 0 24 24" className="h-4 w-4 fill-white"><path d={RI.chart ?? RI.download} /></svg>{t("Скачать")}</button>
+              <span>{t("данные за")}</span>
+              <button type="button" onClick={recalc} className={`text-[#71ce87] ${recalculating ? "opacity-60" : ""}`}>{t("Перерасчет")}</button>
+            </div>
+          </div>
+          <div className="mt-[14px] bg-white shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]"><ReportEmpty className="pb-[44px] pt-[56px]" /></div>
         </div>
       </section>
-    </main>
+    </ReportPage>
   )
 }
 
@@ -181,76 +204,80 @@ export function KpiTasksView() {
   const shown = filtered.slice((page - 1) * pageSize, page * pageSize)
 
   return (
-    <main className="min-h-[calc(100vh-4rem)] bg-slate-100 px-4 pb-8">
-      <header className="flex flex-wrap items-center justify-between gap-4 py-4 sm:px-5">
-        <div className="flex items-center gap-2 text-2xl font-bold text-[#5470e8]"><FavoritesButton className="flex items-center gap-2 text-2xl font-bold text-[#5470e8]" /> <span className="text-slate-500">|</span><span className="text-slate-600">{t("KPI задачи")}</span></div>
-        <div className="flex gap-5"><button type="button" onClick={() => router.push("/analytics/salary-planning")} className="rounded-md bg-[#71ce87] px-6 py-2.5 font-bold text-white"><PlusCircle className="mr-2 inline h-5 w-5" />{t("Установить зарплату и планы")}</button><button type="button" onClick={() => setModalOpen(true)} className="rounded-md bg-[#5470e8] px-6 py-2.5 font-bold text-white"><PlusCircle className="mr-2 inline h-5 w-5" />{t("Добавить KPI")}</button></div>
-      </header>
-      <div className="grid grid-cols-4 bg-white shadow">{["Активные", "Не активный", "Системные", "Все"].map((item) => <button key={item} type="button" onClick={() => { setTab(item); setPage(1) }} className={`py-5 ${tab === item ? "border-b-4 border-[#5470e8]" : ""}`}>{t(item)}</button>)}</div>
-      <section className="mt-6 bg-white shadow">
-        <div className="flex flex-wrap items-center gap-5 px-2 py-4">
-          <button type="button" onClick={() => setFilterOpen((value) => !value)} className="text-[#5470e8]">{t("Показать фильтр")} <ListFilter className="inline h-4 w-4" /></button>
-          <label className="relative mx-auto w-[370px]"><input value={query} onChange={(event) => { setQuery(event.target.value); setPage(1) }} placeholder={t("Поиск")} className="w-full border-0 border-b px-0 py-2 pr-9 outline-none" /><Search className="absolute right-1 top-2 h-5 w-5 text-slate-300" /></label>
-          <select value={pageSize} onChange={(event) => { setPageSize(Number(event.target.value)); setPage(1) }}><option>10</option><option>25</option><option>50</option></select>
-          <span>{filtered.length ? `${(page - 1) * pageSize + 1} - ${Math.min(page * pageSize, filtered.length)} ${t("из")} ${filtered.length}` : `0 ${t("из")} 0`}</span>
-          <button type="button" disabled={page === 1} onClick={() => setPage((value) => value - 1)}>◀</button><button type="button" disabled={page === pages} onClick={() => setPage((value) => value + 1)}>▶</button>
-        </div>
-        {filterOpen && <div className="border-t bg-slate-50 px-5 py-4"><select value={planFilter} onChange={(event) => { setPlanFilter(event.target.value); setPage(1) }} className="min-w-[340px] rounded border px-3 py-2"><option value="">{t("Все типы плана")}</option>{planTypes.map((item) => <option key={item} value={item}>{t(item)}</option>)}</select></div>}
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[1050px]">
-            <thead className="bg-slate-600 text-white">
-              <tr><th className="px-9 py-5 text-left">№</th><th className="px-5 py-5 text-left">{t("Наименование")}</th><th className="px-5 py-5 text-left">{t("Тип плана")}</th><th className="px-5 py-5 text-left">{t("Тип клиента")}</th><th className="px-5 py-5 text-left">{t("Комментарий")}</th><th className="px-5 py-5 text-center">{t("Активный")}</th></tr>
-            </thead>
-            <tbody>
-              {shown.map((task) => (
-                <Fragment key={task.id}>
-                  <tr onClick={() => setSelectedId((current) => (current === task.id ? null : task.id))} className={`cursor-pointer border-b border-dashed hover:bg-slate-50 ${selectedId === task.id ? "bg-slate-50" : ""}`}>
-                    <td className="px-9 py-4">{task.id}</td>
-                    <td className="px-5 py-4 text-[#5470e8]">{task.name}</td>
-                    <td className="px-5 py-4">{t(task.planType)}</td>
-                    <td className="px-5 py-4">{t(task.clientType)}</td>
-                    <td className="px-5 py-4">{task.comment}</td>
-                    <td className="px-5 py-4 text-center">
-                      <button
-                        type="button"
-                        onClick={(event) => { event.stopPropagation(); void toggleTaskActive(task) }}
-                        aria-label={t("Изменить активность")}
-                        className={`h-3 w-3 rounded-full ${task.active ? "bg-green-400" : "bg-red-400"}`}
-                      />
-                    </td>
-                  </tr>
-                  {selectedId === task.id && (
-                    <tr>
-                      <td colSpan={6} className="border-b bg-white p-0">
-                        <KpiTaskDetail
-                          task={task}
-                          onEdit={() => setEditingTask(task)}
-                          onCopy={() => void copyTask(task)}
-                          onDelete={() => {
-                            void deleteTask(task.id)
-                            setSelectedId(null)
-                          }}
-                          onToggleActive={() => void toggleTaskActive(task)}
-                        />
-                      </td>
-                    </tr>
-                  )}
-                </Fragment>
-              ))}
-              {shown.length === 0 && (
-                <tr>
-                  <td colSpan={6}>
-                    <div className="flex min-h-[340px] flex-col items-center justify-center gap-4 py-10">
-                      <Image src="/robot-mascot.png" alt={t("Робот-помощник")} width={150} height={150} priority className="h-36 w-36 object-contain" />
-                      <p className="text-lg text-slate-400">{t("По вашему запросу ничего не найдено")}</p>
-                    </div>
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </section>
+    <RefPage>
+      <RefHeader title={t("KPI задачи")}>
+        <RefButton icon={RI.add} green label={t("Установить зарплату и планы")} onClick={() => router.push("/analytics/salary-planning")} />
+        <RefButton icon={RI.add} label={t("Добавить KPI")} onClick={() => setModalOpen(true)} />
+      </RefHeader>
+      <RefCard className="bg-white">
+        <RefTabs labels={["Активные", "Не активный", "Системные", "Все"]} value={tab} onChange={(value) => { setTab(value); setPage(1) }} />
+      </RefCard>
+      <RefCard className="mt-[20px] bg-white">
+        <RefToolbar
+          linkFilter
+          filterOpen={filterOpen}
+          onToggleFilter={() => setFilterOpen((value) => !value)}
+          filterPanel={
+            <div className="w-72 border border-slate-200 bg-white p-4 shadow-xl">
+              <select value={planFilter} onChange={(event) => { setPlanFilter(event.target.value); setPage(1) }} className="w-full border-b border-[#e0e0e0] bg-white py-2 text-[13px] outline-none">
+                <option value="">{t("Все типы плана")}</option>
+                {planTypes.map((item) => <option key={item} value={item}>{t(item)}</option>)}
+              </select>
+            </div>
+          }
+          query={query}
+          onQuery={(value) => { setQuery(value); setPage(1) }}
+          pageSize={pageSize}
+          onPageSize={(value) => { setPageSize(value); setPage(1) }}
+          from={filtered.length ? (page - 1) * pageSize + 1 : 0}
+          to={Math.min(page * pageSize, filtered.length)}
+          total={filtered.length}
+          page={page}
+          pageCount={pages}
+          onPage={setPage}
+        />
+        <RefTable
+          cols="110px 207px 411px 207px 205px minmax(0,1fr)"
+          heads={[t("№"), t("Наименование"), t("Тип плана"), t("Тип клиента"), t("Комментарий"), t("Активный")]}
+          rows={shown}
+          rowKey={(task) => task.id}
+          onRowClick={(task) => setSelectedId((current) => (current === task.id ? null : task.id))}
+          empty={
+            <div className="flex min-h-[260px] flex-col items-center justify-center gap-4">
+              <Image src="/robot-empty.png" alt={t("Робот-помощник")} width={150} height={150} priority className="h-36 w-36 object-contain" />
+              <p className="text-[13px] text-[#666]">{t("По вашему запросу ничего не найдено")}</p>
+            </div>
+          }
+          render={(task) => [
+            task.id,
+            <span key="n">{task.name}</span>,
+            t(task.planType),
+            t(task.clientType),
+            task.comment,
+            <button
+              key="a"
+              type="button"
+              onClick={(event) => { event.stopPropagation(); void toggleTaskActive(task) }}
+              aria-label={t("Изменить активность")}
+              className={`ml-3 block h-[10px] w-[10px] rounded-full ${task.active ? "bg-[#71ce87]" : "bg-[#fa8072]"}`}
+            />,
+          ]}
+          expanded={(task) =>
+            selectedId === task.id ? (
+              <KpiTaskDetail
+                task={task}
+                onEdit={() => setEditingTask(task)}
+                onCopy={() => void copyTask(task)}
+                onDelete={() => {
+                  void deleteTask(task.id)
+                  setSelectedId(null)
+                }}
+                onToggleActive={() => void toggleTaskActive(task)}
+              />
+            ) : null
+          }
+        />
+      </RefCard>
       {modalOpen && (
         <AddKpiModal
           onClose={() => setModalOpen(false)}
@@ -273,7 +300,7 @@ export function KpiTasksView() {
           nextId={editingTask.id}
         />
       )}
-    </main>
+    </RefPage>
   )
 }
 
@@ -406,27 +433,27 @@ function AddKpiModal({ onClose, onSave, nextId, editing }: { onClose: () => void
   }
 
   return (
-    <div className="fixed inset-0 z-[100] bg-black/55 p-0"><form onSubmit={submit} className="flex h-full w-full flex-col bg-white">
-      <header className="flex items-center justify-between border-b px-9 py-6"><h2 className="font-bold uppercase">{editing ? t("Изменить KPI") : t("Добавление KPI")}</h2><button type="button" onClick={onClose} aria-label={t("Закрыть")}><X className="h-7 w-7" /></button></header>
-      <div className="grid flex-1 overflow-y-auto lg:grid-cols-[570px_1fr]">
-        <div className="border-r p-9">
-          <input required value={name} onChange={(event) => setName(event.target.value)} placeholder={t("Название задачи *")} className="w-full border-0 border-b py-3 text-lg outline-none" />
-          <div className="mt-8 grid grid-cols-2 gap-5"><label className="text-xs">{t("Дата начала")}<input type="month" value={from} onChange={(event) => setFrom(event.target.value)} className="mt-1 block w-full border-b py-2" /></label><label className="text-xs">{t("Дата окончания")}<input type="month" value={to} onChange={(event) => setTo(event.target.value)} className="mt-1 block w-full border-b py-2" /></label></div>
-          <select value={currency} onChange={(event) => setCurrency(event.target.value)} className="mt-8 w-full border-b py-3"><option>SUM</option><option>USD</option></select>
-          <input value={organization} onChange={(event) => setOrganization(event.target.value)} placeholder={t("Организация")} className="mt-8 w-full border-0 border-b py-3" />
-          <h3 className="mt-3 font-bold">{t("Правила отбора")}</h3><div className="mt-3 space-y-3">{planTypes.map((item) => <label key={item} className="flex items-center gap-4"><input type="radio" name="plan-type" checked={planType === item} onChange={() => setPlanType(item)} className="h-6 w-6" />{t(item)}</label>)}</div>
+    <div className="fixed inset-0 z-[100] bg-white text-[13px] p-0"><form onSubmit={submit} className="flex h-full w-full flex-col bg-white">
+      <header className="flex items-center justify-between border-b px-[14px] py-[16px]"><h2 className="font-bold uppercase">{editing ? t("Изменить KPI") : t("Добавление KPI")}</h2><button type="button" onClick={onClose} aria-label={t("Закрыть")}><X className="h-7 w-7" /></button></header>
+      <div className="grid flex-1 overflow-y-auto lg:grid-cols-[405px_1fr]">
+        <div className="border-r p-[14px]">
+          <input required value={name} onChange={(event) => setName(event.target.value)} placeholder={t("Название задачи *")} className="w-full border-0 border-b py-2 text-[13px] font-semibold outline-none" />
+          <div className="mt-[14px] grid grid-cols-2 gap-5"><label className="text-xs">{t("Дата начала")}<input type="month" value={from} onChange={(event) => setFrom(event.target.value)} className="mt-1 block w-full border-b py-2" /></label><label className="text-xs">{t("Дата окончания")}<input type="month" value={to} onChange={(event) => setTo(event.target.value)} className="mt-1 block w-full border-b py-2" /></label></div>
+          <select value={currency} onChange={(event) => setCurrency(event.target.value)} className="mt-[14px] w-full border-b py-3"><option>SUM</option><option>USD</option></select>
+          <input value={organization} onChange={(event) => setOrganization(event.target.value)} placeholder={t("Организация")} className="mt-[14px] w-full border-0 border-b py-3" />
+          <h3 className="mt-3 font-bold">{t("Правила отбора")}</h3><div className="mt-3 space-y-[10px] text-[10px]">{planTypes.map((item) => <label key={item} className="flex items-center gap-4"><input type="radio" name="plan-type" checked={planType === item} onChange={() => setPlanType(item)} className="h-6 w-6" />{t(item)}</label>)}</div>
           <h3 className="mt-5 font-bold">{t("Действует для клиентов:")}</h3>{["Фильтровать по клиентам", "Фильтровать по зонам", "Фильтровать по типам клиентов", "Фильтровать по филиалам"].map((item) => <CheckOption key={item} label={item} values={clientFilters} setValues={setClientFilters} />)}
           <hr className="my-5" /><CheckOption label="Активный" values={active ? ["Активный"] : []} setValues={() => setActive((value) => !value)} />
           {["Учитывать только оплаченные заказы", "Учитывать продажу своих агентов", "Фильтровать по брендам", "Фильтровать по продуктам", "Фильтровать по типам продуктов", "Фильтровать Группы товаров", "Фильтровать по транспортам"].map((item) => <CheckOption key={item} label={item} values={extraFlags} setValues={setExtraFlags} />)}
         </div>
         <div>
-          <div className="grid gap-8 p-9 md:grid-cols-2"><textarea value={comment} onChange={(event) => setComment(event.target.value)} placeholder={t("Комментарий")} className="border-b p-3" /><input value={bonus} onChange={(event) => setBonus(event.target.value)} placeholder={t("Бонусный фонд")} className="border-0 border-b" /></div>
-          <label className="mx-9 flex items-center gap-3 font-semibold"><input type="checkbox" checked={mmlOnly} onChange={(event) => setMmlOnly(event.target.checked)} />{t("Учитывать только ММЛ продукты")}</label>
-          <h3 className="mx-9 mt-5 font-bold">{t("Уровень вознаграждения")}</h3>
-          <div className="mt-10 grid gap-5 bg-slate-100 px-12 py-8 md:grid-cols-5"><input type="number" min="0" placeholder={t("от 0 %")} className="border-b bg-transparent" /><input type="number" min="0" placeholder={t("до %")} className="border-b bg-transparent" /><input type="number" min="0" placeholder={t("Бонус")} className="border-b bg-transparent" /><select className="border-b bg-transparent"><option>{t("Фиксированный")}</option><option>{t("Процент")}</option></select><label className="flex items-center gap-3"><input type="checkbox" />{t("Обнулить предыдущие уровни")}</label></div>
+          <div className="grid gap-8 p-[14px] md:grid-cols-2"><textarea value={comment} onChange={(event) => setComment(event.target.value)} placeholder={t("Комментарий")} className="border-b p-3" /><input value={bonus} onChange={(event) => setBonus(event.target.value)} placeholder={t("Бонусный фонд")} className="border-0 border-b" /></div>
+          <label className="mx-[14px] flex items-center gap-3 font-semibold"><input type="checkbox" checked={mmlOnly} onChange={(event) => setMmlOnly(event.target.checked)} />{t("Учитывать только ММЛ продукты")}</label>
+          <h3 className="mx-[14px] mt-5 font-bold">{t("Уровень вознаграждения")}</h3>
+          <div className="mt-10 grid gap-5 bg-slate-100 px-[20px] py-[14px] md:grid-cols-5"><input type="number" min="0" placeholder={t("от 0 %")} className="border-b bg-transparent" /><input type="number" min="0" placeholder={t("до %")} className="border-b bg-transparent" /><input type="number" min="0" placeholder={t("Бонус")} className="border-b bg-transparent" /><select className="border-b bg-transparent"><option>{t("Фиксированный")}</option><option>{t("Процент")}</option></select><label className="flex items-center gap-3"><input type="checkbox" />{t("Обнулить предыдущие уровни")}</label></div>
         </div>
       </div>
-      <footer className="flex justify-end border-t px-9 py-6"><button type="submit" className="font-semibold uppercase text-sky-500">{t("Сохранить")}</button></footer>
+      <footer className="flex justify-end border-t px-[14px] py-[16px]"><button type="submit" className="text-[12px] font-bold uppercase text-[#0a9ddb]">{t("Сохранить")}</button></footer>
     </form></div>
   )
 }

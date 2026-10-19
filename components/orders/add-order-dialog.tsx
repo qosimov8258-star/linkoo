@@ -24,7 +24,7 @@ type LineItem = { productName: string; unit: string; quantity: number; unitPrice
 const paymentTypes = ["Наличные", "Перечисление"]
 const deliveryTypes = ["Самовывоз", "Доставка"]
 
-function toInputDate(date: Date) {
+export function toInputDate(date: Date) {
   const pad = (n: number) => String(n).padStart(2, "0")
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
 }
@@ -451,7 +451,7 @@ function Modal({ title, onClose, children }: { title?: string; onClose: () => vo
   )
 }
 
-function ProductPicker({
+export function ProductPicker({
   products,
   priceOf,
   onClose,
@@ -533,7 +533,7 @@ function ProductPicker({
   )
 }
 
-function Checkbox({ checked, onChange, className }: { checked: boolean; onChange: (value: boolean) => void; className?: string }) {
+export function Checkbox({ checked, onChange, className }: { checked: boolean; onChange: (value: boolean) => void; className?: string }) {
   return (
     <span className={`flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-[3px] border-2 ${checked ? "border-slate-600 bg-slate-600" : "border-slate-600"} ${className ?? ""}`}>
       {checked && <Check className="h-3 w-3 stroke-[3] text-white" />}
@@ -542,7 +542,7 @@ function Checkbox({ checked, onChange, className }: { checked: boolean; onChange
   )
 }
 
-function SelectField({
+export function SelectField({
   label,
   required,
   value,
@@ -617,7 +617,7 @@ function SelectField({
   )
 }
 
-function DateField({ label, required, value, onChange, first }: { label: string; required?: boolean; value: string; onChange: (value: string) => void; first?: boolean }) {
+export function DateField({ label, required, value, onChange, first }: { label: string; required?: boolean; value: string; onChange: (value: string) => void; first?: boolean }) {
   return (
     <div className={first ? "mt-0" : "mt-[14px]"}>
       <span className="block h-3 text-[10px] font-semibold leading-3">
@@ -632,7 +632,7 @@ function DateField({ label, required, value, onChange, first }: { label: string;
   )
 }
 
-function FlatInput({ label, value, onChange, className, type = "text" }: { label: string; value: string; onChange: (value: string) => void; className?: string; type?: string }) {
+export function FlatInput({ label, value, onChange, className, type = "text" }: { label: string; value: string; onChange: (value: string) => void; className?: string; type?: string }) {
   return (
     <div className={className}>
       <input

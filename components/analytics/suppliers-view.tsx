@@ -180,16 +180,13 @@ export function SuppliersView({ embedded = false }: { embedded?: boolean }) {
   return (
     <main className={embedded ? "min-w-0 flex-1" : "min-h-[calc(100vh-4rem)] bg-[#f2f5f8] px-7 pb-7"}>
       {!embedded && (
-        <header className="mb-5 flex items-center justify-between">
-          <h1 className="flex items-center text-2xl font-bold text-slate-600">
-            <FavoritesButton className="inline-flex items-center gap-2 text-[#4f71dc]" />
-            <span className="mx-2 text-slate-400">|</span> Поставщики
+        <header className="flex h-[60px] flex-wrap items-center justify-between gap-3">
+          <h1 className="flex items-center text-[18px] font-bold text-[#5d6474]">
+            <FavoritesButton className="flex items-center gap-[5px] text-[18px] font-bold text-[#4f71dc]" />
+            <span className="mx-[11px] inline-block h-[21px] w-[2px] bg-[#5d6474]" /> Поставщики
           </h1>
           <div className="flex items-center gap-3">
-            <button type="button" onClick={() => setImportOpen(true)} className="inline-flex items-center gap-2 rounded bg-[#4f71dc] px-5 py-2.5 font-semibold text-white hover:brightness-95">
-              <FileText className="h-4 w-4" /> Импорт с Excel
-            </button>
-            <button type="button" onClick={openCreate} className="inline-flex items-center gap-2 rounded bg-[#71ce87] px-5 py-2.5 font-semibold text-white hover:brightness-95">
+            <button type="button" onClick={openCreate} className="inline-flex items-center gap-2 h-[30px] rounded-[5px] bg-[#71ce87] px-4 text-[13px] font-semibold text-white hover:brightness-95">
               <Plus className="h-4 w-4" /> Добавить
             </button>
           </div>
@@ -217,9 +214,6 @@ export function SuppliersView({ embedded = false }: { embedded?: boolean }) {
           </button>
           {embedded && (
             <>
-              <button type="button" onClick={() => setImportOpen(true)} className="inline-flex items-center gap-2 rounded bg-[#4f71dc] px-4 py-2 text-sm font-semibold text-white hover:brightness-95">
-                <FileText className="h-4 w-4" /> Импорт с Excel
-              </button>
               <button type="button" onClick={openCreate} className="inline-flex items-center gap-2 rounded bg-[#71ce87] px-4 py-2 text-sm font-semibold text-white hover:brightness-95">
                 <Plus className="h-4 w-4" /> Добавить
               </button>
@@ -230,10 +224,10 @@ export function SuppliersView({ embedded = false }: { embedded?: boolean }) {
         <table className="w-full text-left">
           <thead className="bg-[#5d6474] text-white">
             <tr>
-              <th className="px-9 py-5">Id</th>
-              <th className="px-5 py-5">Наименование</th>
-              <th className="px-5 py-5">Категория</th>
-              <th className="px-5 py-5">Дата создания</th>
+              <th className="px-9 py-4 text-[13px]">Id</th>
+              <th className="px-5 py-4 text-[13px]">Наименование</th>
+              <th className="px-5 py-4 text-[13px]">Категория</th>
+              <th className="px-5 py-4 text-[13px]">Дата создания</th>
             </tr>
           </thead>
           <tbody>
@@ -245,7 +239,7 @@ export function SuppliersView({ embedded = false }: { embedded?: boolean }) {
               <Fragment key={row.id}>
                 <tr onClick={() => toggleExpand(row)} className="cursor-pointer border-b border-dashed border-slate-300 hover:bg-slate-50">
                   <td className="px-9 py-4">{row.id}</td>
-                  <td className="px-5 py-4 text-[#4f71dc]">{row.name}</td>
+                  <td className="px-5 py-4">{row.name}</td>
                   <td className="px-5 py-4">{row.category}</td>
                   <td className="px-5 py-4">{row.createdDate}</td>
                 </tr>
@@ -367,7 +361,7 @@ export function SuppliersView({ embedded = false }: { embedded?: boolean }) {
               </button>
             </div>
             <footer className="flex justify-end border-t p-5">
-              <button type="button" disabled={!importFile || importSaving} onClick={saveImport} className="rounded bg-[#71ce87] px-5 py-3 font-semibold text-white hover:brightness-95 disabled:opacity-40">
+              <button type="button" disabled={!importFile || importSaving} onClick={saveImport} className="inline-flex items-center h-[30px] rounded-[5px] bg-[#71ce87] px-4 text-[13px] font-semibold text-white hover:brightness-95 disabled:opacity-40">
                 {importSaving ? "Импорт..." : "Сохранить"}
               </button>
             </footer>

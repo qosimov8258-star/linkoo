@@ -2,10 +2,11 @@
 
 import { ChangeEvent, FormEvent, useMemo, useRef, useState } from "react"
 import { Camera, ChevronLeft, ChevronRight, ImagePlus, Search, X } from "lucide-react"
-import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
+import { MAILING_SEED } from "./mailing-data"
+import { RefHeader, RefPage } from "@/components/ref/list-kit"
 import { useLanguage } from "@/lib/i18n/language-context"
 
-type Mailing = {
+export type Mailing = {
   id: number
   message: string
   createdAt: string
@@ -17,7 +18,7 @@ type Mailing = {
   photo?: string
 }
 
-const initialMailings: Mailing[] = []
+const initialMailings: Mailing[] = MAILING_SEED
 
 export function MailingView() {
   const { t } = useLanguage()
@@ -81,24 +82,19 @@ export function MailingView() {
   }
 
   return (
-    <main className="min-h-screen bg-[#f2f5f8] px-4 pb-12 pt-5 text-[#26344c] md:px-9">
-      <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-[25px] font-bold text-[#536176]">
-          <FavoritesButton className="text-[#4f6ee8]" />
-          <span className="mx-3 text-[#5f6877]">|</span>
-          {t("Рассылка")}
-        </h1>
+    <RefPage>
+      <RefHeader title={t("Рассылка")}>
         <button
           type="button"
           onClick={() => {
             setComposerOpen(true)
             setNotice("")
           }}
-          className="rounded px-5 py-2 text-[16px] font-medium text-[#45bdb5] transition hover:bg-[#e8f7f5]"
+          className="px-2 text-[13px] font-medium text-[#45bdb5] hover:bg-[#e8f7f5]"
         >
           {t("Разослать")}
         </button>
-      </div>
+      </RefHeader>
 
       {notice && (
         <div className="mb-3 flex items-center justify-between rounded bg-[#e9f8ed] px-4 py-3 text-sm text-[#278549]">
@@ -219,6 +215,6 @@ export function MailingView() {
           </form>
         </div>
       )}
-    </main>
+    </RefPage>
   )
 }

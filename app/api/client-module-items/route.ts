@@ -18,7 +18,7 @@ const clientModuleItemSchema = z.object({
 
 export async function GET(request: Request) {
   const user = await getCurrentUser()
-  if (!user) return NextResponse.json({ error: "Tizimga kirilmagan" }, { status: 401 })
+  if (!user) return NextResponse.json({ error: "Вы не вошли в систему" }, { status: 401 })
 
   const { searchParams } = new URL(request.url)
   const moduleKey = searchParams.get("moduleKey") || ""

@@ -3,7 +3,7 @@
 import Image from "next/image"
 import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react"
 import { ChevronLeft, ChevronRight, Copy, Download, FileText, ListChecks, Pencil, PlusCircle, RefreshCw, X } from "lucide-react"
-import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
+import { RI, RefButton, RefHeader, RefPage, RefTabs } from "@/components/ref/list-kit"
 
 import { downloadExcelTable } from "@/lib/excel-export"
 import { mapHeaderColumns, readExcelRows } from "@/lib/excel-import"
@@ -318,46 +318,42 @@ export function SalaryPlanningView() {
   }
 
   return (
-    <main className="min-h-[calc(100vh-4rem)] bg-slate-100 px-4 pb-10">
-      <header className="flex flex-wrap items-center justify-between gap-4 py-4 sm:px-5">
-        <div className="flex items-center gap-2 text-2xl font-bold text-[#5470e8]"><FavoritesButton className="flex items-center gap-2 text-2xl font-bold text-[#5470e8]" /> <span className="text-slate-500">|</span><span className="text-slate-600">Зарплата и установка планов</span></div>
-        <div className="flex flex-wrap gap-4">
-          <button type="button" onClick={() => void recalcKpi()} className="rounded-md bg-[#71ce87] px-5 py-2.5 font-bold text-white"><RefreshCw className={`mr-2 inline h-5 w-5 ${recalculating ? "animate-spin" : ""}`} />Перерасчет KPI</button>
-          <input ref={fileRef} type="file" accept=".csv" onChange={importCsv} className="hidden" />
-          <button type="button" onClick={() => fileRef.current?.click()} className="rounded-md bg-[#5470e8] px-5 py-2.5 font-bold text-white"><RefreshCw className="mr-2 inline h-5 w-5" />Обновить с excel</button>
-          <button type="button" onClick={exportCsv} className="rounded-md bg-[#71ce87] px-5 py-2.5 font-bold text-white"><Download className="mr-2 inline h-5 w-5" />Скачать EXCEL</button>
-          <button type="button" onClick={() => setAddOpen(true)} className="rounded-md bg-[#71ce87] px-5 py-2.5 font-bold text-white"><PlusCircle className="mr-2 inline h-5 w-5" />Добавить зарплату</button>
-          <button type="button" onClick={() => setImportOpen(true)} className="rounded-md bg-[#5470e8] px-5 py-2.5 font-bold text-white"><FileText className="mr-2 inline h-5 w-5" />Импорт с Excel</button>
-        </div>
-      </header>
+    <RefPage>
+      <input ref={fileRef} type="file" accept=".csv" onChange={importCsv} className="hidden" />
+      <RefHeader title="Зарплата и установка планов">
+        <RefButton icon={RI.sync} green label="Перерасчет KPI" onClick={() => void recalcKpi()} />
+        <RefButton icon={RI.sync} label="Обновить с excel" onClick={() => fileRef.current?.click()} />
+        <RefButton icon={RI.download} green label="Скачать EXCEL" onClick={exportCsv} />
+        <RefButton icon={RI.add} green label="Добавить зарплату" onClick={() => setAddOpen(true)} />
+      </RefHeader>
 
-      <section className="bg-white shadow">
-        <div className="grid grid-cols-3">{["Не зачислено", "Зачислено", "Все"].map((item) => <button key={item} type="button" onClick={() => { setTab(item); setPage(1) }} className={`py-4 ${tab === item ? "border-b-4 border-[#5470e8]" : ""}`}>{item}</button>)}</div>
-        <div className="flex flex-wrap items-end gap-5 border-t px-2 py-2">
-          <label className="text-xs font-medium text-slate-500">
+      <section className="bg-white shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
+        <RefTabs labels={["Не зачислено", "Зачислено", "Все"]} value={tab} onChange={(value) => { setTab(value); setPage(1) }} />
+        <div className="flex flex-wrap items-end gap-[15px] px-[10px] py-[8px] text-[13px]">
+          <label className="text-[10px] font-bold text-black">
             Месяц
             <div className="mt-1 flex items-center gap-2 border-b py-1 pr-1">
-              <select value={month} onChange={(event) => setMonth(Number(event.target.value))} className="bg-white text-base font-semibold text-slate-800 outline-none">
+              <select value={month} onChange={(event) => setMonth(Number(event.target.value))} className="bg-white text-[13px] text-black outline-none">
                 {months.map((item, index) => <option key={item} value={index}>{item}</option>)}
               </select>
               <button type="button" aria-label="Очистить месяц" onClick={() => setMonth(today.getMonth())} className="text-slate-400 hover:text-slate-600"><X className="h-4 w-4" /></button>
             </div>
           </label>
-          <label className="text-xs font-medium text-slate-500">Год<select value={year} onChange={(event) => setYear(Number(event.target.value))} className="mt-1 block border-0 border-b py-2 text-base font-semibold text-slate-800">{[2025, 2026, 2027].map((item) => <option key={item}>{item}</option>)}</select></label>
-          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Поиск" className="ml-auto w-80 border-0 border-b px-0 py-2" />
+          <label className="text-[10px] font-bold text-black">Год<select value={year} onChange={(event) => setYear(Number(event.target.value))} className="mt-1 block border-0 border-b py-1 text-[13px] font-normal text-black">{[2025, 2026, 2027].map((item) => <option key={item}>{item}</option>)}</select></label>
+          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Поиск" className="ml-auto w-[248px] border-0 border-b px-0 py-1 text-[13px] outline-none" />
           <select value={pageSize} onChange={(event) => setPageSize(Number(event.target.value))}><option>10</option><option>25</option><option>50</option></select>
           <span>{filtered.length ? `${(page - 1) * pageSize + 1} - ${Math.min(page * pageSize, filtered.length)} из ${filtered.length}` : "0 из 0"}</span>
           <button type="button" aria-label="Назад" disabled={page === 1} onClick={() => setPage((value) => value - 1)} className="rounded-full border-2 p-1 disabled:opacity-30"><ChevronLeft className="h-4 w-4" /></button>
           <button type="button" aria-label="Вперед" disabled={page === pages} onClick={() => setPage((value) => value + 1)} className="rounded-full border-2 p-1 disabled:opacity-30"><ChevronRight className="h-4 w-4" /></button>
           <ListChecks className="text-slate-500" />
-          <button type="button" disabled={!selected.length} onClick={() => setCredited(true)} className="rounded bg-[#71ce87] px-5 py-2 font-bold text-white disabled:opacity-50">Зачислить</button>
-          <button type="button" disabled={!selected.length} onClick={() => setCredited(false)} className="rounded bg-[#ff786e] px-5 py-2 font-bold text-white disabled:opacity-50">Отменить зачисление</button>
-          <button type="button" disabled={!selected.length} onClick={() => setPlansOpen(true)} className="rounded bg-[#5470e8] px-5 py-2 font-bold text-white disabled:opacity-50"><Pencil className="mr-2 inline h-4 w-4" />Изменить планы</button>
+          <button type="button" onClick={() => setCredited(true)} className="inline-flex h-[30px] items-center rounded-[5px] bg-[#71ce87] px-4 text-[13px] font-semibold text-white disabled:opacity-50">Зачислить</button>
+          <button type="button" onClick={() => setCredited(false)} className="inline-flex h-[30px] items-center rounded-[5px] bg-[#ff786e] px-4 text-[13px] font-semibold text-white disabled:opacity-50">Отменить зачисление</button>
+          <button type="button" onClick={() => setPlansOpen(true)} className="inline-flex h-[30px] items-center rounded-[5px] bg-[#5470e8] px-4 text-[13px] font-semibold text-white disabled:opacity-50"><Pencil className="mr-2 inline h-4 w-4" />Изменить планы</button>
           <button type="button" aria-label="Копировать выбранные" onClick={() => void duplicateSelected()}><Copy /></button>
         </div>
         {message && <div className="flex justify-between bg-blue-50 px-5 py-2 text-blue-700">{message}<button type="button" onClick={() => setMessage("")}>×</button></div>}
-        <div className="overflow-x-auto"><table className="w-full min-w-[900px]"><thead className="bg-slate-600 text-white"><tr><th className="px-6 py-5"><input type="checkbox" checked={shown.length > 0 && shown.every((row) => selected.includes(row.id))} onChange={(event) => setSelected(event.target.checked ? shown.map((row) => row.id) : [])} /></th><th className="px-5 py-5 text-left">Сотрудник</th><th className="px-5 py-5 text-right">Зарплата</th><th className="px-5 py-5 text-right">Сумма бонусов</th><th className="px-5 py-5 text-right">Итоговая зарплата</th><th className="px-5 py-5 text-right">KPI</th></tr></thead><tbody>{shown.map((row) => <tr key={row.id} className="border-b"><td className="px-6 py-4"><input type="checkbox" checked={selected.includes(row.id)} onChange={() => toggleSelected(row.id)} /></td><td className="px-5 py-4">{row.employee}</td><td className="px-5 py-4 text-right">{row.salary.toLocaleString("ru-RU")}</td><td className="px-5 py-4 text-right">{row.bonus.toLocaleString("ru-RU")}</td><td className="px-5 py-4 text-right">{(row.salary + row.bonus).toLocaleString("ru-RU")}</td><td className="px-5 py-4 text-right">{row.kpi}%</td></tr>)}</tbody></table></div>
-        {!shown.length && <div className="flex min-h-[345px] flex-col items-center justify-center"><Image src="/robot-mascot.png" alt="Робот-помощник" width={150} height={150} priority /><p className="mt-6 text-slate-400">По вашему запросу ничего не найдено</p></div>}
+        <div className="overflow-x-auto"><table className="w-full min-w-[900px]"><thead className="bg-[#5d6474] text-white"><tr><th className="px-5 py-4 text-[13px] text-left">Сотрудник</th><th className="px-5 py-4 text-[13px] text-left">Зарплата</th><th className="px-5 py-4 text-[13px] text-left">Сумма бонусов</th><th className="px-5 py-4 text-[13px] text-left">Итоговая зарплата</th><th className="px-5 py-4 text-[13px] text-left">KPI</th></tr></thead><tbody>{shown.map((row) => <tr key={row.id} className="border-b"><td className="px-5 py-4"><label className="flex items-center gap-3"><input type="checkbox" checked={selected.includes(row.id)} onChange={() => toggleSelected(row.id)} />{row.employee}</label></td><td className="px-5 py-4 text-left">{row.salary.toLocaleString("ru-RU")}</td><td className="px-5 py-4 text-left">{row.bonus.toLocaleString("ru-RU")}</td><td className="px-5 py-4 text-left">{(row.salary + row.bonus).toLocaleString("ru-RU")}</td><td className="px-5 py-4 text-left">{row.kpi}%</td></tr>)}</tbody></table></div>
+        {!shown.length && <div className="flex min-h-[345px] flex-col items-center justify-center"><Image src="/robot-empty.png" alt="Робот-помощник" width={150} height={150} priority /><p className="mt-6 text-slate-400">По вашему запросу ничего не найдено</p></div>}
       </section>
       {addOpen && <SalaryModal title="Добавить зарплату" onClose={() => setAddOpen(false)} onSave={(employee, salary, kpi) => void addSalary(employee, salary, kpi)} />}
       {plansOpen && <PlansModal onClose={() => setPlansOpen(false)} onSave={(salary, kpi) => void updatePlans(salary, kpi)} />}
@@ -385,14 +381,14 @@ export function SalaryPlanningView() {
               </button>
             </div>
             <footer className="flex justify-end border-t p-5">
-              <button type="button" disabled={!importFile || importSaving} onClick={saveImport} className="rounded bg-[#71ce87] px-5 py-3 font-semibold text-white hover:brightness-95 disabled:opacity-40">
+              <button type="button" disabled={!importFile || importSaving} onClick={saveImport} className="inline-flex items-center h-[30px] rounded-[5px] bg-[#71ce87] px-4 text-[13px] font-semibold text-white hover:brightness-95 disabled:opacity-40">
                 {importSaving ? "Импорт..." : "Сохранить"}
               </button>
             </footer>
           </div>
         </div>
       )}
-    </main>
+    </RefPage>
   )
 }
 

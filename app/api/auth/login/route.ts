@@ -29,7 +29,7 @@ export async function POST(request: NextRequest) {
   const db = getDb()
   const user = (await db.prepare("SELECT * FROM users WHERE username = ?").get(username)) as UserRow | undefined
   if (!user || !(await verifyPassword(password, user.password_hash))) {
-    return NextResponse.json({ error: "Login yoki parol noto'g'ri" }, { status: 401 })
+    return NextResponse.json({ error: "Неверный логин или пароль" }, { status: 401 })
   }
 
   const role: Role = user.role === "admin" || user.role === "manager" ? user.role : "viewer"

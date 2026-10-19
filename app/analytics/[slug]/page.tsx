@@ -52,7 +52,7 @@ import { PayrollExpensesView } from "@/components/analytics/payroll-expenses-vie
 import { ExpectedExpensesView } from "@/components/analytics/expected-expenses-view"
 import { StoreReconciliationBotView } from "@/components/analytics/store-reconciliation-bot-view"
 import { LoyaltyCardView } from "@/components/analytics/loyalty-card-view"
-import { DebtLimitsView } from "@/components/analytics/debt-limits-view"
+import { ClientsView } from "@/components/clients/clients-view"
 import { QuestionnaireView } from "@/components/analytics/questionnaire-view"
 import { SurveyPlanView } from "@/components/analytics/survey-plan-view"
 import { TelegramBotPagesView } from "@/components/analytics/telegram-bot-pages-view"
@@ -90,7 +90,6 @@ import { AccountDebtsView } from "@/components/analytics/account-debts-view"
 import { ManagementBalanceView } from "@/components/analytics/management-balance-view"
 import { CashManagementView } from "@/components/analytics/cash-management-view"
 import { PriceAnalysisView } from "@/components/analytics/price-analysis-view"
-import { InvoiceIncomingsView } from "@/components/analytics/invoice-incomings-view"
 import { TransportView } from "@/components/analytics/transport-view"
 import { SubscriptionsView } from "@/components/analytics/subscriptions-view"
 import { SessionsView } from "@/components/analytics/sessions-view"
@@ -238,8 +237,11 @@ export default async function AnalyticsPage({ params }: PageProps) {
   if (report.slug === "stock-level") {
     return <StockLevelView />
   }
-  if (report.slug === "stock-by-date" || report.slug === "material-report" || report.slug === "goods-movement") {
+  if (report.slug === "stock-by-date" || report.slug === "material-report") {
     return <MaterialReportView />
+  }
+  if (report.slug === "goods-movement") {
+    return <GoodsMovementView initialTab="movement" />
   }
 
   if (report.slug === "receipt-transfer-plan") {
@@ -339,7 +341,7 @@ export default async function AnalyticsPage({ params }: PageProps) {
   }
 
   if (report.slug === "debt-limits") {
-    return <DebtLimitsView />
+    return <ClientsView />
   }
 
   if (report.slug === "surveys") {
@@ -355,15 +357,15 @@ export default async function AnalyticsPage({ params }: PageProps) {
   }
 
   if (report.slug === "refusal-types") {
-    return <RefusalTypesView />
+    return <CatalogPageLayout><RefusalTypesView embedded /></CatalogPageLayout>
   }
 
   if (report.slug === "shifts") {
-    return <CatalogPageLayout><ShiftsView embedded /></CatalogPageLayout>
+    return <ShiftsView />
   }
 
   if (report.slug === "branches") {
-    return <BranchesView />
+    return <CatalogPageLayout><BranchesView embedded /></CatalogPageLayout>
   }
 
   if (report.slug === "employees") {
@@ -391,11 +393,11 @@ export default async function AnalyticsPage({ params }: PageProps) {
   }
 
   if (report.slug === "time-restrictions") {
-    return <TimeRestrictionsView />
+    return <CatalogPageLayout><TimeRestrictionsView embedded /></CatalogPageLayout>
   }
 
   if (report.slug === "knowledge-base") {
-    return <KnowledgeBaseView />
+    return <CatalogPageLayout><KnowledgeBaseView embedded /></CatalogPageLayout>
   }
 
   if (report.slug === "product-restrictions") {
@@ -411,7 +413,7 @@ export default async function AnalyticsPage({ params }: PageProps) {
   }
 
   if (report.slug === "supplier-categories") {
-    return <SupplierCategoriesView />
+    return <CatalogPageLayout><SupplierCategoriesView embedded /></CatalogPageLayout>
   }
 
   if (report.slug === "suppliers") {
@@ -427,7 +429,7 @@ export default async function AnalyticsPage({ params }: PageProps) {
   }
 
   if (report.slug === "warehouses") {
-    return <WarehousesView />
+    return <CatalogPageLayout><WarehousesView embedded /></CatalogPageLayout>
   }
 
   if (report.slug === "products") {
@@ -439,7 +441,7 @@ export default async function AnalyticsPage({ params }: PageProps) {
   }
 
   if (report.slug === "price-lists") {
-    return <PriceListsView />
+    return <CatalogPageLayout><PriceListsView embedded /></CatalogPageLayout>
   }
 
   if (report.slug === "product-types") {
@@ -459,7 +461,7 @@ export default async function AnalyticsPage({ params }: PageProps) {
   }
 
   if (report.slug === "organization") {
-    return <OrganizationView />
+    return <CatalogPageLayout><OrganizationView embedded /></CatalogPageLayout>
   }
 
   if (report.slug === "cashboxes") {
@@ -491,7 +493,7 @@ export default async function AnalyticsPage({ params }: PageProps) {
   }
 
   if (report.slug === "invoice-incomings") {
-    return <InvoiceIncomingsView />
+    return <CashManagementView />
   }
 
   if (report.slug === "transport") {

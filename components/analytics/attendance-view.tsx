@@ -2,25 +2,18 @@
 
 import { useEffect, useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
-import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
+import { RI, RefButton, RefHeader } from "@/components/ref/list-kit"
+import { ReportPage } from "@/components/ref/report-kit"
 import {
-  CalendarDays,
   ChevronLeft,
   ChevronRight,
   Clock3,
-  Download,
-  FilePenLine,
-  Filter,
   MapPin,
-  PlusCircle,
-  RefreshCw,
   Search,
-  Star,
   UserRound,
   X,
 } from "lucide-react"
 
-const agents: string[] = []
 const branches = ["777", "878", "agent", "Andijon", "AURUM samarqand", "baby still"]
 const week = ["вс", "пн", "вт", "ср", "чт", "пт", "сб"]
 
@@ -165,6 +158,21 @@ export function AttendanceView() {
       cancelled = true
     }
   }, [year, month])
+  const [agents, setAgents] = useState<string[]>([])
+  useEffect(() => {
+    let cancelled = false
+    fetch("/api/employees")
+      .then((response) => (response.ok ? (response.json() as Promise<{ name: string }[]>) : Promise.reject()))
+      .then((data) => {
+        if (!cancelled) setAgents(data.map((employee) => employee.name).filter(Boolean))
+      })
+      .catch(() => {
+        if (!cancelled) setAgents([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
   const [selectedRows, setSelectedRows] = useState<string[]>([])
   const [selectedAgent, setSelectedAgent] = useState<string | null>(null)
   const [editMode, setEditMode] = useState(false)
@@ -180,35 +188,43 @@ export function AttendanceView() {
 
   function flash(text: string) { setNotice(text); window.setTimeout(() => setNotice(""), 1800) }
 
+  const CAL = "M19 4h-1V2h-2v2H8V2H6v2H5c-1.11 0-1.99.9-1.99 2L3 20c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 16H5V9h14v11zM7 11h5v5H7z"
+  const arrowBtn = "flex h-[34px] w-[68px] items-center justify-center bg-[#e8f1fb] hover:bg-[#d9e8f8]"
   return (
-    <main className="min-h-[calc(100vh-4rem)] bg-slate-100">
-      <header className="flex flex-wrap items-center gap-3 px-9 py-5">
-        <FavoritesButton className="flex items-center gap-2 text-2xl font-bold text-[#526fe0]" /><span className="text-2xl text-slate-400">|</span><h1 className="text-2xl font-bold text-slate-600">Посещаемость</h1>
-        <div className="ml-auto flex gap-3">
-          <button type="button" onClick={() => setWeekendOpen(true)} className="flex items-center gap-2 rounded bg-[#6bce87] px-5 py-3 font-bold text-white"><PlusCircle />Добавить выходные дни</button>
-          <button type="button" onClick={() => setWorkingOpen(true)} className="flex items-center gap-2 rounded bg-[#526fe0] px-5 py-3 font-bold text-white"><Clock3 />Рабочее время</button>
-          <button type="button" onClick={() => flash("Данные обновлены")} className="flex items-center gap-2 rounded bg-[#526fe0] px-5 py-3 font-bold text-white"><RefreshCw />Обновить с excel</button>
-          <button type="button" onClick={download} className="flex items-center gap-2 rounded bg-[#6bce87] px-5 py-3 font-bold text-white"><Download />Скачать</button>
+    <ReportPage>
+      <div className="pl-[30px] pr-[38px]">
+        <RefHeader title="Посещаемость">
+          <RefButton icon={RI.add} green label="Добавить выходные дни" onClick={() => setWeekendOpen(true)} />
+          <RefButton icon={RI.clock} label="Рабочее время" onClick={() => setWorkingOpen(true)} />
+          <RefButton icon={RI.sync} label="Обновить с excel" onClick={() => flash("Данные обновлены")} />
+          <RefButton icon={RI.chart} green label="Скачать" onClick={download} />
+        </RefHeader>
+      </div>
+      <section className="mx-7 overflow-hidden rounded-[10px] bg-white shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
+        <div className="flex h-[52px] items-center justify-end gap-[19px] border-b border-[#ececec] px-[30px]">
+          <RefButton icon={RI.edit} label={editMode ? "Сохранить" : "Изменить"} onClick={() => setEditMode((current) => !current)} />
+          <RefButton icon={RI.sync} label="Перерасчет" onClick={() => flash("Перерасчет выполнен")} />
         </div>
-      </header>
-      <section className="mx-9 overflow-hidden rounded-xl bg-white shadow">
-        <div className="flex justify-end gap-5 border-b px-5 py-4">
-          <button type="button" onClick={() => setEditMode((current) => !current)} className={`flex items-center gap-2 rounded px-6 py-2 font-bold text-white ${editMode ? "bg-green-500" : "bg-[#526fe0]"}`}><FilePenLine />{editMode ? "Сохранить" : "Изменить"}</button>
-          <button type="button" onClick={() => flash("Перерасчет выполнен")} className="flex items-center gap-2 rounded bg-[#526fe0] px-6 py-2 font-bold text-white"><RefreshCw />Перерасчет</button>
-        </div>
-        <div className="flex items-center gap-10 border-b px-5 py-3">
-          <button type="button" onClick={() => setFilterOpen((current) => !current)} className="flex items-center gap-3 rounded bg-[#526fe0] px-5 py-3 font-bold text-white"><Filter />Показать фильтр</button>
-          <label className="flex w-80 items-center border-b py-2"><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Поиск" className="w-full outline-none" /><Search className="text-slate-500" /></label>
-          <div className="ml-auto flex items-center gap-4">
-            <button onClick={() => setYear(year - 1)} className="rounded bg-sky-50 p-3"><ChevronLeft /></button><b className="px-5 text-xl">{year}</b><button onClick={() => setYear(year + 1)} className="rounded bg-sky-50 p-3"><ChevronRight /></button>
-            <button onClick={() => setMonth((month + 11) % 12)} className="rounded bg-sky-50 p-3"><ChevronLeft /></button><b className="w-24 text-center text-xl">{["январь","февраль","март","апрель","май","июнь","июль","август","сентябрь","октябрь","ноябрь","декабрь"][month]}</b><button onClick={() => setMonth((month + 1) % 12)} className="rounded bg-sky-50 p-3"><ChevronRight /></button>
+        <div className="relative flex h-[53px] items-center px-[15px]">
+          <button type="button" onClick={() => setFilterOpen((current) => !current)} className="flex h-[30px] w-[168px] items-center rounded-[5px] bg-[#4f71dc] pl-3 text-[13px] font-semibold text-white hover:brightness-95">
+            <svg viewBox="0 0 24 24" className="mr-3 h-[18px] w-[18px] fill-white" aria-hidden><path d={RI.filter} /></svg>Показать фильтр
+          </button>
+          <label className="relative ml-[102px] block h-[28px] w-[250px] border-b border-[#e0e0e0]">
+            {!query && <span className="pointer-events-none absolute left-0 top-[5px] text-[13px] font-semibold text-black">Поиск</span>}
+            <input value={query} onChange={(event) => setQuery(event.target.value)} className="h-full w-full bg-transparent pr-8 text-[13px] outline-none" aria-label="Поиск" />
+            <Search className="pointer-events-none absolute right-[2px] top-[2px] h-5 w-5 text-[#444]" />
+          </label>
+          <div className="ml-auto flex items-center gap-[10px] text-[13px]">
+            <button onClick={() => setYear(year - 1)} className={arrowBtn} aria-label="Предыдущий год"><ChevronLeft className="h-5 w-5" /></button><b className="w-[48px] text-center text-[14px] font-semibold">{year}</b><button onClick={() => setYear(year + 1)} className={arrowBtn} aria-label="Следующий год"><ChevronRight className="h-5 w-5" /></button>
+            <button onClick={() => setMonth((month + 11) % 12)} className={`${arrowBtn} ml-[5px]`} aria-label="Предыдущий месяц"><ChevronLeft className="h-5 w-5" /></button><b className="w-[85px] text-center text-[14px] font-semibold">{["январь","февраль","март","апрель","май","июнь","июль","август","сентябрь","октябрь","ноябрь","декабрь"][month]}</b><button onClick={() => setMonth((month + 1) % 12)} className={arrowBtn} aria-label="Следующий месяц"><ChevronRight className="h-5 w-5" /></button>
           </div>
         </div>
-        {filterOpen && <div className="absolute z-50 ml-5 mt-2 w-96 bg-white p-6 shadow-xl"><div className="flex justify-between text-lg text-slate-600">Фильтр<button onClick={() => setFilterOpen(false)}><X /></button></div><label className="mt-8 block font-bold">Филиал<select value={branch} onChange={(event) => setBranch(event.target.value)} className="mt-2 block w-full border-b bg-white py-3 font-normal"><option value="">Все филиалы</option>{branches.map((item) => <option key={item}>{item}</option>)}</select></label></div>}
+        {filterOpen && <div className="absolute z-50 ml-[15px] mt-[2px] w-[340px] bg-white p-6 text-[13px] shadow-[0_3px_10px_rgba(0,0,0,0.16),0_3px_10px_rgba(0,0,0,0.23)]"><div className="flex justify-between text-[14px] font-semibold">Фильтр<button onClick={() => setFilterOpen(false)}><X className="h-5 w-5" /></button></div><label className="mt-6 block font-semibold">Филиал<select value={branch} onChange={(event) => setBranch(event.target.value)} className="mt-2 block w-full border-b bg-white py-2 font-normal"><option value="">Все филиалы</option>{branches.map((item) => <option key={item}>{item}</option>)}</select></label></div>}
         <div className="overflow-x-auto">
-          <table className="min-w-[1850px] w-full border-collapse">
-            <thead className="bg-slate-100"><tr><th className="w-14 p-4"><Filter /></th><th className="sticky left-0 z-10 min-w-72 bg-slate-100 p-4 text-left">Агент</th>{days.map((day) => <th key={day} className={`w-10 py-3 text-center ${weekends.includes(day) ? "text-red-400" : ""}`}>{String(day).padStart(2,"0")}<small className="block text-sky-500">{week[new Date(year, month, day).getDay()]}</small></th>)}<th className="min-w-48">Пришел вовремя</th></tr></thead>
-            <tbody>{visibleAgents.map((agent) => <tr key={agent} className="border-t hover:bg-slate-50"><td className="p-5 text-center"><input type="checkbox" checked={selectedRows.includes(agent)} onChange={() => setSelectedRows(selectedRows.includes(agent) ? selectedRows.filter((item) => item !== agent) : [...selectedRows, agent])} className="h-6 w-6" /></td><td className="sticky left-0 bg-white p-4"><button type="button" onClick={() => setSelectedAgent(agent)} className="text-left text-slate-700 hover:text-sky-500">{agent}</button></td>{days.map((day) => <td key={day} className="text-center">{weekends.includes(day) ? <CalendarDays className="mx-auto h-5 w-5 text-red-400" /> : editMode ? <input type="checkbox" className="h-4 w-4" /> : <span className="text-red-400">×</span>}</td>)}<td className="text-center"><span className="text-green-500">0</span> / <span className="text-blue-500">0</span> / <span className="text-red-500">0</span> / {days.length - weekends.length}</td></tr>)}</tbody>
+          <table className="w-full min-w-[1250px] table-fixed border-collapse text-[13px]">
+            <colgroup><col className="w-[78px]" /><col className="w-[200px]" />{days.map((day) => <col key={day} className="w-[27px]" />)}<col className="w-[190px]" /></colgroup>
+            <thead className="bg-[#f2f5f8]"><tr className="h-[55px]"><th className="text-center"><svg viewBox="0 0 24 24" className="mx-auto h-6 w-6 fill-none stroke-[#333] stroke-2" aria-hidden><path d="M4 4h16v16H4z" strokeDasharray="3 2" /></svg></th><th className="px-[6px] text-left font-semibold">Агент</th>{days.map((day) => <th key={day} className={`text-center text-[12px] font-bold leading-4 text-[#555]`}>{String(day).padStart(2,"0")}<small className={`block text-[11px] font-semibold ${weekends.includes(day) ? "text-[#f06c6c]" : "text-[#1ea1f2]"}`}>{week[new Date(year, month, day).getDay()]}</small></th>)}<th className="whitespace-nowrap text-center font-semibold">Пришел вовремя <svg viewBox="0 0 24 24" className="ml-1 inline h-5 w-5 fill-none stroke-[#4f71dc] stroke-2 align-middle" aria-hidden><circle cx="12" cy="12" r="9" /><path d="M12 11v5M12 8v.01" strokeLinecap="round" /></svg></th></tr></thead>
+            <tbody>{visibleAgents.map((agent) => <tr key={agent} className="h-[52px] border-b border-[#ececec] hover:bg-[#f7f9fb]"><td className="text-center"><input type="checkbox" checked={selectedRows.includes(agent)} onChange={() => setSelectedRows(selectedRows.includes(agent) ? selectedRows.filter((item) => item !== agent) : [...selectedRows, agent])} className="h-[18px] w-[18px] cursor-pointer accent-[#444]" /></td><td className="truncate px-[6px]"><button type="button" onClick={() => setSelectedAgent(agent)} className="text-left hover:text-[#4f71dc]">{agent}</button></td>{days.map((day) => <td key={day} className="text-center">{weekends.includes(day) ? <svg viewBox="0 0 24 24" className="mx-auto h-[14px] w-[14px] fill-[#f06c6c]" aria-hidden><path d={CAL} /></svg> : editMode ? <input type="checkbox" className="h-[13px] w-[13px] cursor-pointer" /> : <span className="mx-auto block h-[11px] w-[11px] rounded-[2px] border border-[#d0d0d0]" />}</td>)}<td className="text-center"><span className="text-[#43a047]">0</span> / <span className="text-[#4f71dc]">0</span> / <span className="text-[#f06c6c]">0</span> / {days.length - weekends.length}</td></tr>)}</tbody>
           </table>
         </div>
       </section>
@@ -216,6 +232,6 @@ export function AttendanceView() {
       {weekendOpen && <WeekendModal onClose={() => setWeekendOpen(false)} selected={weekends} setSelected={setWeekends} year={year} month={month} />}
       {selectedAgent && <AgentDrawer name={selectedAgent} onClose={() => setSelectedAgent(null)} />}
       {notice && <div className="fixed bottom-6 left-1/2 z-[1200] -translate-x-1/2 rounded bg-slate-800 px-6 py-3 text-white shadow-xl">{notice}</div>}
-    </main>
+    </ReportPage>
   )
 }

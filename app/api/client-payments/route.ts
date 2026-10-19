@@ -16,7 +16,7 @@ const clientPaymentSchema = z.object({
 
 export async function GET(request: Request) {
   const user = await getCurrentUser()
-  if (!user) return NextResponse.json({ error: "Tizimga kirilmagan" }, { status: 401 })
+  if (!user) return NextResponse.json({ error: "Вы не вошли в систему" }, { status: 401 })
   const clientIdParam = new URL(request.url).searchParams.get("clientId")
   const clientId = clientIdParam ? Number(clientIdParam) : undefined
   return NextResponse.json((await listClientPayments(clientId)))

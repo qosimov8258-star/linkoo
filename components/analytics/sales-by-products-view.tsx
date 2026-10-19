@@ -1,8 +1,8 @@
 "use client"
 
-import { FormEvent, useEffect, useMemo, useState } from "react"
-import { Download, Expand, ListFilter, Search, X } from "lucide-react"
-import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
+import { useEffect, useMemo, useState } from "react"
+import { RefHeader } from "@/components/ref/list-kit"
+import { ReportCheckboxField, ReportChipField, ReportFilterPanel, ReportPage, ReportRangeField, ReportSearchBar, ReportSegmentTabs, ReportSelectField, ReportSummaryCard, ReportTopRow } from "@/components/ref/report-kit"
 import type { OrderItemWithOrder } from "@/lib/order-items-repo"
 
 type ProductRow = { name: string; unit: string; saleQty: number; saleSum: number; returnQty: number; returnSum: number }
@@ -60,15 +60,15 @@ function buildProductRows(items: OrderItemWithOrder[]): ProductRow[] {
 }
 
 const options = {
-  branch: ["Все филиалы", "777", "878", "Andijon", "AURUM samarqand"],
-  brand: ["Все бренды", "Alpen Gold", "Aple", "Apple", "Aqua de lux", "arbuz privet"],
-  organization: ["Все организации", "Linko", "Time3 Distribution"],
-  productType: ["Все типы товара", "Мыло", "Напитки", "Снеки"],
-  status: ["Все статусы", "Завершено", "В процессе", "Отменено"],
-  client: ["Все клиенты", "Doston market", "Markus Vitinha", "Usman Dembele"],
-  agent: ["Все агенты", "Samandar Abdurahmonov", "Хайрулло Доставщик"],
-  clientType: ["Все типы клиентов", "horeca", "market", "market100"],
-  warehouse: ["Все склады", "Основной склад", "Склад Andijon"],
+  branch: ["777", "878", "Andijon", "AURUM samarqand"],
+  brand: ["Alpen Gold", "Aple", "Apple", "Aqua de lux", "arbuz privet"],
+  organization: ["Linko", "Time3 Distribution"],
+  productType: ["Мыло", "Напитки", "Снеки"],
+  status: ["Завершено", "В процессе", "Отменено"],
+  client: ["Doston market", "Markus Vitinha", "Usman Dembele"],
+  agent: ["Samandar Abdurahmonov", "Хайрулло Доставщик"],
+  clientType: ["horeca", "market", "market100"],
+  warehouse: ["Основной склад", "Склад Andijon"],
 }
 
 type FilterKey = keyof typeof options
@@ -95,7 +95,7 @@ export function SalesByProductsView() {
   const [to, setTo] = useState(today)
   const [bonus, setBonus] = useState(false)
   const [filters, setFilters] = useState<Record<FilterKey, string>>(
-    Object.fromEntries(Object.entries(options).map(([key, values]) => [key, values[0]])) as Record<FilterKey, string>,
+    Object.fromEntries(Object.entries(options).map(([key, values]) => [key, ""])) as Record<FilterKey, string>,
   )
 
   const [items, setItems] = useState<OrderItemWithOrder[]>([])
@@ -153,11 +153,6 @@ export function SalesByProductsView() {
     setFilters((current) => ({ ...current, [key]: value }))
   }
 
-  function apply(event: FormEvent) {
-    event.preventDefault()
-    if (from <= to) setFilterOpen(false)
-  }
-
   function download() {
     const header = "Товар;Ед. измер;Продажа кол-во;Продажа сумма;Возврат кол-во;Возврат сумма;Фактическая продажа кол-во;Фактическая продажа сумма"
     const body = rows.map((row) =>
@@ -172,52 +167,52 @@ export function SalesByProductsView() {
   }
 
   return (
-    <main className="min-h-[calc(100vh-4rem)] bg-slate-100">
-      <header className="flex items-center gap-3 border-b px-5 py-4 text-xl font-bold sm:px-10 sm:text-2xl">
-        <FavoritesButton className="flex items-center gap-2 text-[#5470e8]" />
-        <span className="text-slate-500">|</span>
-        <h1 className="text-slate-600">Прибыль от товаров</h1>
-      </header>
+    <ReportPage>
+      <div className="pl-[30px] pr-[38px]"><RefHeader title="Прибыль от товаров" /></div>
 
-      <section className={fullscreen ? "fixed inset-0 z-[80] overflow-auto bg-white p-5" : "bg-white px-4 py-6 sm:px-10"}>
-        <div className="flex flex-wrap items-center gap-3">
-          <button type="button" onClick={() => setFilterOpen(true)} className="rounded-md bg-[#5470e8] px-5 py-2.5 font-bold text-white">
-            <ListFilter className="mr-2 inline h-5 w-5" />Фильтр / 1
-          </button>
-          <strong className="text-[#5470e8]">{formatDate(from)} - {formatDate(to)} {filters.organization}</strong>
-          <button type="button" onClick={download} className="ml-auto rounded-md bg-[#71ce87] px-5 py-2.5 font-bold text-white">
-            <Download className="mr-2 inline h-5 w-5" />Скачать
-          </button>
-          {fullscreen && <button type="button" onClick={() => setFullscreen(false)} className="rounded border px-3 py-2">Закрыть</button>}
-        </div>
+      <section className={fullscreen ? "fixed inset-0 z-[80] overflow-auto bg-white p-5" : "border-b border-[#d9d9d9] bg-white pb-[1px] pt-[21px]"}>
+        <div className="px-[30px]">
+          <ReportTopRow
+            filterLabel="Фильтр / 1"
+            scope={`${formatDate(from)} - ${formatDate(to)} ${filters.organization || "Во всей организации"}`}
+            onFilter={() => setFilterOpen(true)}
+            onDownload={download}
+          />
+          {fullscreen && <button type="button" onClick={() => setFullscreen(false)} className="absolute right-5 top-5 rounded border px-3 py-2">Закрыть</button>}
 
-        <div className="mt-4 grid gap-3 md:grid-cols-3">
-          <Summary label="Сумма от продаж" sum={totals.saleSum} qty={totals.saleQty} />
-          <Summary label="Сумма возвратов" sum={totals.returnSum} qty={totals.returnQty} />
-          <Summary label="Фактические продажи" sum={totals.saleSum - totals.returnSum} qty={totals.saleQty - totals.returnQty} right />
-        </div>
+          <div className="mt-[15px] grid gap-[14px] md:grid-cols-3">
+            <ReportSummaryCard label="Сумма от продаж">{totals.saleSum.toLocaleString("ru-RU")} SUM<small className="text-[12px] font-normal">({totals.saleQty} шт)</small></ReportSummaryCard>
+            <ReportSummaryCard label="Сумма возвратов">{totals.returnSum.toLocaleString("ru-RU")} SUM<small className="text-[12px] font-normal">({totals.returnQty} шт)</small></ReportSummaryCard>
+            <ReportSummaryCard label="Фактические продажи" right>{(totals.saleSum - totals.returnSum).toLocaleString("ru-RU")} SUM<small className="text-[12px] font-normal">({totals.saleQty - totals.returnQty} шт)</small></ReportSummaryCard>
+          </div>
 
-        <div className="mt-4 flex flex-wrap items-center gap-5 border-b pb-3">
-          <label className="relative w-full max-w-lg">
-            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Поиск" className="w-full border-b py-2 pr-9 outline-none" />
-            <Search className="absolute right-1 top-2 h-5 w-5 text-slate-600" />
-          </label>
-          <select value={pageSize} onChange={(event) => setPageSize(Number(event.target.value))} className="ml-auto bg-white"><option>10</option><option>25</option><option>50</option></select>
-          <span>{rows.length ? `1 - ${Math.min(pageSize, rows.length)} из ${rows.length}` : "0 из 0"}</span>
-          <button type="button" disabled>◀</button><button type="button" disabled>▶</button>
-          <button type="button" onClick={() => setFullscreen(!fullscreen)} aria-label="Полный экран"><Expand className="h-5 w-5" /></button>
-        </div>
+          <div className="mt-[14px]">
+            <ReportSearchBar
+              value={query}
+              onChange={setQuery}
+              pageSize={pageSize}
+              onPageSize={setPageSize}
+              rangeLabel={rows.length ? `1 - ${Math.min(pageSize, rows.length)} из ${rows.length}` : "1 - 0 из 0"}
+              canPrev={false}
+              canNext={false}
+              onPrev={() => undefined}
+              onNext={() => undefined}
+              onFullscreen={() => setFullscreen(!fullscreen)}
+            />
+          </div>
 
-        <div className="flex flex-wrap items-end justify-between gap-4 py-3">
-          <p className="text-lg font-semibold text-[#5470e8]">ⓘ Это оперативный отчет. Для просмотра факта перейдите в другой раздел</p>
-          <label className="min-w-64 text-xs">Группировка
-            <select value={group} onChange={(event) => setGroup(event.target.value)} className="block w-full border-b bg-white py-2 text-base">
-              <option>По продукту</option><option>По бренду</option><option>По типу продукта</option>
-            </select>
-          </label>
-          <div className="flex">
-            <ModeButton active={reportMode === "created"} onClick={() => setReportMode("created")}>ПОКАЗАТЬ ПО ДАТЕ СОЗДАНИЯ</ModeButton>
-            <ModeButton active={reportMode === "profit"} onClick={() => setReportMode("profit")}>ПРОДАЖА ПО ТОВАРАМ С ПРИБЫЛЬЮ</ModeButton>
+          <div className="-mx-[20px] flex items-end justify-between gap-4 py-[10px] pr-[20px]">
+            <p className="flex w-[560px] items-center gap-2 text-[16px] font-semibold leading-[21px] text-[#4f71dc]">
+              <svg viewBox="0 0 24 24" className="h-5 w-5 shrink-0 fill-none stroke-[#4f71dc] stroke-2" aria-hidden><circle cx="12" cy="12" r="9" /><path d="M12 11v5M12 8v.01" strokeLinecap="round" /></svg>
+              Это оперативний отчет для просмотра факта перейдите в другой раздел
+            </p>
+            <div className="flex items-end gap-[20px]">
+              <ReportChipField label="Группировка" value={group} options={["По продукту", "По бренду", "По типу продукта"]} onChange={setGroup} compact />
+              <div className="flex pb-[2px]">
+                <ModeButton active={reportMode === "created"} onClick={() => setReportMode("created")}>ПОКАЗАТЬ ПО ДАТЕ СОЗДАНИЯ</ModeButton>
+                <ModeButton active={reportMode === "profit"} onClick={() => setReportMode("profit")}>ПРОДАЖА ПО ТОВАРАМ С ПРИБЫЛЬЮ</ModeButton>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -231,35 +226,58 @@ export function SalesByProductsView() {
       </section>
 
       {filterOpen && (
-        <div className="fixed inset-0 z-[100] flex items-start justify-center bg-black/30 p-4 pt-12">
-          <form onSubmit={apply} className="w-full max-w-[1840px] bg-white p-8 shadow-2xl">
-            <header className="flex items-center justify-between"><h2 className="font-bold">Фильтр</h2><button type="button" onClick={() => setFilterOpen(false)}><X /></button></header>
-            <div className="mt-6 grid grid-cols-2">
-              <button type="button" onClick={() => setMode("created")} className={`rounded py-3 ${mode === "created" ? "bg-[#5470e8] text-white" : "border"}`}>Период создания</button>
-              <button type="button" onClick={() => setMode("warehouse")} className={`rounded py-3 ${mode === "warehouse" ? "bg-[#5470e8] text-white" : "border"}`}>Передачи со склада</button>
-            </div>
-            <div className="mt-8 grid gap-x-8 gap-y-10 md:grid-cols-2 xl:grid-cols-4">
-              <label className="text-xs">{mode === "created" ? "Период создания" : "Период передачи со склада"}<span className="mt-1 grid grid-cols-2 gap-2"><input type="date" value={from} max={to} onChange={(e) => setFrom(e.target.value)} className="border-b py-2 text-base" /><input type="date" value={to} min={from} onChange={(e) => setTo(e.target.value)} className="border-b py-2 text-base" /></span></label>
-              {(["branch", "brand", "organization", "productType", "status", "client", "agent", "clientType", "warehouse"] as FilterKey[]).map((key) => <FilterSelect key={key} name={key} value={filters[key]} onChange={(value) => setFilter(key, value)} />)}
-              <label className="flex items-center gap-3"><input type="checkbox" checked={bonus} onChange={(event) => setBonus(event.target.checked)} className="h-5 w-5" />Показать бонусные продукты</label>
-            </div>
-            <button type="submit" className="mt-5 w-full rounded bg-[#71ce87] py-3 font-bold text-white">Применить</button>
-          </form>
-        </div>
+        <ReportFilterPanel
+          onClose={() => setFilterOpen(false)}
+          onApply={() => {
+            if (from <= to) setFilterOpen(false)
+          }}
+          tabs={<ReportSegmentTabs labels={["Период создания", "Передачи со склада"]} value={mode === "created" ? 0 : 1} onChange={(index) => setMode(index === 0 ? "created" : "warehouse")} />}
+        >
+          <ReportRangeField label={mode === "created" ? "Период создания" : "Период передачи со склада"} from={from} to={to} onFrom={setFrom} onTo={setTo} />
+          {(["branch", "brand", "organization", "productType", "status", "client", "agent", "clientType", "warehouse"] as FilterKey[]).map((key) => (
+            <ReportSelectField key={key} label={labels[key]} value={filters[key]} onChange={(value) => setFilter(key, value)} options={options[key]} clearable={false} />
+          ))}
+          <ReportCheckboxField label="Показать бонусные продукты" checked={bonus} onChange={setBonus} />
+        </ReportFilterPanel>
       )}
-    </main>
+    </ReportPage>
   )
 }
 
 function ProductTable({ rows, bonus }: { rows: ProductRow[]; bonus: boolean }) {
-  return <div className="overflow-x-auto"><table className="min-w-[1400px] w-full border-collapse text-sm"><thead><tr className="bg-slate-100 text-slate-700"><th colSpan={2} /><Group title="Продажа" /><Group title="Возврат в этом периоде" /><Group title="Фактическая продажа" /><Group title="Скидки" /><Group title="Бонус" /></tr><tr className="bg-slate-100">{["Товар","Ед. измер","Кол-во","Сумма","Кол-во","Сумма","Кол-во","Сумма","Кол-во","Сумма","Кол-во","Сумма"].map((item, i) => <th key={`${item}-${i}`} className="border px-3 py-3">{item}</th>)}</tr></thead><tbody>{rows.length === 0 ? <tr><td colSpan={12} className="border px-3 py-16 text-center text-slate-400">Нет данных за выбранный период</td></tr> : rows.map((row) => { const cells = [row.name,row.unit,row.saleQty,row.saleSum,row.returnQty,row.returnSum,row.saleQty-row.returnQty,row.saleSum-row.returnSum,0,0,bonus ? 1 : 0,bonus ? 5000 : 0]; return <tr key={row.name}>{cells.map((cell, i) => <td key={i} className={`border px-2 py-3 ${i > 1 && Number(cell) > 0 ? "text-green-600" : ""}`}>{typeof cell === "number" ? cell.toLocaleString("ru-RU") : cell}</td>)}</tr>})}</tbody></table></div>
+  const heads = ["Товар", "Ед. измер", "Кол-во", "Сумма", "Кол-во", "Сумма", "Кол-во", "Сумма", "Кол-во", "Сумма", "Кол-во", "Сумма"]
+  return (
+    <div className="relative overflow-x-auto border-b border-[#e8e8e8]">
+      <table className="w-full min-w-[1500px] table-fixed border-collapse text-[13px]">
+        <colgroup><col className="w-[300px]" /><col className="w-[100px]" />{Array.from({ length: 10 }, (_, c) => <col key={c} />)}</colgroup>
+        <thead className="shadow-[0_3px_6px_rgba(0,0,0,0.12)]">
+          <tr className="h-[30px]">
+            <th colSpan={2} className="bg-white" />
+            <Group title="Продажа" /><Group title="Возврат в этом периоде" /><Group title="Фактическая продажа" /><Group title="Скидки" /><Group title="Бонус" />
+          </tr>
+          <tr className="h-[32px] bg-white">
+            {heads.map((item, i) => <th key={`${item}-${i}`} className="border-l border-[#ececec] px-2 text-center font-semibold">{item}</th>)}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.length === 0
+            ? [0, 1, 2].map((r) => <tr key={r} className={`h-[31px] ${r === 1 ? "bg-[#f2f5f8]" : "bg-white"}`}>{heads.map((_, c) => <td key={c} className="border-l border-[#ececec]" />)}</tr>)
+            : rows.map((row, r) => {
+                const cells = [row.name, row.unit, row.saleQty, row.saleSum, row.returnQty, row.returnSum, row.saleQty - row.returnQty, row.saleSum - row.returnSum, 0, 0, bonus ? 1 : 0, bonus ? 5000 : 0]
+                return (
+                  <tr key={row.name} className={`h-[31px] ${r % 2 ? "bg-[#f2f5f8]" : "bg-white"}`}>
+                    {cells.map((cell, i) => <td key={i} className="truncate border-l border-[#ececec] px-2">{typeof cell === "number" ? cell.toLocaleString("ru-RU") : cell}</td>)}
+                  </tr>
+                )
+              })}
+        </tbody>
+      </table>
+      {rows.length === 0 && <span className="absolute left-1/2 top-[84px] -translate-x-1/2 bg-white px-[20px] pb-[16px] pt-[2px] text-[13px] text-[#777]">Нет данных</span>}
+    </div>
+  )
 }
-function Group({ title }: { title: string }) { return <th colSpan={2} className="border px-3 py-3">{title}</th> }
-function Summary({ label, sum, qty, right = false }: { label: string; sum: number; qty: number; right?: boolean }) { return <div className={`border px-5 py-3 ${right ? "text-right" : ""}`}><p className="text-slate-500">{label}</p><strong className="text-xl text-[#71ce87]">{sum.toLocaleString("ru-RU")} SUM <small className="text-base text-slate-700">({qty} шт)</small></strong></div> }
-function ModeButton({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) { return <button type="button" onClick={onClick} className={`rounded px-5 py-2.5 ${active ? "bg-[#5470e8] text-white shadow" : "border bg-white"}`}>{children}</button> }
+function Group({ title }: { title: string }) { return <th colSpan={2} className="border-l border-[#ececec] bg-white px-3 text-center font-semibold">{title}</th> }
+function ModeButton({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) { return <button type="button" onClick={onClick} className={`h-8 px-4 text-[13px] font-medium uppercase ${active ? "bg-[#4f71dc] text-white" : "border border-[#e0e0e0] bg-white text-black"}`}>{children}</button> }
 function formatDate(value: string) { const [year, month, day] = value.split("-"); return `${day}.${month}.${year}` }
 
 const labels: Record<FilterKey, string> = { branch: "Филиалы", brand: "Бренд", organization: "Организация", productType: "Тип товара", status: "Статус", client: "Клиент", agent: "Агент", clientType: "Тип клиента", warehouse: "Склад" }
-function FilterSelect({ name, value, onChange }: { name: FilterKey; value: string; onChange: (value: string) => void }) {
-  return <label>{labels[name]}<select value={value} onChange={(event) => onChange(event.target.value)} className="block w-full border-b bg-white py-2">{options[name].map((option) => <option key={option}>{option}</option>)}</select></label>
-}

@@ -308,7 +308,7 @@ export function TopNav() {
           )}
         </div>
 
-        <nav ref={navRef} className="ml-[91px] hidden h-full min-w-0 shrink-0 items-stretch border-l border-white/[0.12] lg:flex">
+        <nav ref={navRef} className="ml-[91px] min-[1500px]:ml-[calc(50vw-708px)] max-[1500px]:ml-[80px] hidden h-full min-w-0 shrink-0 items-stretch border-l border-white/[0.12] lg:flex">
           {navItems.map(({ label }) => {
             const isOpen = openMenu === label
 
@@ -331,7 +331,7 @@ export function TopNav() {
                 onFocus={() => setOpenMenu(label)}
                 aria-haspopup="menu"
                 aria-expanded={isOpen}
-                className={`flex h-full shrink-0 items-center gap-[4px] border-r border-white/[0.12] pl-[18px] pr-[26px] font-[Arial,Helvetica,sans-serif] text-[13px] font-normal transition-colors duration-200 ${
+                className={`flex h-full shrink-0 items-center gap-[4px] border-r border-white/[0.12] pl-[18px] pr-[26px] max-[1500px]:pl-[8px] max-[1500px]:pr-[3px] font-[Arial,Helvetica,sans-serif] text-[13px] font-normal transition-colors duration-200 ${
                   isOpen
                     ? "bg-[#5c6df3] hover:bg-[#5c6df3]"
                     : "hover:bg-[#3a3897]"

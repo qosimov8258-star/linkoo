@@ -1,5 +1,6 @@
 "use client"
 
+import { ToggleRow } from "@/components/analytics/catalog-ui"
 import { ChangeEvent, FormEvent, useEffect, useState } from "react"
 
 import { downloadExcelTable } from "@/lib/excel-export"
@@ -26,6 +27,7 @@ export function AttributesView({ embedded = false }: { embedded?: boolean }) {
   const [items, setItems] = useState<Attribute[]>([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState("")
+  const [cacheAttr, setCacheAttr] = useState("")
   const [editing, setEditing] = useState<Attribute | null>(null)
   const [draft, setDraft] = useState({ name: "", fieldType: "Выбор вариантов", required: false })
   const [saving, setSaving] = useState(false)
@@ -173,17 +175,16 @@ export function AttributesView({ embedded = false }: { embedded?: boolean }) {
         from={items.length ? 1 : 0}
         to={items.length}
         total={items.length}
-        extra={<button type="button" onClick={() => setImportOpen(true)} className="ml-[24px] text-[13px] text-[#4f71dc] hover:underline">{t("Импорт с Excel")}</button>}
       />
       {loadError && <p className="pt-3 text-red-500">{loadError}</p>}
-      <div className={`grid grid-cols-[519px_389px_1fr] ${dottedRow} h-[49px] items-center pt-[3px] font-bold`}>
+      <div className={`grid grid-cols-[485px_364px_1fr] ${dottedRow} h-[50px] items-center pt-[3px] font-bold`}>
         <span>{t("Название")}</span><span>{t("Тип поля")}</span><span>{t("Обязательный к заполнению")}</span>
       </div>
       {loading ? (
         <p className="py-10 text-center text-slate-400">{t("Загрузка...")}</p>
       ) : (
         items.map((item) => (
-          <div key={item.id} onClick={() => open(item)} className={`group relative grid h-[50px] cursor-pointer grid-cols-[519px_389px_1fr] items-center ${dottedRow} hover:bg-[#f8f9fb]`}>
+          <div key={item.id} className={`group relative grid h-[50px] grid-cols-[485px_364px_1fr] items-center ${dottedRow} hover:bg-[#f8f9fb]`}>
             <span className="pr-4">{item.name}</span>
             <span>{t(item.fieldType)}</span>
             <span>{t(item.required ? "Обязательный" : "Не обязательный")}</span>
@@ -200,7 +201,9 @@ export function AttributesView({ embedded = false }: { embedded?: boolean }) {
         >
           <LineField label={t("Наименование")} required value={draft.name} onChange={(value) => setDraft({ ...draft, name: value })} />
           <div className="mt-[34px]"><LineSelect tall label={t("Тип поля")} required value={draft.fieldType} onChange={(value) => setDraft({ ...draft, fieldType: value })} options={fieldTypeOptions} onClear={() => setDraft({ ...draft, fieldType: "" })} /></div>
-          <div className="mt-[35px]"><CheckBox checked={draft.required} onChange={(value) => setDraft({ ...draft, required: value })} label={t("Обязательный к заполнению")} /></div>
+          <div className="mt-[20px]"><LineSelect tall label={t("Кэш-атрибут магазина")} value={cacheAttr} onChange={setCacheAttr} options={[t("Не указано"), t("Тип магазина"), t("Канал продаж")]} /></div>
+          <div className="mt-[18px]"><ToggleRow checked={draft.required} onChange={(value) => setDraft({ ...draft, required: value })} label={t("Обязательный к заполнению")} /></div>
+          <p className="mt-[14px] text-[12px] leading-[16px] text-[#e5484d]">{t("После создания/изменения атрибутов пожалуйста заново авторизуйтесь в системе чтобы данные кеша очистились. Пожалуйста скажите про это агентам тоже.")}</p>
         </Modal>
       )}
 

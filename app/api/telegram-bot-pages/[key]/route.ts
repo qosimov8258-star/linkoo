@@ -28,7 +28,7 @@ export async function PUT(request: Request, { params }: RouteParams) {
   if (parsed.error) return parsed.error
 
   const input = parseBotPageInput(parsed.data)
-  if (!input) return NextResponse.json({ error: "Noto'g'ri so'rov" }, { status: 400 })
+  if (!input) return NextResponse.json({ error: "Неверный запрос" }, { status: 400 })
 
   const page = (await updateBotPage(key, input))
   if (!page) return NextResponse.json({ error: "Страница не найдена" }, { status: 404 })

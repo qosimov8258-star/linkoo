@@ -69,12 +69,12 @@ export function IntegrationsView() {
 
   return (
     <main className="min-h-[calc(100vh-4rem)] bg-[#f2f5f8] px-7 pb-7">
-      <header className="mb-5 flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-bold text-slate-600">
-          <FavoritesButton className="inline-flex items-center gap-2 text-[#4f71dc]" />
-          <span className="mx-2 text-slate-400">|</span> {t("Интеграция")}
+      <header className="flex h-[60px] flex-wrap items-center justify-between gap-3">
+        <h1 className="flex items-center text-[18px] font-bold text-[#5d6474]">
+          <FavoritesButton className="flex items-center gap-[5px] text-[18px] font-bold text-[#4f71dc]" />
+          <span className="mx-[11px] inline-block h-[21px] w-[2px] bg-[#5d6474]" /> {t("Интеграция")}
         </h1>
-        <button type="button" onClick={() => setImportOpen(true)} className="inline-flex items-center gap-2 rounded bg-[#4f71dc] px-5 py-2.5 font-semibold text-white hover:brightness-95">
+        <button type="button" onClick={() => setImportOpen(true)} className="inline-flex items-center gap-2 h-[30px] rounded-[5px] bg-[#4f71dc] px-4 text-[13px] font-semibold text-white hover:brightness-95">
           <BarChart3 className="h-4 w-4" />
           {t("Импортировать")}
         </button>
@@ -82,7 +82,7 @@ export function IntegrationsView() {
 
       <section className="overflow-hidden rounded bg-white shadow">
         <div className="flex flex-wrap items-center gap-4 px-5 py-3">
-          <button type="button" onClick={() => setFilterOpen((value) => !value)} className="inline-flex items-center gap-2 rounded bg-[#4f71dc] px-5 py-3 font-semibold text-white hover:brightness-95">
+          <button type="button" onClick={() => setFilterOpen((value) => !value)} className="inline-flex items-center gap-2 h-[30px] rounded-[5px] bg-[#4f71dc] px-4 text-[13px] font-semibold text-white hover:brightness-95">
             <Filter className="h-4 w-4" />
             {t("Показать фильтр")}
           </button>
@@ -108,7 +108,7 @@ export function IntegrationsView() {
                 <option>{t("Заказ")}</option>
               </select>
             </label>
-            <button type="button" onClick={() => setFilterOpen(false)} className="rounded bg-[#5d6474] px-5 py-2.5 font-semibold text-white hover:brightness-95">
+            <button type="button" onClick={() => setFilterOpen(false)} className="inline-flex items-center h-[30px] rounded-[5px] bg-[#5d6474] px-4 text-[13px] font-semibold text-white hover:brightness-95">
               {t("Применить")}
             </button>
           </div>
@@ -118,14 +118,14 @@ export function IntegrationsView() {
           <table className="w-full min-w-[1200px] text-left">
             <thead className="bg-[#5d6474] text-white">
               <tr>
-                <th className="px-9 py-5">№</th>
-                <th className="px-5 py-5">{t("Тип")}</th>
-                <th className="px-5 py-5">{t("Клиент")}</th>
-                <th className="px-5 py-5">{t("Дата создания")}</th>
-                <th className="px-5 py-5">{t("Доставщик")}</th>
-                <th className="px-5 py-5">{t("Дата доставки")}</th>
-                <th className="px-5 py-5">{t("Агент")}</th>
-                <th className="px-5 py-5">{t("Сумма заказа")}</th>
+                <th className="px-9 py-4 text-[13px]">№</th>
+                <th className="px-5 py-4 text-[13px]">{t("Тип")}</th>
+                <th className="px-5 py-4 text-[13px]">{t("Клиент")}</th>
+                <th className="px-5 py-4 text-[13px]">{t("Дата создания")}</th>
+                <th className="px-5 py-4 text-[13px]">{t("Доставщик")}</th>
+                <th className="px-5 py-4 text-[13px]">{t("Дата доставки")}</th>
+                <th className="px-5 py-4 text-[13px]">{t("Агент")}</th>
+                <th className="px-5 py-4 text-[13px]">{t("Сумма заказа")}</th>
               </tr>
             </thead>
             <tbody>
@@ -279,7 +279,7 @@ export function IntegrationsView() {
               </button>
             </div>
             <footer className="flex justify-end border-t p-5">
-              <button type="button" disabled={!importFile} onClick={saveImport} className="rounded bg-[#71ce87] px-5 py-3 font-semibold text-white hover:brightness-95 disabled:opacity-40">
+              <button type="button" disabled={!importFile} onClick={saveImport} className="inline-flex items-center h-[30px] rounded-[5px] bg-[#71ce87] px-4 text-[13px] font-semibold text-white hover:brightness-95 disabled:opacity-40">
                 {t("Сохранить")}
               </button>
             </footer>

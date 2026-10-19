@@ -1,7 +1,9 @@
 "use client"
 
-import { FormEvent, useMemo, useState } from "react"
-import { useRouter } from "next/navigation"
+import { CatalogPageLayout } from "@/components/dashboard/catalog-sidebar"
+import { RefButton } from "@/components/ref/list-kit"
+import { FormEvent, useEffect, useMemo, useState } from "react"
+import { DUPLICATE_ORDER } from "./duplicate-data"
 import { Check, Link2, Search, Trash2, X } from "lucide-react"
 
 type DuplicateGroup = {
@@ -11,50 +13,47 @@ type DuplicateGroup = {
   clients: string[]
 }
 
-const initialGroups: DuplicateGroup[] = []
+type ClientRow = { name: string; phone: string; inn?: string }
 
-const sidebar = [
-  ["Персонал", "Подписки", "Сотрудники", "Смены", "Должности", "Права доступа", "Транспорт", "Сессия"],
-  ["Финансы", "Валюты", "Кассы", "Категории приходов", "Категории расходов"],
-  ["Продукты", "Типы продуктов", "Измерения", "Бренд", "Атрибуты", "Значение атрибута", "Продукты конкурентов"],
-  ["Клиенты", "Типы клиентов", "Атрибуты", "Значение атрибута", "Категория магазина"],
-  ["Конструкторы", "Конструктор документов", "Дашборды", "Настройка EXCEL заказов"],
-  ["Поставщики", "Категории поставщиков"],
-  ["Склад", "Склады", "Настройка чека", "Тип ячейки", "Ячейки"],
-  ["Разное", "Прайс-листы", "Тип отказа", "Филиалы", "Оборудования", "Организация", "Объединение", "Ограничение времени", "Закрытия дня/месяца", "Интеграция", "Уведомления"],
-]
-
-const sidebarLinks: Record<string, string> = {
-  "Персонал:Сотрудники": "/analytics/employees",
-  "Персонал:Смены": "/analytics/shifts",
-  "Персонал:Должности": "/analytics/positions",
-  "Персонал:Права доступа": "/analytics/access-rights",
-  "Финансы:Кассы": "/analytics/cashboxes",
-  "Финансы:Категории приходов": "/analytics/income-categories",
-  "Финансы:Категории расходов": "/analytics/expense-categories",
-  "Продукты:Типы продуктов": "/analytics/product-types",
-  "Продукты:Измерения": "/analytics/units-of-measure",
-  "Продукты:Бренд": "/analytics/brands",
-  "Клиенты:Типы клиентов": "/clients/client-types",
-  "Клиенты:Атрибуты": "/clients/attributes",
-  "Клиенты:Значение атрибута": "/clients/attribute-values",
-  "Поставщики:Категории поставщиков": "/analytics/supplier-categories",
-  "Склад:Склады": "/analytics/warehouses",
-  "Разное:Прайс-листы": "/analytics/price-lists",
-  "Разное:Тип отказа": "/analytics/refusal-types",
-  "Разное:Объединение": "/analytics/duplicate-analysis",
-  "Разное:Филиалы": "/analytics/branches",
-  "Разное:Организация": "/analytics/organization",
-  "Разное:Ограничение времени": "/analytics/time-restrictions",
-  "Разное:Интеграция": "/settings/integrations",
-  "Разное:Уведомления": "/settings/notifications",
+// Clients sharing an INN / phone number, the way the reference "Объединение" page lists them.
+function buildGroups(clients: ClientRow[], field: "inn" | "phone"): DuplicateGroup[] {
+  const byKey = new Map<string, string[]>()
+  for (const client of clients) {
+    const key = (client[field] ?? "").trim()
+    if (!key) continue
+    byKey.set(key, [...(byKey.get(key) ?? []), client.name])
+  }
+  const order = new Map(DUPLICATE_ORDER[field].map((group, index) => [group.key, index]))
+  return Array.from(byKey.entries())
+    .filter(([, names]) => names.length > 1)
+    .sort(([a], [b]) => (order.get(a) ?? 9999) - (order.get(b) ?? 9999))
+    .map(([key, names], index) => ({
+      id: index + 1,
+      inn: field === "inn" ? key : "",
+      phone: field === "phone" ? key : "",
+      clients: names,
+    }))
 }
 
 export function DuplicateAnalysisView() {
-  const router = useRouter()
   const [mode, setMode] = useState<"inn" | "phone">("inn")
   const [query, setQuery] = useState("")
-  const [groups, setGroups] = useState(initialGroups)
+  const [groups, setGroups] = useState<DuplicateGroup[]>([])
+
+  useEffect(() => {
+    let cancelled = false
+    fetch("/api/clients")
+      .then((response) => (response.ok ? (response.json() as Promise<ClientRow[]>) : Promise.reject()))
+      .then((clients) => {
+        if (!cancelled) setGroups(buildGroups(clients, mode))
+      })
+      .catch(() => {
+        if (!cancelled) setGroups([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [mode])
   const [selected, setSelected] = useState<string[]>([])
   const [mergeOpen, setMergeOpen] = useState(false)
   const [primary, setPrimary] = useState("")
@@ -72,6 +71,7 @@ export function DuplicateAnalysisView() {
   )
 
   const survivorOptions: string[] = []
+  const LINK_ICON = "M3.9 12c0-1.71 1.39-3.1 3.1-3.1h4V7H7c-2.76 0-5 2.24-5 5s2.24 5 5 5h4v-1.9H7c-1.71 0-3.1-1.39-3.1-3.1zM8 13h8v-2H8v2zm9-6h-4v1.9h4c1.71 0 3.1 1.39 3.1 3.1s-1.39 3.1-3.1 3.1h-4V17h4c2.76 0 5-2.24 5-5s-2.24-5-5-5z"
 
   const filtered = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase("ru")
@@ -128,47 +128,13 @@ export function DuplicateAnalysisView() {
   }
 
   return (
-    <main className="min-h-[calc(100vh-4rem)] bg-white text-slate-800">
-      <div className="flex min-h-[calc(100vh-4rem)]">
-        <aside className="hidden h-[calc(100vh-4rem)] w-[280px] shrink-0 overflow-y-auto bg-slate-100 px-9 py-7 lg:block">
-          {sidebar.map(([title, ...items]) => (
-            <section key={title} className="mb-8">
-              <h2 className="mb-2 text-[16px] font-bold">{title}</h2>
-              <ul className="space-y-2 pl-8 text-[15px]">
-                {items.map((item) => {
-                  const href = sidebarLinks[`${title}:${item}`]
-                  return (
-                    <li key={`${title}-${item}`}>
-                      <button
-                        type="button"
-                        onClick={() => href && router.push(href)}
-                        className={`text-left leading-5 transition-colors hover:text-brand-blue ${
-                          item === "Объединение" ? "text-brand-blue" : ""
-                        }`}
-                      >
-                        {item}
-                      </button>
-                    </li>
-                  )
-                })}
-              </ul>
-            </section>
-          ))}
-        </aside>
-
+    <CatalogPageLayout>
         <section className="min-w-0 flex-1">
           <div className="sticky top-0 z-40 bg-white shadow-sm">
-            <div className="flex justify-end px-8 py-3">
-              <button
-                type="button"
-                onClick={openMerge}
-                className="inline-flex items-center gap-2 rounded-md bg-[#506fe0] px-5 py-2.5 font-semibold text-white shadow-sm hover:bg-[#425fc9]"
-              >
-                <Link2 className="h-5 w-5" />
-                Объединить
-              </button>
+            <div className="flex h-[59px] items-end justify-end pb-[10px] pr-[26px]">
+              <RefButton icon={LINK_ICON} label="Объединить" onClick={openMerge} />
             </div>
-            <div className="grid grid-cols-2 border-b border-slate-200">
+            <div className="grid grid-cols-2 border-b border-[#e8e8e8]">
               {(["inn", "phone"] as const).map((tab) => (
                 <button
                   key={tab}
@@ -177,7 +143,7 @@ export function DuplicateAnalysisView() {
                     setMode(tab)
                     setSelected([])
                   }}
-                  className={`border-b-4 px-4 py-3 text-[17px] transition-colors ${
+                  className={`h-[41px] border-b-[3px] px-4 text-[13px] font-medium transition-colors ${
                     mode === tab ? "border-[#6178e8] text-slate-900" : "border-transparent hover:bg-slate-50"
                   }`}
                 >
@@ -185,15 +151,15 @@ export function DuplicateAnalysisView() {
                 </button>
               ))}
             </div>
-            <label className="relative block w-full max-w-[410px] px-5 py-3">
+            <label className="relative block h-[50px] w-full max-w-[330px] px-[15px]">
               <span className="sr-only">Поиск</span>
               <input
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
                 placeholder="Поиск"
-                className="w-full border-b border-slate-300 bg-transparent py-2 pr-10 outline-none focus:border-brand-blue"
+                className="h-12 w-full border-b border-[#e0e0e0] bg-transparent pr-10 text-[13px] outline-none placeholder:text-black/30 focus:border-[#5d6474]"
               />
-              <Search className="absolute right-7 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
+              <Search className="absolute right-[22px] top-1/2 h-6 w-6 -translate-y-1/2 text-[#ccc]" />
             </label>
           </div>
 
@@ -207,20 +173,21 @@ export function DuplicateAnalysisView() {
           )}
 
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[850px] border-collapse text-[16px]">
-              <thead className="bg-[#5d6474] text-left text-white">
+            <table className="w-full min-w-[850px] table-fixed border-collapse text-[13px]">
+              <thead className="bg-[#5d6474] text-left" style={{ color: "#fff" }}>
                 <tr>
-                  <th className="w-[14%] px-12 py-5">№</th>
-                  <th className="w-[19%] px-6 py-5">Наименование</th>
-                  <th className="px-6 py-5">Клиенты</th>
+                  <th className="h-[50px] w-[182px] pl-[38px] font-semibold">№</th>
+                  <th className="h-[50px] w-[243px] pl-[38px] font-semibold">Наименование</th>
+                  <th className="h-[50px] pl-[38px] font-semibold">Клиенты</th>
                 </tr>
               </thead>
               <tbody>
                 {filtered.map((group) => (
-                  <tr key={group.id} className="group relative border-b border-dashed border-slate-300 hover:bg-slate-50">
-                    <td className="px-12 py-4 align-middle">{group.id}</td>
-                    <td className="px-6 py-4 align-middle">{mode === "inn" ? group.inn : group.phone}</td>
-                    <td className="relative space-y-1 px-6 py-2 pr-48">
+                  <tr key={group.id} className="group relative border-b border-dotted border-[#d6d6d6] hover:bg-[#f2f5f8]">
+                    <td className="pl-[38px] align-middle">{group.id}</td>
+                    <td className="pl-[38px] align-middle">{mode === "inn" ? group.inn : group.phone}</td>
+                    <td className="relative pl-[38px] pr-48">
+                      <div className="flex flex-col items-start gap-[5px] py-[5px]">
                       {group.clients.map((client, index) => {
                         const key = `${group.id}:${index}`
                         const isSelected = selected.includes(key)
@@ -230,8 +197,8 @@ export function DuplicateAnalysisView() {
                             type="button"
                             onClick={() => toggleClient(key)}
                             aria-pressed={isSelected}
-                            className={`flex max-w-full items-center gap-2 rounded-md px-3 py-1.5 text-left text-brand-blue transition-colors ${
-                              isSelected ? "bg-blue-100 ring-2 ring-brand-blue" : "bg-slate-100 hover:bg-blue-50"
+                            className={`flex h-[26px] max-w-full items-center gap-2 rounded-[3px] px-[10px] text-left text-[#4f71dc] transition-colors ${
+                              isSelected ? "bg-[#dfe7fb] ring-1 ring-[#4f71dc]" : "bg-[#eef0f4] hover:bg-[#e5e9f2]"
                             }`}
                           >
                             <span>{index + 1}. {client}</span>
@@ -239,10 +206,11 @@ export function DuplicateAnalysisView() {
                           </button>
                         )
                       })}
+                      </div>
                       <button
                         type="button"
                         onClick={() => openGroupMerge(group)}
-                        className="absolute right-8 top-1/2 hidden -translate-y-1/2 items-center gap-2 rounded-md bg-[#506fe0] px-5 py-2.5 font-semibold text-white shadow-md group-hover:inline-flex focus:inline-flex"
+                        className="absolute right-[120px] top-1/2 hidden h-[30px] -translate-y-1/2 items-center gap-2 rounded-[5px] bg-[#4f71dc] px-4 text-[13px] font-semibold text-white group-hover:inline-flex focus:inline-flex"
                       >
                         <Link2 className="h-4 w-4" />
                         Объединить
@@ -253,11 +221,10 @@ export function DuplicateAnalysisView() {
               </tbody>
             </table>
             {filtered.length === 0 && (
-              <div className="py-20 text-center text-slate-400">По вашему запросу ничего не найдено.</div>
+              <div className="py-20 text-center text-[13px] text-[#8c8c8c]">По вашему запросу ничего не найдено.</div>
             )}
           </div>
         </section>
-      </div>
 
       {mergeOpen && (
         <div className="fixed inset-0 z-[70] bg-white" role="dialog" aria-modal="true" aria-labelledby="merge-title">
@@ -359,6 +326,6 @@ export function DuplicateAnalysisView() {
           </form>
         </div>
       )}
-    </main>
+    </CatalogPageLayout>
   )
 }

@@ -1,10 +1,9 @@
 "use client"
 
-import { FormEvent, useEffect, useMemo, useState } from "react"
-import { Download, PlusCircle } from "lucide-react"
+import { useEffect, useMemo, useState } from "react"
 import { downloadExcelTable } from "@/lib/excel-export"
 import { DashboardDialog } from "./dashboard-dialog"
-import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
+import { ReportBand, ReportChipField, ReportDateField, ReportEmpty, ReportFilters, ReportHeader, ReportPage, ReportSelectField } from "@/components/ref/report-kit"
 import type { OrderItemWithOrder } from "@/lib/order-items-repo"
 
 // Same defensive parser as sales-by-products-view: orderCreated is either an ISO date
@@ -79,16 +78,15 @@ function buildAbcRows(items: OrderItemWithOrder[], groupBy: string): AbcRow[] {
 }
 
 const productTypes = [
-  "Все типы продуктов",
   `01, "OLIVIA" ТУАЛЕТНОЕ МЫЛО`,
   `02, "OLIVIA" ТВЕРДОЕ МЫЛО`,
   `03, "OLIVIA" ЖИДКОЕ МЫЛО`,
   `04, "OLIVIA" ШАМПУНЬ ДЛЯ ВОЛОС`,
   `06, "OLIVIA" "COTTON BUDS" ВАТНЫЕ ПАЛОЧКИ`,
 ]
-const brands = ["Все бренды", "Alpen Gold", "Aple", "Apple", "Aqua de lux", "arbuz privet", "asus vivobook"]
-const branches = ["Все филиалы", "777", "878", "agent", "Andijon", "AURUM samarqand", "baby still"]
-const orderUsers = ["Все сотрудники", "05.08.2025 (1)", "Otaw Original3 Mardonov", "shohrux Avazhonov", "xodim1 1", "Suxrob Akramxodjaev", "Zaynillo Sadullayev"]
+const brands = ["Alpen Gold", "Aple", "Apple", "Aqua de lux", "arbuz privet", "asus vivobook"]
+const branches = ["777", "878", "agent", "Andijon", "AURUM samarqand", "baby still"]
+const orderUsers = ["05.08.2025 (1)", "Otaw Original3 Mardonov", "shohrux Avazhonov", "xodim1 1", "Suxrob Akramxodjaev", "Zaynillo Sadullayev"]
 
 function inputDate(date: Date) {
   const year = date.getFullYear()
@@ -106,12 +104,12 @@ export function AbcAnalysisView() {
   const today = useMemo(() => inputDate(new Date()), [])
   const [from, setFrom] = useState(monthStart)
   const [to, setTo] = useState(today)
-  const [productType, setProductType] = useState(productTypes[0])
-  const [brand, setBrand] = useState(brands[0])
-  const [branch, setBranch] = useState(branches[0])
-  const [orderUser, setOrderUser] = useState(orderUsers[0])
+  const [productType, setProductType] = useState("")
+  const [brand, setBrand] = useState("")
+  const [branch, setBranch] = useState("")
+  const [orderUser, setOrderUser] = useState("")
   const [groupBy, setGroupBy] = useState("Продукт")
-  const [applied, setApplied] = useState(0)
+  const [, setApplied] = useState(0)
   const [dashboardOpen, setDashboardOpen] = useState(false)
   const [visibility, setVisibility] = useState("all")
   const [dashboard, setDashboard] = useState("Основной дашборд")
@@ -176,11 +174,6 @@ export function AbcAnalysisView() {
     { quantity: 0, sales: 0 },
   )
 
-  function apply(event: FormEvent) {
-    event.preventDefault()
-    if (from <= to) setApplied((value) => value + 1)
-  }
-
   function downloadCsv() {
     downloadExcelTable("abc-analysis.xls", [
       ["ИД", "Наименование", "Кол-во проданного товара", "Кол-во проданного товара в %", "Сумма продаж", "Сумма продаж в %", "Класс"],
@@ -190,27 +183,21 @@ export function AbcAnalysisView() {
   }
 
   return (
-    <main className="min-h-[calc(100vh-4rem)] bg-slate-100">
-      <header className="flex flex-wrap items-center justify-between gap-4 border-b px-5 py-4 sm:px-10">
-        <div className="flex items-center gap-3 text-xl font-bold sm:text-2xl">
-          <FavoritesButton className="flex items-center gap-2 text-[#5470e8]" />
-          <span className="text-slate-500">|</span><h1 className="text-slate-600">ABC анализ</h1>
-        </div>
-        <div className="flex gap-4"><button type="button" onClick={downloadCsv} className="rounded-md bg-[#71ce87] px-5 py-2.5 font-bold text-white"><Download className="mr-2 inline h-5 w-5" />Скачать Excel</button><button type="button" onClick={() => setDashboardOpen(true)} className="rounded-md bg-[#5470e8] px-5 py-2.5 font-bold text-white"><PlusCircle className="mr-2 inline h-5 w-5" />Добавить в дашборд</button></div>
-      </header>
-      <section className="bg-white px-4 py-3 sm:px-10">
-        <form onSubmit={apply}>
-          <div className="grid gap-x-5 gap-y-10 md:grid-cols-2 xl:grid-cols-4">
-            <label className="text-xs">Дата создания от<input type="date" value={from} max={to} onChange={(event) => setFrom(event.target.value)} className="mt-1 block w-full border-0 border-b py-2 text-base" /></label>
-            <label className="text-xs">Дата создания до<input type="date" value={to} min={from} onChange={(event) => setTo(event.target.value)} className="mt-1 block w-full border-0 border-b py-2 text-base" /></label>
-            <SelectFilter label="Тип продукта" value={productType} setValue={setProductType} options={productTypes} />
-            <SelectFilter label="Бренд" value={brand} setValue={setBrand} options={brands} />
-            <SelectFilter label="Филиал" value={branch} setValue={setBranch} options={branches} />
-            <SelectFilter label="Заказ оформил" value={orderUser} setValue={setOrderUser} options={orderUsers} />
-            <SelectFilter label="Группировать по" value={groupBy} setValue={setGroupBy} options={["Продукт", "Бренд", "Филиал"]} />
-          </div>
-          <button type="submit" disabled={from > to} className="mt-3 w-full rounded-md bg-[#71ce87] py-3 font-bold text-white disabled:opacity-50">Применить</button>
-        </form>
+    <ReportPage>
+      <ReportHeader title="ABC анализ" onExcel={downloadCsv} onDashboard={() => setDashboardOpen(true)} />
+      <ReportBand>
+        <ReportFilters onApply={() => from <= to && setApplied((value) => value + 1)} applyDisabled={from > to}>
+          <ReportDateField label="Дата создания от" value={from} max={to} onChange={setFrom} />
+          <ReportDateField label="Дата создания до" value={to} min={from} onChange={setTo} />
+          <ReportSelectField label="Тип продукта" value={productType} onChange={setProductType} options={productTypes} />
+          <ReportSelectField label="Бренд" value={brand} onChange={setBrand} options={brands} />
+          <ReportSelectField label="Филиал" value={branch} onChange={setBranch} options={branches} />
+          <ReportSelectField label="Заказ оформил" value={orderUser} onChange={setOrderUser} options={orderUsers} />
+          <ReportChipField label="Группировать по" value={groupBy} options={["Продукт", "Бренд", "Филиал"]} onChange={setGroupBy} />
+        </ReportFilters>
+        {!itemsLoading && !itemsError && rows.length === 0 ? (
+          <ReportEmpty />
+        ) : (
         <div className="mt-3 overflow-x-auto border visits-scrollbar">
           <table className="min-w-[1250px] w-full border-collapse">
             <thead className="bg-slate-50"><tr><th className="border px-4 py-5 text-left">ИД</th><th className="min-w-[600px] border px-4 py-5 text-center">Наименование</th><th className="border px-4 py-5 text-center">Кол-во проданного товара</th><th className="border px-4 py-5 text-center">Кол-во проданного товара в %</th><th className="border px-4 py-5 text-center">Сумма продаж</th><th className="border px-4 py-5 text-center">Сумма продаж в %</th><th className="border px-4 py-5 text-center">Класс</th></tr></thead>
@@ -248,13 +235,10 @@ export function AbcAnalysisView() {
             </tbody>
           </table>
         </div>
-      </section>
+        )}
+      </ReportBand>
       {overlayOpen && <button type="button" aria-label="Закрыть окно" onClick={() => setDashboardOpen(false)} className="fixed inset-0 z-[90] cursor-default bg-black/55" />}
       {dashboardOpen && <DashboardDialog reportSlug="abc-analysis" reportLabel="ABC анализ" visibility={visibility} setVisibility={setVisibility} dashboard={dashboard} setDashboard={setDashboard} onClose={() => setDashboardOpen(false)} />}
-    </main>
+    </ReportPage>
   )
-}
-
-function SelectFilter({ label, value, setValue, options }: { label: string; value: string; setValue: (value: string) => void; options: string[] }) {
-  return <label className="text-xs">{label}<select value={value} onChange={(event) => setValue(event.target.value)} className="mt-1 block w-full border-0 border-b bg-white py-2 text-base font-semibold">{options.map((option, index) => <option key={`${option}-${index}`}>{option}</option>)}</select></label>
 }

@@ -1,8 +1,8 @@
 "use client"
 
-import { X } from "lucide-react"
 import { FormEvent, useEffect, useState } from "react"
 
+import { CheckBox, LineField, LineSelect, Modal, SaveLink } from "@/components/analytics/catalog-ui"
 import { useLanguage } from "@/lib/i18n/language-context"
 import type { Warehouse } from "./warehouses-data"
 
@@ -31,6 +31,9 @@ export function WarehouseFormModal({
   const [draft, setDraft] = useState<Draft>(() => draftFromWarehouse(warehouse))
   const [branchOptions, setBranchOptions] = useState<string[]>([])
   const [managerOptions, setManagerOptions] = useState<string[]>([])
+  const [fullName, setFullName] = useState("")
+  const [warehouseType, setWarehouseType] = useState("")
+  const [comment, setComment] = useState("")
   const [touched, setTouched] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState("")
@@ -86,51 +89,22 @@ export function WarehouseFormModal({
   }
 
   return (
-    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/45 p-4">
-      <form onSubmit={save} className="w-full max-w-lg rounded bg-white">
-        <header className="flex items-center justify-between border-b p-6">
-          <b className="uppercase">{isEdit ? t("Изменить склад") : t("Добавить склад")}</b>
-          <button type="button" onClick={onClose} aria-label={t("Закрыть")}>
-            <X className="h-5 w-5" />
-          </button>
-        </header>
-        <div className="space-y-5 p-8">
-          <label className="block border-b border-slate-200 pb-2 font-medium">
-            {t("Наименование")} <span className="text-red-500">*</span>
-            <input autoFocus value={draft.name} onChange={(event) => setDraft((value) => ({ ...value, name: event.target.value }))} className="mt-2 block w-full outline-none" />
-            {touched && !draft.name.trim() && <p className="mt-1 text-sm text-rose-500">{t("Обязательное поле")}</p>}
-          </label>
-          <label className="block border-b border-slate-200 pb-2 font-medium">
-            {t("Адрес")} <span className="text-red-500">*</span>
-            <input value={draft.address} onChange={(event) => setDraft((value) => ({ ...value, address: event.target.value }))} className="mt-2 block w-full outline-none" />
-            {touched && !draft.address.trim() && <p className="mt-1 text-sm text-rose-500">{t("Обязательное поле")}</p>}
-          </label>
-          <label className="block border-b border-slate-200 pb-2 font-medium">
-            {t("Филиал")}
-            <select value={draft.branch} onChange={(event) => setDraft((value) => ({ ...value, branch: event.target.value }))} className="mt-2 block w-full bg-white outline-none">
-              <option value="">{t("Выберите...")}</option>
-              {branchOptions.map((branch) => <option key={branch}>{branch}</option>)}
-            </select>
-          </label>
-          <label className="block border-b border-slate-200 pb-2 font-medium">
-            {t("Зав. склад")}
-            <select value={draft.manager} onChange={(event) => setDraft((value) => ({ ...value, manager: event.target.value }))} className="mt-2 block w-full bg-white outline-none">
-              <option value="">{t("Выберите...")}</option>
-              {managerOptions.map((manager) => <option key={manager}>{manager}</option>)}
-            </select>
-          </label>
-          <label className="flex items-center gap-2 font-medium">
-            <input type="checkbox" checked={draft.online} onChange={(event) => setDraft((value) => ({ ...value, online: event.target.checked }))} className="h-5 w-5" />
-            {t("Вэнсел подключен")}
-          </label>
-          {error && <p className="text-sm font-medium text-rose-600">{error}</p>}
-        </div>
-        <footer className="flex justify-end border-t p-5">
-          <button type="submit" disabled={saving} className="rounded bg-[#71ce87] px-6 py-3 font-semibold text-white hover:brightness-95 disabled:opacity-60">
-            {saving ? t("Сохранение...") : t("Сохранить")}
-          </button>
-        </footer>
-      </form>
-    </div>
+    <Modal
+      title={isEdit ? t("Изменить склад") : t("Добавить склад")}
+      onClose={onClose}
+      footer={<SaveLink disabled={saving} onClick={() => void save({ preventDefault() {} } as FormEvent)}>{saving ? t("Сохранение...") : t("Сохранить")}</SaveLink>}
+    >
+      <LineField label={t("Наименование")} required autoFocus value={draft.name} onChange={(value) => setDraft((current) => ({ ...current, name: value }))} />
+      {touched && !draft.name.trim() && <p className="mt-1 text-[12px] text-rose-500">{t("Обязательное поле")}</p>}
+      <div className="mt-[10px]"><LineField label={t("Полное наименование")} value={fullName} onChange={setFullName} /></div>
+      <div className="mt-[10px]"><LineField label={t("Адрес")} required value={draft.address} onChange={(value) => setDraft((current) => ({ ...current, address: value }))} /></div>
+      {touched && !draft.address.trim() && <p className="mt-1 text-[12px] text-rose-500">{t("Обязательное поле")}</p>}
+      <div className="mt-[10px]"><LineSelect label={t("Филиал")} required value={draft.branch} onChange={(value) => setDraft((current) => ({ ...current, branch: value }))} options={branchOptions} /></div>
+      <div className="mt-[10px]"><LineSelect label={t("Завсклад")} required value={draft.manager} onChange={(value) => setDraft((current) => ({ ...current, manager: value }))} options={managerOptions} /></div>
+      <div className="mt-[10px]"><LineSelect label={t("Тип склада")} required value={warehouseType} onChange={setWarehouseType} options={[t("Основной"), t("Транзитный"), t("Вансел")]} /></div>
+      <div className="mt-[10px]"><LineField label={t("Комментарий...")} value={comment} onChange={setComment} /></div>
+      <div className="mt-[16px]"><CheckBox checked={draft.online} onChange={(value) => setDraft((current) => ({ ...current, online: value }))} label={t("Вэнсел подключен")} /></div>
+      {error && <p className="mt-3 text-[13px] font-medium text-rose-600">{error}</p>}
+    </Modal>
   )
 }

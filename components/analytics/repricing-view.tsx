@@ -1,10 +1,11 @@
 "use client"
 
 import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react"
-import { ChevronDown, ChevronLeft, ChevronRight, Filter, PlusCircle, Search, Upload, X } from "lucide-react"
+import { ChevronDown, Upload, X } from "lucide-react"
 
 import { readExcelRows } from "@/lib/excel-import"
-import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
+import { RI, RefButton, RefCard, RefHeader, RefPage, RefTable, RefToolbar } from "@/components/ref/list-kit"
+import { ReportSelectField } from "@/components/ref/report-kit"
 
 import { repricingCurrencies as currencies, type Repricing } from "./repricing-data"
 import type { PriceList } from "./price-lists-data"
@@ -21,10 +22,10 @@ export function RepricingView() {
 
   const [search, setSearch] = useState("")
   const [filterOpen, setFilterOpen] = useState(false)
-  const [priceListFilter, setPriceListFilter] = useState("Все")
-  const [userFilter, setUserFilter] = useState("Все")
-  const [statusFilter, setStatusFilter] = useState("Все")
-  const [productFilter, setProductFilter] = useState("Все")
+  const [priceListFilter, setPriceListFilter] = useState("")
+  const [userFilter, setUserFilter] = useState("")
+  const [statusFilter, setStatusFilter] = useState("")
+  const [productFilter, setProductFilter] = useState("")
   const [pageSize, setPageSize] = useState(25)
   const [page, setPage] = useState(1)
   const [linkedModalOpen, setLinkedModalOpen] = useState(false)
@@ -66,10 +67,10 @@ export function RepricingView() {
   const filtered = useMemo(() => {
     return rows.filter((row) => {
       if (search.trim() && !String(row.id).includes(search.trim()) && !row.priceList.toLocaleLowerCase("ru").includes(search.trim().toLocaleLowerCase("ru"))) return false
-      if (priceListFilter !== "Все" && row.priceList !== priceListFilter) return false
-      if (userFilter !== "Все" && row.user !== userFilter) return false
-      if (statusFilter !== "Все" && row.status !== statusFilter) return false
-      if (productFilter !== "Все" && row.product !== productFilter) return false
+      if (priceListFilter !== "" && row.priceList !== priceListFilter) return false
+      if (userFilter !== "" && row.user !== userFilter) return false
+      if (statusFilter !== "" && row.status !== statusFilter) return false
+      if (productFilter !== "" && row.product !== productFilter) return false
       return true
     })
   }, [priceListFilter, productFilter, rows, search, statusFilter, userFilter])
@@ -83,117 +84,47 @@ export function RepricingView() {
     setRows((current) => [...created, ...current].sort((a, b) => b.id - a.id))
   }
 
+  const filterPanel = (
+    <div className="grid w-[640px] grid-cols-2 gap-x-[12px] gap-y-[13px] bg-white p-6 text-[13px] shadow-[0_3px_10px_rgba(0,0,0,0.16),0_3px_10px_rgba(0,0,0,0.23)]">
+      <ReportSelectField label="Прайс лист" value={priceListFilter} onChange={(value) => { setPriceListFilter(value); setPage(1) }} options={priceListOptions} />
+      <ReportSelectField label="Пользователь" value={userFilter} onChange={(value) => { setUserFilter(value); setPage(1) }} options={userOptions} />
+      <ReportSelectField label="Статус" value={statusFilter} onChange={(value) => { setStatusFilter(value); setPage(1) }} options={["проведен", "черновик"]} />
+      <ReportSelectField label="Товар" value={productFilter} onChange={(value) => { setProductFilter(value); setPage(1) }} options={productOptions} />
+      <button onClick={() => setFilterOpen(false)} className="col-span-2 mt-2 h-9 w-fit rounded-[3px] bg-[#5d6474] px-5 text-[13px] font-semibold uppercase text-white shadow">Применить</button>
+    </div>
+  )
+
   return (
-    <main className="min-h-screen bg-white text-[#17233b]">
-      <header className="flex flex-wrap items-center justify-between gap-4 border-b border-[#e1e5eb] px-6 py-5 md:px-9">
-        <div className="flex items-center gap-3">
-          <FavoritesButton className="flex items-center gap-3 text-2xl font-bold text-[#4f71dc]" />
-          <span className="text-3xl font-light text-[#586174]">|</span>
-          <span className="text-2xl font-bold text-[#586174]">Переоценка</span>
-        </div>
-        <div className="flex gap-4">
-          <button onClick={() => setLinkedModalOpen(true)} className="flex h-11 items-center gap-2 rounded-md bg-[#69cd87] px-5 font-semibold text-white">
-            <PlusCircle className="h-5 w-5" /> Переоценку связанных
-          </button>
-          <button onClick={() => setAddModalOpen(true)} className="flex h-11 items-center gap-2 rounded-md bg-[#69cd87] px-5 font-semibold text-white">
-            <PlusCircle className="h-5 w-5" /> Добавить
-          </button>
-        </div>
-      </header>
-
-      <section className="flex flex-wrap items-center gap-5 px-6 py-4 md:px-9">
-        <button onClick={() => setFilterOpen((value) => !value)} className="flex h-11 items-center gap-2 rounded-md bg-[#4f70df] px-5 font-semibold text-white">
-          <Filter className="h-5 w-5" /> Показать фильтр
-        </button>
-
-        <label className="relative min-w-[220px] flex-1 border-b border-[#dbe0e8] pb-1.5">
-          <input value={search} onChange={(event) => { setSearch(event.target.value); setPage(1) }} placeholder="Поиск" className="w-full bg-transparent pr-7 text-[15px] outline-none placeholder:text-[#9aa3b6]" />
-          <Search className="pointer-events-none absolute right-0 top-0.5 h-5 w-5 text-[#9aa3b6]" />
-        </label>
-
-        <select value={pageSize} onChange={(event) => { setPageSize(Number(event.target.value)); setPage(1) }} className="h-9 bg-transparent text-[#586174]">
-          <option value={10}>10</option>
-          <option value={25}>25</option>
-          <option value={50}>50</option>
-        </select>
-
-        <span className="text-[#586174]">{filtered.length ? (safePage - 1) * pageSize + 1 : 0} - {Math.min(safePage * pageSize, filtered.length)} из {filtered.length}</span>
-
-        <button disabled={safePage === 1} onClick={() => setPage((value) => Math.max(1, value - 1))} className="rounded-full border border-[#dbe0e8] p-1 text-[#9aa3b6] disabled:opacity-40">
-          <ChevronLeft className="h-5 w-5" />
-        </button>
-        <button disabled={safePage === maxPage} onClick={() => setPage((value) => Math.min(maxPage, value + 1))} className="rounded-full border border-[#4f71dc] p-1 text-[#4f71dc] disabled:opacity-40">
-          <ChevronRight className="h-5 w-5" />
-        </button>
-      </section>
-
-      {filterOpen && (
-        <section className="relative border-b border-[#e1e5eb] px-6 pb-6 pt-2 md:px-9">
-          <div className="mb-5 flex items-center justify-between">
-            <h2 className="text-lg text-[#586174]">Фильтр</h2>
-            <button aria-label="Закрыть" onClick={() => setFilterOpen(false)}><X className="h-6 w-6 rounded-full border-2 border-[#9aa3b6] p-0.5 text-[#9aa3b6]" /></button>
-          </div>
-          <div className="grid grid-cols-1 gap-8 sm:grid-cols-2 lg:grid-cols-4">
-            {(
-              [
-                ["Прайс лист", priceListFilter, setPriceListFilter, ["Все", ...priceListOptions]],
-                ["Пользователь", userFilter, setUserFilter, ["Все", ...userOptions]],
-                ["Статус", statusFilter, setStatusFilter, ["Все", "проведен", "черновик"]],
-                ["Товар", productFilter, setProductFilter, ["Все", ...productOptions]],
-              ] as const
-            ).map(([label, value, setter, options]) => (
-              <label key={label} className="relative block border-b border-[#dbe0e8] pb-2 text-[15px] font-medium">
-                {label}
-                <select value={value} onChange={(event) => { setter(event.target.value); setPage(1) }} className="mt-1 block w-full appearance-none bg-transparent pr-6 text-[15px] font-normal outline-none">
-                  {options.map((option) => <option key={option}>{option}</option>)}
-                </select>
-                <ChevronDown className="pointer-events-none absolute right-0 top-7 h-4 w-4 text-[#9aa3b6]" />
-              </label>
-            ))}
-          </div>
-          <button onClick={() => setFilterOpen(false)} className="mt-6 rounded-sm bg-[#586174] px-6 py-3 font-bold uppercase tracking-wide text-white">Применить</button>
-        </section>
-      )}
-
-      <section className="overflow-x-auto">
-        <table className="min-w-[1200px] w-full border-collapse text-[15px]">
-          <thead className="bg-[#5d6474] text-white">
-            <tr>
-              <th className="px-4 py-4 text-left font-semibold">№</th>
-              <th className="px-4 py-4 text-left font-semibold">Создал</th>
-              <th className="px-4 py-4 text-left font-semibold">Дата создания</th>
-              <th className="px-4 py-4 text-left font-semibold">Прайс лист</th>
-              <th className="px-4 py-4 text-left font-semibold">Сумма переоценки</th>
-              <th className="px-4 py-4 text-left font-semibold">Статус</th>
-            </tr>
-          </thead>
-          <tbody>
-            {loading ? (
-              <tr><td colSpan={6} className="px-4 py-16 text-center text-[#9aa3b6]">Загрузка переоценок...</td></tr>
-            ) : loadError ? (
-              <tr><td colSpan={6} className="px-4 py-16 text-center text-red-600">{loadError}</td></tr>
-            ) : (
-              visible.map((row, index) => (
-                <tr key={row.id} className={`border-b border-dashed border-slate-200 ${index % 2 ? "bg-[#f6f9fc]" : "bg-white"}`}>
-                  <td className="px-4 py-4">{row.id}</td>
-                  <td className="px-4 py-4">{row.createdBy}</td>
-                  <td className="px-4 py-4">{row.createdAt}</td>
-                  <td className="px-4 py-4 font-medium text-[#4f71dc]">{row.priceList}</td>
-                  <td className="px-4 py-4 font-medium text-[#a35933]">{number(row.amount)} {row.currency}</td>
-                  <td className="px-4 py-4">
-                    <span className="inline-flex items-center gap-2">
-                      <span className="h-2.5 w-2.5 rounded-full bg-[#69cd87]" /> {row.status}
-                    </span>
-                  </td>
-                </tr>
-              ))
-            )}
-            {!loading && !loadError && visible.length === 0 && (
-              <tr><td colSpan={6} className="px-4 py-16 text-center text-[#9aa3b6]">Ничего не найдено</td></tr>
-            )}
-          </tbody>
-        </table>
-      </section>
+    <RefPage>
+      <RefHeader title="Переоценка">
+        <RefButton icon={RI.add} green label="Переоценку связанных" onClick={() => setLinkedModalOpen(true)} />
+        <RefButton icon={RI.add} green label="Добавить" onClick={() => setAddModalOpen(true)} />
+      </RefHeader>
+      <RefCard>
+        <RefToolbar
+          filterOpen={filterOpen}
+          onToggleFilter={() => setFilterOpen((value) => !value)}
+          filterPanel={filterPanel}
+          query={search}
+          onQuery={(value) => { setSearch(value); setPage(1) }}
+          pageSize={pageSize}
+          onPageSize={(size) => { setPageSize(size); setPage(1) }}
+          from={filtered.length ? (safePage - 1) * pageSize + 1 : 0}
+          to={Math.min(safePage * pageSize, filtered.length)}
+          total={filtered.length}
+          page={safePage}
+          pageCount={maxPage}
+          onPage={setPage}
+        />
+        <RefTable
+          cols="0.54fr repeat(5,minmax(0,1fr))"
+          heads={["№", "Создал", "Дата создания", "Прайс лист", "Сумма переоценки", "Статус"]}
+          rows={loading || loadError ? [] : visible}
+          rowKey={(row) => row.id}
+          empty={loading ? "Загрузка переоценок..." : loadError || "Ничего не найдено"}
+          render={(row) => [row.id, row.createdBy, row.createdAt, row.priceList, `${number(row.amount)} ${row.currency}`, <span key="s" className="flex items-center gap-2"><span className="h-2 w-2 rounded-full bg-[#71ce87]" />{row.status}</span>]}
+        />
+      </RefCard>
 
       {linkedModalOpen && <LinkedRevaluationModal priceLists={priceLists} onClose={() => setLinkedModalOpen(false)} />}
       {addModalOpen && (
@@ -204,7 +135,7 @@ export function RepricingView() {
           onCreated={handleCreated}
         />
       )}
-    </main>
+    </RefPage>
   )
 }
 

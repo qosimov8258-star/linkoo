@@ -15,9 +15,9 @@ export type RoleCheck = { user: CurrentUser } | { error: NextResponse }
  * accounts, sessions). `minRole` is the lowest role allowed through. */
 export async function requireRole(minRole: Role): Promise<RoleCheck> {
   const user = await getCurrentUser()
-  if (!user) return { error: NextResponse.json({ error: "Tizimga kirilmagan" }, { status: 401 }) }
+  if (!user) return { error: NextResponse.json({ error: "Вы не вошли в систему" }, { status: 401 }) }
   if (ROLE_RANK[user.role] < ROLE_RANK[minRole]) {
-    return { error: NextResponse.json({ error: "Bu amal uchun ruxsatingiz yo'q" }, { status: 403 }) }
+    return { error: NextResponse.json({ error: "У вас нет прав на это действие" }, { status: 403 }) }
   }
   return { user }
 }

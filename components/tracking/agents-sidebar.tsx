@@ -1,7 +1,6 @@
 "use client"
 
 import { useMemo, useState } from "react"
-import Image from "next/image"
 import {
   ChevronLeft,
   ChevronRight,
@@ -146,77 +145,58 @@ export function AgentsSidebar() {
   }
 
   return (
-    <aside className="flex h-full w-[400px] shrink-0 flex-col border-l border-slate-200 bg-white">
+    <aside className="flex h-full w-[335px] shrink-0 flex-col bg-white text-[13px] text-[#333] shadow-[-2px_0_6px_rgba(0,0,0,0.15)]">
       {/* Date navigation */}
-      <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
-        <button
-          onClick={() => shiftDate(-1)}
-          className="rounded-full p-1 text-slate-500 transition-colors hover:bg-slate-100"
-          aria-label={t("Предыдущий день")}
-        >
+      <div className="flex h-[58px] items-center justify-between px-[40px]">
+        <button onClick={() => shiftDate(-1)} className="text-[#555]" aria-label={t("Предыдущий день")}>
           <ChevronLeft className="h-6 w-6" />
         </button>
-        <span className="text-lg font-semibold text-slate-700">{dateLabel}</span>
-        <button
-          onClick={() => shiftDate(1)}
-          className="rounded-full p-1 text-slate-500 transition-colors hover:bg-slate-100"
-          aria-label={t("Следующий день")}
-        >
+        <span className="text-[16px] font-semibold">{dateLabel}</span>
+        <button onClick={() => shiftDate(1)} className="text-[#555]" aria-label={t("Следующий день")}>
           <ChevronRight className="h-6 w-6" />
         </button>
       </div>
 
       {/* Category tabs */}
-      <div className="flex items-center justify-around border-b border-slate-200 px-2">
+      <div className="flex h-[36px] items-center justify-around bg-[#c9c9c9]">
         {tabs.map(({ id, icon: Icon }) => (
           <button
             key={id}
             onClick={() => setActiveTab(id)}
-            className={`flex flex-1 items-center justify-center border-b-2 py-3 transition-colors ${
-              activeTab === id
-                ? "border-brand-blue text-brand-blue"
-                : "border-transparent text-slate-400 hover:text-slate-600"
-            }`}
+            className={`flex h-full flex-1 items-center justify-center transition-colors ${activeTab === id ? "text-[#555]" : "text-white"}`}
             aria-label={id}
           >
-            <Icon className="h-5 w-5" />
+            <Icon className="h-5 w-5 fill-current" />
           </button>
         ))}
       </div>
 
       {/* Search */}
-      <div className="p-3">
-        <div className="flex items-center gap-2 rounded-md border border-slate-200 px-3 py-2.5">
+      <div className="px-[30px] pb-0 pt-[18px]">
+        <div className="flex h-[42px] items-center gap-2 border border-dashed border-[#d0d0d0] px-[12px]">
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder={t("Поиск агентов...")}
-            className="flex-1 bg-transparent text-sm text-slate-700 outline-none placeholder:text-slate-400"
+            className="flex-1 bg-transparent text-[13px] text-[#333] outline-none placeholder:text-[#999]"
           />
-          <Search className="h-5 w-5 text-slate-400" />
+          <Search className="h-5 w-5 text-[#555]" />
         </div>
       </div>
 
       {/* Online (empty) */}
-      <div className="flex flex-col items-center px-4 py-2">
-        <Image
-          src="/robot-mascot.png"
-          alt={t("Робот-помощник")}
-          width={120}
-          height={120}
-          className="h-28 w-28 object-contain"
-        />
-        <p className="mt-1 text-center text-sm font-medium text-slate-400">
-          {t("Онлайн агенты не найдены...")}
-        </p>
+      <div className="flex flex-col items-center px-4 pb-[22px] pt-[20px]">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src="/robot-empty.png" alt="" className="w-[110px]" />
+        <p className="-mt-[6px] text-center text-[13px] text-[#777]">{t("Онлайн агенты не найдены...")}</p>
       </div>
 
       {/* Offline agents */}
       {filtered.length > 0 ? (
         <>
-          <div className="flex items-center justify-between px-4 py-3">
-            <span className="text-base font-bold text-slate-700">{t("Офлайн агенты")}</span>
-            <span className="text-base font-bold text-slate-700">{filtered.length}</span>
+          <div className="flex items-center justify-between border-t border-[#e8e8e8] px-[15px] py-[14px]">
+            <span className="text-[13px] font-semibold">{t("Офлайн агенты")}</span>
+            <span className="text-[13px] font-semibold">{filtered.length}</span>
           </div>
 
           <div className="flex-1 overflow-y-auto">
@@ -224,34 +204,25 @@ export function AgentsSidebar() {
               <button
                 key={agent.id}
                 onClick={() => setSelectedAgentId(agent.id)}
-                className="flex w-full items-center gap-3 border-t border-slate-100 px-4 py-3 text-left transition-colors hover:bg-slate-50"
+                className="flex w-full items-center gap-[8px] border-t border-[#efefef] px-[10px] py-[8px] text-left transition-colors hover:bg-[#f7f9fb]"
               >
-                <span
-                  className="h-2.5 w-2.5 shrink-0 rounded-full"
-                  style={{ background: agent.color }}
-                />
+                <span className="h-[10px] w-[10px] shrink-0 rounded-full" style={{ background: agent.color }} />
+                <span className="h-[34px] w-[3px] shrink-0 bg-[#888]" />
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-[15px] font-semibold text-slate-700">{agent.name}</p>
-                  <p className="truncate text-sm text-slate-400">{agent.timestamp}</p>
+                  <p className="truncate text-[13px] font-semibold">{agent.name}</p>
+                  <p className="truncate text-[12px] italic text-[#666]">{agent.timestamp}</p>
                 </div>
-                <span className="shrink-0 text-sm font-medium text-slate-500">{agent.ratio}</span>
+                <span className="shrink-0 text-[12px] text-[#444]">{agent.ratio}</span>
                 <Battery level={agent.battery} />
               </button>
             ))}
           </div>
         </>
       ) : (
-        <div className="flex flex-col items-center px-4 py-2">
-          <Image
-            src="/robot-mascot.png"
-            alt={t("Робот-помощник")}
-            width={120}
-            height={120}
-            className="h-28 w-28 object-contain"
-          />
-          <p className="mt-1 text-center text-sm font-medium text-slate-400">
-            {t("Офлайн агенты не найдены...")}
-          </p>
+        <div className="flex flex-col items-center border-t border-[#e8e8e8] px-4 pt-[20px]">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/robot-empty.png" alt="" className="w-[110px]" />
+          <p className="-mt-[6px] text-center text-[13px] text-[#777]">{t("Офлайн агенты не найдены...")}</p>
         </div>
       )}
     </aside>

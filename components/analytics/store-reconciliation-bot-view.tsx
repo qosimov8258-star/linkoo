@@ -1,8 +1,9 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
-import { BarChart, ChevronDown, Expand, MinusCircle, Pencil, PlusCircle, Search, Send } from "lucide-react"
-import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
+import { useEffect, useMemo, useRef, useState } from "react"
+import { MinusCircle, Pencil, PlusCircle, Send } from "lucide-react"
+import { RI, RefHeader } from "@/components/ref/list-kit"
+import { ReportGridTable, ReportMoneyBox, ReportPage, ReportPager, ReportSearchField } from "@/components/ref/report-kit"
 import { downloadExcelTable } from "@/lib/excel-export"
 
 type Money = { euro: number; sum: number; usd: number }
@@ -24,8 +25,6 @@ type ClientRow = {
   altSumTransfer?: number
   altAmountSum?: number
 }
-
-const zero: Money = { euro: 0, sum: 0, usd: 0 }
 
 type ApiRow = {
   id: number
@@ -107,11 +106,12 @@ const TOTALS_BY_MODE = {
 const number = (value: number) => new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 2 }).format(value)
 
 function AmountText({ value }: { value: number }) {
-  if (value === 0) return <span className="text-[#17233b]">0</span>
-  return <span className={value > 0 ? "text-[#3aa76d]" : "text-[#e5484d]"}>{number(value)}</span>
+  if (value === 0) return <span>0</span>
+  return <span className={value > 0 ? "text-[#71ce87]" : "text-[#e57373]"}>{number(value)}</span>
 }
 
 export function StoreReconciliationBotView() {
+  const importRef = useRef<HTMLInputElement>(null)
   const [rows, setRows] = useState<ClientRow[]>([])
   const [mode, setMode] = useState<"created" | "realized">("created")
   const [search, setSearch] = useState("")
@@ -256,124 +256,83 @@ export function StoreReconciliationBotView() {
     downloadExcelTable("store-reconciliation.xls", [header, ...body])
   }
 
+  const tone = (value: number): "plus" | "minus" | "default" => (value > 0 ? "plus" : value < 0 ? "minus" : "default")
+  const lines = (group: { euro: number; sum: number; usd: number }) => [
+    { text: `${number(group.euro)} Euro`, tone: tone(group.euro) },
+    { text: `${number(group.sum)} SUM`, tone: tone(group.sum) },
+    { text: `${number(group.usd)} USD`, tone: tone(group.usd) },
+  ]
+
   return (
-    <main className="min-h-screen bg-white text-[#17233b]">
-      <header className="flex flex-wrap items-center gap-4 border-b border-[#d8dee7] bg-[#f2f5f8] px-6 py-4 md:px-9">
-        <div className="flex items-center gap-3">
-          <FavoritesButton className="flex items-center gap-3 text-2xl font-bold text-[#4f71dc]" />
-          <span className="text-3xl font-light text-[#586174]">|</span>
-          <span className="text-2xl font-bold text-[#586174]">Сверка счетов</span>
-        </div>
-        <div className="ml-auto flex overflow-hidden rounded-md">
-          <button onClick={() => setMode("created")} className={`px-6 py-3 font-semibold ${mode === "created" ? "bg-[#3aca6a] text-white" : "bg-white text-[#586174] border border-[#e1e5eb]"}`}>По дате создания</button>
-          <button onClick={() => setMode("realized")} className={`px-6 py-3 font-semibold ${mode === "realized" ? "bg-[#3aca6a] text-white" : "bg-white text-[#586174] border border-[#e1e5eb]"}`}>По дате реализации</button>
-        </div>
-      </header>
+    <ReportPage>
+      <input ref={importRef} type="file" accept=".xls,.xlsx,.csv" className="hidden" onChange={(event) => { const file = event.target.files?.[0]; if (file) window.alert(file.name); event.target.value = "" }} />
+      <div className="pl-[30px] pr-[38px]">
+        <RefHeader title="Сверка счетов">
+          <div className="flex overflow-hidden rounded-[3px] shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
+            {([["created", "По дате создания"], ["realized", "По дате реализации"]] as const).map(([key, label]) => (
+              <button key={key} onClick={() => setMode(key)} className={`h-[30px] w-[173px] text-[13px] font-medium transition-colors ${mode === key ? "bg-[#71ce87] text-white" : "bg-white text-black"}`}>{label}</button>
+            ))}
+          </div>
+        </RefHeader>
+      </div>
 
-      <section className="grid grid-cols-1 divide-y divide-[#e1e5eb] border-b border-[#e1e5eb] sm:grid-cols-3 sm:divide-x sm:divide-y-0">
-        <div className="px-6 py-5 md:px-9">
-          <p className="text-[#586174]">Наличными</p>
-          <p className="font-semibold"><AmountText value={totals.cash.euro} /> Euro</p>
-          <p className="font-semibold"><AmountText value={totals.cash.sum} /> SUM</p>
-          <p className="font-semibold"><AmountText value={totals.cash.usd} /> USD</p>
-        </div>
-        <div className="px-6 py-5 md:px-9">
-          <p className="text-[#586174]">Перечисления</p>
-          <p className="font-semibold"><AmountText value={totals.transfer.euro} /> Euro</p>
-          <p className="font-semibold"><AmountText value={totals.transfer.sum} /> SUM</p>
-          <p className="font-semibold"><AmountText value={totals.transfer.usd} /> USD</p>
-        </div>
-        <div className="px-6 py-5 text-right md:px-9">
-          <p className="text-[#586174]">Общий</p>
-          <p className="font-semibold"><AmountText value={totals.total.euro} /> Euro</p>
-          <p className="font-semibold"><AmountText value={totals.total.sum} /> SUM</p>
-          <p className="font-semibold"><AmountText value={totals.total.usd} /> USD</p>
-        </div>
-      </section>
+      <div className="mx-[30px] mt-[14px] grid grid-cols-1 gap-[2px] sm:grid-cols-3">
+        <ReportMoneyBox title="Наличными" lines={lines(totals.cash)} className="pb-[14px]" />
+        <ReportMoneyBox title="Перечисления" lines={lines(totals.transfer)} className="pb-[14px]" />
+        <ReportMoneyBox title="Общий" right lines={lines(totals.total)} className="pb-[14px]" />
+      </div>
 
-      <section className="flex flex-wrap items-center gap-4 px-6 py-4 md:px-9">
-        <button onClick={() => setFilterOpen((value) => !value)} className="flex items-center gap-1 font-medium text-[#4f71dc]">
-          Показать фильтр <ChevronDown className={`h-4 w-4 transition ${filterOpen ? "rotate-180" : ""}`} />
-        </button>
-        <label className="relative min-w-[220px] flex-1 border-b border-[#dbe0e8] pb-1.5">
-          <input value={search} onChange={(event) => { setSearch(event.target.value); setPage(1) }} placeholder="Поиск" className="w-full bg-transparent pr-7 text-[15px] outline-none placeholder:text-[#9aa3b6]" />
-          <Search className="pointer-events-none absolute right-0 top-0.5 h-5 w-5 text-[#9aa3b6]" />
-        </label>
-        <button onClick={downloadAll} className="flex h-11 items-center gap-2 rounded-md bg-[#4caf72] px-5 font-semibold text-white">
-          <BarChart className="h-5 w-5" /> Скачать
-        </button>
-        <select value={pageSize} onChange={(event) => { setPageSize(Number(event.target.value)); setPage(1) }} className="h-9 bg-transparent text-[#586174]">
-          <option value={10}>10</option>
-          <option value={25}>25</option>
-          <option value={50}>50</option>
-        </select>
-        <span className="text-[#586174]">{filtered.length ? (safePage - 1) * pageSize + 1 : 0} - {Math.min(safePage * pageSize, filtered.length)} из {totalLabel}</span>
-        <button disabled={safePage === 1} onClick={() => setPage((value) => Math.max(1, value - 1))} className="rounded-full border border-[#dbe0e8] p-1 text-[#9aa3b6] disabled:opacity-40">
-          <ChevronDown className="h-5 w-5 rotate-90" />
-        </button>
-        <button disabled={safePage === maxPage} onClick={() => setPage((value) => Math.min(maxPage, value + 1))} className="rounded-full border border-[#4f71dc] p-1 text-[#4f71dc] disabled:opacity-40">
-          <ChevronDown className="h-5 w-5 -rotate-90" />
-        </button>
-        <button aria-label="Полный экран" onClick={() => document.documentElement.requestFullscreen?.()} className="text-[#586174]"><Expand className="h-5 w-5" /></button>
-      </section>
+      <section className="mx-[28px] mt-[16px] bg-white shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
+        <div className="relative flex h-[55px] items-center px-[5px]">
+          <button onClick={() => setFilterOpen((value) => !value)} className="ml-[25px] text-[13px] text-[#4f71dc]">Показать фильтр ⌄</button>
+          <div className="absolute left-[440px]"><ReportSearchField value={search} onChange={(value) => { setSearch(value); setPage(1) }} width={255} /></div>
+          <div className="ml-auto flex items-center gap-[20px] pr-[20px]">
+            <button onClick={() => importRef.current?.click()} className="flex h-[34px] items-center rounded-[3px] bg-[#4f71dc] px-4 text-[13px] font-semibold text-white hover:brightness-95"><svg viewBox="0 0 24 24" className="mr-2 h-[18px] w-[18px] fill-white" aria-hidden><path d="M10 20h4V4h-4v16zm-6 0h4v-8H4v8zM16 9v11h4V9h-4z" /></svg>Установить долг с Excel</button>
+            <button onClick={downloadAll} className="flex h-[34px] items-center rounded-[3px] bg-[#71ce87] px-4 text-[13px] font-semibold text-white hover:brightness-95"><svg viewBox="0 0 24 24" className="mr-2 h-[18px] w-[18px] fill-white" aria-hidden><path d={RI.chart} /></svg>Скачать</button>
+            <ReportPager pageSize={pageSize} onPageSize={(size) => { setPageSize(size); setPage(1) }} rangeLabel={`${filtered.length ? (safePage - 1) * pageSize + 1 : 0} - ${Math.min(safePage * pageSize, filtered.length)} из ${totalLabel}`} canPrev={safePage > 1} canNext={safePage < maxPage} onPrev={() => setPage((value) => Math.max(1, value - 1))} onNext={() => setPage((value) => Math.min(maxPage, value + 1))} />
+            <button aria-label="Полный экран" onClick={() => document.documentElement.requestFullscreen?.()}><svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#444]"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z" /></svg></button>
+          </div>
+        </div>
+        {filterOpen && (
+          <div className="mx-[25px] mb-3 w-[300px] bg-white p-5 shadow-[0_3px_10px_rgba(0,0,0,0.16),0_3px_10px_rgba(0,0,0,0.23)]">
+            <ReportSearchField value={search} onChange={(value) => { setSearch(value); setPage(1) }} width={260} label="Клиент" />
+          </div>
+        )}
 
-      {filterOpen && (
-        <section className="grid grid-cols-1 gap-6 border-b border-[#e1e5eb] bg-white px-6 py-6 sm:grid-cols-3 md:px-9">
-          <label className="block border-b border-[#dbe0e8] pb-2 text-[15px] font-medium">
-            Клиент
-            <input placeholder="Введите имя..." value={search} onChange={(event) => setSearch(event.target.value)} className="mt-1 block w-full bg-transparent text-[15px] font-normal outline-none placeholder:text-[#9aa3b6]" />
-          </label>
-        </section>
-      )}
-
-      <section className="overflow-x-auto bg-white pb-10">
-        <table className="min-w-[1750px] w-full border-collapse text-[14px]">
-          <thead className="bg-[#edf2f7] text-[#253653]">
-            <tr>
-              {["Клиент", "Статус сверки", "Срок долга", "Прошло дней после оплаты", "Прошло дней после заказа", "Сумма", "Euro нал.", "Euro переч.", "SUM нал.", "SUM переч.", "USD нал.", "USD переч.", "Кол-во заказов"].map((title) => (
-                <th key={title} className="whitespace-nowrap border border-[#e1e5eb] px-4 py-3 text-left font-semibold">{title}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {visible.map((row, index) => {
-              const sumTransfer = mode === "realized" && row.altSumTransfer !== undefined ? row.altSumTransfer : row.sumTransfer
-              const amountSum = mode === "realized" && row.altAmountSum !== undefined ? row.altAmountSum : row.amount.sum
-              return (
-                <tr key={row.id} className={`group ${index % 2 ? "bg-[#f6f9fc]" : "bg-white"}`}>
-                  <td className="relative border border-[#e1e5eb] px-4 py-3.5">
-                    <div className="group-hover:invisible">{row.client}</div>
-                    <div className="invisible absolute inset-0 flex items-center gap-3 px-4 group-hover:visible">
-                      <button aria-label="Редактировать" onClick={() => startEdit(row)} className="text-[#586174] hover:text-[#17233b]"><Pencil className="h-4 w-4" /></button>
-                      <button aria-label="Телеграм" title="Телеграм" onClick={() => setConnectTarget(row)} className="text-[#4f71dc] hover:text-[#3a5bd0]"><Send className="h-4 w-4" /></button>
-                      <button aria-label="Удалить" onClick={() => removeRow(row.id)} className="text-[#e5484d] hover:text-[#c53238]"><MinusCircle className="h-4 w-4" /></button>
-                      <button aria-label="Добавить" title="Дублировать" onClick={() => duplicateRow(row)} className="text-[#3aa76d] hover:text-[#2c8f5a]"><PlusCircle className="h-4 w-4" /></button>
-                    </div>
-                  </td>
-                  <td className="border border-[#e1e5eb] px-4 py-3.5">
-                    <button onClick={() => setConnectTarget(row)} className={row.connected ? "text-[#3aa76d]" : "text-[#4f71dc]"}>
-                      {row.connected ? "Подключен" : "Не подключен"}
-                    </button>
-                  </td>
-                  <td className={`border border-[#e1e5eb] px-4 py-3.5 ${row.debtTerm ? "text-[#e0952e]" : ""}`}>{row.debtTerm ?? "Не указано"}</td>
-                  <td className={`border border-[#e1e5eb] px-4 py-3.5 ${row.daysAfterPayment > 0 ? "text-[#e5484d]" : ""}`}>{row.daysAfterPayment} дня</td>
-                  <td className="border border-[#e1e5eb] px-4 py-3.5">{row.daysAfterOrder} дня</td>
-                  <td className="border border-[#e1e5eb] px-4 py-3.5"><AmountText value={amountSum} /></td>
-                  <td className="border border-[#e1e5eb] px-4 py-3.5"><AmountText value={row.amount.euro} /></td>
-                  <td className="border border-[#e1e5eb] px-4 py-3.5"><AmountText value={row.euroTransfer} /></td>
-                  <td className="border border-[#e1e5eb] px-4 py-3.5"><AmountText value={row.sumCash} /></td>
-                  <td className="border border-[#e1e5eb] px-4 py-3.5"><AmountText value={sumTransfer} /></td>
-                  <td className="border border-[#e1e5eb] px-4 py-3.5"><AmountText value={row.usdCash} /></td>
-                  <td className="border border-[#e1e5eb] px-4 py-3.5"><AmountText value={row.usdTransfer} /></td>
-                  <td className="border border-[#e1e5eb] px-4 py-3.5">{row.orders}</td>
-                </tr>
-              )
-            })}
-            {visible.length === 0 && (
-              <tr><td colSpan={13} className="border border-[#e1e5eb] px-4 py-16 text-center text-[#9aa3b6]">Ничего не найдено</td></tr>
-            )}
-          </tbody>
-        </table>
+        <ReportGridTable
+          minWidth={1750}
+          align="left"
+          colWidths={["300px", "100px", "100px", "100px", "100px", "", "", "", "", "", "", "", ""]}
+          emptyText="Нет данных"
+          heads={["Клиент", "Статус сверки", "Срок долга", "Прошло дней после оплаты", "Прошло дней после заказа", "Сумма", "Euro нал.", "Euro переч.", "SUM нал.", "SUM переч.", "USD нал.", "USD переч.", "Кол-во заказов"]}
+          rows={visible.map((row) => {
+            const sumTransfer = mode === "realized" && row.altSumTransfer !== undefined ? row.altSumTransfer : row.sumTransfer
+            const amountSum = mode === "realized" && row.altAmountSum !== undefined ? row.altAmountSum : row.amount.sum
+            return [
+              <div key="c" className="group relative">
+                <div className="group-hover:invisible">{row.client}</div>
+                <div className="invisible absolute inset-0 flex items-center gap-3 group-hover:visible">
+                  <button aria-label="Редактировать" onClick={() => startEdit(row)} className="text-[#555]"><Pencil className="h-4 w-4" /></button>
+                  <button aria-label="Телеграм" title="Телеграм" onClick={() => setConnectTarget(row)} className="text-[#4f71dc]"><Send className="h-4 w-4" /></button>
+                  <button aria-label="Удалить" onClick={() => removeRow(row.id)} className="text-[#e5484d]"><MinusCircle className="h-4 w-4" /></button>
+                  <button aria-label="Добавить" title="Дублировать" onClick={() => duplicateRow(row)} className="text-[#3aa76d]"><PlusCircle className="h-4 w-4" /></button>
+                </div>
+              </div>,
+              <button key="s" onClick={() => setConnectTarget(row)} className={`text-left font-bold ${row.connected ? "text-[#3aa76d]" : "text-[#4f71dc]"}`}>{row.connected ? "Подключен" : "Не подключен"}</button>,
+              <span key="t" className={row.debtTerm ? "font-bold text-[#f06c6c]" : ""}>{row.debtTerm ?? "Не указано"}</span>,
+              <span key="p" className={row.daysAfterPayment > 0 ? "font-bold text-[#f06c6c]" : ""}>{row.daysAfterPayment} дня</span>,
+              `${row.daysAfterOrder} дня`,
+              <AmountText key="a" value={amountSum} />,
+              <AmountText key="e" value={row.amount.euro} />,
+              <AmountText key="et" value={row.euroTransfer} />,
+              <AmountText key="sc" value={row.sumCash} />,
+              <AmountText key="st" value={sumTransfer} />,
+              <AmountText key="uc" value={row.usdCash} />,
+              <AmountText key="ut" value={row.usdTransfer} />,
+              row.orders,
+            ]
+          })}
+        />
       </section>
 
       {connectTarget && (
@@ -410,6 +369,6 @@ export function StoreReconciliationBotView() {
           </div>
         </div>
       )}
-    </main>
+    </ReportPage>
   )
 }

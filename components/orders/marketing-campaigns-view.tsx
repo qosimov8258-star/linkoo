@@ -3,6 +3,7 @@
 import { X } from "lucide-react";
 import { RI, RefButton, RefCard, RefHeader, RefIconButton, RefPage, RefTable, RefTabs, RefToolbar, usePaging } from "@/components/ref/list-kit";
 import { FormEvent, useMemo, useState } from "react";
+import { PROMO_SEED } from "./marketing-data";
 import { useLanguage } from "@/lib/i18n/language-context";
 
 type Promo = {
@@ -14,7 +15,7 @@ type Promo = {
   active: boolean;
 };
 
-const initialPromos: Promo[] = [];
+const initialPromos: Promo[] = PROMO_SEED;
 
 type Tab = "Активные" | "Не активные" | "Все";
 
@@ -112,16 +113,37 @@ export function MarketingCampaignsView() {
         />
       </RefCard>
 
-      {addOpen && <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4">
-        <form onSubmit={addPromo} className="w-full max-w-[520px] rounded-lg bg-white shadow-2xl">
-          <div className="flex items-center justify-between border-b px-6 py-4"><h2 className="text-xl font-semibold">{t("Добавить акцию")}</h2><button type="button" onClick={() => setAddOpen(false)}><X /></button></div>
-          <div className="grid gap-4 p-6">
-            <label className="font-medium">{t("Наименование")}<input required name="name" className="mt-1 w-full rounded border border-slate-300 px-3 py-2 outline-[#4f71dc]" /></label>
-            <div className="grid grid-cols-2 gap-4"><label className="font-medium">{t("Дата начала")}<input name="start" type="date" className="mt-1 w-full rounded border border-slate-300 px-3 py-2" /></label><label className="font-medium">{t("Дата завершения")}<input name="end" type="date" className="mt-1 w-full rounded border border-slate-300 px-3 py-2" /></label></div>
-            <label className="font-medium">{t("Тип акции")}<select name="type" className="mt-1 w-full rounded border border-slate-300 px-3 py-2"><option value="Бонус">{t("Бонус")}</option><option value="Скидка">{t("Скидка")}</option><option value="Балл">{t("Балл")}</option><option value="Надбавка">{t("Надбавка")}</option></select></label>
-            <label className="flex items-center gap-2"><input name="active" type="checkbox" defaultChecked />{t("Активная акция")}</label>
+      {addOpen && <div className="fixed inset-0 z-50 flex bg-white text-[13px]">
+        <form onSubmit={addPromo} className="flex h-full w-full flex-col">
+          <header className="flex h-[58px] shrink-0 items-center justify-between border-b border-[#efefef] px-[14px]"><b className="uppercase">{t("Новая акция")}</b><button type="button" onClick={() => setAddOpen(false)} aria-label={t("Закрыть")}><X className="h-6 w-6" /></button></header>
+          <div className="grid min-h-0 flex-1 grid-cols-[405px_minmax(0,1fr)]">
+            <aside className="space-y-[12px] overflow-y-auto border-r border-[#efefef] px-[14px] py-[16px] pr-[40px]">
+              <label className="block border-b border-[#d5dae1] pb-[4px] text-[10px] font-semibold">{t("Название новой акции")} *<input required name="name" className="block h-[28px] w-full bg-transparent text-[13px] font-normal outline-none" /></label>
+              <label className="block border-b border-[#d5dae1] pb-[4px] text-[10px] font-semibold">{t("Дата начала акции")} *<input name="start" type="date" className="block h-[28px] w-full bg-transparent text-[13px] font-normal outline-none" /></label>
+              <label className="block border-b border-[#d5dae1] pb-[4px] text-[10px] font-semibold">{t("Дата завершения акции")} *<input name="end" type="date" className="block h-[28px] w-full bg-transparent text-[13px] font-normal outline-none" /></label>
+              {[["type", ["Скидка", "Бонус", "Надбавка", "Балл", "Кэшбэк"], "Бонус"], ["add", ["Авто", "Ручной", "Авто от суммы заказа", "Авто от веса", "Авто от остатка"], "Авто"]].map(([name, items, def]) => (
+                <div key={name as string} className="space-y-[10px] pt-[6px]">
+                  {name === "add" && <p className="text-[10px] font-bold">{t("Добавление продуктов:")}</p>}
+                  {(items as string[]).map((item) => <label key={item} className="flex cursor-pointer items-center gap-[8px] text-[10px] font-semibold"><input type="radio" name={name as string} value={item} defaultChecked={item === def} className="h-[16px] w-[16px]" />{t(item)}</label>)}
+                </div>
+              ))}
+              <div className="space-y-[10px] pt-[6px]">
+                <p className="text-[10px] font-bold">{t("Действует для клиентов:")}</p>
+                {["Для всех", "Выбранным агентам", "Выбранным филиалам", "Выбранным типам клиентов", "Выбранным клиентам"].map((item, index) => <label key={item} className="flex cursor-pointer items-center gap-[8px] text-[10px] font-semibold"><input type="radio" name="audience" defaultChecked={index === 0} className="h-[16px] w-[16px]" />{t(item)}</label>)}
+              </div>
+              <label className="flex items-center gap-2 pt-[6px] text-[10px] font-semibold"><input name="active" type="checkbox" defaultChecked />{t("Активная акция")}</label>
+            </aside>
+            <main className="min-w-0 overflow-y-auto bg-[#f4f4f4] px-[14px] py-[12px]">
+              <div className="grid grid-cols-2 gap-[14px]">
+                <div className="bg-[#eceff3] p-[14px] text-[10px] font-semibold"><p className="mb-[10px] font-bold">{t("Условия закупа")}</p>{["В качестве бонуса давать только тот продукт, который купили.", "Считать в блоке", "При полном наборе выбранного списка (КОМБО, СЕТ)", "Указать кол-во для каждой позиции закупа"].map((item) => <label key={item} className="mb-[10px] flex items-center gap-[8px]"><input type="checkbox" />{t(item)}</label>)}</div>
+                <div className="bg-[#eceff3] p-[14px] text-[10px] font-semibold"><p className="mb-[10px] font-bold">{t("Условия подарков")}</p><label className="flex items-center gap-[8px]"><input type="checkbox" />{t("Подарок один раз за заказ")}</label></div>
+              </div>
+              <div className="mt-[14px] grid grid-cols-2 gap-[14px]">
+                {["Товары для закупа", "Товар в подарок"].map((title) => <div key={title} className="min-h-[200px] bg-white p-[14px] text-[10px] shadow-[0_1px_6px_rgba(0,0,0,0.12)]"><p className="mb-[10px] font-bold">{t(title)}</p><p className="mt-[60px] text-center text-slate-400">{t("Вы еще не выбрали ни одного товара")}</p></div>)}
+              </div>
+            </main>
           </div>
-          <div className="flex justify-end gap-3 border-t px-6 py-4"><button type="button" onClick={() => setAddOpen(false)} className="rounded px-4 py-2">{t("Отмена")}</button><button className="rounded bg-[#71ce87] px-5 py-2 font-semibold text-white">{t("Сохранить")}</button></div>
+          <footer className="flex h-[56px] shrink-0 items-center justify-end border-t border-[#efefef] px-[14px]"><button className="text-[12px] font-bold uppercase text-[#0a9ddb]">{t("Применить акцию")}</button></footer>
         </form>
       </div>}
     </RefPage>

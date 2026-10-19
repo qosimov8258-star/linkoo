@@ -1,7 +1,6 @@
 "use client"
 
 import { ChangeEvent, Fragment, useEffect, useMemo, useRef, useState } from "react"
-import Image from "next/image"
 import { downloadExcelTable } from "@/lib/excel-export"
 import { mapHeaderColumns, readExcelRows } from "@/lib/excel-import"
 import {
@@ -15,21 +14,15 @@ import {
   ArrowLeftRight,
   CheckCircle2,
   ChevronDown,
-  ChevronLeft,
-  ChevronRight,
-  Download,
   Eye,
   FileText,
-  Filter,
   Pencil,
-  Plus,
-  Search,
   Trash2,
-  Upload,
   X,
   XCircle,
 } from "lucide-react"
-import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
+import { RI, RefButton, RefCard, RefHeader, RefPage, RefTable, RefTabs, RefToolbar } from "@/components/ref/list-kit"
+import { ReportSelectField } from "@/components/ref/report-kit"
 import { useLanguage } from "@/lib/i18n/language-context"
 
 const IMPORT_HEADER_ALIASES: Record<string, string> = {
@@ -87,7 +80,7 @@ type MainTab = "requests" | "warehouse" | "attached" | "all" | "movements" | "ch
 
 export function InventoryManagementView() {
   const { t } = useLanguage()
-  const [tab, setTab] = useState<MainTab>("requests")
+  const [tab, setTab] = useState<MainTab>("all")
   const [requestSubTab, setRequestSubTab] = useState<"in_progress" | "confirmed" | "rejected" | "all">("in_progress")
   const [items, setItems] = useState<InventoryItem[]>([])
   const [loading, setLoading] = useState(true)
@@ -101,6 +94,7 @@ export function InventoryManagementView() {
   const [editItem, setEditItem] = useState<InventoryItem | null>(null)
   const [transferItem, setTransferItem] = useState<InventoryItem | null>(null)
   const [importOpen, setImportOpen] = useState(false)
+  const [warehouseFilter, setWarehouseFilter] = useState("")
 
   useEffect(() => {
     let cancelled = false
@@ -310,300 +304,188 @@ export function InventoryManagementView() {
     { key: "checks", label: "История проверки" },
   ]
 
+  const tabLabels = mainTabs.map((item) => t(item.label))
+  const tabLabel = t(mainTabs.find((item) => item.key === tab)?.label ?? "")
+  const filterPanel = (
+    <div className="w-[300px] bg-white p-6 text-[13px] shadow-[0_3px_10px_rgba(0,0,0,0.16),0_3px_10px_rgba(0,0,0,0.23)]">
+      <ReportSelectField label="Склад" value={warehouseFilter} onChange={setWarehouseFilter} options={warehousesList} />
+    </div>
+  )
+  const emptyText = t("Ничего не найдено")
+  const movementRows = movementLogs.filter((log) => !search.trim() || log.inventoryType.toLocaleLowerCase("ru").includes(search.trim().toLocaleLowerCase("ru")))
+  const checkRows = checkLogs.filter((log) => !search.trim() || log.client.toLocaleLowerCase("ru").includes(search.trim().toLocaleLowerCase("ru")))
+  const toolbarFor = (total: number, withFilter: boolean) => (
+    <RefToolbar
+      linkFilter
+      hideFilter={!withFilter}
+      filterOpen={filterOpen}
+      onToggleFilter={() => setFilterOpen((value) => !value)}
+      filterPanel={filterPanel}
+      query={search}
+      onQuery={(value) => { setSearch(value); setPage(1) }}
+      pageSize={pageSize}
+      onPageSize={(size) => { setPageSize(size); setPage(1) }}
+      from={total ? (safePage - 1) * pageSize + 1 : 0}
+      to={Math.min(safePage * pageSize, total)}
+      total={total}
+      page={safePage}
+      pageCount={Math.max(1, Math.ceil(total / pageSize))}
+      onPage={setPage}
+      icons={<svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#555]" aria-hidden><path d={RI.checklist} /></svg>}
+    />
+  )
+
   return (
-    <main className="min-h-screen bg-white text-[#17233b]">
-      <header className="flex flex-wrap items-center justify-between gap-4 border-b border-[#e1e5eb] px-6 py-5 md:px-9">
-        <div className="flex items-center gap-3">
-          <FavoritesButton className="flex items-center gap-3 text-2xl font-bold text-[#4f71dc]" />
-          <span className="text-3xl font-light text-[#586174]">|</span>
-          <span className="text-2xl font-bold text-[#586174]">{t("Работа с инвентарем")}</span>
-        </div>
+    <RefPage>
+      <RefHeader title={t("Работа с инвентарем")}>
         {tab !== "requests" && (
-          <div className="flex gap-3">
-            <button onClick={downloadExcel} className="flex h-11 items-center gap-2 rounded-md bg-[#4f70df] px-5 font-semibold text-white"><Download className="h-5 w-5" /> {t("Скачать Excel")}</button>
-            <button onClick={() => setImportOpen(true)} className="flex h-11 items-center gap-2 rounded-md bg-[#4f70df] px-5 font-semibold text-white"><Upload className="h-5 w-5" /> {t("Импортировать")}</button>
-            <button onClick={() => setAddOpen(true)} className="flex h-11 items-center gap-2 rounded-md bg-[#69cd87] px-5 font-semibold text-white"><Plus className="h-5 w-5" /> {t("Добавить")}</button>
-          </div>
+          <>
+            <RefButton icon={RI.chart} label={t("Скачать Excel")} onClick={downloadExcel} />
+            <RefButton icon={RI.chart} label={t("Импортировать")} onClick={() => setImportOpen(true)} />
+            <RefButton icon={RI.add} green label={t("Добавить")} onClick={() => setAddOpen(true)} />
+          </>
         )}
-      </header>
+      </RefHeader>
 
-      <section className="flex border-b border-[#e1e5eb]">
-        {mainTabs.map(({ key, label }) => (
-          <button
-            key={key}
-            onClick={() => { setTab(key); setPage(1); setExpandedId(null) }}
-            className={`flex-1 border-b-2 py-4 text-[15px] font-medium ${tab === key ? "border-[#4f71dc] text-[#17233b]" : "border-transparent text-[#586174]"}`}
-          >
-            {t(label)}
-          </button>
-        ))}
-      </section>
+      <RefCard>
+        <RefTabs labels={tabLabels} value={tabLabel} onChange={(label) => { const next = mainTabs.find((item) => t(item.label) === label); if (next) { setTab(next.key); setPage(1); setExpandedId(null) } }} />
 
-      {tab === "requests" && (
-        <>
-          <section className="grid grid-cols-4 border-b border-[#e1e5eb]">
-            {(
-              [
-                ["in_progress", "В процессе"],
-                ["confirmed", "Подтверждено"],
-                ["rejected", "Отклонено"],
-                ["all", "Все"],
-              ] as const
-            ).map(([key, label]) => (
-              <button
-                key={key}
-                onClick={() => setRequestSubTab(key)}
-                className={`border-b-2 py-4 text-[15px] font-medium ${requestSubTab === key ? "border-[#4f71dc] text-[#17233b]" : "border-transparent text-[#586174]"}`}
-              >
-                {t(label)}
-              </button>
-            ))}
-          </section>
-          <section className="flex flex-wrap items-center gap-5 px-6 py-4 md:px-9">
-            <span className="flex items-center gap-2 text-[#4f71dc]">{t("Фильтр: 1 элемента")} <Pencil className="h-4 w-4" /> <button type="button" onClick={() => setSearch("")} aria-label={t("Сбросить фильтр")}><X className="h-5 w-5 rounded-full border-2 border-[#9aa3b6] p-0.5 text-[#9aa3b6]" /></button></span>
-            <label className="relative min-w-[220px] flex-1 border-b border-[#dbe0e8] pb-1.5">
-              <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={t("Поиск")} className="w-full bg-transparent pr-7 text-[15px] outline-none placeholder:text-[#9aa3b6]" />
-              <Search className="pointer-events-none absolute right-0 top-0.5 h-5 w-5 text-[#9aa3b6]" />
-            </label>
-            <select value={pageSize} onChange={(event) => setPageSize(Number(event.target.value))} className="h-9 bg-transparent text-[#586174]">
-              <option value={10}>10</option><option value={25}>25</option><option value={50}>50</option>
-            </select>
-            <span className="text-[#586174]">1 - 0 {t("из")} 0</span>
-            <ChevronLeft className="h-5 w-5 text-[#9aa3b6]" />
-            <ChevronRight className="h-5 w-5 text-[#9aa3b6]" />
-          </section>
-          <table className="w-full border-collapse text-[15px]">
-            <thead className="bg-[#5d6474] text-white">
-              <tr>
-                {["№", "Тип", "Клиент", "Тип инвентаря", "Инвентарь", "Запросил", "Дата запроса", "Обработал", "Дата обработки", "Статус"].map((title) => (
-                  <th key={title} className="px-4 py-4 text-left font-semibold">{t(title)}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {requestRows.length === 0 && (
-                <tr><td colSpan={10} className="py-16 text-center">
-                  <div className="flex flex-col items-center gap-1 text-[#9aa3b6]">
-                    <Image src="/robot-mascot.png" alt={t("Робот-помощник")} width={120} height={120} className="h-28 w-28 object-contain" />
-                    <span>{t("По вашему запросу ничего не найдено")}</span>
-                  </div>
-                </td></tr>
-              )}
-            </tbody>
-          </table>
-        </>
-      )}
+        {tab === "requests" && (
+          <>
+            <RefTabs
+              labels={[t("В процессе"), t("Подтверждено"), t("Отклонено"), t("Все")]}
+              value={t(requestSubTab === "in_progress" ? "В процессе" : requestSubTab === "confirmed" ? "Подтверждено" : requestSubTab === "rejected" ? "Отклонено" : "Все")}
+              onChange={(label) => setRequestSubTab(label === t("В процессе") ? "in_progress" : label === t("Подтверждено") ? "confirmed" : label === t("Отклонено") ? "rejected" : "all")}
+            />
+            {toolbarFor(0, false)}
+            <RefTable cols="repeat(10,minmax(0,1fr))" heads={["№", "Тип", "Клиент", "Тип инвентаря", "Инвентарь", "Запросил", "Дата запроса", "Обработал", "Дата обработки", "Статус"].map((title) => t(title))} rows={requestRows} rowKey={(row) => row.id} render={() => []} empty={<RequestsEmpty text={t("По вашему запросу ничего не найдено")} />} />
+          </>
+        )}
 
-      {(tab === "warehouse" || tab === "attached" || tab === "all") && (
-        <>
-          {loadError && <p className="px-6 py-3 text-sm text-red-500 md:px-9">{loadError}</p>}
-          <div className="flex items-center bg-[#5a6ae0] text-white">
-            <span className="flex-1 px-6 py-3 text-center">{t("Одобрено")}: {approvedCount}</span>
-            <span className="flex-1 border-l border-white/20 px-6 py-3 text-center">{t("Не одобрено")}: {scopedItems.length - approvedCount}</span>
-            <span className="flex-1 border-l border-white/20 px-6 py-3 text-center">{t("Итого")}: {scopedItems.length}</span>
-          </div>
+        {(tab === "warehouse" || tab === "attached" || tab === "all") && (
+          <>
+            {loadError && <p className="px-6 py-3 text-[13px] text-red-500">{loadError}</p>}
+            <div className="grid grid-cols-3 bg-[#5869f0] py-[4px] text-center text-[13px] font-semibold leading-4 text-white">
+              <span>{t("Одобрено")}: {approvedCount}</span>
+              <span>{t("Не одобрено")}: {scopedItems.length - approvedCount}</span>
+              <span>{t("Итого")}: {scopedItems.length}</span>
+            </div>
+            {toolbarFor(filtered.length, true)}
+            <RefTable
+              cols="0.54fr repeat(6,minmax(0,1fr))"
+              heads={["№", "Серийный №", "Клиент", "Тип инвентаря", "Склад", "Дата прикрепления", "Дата проверки"].map((title) => t(title))}
+              rows={loading ? [] : visible}
+              rowKey={(item) => item.id}
+              onRowClick={(item) => setExpandedId((current) => (current === item.id ? null : item.id))}
+              empty={loading ? t("Загрузка...") : emptyText}
+              render={(item) => [
+                item.id,
+                item.serialNumber,
+                <span key="c" className="text-[#4f71dc]">{item.client}</span>,
+                <div key="t"><div>{item.inventoryType}</div>{item.inventoryCode && <div className="text-[#4f71dc]">{item.inventoryCode}</div>}</div>,
+                item.warehouse,
+                item.attachDate,
+                <div key="d" className="flex items-center justify-between gap-2"><span>{item.checkDate}</span>
+                  <button aria-label={item.approved ? t("Одобрено") : t("Не одобрено")} onClick={(event) => { event.stopPropagation(); toggleApproved(item.id) }}>
+                    {item.approved ? <CheckCircle2 className="h-5 w-5 text-[#39ca79]" /> : <X className="h-5 w-5 text-[#f06c6c]" />}
+                  </button></div>,
+              ]}
+              expanded={(item) => expandedId === item.id ? (
+                <div className="bg-white">
+                  <div onClick={(event) => event.stopPropagation()} className="border-y border-[#e1e5eb] px-9 py-7 shadow-inner">
+                                            <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
+                                              <h3 className="text-xl font-semibold">{t("№")} {item.id}</h3>
+                                              <div className="flex items-center gap-3">
+                                                <button
+                                                  type="button"
+                                                  onClick={() =>
+                                                    downloadExcelTable(`inventory-${item.id}.xls`, [
+                                                      [t("Склад"), t("Тип"), t("Состояние"), t("Клиент"), t("Серийный номер"), t("Инвентарный номер"), t("Дата прикрепления"), t("Дата создания"), t("Ответственный"), t("Одобрено")],
+                                                      [item.warehouse, item.inventoryType, item.condition, item.client || "—", item.serialNumber || "—", item.inventoryCode || "—", item.attachDate, item.createdDate, item.responsible, item.approved ? t("Да") : t("Нет")],
+                                                    ])
+                                                  }
+                                                  className="flex items-center gap-2 h-[30px] rounded-[3px] bg-[#4f71dc] px-4 text-[13px] font-semibold text-white"
+                                                >
+                                                  <Eye className="h-4 w-4" /> {t("Просмотреть")}
+                                                </button>
+                                                <button onClick={() => setTransferItem(item)} className="flex items-center gap-2 h-[30px] rounded-[3px] bg-[#4f71dc] px-4 text-[13px] font-semibold text-white"><ArrowLeftRight className="h-4 w-4" /> {t("Передача / Изъятие")}</button>
+                                                <button onClick={() => setEditItem(item)} className="flex items-center gap-2 h-[30px] rounded-[3px] bg-[#4f71dc] px-4 text-[13px] font-semibold text-white"><Pencil className="h-4 w-4" /> {t("Изменить")}</button>
+                                                <button aria-label={item.approved ? t("Одобрено") : t("Не одобрено")} onClick={() => toggleApproved(item.id)}>
+                                                  {item.approved ? <CheckCircle2 className="h-6 w-6 text-[#39ca79]" /> : <XCircle className="h-6 w-6 text-[#9aa3b6]" />}
+                                                </button>
+                                                <button aria-label={t("Удалить")} onClick={() => deleteItem(item.id)}><Trash2 className="h-5 w-5 text-[#9aa3b6] hover:text-[#e5484d]" /></button>
+                                              </div>
+                                            </div>
+                                            <div className="grid grid-cols-1 gap-8 md:grid-cols-2">
+                                              <dl className="space-y-3 text-[15px]">
+                                                <DetailRow label={t("Склад")} value={item.warehouse} />
+                                                <DetailRow label={t("Тип")} value={item.inventoryType} />
+                                                <DetailRow label={t("Состояние")} value={item.condition} />
+                                                <DetailRow label={t("Клиент")} value={item.client || "—"} />
+                                                <DetailRow label={t("Серийный номер")} value={item.serialNumber || "—"} />
+                                                <DetailRow label={t("Инвентарный номер")} value={item.inventoryCode || "—"} />
+                                                <DetailRow label={t("Дата прикрепления")} value={item.attachDate} />
+                                                <DetailRow label={t("Дата создания")} value={item.createdDate} />
+                                                <div className="flex items-baseline justify-between gap-6">
+                                                  <dt className="text-[#586174]">{t("Одобрено")}</dt>
+                                                  <dd>{item.approved ? <CheckCircle2 className="h-5 w-5 text-[#39ca79]" /> : <X className="h-5 w-5 text-[#e5484d]" />}</dd>
+                                                </div>
+                                              </dl>
+                                              <div>
+                                                <p className="mb-2 font-semibold uppercase tracking-wide text-[#586174]">{t("Ответственный")}:</p>
+                                                <p>{item.responsible}</p>
+                                              </div>
+                                            </div>
+                                          </div>
+                </div>
+              ) : null}
+            />
+          </>
+        )}
 
-          <section className="flex flex-wrap items-center gap-5 px-6 py-4 md:px-9">
-            <button onClick={() => setFilterOpen((value) => !value)} className="flex items-center gap-1 font-medium text-[#4f71dc]">
-              <Filter className="h-4 w-4" /> {t("Показать фильтр")} <ChevronDown className={`h-4 w-4 transition ${filterOpen ? "rotate-180" : ""}`} />
-            </button>
-            <label className="relative min-w-[220px] flex-1 border-b border-[#dbe0e8] pb-1.5">
-              <input value={search} onChange={(event) => { setSearch(event.target.value); setPage(1) }} placeholder={t("Поиск")} className="w-full bg-transparent pr-7 text-[15px] outline-none placeholder:text-[#9aa3b6]" />
-              <Search className="pointer-events-none absolute right-0 top-0.5 h-5 w-5 text-[#9aa3b6]" />
-            </label>
-            <select value={pageSize} onChange={(event) => { setPageSize(Number(event.target.value)); setPage(1) }} className="h-9 bg-transparent text-[#586174]">
-              <option value={10}>10</option><option value={25}>25</option><option value={50}>50</option>
-            </select>
-            <span className="text-[#586174]">{filtered.length ? (safePage - 1) * pageSize + 1 : 0} - {Math.min(safePage * pageSize, filtered.length)} {t("из")} {filtered.length}</span>
-            <button disabled={safePage === 1} onClick={() => setPage((value) => Math.max(1, value - 1))} className="rounded-full border border-[#dbe0e8] p-1 text-[#9aa3b6] disabled:opacity-40"><ChevronLeft className="h-5 w-5" /></button>
-            <button disabled={safePage === maxPage} onClick={() => setPage((value) => Math.min(maxPage, value + 1))} className="rounded-full border border-[#4f71dc] p-1 text-[#4f71dc] disabled:opacity-40"><ChevronRight className="h-5 w-5" /></button>
-          </section>
+        {tab === "movements" && (
+          <>
+            {toolbarFor(movementRows.length, true)}
+            <RefTable
+              cols="repeat(7,minmax(0,1fr))"
+              heads={["Инвентарь", "Дата создания", "Дата движения", "Клиент", "Склад", "Состояние", "Тип"].map((title) => t(title))}
+              rows={movementRows}
+              rowKey={(log) => log.id}
+              empty={emptyText}
+              render={(log) => [
+                <span key="i"><span className={`mr-2 inline-block ${log.direction === "in" ? "text-[#71ce87]" : "text-[#f06c6c]"}`}>{log.direction === "in" ? "↓" : "↑"}</span>{log.inventoryType} {log.inventoryCode && <span className="text-[#555]">({t("№")}{log.inventoryCode})</span>}</span>,
+                log.createdAt,
+                log.movementDate,
+                <span key="c" className="text-[#4f71dc]">{log.client}</span>,
+                log.warehouse,
+                log.condition,
+                t(log.type),
+              ]}
+            />
+          </>
+        )}
 
-          {filterOpen && (
-            <section className="border-b border-[#e1e5eb] px-6 pb-6 md:px-9">
-              <div className="grid max-w-md gap-8">
-                <label className="relative block border-b border-[#dbe0e8] pb-2 text-[15px] font-medium">
-                  {t("Склад")}
-                  <select className="mt-1 block w-full appearance-none bg-transparent pr-6 text-[15px] font-normal outline-none">
-                    <option>{t("Все склады")}</option>
-                    {warehousesList.map((item) => <option key={item}>{item}</option>)}
-                  </select>
-                  <ChevronDown className="pointer-events-none absolute right-0 top-7 h-4 w-4 text-[#9aa3b6]" />
-                </label>
-              </div>
-            </section>
-          )}
-
-          <table className="w-full border-collapse text-[15px]">
-            <thead className="bg-[#5d6474] text-white">
-              <tr>
-                <th className="px-4 py-4 text-left font-semibold">{t("№")}</th>
-                <th className="px-4 py-4 text-left font-semibold">{t("Серийный №")}</th>
-                <th className="px-4 py-4 text-left font-semibold">{t("Клиент")}</th>
-                <th className="px-4 py-4 text-left font-semibold">{t("Тип инвентаря")}</th>
-                <th className="px-4 py-4 text-left font-semibold">{t("Склад")}</th>
-                <th className="px-4 py-4 text-left font-semibold">{t("Дата прикрепления")}</th>
-                <th className="px-4 py-4 text-left font-semibold">{t("Дата проверки")}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {visible.map((item, index) => (
-                <Fragment key={item.id}>
-                  <tr
-                    onClick={() => setExpandedId((current) => (current === item.id ? null : item.id))}
-                    className={`cursor-pointer border-b border-dashed border-slate-200 hover:bg-[#eef2fb] ${index % 2 ? "bg-[#f6f9fc]" : "bg-white"}`}
-                  >
-                    <td className="px-4 py-4">{item.id}</td>
-                    <td className="px-4 py-4">{item.serialNumber}</td>
-                    <td className="px-4 py-4 text-[#4f71dc]">{item.client}</td>
-                    <td className="px-4 py-4">
-                      <div>{item.inventoryType}</div>
-                      {item.inventoryCode && <div className="text-[#4f71dc]">{item.inventoryCode}</div>}
-                    </td>
-                    <td className="px-4 py-4">{item.warehouse}</td>
-                    <td className="px-4 py-4">{item.attachDate}</td>
-                    <td className="flex items-center justify-between px-4 py-4">
-                      {item.checkDate}
-                      <button
-                        aria-label={item.approved ? t("Одобрено") : t("Не одобрено")}
-                        onClick={(event) => { event.stopPropagation(); toggleApproved(item.id) }}
-                      >
-                        {item.approved ? <CheckCircle2 className="h-5 w-5 text-[#39ca79]" /> : <X className="h-5 w-5 text-[#e5484d]" />}
-                      </button>
-                    </td>
-                  </tr>
-                  {expandedId === item.id && (
-                    <tr>
-                      <td colSpan={7} className="bg-white p-0">
-                        <div onClick={(event) => event.stopPropagation()} className="border-y border-[#e1e5eb] px-9 py-7 shadow-inner">
-                          <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
-                            <h3 className="text-xl font-semibold">{t("№")} {item.id}</h3>
-                            <div className="flex items-center gap-3">
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  downloadExcelTable(`inventory-${item.id}.xls`, [
-                                    [t("Склад"), t("Тип"), t("Состояние"), t("Клиент"), t("Серийный номер"), t("Инвентарный номер"), t("Дата прикрепления"), t("Дата создания"), t("Ответственный"), t("Одобрено")],
-                                    [item.warehouse, item.inventoryType, item.condition, item.client || "—", item.serialNumber || "—", item.inventoryCode || "—", item.attachDate, item.createdDate, item.responsible, item.approved ? t("Да") : t("Нет")],
-                                  ])
-                                }
-                                className="flex items-center gap-2 rounded-md bg-[#4f71dc] px-4 py-2 font-semibold text-white"
-                              >
-                                <Eye className="h-4 w-4" /> {t("Просмотреть")}
-                              </button>
-                              <button onClick={() => setTransferItem(item)} className="flex items-center gap-2 rounded-md bg-[#4f71dc] px-4 py-2 font-semibold text-white"><ArrowLeftRight className="h-4 w-4" /> {t("Передача / Изъятие")}</button>
-                              <button onClick={() => setEditItem(item)} className="flex items-center gap-2 rounded-md bg-[#4f71dc] px-4 py-2 font-semibold text-white"><Pencil className="h-4 w-4" /> {t("Изменить")}</button>
-                              <button aria-label={item.approved ? t("Одобрено") : t("Не одобрено")} onClick={() => toggleApproved(item.id)}>
-                                {item.approved ? <CheckCircle2 className="h-6 w-6 text-[#39ca79]" /> : <XCircle className="h-6 w-6 text-[#9aa3b6]" />}
-                              </button>
-                              <button aria-label={t("Удалить")} onClick={() => deleteItem(item.id)}><Trash2 className="h-5 w-5 text-[#9aa3b6] hover:text-[#e5484d]" /></button>
-                            </div>
-                          </div>
-                          <div className="grid grid-cols-1 gap-8 md:grid-cols-2">
-                            <dl className="space-y-3 text-[15px]">
-                              <DetailRow label={t("Склад")} value={item.warehouse} />
-                              <DetailRow label={t("Тип")} value={item.inventoryType} />
-                              <DetailRow label={t("Состояние")} value={item.condition} />
-                              <DetailRow label={t("Клиент")} value={item.client || "—"} />
-                              <DetailRow label={t("Серийный номер")} value={item.serialNumber || "—"} />
-                              <DetailRow label={t("Инвентарный номер")} value={item.inventoryCode || "—"} />
-                              <DetailRow label={t("Дата прикрепления")} value={item.attachDate} />
-                              <DetailRow label={t("Дата создания")} value={item.createdDate} />
-                              <div className="flex items-baseline justify-between gap-6">
-                                <dt className="text-[#586174]">{t("Одобрено")}</dt>
-                                <dd>{item.approved ? <CheckCircle2 className="h-5 w-5 text-[#39ca79]" /> : <X className="h-5 w-5 text-[#e5484d]" />}</dd>
-                              </div>
-                            </dl>
-                            <div>
-                              <p className="mb-2 font-semibold uppercase tracking-wide text-[#586174]">{t("Ответственный")}:</p>
-                              <p>{item.responsible}</p>
-                            </div>
-                          </div>
-                        </div>
-                      </td>
-                    </tr>
-                  )}
-                </Fragment>
-              ))}
-              {!loading && visible.length === 0 && (
-                <tr><td colSpan={7} className="px-4 py-16 text-center text-[#9aa3b6]">{t("Ничего не найдено")}</td></tr>
-              )}
-            </tbody>
-          </table>
-        </>
-      )}
-
-      {tab === "movements" && (
-        <>
-          <section className="flex flex-wrap items-center gap-5 px-6 py-4 md:px-9">
-            <button onClick={() => setFilterOpen((value) => !value)} className="flex items-center gap-1 font-medium text-[#4f71dc]"><Filter className="h-4 w-4" /> {t("Показать фильтр")}</button>
-            <label className="relative min-w-[220px] flex-1 border-b border-[#dbe0e8] pb-1.5">
-              <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={t("Поиск")} className="w-full bg-transparent pr-7 text-[15px] outline-none placeholder:text-[#9aa3b6]" />
-              <Search className="pointer-events-none absolute right-0 top-0.5 h-5 w-5 text-[#9aa3b6]" />
-            </label>
-            <select value={pageSize} onChange={(event) => setPageSize(Number(event.target.value))} className="h-9 bg-transparent text-[#586174]">
-              <option value={10}>10</option><option value={25}>25</option><option value={50}>50</option>
-            </select>
-            <span className="text-[#586174]">{movementLogs.length ? 1 : 0} - {movementLogs.length} {t("из")} {movementLogs.length}</span>
-            <ChevronLeft className="h-5 w-5 text-[#9aa3b6]" /><ChevronRight className="h-5 w-5 text-[#4f71dc]" />
-          </section>
-          <table className="w-full border-collapse text-[15px]">
-            <thead className="bg-[#5d6474] text-white">
-              <tr>{["Инвентарь", "Дата создания", "Дата движения", "Клиент", "Склад", "Состояние", "Тип"].map((title) => <th key={title} className="px-4 py-4 text-left font-semibold">{t(title)}</th>)}</tr>
-            </thead>
-            <tbody>
-              {movementLogs.filter((log) => !search.trim() || log.inventoryType.toLocaleLowerCase("ru").includes(search.trim().toLocaleLowerCase("ru"))).map((log, index) => (
-                <tr key={log.id} className={`border-b border-dashed border-slate-200 ${index % 2 ? "bg-[#f6f9fc]" : "bg-white"}`}>
-                  <td className="px-4 py-4">
-                    <span className={`mr-2 inline-block ${log.direction === "in" ? "text-[#39ca79]" : "text-[#e5484d]"}`}>{log.direction === "in" ? "↓" : "↑"}</span>
-                    {log.inventoryType} {log.inventoryCode && <span className="text-[#586174]">({t("№")}{log.inventoryCode})</span>}
-                  </td>
-                  <td className="px-4 py-4">{log.createdAt}</td>
-                  <td className="px-4 py-4">{log.movementDate}</td>
-                  <td className="px-4 py-4 text-[#4f71dc]">{log.client}</td>
-                  <td className="px-4 py-4">{log.warehouse}</td>
-                  <td className="px-4 py-4">{log.condition}</td>
-                  <td className="px-4 py-4">{t(log.type)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </>
-      )}
-
-      {tab === "checks" && (
-        <>
-          <section className="flex flex-wrap items-center gap-5 px-6 py-4 md:px-9">
-            <button onClick={() => setFilterOpen((value) => !value)} className="flex items-center gap-1 font-medium text-[#4f71dc]"><Filter className="h-4 w-4" /> {t("Показать фильтр")}</button>
-            <label className="relative min-w-[220px] flex-1 border-b border-[#dbe0e8] pb-1.5">
-              <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={t("Поиск")} className="w-full bg-transparent pr-7 text-[15px] outline-none placeholder:text-[#9aa3b6]" />
-              <Search className="pointer-events-none absolute right-0 top-0.5 h-5 w-5 text-[#9aa3b6]" />
-            </label>
-            <select value={pageSize} onChange={(event) => setPageSize(Number(event.target.value))} className="h-9 bg-transparent text-[#586174]">
-              <option value={10}>10</option><option value={25}>25</option><option value={50}>50</option>
-            </select>
-            <span className="text-[#586174]">1 - {checkLogs.length} {t("из")} {checkLogs.length}</span>
-            <ChevronLeft className="h-5 w-5 text-[#9aa3b6]" /><ChevronRight className="h-5 w-5 text-[#9aa3b6]" />
-          </section>
-          <table className="w-full border-collapse text-[15px]">
-            <thead className="bg-[#5d6474] text-white">
-              <tr>{["№", "Клиент", "Создал", "Дата проверки", "Инвентарь", "Изображений"].map((title) => <th key={title} className="px-4 py-4 text-left font-semibold">{t(title)}</th>)}</tr>
-            </thead>
-            <tbody>
-              {checkLogs.filter((log) => !search.trim() || log.client.toLocaleLowerCase("ru").includes(search.trim().toLocaleLowerCase("ru"))).map((log, index) => (
-                <tr key={log.id} className={`border-b border-dashed border-slate-200 ${index % 2 ? "bg-[#f6f9fc]" : "bg-white"}`}>
-                  <td className="px-4 py-4">{log.id} <span className="block text-xs text-[#4f71dc]">{t("(ком.)")}</span></td>
-                  <td className="px-4 py-4">{log.client}</td>
-                  <td className="px-4 py-4">{log.createdBy}</td>
-                  <td className="px-4 py-4">{log.checkDate}</td>
-                  <td className="px-4 py-4">{log.inventoryType} <span className="text-[#586174]">({t("№")}{log.inventoryCode})</span></td>
-                  <td className="px-4 py-4"><span className="flex h-16 w-16 items-center justify-center rounded bg-[#f2f5f8] text-xs text-[#9aa3b6]">img</span></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </>
-      )}
+        {tab === "checks" && (
+          <>
+            {toolbarFor(checkRows.length, true)}
+            <RefTable
+              cols="repeat(6,minmax(0,1fr))"
+              heads={["№", "Клиент", "Создал", "Дата проверки", "Инвентарь", "Изображений"].map((title) => t(title))}
+              rows={checkRows}
+              rowKey={(log) => log.id}
+              empty={emptyText}
+              render={(log) => [
+                <span key="n">{log.id}<span className="block text-[12px] text-[#4f71dc]">{t("(ком.)")}</span></span>,
+                log.client,
+                log.createdBy,
+                log.checkDate,
+                <span key="i">{log.inventoryType} <span className="text-[#555]">({t("№")}{log.inventoryCode})</span></span>,
+                <span key="im" className="flex h-12 w-12 items-center justify-center rounded bg-[#f2f5f8] text-[11px] text-[#999]">img</span>,
+              ]}
+            />
+          </>
+        )}
+      </RefCard>
 
       {(addOpen || editItem) && (
         <InventoryFormModal
@@ -625,7 +507,17 @@ export function InventoryManagementView() {
         />
       )}
       {importOpen && <ImportModal onClose={() => setImportOpen(false)} onImport={importFromExcel} />}
-    </main>
+    </RefPage>
+  )
+}
+
+function RequestsEmpty({ text }: { text: string }) {
+  return (
+    <div className="flex flex-col items-center text-[13px] text-[#777]">
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src="/robot-empty.png" alt="" className="w-[120px]" />
+      <span className="-mt-[10px]">{text}</span>
+    </div>
   )
 }
 

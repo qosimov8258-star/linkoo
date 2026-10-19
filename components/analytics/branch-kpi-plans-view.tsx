@@ -2,8 +2,7 @@
 
 import { ChevronLeft, ChevronRight, ChevronsUpDown, Copy, Download, ListChecks, Pencil, RefreshCw, Search, X } from "lucide-react"
 import { Fragment, FormEvent, useEffect, useMemo, useState } from "react"
-import { branchNames } from "./branches-view"
-import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
+import { RI, RefButton, RefHeader, RefPage } from "@/components/ref/list-kit"
 
 type BranchKpiPlan = { branchId: number; branchName: string; period: string; planSales: number; bonusPercent: number }
 
@@ -12,11 +11,10 @@ const months = ["Январь", "Февраль", "Март", "Апрель", "�
 
 type Branch = { id: number; name: string; bonus: number; kpi: number }
 
-const seedBranches: Branch[] = branchNames.map((name, index) => ({ id: index + 1, name, bonus: 0, kpi: 0 }))
 
 export function BranchKpiPlansView() {
   const today = new Date()
-  const [branches, setBranches] = useState(seedBranches)
+  const [branches, setBranches] = useState<Branch[]>([])
   const [month, setMonth] = useState(today.getMonth())
   const [year, setYear] = useState(today.getFullYear())
   const [query, setQuery] = useState("")
@@ -34,25 +32,25 @@ export function BranchKpiPlansView() {
 
   useEffect(() => {
     let cancelled = false
-    fetch(`/api/branch-kpi-plans?period=${period}`)
-      .then(async (response) => {
-        if (!response.ok) throw new Error("Не удалось загрузить планы")
-        return (await response.json()) as BranchKpiPlan[]
-      })
-      .then((plans) => {
+    Promise.all([
+      fetch("/api/branches").then(async (response) => (response.ok ? ((await response.json()) as { id: number; name: string }[]) : [])),
+      fetch(`/api/branch-kpi-plans?period=${period}`).then(async (response) => (response.ok ? ((await response.json()) as BranchKpiPlan[]) : [])),
+    ])
+      .then(([list, plans]) => {
         if (cancelled) return
-        setBranches((current) =>
-          current.map((branch) => {
-            const plan = plans.find((item) => item.branchId === branch.id)
-            return plan ? { ...branch, bonus: plan.bonusPercent, kpi: plan.planSales } : branch
-          }),
+        setBranches(
+          [...list]
+            .sort((a, b) => a.id - b.id)
+            .map((branch) => {
+              const plan = plans.find((item) => item.branchId === branch.id)
+              return { id: branch.id, name: branch.name, bonus: plan?.bonusPercent ?? 0, kpi: plan?.planSales ?? 0 }
+            }),
         )
       })
       .catch(() => {})
     return () => {
       cancelled = true
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [period])
 
   const filtered = useMemo(() => branches.filter((branch) => branch.name.toLowerCase().includes(query.toLowerCase())), [branches, query])
@@ -128,30 +126,25 @@ export function BranchKpiPlansView() {
   }
 
   return (
-    <main className="min-h-[calc(100vh-4rem)] bg-slate-100 px-4 pb-10">
-      <header className="flex flex-wrap items-center justify-between gap-4 py-4 sm:px-5">
-        <h1 className="flex items-center gap-2 text-2xl font-bold text-[#5470e8]">
-          <FavoritesButton className="flex items-center gap-2 text-2xl font-bold text-[#5470e8]" /> <span className="text-slate-500">|</span> <span className="text-slate-600">KPI план филиалов</span>
-        </h1>
-        <button
-          type="button"
+    <RefPage>
+      <RefHeader title="KPI план филиалов">
+        <RefButton
+          icon={RI.sync}
+          green
+          label="Перерасчет KPI"
           onClick={() => {
             setRecalculating(true)
             window.setTimeout(() => setRecalculating(false), 600)
           }}
-          className="rounded-md bg-[#71ce87] px-6 py-2.5 font-bold text-white"
-        >
-          <RefreshCw className={`mr-2 inline h-5 w-5 ${recalculating ? "animate-spin" : ""}`} />
-          Перерасчет KPI
-        </button>
-      </header>
+        />
+      </RefHeader>
 
-      <section className="bg-white shadow">
-        <div className="flex flex-wrap items-end gap-5 px-2 py-3">
-          <label className="text-xs font-medium text-slate-500">
+      <section className="bg-white shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
+        <div className="flex flex-wrap items-end gap-[15px] px-[10px] py-[8px] text-[13px]">
+          <label className="text-[10px] font-bold text-black">
             Месяц
             <div className="mt-1 flex items-center gap-2 border-b py-1 pr-1">
-              <select value={month} onChange={(event) => setMonth(Number(event.target.value))} className="bg-white text-base font-semibold text-slate-800 outline-none">
+              <select value={month} onChange={(event) => setMonth(Number(event.target.value))} className="bg-white text-[13px] text-black outline-none">
                 {months.map((item, index) => (
                   <option key={item} value={index}>
                     {item}
@@ -163,16 +156,16 @@ export function BranchKpiPlansView() {
               </button>
             </div>
           </label>
-          <label className="text-xs font-medium text-slate-500">
+          <label className="text-[10px] font-bold text-black">
             Год
-            <select value={year} onChange={(event) => setYear(Number(event.target.value))} className="mt-1 block border-0 border-b py-2 text-base font-semibold text-slate-800">
+            <select value={year} onChange={(event) => setYear(Number(event.target.value))} className="mt-1 block border-0 border-b py-1 text-[13px] text-black">
               {[2024, 2025, 2026, 2027].map((item) => (
                 <option key={item}>{item}</option>
               ))}
             </select>
           </label>
-          <label className="relative w-64">
-            <input value={query} onChange={(event) => { setQuery(event.target.value); setPage(1) }} placeholder="Поиск" className="w-full border-b border-slate-300 py-2 pr-10 outline-none focus:border-[#5470e8]" />
+          <label className="relative ml-[18px] w-[248px]">
+            <input value={query} onChange={(event) => { setQuery(event.target.value); setPage(1) }} placeholder="Поиск" className="w-full border-b border-[#e0e0e0] py-1 pr-10 text-[13px] outline-none focus:border-[#5d6474]" />
             <Search className="absolute right-2 top-2 h-5 w-5 text-slate-300" />
           </label>
           <span className="ml-auto text-slate-500">25</span>
@@ -188,7 +181,7 @@ export function BranchKpiPlansView() {
           <button type="button" onClick={() => setSelectMode((value) => !value)} aria-pressed={selectMode} aria-label="Выбрать филиалы" className={`rounded p-1 ${selectMode ? "bg-[#5470e8] text-white" : "text-slate-500 hover:bg-slate-100"}`}>
             <ListChecks className="h-5 w-5" />
           </button>
-          <button type="button" onClick={openPlans} className="rounded-md bg-[#5470e8] px-5 py-2.5 font-bold text-white">
+          <button type="button" onClick={openPlans} className="inline-flex items-center h-[30px] rounded-[5px] bg-[#5470e8] px-4 text-[13px] font-semibold text-white">
             <Pencil className="mr-2 inline h-4 w-4" />
             Изменить планы
           </button>
@@ -200,10 +193,10 @@ export function BranchKpiPlansView() {
         <table className="w-full text-left">
           <thead className="bg-[#5d6474] text-white">
             <tr>
-              {selectMode && <th className="w-10 px-5 py-5" />}
-              <th className="px-9 py-5">Филиал</th>
-              <th className="px-5 py-5">Сумма бонусов</th>
-              <th className="px-5 py-5">KPI</th>
+              {selectMode && <th className="w-10 px-5 py-4 text-[13px]" />}
+              <th className="px-9 py-4 text-[13px]">Филиал</th>
+              <th className="px-5 py-4 text-[13px]">Сумма бонусов</th>
+              <th className="px-5 py-4 text-[13px]">KPI</th>
             </tr>
           </thead>
           <tbody>
@@ -320,6 +313,6 @@ export function BranchKpiPlansView() {
           </form>
         </div>
       )}
-    </main>
+    </RefPage>
   )
 }

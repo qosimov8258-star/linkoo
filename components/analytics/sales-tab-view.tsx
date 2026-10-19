@@ -2,24 +2,11 @@
 
 import { useState } from "react"
 import Image from "next/image"
-import { useRouter } from "next/navigation"
-import { ChevronDown, Pencil, Star, X } from "lucide-react"
-import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
+import { ChevronDown, Pencil, X } from "lucide-react"
+import { ReportPage, WidgetHeader, WidgetUserCard } from "@/components/ref/report-kit"
 
-const tabs = ["ВИДЖЕТЫ", "KPI", "БАЛАНС", "ОХВАТ", "ФИЛИАЛ", "P&L", "ДОЛГ КЛИЕНТОВ", "ПРОДАЖА", "ГИБКИЙ ДАШБОРД"] as const
-const tabHref: Partial<Record<(typeof tabs)[number], string>> = {
-  "ВИДЖЕТЫ": "/",
-  "ОХВАТ": "/analytics/coverage-analysis",
-  "P&L": "/analytics/pnl",
-  "ДОЛГ КЛИЕНТОВ": "/analytics/client-debts",
-  "ГИБКИЙ ДАШБОРД": "/analytics/flexible-dashboard",
-  "ФИЛИАЛ": "/analytics/branch-tab",
-  "ПРОДАЖА": "/analytics/sales-tab",
-  "KPI": "/analytics/kpi-performance",
-  "БАЛАНС": "/analytics/balance-tab",
-}
 
-const periods = ["СЕГОДНЯ", "ВЧЕРА", "ПОСЛ. 7", "МЕСЯЦ", "СВОЯ"] as const
+type Period = "СЕГОДНЯ" | "ВЧЕРА" | "ПОСЛ. 7" | "МЕСЯЦ" | "СВОЯ"
 const metrics = ["АКБ", "ОКБ", "ИНДЕКС АКБ", "ПРОДАЖИ"] as const
 const salesRanges = ["ПО ДНЯМ", "ПО НЕДЕЛЯМ", "ПО МЕСЯЦАМ"] as const
 
@@ -34,7 +21,7 @@ const breakdownSections: { key: BreakdownKey; title: string; totalOkb: number }[
 function EmptyBlock({ label }: { label: string }) {
   return (
     <div className="flex flex-col items-center justify-center py-14">
-      <Image src="/robot-mascot.png" alt="Робот-помощник" width={96} height={96} className="h-24 w-24 object-contain" />
+      <Image src="/robot-empty.png" alt="Робот-помощник" width={96} height={96} className="h-24 w-24 object-contain" />
       <p className="mt-3 text-[#9aa3b6]">{label}</p>
     </div>
   )
@@ -55,8 +42,7 @@ function SortableTh({ label, sortKey, active, onSort }: { label: string; sortKey
 }
 
 export function SalesTabView() {
-  const router = useRouter()
-  const [period, setPeriod] = useState<(typeof periods)[number]>("МЕСЯЦ")
+  const [period, setPeriod] = useState<Period>("МЕСЯЦ")
   const [metric, setMetric] = useState<(typeof metrics)[number]>("ПРОДАЖИ")
   const [filterActive, setFilterActive] = useState(true)
   const [filterLabel, setFilterLabel] = useState("Все филиалы")
@@ -69,54 +55,26 @@ export function SalesTabView() {
   }
 
   return (
-    <main className="min-h-screen bg-white text-[#17233b]">
-      <header className="flex flex-wrap items-center gap-4 border-b border-[#d8dee7] bg-[#f2f5f8] px-6 py-4 md:px-9">
-        <div className="flex items-center gap-3">
-          <FavoritesButton className="flex items-center gap-3 text-xl font-bold text-[#4f71dc]" />
-          <span className="text-2xl font-light text-[#586174]">|</span>
-          <span className="text-xl font-bold text-[#586174]">Виджеты</span>
-        </div>
-        <nav className="ml-auto flex flex-wrap gap-2">
-          {tabs.map((tab) => (
-            <button
-              key={tab}
-              onClick={() => { const href = tabHref[tab]; if (href) router.push(href) }}
-              className={`rounded-md px-4 py-2.5 text-sm font-bold ${tab === "ПРОДАЖА" ? "bg-[#3aca6a] text-white" : "bg-white text-[#586174] hover:bg-slate-100"}`}
-            >
-              {tab}
-            </button>
-          ))}
-        </nav>
-      </header>
+    <ReportPage>
+      <WidgetHeader active="ПРОДАЖА" />
+      <WidgetUserCard period={period} onPeriod={(value) => setPeriod(value as Period)} />
 
-      <section className="flex flex-wrap items-center gap-4 px-6 py-4 md:px-9">
-        <div className="flex items-center gap-3 text-lg font-semibold">
-          <span className="flex h-10 w-10 items-center justify-center rounded-full bg-slate-500 text-white">A</span>
-          Admin Ritm <small className="text-slate-400">Сервер: (https://time3.linko.uz)</small>
-        </div>
-        <strong className="ml-auto text-[#5470e8]">01 Авг. 2026 - 31 Авг. 2026</strong>
-        <div className="flex overflow-hidden rounded shadow">
-          {periods.map((item) => (
-            <button key={item} onClick={() => setPeriod(item)} className={`border px-5 py-2 text-sm font-medium ${period === item ? "bg-[#5470e8] text-white" : "bg-white"}`}>{item}</button>
-          ))}
-        </div>
-      </section>
 
-      <section className="flex flex-wrap items-center gap-3 px-6 pb-6 md:px-9">
+      <section className="mx-[30px] mt-[20px] flex flex-wrap items-center gap-[1px]">
         {metrics.map((item) => (
           <button
             key={item}
             onClick={() => setMetric(item)}
-            className={`rounded-sm px-5 py-2.5 text-[13px] font-bold uppercase tracking-wide ${metric === item ? "bg-[#3aca6a] text-white" : "border border-[#e1e5eb] text-[#586174] hover:bg-slate-50"}`}
+            className={`h-[30px] rounded-[3px] px-[22px] text-[13px] font-medium uppercase shadow-[0_1px_3px_rgba(0,0,0,0.12)] ${metric === item ? "bg-[#2bcd53] text-white" : "bg-white text-black hover:bg-[#f2f5f8]"}`}
           >
             {item}
           </button>
         ))}
         {filterActive && (
-          <div className="relative ml-auto flex items-center gap-2 rounded-md bg-[#f6f9fc] px-4 py-2 text-[#586174]">
-            Фильтр: {filterLabel}
-            <button type="button" onClick={() => setFilterEditOpen((value) => !value)} aria-label="Изменить фильтр"><Pencil className="h-4 w-4 text-[#9aa3b6] hover:text-[#4f71dc]" /></button>
-            <button type="button" aria-label="Очистить фильтр" onClick={() => setFilterActive(false)}><X className="h-5 w-5 rounded-full border border-[#9aa3b6] p-0.5 text-[#9aa3b6] hover:text-[#e5484d]" /></button>
+          <div className="relative ml-auto flex h-[46px] items-stretch gap-[1px] text-[13px] text-[#555]">
+            <span className="flex items-center bg-[#e8e8e8] px-[28px]">Фильтр: 1 элемента</span>
+            <button type="button" onClick={() => setFilterEditOpen((value) => !value)} aria-label="Изменить фильтр" className="flex w-[48px] items-center justify-center bg-[#e8e8e8]"><Pencil className="h-5 w-5 text-[#586174] hover:text-[#4f71dc]" /></button>
+            <button type="button" aria-label="Очистить фильтр" onClick={() => setFilterActive(false)} className="flex w-[46px] items-center justify-center bg-[#e8e8e8]"><X className="h-5 w-5 rounded-full border border-[#586174] p-0.5 text-[#586174] hover:text-[#e5484d]" /></button>
             {filterEditOpen && (
               <div className="absolute right-0 top-full z-20 mt-2 w-64 border border-[#e1e5eb] bg-white p-4 shadow-xl">
                 <label className="block text-xs font-medium text-[#586174]">
@@ -136,70 +94,79 @@ export function SalesTabView() {
         )}
       </section>
 
-      <section className="mx-6 mb-6 grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3 md:mx-9">
-        <div className="rounded-md border border-[#e1e5eb] bg-white p-6 shadow-sm">
-          <h3 className="mb-4 text-lg font-semibold">Продажи по территории</h3>
-          <EmptyBlock label="Ничего не найдено" />
+      <section className="mx-[30px] mt-[20px] grid grid-cols-1 gap-[16px] sm:grid-cols-2 lg:grid-cols-3">
+        <div className="min-h-[410px] rounded-[12px] bg-white p-[20px] shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
+          <h3 className="mb-4 text-[16px] font-semibold">Продажи по территории</h3>
         </div>
-        <div className="rounded-md border border-[#e1e5eb] bg-white p-6 shadow-sm">
-          <h3 className="mb-4 text-lg font-semibold">Продажи по пользователям</h3>
-          <EmptyBlock label="Ничего не найдено" />
+        <div className="min-h-[410px] rounded-[12px] bg-white p-[20px] shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
+          <h3 className="mb-4 text-[16px] font-semibold">Продажи по пользователям</h3>
         </div>
-        <div className="rounded-md border border-[#e1e5eb] bg-white p-6 shadow-sm">
-          <h3 className="mb-4 text-lg font-semibold">Продажи по типу продукта</h3>
-          <EmptyBlock label="Ничего не найдено" />
+        <div className="min-h-[410px] rounded-[12px] bg-white p-[20px] shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
+          <h3 className="mb-4 text-[16px] font-semibold">Продажи по типу продукта</h3>
         </div>
       </section>
 
-      <section className="mx-6 mb-10 rounded-md bg-white p-6 shadow-sm md:mx-9">
+      <section className="mx-[30px] mt-[16px] rounded-[12px] bg-white p-[20px] shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
         <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
-          <h2 className="text-lg font-semibold">Продажа</h2>
+          <h2 className="text-[18px] font-semibold">Продажа</h2>
           <div className="flex items-center gap-6">
             <div className="flex overflow-hidden rounded-sm">
               {salesRanges.map((item) => (
-                <button key={item} onClick={() => setSalesRange(item)} className={`px-5 py-2.5 text-[13px] font-bold uppercase tracking-wide ${salesRange === item ? "bg-[#3aca6a] text-white" : "border border-[#3aca6a] text-[#3aca6a]"}`}>{item}</button>
+                <button key={item} onClick={() => setSalesRange(item)} className={`h-[30px] border px-[16px] text-[13px] font-medium uppercase ${salesRange === item ? "border-[#2bcd53] bg-[#2bcd53] text-white" : "border-[#e8e8e8] bg-white text-black"}`}>{item}</button>
               ))}
             </div>
-            <h2 className="text-lg font-semibold">По типам оплаты</h2>
+            <h2 className="text-[18px] font-semibold">По типам оплаты</h2>
           </div>
         </div>
         <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
           <EmptyBlock label="Ничего не найдено" />
           <EmptyBlock label="Ничего не найдено" />
         </div>
-        <div className="mt-6 flex h-40 items-end border-b border-l border-[#e1e5eb] px-2 text-[#9aa3b6]" />
+        <div className="relative mt-6 h-[170px]">
+          {[5, 4, 3, 2, 1, 0].map((tick, index) => (
+            <div key={tick} className="absolute left-0 right-[24px] border-t border-[#e8ecf1]" style={{ top: index * 30 }}>
+              <span className="absolute -top-[8px] -right-[24px] w-[20px] text-[11px] text-[#777]">{tick}</span>
+            </div>
+          ))}
+        </div>
       </section>
 
       {breakdownSections.map((section) => (
-        <section key={section.key} className="mx-6 mb-10 md:mx-9">
-          <h2 className="mb-4 text-lg font-semibold">{section.title}</h2>
-          <div className="overflow-hidden rounded-md bg-white shadow-sm">
-            <table className="w-full border-collapse text-[14px]">
-              <thead className="bg-[#f6f9fc]">
-                <tr>
-                  <SortableTh label="Название" sortKey="name" active={sortState[section.key] === "name"} onSort={(key) => sortBy(section.key, key)} />
-                  <SortableTh label="ОКБ" sortKey="okb" active={sortState[section.key] === "okb"} onSort={(key) => sortBy(section.key, key)} />
-                  <SortableTh label="АКБ" sortKey="akb" active={sortState[section.key] === "akb"} onSort={(key) => sortBy(section.key, key)} />
-                  <SortableTh label="Индекс АКБ" sortKey="index" active={sortState[section.key] === "index"} onSort={(key) => sortBy(section.key, key)} />
-                  <SortableTh label="Продажи" sortKey="sales" active={sortState[section.key] === "sales"} onSort={(key) => sortBy(section.key, key)} />
-                </tr>
-              </thead>
-              <tbody>
-                <tr><td colSpan={5}><EmptyBlock label="Нет данных" /></td></tr>
-              </tbody>
-              <tfoot>
-                <tr className="border-t border-[#e1e5eb] font-semibold">
-                  <td className="px-4 py-3.5">Итого</td>
-                  <td className="px-4 py-3.5">{section.totalOkb}</td>
-                  <td className="px-4 py-3.5">0</td>
-                  <td className="px-4 py-3.5">0 %</td>
-                  <td className="px-4 py-3.5">0</td>
-                </tr>
-              </tfoot>
-            </table>
+        <section key={section.key} className="mx-[30px] mt-[20px]">
+          <h2 className="mb-[10px] text-[18px] font-semibold">{section.title}</h2>
+          <div className="grid grid-cols-1 overflow-hidden rounded-[12px] bg-white shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)] lg:grid-cols-[3fr_1fr]">
+            <div className="min-h-[360px]">
+              <table className="w-full border-collapse text-[13px]">
+                <thead className="bg-[#f2f5f8]">
+                  <tr>
+                    <SortableTh label="Название" sortKey="name" active={sortState[section.key] === "name"} onSort={(key) => sortBy(section.key, key)} />
+                    <SortableTh label="ОКБ" sortKey="okb" active={sortState[section.key] === "okb"} onSort={(key) => sortBy(section.key, key)} />
+                    <SortableTh label="АКБ" sortKey="akb" active={sortState[section.key] === "akb"} onSort={(key) => sortBy(section.key, key)} />
+                    <SortableTh label="Индекс АКБ" sortKey="index" active={sortState[section.key] === "index"} onSort={(key) => sortBy(section.key, key)} />
+                    <SortableTh label="Продажи" sortKey="sales" active={sortState[section.key] === "sales"} onSort={(key) => sortBy(section.key, key)} />
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr><td colSpan={5}><EmptyBlock label="Нет данных" /></td></tr>
+                </tbody>
+                <tfoot>
+                  <tr className="border-t border-[#e1e5eb] font-semibold">
+                    <td className="px-4 py-3">Итого</td>
+                    <td className="px-4 py-3">{section.totalOkb}</td>
+                    <td className="px-4 py-3">0</td>
+                    <td className="px-4 py-3">0 %</td>
+                    <td className="px-4 py-3">0</td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+            <div className="flex flex-col items-center justify-center text-center">
+              <span className="text-[12px] font-bold">0</span>
+              <span className="text-[10px] lowercase text-[#555]">итого</span>
+            </div>
           </div>
         </section>
       ))}
-    </main>
+    </ReportPage>
   )
 }

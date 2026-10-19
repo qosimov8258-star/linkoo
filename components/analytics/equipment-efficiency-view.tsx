@@ -1,18 +1,9 @@
 "use client"
 
-import { FormEvent, useMemo, useState } from "react"
-import {
-  BarChart3,
-  ChevronLeft,
-  ChevronRight,
-  Expand,
-  Filter,
-  List,
-  Pencil,
-  Search,
-  X,
-} from "lucide-react"
-import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
+import { useMemo, useState } from "react"
+import { ChevronLeft, ChevronRight, Expand, List, Pencil, Search } from "lucide-react"
+import { RefHeader } from "@/components/ref/list-kit"
+import { ReportFilterPanel, ReportInputField, ReportPage, ReportRangeField, ReportSelectField, ReportTopRow } from "@/components/ref/report-kit"
 import { downloadExcelTable } from "@/lib/excel-export"
 
 type EquipmentRow = {
@@ -25,15 +16,15 @@ type EquipmentRow = {
 const equipmentRows: EquipmentRow[] = []
 
 const selectOptions = {
-  organization: ["Все организации", "Linko", "Time3 Distribution"],
-  zone: ["Все зоны", "Arslan", "spark", "Andijon shaharchasi"],
-  agent: ["Все клиенты агента", "Admin Ritm", "Samandar Abdurahmonov"],
-  branch: ["Все филиалы", "777", "878", "agent", "Andijon", "AURUM samarqand"],
-  inventory: ["Весь инвентарь", "Холодильник", "Muzlatkich 2", "Texnik apparat"],
-  inventoryType: ["Все типы инвентаря", "Холодильник", "Морозильник", "Техническое оборудование", "Другое"],
-  clientType: ["Все типы клиентов", "horeca", "market", "market100"],
-  productType: ["Все типы товаров", "Напитки", "Снеки", "Бытовая химия"],
-  product: ["Все товары", "coca-cola", "lipton", "sprayt"],
+  organization: ["Linko", "Time3 Distribution"],
+  zone: ["Arslan", "spark", "Andijon shaharchasi"],
+  agent: ["Admin Ritm", "Samandar Abdurahmonov"],
+  branch: ["777", "878", "agent", "Andijon", "AURUM samarqand"],
+  inventory: ["Холодильник", "Muzlatkich 2", "Texnik apparat"],
+  inventoryType: ["Холодильник", "Морозильник", "Техническое оборудование", "Другое"],
+  clientType: ["horeca", "market", "market100"],
+  productType: ["Напитки", "Снеки", "Бытовая химия"],
+  product: ["coca-cola", "lipton", "sprayt"],
 }
 
 type Filters = {
@@ -53,59 +44,19 @@ type Filters = {
 }
 
 const emptyFilters: Filters = {
-  organization: selectOptions.organization[0],
-  zone: selectOptions.zone[0],
-  agent: selectOptions.agent[0],
-  branch: selectOptions.branch[0],
-  inventory: selectOptions.inventory[0],
-  inventoryType: selectOptions.inventoryType[0],
-  clientType: selectOptions.clientType[0],
-  productType: selectOptions.productType[0],
-  product: selectOptions.product[0],
+  organization: "",
+  zone: "",
+  agent: "",
+  branch: "",
+  inventory: "",
+  inventoryType: "",
+  clientType: "",
+  productType: "",
+  product: "",
   saleFrom: "",
   saleTo: "",
   equipmentSaleFrom: "",
   equipmentSaleTo: "",
-}
-
-function SelectField({
-  label,
-  value,
-  options,
-  onChange,
-}: {
-  label: string
-  value: string
-  options: string[]
-  onChange: (value: string) => void
-}) {
-  return (
-    <label className="block">
-      <span className="mb-2 block text-sm font-semibold text-slate-900">{label}</span>
-      <select
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        className="h-11 w-full border-0 border-b border-slate-300 bg-transparent px-0 text-base outline-none focus:border-blue-500"
-      >
-        {options.map((option) => <option key={option}>{option}</option>)}
-      </select>
-    </label>
-  )
-}
-
-function NumberField({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
-  return (
-    <label className="block">
-      <span className="mb-2 block text-sm font-semibold">{label}</span>
-      <input
-        type="number"
-        min="0"
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        className="h-11 w-full border-0 border-b border-slate-300 bg-transparent outline-none focus:border-blue-500"
-      />
-    </label>
-  )
 }
 
 export function EquipmentEfficiencyView() {
@@ -115,27 +66,23 @@ export function EquipmentEfficiencyView() {
   const [draft, setDraft] = useState<Filters>(emptyFilters)
   const [filters, setFilters] = useState<Filters>(emptyFilters)
   const [fullscreen, setFullscreen] = useState(false)
+  const [rangeFrom, setRangeFrom] = useState(() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01` })
+  const [rangeTo, setRangeTo] = useState(() => { const d = new Date(); const e = new Date(d.getFullYear(), d.getMonth() + 1, 0); return `${e.getFullYear()}-${String(e.getMonth() + 1).padStart(2, "0")}-${String(e.getDate()).padStart(2, "0")}` })
 
   const rows = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase("ru")
     return equipmentRows.filter((row) => {
       if (normalized && !`${row.client} ${row.equipment}`.toLocaleLowerCase("ru").includes(normalized)) return false
-      if (filters.branch !== selectOptions.branch[0] && row.branch !== filters.branch) return false
-      if (filters.inventoryType !== selectOptions.inventoryType[0] && row.inventoryType !== filters.inventoryType) return false
-      if (filters.inventory !== selectOptions.inventory[0] && !row.equipment.includes(filters.inventory)) return false
-      if (filters.product !== selectOptions.product[0] && !row.equipment.toLowerCase().includes(filters.product.toLowerCase())) return false
+      if (filters.branch !== "" && row.branch !== filters.branch) return false
+      if (filters.inventoryType !== "" && row.inventoryType !== filters.inventoryType) return false
+      if (filters.inventory !== "" && !row.equipment.includes(filters.inventory)) return false
+      if (filters.product !== "" && !row.equipment.toLowerCase().includes(filters.product.toLowerCase())) return false
       return true
     })
   }, [query, filters])
 
   function updateFilter<Key extends keyof Filters>(key: Key, value: Filters[Key]) {
     setDraft((current) => ({ ...current, [key]: value }))
-  }
-
-  function applyFilters(event: FormEvent) {
-    event.preventDefault()
-    setFilters(draft)
-    setFilterOpen(false)
   }
 
   function downloadExcel() {
@@ -145,111 +92,96 @@ export function EquipmentEfficiencyView() {
   }
 
   return (
-    <main className={fullscreen ? "fixed inset-0 z-50 overflow-auto bg-slate-100" : "min-h-[calc(100vh-64px)] bg-slate-100"}>
-      <header className="flex flex-wrap items-center justify-between gap-4 border-b bg-slate-100 px-6 py-4">
-        <div className="flex items-center gap-3 text-left">
-          <FavoritesButton className="flex items-center gap-2 text-2xl font-semibold text-blue-600" />
-          <span className="text-2xl text-slate-500">|</span>
-          <span className="text-2xl font-semibold text-slate-600">Эффективность оборудования</span>
-        </div>
-        <div className="flex rounded-md bg-white shadow">
-          <button onClick={() => setMode("created")} className={`rounded-md px-6 py-3 ${mode === "created" ? "bg-emerald-400 text-white shadow" : ""}`}>ПО ДАТЕ СОЗДАНИЕ</button>
-          <button onClick={() => setMode("realized")} className={`rounded-md px-6 py-3 ${mode === "realized" ? "bg-emerald-400 text-white shadow" : ""}`}>ПО ДАТЕ РЕАЛИЗАЦИИ</button>
-        </div>
-      </header>
+    <ReportPage>
+      <div className={fullscreen ? "fixed inset-0 z-50 overflow-auto bg-[#f2f5f8]" : ""}>
+      <div className="pl-[30px] pr-[38px]">
+        <RefHeader title="Эффективность оборудования">
+          <div className="flex overflow-hidden rounded-[3px] shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
+            <button type="button" onClick={() => setMode("created")} className={`h-[30px] px-4 text-[13px] font-medium transition-colors ${mode === "created" ? "bg-[#71ce87] text-white" : "bg-white text-black"}`}>ПО ДАТЕ СОЗДАНИЕ</button>
+            <button type="button" onClick={() => setMode("realized")} className={`h-[30px] px-4 text-[13px] font-medium transition-colors ${mode === "realized" ? "bg-[#71ce87] text-white" : "bg-white text-black"}`}>ПО ДАТЕ РЕАЛИЗАЦИИ</button>
+          </div>
+        </RefHeader>
+      </div>
 
-      <section className="bg-white px-6 py-6">
-        <div className="mb-5 flex items-center justify-between gap-4">
-          <div className="flex items-center gap-4">
-            <button onClick={() => setFilterOpen(true)} className="flex items-center gap-2 rounded-md bg-blue-600 px-5 py-3 font-semibold text-white">
-              <Filter className="h-5 w-5" /> Фильтр
-            </button>
-            <span className="font-medium text-blue-600">{filters.organization === selectOptions.organization[0] ? "Во всей организации" : filters.organization}</span>
-          </div>
-          <button onClick={downloadExcel} className="flex items-center gap-2 rounded-md bg-emerald-400 px-5 py-3 font-semibold text-white">
-            <BarChart3 className="h-5 w-5" /> Скачать
-          </button>
-        </div>
+      <section className="border-b border-[#d9d9d9] bg-white pb-[1px] pt-[20px]">
+        <div className="px-[30px]">
+          <ReportTopRow filterLabel="Фильтр" scope={filters.organization || "Во всей организации"} onFilter={() => { setDraft(filters); setFilterOpen(true) }} onDownload={downloadExcel} />
 
-        <div className="grid border md:grid-cols-4">
-          <div className="space-y-3 border-r p-4">
-            <div><p className="text-slate-500">ОКВ / ОКВ с оборудованием</p><b>0 / 0 (0 %) <span className="text-blue-600">0</span></b></div>
-            <div><p className="text-slate-500">АКВ / АКВ с оборудованием</p><b>0 / 0 (0 %) <span className="text-blue-600">0</span></b></div>
+          <div className="mt-[15px] grid border border-[#e8e8e8] md:grid-cols-4">
+            <div className="space-y-[10px] border-r border-[#e8e8e8] px-[15px] py-[11px]">
+              <div><p className="text-[13px] text-[#555]">ОКВ / ОКВ с оборудованием</p><b className="text-[13px]">0 / 0 (0 %) <span className="text-[#4f71dc]">0</span></b></div>
+              <div><p className="text-[13px] text-[#555]">АКВ / АКВ с оборудованием</p><b className="text-[13px]">0 / 0 (0 %) <span className="text-[#4f71dc]">0</span></b></div>
+            </div>
+            <div className="space-y-[10px] border-r border-[#e8e8e8] px-[15px] py-[11px]">
+              <div><p className="text-[13px] text-[#555]">Средний чек одного оборудования</p><b className="text-[13px]">0 SUM</b></div>
+              <div><p className="text-[13px] text-[#555]">От 0 SUM до 1 500 000 SUM</p><b className="text-[13px]">0 шт. (0%) <span className="text-[#4f71dc]">0</span></b></div>
+            </div>
+            <div className="space-y-[10px] border-r border-[#e8e8e8] px-[15px] py-[11px]">
+              <div><p className="flex items-center gap-3 text-[13px] text-[#555]">От 1 500 000 SUM до 3 000 000 SUM <Pencil className="h-4 w-4 text-[#555]" /></p><b className="text-[13px]">0 шт. (0%) <span className="text-[#4f71dc]">0</span></b></div>
+              <div><p className="text-[13px] text-[#555]">Больше 3 000 000 SUM</p><b className="text-[13px]">0 шт. (0%) <span className="text-[#4f71dc]">0</span></b></div>
+            </div>
+            <div className="space-y-[10px] px-[15px] py-[11px] text-right">
+              <div><p className="text-[13px] text-[#555]">Фактическая продажа</p><b className="text-[13px]">0 SUM</b></div>
+              <div><p className="text-[13px] text-[#555]">С оборудованием</p><b className="text-[13px]">0 SUM (0 %)</b></div>
+            </div>
           </div>
-          <div className="space-y-3 border-r p-4">
-            <div><p className="text-slate-500">Средний чек одного оборудования</p><b>0 SUM</b></div>
-            <div><p className="text-slate-500">От 0 SUM до 1 500 000 SUM</p><b>0 шт. (0%) <span className="text-blue-600">0</span></b></div>
-          </div>
-          <div className="space-y-3 border-r p-4">
-            <div><p className="flex items-center gap-3 text-slate-500">От 1 500 000 SUM до 3 000 000 SUM <Pencil className="h-5 w-5" /></p><b>0 шт. (0%) <span className="text-blue-600">0</span></b></div>
-            <div><p className="text-slate-500">Больше 3 000 000 SUM</p><b>0 шт. (0%) <span className="text-blue-600">0</span></b></div>
-          </div>
-          <div className="space-y-3 p-4 text-right">
-            <div><p className="text-slate-500">Фактическая продажа</p><b>0 SUM</b></div>
-            <div><p className="text-slate-500">С оборудованием</p><b>0 SUM (0 %)</b></div>
-          </div>
-        </div>
 
-        <div className="mt-5 flex flex-wrap items-end justify-between gap-4 border-t pt-4">
-          <h2 className="text-lg font-semibold">Продажи</h2>
-          <label className="flex w-64 items-center border-b pb-2 text-slate-400">
-            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Поиск" className="w-full outline-none" />
-            <Search className="h-6 w-6" />
-          </label>
-          <div className="flex items-center gap-5 text-slate-600">
-            <span>25</span><span>1 - {rows.length} из {rows.length}</span>
-            <ChevronLeft className="h-6 w-6 text-slate-400" /><ChevronRight className="h-6 w-6 text-slate-400" />
-            <List className="h-6 w-6" />
-            <button onClick={() => setFullscreen((value) => !value)} aria-label="Полноэкранный режим"><Expand className="h-6 w-6" /></button>
+          <div className="mt-[15px] flex h-[52px] items-center justify-between border-t border-[#e8e8e8] pt-[8px]">
+            <h2 className="text-[13px] font-semibold">Продажи</h2>
+            <label className="relative ml-[110px] block h-[28px] w-[182px] border-b border-[#e0e0e0]">
+              {!query && <span className="pointer-events-none absolute left-0 top-[5px] text-[13px] text-[#999]">Поиск</span>}
+              <input value={query} onChange={(event) => setQuery(event.target.value)} className="h-full w-full bg-transparent pr-8 text-[13px] outline-none" aria-label="Поиск" />
+              <Search className="pointer-events-none absolute right-[2px] top-[2px] h-6 w-6 text-[#999]" />
+            </label>
+            <div className="flex items-center gap-[20px] text-[13px] text-black">
+              <span className="flex items-center">25<svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#999]"><path d="M7 10l5 5 5-5z" /></svg></span>
+              <span>1 - {rows.length} из {rows.length}</span>
+              <ChevronLeft className="h-6 w-6 text-[#999]" /><ChevronRight className="h-6 w-6 text-[#999]" />
+              <List className="h-6 w-6 text-[#444]" />
+              <button onClick={() => setFullscreen((value) => !value)} aria-label="Полноэкранный режим"><Expand className="h-5 w-5 text-[#444]" /></button>
+            </div>
           </div>
         </div>
 
-        <div className="mt-3 overflow-x-auto">
-          <table className="w-full min-w-[1100px] border-collapse text-sm">
-            <thead className="bg-slate-100 text-slate-700">
-              <tr>{["Клиент", "Факт. продажи", "Факт. продажи оборудования", "Разновидности", "Кол-во продуктов", "Оборудование"].map((title) => <th key={title} className="border px-2 py-3 text-center text-base font-semibold">{title}</th>)}</tr>
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[1100px] table-fixed border-collapse text-[13px]">
+            <colgroup><col className="w-[220px]" /><col className="w-[200px]" /><col className="w-[200px]" /><col className="w-[200px]" /><col className="w-[200px]" /><col /></colgroup>
+            <thead className="shadow-[0_3px_6px_rgba(0,0,0,0.12)]">
+              <tr className="h-[48px] bg-[#f2f5f8]">{["Клиент", "Факт. продажи", "Факт. продажи оборудования", "Разновидности", "Кол-во продуктов", "Оборудование"].map((title) => <th key={title} className="border-r border-[#e1e5eb] px-2 text-center font-semibold leading-4 last:border-r-0">{title}</th>)}</tr>
             </thead>
             <tbody>
               {rows.map((row, index) => (
-                <tr key={row.client} className={index % 2 ? "bg-slate-50" : "bg-white"}>
-                  <td className="border px-2 py-3">{row.client}</td>
-                  {Array.from({ length: 4 }).map((_, cell) => <td key={cell} className="border px-2 py-3">0 SUM</td>)}
-                  <td className="border px-2 py-3">{row.equipment}</td>
+                <tr key={row.client} className={`h-[31px] ${index % 2 ? "bg-white" : "bg-[#f2f5f8]"}`}>
+                  <td className="truncate px-[6px]">{row.client}</td>
+                  {Array.from({ length: 4 }).map((_, cell) => <td key={cell} className="border-l border-[#ececec] px-[6px]">0</td>)}
+                  <td className="border-l border-[#ececec] px-[6px]">{row.equipment}</td>
                 </tr>
               ))}
-              {!rows.length && <tr><td colSpan={6} className="p-12 text-center text-slate-400">По вашему запросу ничего не найдено</td></tr>}
             </tbody>
           </table>
+          {!rows.length && <p className="py-12 text-center text-[13px] text-[#8c8c8c]">По вашему запросу ничего не найдено</p>}
         </div>
       </section>
+      </div>
 
       {filterOpen && (
-        <div className="fixed inset-0 z-[70] overflow-y-auto bg-black/35 p-4 md:p-8" role="dialog" aria-modal="true">
-          <form onSubmit={applyFilters} className="mx-auto max-w-[1840px] bg-white p-8 shadow-2xl">
-            <div className="mb-8 flex items-center justify-between">
-              <h2 className="text-xl font-bold">ФИЛЬТР</h2>
-              <button type="button" onClick={() => setFilterOpen(false)} aria-label="Закрыть фильтр"><X className="h-7 w-7 text-slate-500" /></button>
-            </div>
-            <div className="grid gap-x-6 gap-y-10 md:grid-cols-2 xl:grid-cols-4">
-              <label className="block"><span className="mb-2 block text-xs">Период по дате создания</span><input type="text" readOnly value="01 июля 2026 - 31 июля 2026" className="h-11 w-full border-b border-slate-300 outline-none" /></label>
-              <NumberField label="Фактическая продажа (от)" value={draft.saleFrom} onChange={(value) => updateFilter("saleFrom", value)} />
-              <NumberField label="Фактическая продажа (до)" value={draft.saleTo} onChange={(value) => updateFilter("saleTo", value)} />
-              <SelectField label="Клиенты агента" value={draft.agent} options={selectOptions.agent} onChange={(value) => updateFilter("agent", value)} />
-              <SelectField label="Организация" value={draft.organization} options={selectOptions.organization} onChange={(value) => updateFilter("organization", value)} />
-              <SelectField label="Зона" value={draft.zone} options={selectOptions.zone} onChange={(value) => updateFilter("zone", value)} />
-              <NumberField label="Факт продаж оборудования (от)" value={draft.equipmentSaleFrom} onChange={(value) => updateFilter("equipmentSaleFrom", value)} />
-              <NumberField label="Факт продаж оборудования (до)" value={draft.equipmentSaleTo} onChange={(value) => updateFilter("equipmentSaleTo", value)} />
-              <SelectField label="Филиалы" value={draft.branch} options={selectOptions.branch} onChange={(value) => updateFilter("branch", value)} />
-              <SelectField label="Инвентарь" value={draft.inventory} options={selectOptions.inventory} onChange={(value) => updateFilter("inventory", value)} />
-              <SelectField label="Тип инвентаря" value={draft.inventoryType} options={selectOptions.inventoryType} onChange={(value) => updateFilter("inventoryType", value)} />
-              <SelectField label="Тип клиента" value={draft.clientType} options={selectOptions.clientType} onChange={(value) => updateFilter("clientType", value)} />
-              <SelectField label="Тип товара" value={draft.productType} options={selectOptions.productType} onChange={(value) => updateFilter("productType", value)} />
-              <SelectField label="Товар" value={draft.product} options={selectOptions.product} onChange={(value) => updateFilter("product", value)} />
-            </div>
-            <button type="submit" className="mt-8 w-full rounded-md bg-emerald-400 py-3 text-lg font-semibold text-white">Применить</button>
-          </form>
-        </div>
+        <ReportFilterPanel onClose={() => setFilterOpen(false)} onApply={() => { setFilters(draft); setFilterOpen(false) }}>
+          <ReportRangeField label="Период по дате создания" from={rangeFrom} to={rangeTo} onFrom={setRangeFrom} onTo={setRangeTo} />
+          <ReportInputField label="Фактическая продажа (от)" value={draft.saleFrom} onChange={(value) => updateFilter("saleFrom", value)} />
+          <ReportInputField label="Фактическая продажа (до)" value={draft.saleTo} onChange={(value) => updateFilter("saleTo", value)} />
+          <ReportSelectField label="Клиенты агента" value={draft.agent} options={selectOptions.agent} onChange={(value) => updateFilter("agent", value)} clearable={false} />
+          <ReportSelectField label="Организация" value={draft.organization} options={selectOptions.organization} onChange={(value) => updateFilter("organization", value)} clearable={false} />
+          <ReportSelectField label="Зона" value={draft.zone} options={selectOptions.zone} onChange={(value) => updateFilter("zone", value)} clearable={false} />
+          <ReportInputField label="Факт продаж оборудования (от)" value={draft.equipmentSaleFrom} onChange={(value) => updateFilter("equipmentSaleFrom", value)} />
+          <ReportInputField label="Факт продаж оборудования (до)" value={draft.equipmentSaleTo} onChange={(value) => updateFilter("equipmentSaleTo", value)} />
+          <ReportSelectField label="Филиалы" value={draft.branch} options={selectOptions.branch} onChange={(value) => updateFilter("branch", value)} clearable={false} />
+          <ReportSelectField label="Инвентарь" value={draft.inventory} options={selectOptions.inventory} onChange={(value) => updateFilter("inventory", value)} clearable={false} />
+          <ReportSelectField label="Тип инвентаря" value={draft.inventoryType} options={selectOptions.inventoryType} onChange={(value) => updateFilter("inventoryType", value)} clearable={false} />
+          <ReportSelectField label="Тип клиента" value={draft.clientType} options={selectOptions.clientType} onChange={(value) => updateFilter("clientType", value)} clearable={false} />
+          <ReportSelectField label="Тип товара" value={draft.productType} options={selectOptions.productType} onChange={(value) => updateFilter("productType", value)} clearable={false} />
+          <ReportSelectField label="Товар" value={draft.product} options={selectOptions.product} onChange={(value) => updateFilter("product", value)} clearable={false} />
+        </ReportFilterPanel>
       )}
-    </main>
+    </ReportPage>
   )
 }

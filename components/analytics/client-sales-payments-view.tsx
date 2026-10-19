@@ -1,19 +1,19 @@
 "use client"
 
-import { FormEvent, useMemo, useState } from "react"
+import { useMemo, useState } from "react"
 import { downloadExcelTable } from "@/lib/excel-export"
 import { DashboardDialog } from "./dashboard-dialog"
-import { RI, RefButton, RefEmpty, RefFilterDate, RefFilterSelect, RefHeader, RefPage } from "@/components/ref/list-kit"
+import { ReportBand, ReportDateField, ReportEmpty, ReportFilters, ReportHeader, ReportPage, ReportSelectField } from "@/components/ref/report-kit"
 
 const sourceRows: { store: string; sale: number; saleCost: number; returned: number; returnCost: number; payment: number; discount: number }[] = []
 
 const filterOptions = {
-  responsible: ["Все агенты", "Samandar Abdurahmonov", "Хайрулло Доставщик"],
-  organization: ["Все организации", "Linko", "Time3 Distribution"],
-  storeType: ["Все типы магазина", "horeca", "market", "market100"],
-  zone: ["Все зоны", "Andijon shaharchasi", "Arslan", "chilonzor"],
-  branch: ["Все филиалы", "777", "878", "Andijon", "AURUM samarqand"],
-  column: ["Все колонки", "Продажа", "Оплата", "Возврат"],
+  responsible: ["Samandar Abdurahmonov", "Хайрулло Доставщик"],
+  organization: ["Linko", "Time3 Distribution"],
+  storeType: ["horeca", "market", "market100"],
+  zone: ["Andijon shaharchasi", "Arslan", "chilonzor"],
+  branch: ["777", "878", "Andijon", "AURUM samarqand"],
+  column: ["Продажа", "Оплата", "Возврат"],
 }
 
 type FilterKey = keyof typeof filterOptions
@@ -28,7 +28,7 @@ export function ClientSalesPaymentsView() {
   const [from, setFrom] = useState(() => iso(new Date(now.getFullYear(), now.getMonth(), 1)))
   const [to, setTo] = useState(() => iso(now))
   const [filters, setFilters] = useState<Record<FilterKey, string>>(
-    Object.fromEntries(Object.entries(filterOptions).map(([key, value]) => [key, value[0]])) as Record<FilterKey, string>,
+    Object.fromEntries(Object.entries(filterOptions).map(([key, value]) => [key, ""])) as Record<FilterKey, string>,
   )
   const [dashboardOpen, setDashboardOpen] = useState(false)
   const [saved, setSaved] = useState(false)
@@ -36,7 +36,7 @@ export function ClientSalesPaymentsView() {
   const [dashboard, setDashboard] = useState("Основной дашборд")
 
   const rows = useMemo(
-    () => sourceRows.filter((row) => filters.responsible === filterOptions.responsible[0] || row.store === "Doston market"),
+    () => sourceRows.filter((row) => filters.responsible === "" || row.store === "Doston market"),
     [filters.responsible],
   )
   const totals = rows.reduce(
@@ -54,9 +54,6 @@ export function ClientSalesPaymentsView() {
   function setFilter(key: FilterKey, value: string) {
     setFilters((current) => ({ ...current, [key]: value }))
   }
-  function apply(event: FormEvent) {
-    event.preventDefault()
-  }
   function download() {
     downloadExcelTable("client-sales-payments.xls", [
       ["Магазин", "Продажа", "Себестоимость продаж", "Возврат", "Себестоимость возврата", "Факт продаж", "Себестоимость факт", "Оплата", "Сумма скидок"],
@@ -66,26 +63,21 @@ export function ClientSalesPaymentsView() {
 
   const heads = ["Магазин", "Продажа", "Себестоимость продаж", "Возврат", "Себестоимость возврата", "Факт продаж", "Себестоимость факт", "Оплата", "Сумма скидок"]
   return (
-    <RefPage>
-      <RefHeader title="Продажа и оплата по магазинам">
-        <RefButton icon={RI.download} green label="Скачать Excel" onClick={download} />
-        <RefButton icon={RI.add} label={saved ? "Добавлено в дашборд" : "Добавить в дашборд"} onClick={() => setDashboardOpen(true)} />
-      </RefHeader>
+    <ReportPage>
+      <ReportHeader title="Продажа и оплата по магазинам" onExcel={download} onDashboard={() => setDashboardOpen(true)} inDashboard={saved} />
 
-      <form onSubmit={apply} className="bg-white px-[10px] pb-[10px] pt-[8px] shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
-        <div className="grid gap-x-5 gap-y-6 py-3 md:grid-cols-2 xl:grid-cols-4">
-          <RefFilterDate label="Дата от" value={from} max={to} onChange={setFrom} />
-          <RefFilterDate label="Дата до" value={to} min={from} onChange={setTo} />
+      <ReportBand>
+        <ReportFilters applyDisabled={from > to}>
+          <ReportDateField label="Дата от" value={from} max={to} onChange={setFrom} />
+          <ReportDateField label="Дата до" value={to} min={from} onChange={setTo} />
           {(Object.keys(filterOptions) as FilterKey[]).map((key) => (
-            <RefFilterSelect key={key} label={labels[key]} value={filters[key]} onChange={(value) => setFilter(key, value)} options={filterOptions[key]} />
+            <ReportSelectField key={key} label={labels[key]} value={filters[key]} onChange={(value) => setFilter(key, value)} options={filterOptions[key]} />
           ))}
-        </div>
-        <button type="submit" className="h-[30px] w-full rounded-[5px] bg-[#71ce87] text-[13px] font-semibold text-white">Применить</button>
-      </form>
+        </ReportFilters>
 
-      {rows.length === 0 ? (
-        <RefEmpty text="По вашему запросу ничего не найдено..." />
-      ) : (
+        {rows.length === 0 ? (
+          <ReportEmpty />
+        ) : (
         <section className="mt-5 overflow-x-auto bg-white">
           <table className="w-full min-w-[1500px] border-collapse">
             <thead className="bg-[#5d6474] text-white">
@@ -105,7 +97,8 @@ export function ClientSalesPaymentsView() {
             </tbody>
           </table>
         </section>
-      )}
+        )}
+      </ReportBand>
 
       {dashboardOpen && <button type="button" aria-label="Закрыть" onClick={() => setDashboardOpen(false)} className="fixed inset-0 z-[90] bg-black/55" />}
       {dashboardOpen && (
@@ -120,7 +113,7 @@ export function ClientSalesPaymentsView() {
           onSave={() => setSaved(true)}
         />
       )}
-    </RefPage>
+    </ReportPage>
   )
 }
 

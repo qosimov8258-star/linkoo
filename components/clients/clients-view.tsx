@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react"
 import { useRouter } from "next/navigation"
+import { compareText, RefImportDialog } from "@/components/ref/list-kit"
 import dynamic from "next/dynamic"
 import {
   RefreshCw,
@@ -10,7 +11,6 @@ import {
   ChevronRight,
   ChevronDown,
   X,
-  Download,
   CheckCircle2,
   PlusCircle,
   Minus,
@@ -18,12 +18,15 @@ import {
   MapPin,
 } from "lucide-react"
 import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
+import { downloadExcelTable } from "@/lib/excel-export"
 import { mapHeaderColumns, readExcelRows } from "@/lib/excel-import"
 import { useLanguage } from "@/lib/i18n/language-context"
 
 import { AddOrderDialog } from "@/components/orders/add-order-dialog"
 
 import { clientTabs, type Client } from "./clients-data"
+import { MultiEditDialog, type MultiEditPatch } from "./multi-edit-dialog"
+import { applyClientFilters, ClientsFilterPanel, emptyClientFilters, type ClientFilters } from "./clients-filter-panel"
 
 const LocationPicker = dynamic(() => import("./location-picker").then((m) => m.LocationPicker), {
   ssr: false,
@@ -58,7 +61,6 @@ type Notice = {
 
 type ActionMenu = "header" | "table" | null
 type ModalMode = "add" | "edit" | null
-type ViewMode = "comfortable" | "compact"
 
 type ClientForm = {
   name: string
@@ -158,54 +160,6 @@ function formFromClient(client: Client): ClientForm {
   }
 }
 
-function csvCell(value: string | number | undefined) {
-  return `"${String(value ?? "").replace(/"/g, '""')}"`
-}
-
-function downloadCsv(rows: Client[]) {
-  const headers = [
-    "Название",
-    "Тел. номер",
-    "ИНН",
-    "Тип",
-    "Зона",
-    "Агент зоны",
-    "Ответственный агент",
-    "Ответственный доставщик",
-    "Ответственный инкассатор",
-    "Баланс",
-  ]
-  const content = [
-    headers.map(csvCell).join(";"),
-    ...rows.map((client) =>
-      [
-        client.name,
-        client.phone,
-        client.inn,
-        client.type,
-        client.zone,
-        client.zoneAgent,
-        client.agent,
-        client.deliverer,
-        client.collector,
-        client.balance,
-      ]
-        .map(csvCell)
-        .join(";"),
-    ),
-  ].join("\r\n")
-
-  const blob = new Blob([`\uFEFF${content}`], { type: "text/csv;charset=utf-8" })
-  const url = URL.createObjectURL(blob)
-  const anchor = document.createElement("a")
-  anchor.href = url
-  anchor.download = `clients-${new Date().toISOString().slice(0, 10)}.csv`
-  document.body.appendChild(anchor)
-  anchor.click()
-  anchor.remove()
-  URL.revokeObjectURL(url)
-}
-
 export function ClientsView() {
   const router = useRouter()
   const { t } = useLanguage()
@@ -219,10 +173,14 @@ export function ClientsView() {
   const [pageSizeOpen, setPageSizeOpen] = useState(false)
   const [selected, setSelected] = useState<number[]>([])
   const [filtersOpen, setFiltersOpen] = useState(false)
-  const [typeFilter, setTypeFilter] = useState("all")
-  const [zoneFilter, setZoneFilter] = useState("all")
-  const [viewMode, setViewMode] = useState<ViewMode>("comfortable")
-  const [selectMode, setSelectMode] = useState(false)
+  const [filters, setFilters] = useState<ClientFilters>(emptyClientFilters)
+  const [importDialog, setImportDialog] = useState<"import" | "promotion" | "excel" | null>(null)
+  const [importFile, setImportFile] = useState<File | null>(null)
+  const [multiEditOpen, setMultiEditOpen] = useState(false)
+  const [columns, setColumns] = useState<Record<ColumnKey, boolean>>(DEFAULT_COLUMNS)
+  const [columnsOpen, setColumnsOpen] = useState(false)
+  const [problemSub, setProblemSub] = useState<"inn" | "territory" | "route" | "all">("all")
+  const [selectMode, setSelectMode] = useState(true)
   const [actionMenu, setActionMenu] = useState<ActionMenu>(null)
   const [notice, setNotice] = useState<Notice | null>(null)
   const [modalMode, setModalMode] = useState<ModalMode>(null)
@@ -234,6 +192,13 @@ export function ClientsView() {
   const promotionInputRef = useRef<HTMLInputElement>(null)
   const importInputRef = useRef<HTMLInputElement>(null)
   const [importingClients, setImportingClients] = useState(false)
+
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(COLUMNS_STORAGE_KEY)
+      if (raw) setColumns({ ...DEFAULT_COLUMNS, ...(JSON.parse(raw) as Record<ColumnKey, boolean>) })
+    } catch {}
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -270,10 +235,6 @@ export function ClientsView() {
     return () => document.removeEventListener("keydown", closeOnEscape)
   }, [modalMode])
 
-  const typeOptions = useMemo(
-    () => [...new Set(clients.map((client) => client.type))].sort((a, b) => a.localeCompare(b, "ru")),
-    [clients],
-  )
   const zoneOptions = useMemo(
     () => [...new Set(clients.map((client) => client.zone))].sort((a, b) => a.localeCompare(b, "ru")),
     [clients],
@@ -281,9 +242,19 @@ export function ClientsView() {
 
   const filtered = useMemo(() => {
     return clients.filter((c) => {
-      const matchesTab = activeTab === "all" ? true : c.tab === activeTab
-      const matchesType = typeFilter === "all" || c.type === typeFilter
-      const matchesZone = zoneFilter === "all" || c.zone === zoneFilter
+      const matchesTab =
+        activeTab === "all"
+          ? true
+          : activeTab === "problem"
+            ? problemSub === "inn"
+              ? !/^\d{9}$/.test((c.inn ?? "").trim())
+              : problemSub === "territory"
+                ? !c.zone || c.zone === "Не указано"
+                : problemSub === "route"
+                  ? !c.inRoute
+                  : Boolean(c.isProblem)
+            : c.tab === activeTab
+      const matchesFilters = applyClientFilters(c, filters)
       const q = query.trim().toLowerCase()
       const matchesQuery =
         q === "" ||
@@ -292,15 +263,35 @@ export function ClientsView() {
         c.type.toLowerCase().includes(q) ||
         c.zone.toLowerCase().includes(q) ||
         c.agent.toLowerCase().includes(q)
-      return matchesTab && matchesType && matchesZone && matchesQuery
+      return matchesTab && matchesFilters && matchesQuery
     })
-  }, [activeTab, clients, query, typeFilter, zoneFilter])
+  }, [activeTab, problemSub, clients, query, filters])
 
+  const [sort, setSort] = useState<{ head: string; desc: boolean } | null>(null)
+  const sortedClients = useMemo(() => {
+    if (!sort) return filtered
+    const value = (c: (typeof filtered)[number]): string => {
+      switch (sort.head) {
+        case "Название": return c.name
+        case "Код": return c.code ?? ""
+        case "Тел. номер": return c.phone
+        case "Информация": return c.inn ?? ""
+        case "Тип": return c.type
+        case "Зона": return c.zone
+        case "Ответственный агент": return c.agent
+        case "Ответственный доставщик": return c.deliverer
+        case "Ответственный инкассатор": return c.collector
+        case "Баланс": return String(c.balance ?? 0)
+        default: return ""
+      }
+    }
+    return [...filtered].sort((a, b) => (sort.desc ? -1 : 1) * compareText(value(a), value(b)))
+  }, [filtered, sort])
   const total = filtered.length
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
   const currentPage = Math.min(page, totalPages)
   const start = (currentPage - 1) * pageSize
-  const pageRows = filtered.slice(start, start + pageSize)
+  const pageRows = sortedClients.slice(start, start + pageSize)
   const rangeStart = total === 0 ? 0 : start + 1
   const rangeEnd = Math.min(start + pageSize, total)
 
@@ -316,7 +307,6 @@ export function ClientsView() {
 
   const allSelected = pageRows.length > 0 && pageRows.every((r) => selected.includes(r.id))
   const selectedClients = clients.filter((client) => selected.includes(client.id))
-  const activeFilterCount = Number(typeFilter !== "all") + Number(zoneFilter !== "all")
 
   function toggleAll() {
     if (allSelected) {
@@ -330,14 +320,26 @@ export function ClientsView() {
     setSelected((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]))
   }
 
-  function resetFilters() {
-    setActiveTab("all")
-    setQuery("")
-    setTypeFilter("all")
-    setZoneFilter("all")
-    setPage(1)
-    setNotice({ tone: "info", message: t("Фильтры и поиск сброшены") })
-    setActionMenu(null)
+  async function applyMultiEdit(patch: MultiEditPatch) {
+    setMultiEditOpen(false)
+    if (Object.keys(patch).length === 0) return
+    const results = await Promise.all(
+      selectedClients.map(async (client) => {
+        try {
+          const response = await fetch(`/api/clients/${client.id}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ ...client, ...patch }),
+          })
+          return response.ok ? ((await response.json()) as Client) : null
+        } catch {
+          return null
+        }
+      }),
+    )
+    const updated = results.filter((client): client is Client => client !== null)
+    setClients((current) => current.map((client) => updated.find((item) => item.id === client.id) ?? client))
+    setNotice({ tone: updated.length === selectedClients.length ? "success" : "info", message: `${t("Изменено клиентов")}: ${updated.length}` })
   }
 
   function openAddModal() {
@@ -571,16 +573,28 @@ export function ClientsView() {
     }
   }
 
-  function refreshFromExcel() {
+  function openImportDialog(kind: "import" | "promotion" | "excel") {
     if (importingClients) return
-    importInputRef.current?.click()
+    setImportFile(null)
+    setImportDialog(kind)
   }
 
-  function exportClients(rows: Client[]) {
-    if (rows.length === 0) return
-    downloadCsv(rows)
-    setNotice({ tone: "success", message: `${t("Экспортировано клиентов")}: ${rows.length}` })
-    setActionMenu(null)
+  function refreshFromExcel() {
+    openImportDialog("excel")
+  }
+
+  async function saveImportDialog() {
+    const file = importFile
+    const kind = importDialog
+    if (!file || !kind) return
+    setImportDialog(null)
+    setImportFile(null)
+    if (kind === "promotion") chooseFile(file, "Импорт акций")
+    else await importClientsFromExcel(file)
+  }
+
+  function downloadImportTemplate() {
+    downloadExcelTable("clients-template", [[t("Название"), t("Тел. номер"), t("ИНН"), t("Тип"), t("Зона"), t("Ответственный агент"), t("Ответственный доставщик"), t("Ответственный инкассатор"), t("Баланс")]])
   }
 
   function assignRoute() {
@@ -593,7 +607,7 @@ export function ClientsView() {
   }
 
   return (
-    <div className="bg-[#f2f5f8] px-7 pb-7 font-sans text-[13px] text-[#333]">
+    <div className="bg-[#f2f5f8] px-7 pb-7 pt-px font-sans text-[13px] text-[#333]">
       {/* Header row */}
       <div className="flex h-[60px] items-center justify-between">
         <h1 className="flex items-center text-[18px] font-bold text-[#5d6474]">
@@ -602,13 +616,13 @@ export function ClientsView() {
           {t("Клиенты")}
         </h1>
 
-        <div className="flex items-center gap-[10px]">
-          <TopButton icon={CI.chart} label={t("Импортировать акции")} onClick={() => promotionInputRef.current?.click()} />
-          <TopButton icon={CI.filter} label={t("Показать на карте")} onClick={() => router.push("/tracking?view=clients")} />
-          <TopButton icon={CI.chart} label={importingClients ? t("Импорт…") : t("Импортировать")} onClick={() => importInputRef.current?.click()} disabled={importingClients} />
+        <div className="flex items-center gap-[10px] pr-[10px]">
+          <TopButton icon={CI.chart} label={t("Импортировать акции")} onClick={() => openImportDialog("promotion")} />
+          <TopButton icon={CI.filter} label={t("Показать на карте")} onClick={() => router.push("/clients/territory?openFilterDialog=true")} />
+          <TopButton icon={CI.chart} label={importingClients ? t("Импорт…") : t("Импортировать")} onClick={() => openImportDialog("import")} disabled={importingClients} />
           <TopButton icon={CI.sync} label={importingClients ? t("Импорт…") : t("Обновить с excel")} onClick={refreshFromExcel} disabled={importingClients} spin={importingClients} />
           <TopButton icon={CI.add} label={t("Добавить")} onClick={openAddModal} green />
-          <div className="relative">
+          <div className="relative ml-[10px]">
             <button
               type="button"
               onClick={() => {
@@ -624,15 +638,24 @@ export function ClientsView() {
             {actionMenu === "header" && (
               <>
                 <div className="fixed inset-0 z-20" onClick={() => setActionMenu(null)} />
-                <div role="menu" className="absolute right-0 top-full z-30 w-56 overflow-hidden rounded-[2px] bg-white py-1 shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
-                  <button type="button" role="menuitem" onClick={() => exportClients(clients)} disabled={clients.length === 0} className="flex w-full items-center gap-2 px-4 py-3 text-left text-[13px] hover:bg-[#f2f5f8] disabled:opacity-40">
-                    <Download className="h-4 w-4" />
-                    {t("Экспортировать CSV")}
-                  </button>
-                  <button type="button" role="menuitem" onClick={resetFilters} disabled={activeTab === "all" && query === "" && activeFilterCount === 0} className="flex w-full items-center gap-2 px-4 py-3 text-left text-[13px] hover:bg-[#f2f5f8] disabled:opacity-40">
-                    <RefreshCw className="h-4 w-4" />
-                    {t("Сбросить фильтры")}
-                  </button>
+                <div role="menu" className="absolute right-0 top-[1px] z-30 w-[335px] overflow-hidden rounded-[2px] bg-white py-[3px] shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
+                  {[t("Обновить класс магазина"), t("Обновить атрибуты магазина"), t("Обновить KPI план магазина")].map((label) => (
+                    <button
+                      key={label}
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        setActionMenu(null)
+                        setNotice({ tone: "info", message: `${label}: ${t("обновление запущено")}` })
+                      }}
+                      className="flex h-12 w-full items-center gap-[25px] px-[20px] text-left text-[13px] hover:bg-[#f2f5f8]"
+                    >
+                      <span className="flex h-[30px] w-[30px] items-center justify-center rounded-[5px] bg-[#71ce87]">
+                        <svg viewBox="0 0 24 24" className="h-[18px] w-[18px] fill-white"><path d={CI.chart} /></svg>
+                      </span>
+                      {label}
+                    </button>
+                  ))}
                 </div>
               </>
             )}
@@ -698,15 +721,101 @@ export function ClientsView() {
             </button>
           ))}
           <span
-            className="absolute -bottom-[2px] left-0 h-[3px] w-1/5 bg-[#4f71dc] shadow-[0_-3px_10px_0_#5869f0] transition-transform duration-300"
+            className="absolute -bottom-[2px] left-0 z-10 h-[3px] w-1/5 bg-[#4f71dc] shadow-[0_-3px_10px_0_#5869f0] transition-transform duration-300"
             style={{ transform: `translateX(${clientTabs.findIndex((tab) => tab.id === activeTab) * 100}%)` }}
           />
         </div>
 
+        {activeTab === "problem" && (
+          <div className="relative flex h-10 border-t border-[#f1f1f1] bg-white">
+            {(
+              [
+                ["inn", "Неправильный ИНН"],
+                ["territory", "Нет территории"],
+                ["route", "Нет маршрута"],
+                ["all", "Все"],
+              ] as const
+            ).map(([id, label]) => (
+              <button
+                key={id}
+                type="button"
+                onClick={() => {
+                  setProblemSub(id)
+                  setPage(1)
+                }}
+                className="h-10 w-1/4 whitespace-nowrap text-center text-[13px] font-medium text-black"
+              >
+                {t(label)}
+              </button>
+            ))}
+            <span
+              className="absolute -bottom-[2px] left-0 z-10 h-[3px] w-1/4 bg-[#4f71dc] shadow-[0_-3px_10px_0_#5869f0] transition-transform duration-300"
+              style={{ transform: `translateX(${["inn", "territory", "route", "all"].indexOf(problemSub) * 100}%)` }}
+            />
+          </div>
+        )}
+
         {/* Toolbar */}
         <div className="relative bg-white">
           <div className="flex h-[50px] items-center px-[5px]">
-            <div className="w-[318px] shrink-0">
+            {selectedClients.length > 0 ? (
+              <>
+            <span className="font-semibold">{t("Выбрано")}: {selectedClients.length}</span>
+            <div className="ml-auto flex items-center text-[#5d6474]">
+              <button
+                type="button"
+                onClick={() => setColumnsOpen(true)}
+                aria-label={t("Настройка таблицы")}
+                className="flex h-12 w-[54px] items-center justify-center"
+              >
+                <svg viewBox="0 0 24 24" className="h-[22px] w-[22px] fill-[#5d6474]"><path d={CI.align} /></svg>
+              </button>
+              <div className="ml-[10px] flex items-center gap-[19px]">
+                <TopButton icon={CI.edit} label={t("Изменить")} onClick={() => setMultiEditOpen(true)} />
+                <TopButton icon={CI.trend} label={t("Уст. маршрут")} green onClick={assignRoute} />
+              </div>
+              <div className="relative ml-[19px]">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPageSizeOpen(false)
+                    setActionMenu((current) => (current === "table" ? null : "table"))
+                  }}
+                  aria-label={t("Дополнительные действия таблицы")}
+                  className="flex h-12 w-12 items-center justify-center"
+                >
+                  <svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#333]"><path d={CI.more} /></svg>
+                </button>
+                {actionMenu === "table" && (
+                  <>
+                    <div className="fixed inset-0 z-20" onClick={() => setActionMenu(null)} />
+                    <div role="menu" className="absolute right-0 top-0 z-30 w-[224px] overflow-hidden rounded-[2px] bg-white py-[3px] shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          setActionMenu(null)
+                          setNotice({ tone: "success", message: `${t("Задача добавлена для")} ${selectedClients.length} ${t("клиент(ов)")}` })
+                        }}
+                        className="flex h-12 w-full items-center gap-[25px] px-[18px] text-left text-[13px] text-[#333] hover:bg-[#f2f5f8]"
+                      >
+                        <span className="flex h-[30px] w-[30px] items-center justify-center rounded-[5px] bg-[#71ce87]">
+                          <svg viewBox="0 0 24 24" className="h-5 w-5 fill-white"><path d={CI.add} /></svg>
+                        </span>
+                        {t("Добавить задачу")}
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+              <button type="button" onClick={() => setSelected([])} aria-label={t("Снять выделение")} className="flex h-12 w-12 items-center justify-center">
+                <svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#333]"><path d="M19 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2zm-2 10H7v-2h10v2z" /></svg>
+              </button>
+            </div>
+              </>
+            ) : (
+              <>
+            <div className="w-[355px] shrink-0">
               <button
                 type="button"
                 onClick={() => setFiltersOpen((open) => !open)}
@@ -715,13 +824,10 @@ export function ClientsView() {
               >
                 <svg viewBox="0 0 24 24" className="mb-1 h-[18px] w-[18px] fill-white"><path d={CI.filter} /></svg>
                 <span className="pl-2 pr-4">{filtersOpen ? t("Скрыть фильтр") : t("Показать фильтр")}</span>
-                {activeFilterCount > 0 && (
-                  <span className="mr-3 flex h-5 min-w-5 items-center justify-center rounded-full bg-white px-1 text-[11px] text-[#4f71dc]">{activeFilterCount}</span>
-                )}
               </button>
             </div>
 
-            <div className="relative ml-[18px] flex w-[248px] items-center">
+            <div className="relative ml-[18px] flex w-[300px] items-center border-b border-[#e0e0e0] focus-within:border-[#5d6474]">
               <input
                 value={query}
                 onChange={(e) => {
@@ -729,20 +835,20 @@ export function ClientsView() {
                   setPage(1)
                 }}
                 placeholder={t("Поиск")}
-                className="h-12 w-full border-b border-[#e0e0e0] bg-transparent text-[13px] outline-none placeholder:text-black/30 focus:border-[#5d6474]"
+                className="h-12 min-w-0 flex-1 bg-transparent text-[13px] outline-none placeholder:text-black/30"
               />
               {query ? (
-                <button type="button" onClick={() => { setQuery(""); setPage(1) }} aria-label={t("Очистить поиск")} className="absolute -right-[38px] p-1 text-[#999]">
+                <button type="button" onClick={() => { setQuery(""); setPage(1) }} aria-label={t("Очистить поиск")} className="p-1 text-[#999]">
                   <X className="h-5 w-5" />
                 </button>
               ) : (
-                <Search className="absolute -right-[38px] h-6 w-6 text-[#ccc]" />
+                <Search className="h-6 w-6 shrink-0 text-[#ccc]" />
               )}
             </div>
 
             <div className="ml-auto flex items-center text-[#5d6474]">
               {/* Page size */}
-              <div className="relative mr-[15px]">
+              <div className="relative mr-[27px]">
                 <button
                   type="button"
                   onClick={() => {
@@ -751,7 +857,7 @@ export function ClientsView() {
                   }}
                   aria-label={t("Количество строк на странице")}
                   aria-expanded={pageSizeOpen}
-                  className="flex h-12 w-[52px] items-center justify-between border-b border-[#e0e0e0] text-[13px] text-[#333]"
+                  className="flex h-12 w-[40px] items-center justify-between text-[13px] text-[#333]"
                 >
                   {pageSize}
                   <svg viewBox="0 0 24 24" className="h-6 w-6 fill-black/30"><path d="M7 10l5 5 5-5z" /></svg>
@@ -796,34 +902,33 @@ export function ClientsView() {
                 aria-label={t("Выбрать строки на странице")}
                 aria-pressed={selectMode}
                 title={t("Выбрать строки на странице")}
-                className={`ml-5 flex h-12 w-12 items-center justify-center ${selectMode ? "bg-[#e8efff]" : ""}`}
+                className="ml-[17px] flex h-12 w-[54px] items-center justify-center"
               >
-                <svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#5d6474]"><path d={CI.checklist} /></svg>
+                <svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#333]"><path d={selectMode ? CI.eyeOff : CI.eye} /></svg>
               </button>
               <button
                 type="button"
-                onClick={() => setViewMode((mode) => (mode === "comfortable" ? "compact" : "comfortable"))}
-                aria-label={viewMode === "compact" ? t("Включить обычный вид") : t("Включить компактный вид")}
-                aria-pressed={viewMode === "compact"}
-                title={viewMode === "compact" ? t("Обычный вид") : t("Компактный вид")}
-                className={`flex h-12 w-12 items-center justify-center ${viewMode === "compact" ? "bg-[#e8efff]" : ""}`}
+                onClick={() => setColumnsOpen(true)}
+                aria-label={t("Настройка таблицы")}
+                title={t("Настройка таблицы")}
+                className="flex h-12 w-[54px] items-center justify-center"
               >
-                <svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#5d6474]"><path d={CI.align} /></svg>
+                <svg viewBox="0 0 24 24" className="h-[22px] w-[22px] fill-[#5d6474]"><path d={CI.align} /></svg>
               </button>
 
               {selectedClients.length > 0 && <span className="mx-2 whitespace-nowrap font-semibold text-[#4f71dc]">{t("Выбрано")}: {selectedClients.length}</span>}
 
-              <div className="ml-[10px] flex items-center gap-[18px]">
+              <div className="ml-[3px] flex items-center gap-[19px]">
                 <TopButton
                   icon={CI.edit}
                   label={t("Изменить")}
                   onClick={() => {
-                    if (selectedClients.length !== 1) {
+                    if (selectedClients.length === 0) {
                       setSelectMode(true)
-                      setNotice({ tone: "info", message: t("Выберите одного клиента для изменения") })
+                      setNotice({ tone: "info", message: t("Выберите клиентов для изменения") })
                       return
                     }
-                    openEditModal()
+                    setMultiEditOpen(true)
                   }}
                 />
                 <TopButton
@@ -841,7 +946,7 @@ export function ClientsView() {
                 />
               </div>
 
-              <div className="relative ml-2">
+              <div className="relative ml-[19px]">
                 <button
                   type="button"
                   onClick={() => {
@@ -857,104 +962,67 @@ export function ClientsView() {
                 {actionMenu === "table" && (
                   <>
                     <div className="fixed inset-0 z-20" onClick={() => setActionMenu(null)} />
-                    <div role="menu" className="absolute right-0 top-full z-30 w-64 overflow-hidden rounded-[2px] bg-white py-1 text-[#333] shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
+                    <div role="menu" className="absolute right-0 top-0 z-30 w-[224px] overflow-hidden rounded-[2px] bg-white py-[3px] shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
                       <button
                         type="button"
                         role="menuitem"
-                        onClick={() => exportClients(selectedClients.length > 0 ? selectedClients : filtered)}
-                        disabled={(selectedClients.length > 0 ? selectedClients : filtered).length === 0}
-                        className="flex w-full items-center gap-2 px-4 py-3 text-left text-[13px] hover:bg-[#f2f5f8] disabled:opacity-40"
-                      >
-                        <Download className="h-4 w-4" />
-                        {selectedClients.length > 0 ? t("Экспортировать выбранные") : t("Экспортировать результат")}
-                      </button>
-                      <button
-                        type="button"
-                        role="menuitem"
-                        onClick={() => {
-                          setSelected([])
-                          setActionMenu(null)
-                          setNotice({ tone: "info", message: t("Выделение снято") })
-                        }}
                         disabled={selectedClients.length === 0}
-                        className="flex w-full items-center gap-2 px-4 py-3 text-left text-[13px] hover:bg-[#f2f5f8] disabled:opacity-40"
+                        onClick={() => {
+                          setActionMenu(null)
+                          setNotice({ tone: "success", message: `${t("Задача добавлена для")} ${selectedClients.length} ${t("клиент(ов)")}` })
+                        }}
+                        className="flex h-12 w-full items-center gap-[25px] px-[18px] text-left text-[13px] text-[#333] hover:bg-[#f2f5f8] disabled:text-[#aaa] disabled:hover:bg-transparent"
                       >
-                        <X className="h-4 w-4" />
-                        {t("Снять выделение")}
+                        <span className="flex h-[30px] w-[30px] items-center justify-center rounded-[5px] bg-[#71ce87]">
+                          <svg viewBox="0 0 24 24" className="h-5 w-5 fill-white"><path d={CI.add} /></svg>
+                        </span>
+                        {t("Добавить задачу")}
                       </button>
                     </div>
                   </>
                 )}
               </div>
             </div>
+              </>
+            )}
           </div>
 
           {filtersOpen && (
-            <div className="grid gap-3 border-t border-[#efefef] bg-[#f7f9fb] px-4 py-4 sm:grid-cols-[minmax(180px,1fr)_minmax(180px,1fr)_auto] sm:items-end">
-              <label className="flex flex-col gap-1.5 text-[10px] font-bold">
-                {t("Тип клиента")}
-                <select
-                  value={typeFilter}
-                  onChange={(event) => {
-                    setTypeFilter(event.target.value)
-                    setPage(1)
-                  }}
-                  className="border-b border-[#e0e0e0] bg-transparent py-2 text-[13px] font-semibold outline-none"
-                >
-                  <option value="all">{t("Все типы")}</option>
-                  {typeOptions.map((type) => (
-                    <option key={type} value={type}>{type}</option>
-                  ))}
-                </select>
-              </label>
-              <label className="flex flex-col gap-1.5 text-[10px] font-bold">
-                {t("Зона")}
-                <select
-                  value={zoneFilter}
-                  onChange={(event) => {
-                    setZoneFilter(event.target.value)
-                    setPage(1)
-                  }}
-                  className="border-b border-[#e0e0e0] bg-transparent py-2 text-[13px] font-semibold outline-none"
-                >
-                  <option value="all">{t("Все зоны")}</option>
-                  {zoneOptions.map((zone) => (
-                    <option key={zone} value={zone}>{zone}</option>
-                  ))}
-                </select>
-              </label>
-              <button
-                type="button"
-                onClick={() => {
-                  setTypeFilter("all")
-                  setZoneFilter("all")
+            <div className="absolute left-0 top-0 z-30 w-full">
+              <ClientsFilterPanel
+                clients={clients}
+                value={filters}
+                onClose={() => setFiltersOpen(false)}
+                onApply={(next) => {
+                  setFilters(next)
                   setPage(1)
+                  setFiltersOpen(false)
                 }}
-                disabled={activeFilterCount === 0}
-                className="h-[30px] rounded-[5px] border border-[#e0e0e0] bg-white px-4 text-[13px] font-semibold hover:bg-[#f2f5f8] disabled:opacity-40"
-              >
-                {t("Сбросить")}
-              </button>
+              />
             </div>
           )}
 
           {/* Table */}
           <div className="overflow-x-auto">
             <div className="min-w-[1100px]">
-              <div className="grid h-[50px] items-center bg-[#5d6474] px-[30px] font-semibold text-white" style={{ gridTemplateColumns: CLIENT_COLS }}>
-                {["Название", "Тел. номер", "Информация", "Тип", "Зона", "Ответственный агент", "Ответственный доставщик", "Ответственный инкассатор", "Баланс"].map((head, index) => (
-                  <div key={head} className="flex items-center gap-2 px-2 leading-[16px]">
+              <div className="relative grid h-[50px] items-center bg-[#5d6474] pl-[50px] pr-[30px] font-semibold text-white" style={{ gridTemplateColumns: gridTemplate(columns, "head") }}>
+                {COLUMN_DEFS.filter((column) => columns[column.key]).map((column) => column.title).map((head, index) => (
+                  <div key={head} className={`flex items-center gap-2 px-2 leading-[16px] ${head === "Баланс" ? "justify-center" : ""}`}>
                     {index === 0 && selectMode && (
-                      <input
-                        type="checkbox"
-                        checked={allSelected}
-                        onChange={toggleAll}
+                      <button
+                        type="button"
+                        onClick={toggleAll}
                         disabled={pageRows.length === 0}
-                        className="h-4 w-4 cursor-pointer accent-[#71ce87]"
                         aria-label={t("Выбрать все")}
-                      />
+                        className="absolute left-5 top-3.5 h-6 w-6"
+                      >
+                        <svg viewBox="0 0 24 24" className="h-6 w-6 fill-white"><path d={allSelected ? CI.checkOn : CI.selectAll} /></svg>
+                      </button>
                     )}
-                    {t(head)}
+                    <button type="button" onClick={() => setSort((current) => (current?.head === head ? (current.desc ? null : { head, desc: true }) : { head, desc: false }))} className="text-left font-semibold hover:opacity-80">
+                      {t(head)}
+                      {sort?.head === head ? <span className="ml-1 text-[10px]">{sort.desc ? "▼" : "▲"}</span> : null}
+                    </button>
                   </div>
                 ))}
               </div>
@@ -971,7 +1039,7 @@ export function ClientsView() {
                     client={client}
                     selected={selected.includes(client.id)}
                     selectMode={selectMode}
-                    compact={viewMode === "compact"}
+                    columns={columns}
                     routed={routeAssigned.has(client.id)}
                     onToggle={() => toggleRow(client.id)}
                     onOpen={() => setDetailClient(client)}
@@ -983,6 +1051,36 @@ export function ClientsView() {
         </div>
       </div>
 
+      {columnsOpen && (
+        <ColumnsDrawer
+          columns={columns}
+          onSave={(next) => {
+            setColumns(next)
+            try {
+              window.localStorage.setItem(COLUMNS_STORAGE_KEY, JSON.stringify(next))
+            } catch {}
+            setColumnsOpen(false)
+          }}
+          onClose={() => setColumnsOpen(false)}
+        />
+      )}
+
+      {multiEditOpen && <MultiEditDialog clients={clients} onSave={(patch) => void applyMultiEdit(patch)} onClose={() => setMultiEditOpen(false)} />}
+
+      {importDialog && (
+        <RefImportDialog
+          file={importFile}
+          onFile={setImportFile}
+          onTemplate={downloadImportTemplate}
+          onSave={() => void saveImportDialog()}
+          onClose={() => {
+            setImportDialog(null)
+            setImportFile(null)
+          }}
+          saving={importingClients}
+        />
+      )}
+
       {modalMode && (
         <ClientModal
           mode={modalMode}
@@ -990,11 +1088,8 @@ export function ClientsView() {
           error={formError}
           saving={saving}
           zoneOptions={zoneOptions}
+          clients={clients}
           onTextChange={updateFormField}
-          onTabChange={(tab) => {
-            setForm((current) => ({ ...current, tab }))
-            setFormError("")
-          }}
           onPhoneChange={updatePhone}
           onPhoneAdd={addPhone}
           onPhoneRemove={removePhone}
@@ -1017,7 +1112,27 @@ export function ClientsView() {
   )
 }
 
-const CLIENT_COLS = "minmax(0,185fr) minmax(0,186fr) minmax(0,172fr) minmax(0,87fr) minmax(0,173fr) minmax(0,124fr) minmax(0,124fr) minmax(0,111fr) minmax(0,74fr)"
+type ColumnKey = "name" | "code" | "phone" | "info" | "type" | "zone" | "agent" | "deliverer" | "collector" | "balance"
+
+const COLUMN_DEFS: { key: ColumnKey; title: string; head: number; row: number }[] = [
+  { key: "name", title: "Название", head: 205, row: 204 },
+  { key: "code", title: "Код", head: 100, row: 100 },
+  { key: "phone", title: "Тел. номер", head: 205, row: 204 },
+  { key: "info", title: "Информация", head: 191, row: 190 },
+  { key: "type", title: "Тип", head: 96, row: 95 },
+  { key: "zone", title: "Зона", head: 191, row: 190 },
+  { key: "agent", title: "Ответственный агент", head: 136, row: 136 },
+  { key: "deliverer", title: "Ответственный доставщик", head: 136, row: 136 },
+  { key: "collector", title: "Ответственный инкассатор", head: 109, row: 109 },
+  { key: "balance", title: "Баланс", head: 95, row: 95 },
+]
+
+const DEFAULT_COLUMNS: Record<ColumnKey, boolean> = { name: true, code: false, phone: true, info: true, type: true, zone: true, agent: true, deliverer: true, collector: true, balance: true }
+const COLUMNS_STORAGE_KEY = "linko-clients-columns"
+
+function gridTemplate(columns: Record<ColumnKey, boolean>, field: "head" | "row") {
+  return COLUMN_DEFS.filter((column) => columns[column.key]).map((column) => `minmax(0,${column[field]}fr)`).join(" ")
+}
 
 const CI = {
   chart: "M10 20h4V4h-4v16zm-6 0h4v-8H4v8zM16 9v11h4V9h-4z",
@@ -1025,6 +1140,11 @@ const CI = {
   sync: "M19 8l-4 4h3c0 3.31-2.69 6-6 6-1.01 0-1.97-.25-2.8-.7l-1.46 1.46C8.97 19.54 10.43 20 12 20c4.42 0 8-3.58 8-8h3l-4-4zM6 12c0-3.31 2.69-6 6-6 1.01 0 1.97.25 2.8.7l1.46-1.46C15.03 4.46 13.57 4 12 4c-4.42 0-8 3.58-8 8H1l4 4 4-4H6z",
   add: "M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm5 11h-4v4h-2v-4H7v-2h4V7h2v4h4v2z",
   more: "M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z",
+  eye: "M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z",
+  eyeOff: "M12 7c2.76 0 5 2.24 5 5 0 .65-.13 1.26-.36 1.83l2.92 2.92c1.51-1.26 2.7-2.89 3.43-4.75-1.73-4.39-6-7.5-11-7.5-1.4 0-2.74.25-3.98.7l2.16 2.16C10.74 7.13 11.35 7 12 7zM2 4.27l2.28 2.28.46.46C3.08 8.3 1.78 10.02 1 12c1.73 4.39 6 7.5 11 7.5 1.55 0 3.03-.3 4.38-.84l.42.42L19.73 22 21 20.73 3.27 3 2 4.27zM7.53 9.8l1.55 1.55c-.05.21-.08.43-.08.65 0 1.66 1.34 3 3 3 .22 0 .44-.03.65-.08l1.55 1.55c-.67.33-1.41.53-2.2.53-2.76 0-5-2.24-5-5 0-.79.2-1.53.53-2.2zm4.31-.78l3.15 3.15.02-.16c0-1.66-1.34-3-3-3l-.17.01z",
+  checkEmpty: "M19 5v14H5V5h14m0-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2z",
+  checkOn: "M19 3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.11 0 2-.9 2-2V5c0-1.1-.89-2-2-2zm-9 14l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z",
+  selectAll: "M3 5h2V3c-1.1 0-2 .9-2 2zm0 8h2v-2H3v2zm4 8h2v-2H7v2zM3 9h2V7H3v2zm10-6h-2v2h2V3zm6 0v2h2c0-1.1-.9-2-2-2zM5 21v-2H3c0 1.1.9 2 2 2zm-2-4h2v-2H3v2zM9 3H7v2h2V3zm2 18h2v-2h-2v2zm8-8h2v-2h-2v2zm0 8c1.1 0 2-.9 2-2h-2v2zm0-12h2V7h-2v2zm0 8h2v-2h-2v2zm-4 4h2v-2h-2v2zm0-16h2V3h-2v2zM7 17h10V7H7v10zm2-8h6v6H9V9z",
   checklist: "M14 10H2v2h12v-2zm0-4H2v2h12V6zM2 16h8v-2H2v2zm19.5-4.5L23 13l-6.99 7-4.51-4.5L13 14l3.01 3 5.49-5.5z",
   align: "M3 21h18v-2H3v2zm0-4h18v-2H3v2zm0-4h18v-2H3v2zm0-4h18V7H3v2zm0-6v2h18V3H3z",
   edit: "M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z",
@@ -1067,8 +1187,8 @@ function ClientModal({
   error,
   saving,
   zoneOptions,
+  clients: allClients,
   onTextChange,
-  onTabChange,
   onPhoneChange,
   onPhoneAdd,
   onPhoneRemove,
@@ -1083,8 +1203,8 @@ function ClientModal({
   error: string
   saving: boolean
   zoneOptions: string[]
+  clients: Client[]
   onTextChange: (field: ClientTextField, value: string) => void
-  onTabChange: (tab: Client["tab"]) => void
   onPhoneChange: (index: number, value: string) => void
   onPhoneAdd: () => void
   onPhoneRemove: (index: number) => void
@@ -1102,10 +1222,17 @@ function ClientModal({
   const [newTypeName, setNewTypeName] = useState("")
   const [savingType, setSavingType] = useState(false)
   const [locationPickerOpen, setLocationPickerOpen] = useState(false)
-  const [canSeePrice, setCanSeePrice] = useState(true)
-  const [confirmToOrder, setConfirmToOrder] = useState(true)
+  const [canSeePrice, setCanSeePrice] = useState(false)
+  const [confirmToOrder, setConfirmToOrder] = useState(false)
   const [changeFinance, setChangeFinance] = useState(false)
-  const [objectActive, setObjectActive] = useState(true)
+  const [objectActive, setObjectActive] = useState(false)
+  const distinct = (pick: (client: Client) => string | undefined) =>
+    [...new Set(allClients.map(pick).filter((value): value is string => Boolean(value) && value !== "Не указано"))].sort((a, b) => a.localeCompare(b, "ru"))
+  const channelOptions = distinct((client) => client.salesChannel)
+  const realizationOptions = distinct((client) => client.realizationBy)
+  const delivererOptions = distinct((client) => client.deliverer)
+  const collectorOptions = distinct((client) => client.collector)
+  const agentOptions = distinct((client) => client.agent)
 
   useEffect(() => {
     let cancelled = false
@@ -1177,9 +1304,9 @@ function ClientModal({
         role="dialog"
         aria-modal="true"
         aria-labelledby="client-modal-title"
-        className="fixed bottom-0 left-1/2 top-16 flex w-[1082px] max-w-full -translate-x-1/2 flex-col bg-white font-sans text-[13px] text-[#333]"
+        className="fixed bottom-0 left-1/2 top-16 flex w-[80%] max-w-full -translate-x-1/2 flex-col bg-white font-sans text-[13px] text-[#333]"
       >
-        <header className="flex h-[60px] shrink-0 items-center justify-between border-b border-[#efefef] px-[30px]">
+        <header className="flex h-[60px] shrink-0 items-center justify-between border-b border-[#efefef] pl-[30px] pr-[22px]">
           <b id="client-modal-title" className="text-[13px] font-bold uppercase">
             {mode === "add" ? t("Добавление клиента") : t("Изменение клиента")}
           </b>
@@ -1194,9 +1321,9 @@ function ClientModal({
             <div className="px-[30px] pb-6 pt-[18px]">
               <section>
                 <SectionTitle>{t("Общая информация")}</SectionTitle>
-                <FieldInput label={t("Наименование")} required autoFocus value={form.name} onChange={(value) => onTextChange("name", value)} />
-                <FieldSelect label={t("Филиал")} required value={form.branch} onChange={(value) => onTextChange("branch", value)} options={branchSelectOptions} />
-                <FieldInput label={t("Канал продаж")} value={form.salesChannel} onChange={(value) => onTextChange("salesChannel", value)} />
+                <FieldInput label={t("Наименование")} required value={form.name} onChange={(value) => onTextChange("name", value)} />
+                <FieldSelect className="mt-[15px]" label={t("Филиал")} required value={form.branch} onChange={(value) => onTextChange("branch", value)} options={branchSelectOptions} />
+                <FieldSelect label={t("Канал продаж")} value={form.salesChannel} onChange={(value) => onTextChange("salesChannel", value)} options={withCurrent(channelOptions, form.salesChannel)} />
                 <div className="relative">
                   <FieldSelect label={t("Тип клиента")} required value={form.type} onChange={(value) => onTextChange("type", value)} options={typeSelectOptions} />
                   <button
@@ -1208,19 +1335,18 @@ function ClientModal({
                     <PlusCircle className="h-5 w-5" />
                   </button>
                 </div>
-                <FieldInput label={t("Зона")} value={form.zone} onChange={(value) => onTextChange("zone", value)} listId="client-zone-options" listOptions={zoneOptions} />
-                <FieldInput label={t("Реализация по")} value={form.realizationBy} onChange={(value) => onTextChange("realizationBy", value)} />
+                <FieldSelect label={t("Зона")} value={form.zone} onChange={(value) => onTextChange("zone", value)} options={withCurrent(zoneOptions.filter((zone) => zone && zone !== "Не указано"), form.zone)} />
+                <FieldSelect label={t("Реализация по")} value={form.realizationBy} onChange={(value) => onTextChange("realizationBy", value)} options={withCurrent(realizationOptions, form.realizationBy)} />
               </section>
 
-              <section className="mt-6 border-t border-dotted border-[#ccc] pt-6">
+              <section className="mt-[28px] border-t border-dotted border-[#ccc] pt-[19px]">
                 <SectionTitle>{t("Ответственные лица")}</SectionTitle>
-                <FieldInput label={t("Ответственный доставщик")} value={form.deliverer} onChange={(value) => onTextChange("deliverer", value)} />
-                <FieldInput label={t("Ответственный инкассатор")} value={form.collector} onChange={(value) => onTextChange("collector", value)} />
-                <FieldInput label={t("Ответственный агент")} value={form.agent} onChange={(value) => onTextChange("agent", value)} />
-                <FieldInput label={t("Агент зоны")} value={form.zoneAgent} onChange={(value) => onTextChange("zoneAgent", value)} />
+                <FieldSelect label={t("Ответственный доставщик")} value={form.deliverer} onChange={(value) => onTextChange("deliverer", value)} options={withCurrent(delivererOptions, form.deliverer)} />
+                <FieldSelect label={t("Ответственный инкассатор")} value={form.collector} onChange={(value) => onTextChange("collector", value)} options={withCurrent(collectorOptions, form.collector)} />
+                <FieldSelect label={t("Ответственный агент")} value={form.agent} onChange={(value) => onTextChange("agent", value)} options={withCurrent(agentOptions, form.agent)} />
               </section>
 
-              <section className="mt-6 border-t border-dotted border-[#ccc] pt-6">
+              <section className="mt-[28px] border-t border-dotted border-[#ccc] pt-[19px]">
                 <SectionTitle>{t("Юридическая информация")}</SectionTitle>
                 {attributeDefs.map((attribute) =>
                   attribute.fieldType === "Выбор вариантов" ? (
@@ -1241,15 +1367,6 @@ function ClientModal({
                     />
                   ),
                 )}
-                <FieldInput label={t("ИНН")} value={form.inn} onChange={(value) => onTextChange("inn", value)} />
-                <FieldInput label={t("Баланс")} type="number" value={form.balance} onChange={(value) => onTextChange("balance", value)} />
-                <FieldSelect
-                  label={t("Статус")}
-                  value={form.tab}
-                  onChange={(value) => onTabChange(value as Client["tab"])}
-                  options={clientTabs.map((tab) => tab.id)}
-                  optionLabels={Object.fromEntries(clientTabs.map((tab) => [tab.id, t(tab.label)]))}
-                />
               </section>
             </div>
 
@@ -1260,7 +1377,7 @@ function ClientModal({
                 <FieldInput label={t("Адрес")} required={mode === "add"} value={form.address} onChange={(value) => onTextChange("address", value)} />
                 <FieldInput label={t("Ориентир")} required={mode === "add"} value={form.landmark} onChange={(value) => onTextChange("landmark", value)} />
 
-                <div className="py-3">
+                <div className="pb-1 pt-4">
                   <button type="button" onClick={() => setLocationPickerOpen(true)} className="inline-flex items-center gap-2 text-[13px] text-[#129fdd] hover:underline">
                     <MapPin className="h-4 w-4" />
                     {form.locationLat != null && form.locationLng != null ? `${form.locationLat.toFixed(6)} ${form.locationLng.toFixed(6)}` : t("отметить местоположение на карте")}
@@ -1285,7 +1402,7 @@ function ClientModal({
                 />
               </section>
 
-              <section className="mt-6 border-t border-dotted border-[#ccc] pt-6">
+              <section className="mt-[28px] border-t border-dotted border-[#ccc] pt-[19px]">
                 <SectionTitle>{t("Контактные данные")}</SectionTitle>
                 <FieldInput label={t("Код")} value={form.code} onChange={(value) => onTextChange("code", value)} />
 
@@ -1295,8 +1412,6 @@ function ClientModal({
                       <FieldInput
                         label={t("Номер телефона")}
                         type="tel"
-                        required={index === 0}
-                        autoFocus={index === 0 && mode === "add"}
                         value={phone}
                         onChange={(value) => onPhoneChange(index, value)}
                       />
@@ -1317,7 +1432,7 @@ function ClientModal({
                 <FieldInput label={t("Заметка")} value={form.note} onChange={(value) => onTextChange("note", value)} />
               </section>
 
-              <section className="mt-6 border-t border-dotted border-[#ccc] pt-6">
+              <section className="mt-[28px] border-t border-dotted border-[#ccc] pt-[19px]">
                 <SectionTitle>{t("Настройки клиента")}</SectionTitle>
                 <CheckRow label={t("Автоматическая доставка")} checked={form.autoDelivery} onChange={(value) => onToggleChange("autoDelivery", value)} />
                 <CheckRow label={t("Неограниченный долг")} checked={form.unlimitedDebt} onChange={(value) => onToggleChange("unlimitedDebt", value)} />
@@ -1341,7 +1456,7 @@ function ClientModal({
           )}
         </div>
 
-        <footer className="flex h-[56px] shrink-0 items-center justify-end border-t border-[#efefef] px-[30px]">
+        <footer className="flex h-[57px] shrink-0 items-center justify-end border-t border-[#efefef] px-[27px]">
           <button type="submit" disabled={saving} className="text-[13px] font-semibold uppercase text-[#0a9ddb] disabled:opacity-60">
             {saving ? t("Сохранение...") : t("Сохранить")}
           </button>
@@ -1386,13 +1501,13 @@ function ClientModal({
 }
 
 function SectionTitle({ children }: { children: React.ReactNode }) {
-  return <h3 className="mb-3 text-[16px] font-semibold leading-6 text-[#4f71dc]">{children}</h3>
+  return <h3 className="text-[16px] font-semibold leading-6 text-[#4f71dc]">{children}</h3>
 }
 
 function FloatLabel({ label, required, filled, info }: { label: string; required?: boolean; filled: boolean; info?: string }) {
   return (
     <span
-      className={`pointer-events-none absolute left-0 flex items-center gap-1 font-bold transition-all ${filled ? "top-0 text-[10px] leading-3" : "top-[18px] text-[13px] leading-4"}`}
+      className={`pointer-events-none absolute left-0 flex items-center gap-1 font-bold transition-all ${filled ? "top-0 text-[10px] leading-3" : "top-[28px] text-[13px] leading-4"}`}
     >
       {label}
       {required && <span className="text-[#e57373]">*</span>}
@@ -1406,6 +1521,10 @@ function FloatLabel({ label, required, filled, info }: { label: string; required
 }
 
 const fieldLine = "relative block h-[52px] border-b border-[#e0e0e0] focus-within:border-[#5d6474]"
+
+function withCurrent(options: string[], current: string) {
+  return current && !options.includes(current) ? [current, ...options] : options
+}
 
 function FieldInput({
   label,
@@ -1430,9 +1549,9 @@ function FieldInput({
   listOptions?: string[]
 }) {
   const [focused, setFocused] = useState(false)
-  return (
-    <label className={fieldLine}>
-      <FloatLabel label={label} required={required} filled={focused || value !== ""} info={info} />
+  const field = (
+    <label className={`${fieldLine} ${info ? "w-[calc(100%-25px)]" : ""}`}>
+      <FloatLabel label={label} required={required} filled={focused || value !== ""} />
       <input
         type={type}
         value={value}
@@ -1453,6 +1572,15 @@ function FieldInput({
         </datalist>
       )}
     </label>
+  )
+  if (!info) return field
+  return (
+    <div className="relative">
+      {field}
+      <span title={info} className="absolute right-0 top-[14px]">
+        <Info className="h-5 w-5 text-[#555]" />
+      </span>
+    </div>
   )
 }
 
@@ -1475,7 +1603,7 @@ function FieldSelect({
   className?: string
 }) {
   return (
-    <label className={`${fieldLine} ${className ?? ""}`}>
+    <label className={`${fieldLine} mb-[10px] ${className ?? ""}`}>
       <FloatLabel label={label} required={required} filled={value !== ""} />
       <select
         value={value}
@@ -2085,7 +2213,7 @@ function ClientRow({
   client,
   selected,
   selectMode,
-  compact,
+  columns,
   routed,
   onToggle,
   onOpen,
@@ -2093,7 +2221,7 @@ function ClientRow({
   client: Client
   selected: boolean
   selectMode: boolean
-  compact: boolean
+  columns: Record<ColumnKey, boolean>
   routed: boolean
   onToggle: () => void
   onOpen: () => void
@@ -2104,21 +2232,28 @@ function ClientRow({
   return (
     <div
       onClick={onOpen}
-      className={`grid cursor-pointer items-center border-b border-dotted border-[#d6d6d6] border-l-[3px] [border-left-style:solid] px-[27px] ${compact ? "min-h-[40px] py-1" : "min-h-[50px] py-[7px]"} hover:bg-[#f2f5f8] ${
+      className={`grid cursor-pointer items-center border-b border-dotted border-[#d6d6d6] relative border-l-[3px] [border-left-style:solid] pl-[52px] pr-[30px] [&>div]:[overflow-wrap:anywhere] h-[50px] hover:bg-[#f2f5f8] ${
         confirmed ? "border-l-[#7ed07e]" : "border-l-[#5d6474]"
-      } ${selected ? "bg-[#e8efff]" : "bg-white"}`}
-      style={{ gridTemplateColumns: CLIENT_COLS }}
+      } bg-white`}
+      style={{ gridTemplateColumns: gridTemplate(columns, "row") }}
     >
-      <div className="flex items-center gap-2 px-2 leading-[16.25px]" >
-        {selectMode && (
-          <span onClick={(event) => event.stopPropagation()}>
-            <input type="checkbox" checked={selected} onChange={onToggle} className="h-4 w-4 cursor-pointer accent-[#71ce87]" aria-label={`${t("Выбрать")} ${client.name}`} />
-          </span>
-        )}
-        {client.name}
-      </div>
-      <div className="px-2">{client.phone}</div>
-      <div className="px-2 leading-[16.25px]">
+      {selectMode && (
+        <button
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation()
+            onToggle()
+          }}
+          aria-label={`${t("Выбрать")} ${client.name}`}
+          className="absolute left-[17px] top-3 h-6 w-6"
+        >
+          <svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#333]"><path d={selected ? CI.checkOn : CI.checkEmpty} /></svg>
+        </button>
+      )}
+      {columns.name && <div className="px-2 leading-[16.25px]">{client.name}</div>}
+      {columns.code && <div className="px-2 leading-[16.25px]">{client.code ?? ""}</div>}
+      {columns.phone && <div className="px-2 leading-[16.25px]">{/^\d{9}$/.test(client.phone) ? `+998${client.phone}` : client.phone}</div>}
+      {columns.info && <div className="px-2 leading-[16.25px]">
         {client.inn ? (
           <>
             {t("ИНН")}: <b>{client.inn}</b>
@@ -2128,20 +2263,50 @@ function ClientRow({
         ) : (
           client.info ?? ""
         )}
-      </div>
-      <div className="px-2 leading-[16.25px]">{client.type}</div>
-      <div className="px-2 leading-[16.25px]">
-        {client.zone}
+      </div>}
+      {columns.type && <div className="px-2 leading-[16.25px]">{client.type}</div>}
+      {columns.zone && <div className="px-2 leading-[16.25px]">
+        {client.zone || t("Не указано")}
         <br />
         <span className="text-[#4f71dc]">{client.zoneAgent}</span>
         {routed && <div className="text-[11px] font-semibold text-[#48a34b]">{t("Маршрут установлен")}</div>}
-      </div>
-      <div className="px-2 leading-[16.25px]">{client.agent}</div>
-      <div className="px-2 leading-[16.25px]">{client.deliverer}</div>
-      <div className="px-2 leading-[16.25px]">{client.collector}</div>
-      <div className={`px-2 leading-[16.25px] ${client.balance != null && client.balance < 0 ? "text-[#e57373]" : ""}`}>
-        {client.balance != null ? formatBalance(client.balance) : ""}
-      </div>
+      </div>}
+      {columns.agent && <div className="px-2 leading-[16.25px]">{client.agent}</div>}
+      {columns.deliverer && <div className="px-2 leading-[16.25px]">{client.deliverer}</div>}
+      {columns.collector && <div className="px-2 leading-[16.25px]">{client.collector}</div>}
+      {columns.balance && <div className="pl-2 text-center leading-[16.25px]">
+        {client.balanceLines?.length
+          ? client.balanceLines.map((line) => <div key={line} className={line.startsWith("-") ? "text-[#e57373]" : ""}>{line}</div>)
+          : client.balance ? <span className={client.balance < 0 ? "text-[#e57373]" : ""}>{formatBalance(client.balance)}</span> : ""}
+      </div>}
+    </div>
+  )
+}
+
+
+function ColumnsDrawer({ columns, onSave, onClose }: { columns: Record<ColumnKey, boolean>; onSave: (columns: Record<ColumnKey, boolean>) => void; onClose: () => void }) {
+  const { t } = useLanguage()
+  const [draft, setDraft] = useState(columns)
+  return (
+    <div className="fixed inset-0 z-[1200] bg-black/[0.54]" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+      <aside className="fixed right-0 top-0 flex h-full w-[340px] max-w-full flex-col bg-white text-[13px] text-[#333] shadow-[0_3px_10px_rgba(0,0,0,0.16),0_3px_10px_rgba(0,0,0,0.23)]">
+        <header className="flex h-[58px] shrink-0 items-center border-b border-[#efefef] pl-[30px]">
+          <h2 className="text-[15px] font-medium">{t("Настройка таблицы")}</h2>
+        </header>
+        <ul className="min-h-0 flex-1 overflow-y-auto pt-[14px]">
+          {COLUMN_DEFS.map((column) => (
+            <li key={column.key} className="h-[35px]">
+              <button type="button" onClick={() => setDraft((current) => ({ ...current, [column.key]: !current[column.key] }))} className="flex h-[35px] w-full items-center gap-[10px] pl-[30px] text-left font-semibold">
+                <svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#555]"><path d={draft[column.key] ? CI.checkOn : CI.checkEmpty} /></svg>
+                {t(column.title)}
+              </button>
+            </li>
+          ))}
+        </ul>
+        <footer className="flex h-[57px] shrink-0 items-center justify-end border-t border-[#efefef] pr-[26px]">
+          <button type="button" onClick={() => onSave(draft)} className="font-semibold uppercase text-[#0a9ddb]">{t("Сохранить")}</button>
+        </footer>
+      </aside>
     </div>
   )
 }

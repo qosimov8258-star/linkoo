@@ -1,10 +1,11 @@
 "use client"
 
+import { CheckBox, LineField, LineSelect } from "@/components/analytics/catalog-ui"
 import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react"
 import { ChevronLeft, ChevronRight, Download, FileText, Filter, Pencil, PlusCircle, Search, Trash2, X } from "lucide-react"
 import { downloadExcelTable } from "@/lib/excel-export"
 import { mapHeaderColumns, readExcelRows } from "@/lib/excel-import"
-import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
+import { RefHeader, RefPage, RefTabs } from "@/components/ref/list-kit"
 
 const IMPORT_HEADER_ALIASES: Record<string, string> = {
   "название": "name", "наименование": "name", "name": "name",
@@ -64,6 +65,8 @@ export function QuestionnaireView() {
   const [selected, setSelected] = useState<number | null>(null)
   const [editing, setEditing] = useState<number | "new" | null>(null)
   const [draft, setDraft] = useState(emptyDraft)
+  const [orderNo, setOrderNo] = useState("")
+  const [flags, setFlags] = useState({ required: false, storeCheck: false, scoring: false, perfect: false })
   const [importOpen, setImportOpen] = useState(false)
   const [importFile, setImportFile] = useState<File | null>(null)
   const [importSaving, setImportSaving] = useState(false)
@@ -238,39 +241,19 @@ export function QuestionnaireView() {
   ]
 
   return (
-    <main className="min-h-[calc(100vh-4rem)] bg-[#f2f5f8] px-7 pb-7">
-      <header className="mb-5 flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-bold text-slate-600">
-          <FavoritesButton className="inline-flex items-center gap-2 text-[#4f71dc]" />{" "}
-          <span className="mx-2 text-slate-400">|</span> Опросник
-        </h1>
-        <div className="flex items-center gap-3">
-          <button type="button" onClick={() => setImportOpen(true)} className="inline-flex items-center gap-2 rounded bg-[#4f71dc] px-5 py-3 font-semibold text-white hover:brightness-95">
-            <FileText className="h-4 w-4" /> Импорт с Excel
-          </button>
-          <button type="button" onClick={openCreate} className="rounded bg-[#71ce87] px-5 py-3 font-semibold text-white hover:brightness-95">
-            <PlusCircle className="mr-2 inline h-5 w-5" />
-            Добавить
-          </button>
-        </div>
-      </header>
+    <RefPage>
+      <RefHeader title="Опросник">
+        <button type="button" onClick={openCreate} className="flex h-[30px] items-center gap-2 rounded-[5px] bg-[#71ce87] px-4 text-[13px] font-semibold text-white hover:brightness-95">
+          <PlusCircle className="h-4 w-4" />
+          Добавить
+        </button>
+      </RefHeader>
 
       <section className="overflow-hidden rounded bg-white shadow">
-        <div className="flex border-b border-slate-200 text-center">
-          {tabs.map((item) => (
-            <button
-              key={item.key}
-              type="button"
-              onClick={() => setTab(item.key)}
-              className={`flex-1 border-b-2 py-4 text-[15px] font-medium ${tab === item.key ? "border-[#4f71dc] text-[#4f71dc]" : "border-transparent text-slate-600 hover:text-slate-800"}`}
-            >
-              {item.label}
-            </button>
-          ))}
-        </div>
+        <RefTabs labels={tabs.map((item) => item.label)} value={tabs.find((item) => item.key === tab)?.label ?? ""} onChange={(label) => setTab(tabs.find((item) => item.label === label)?.key ?? tab)} />
 
         <div className="flex flex-wrap items-center gap-4 px-5 py-3">
-          <button type="button" onClick={() => setFilterOpen((value) => !value)} className="inline-flex items-center gap-2 rounded bg-[#4f71dc] px-5 py-3 font-semibold text-white hover:brightness-95">
+          <button type="button" onClick={() => setFilterOpen((value) => !value)} className="flex h-[30px] items-center gap-2 rounded-[5px] bg-[#4f71dc] px-4 text-[13px] font-semibold text-white hover:brightness-95">
             <Filter className="h-4 w-4" />
             Показать фильтр
           </button>
@@ -307,23 +290,23 @@ export function QuestionnaireView() {
           <table className="w-full min-w-[720px] text-left">
             <thead className="bg-[#5d6474] text-white">
               <tr>
-                <th className="px-9 py-5">№</th>
-                <th className="px-5 py-5">Название</th>
-                <th className="px-5 py-5">Дата создания</th>
-                <th className="px-5 py-5">Статус</th>
+                <th className="px-9 py-4 text-[13px]">№</th>
+                <th className="px-5 py-4 text-[13px]">Название</th>
+                <th className="px-5 py-4 text-[13px]">Дата создания</th>
+                <th className="px-5 py-4 text-[13px]">Статус</th>
               </tr>
             </thead>
             <tbody>
               {filtered.map((survey) => (
                 <tr key={survey.id} className={`border-b border-dashed border-slate-300 hover:bg-slate-50 ${selected === survey.id ? "bg-slate-50" : ""}`}>
-                  <td className="px-12 py-5">{survey.id}</td>
-                  <td className="px-5 py-5">
+                  <td className="px-12 py-3 text-[13px]">{survey.id}</td>
+                  <td className="px-5 py-3 text-[13px]">
                     <button type="button" onClick={() => setSelected((current) => (current === survey.id ? null : survey.id))} className="text-left text-[#4f71dc] hover:underline">
                       {survey.name}
                     </button>
                   </td>
-                  <td className="px-5 py-5">{survey.createdAt}</td>
-                  <td className="px-5 py-5">
+                  <td className="px-5 py-3 text-[13px]">{survey.createdAt}</td>
+                  <td className="px-5 py-3 text-[13px]">
                     <span className={survey.active ? "text-[#71ce87]" : "text-slate-400"}>{survey.active ? "Активный" : "Отключен"}</span>
                   </td>
                 </tr>
@@ -377,48 +360,40 @@ export function QuestionnaireView() {
       </section>
 
       {editing !== null && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
-          <form onSubmit={save} className="w-full max-w-lg rounded bg-white">
-            <header className="flex items-center justify-between border-b p-6">
-              <b className="uppercase">{editing === "new" ? "Добавить опросник" : "Изменить опросник"}</b>
-              <button type="button" onClick={() => setEditing(null)} aria-label="Закрыть">
-                <X className="h-5 w-5" />
-              </button>
+        <div className="fixed inset-0 z-50 flex bg-white text-[13px]">
+          <form onSubmit={save} className="flex h-full w-full flex-col">
+            <header className="flex h-[58px] shrink-0 items-center justify-between border-b border-[#efefef] px-[14px]">
+              <b className="uppercase">{editing === "new" ? "Добавление" : "Изменить опросник"}</b>
+              <button type="button" onClick={() => setEditing(null)} aria-label="Закрыть"><X className="h-6 w-6" /></button>
             </header>
-            <div className="space-y-4 p-8">
-              <label className="block border-b pb-2">
-                Название
-                <input autoFocus value={draft.name} onChange={(event) => setDraft((value) => ({ ...value, name: event.target.value }))} className="mt-3 block w-full outline-none" />
-              </label>
-              <label className="block border-b pb-2">
-                Организация
-                <select value={draft.organization} onChange={(event) => setDraft((value) => ({ ...value, organization: event.target.value }))} className="mt-3 block w-full bg-white outline-none">
-                  {organizations.map((item) => (
-                    <option key={item}>{item}</option>
-                  ))}
-                </select>
-              </label>
-              <label className="block border-b pb-2">
-                Тип магазина
-                <select value={draft.storeType} onChange={(event) => setDraft((value) => ({ ...value, storeType: event.target.value }))} className="mt-3 block w-full bg-white outline-none">
-                  {storeTypes.map((item) => (
-                    <option key={item}>{item}</option>
-                  ))}
-                </select>
-              </label>
-              <label className="block border-b pb-2">
-                Комментарий
-                <textarea value={draft.comment} onChange={(event) => setDraft((value) => ({ ...value, comment: event.target.value }))} rows={3} className="mt-3 block w-full resize-none outline-none" />
-              </label>
-              <label className="flex items-center gap-3 font-medium">
-                <input type="checkbox" checked={draft.active} onChange={(event) => setDraft((value) => ({ ...value, active: event.target.checked }))} className="h-5 w-5 accent-[#4f71dc]" />
-                Активный
-              </label>
+            <div className="grid min-h-0 flex-1 grid-cols-[405px_minmax(0,1fr)]">
+              <aside className="space-y-[10px] overflow-y-auto border-r border-[#efefef] px-[14px] py-[16px] pr-[60px]">
+                <LineField label="Название" autoFocus value={draft.name} onChange={(value) => setDraft((current) => ({ ...current, name: value }))} />
+                <LineField label="Порядковый номер" value={orderNo} onChange={setOrderNo} />
+                <LineSelect label="Организация" value={draft.organization} onChange={(value) => setDraft((current) => ({ ...current, organization: value }))} options={organizations} />
+                <LineSelect label="Тип клиента" value={draft.storeType} onChange={(value) => setDraft((current) => ({ ...current, storeType: value }))} options={storeTypes} />
+                <div className="space-y-[12px] pt-[10px]">
+                  <CheckBox checked={flags.required} onChange={(value) => setFlags((current) => ({ ...current, required: value }))} label="Обязательный" />
+                  <CheckBox checked={flags.storeCheck} onChange={(value) => setFlags((current) => ({ ...current, storeCheck: value }))} label="Store Check" />
+                  <CheckBox checked={draft.active} onChange={(value) => setDraft((current) => ({ ...current, active: value }))} label="Активный" />
+                  <CheckBox checked={flags.scoring} onChange={(value) => setFlags((current) => ({ ...current, scoring: value }))} label="Имеет систему оценки" />
+                  <CheckBox checked={flags.perfect} onChange={(value) => setFlags((current) => ({ ...current, perfect: value }))} label="Perfect Store" />
+                </div>
+                <LineField label="Оставить комментарий..." value={draft.comment} onChange={(value) => setDraft((current) => ({ ...current, comment: value }))} />
+              </aside>
+              <main className="min-w-0 overflow-y-auto bg-[#f4f4f4] px-[14px] py-[12px]">
+                <p className="text-[13px] font-semibold">Список вопросов</p>
+                <div className="mt-[10px] bg-white shadow-[0_1px_6px_rgba(0,0,0,0.12)]">
+                  <div className="flex h-[60px] items-center justify-between bg-[#f2f5f8] px-[20px]"><b className="text-[15px]">Вопрос № 1</b><button type="button" className="flex h-[30px] w-[30px] items-center justify-center rounded-[3px] bg-[#4f71dc] text-white">+</button></div>
+                  <div className="grid grid-cols-2 gap-[20px] px-[20px] py-[16px]">
+                    <div className="space-y-[10px]"><LineField label="Напишите вопрос" value="" onChange={() => {}} /><LineSelect label="Тип" value="" onChange={() => {}} options={[]} /><LineField label="Максимум ответов" value="" onChange={() => {}} /><LineSelect label="Формат" value="" onChange={() => {}} options={[]} /><LineField label="Порядковый номер" value="" onChange={() => {}} /><CheckBox checked={false} onChange={() => {}} label="Обязательный вопрос" /></div>
+                    <div><p className="text-[18px] font-semibold">Ответы</p><div className="mt-[14px] flex items-center justify-between border-b border-[#d5dae1] pb-[8px] font-semibold"><span>Ответ #1</span><span className="text-[18px]">+</span></div></div>
+                  </div>
+                </div>
+              </main>
             </div>
-            <footer className="flex justify-end border-t p-5">
-              <button type="submit" className="rounded bg-[#71ce87] px-5 py-3 font-semibold text-white hover:brightness-95">
-                Сохранить
-              </button>
+            <footer className="flex h-[56px] shrink-0 items-center justify-end border-t border-[#efefef] px-[14px]">
+              <button type="submit" className="text-[12px] font-bold uppercase text-[#0a9ddb]">Сохранить</button>
             </footer>
           </form>
         </div>
@@ -455,6 +430,6 @@ export function QuestionnaireView() {
           </div>
         </div>
       )}
-    </main>
+    </RefPage>
   )
 }

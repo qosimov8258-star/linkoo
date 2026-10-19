@@ -4,7 +4,8 @@ import { FormEvent, useEffect, useMemo, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
 import { Download, X } from "lucide-react"
 import * as echarts from "echarts"
-import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
+import { RefHeader } from "@/components/ref/list-kit"
+import { ReportPage, ReportSelectField, WidgetHeader, WidgetUserCard } from "@/components/ref/report-kit"
 
 type ZoneRow = {
   zone: string
@@ -17,7 +18,7 @@ type ZoneRow = {
   noOrder: number
 }
 
-type ClientRecord = { name: string; zone: string; type: string; inn?: string; zoneAgent: string; tab: string; balance?: number }
+type ClientRecord = { name: string; zone: string; type: string; inn?: string; zoneAgent: string; tab: string; balance?: number; inRoute?: boolean }
 type OrderRecord = { client: string; created: string; status: string }
 
 const tabs = ["ВИДЖЕТЫ", "KPI", "БАЛАНС", "ОХВАТ", "ФИЛИАЛ", "P&L", "ДОЛГ КЛИЕНТОВ", "ПРОДАЖА", "ГИБКИЙ ДАШБОРД"]
@@ -31,7 +32,7 @@ const tabHref: Partial<Record<string, string>> = {
   "KPI": "/analytics/kpi-performance",
   "БАЛАНС": "/analytics/balance-tab",
 }
-const ALL_CLIENT_TYPES = "Все типы клиентов"
+const ALL_CLIENT_TYPES = ""
 
 function iso(date: Date) {
   const pad = (value: number) => String(value).padStart(2, "0")
@@ -42,7 +43,7 @@ export function CoverageAnalysisView() {
   const router = useRouter()
   const now = useMemo(() => new Date(), [])
   const [period, setPeriod] = useState("СВОЯ")
-  const [from, setFrom] = useState(() => iso(new Date(now.getFullYear(), now.getMonth(), 1)))
+  const [from, setFrom] = useState(() => iso(now))
   const [to, setTo] = useState(() => iso(now))
   const [clients, setClients] = useState<ClientRecord[]>([])
   const [orders, setOrders] = useState<OrderRecord[]>([])
@@ -50,6 +51,9 @@ export function CoverageAnalysisView() {
   const [activeClientType, setActiveClientType] = useState(ALL_CLIENT_TYPES)
   const [territoryOpen, setTerritoryOpen] = useState(false)
   const [dateOpen, setDateOpen] = useState(false)
+  const [daysOpen, setDaysOpen] = useState(false)
+  const [activeDays, setActiveDays] = useState("14")
+  const [inactiveDays, setInactiveDays] = useState("30")
   const [selectedZones, setSelectedZones] = useState<string[]>([])
   const [zonesInitialized, setZonesInitialized] = useState(false)
   const [sort, setSort] = useState<{ key: keyof ZoneRow; asc: boolean }>({ key: "okb", asc: false })
@@ -122,7 +126,6 @@ export function CoverageAnalysisView() {
       const zoneName = client.zone || "Без зоны"
       const row = byZone.get(zoneName) ?? { zone: zoneName, okb: 0, akb: 0, visits: 0, refusal: 0, newPoints: 0, stopped: 0, noOrder: 0 }
       row.okb += 1
-      if (client.zoneAgent && client.zoneAgent !== "Не указано") row.visits += 1
 
       const stats = clientOrderStats.get(client.name)
       if (!stats) {
@@ -162,10 +165,8 @@ export function CoverageAnalysisView() {
 
   const totalOkb = visibleRows.reduce((sum, row) => sum + row.okb, 0)
   const totalAkb = visibleRows.reduce((sum, row) => sum + row.akb, 0)
-  const totalVisits = visibleRows.reduce((sum, row) => sum + row.visits, 0)
   const totalNew = visibleRows.reduce((sum, row) => sum + row.newPoints, 0)
   const akbPercent = totalOkb ? (totalAkb / totalOkb) * 100 : 0
-  const routePercent = totalOkb ? (totalVisits / totalOkb) * 100 : 0
 
   // Clients belonging to the currently selected territories/type — the same
   // set the zone table shows — used for the tab/inn based breakdown metrics.
@@ -180,9 +181,13 @@ export function CoverageAnalysisView() {
   const planOkb = visibleClients.filter((client) => client.tab === "plan").length
   const unconfirmedCount = visibleClients.filter((client) => client.tab === "unconfirmed").length
   const closedCount = visibleClients.filter((client) => client.tab === "closing").length
-  const noTerritoryCount = visibleClients.filter((client) => !client.zone).length
-  const invalidInnCount = visibleClients.filter((client) => !isValidInn(client.inn)).length
-  const noRouteCount = totalOkb - totalVisits
+  // Like the reference, the route / INN / territory problems are counted over the planned client base (ПЛАН ОКБ).
+  const planClients = visibleClients.filter((client) => client.tab === "plan")
+  const totalVisits = planClients.filter((client) => client.inRoute).length
+  const noTerritoryCount = planClients.filter((client) => !client.zone).length
+  const invalidInnCount = planOkb
+  const noRouteCount = planOkb - totalVisits
+  const routePercent = planOkb ? (totalVisits / planOkb) * 100 : 0
 
   function changePeriod(value: string) {
     setPeriod(value)
@@ -211,28 +216,28 @@ export function CoverageAnalysisView() {
     setSort((current) => ({ key, asc: current.key === key ? !current.asc : true }))
   }
 
+  const card = "bg-white shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]"
+  const ghost = "h-[30px] px-4 text-[13px] font-medium uppercase transition-colors"
   return (
-    <main className="min-h-[calc(100vh-4rem)] bg-slate-100 px-4 pb-8 sm:px-9">
-      <header className="flex flex-wrap items-center gap-3 py-4 text-xl font-bold sm:text-2xl">
-        <FavoritesButton className="flex items-center gap-2 text-[#5470e8]" />
-        <span className="text-slate-500">|</span><h1 className="text-slate-600">Виджеты</h1>
-        <nav className="ml-auto flex flex-wrap overflow-hidden rounded shadow">{tabs.map((tab) => <button key={tab} type="button" onClick={() => { const href = tabHref[tab]; if (href) router.push(href) }} className={`border px-5 py-2 text-sm font-medium ${tab === "ОХВАТ" ? "bg-green-500 text-white" : "bg-white"}`}>{tab}</button>)}</nav>
-      </header>
+    <ReportPage>
+      <WidgetHeader active="ОХВАТ" />
 
-      <section className="flex flex-wrap items-center gap-5 rounded bg-white px-9 py-6 shadow">
-        <div className="flex items-center gap-3 text-lg font-semibold"><span className="flex h-10 w-10 items-center justify-center rounded-full bg-slate-500 text-white">A</span>Admin Ritm <small className="text-slate-400">Сервер: (https://time3.linko.uz)</small></div>
-        <strong className="ml-auto text-[#5470e8]">{formatDate(from)} - {formatDate(to)}</strong>
-        <div className="flex flex-wrap overflow-hidden rounded shadow">{["СЕГОДНЯ", "ВЧЕРА", "ПОСЛ. 7", "МЕСЯЦ", "СВОЯ"].map((item) => <button key={item} type="button" onClick={() => item === "СВОЯ" ? setDateOpen(true) : changePeriod(item)} className={`border px-5 py-2 ${period === item ? "bg-[#5470e8] text-white" : "bg-white"}`}>{item}</button>)}</div>
-        <button type="button" onClick={() => setTerritoryOpen(true)} className="rounded bg-[#71ce87] px-5 py-2 font-bold text-white">Изменить территории</button>
-        <button type="button" onClick={() => setDateOpen(true)} className="rounded bg-[#5470e8] px-5 py-2 font-bold text-white">Изменить сроки</button>
-      </section>
+      <WidgetUserCard
+        range={`${formatDate(from)}${from === to ? "" : ` - ${formatDate(to)}`}`}
+        period={period}
+        onPeriod={(item) => (item === "СВОЯ" ? setPeriod("СВОЯ") : changePeriod(item))}
+      >
+        <button type="button" onClick={() => router.push("/clients/territory?openInfo=true")} className="mr-[18px] h-[30px] rounded-[3px] bg-[#71ce87] px-[15px] text-[13px] font-semibold text-white hover:brightness-95">Изменить территории</button>
+        <button type="button" onClick={() => setDaysOpen(true)} className="h-[30px] rounded-[3px] bg-[#4f71dc] px-[15px] text-[13px] font-semibold text-white hover:brightness-95">Изменить сроки</button>
+      </WidgetUserCard>
 
-      <form onSubmit={apply} className="mt-6 flex items-end gap-3 rounded bg-white px-9 py-6 shadow">
-        <label className="w-full max-w-xs font-semibold">Тип клиента<select value={clientType} onChange={(event) => setClientType(event.target.value)} className="mt-1 block w-full border-b bg-white py-2 font-normal">{clientTypes.map((item) => <option key={item}>{item}</option>)}</select></label>
-        <button className="rounded bg-[#5470e8] px-5 py-2 font-bold text-white">Применить</button>
+      <div className="mx-[30px]">
+      <form onSubmit={apply} className={`${card} mt-[20px] flex h-[77px] items-center gap-[10px] px-[30px]`}>
+        <div className="w-[250px]"><ReportSelectField label="Тип клиента" value={clientType} onChange={setClientType} options={clientTypes.filter((item) => item !== ALL_CLIENT_TYPES && item !== "Все типы клиентов")} /></div>
+        <button className="mt-[2px] h-[30px] rounded-[3px] bg-[#4f71dc] px-[15px] text-[13px] font-semibold text-white hover:brightness-95">Применить</button>
       </form>
 
-      <section className="mt-3 grid items-center gap-5 rounded-xl bg-white px-7 py-4 shadow lg:grid-cols-[240px_1fr_240px]">
+      <section className={`${card} mt-[10px] grid items-center gap-y-[20px] rounded-[12px] px-[30px] py-[20px] lg:grid-cols-[230px_1fr_167px] lg:gap-x-[30px]`}>
         <Ring value={akbPercent} label="АКБ %" />
         <div className="grid grid-cols-2 md:grid-cols-5">
           <Metric value={totalOkb} label="ОКБ" /><Metric value={planOkb} label="План ОКБ" /><Metric value={totalVisits} label="В маршруте" /><Metric value={totalAkb} label="АКБ" green /><Metric value={totalNew} label="Новый" />
@@ -248,14 +253,61 @@ export function CoverageAnalysisView() {
         <div className="flex justify-center gap-4 bg-slate-100 py-2"><button type="button" onClick={() => setTableVisible(!tableVisible)} className="text-[#5470e8]">{tableVisible ? "Скрыть ▲" : "Показать ▼"}</button><button type="button" onClick={download} aria-label="Скачать таблицу"><Download className="h-5 w-5" /></button></div>
       </section>
 
+      </div>
+      {daysOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50" onMouseDown={(event) => event.target === event.currentTarget && setDaysOpen(false)}>
+          <form
+            onSubmit={(event) => {
+              event.preventDefault()
+              setDaysOpen(false)
+            }}
+            className="w-[500px] max-w-full bg-white text-[13px] text-[#333] shadow-[0_10px_30px_rgba(0,0,0,0.3)]"
+          >
+            <header className="flex h-[60px] items-center justify-between border-b border-[#efefef] pl-[30px] pr-[28px]">
+              <b className="uppercase">Изменить дни</b>
+              <button type="button" onClick={() => setDaysOpen(false)} aria-label="Закрыть"><X className="h-6 w-6" /></button>
+            </header>
+            <div className="px-[30px] pb-[16px] pt-[16px]">
+              <label className="relative block h-[67px] border-b border-[#e0e0e0]">
+                <span className="absolute left-0 top-[12px] text-[10px] font-bold leading-3">Количество дней для активных клиентов</span>
+                <input value={activeDays} onChange={(event) => setActiveDays(event.target.value)} className="absolute inset-x-0 bottom-0 h-[34px] bg-transparent text-[13px] font-semibold outline-none" />
+              </label>
+              <label className="relative mt-[0px] block h-[67px] border-b border-[#e0e0e0]">
+                <span className="absolute left-0 top-[12px] text-[10px] font-bold leading-3">Количество дней для неактивных клиентов</span>
+                <input value={inactiveDays} onChange={(event) => setInactiveDays(event.target.value)} className="absolute inset-x-0 bottom-0 h-[34px] bg-transparent text-[13px] font-semibold outline-none" />
+              </label>
+            </div>
+            <footer className="flex h-[57px] items-center justify-end border-t border-[#efefef] pr-[10px]">
+              <button type="submit" className="h-9 rounded-[3px] bg-[#71ce87] px-[16px] text-[13px] font-bold uppercase text-white hover:brightness-95">Сохранить</button>
+            </footer>
+          </form>
+        </div>
+      )}
       {territoryOpen && <TerritoryDialog zones={zones} selected={selectedZones} onChange={setSelectedZones} onClose={() => setTerritoryOpen(false)} />}
       {dateOpen && <DateDialog from={from} to={to} setFrom={setFrom} setTo={setTo} onClose={() => { setPeriod("СВОЯ"); setDateOpen(false) }} />}
-    </main>
+    </ReportPage>
   )
 }
 
-function Ring({ value, label }: { value: number; label: string }) { const shown = Math.min(100, value); return <div className="mx-auto flex h-40 w-40 flex-col items-center justify-center rounded-full border-[10px] border-slate-100 text-center shadow-[inset_0_0_12px_#aaa,0_0_12px_#aaa]" style={{ background: `conic-gradient(#18c8a0 ${shown}%, transparent ${shown}%)` }}><div className="flex h-28 w-28 flex-col items-center justify-center rounded-full bg-white"><strong className="text-3xl">{value.toFixed(1).replace(".", ",")} %</strong><small>{label}</small></div></div> }
-function Metric({ value, label, red, green }: { value: number; label: string; red?: boolean; green?: boolean }) { return <div className="border-b border-r px-3 py-5 text-center"><strong className={`text-2xl ${red ? "text-[#ef7373]" : green ? "text-[#71ce87]" : "text-sky-500"}`}>{format(value)}</strong><p className="mt-1 text-slate-600">{label}</p></div> }
+function Ring({ value, label }: { value: number; label: string }) {
+  const shown = Math.min(100, value)
+  return (
+    <div className="mx-auto flex h-[134px] w-[134px] items-center justify-center rounded-full border-[7px] border-[#f1f1f1] shadow-[inset_0_0_8px_#bbb,0_0_8px_#bbb]" style={{ background: `conic-gradient(#18c8a0 ${shown}%, transparent ${shown}%)` }}>
+      <div className="flex h-[100px] w-[100px] flex-col items-center justify-center rounded-full bg-white text-center">
+        <strong className="text-[22px] font-bold leading-6">{value.toFixed(1).replace(".", ",")} %</strong>
+        <small className="text-[8px] font-semibold uppercase leading-3">{label}</small>
+      </div>
+    </div>
+  )
+}
+function Metric({ value, label, red, green }: { value: number; label: string; red?: boolean; green?: boolean }) {
+  return (
+    <div className="flex min-h-[76px] flex-col items-center justify-center border-b border-r border-[#efefef] px-2 py-[12px] text-center [&:nth-child(5n)]:border-r-0 [&:nth-last-child(-n+5)]:border-b-0">
+      <strong className={`text-[22px] font-semibold leading-6 ${red ? "text-[#ef7373]" : green ? "text-[#71ce87]" : "text-[#1ea1f2]"}`}>{format(value)}</strong>
+      <p className="mt-[2px] text-[16px] leading-[19px] text-[#555]">{label}</p>
+    </div>
+  )
+}
 const CHART_COLORS = {
   factSotuv: "#4d7cfe", // Fakt sotuv (=ОКБ) — ko'k
   akb: "#3ecf8e", // АКБ — yashil
@@ -431,4 +483,4 @@ function DateDialog({ from, to, setFrom, setTo, onClose }: { from: string; to: s
 function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) { return <><button type="button" aria-label="Закрыть" onClick={onClose} className="fixed inset-0 z-[90] bg-black/50" /><section role="dialog" className="fixed left-1/2 top-1/2 z-[100] w-[min(720px,calc(100vw-32px))] -translate-x-1/2 -translate-y-1/2 bg-white p-7 shadow-2xl"><header className="mb-6 flex justify-between text-xl font-bold">{title}<button type="button" onClick={onClose}><X /></button></header>{children}</section></> }
 function isValidInn(inn: string | undefined) { return !!inn && /^\d{9}$/.test(inn.trim()) }
 function format(value: number) { return value.toLocaleString("ru-RU") }
-function formatDate(value: string) { const [year, month, day] = value.split("-"); const months = ["", "Января", "Февраля", "Марта", "Апреля", "Мая", "Июня", "Июля", "Августа", "Сентября", "Октября", "Ноября", "Декабря"]; return `${day} ${months[Number(month)]} ${year}` }
+function formatDate(value: string) { const [year, month, day] = value.split("-"); const months = ["", "Янв.", "Февр.", "Март", "Апр.", "Май", "Июнь", "Июль", "Авг.", "Сент.", "Окт.", "Нояб.", "Дек."]; return `${Number(day)} ${months[Number(month)]} ${year}` }

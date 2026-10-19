@@ -46,7 +46,7 @@ function normalizeCurrency(value: unknown): keyof Money {
 export async function listVansels(): Promise<Vansel[]> {
   const db = getDb()
   await ensureSchema(db)
-  const employees = (await db.prepare("SELECT id, first_name, last_name FROM employees ORDER BY id DESC").all()) as EmployeeRow[]
+  const employees = (await db.prepare("SELECT id, first_name, last_name FROM employees WHERE id IN (SELECT DISTINCT employee_id FROM vansell_transactions) ORDER BY id ASC").all()) as EmployeeRow[]
   const allTx = (await db.prepare("SELECT * FROM vansell_transactions").all()) as TxRow[]
 
   const cashByEmployee = new Map<number, Money>()
@@ -60,10 +60,10 @@ export async function listVansels(): Promise<Vansel[]> {
   return employees.map((employee) => ({
     id: employee.id,
     name: `${employee.first_name} ${employee.last_name}`.trim(),
-    opening: zeroMoney(),
+    opening: cashByEmployee.get(employee.id) ?? zeroMoney(),
     transferToWarehouse: zeroMoney(),
     transferReturn: zeroMoney(),
-    cash: cashByEmployee.get(employee.id) ?? zeroMoney(),
+    cash: zeroMoney(),
     transferred: zeroMoney(),
   }))
 }

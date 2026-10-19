@@ -1,9 +1,9 @@
 "use client"
 
-import Image from "next/image"
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react"
-import { ChevronDown, ChevronLeft, ChevronRight, ListFilter, UserRound, X } from "lucide-react"
-import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
+import { ChevronDown, ChevronLeft, X } from "lucide-react"
+import { RI, RefHeader } from "@/components/ref/list-kit"
+import { ReportEmpty, ReportPage } from "@/components/ref/report-kit"
 
 function inputDate(date: Date) {
   const year = date.getFullYear()
@@ -22,12 +22,11 @@ function currentMonthEnd() {
   return inputDate(new Date(today.getFullYear(), today.getMonth() + 1, 0))
 }
 
+const SHORT_MONTHS = ["Янв.", "Февр.", "Март", "Апр.", "Май", "Июнь", "Июль", "Авг.", "Сент.", "Окт.", "Нояб.", "Дек."]
+
 function formatDate(value: string) {
-  return new Intl.DateTimeFormat("ru-RU", {
-    day: "2-digit",
-    month: "long",
-    year: "numeric",
-  }).format(new Date(`${value}T00:00:00`))
+  const [year, month, day] = value.split("-").map(Number)
+  return `${day} ${SHORT_MONTHS[month - 1]} ${year}`
 }
 
 export function PhotoReportReviewView() {
@@ -44,6 +43,7 @@ export function PhotoReportReviewView() {
   const [draftEquipment, setDraftEquipment] = useState("")
   const [clientType, setClientType] = useState("")
   const [equipment, setEquipment] = useState("")
+  const [scrolled, setScrolled] = useState(false)
   const [employeeNames, setEmployeeNames] = useState<string[]>([])
 
   // surveys-repo and survey-plans-repo (the only survey-related tables in
@@ -105,27 +105,23 @@ export function PhotoReportReviewView() {
   }
 
   return (
-    <main className="min-h-[calc(100vh-4rem)] bg-slate-100">
-      <header className="relative flex flex-wrap items-center justify-between gap-4 border-b border-slate-200 px-5 py-4 sm:px-10">
-        <div className="flex items-center gap-3 text-xl font-bold sm:text-2xl">
-          <FavoritesButton className="flex items-center gap-2 text-[#5470e8]" />
-          <span className="text-slate-500">|</span>
-          <h1 className="text-slate-600">Активность</h1>
-        </div>
-        <div className="flex flex-wrap items-center gap-5">
-          <strong className="text-[#5470e8]">
+    <ReportPage>
+      <header className="relative pl-[30px] pr-[38px]">
+        <RefHeader title="Активность">
+          <strong className="mr-[10px] text-[13px] font-bold text-[#4f71dc]">
             {formatDate(range.from)} - {formatDate(range.to)}
           </strong>
           <button
             type="button"
+            ref={filterButtonRef}
             onClick={() => setFiltersOpen((value) => !value)}
             aria-expanded={filtersOpen}
-            className="inline-flex items-center gap-3 rounded-md bg-[#5470e8] px-5 py-2.5 font-semibold text-white hover:brightness-95"
+            className="flex h-[30px] items-center rounded-[5px] bg-[#4f71dc] pl-3 pr-4 text-[13px] font-semibold text-white hover:brightness-95"
           >
-            <ListFilter className="h-5 w-5" />
+            <svg viewBox="0 0 24 24" className="mr-2 h-[18px] w-[18px] fill-white" aria-hidden><path d={RI.filter} /></svg>
             Показать фильтр
           </button>
-        </div>
+        </RefHeader>
 
         {filtersOpen && (
           <form
@@ -184,55 +180,52 @@ export function PhotoReportReviewView() {
         )}
       </header>
 
-      <section className="relative border-b border-slate-200 bg-white">
-        <button type="button" onClick={() => scrollEmployees(-1)} aria-label="Предыдущие сотрудники" className="absolute left-0 top-0 z-20 flex h-full w-10 items-center justify-center bg-black/25 text-white hover:bg-black/40">
-          <ChevronLeft className="h-7 w-7" />
-        </button>
-        <div ref={stripRef} className="flex overflow-x-auto px-0 scrollbar-none">
+      <section className="relative h-[67px] bg-white">
+        <div ref={stripRef} onScroll={(event) => setScrolled(event.currentTarget.scrollLeft > 0)} className="flex h-full overflow-x-auto scrollbar-none">
           <button
             type="button"
             onClick={() => setActiveEmployee("Все")}
-            className={`flex w-[118px] shrink-0 items-center gap-3 px-5 py-4 text-left ${activeEmployee === "Все" ? "bg-slate-100" : "hover:bg-slate-50"}`}
+            className={`flex shrink-0 items-center gap-[7px] px-[15px] text-left ${activeEmployee === "Все" ? "bg-[#f2f5f8]" : ""}`}
           >
-            <span className="flex h-11 w-11 items-center justify-center rounded-full bg-slate-400 text-white">
-              <UserRound className="h-6 w-6 fill-white" />
+            <span className="flex h-[35px] w-[35px] items-center justify-center rounded-full bg-[#a8adb7] text-white">
+              <svg viewBox="0 0 24 24" className="h-[22px] w-[22px] fill-white" aria-hidden><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z" /></svg>
             </span>
-            <span><strong className="block text-base">Все</strong><span className="text-slate-500">0</span></span>
+            <span className="text-[13px] font-bold leading-[17px]">Все<span className="block font-normal">0</span></span>
           </button>
           {employeeNames.map((name, index) => (
             <button
               key={`${name}-${index}`}
               type="button"
               onClick={() => setActiveEmployee(name)}
-              className={`w-[190px] shrink-0 border-l border-slate-200 px-4 py-2 text-left ${activeEmployee === name ? "bg-slate-100" : "hover:bg-slate-50"}`}
+              className={`flex shrink-0 flex-col justify-center border-l border-[#efefef] px-[10px] text-center ${activeEmployee === name ? "bg-[#f2f5f8]" : ""}`}
             >
-              <strong className="block truncate" title={name}>{name}</strong>
-              <span className="mt-1 block bg-[#5c6df3] text-center text-white">0</span>
-              <span className="block text-center text-slate-500">0 SUM</span>
+              <strong className="block whitespace-nowrap text-[13px] font-bold leading-[17px]" title={name}>{name}</strong>
+              <span className="mt-[2px] block h-[18px] min-w-[85px] bg-[#5c6df3] text-[12px] leading-[18px] text-white">0</span>
+              <span className="mt-[2px] block text-[12px] leading-4 text-[#555]">0 SUM</span>
             </button>
           ))}
         </div>
-        <button type="button" onClick={() => scrollEmployees(1)} aria-label="Следующие сотрудники" className="absolute right-0 top-0 z-20 flex h-full w-14 items-center justify-center rounded-l-full bg-black/25 text-white hover:bg-black/40">
-          <ChevronRight className="h-8 w-8" />
+        {scrolled && (
+          <button type="button" onClick={() => scrollEmployees(-1)} aria-label="Предыдущие сотрудники" className="absolute left-0 top-0 z-20 flex h-full w-10 items-center justify-center bg-black/25 text-white hover:bg-black/40">
+            <ChevronLeft className="h-6 w-6" />
+          </button>
+        )}
+        <button type="button" onClick={() => scrollEmployees(1)} aria-label="Следующие сотрудники" className="absolute right-0 top-[1px] z-20 flex h-[65px] w-[40px] items-center justify-center rounded-l-full bg-[#a8a8a8]/80 text-[15px] font-bold text-[#2f3a87]">
+          »
         </button>
       </section>
 
-      <section className="flex min-h-[530px] flex-col items-center justify-center px-5 py-16">
-        <Image src="/robot-mascot.png" alt="Робот-помощник" width={150} height={150} priority className="h-36 w-36 object-contain" />
-        <p className="mt-7 text-lg text-slate-400">
-          {activeEmployee === "Все"
-            ? "По вашему запросу ничего не найдено..."
-            : `${activeEmployee}: фотоотчеты не найдены...`}
+      <ReportEmpty
+        className="pb-10 pt-[65px]"
+        text={activeEmployee === "Все" ? undefined : `${activeEmployee}: фотоотчеты не найдены...`}
+      />
+      {(clientType || equipment) && (
+        <p className="pb-6 text-center text-[13px] text-[#8c8c8c]">
+          {clientType && `Тип клиента: ${clientType}`}
+          {clientType && equipment && " · "}
+          {equipment && `Оборудование: ${equipment === "yes" ? "Да" : "Нет"}`}
         </p>
-        {(clientType || equipment) && (
-          <p className="mt-2 text-sm text-slate-400">
-            {clientType && `Тип клиента: ${clientType}`}
-            {clientType && equipment && " · "}
-            {equipment && `Оборудование: ${equipment === "yes" ? "Да" : "Нет"}`}
-          </p>
-        )}
-      </section>
-
-    </main>
+      )}
+    </ReportPage>
   )
 }

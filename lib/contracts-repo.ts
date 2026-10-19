@@ -52,7 +52,7 @@ type Row = {
 function formatCreatedAt(raw: string): string {
   const date = new Date(`${raw.replace(" ", "T")}Z`)
   if (Number.isNaN(date.getTime())) return raw
-  return new Intl.DateTimeFormat("ru-RU", { day: "2-digit", month: "short", year: "numeric" }).format(date)
+  return new Intl.DateTimeFormat("ru-RU", { timeZone: "UTC", day: "2-digit", month: "short", year: "numeric" }).format(date)
 }
 
 function rowToContract(row: Row): Contract {

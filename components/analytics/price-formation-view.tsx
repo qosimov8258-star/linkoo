@@ -301,10 +301,10 @@ export function PriceFormationView({ embedded = false }: { embedded?: boolean })
   return (
     <main className={embedded ? "min-w-0 flex-1" : "min-h-[calc(100vh-4rem)] bg-[#f2f5f8] px-7 pb-7"}>
       {!embedded && (
-        <header className="mb-5 flex items-center justify-between">
-          <h1 className="flex items-center text-2xl font-bold text-slate-600">
-            <FavoritesButton className="inline-flex items-center gap-2 text-[#4f71dc]" />
-            <span className="mx-2 text-slate-400">|</span> {t("Формирование цен")}
+        <header className="flex h-[60px] flex-wrap items-center justify-between gap-3">
+          <h1 className="flex items-center text-[18px] font-bold text-[#5d6474]">
+            <FavoritesButton className="flex items-center gap-[5px] text-[18px] font-bold text-[#4f71dc]" />
+            <span className="mx-[11px] inline-block h-[21px] w-[2px] bg-[#5d6474]" /> {t("Формирование цен")}
           </h1>
           <div className="flex items-center gap-3">
             <button type="button" onClick={downloadView2} className="inline-flex items-center gap-2 rounded bg-[#4f71dc] px-4 py-2.5 font-semibold text-white hover:brightness-95">
@@ -313,7 +313,7 @@ export function PriceFormationView({ embedded = false }: { embedded?: boolean })
             <button type="button" onClick={downloadList} className="inline-flex items-center gap-2 rounded bg-[#4f71dc] px-4 py-2.5 font-semibold text-white hover:brightness-95">
               <BarChart3 className="h-4 w-4" /> {t("Скачать")}
             </button>
-            <button type="button" onClick={openAddPrice} className="inline-flex items-center gap-2 rounded bg-[#71ce87] px-5 py-2.5 font-semibold text-white hover:brightness-95">
+            <button type="button" onClick={openAddPrice} className="inline-flex items-center gap-2 h-[30px] rounded-[5px] bg-[#71ce87] px-4 text-[13px] font-semibold text-white hover:brightness-95">
               <DollarSign className="h-4 w-4" /> {t("Добавить цену")}
             </button>
           </div>
@@ -322,9 +322,31 @@ export function PriceFormationView({ embedded = false }: { embedded?: boolean })
 
       <section className="overflow-hidden rounded bg-white shadow">
         <div className="flex flex-wrap items-center gap-4 px-5 py-3">
-          <button type="button" onClick={() => setFilterOpen((value) => !value)} className="inline-flex items-center gap-1 text-[#4f71dc] hover:underline">
+          <button type="button" onClick={() => setFilterOpen((value) => !value)} className="inline-flex w-[318px] shrink-0 items-center gap-1 pl-[5px] text-[13px] text-[#4f71dc] hover:underline">
             {t("Показать фильтр")} <ChevronDown className={`h-4 w-4 transition-transform ${filterOpen ? "rotate-180" : ""}`} />
           </button>
+          <label className="relative ml-[18px] w-[248px]">
+            <input value={query} onChange={(event) => { setQuery(event.target.value); setPage(1) }} placeholder={t("Поиск")} className="w-full border-b border-slate-300 py-2 pr-10 outline-none focus:border-[#4f71dc]" />
+            <Search className="absolute right-2 top-2 h-5 w-5 text-slate-300" />
+          </label>
+          <span className="ml-auto text-slate-500">25</span>
+          <span className="text-slate-500">
+            {filtered.length ? (safePage - 1) * pageSize + 1 : 0} - {Math.min(safePage * pageSize, filtered.length)} {t("из")} {filtered.length}
+          </span>
+          <button type="button" onClick={() => setPage((value) => Math.max(1, value - 1))} disabled={safePage <= 1} aria-label={t("Назад")} className="disabled:opacity-30">
+            <ChevronLeft className="h-5 w-5 text-slate-400" />
+          </button>
+          <button type="button" onClick={() => setPage((value) => Math.min(pageCount, value + 1))} disabled={safePage >= pageCount} aria-label={t("Вперед")} className="disabled:opacity-30">
+            <ChevronRight className="h-5 w-5 text-slate-400" />
+          </button>
+          <button type="button" onClick={downloadList} aria-label={t("Скачать")} className="text-slate-500 hover:text-[#4f71dc]">
+            <Upload className="h-5 w-5 rotate-180" />
+          </button>
+          {embedded && (
+            <button type="button" onClick={openAddPrice} className="inline-flex items-center gap-2 rounded bg-[#71ce87] px-4 py-2 text-sm font-semibold text-white hover:brightness-95">
+              <DollarSign className="h-4 w-4" /> {t("Добавить цену")}
+            </button>
+          )}
         </div>
 
         {filterOpen && (
@@ -372,40 +394,15 @@ export function PriceFormationView({ embedded = false }: { embedded?: boolean })
           </div>
         )}
 
-        <div className="flex flex-wrap items-center gap-4 px-5 py-3">
-          <label className="relative w-64">
-            <input value={query} onChange={(event) => { setQuery(event.target.value); setPage(1) }} placeholder={t("Поиск")} className="w-full border-b border-slate-300 py-2 pr-10 outline-none focus:border-[#4f71dc]" />
-            <Search className="absolute right-2 top-2 h-5 w-5 text-slate-300" />
-          </label>
-          <span className="ml-auto text-slate-500">25</span>
-          <span className="text-slate-500">
-            {filtered.length ? (safePage - 1) * pageSize + 1 : 0} - {Math.min(safePage * pageSize, filtered.length)} {t("из")} {filtered.length}
-          </span>
-          <button type="button" onClick={() => setPage((value) => Math.max(1, value - 1))} disabled={safePage <= 1} aria-label={t("Назад")} className="disabled:opacity-30">
-            <ChevronLeft className="h-5 w-5 text-slate-400" />
-          </button>
-          <button type="button" onClick={() => setPage((value) => Math.min(pageCount, value + 1))} disabled={safePage >= pageCount} aria-label={t("Вперед")} className="disabled:opacity-30">
-            <ChevronRight className="h-5 w-5 text-slate-400" />
-          </button>
-          <button type="button" onClick={downloadList} aria-label={t("Скачать")} className="text-slate-500 hover:text-[#4f71dc]">
-            <Upload className="h-5 w-5 rotate-180" />
-          </button>
-          {embedded && (
-            <button type="button" onClick={openAddPrice} className="inline-flex items-center gap-2 rounded bg-[#71ce87] px-4 py-2 text-sm font-semibold text-white hover:brightness-95">
-              <DollarSign className="h-4 w-4" /> {t("Добавить цену")}
-            </button>
-          )}
-        </div>
-
         <table className="w-full text-left">
           <thead className="bg-[#5d6474] text-white">
             <tr>
-              <th className="px-9 py-5">Название</th>
-              <th className="px-5 py-5">Штрих - код товара</th>
-              <th className="px-5 py-5">Себестоимость</th>
-              <th className="px-5 py-5">Цена(мин)</th>
-              <th className="px-5 py-5">Цена(макс)</th>
-              <th className="px-5 py-5">Дата обновления</th>
+              <th className="px-9 py-4 text-[13px]">Название</th>
+              <th className="px-5 py-4 text-[13px]">Штрих - код товара</th>
+              <th className="px-5 py-4 text-[13px]">Себестоимость</th>
+              <th className="px-5 py-4 text-[13px]">Цена(мин)</th>
+              <th className="px-5 py-4 text-[13px]">Цена(макс)</th>
+              <th className="px-5 py-4 text-[13px]">Дата обновления</th>
             </tr>
           </thead>
           <tbody>
@@ -416,7 +413,7 @@ export function PriceFormationView({ embedded = false }: { embedded?: boolean })
             ) : visible.map((row) => (
               <Fragment key={row.id}>
                 <tr onClick={() => toggleExpand(row)} className="cursor-pointer border-b border-dashed border-slate-300 hover:bg-slate-50">
-                  <td className="px-9 py-4 text-[#4f71dc]">{row.name}</td>
+                  <td className="px-9 py-4">{row.name}</td>
                   <td className="px-5 py-4">{row.barcode}</td>
                   <td className="px-5 py-4">{formatMoney(row.cost)}</td>
                   <td className="px-5 py-4">{formatMoney(row.priceMin)}</td>

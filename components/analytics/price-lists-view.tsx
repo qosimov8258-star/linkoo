@@ -1,5 +1,6 @@
 "use client"
 
+import { CheckBox, LineField, LineSelect, Modal, SaveButton } from "@/components/analytics/catalog-ui"
 import { ChevronLeft, ChevronRight, DollarSign, FileText, Pencil, Plus, Search, Trash2, X } from "lucide-react"
 import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react"
 
@@ -38,6 +39,7 @@ export function PriceListsView({ embedded = false }: { embedded?: boolean }) {
   const [query, setQuery] = useState("")
   const [page, setPage] = useState(1)
   const [editing, setEditing] = useState<PriceList | "new" | null>(null)
+  const [order, setOrder] = useState("")
   const [draft, setDraft] = useState(emptyDraft)
   const [formError, setFormError] = useState("")
   const [saving, setSaving] = useState(false)
@@ -248,10 +250,10 @@ export function PriceListsView({ embedded = false }: { embedded?: boolean }) {
   return (
     <main className={embedded ? "min-w-0 flex-1" : "min-h-[calc(100vh-4rem)] bg-[#f2f5f8] px-7 pb-7"}>
       {!embedded && (
-        <header className="mb-5">
-          <h1 className="flex items-center text-2xl font-bold text-slate-600">
-            <FavoritesButton className="inline-flex items-center gap-2 text-[#4f71dc]" />
-            <span className="mx-2 text-slate-400">|</span> Прайс-листы
+        <header className="flex h-[60px] flex-wrap items-center justify-between gap-3">
+          <h1 className="flex items-center text-[18px] font-bold text-[#5d6474]">
+            <FavoritesButton className="flex items-center gap-[5px] text-[18px] font-bold text-[#4f71dc]" />
+            <span className="mx-[11px] inline-block h-[21px] w-[2px] bg-[#5d6474]" /> Прайс-листы
           </h1>
         </header>
       )}
@@ -265,11 +267,8 @@ export function PriceListsView({ embedded = false }: { embedded?: boolean }) {
 
       <div className="overflow-hidden rounded bg-white shadow">
         <div className="flex flex-wrap items-center gap-4 px-5 py-4">
-          <button type="button" onClick={openCreate} className="inline-flex items-center gap-2 rounded bg-[#4f71dc] px-4 py-2.5 font-semibold text-white hover:brightness-95">
+          <button type="button" onClick={openCreate} className="inline-flex h-[30px] items-center gap-2 rounded-[5px] bg-[#4f71dc] px-4 text-[13px] font-semibold text-white hover:brightness-95">
             <Plus className="h-4 w-4" /> Добавить прайс-лист
-          </button>
-          <button type="button" onClick={() => setImportOpen(true)} className="inline-flex items-center gap-2 rounded bg-[#4f71dc] px-4 py-2.5 font-semibold text-white hover:brightness-95">
-            <FileText className="h-4 w-4" /> Импорт с Excel
           </button>
           <label className="relative ml-4 w-72">
             <input value={query} onChange={(event) => { setQuery(event.target.value); setPage(1) }} placeholder="Поиск" className="w-full border-b border-slate-300 py-2 pr-10 outline-none focus:border-[#4f71dc]" />
@@ -285,7 +284,7 @@ export function PriceListsView({ embedded = false }: { embedded?: boolean }) {
           <button type="button" onClick={() => setPage((value) => Math.min(pageCount, value + 1))} disabled={safePage >= pageCount} aria-label="Вперед" className="disabled:opacity-30">
             <ChevronRight className="h-5 w-5 text-slate-400" />
           </button>
-          <button type="button" onClick={() => openAddPrice()} className="inline-flex items-center gap-2 rounded bg-[#71ce87] px-5 py-2.5 font-semibold text-white hover:brightness-95">
+          <button type="button" onClick={() => openAddPrice()} className="inline-flex items-center gap-2 h-[30px] rounded-[5px] bg-[#71ce87] px-4 text-[13px] font-semibold text-white hover:brightness-95">
             <DollarSign className="h-4 w-4" /> Добавить цену
           </button>
         </div>
@@ -293,12 +292,12 @@ export function PriceListsView({ embedded = false }: { embedded?: boolean }) {
         <table className="w-full text-left">
           <thead className="bg-[#5d6474] text-white">
             <tr>
-              <th className="px-9 py-5">Id</th>
-              <th className="px-5 py-5">Наименование</th>
-              <th className="px-5 py-5">Валюта</th>
-              <th className="px-5 py-5">Дата создания</th>
-              <th className="px-5 py-5">Связанный прайс лист</th>
-              <th className="px-5 py-5">Метод расчета</th>
+              <th className="px-9 py-4 text-[13px]">Id</th>
+              <th className="px-5 py-4 text-[13px]">Наименование</th>
+              <th className="px-5 py-4 text-[13px]">Валюта</th>
+              <th className="px-5 py-4 text-[13px]">Дата создания</th>
+              <th className="px-5 py-4 text-[13px]">Связанный прайс лист</th>
+              <th className="px-5 py-4 text-[13px]">Метод расчета</th>
               <th className="w-32" />
             </tr>
           </thead>
@@ -310,7 +309,7 @@ export function PriceListsView({ embedded = false }: { embedded?: boolean }) {
             ) : visible.map((row) => (
               <tr key={row.id} className="group border-b border-dashed border-slate-300 hover:bg-slate-50">
                 <td className="px-9 py-4">{row.id}</td>
-                <td className="px-5 py-4 text-[#4f71dc]">{row.name}</td>
+                <td className="px-5 py-4">{row.name}</td>
                 <td className="px-5 py-4">{row.currency}</td>
                 <td className="px-5 py-4">{row.createdDate}</td>
                 <td className="px-5 py-4">{row.linkedList}</td>
@@ -342,45 +341,14 @@ export function PriceListsView({ embedded = false }: { embedded?: boolean }) {
       </div>
 
       {editing !== null && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
-          <form onSubmit={save} className="w-full max-w-lg rounded bg-white">
-            <header className="flex items-center justify-between border-b p-6">
-              <b className="uppercase">{editing === "new" ? "Добавить прайс-лист" : "Изменить прайс-лист"}</b>
-              <button type="button" onClick={() => setEditing(null)} aria-label="Закрыть"><X className="h-5 w-5" /></button>
-            </header>
-            <div className="space-y-5 p-8">
-              <label className="block border-b border-slate-200 pb-2 font-medium">
-                Наименование <span className="text-red-500">*</span>
-                <input autoFocus value={draft.name} onChange={(event) => setDraft((value) => ({ ...value, name: event.target.value }))} className="mt-2 block w-full outline-none" />
-              </label>
-              <label className="block border-b border-slate-200 pb-2 font-medium">
-                Валюта <span className="text-red-500">*</span>
-                <select value={draft.currency} onChange={(event) => setDraft((value) => ({ ...value, currency: event.target.value }))} className="mt-2 block w-full bg-white outline-none">
-                  {currencies.map((currency) => <option key={currency}>{currency}</option>)}
-                </select>
-              </label>
-              <label className="block border-b border-slate-200 pb-2 font-medium">
-                Связанный прайс лист
-                <select value={draft.linkedList} onChange={(event) => setDraft((value) => ({ ...value, linkedList: event.target.value }))} className="mt-2 block w-full bg-white outline-none">
-                  <option>Не указано</option>
-                  {rows.map((row) => <option key={row.id}>{row.name}</option>)}
-                </select>
-              </label>
-              <label className="block border-b border-slate-200 pb-2 font-medium">
-                Метод расчета
-                <select value={draft.calcMethod} onChange={(event) => setDraft((value) => ({ ...value, calcMethod: event.target.value }))} className="mt-2 block w-full bg-white outline-none">
-                  {calcMethods.map((method) => <option key={method}>{method}</option>)}
-                </select>
-              </label>
-              {formError && <p className="text-sm font-medium text-rose-600">{formError}</p>}
-            </div>
-            <footer className="flex justify-end border-t p-5">
-              <button type="submit" disabled={saving} className="rounded bg-[#71ce87] px-6 py-3 font-semibold text-white hover:brightness-95 disabled:opacity-60">
-                {saving ? "Сохранение..." : "Сохранить"}
-              </button>
-            </footer>
-          </form>
-        </div>
+        <Modal title={editing === "new" ? "Добавить прайс-лист" : "Изменить прайс-лист"} onClose={() => setEditing(null)} footer={<SaveButton disabled={saving} onClick={() => void save({ preventDefault() {} } as FormEvent)}>{saving ? "Сохранение..." : "Сохранить"}</SaveButton>}>
+          <LineField label="Наименование" required autoFocus value={draft.name} onChange={(value) => setDraft((current) => ({ ...current, name: value }))} />
+          <div className="mt-[10px]"><LineSelect label="Валюта" required value={draft.currency} onChange={(value) => setDraft((current) => ({ ...current, currency: value }))} options={currencies} /></div>
+          <div className="mt-[10px]"><LineField label="Порядок" value={order} onChange={setOrder} /></div>
+          <div className="mt-[16px]"><CheckBox checked={draft.linkedList !== "Не указано"} onChange={(value) => setDraft((current) => ({ ...current, linkedList: value ? (rows[0]?.name ?? "Не указано") : "Не указано" }))} label="Связать прайс-лист" /></div>
+          {draft.linkedList !== "Не указано" && <div className="mt-[10px]"><LineSelect label="Связанный прайс лист" value={draft.linkedList} onChange={(value) => setDraft((current) => ({ ...current, linkedList: value }))} options={rows.map((row) => row.name)} /></div>}
+          {formError && <p className="mt-3 text-[13px] font-medium text-rose-600">{formError}</p>}
+        </Modal>
       )}
 
       {priceModal && (
@@ -443,7 +411,7 @@ export function PriceListsView({ embedded = false }: { embedded?: boolean }) {
               </button>
             </div>
             <footer className="flex justify-end border-t p-5">
-              <button type="button" disabled={!importFile || importSaving} onClick={saveImport} className="rounded bg-[#71ce87] px-5 py-3 font-semibold text-white hover:brightness-95 disabled:opacity-40">
+              <button type="button" disabled={!importFile || importSaving} onClick={saveImport} className="inline-flex items-center h-[30px] rounded-[5px] bg-[#71ce87] px-4 text-[13px] font-semibold text-white hover:brightness-95 disabled:opacity-40">
                 {importSaving ? "Импорт..." : "Сохранить"}
               </button>
             </footer>

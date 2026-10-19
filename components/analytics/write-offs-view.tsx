@@ -1,5 +1,6 @@
 "use client"
 
+import { LineField, LineSelect } from "@/components/analytics/catalog-ui"
 import { Ban, Download, FileText, Minus, Plus, Printer, Search, X, ChevronLeft, ChevronRight, ChevronDown } from "lucide-react"
 import { ChangeEvent, Fragment, FormEvent, useEffect, useMemo, useRef, useState } from "react"
 
@@ -36,6 +37,7 @@ export function WriteOffsView({ embedded = false }: { embedded?: boolean }) {
   const [draftWarehouse, setDraftWarehouse] = useState(warehouses[0])
   const [draftReason, setDraftReason] = useState(reasons[0])
   const [draftComment, setDraftComment] = useState("")
+  const [draftDate, setDraftDate] = useState("")
   const [draftItems, setDraftItems] = useState<DraftItem[]>([])
   const [saving, setSaving] = useState(false)
   const [importOpen, setImportOpen] = useState(false)
@@ -244,17 +246,14 @@ export function WriteOffsView({ embedded = false }: { embedded?: boolean }) {
   return (
     <main className={embedded ? "min-w-0 flex-1" : "min-h-[calc(100vh-4rem)] bg-[#f2f5f8] px-7 pb-7"}>
       {!embedded && (
-        <header className="mb-5 flex items-center justify-between">
-          <h1 className="flex items-center text-2xl font-bold text-slate-600">
-            <FavoritesButton className="inline-flex items-center gap-2 text-[#4f71dc]" />
-            <span className="mx-2 text-slate-400">|</span> Списание
+        <header className="flex h-[60px] flex-wrap items-center justify-between gap-3">
+          <h1 className="flex items-center text-[18px] font-bold text-[#5d6474]">
+            <FavoritesButton className="flex items-center gap-[5px] text-[18px] font-bold text-[#4f71dc]" />
+            <span className="mx-[11px] inline-block h-[21px] w-[2px] bg-[#5d6474]" /> Списание
           </h1>
           <div className="flex items-center gap-4">
-            <button type="button" onClick={openCreate} className="text-[15px] font-medium text-[#ff7a59] hover:underline">
+            <button type="button" onClick={openCreate} className="text-[13px] font-medium text-[#ff7a59] hover:underline">
               Списание товара
-            </button>
-            <button type="button" onClick={() => setImportOpen(true)} className="inline-flex items-center gap-1 text-[15px] font-medium text-[#4f71dc] hover:underline">
-              <FileText className="h-4 w-4" /> Импорт с Excel
             </button>
           </div>
         </header>
@@ -262,25 +261,10 @@ export function WriteOffsView({ embedded = false }: { embedded?: boolean }) {
 
       <section className="overflow-hidden rounded bg-white shadow">
         <div className="flex flex-wrap items-center gap-4 px-5 py-3">
-          <button type="button" onClick={() => setFilterOpen((value) => !value)} className="inline-flex items-center gap-1 text-[#4f71dc] hover:underline">
+          <button type="button" onClick={() => setFilterOpen((value) => !value)} className="inline-flex w-[318px] shrink-0 items-center gap-1 pl-[5px] text-[13px] text-[#4f71dc] hover:underline">
             Показать фильтр <ChevronDown className={`h-4 w-4 transition-transform ${filterOpen ? "rotate-180" : ""}`} />
           </button>
-        </div>
-
-        {filterOpen && (
-          <div className="flex flex-wrap items-center gap-4 border-b border-slate-100 bg-slate-50 px-5 py-3">
-            <label className="text-sm text-slate-600">
-              Склад:{" "}
-              <select value={warehouseFilter} onChange={(event) => { setWarehouseFilter(event.target.value); setPage(1) }} className="ml-1 rounded border border-slate-300 px-2 py-1">
-                <option value="all">Все</option>
-                {warehouses.map((warehouse) => <option key={warehouse} value={warehouse}>{warehouse}</option>)}
-              </select>
-            </label>
-          </div>
-        )}
-
-        <div className="flex flex-wrap items-center gap-4 px-5 py-3">
-          <label className="relative w-64">
+          <label className="relative ml-[18px] w-[248px]">
             <input value={query} onChange={(event) => { setQuery(event.target.value); setPage(1) }} placeholder="Поиск" className="w-full border-b border-slate-300 py-2 pr-10 outline-none focus:border-[#4f71dc]" />
             <Search className="absolute right-2 top-2 h-5 w-5 text-slate-300" />
           </label>
@@ -302,21 +286,30 @@ export function WriteOffsView({ embedded = false }: { embedded?: boolean }) {
               <button type="button" onClick={openCreate} className="text-sm font-medium text-[#ff7a59] hover:underline">
                 Списание товара
               </button>
-              <button type="button" onClick={() => setImportOpen(true)} className="inline-flex items-center gap-1 text-sm font-medium text-[#4f71dc] hover:underline">
-                <FileText className="h-4 w-4" /> Импорт с Excel
-              </button>
             </>
           )}
         </div>
 
+        {filterOpen && (
+          <div className="flex flex-wrap items-center gap-4 border-b border-slate-100 bg-slate-50 px-5 py-3">
+            <label className="text-sm text-slate-600">
+              Склад:{" "}
+              <select value={warehouseFilter} onChange={(event) => { setWarehouseFilter(event.target.value); setPage(1) }} className="ml-1 rounded border border-slate-300 px-2 py-1">
+                <option value="all">Все</option>
+                {warehouses.map((warehouse) => <option key={warehouse} value={warehouse}>{warehouse}</option>)}
+              </select>
+            </label>
+          </div>
+        )}
+
         <table className="w-full text-left">
           <thead className="bg-[#5d6474] text-white">
             <tr>
-              <th className="px-9 py-5">№</th>
-              <th className="px-5 py-5">Создал</th>
-              <th className="px-5 py-5">Склад</th>
-              <th className="px-5 py-5">Дата создания</th>
-              <th className="px-5 py-5">Статус</th>
+              <th className="px-9 py-4 text-[13px]">№</th>
+              <th className="px-5 py-4 text-[13px]">Создал</th>
+              <th className="px-5 py-4 text-[13px]">Склад</th>
+              <th className="px-5 py-4 text-[13px]">Дата создания</th>
+              <th className="px-5 py-4 text-[13px]">Статус</th>
             </tr>
           </thead>
           <tbody>
@@ -328,7 +321,7 @@ export function WriteOffsView({ embedded = false }: { embedded?: boolean }) {
               <Fragment key={row.id}>
                 <tr onClick={() => toggleExpand(row)} className="cursor-pointer border-b border-dashed border-slate-300 hover:bg-slate-50">
                   <td className="px-9 py-4">{row.id}</td>
-                  <td className="px-5 py-4 text-[#4f71dc]">{row.creator}</td>
+                  <td className="px-5 py-4">{row.creator}</td>
                   <td className="px-5 py-4">{row.warehouse}</td>
                   <td className="px-5 py-4">{row.date}</td>
                   <td className="px-5 py-4 text-emerald-500">{row.status}</td>
@@ -408,36 +401,26 @@ export function WriteOffsView({ embedded = false }: { embedded?: boolean }) {
       </section>
 
       {modalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
-          <form onSubmit={save} className="flex max-h-[90vh] w-full max-w-2xl flex-col rounded bg-white">
-            <header className="flex items-center justify-between border-b p-6">
+        <div className="fixed inset-0 z-50 flex bg-white text-[13px]">
+          <form onSubmit={save} className="flex h-full w-full flex-col">
+            <header className="flex h-[58px] shrink-0 items-center justify-between border-b border-[#efefef] px-[14px]">
               <b className="uppercase">Списание товара</b>
               <button type="button" onClick={() => setModalOpen(false)} aria-label="Закрыть"><X className="h-5 w-5" /></button>
             </header>
 
-            <div className="flex-1 space-y-5 overflow-y-auto p-8">
-              <label className="block border-b border-slate-200 pb-2 font-medium">
-                Склад <span className="text-red-500">*</span>
-                <select value={draftWarehouse} onChange={(event) => setDraftWarehouse(event.target.value)} className="mt-2 block w-full bg-white outline-none">
-                  {warehouses.map((warehouse) => <option key={warehouse}>{warehouse}</option>)}
-                </select>
-              </label>
-              <label className="block border-b border-slate-200 pb-2 font-medium">
-                Причина списания <span className="text-red-500">*</span>
-                <select value={draftReason} onChange={(event) => setDraftReason(event.target.value)} className="mt-2 block w-full bg-white outline-none">
-                  {reasons.map((reason) => <option key={reason}>{reason}</option>)}
-                </select>
-              </label>
-              <label className="block border-b border-slate-200 pb-2 font-medium">
-                Комментарий
-                <textarea value={draftComment} onChange={(event) => setDraftComment(event.target.value)} rows={2} className="mt-2 block w-full resize-none outline-none" />
-              </label>
-
+            <div className="grid min-h-0 flex-1 grid-cols-[405px_minmax(0,1fr)]">
+              <aside className="space-y-[10px] overflow-y-auto border-r border-[#efefef] px-[14px] py-[16px] pr-[60px]">
+                <LineSelect label="С какого склада" required value={draftWarehouse} onChange={setDraftWarehouse} options={warehouses} />
+                <LineField label="Выберите дату" required value={draftDate} onChange={setDraftDate} />
+                <LineSelect label="Причина списания" required value={draftReason} onChange={setDraftReason} options={reasons} />
+                <LineField label="Оставить комментарий..." value={draftComment} onChange={setDraftComment} />
+              </aside>
+              <main className="min-w-0 overflow-y-auto px-[14px] py-[12px]">
               <div>
                 <div className="mb-3 flex items-center justify-between">
-                  <p className="font-medium text-slate-800">Товары</p>
+                  <p className="text-[10px] font-semibold">Список товаров</p>
                   <button type="button" onClick={addBlankItem} className="inline-flex items-center gap-1 text-sm text-[#4f71dc] hover:underline">
-                    <Plus className="h-4 w-4" /> добавить товар
+                    добавить товары
                   </button>
                 </div>
 
@@ -488,13 +471,14 @@ export function WriteOffsView({ embedded = false }: { embedded?: boolean }) {
                   </table>
                 )}
               </div>
+              </main>
             </div>
 
-            <footer className="flex items-center justify-between border-t p-5">
+            <footer className="flex h-[56px] shrink-0 items-center justify-between border-t border-[#efefef] px-[14px]">
               <div className="text-sm text-slate-600">
-                Общая сумма: <b>{money(draftTotal)}</b>
+                Общее кол-во: <span className="font-semibold text-[#0a9ddb]">{draftItems.reduce((sum, item) => sum + item.qty, 0)} ед</span>
               </div>
-              <button type="submit" disabled={!draftItems.length || saving} className="rounded bg-[#ff7a59] px-6 py-3 font-semibold text-white hover:brightness-95 disabled:opacity-40">
+              <button type="submit" disabled={!draftItems.length || saving} className="text-[12px] font-bold uppercase text-[#0a9ddb] disabled:opacity-40">
                 {saving ? "Списание..." : "Списать"}
               </button>
             </footer>
@@ -526,7 +510,7 @@ export function WriteOffsView({ embedded = false }: { embedded?: boolean }) {
               </button>
             </div>
             <footer className="flex justify-end border-t p-5">
-              <button type="button" disabled={!importFile || importSaving} onClick={saveImport} className="rounded bg-[#71ce87] px-5 py-3 font-semibold text-white hover:brightness-95 disabled:opacity-40">
+              <button type="button" disabled={!importFile || importSaving} onClick={saveImport} className="inline-flex items-center h-[30px] rounded-[5px] bg-[#71ce87] px-4 text-[13px] font-semibold text-white hover:brightness-95 disabled:opacity-40">
                 {importSaving ? "Импорт..." : "Сохранить"}
               </button>
             </footer>

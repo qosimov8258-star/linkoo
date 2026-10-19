@@ -1,8 +1,9 @@
 "use client"
 
-import { Fragment, useMemo, useState } from "react"
-import { ArrowDown, ArrowUp, Check, ChevronLeft, ChevronRight, Download, Filter, ListChecks, MoreVertical, Printer, Search, X } from "lucide-react"
-import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
+import { Fragment, useMemo, useState, type ReactNode } from "react"
+import { ArrowDown, ArrowUp, Check, ListChecks, MoreVertical, Printer, X } from "lucide-react"
+import { RI, RefCard, RefHeader, RefPage, RefTable, RefTabs, RefToolbar } from "@/components/ref/list-kit"
+import { ReportSelectField } from "@/components/ref/report-kit"
 import { downloadExcelTable } from "@/lib/excel-export"
 
 type Tab = "receipt" | "transfer" | "movement" | "receiptHistory" | "transferHistory"
@@ -43,8 +44,8 @@ function buildMovements(): MovementRow[] {
 
 type Row = ReceiptRow | ReceiptHistoryRow | TransferRow | MovementRow
 
-export function GoodsMovementView() {
-  const [tab, setTab] = useState<Tab>("receipt")
+export function GoodsMovementView({ initialTab = "receipt" }: { initialTab?: Tab }) {
+  const [tab, setTab] = useState<Tab>(initialTab)
   const [query, setQuery] = useState("")
   const [filterOpen, setFilterOpen] = useState(false)
   const [warehouseFilter, setWarehouseFilter] = useState("all")
@@ -117,227 +118,141 @@ export function GoodsMovementView() {
     downloadExcelTable(`plan-priemok-peredach-${tab}`, [header, ...body])
   }
 
+  const tabLabel = tabs.find((item) => item.id === tab)?.label ?? ""
+  const filterPanel = (
+    <div className="w-[390px] bg-white p-6 text-[13px] shadow-[0_3px_10px_rgba(0,0,0,0.16),0_3px_10px_rgba(0,0,0,0.23)]">
+      <div className="mb-6 flex items-center justify-between text-[14px] font-semibold">
+        <span>Фильтр</span>
+        <button type="button" onClick={() => setFilterOpen(false)} aria-label="Закрыть"><X className="h-5 w-5" /></button>
+      </div>
+      <div className="space-y-5">
+        <ReportSelectField label="Склад" value={warehouseFilter === "all" ? "" : warehouseFilter} onChange={(value) => { setWarehouseFilter(value || "all"); setPage(1) }} options={availableWarehouses} />
+        <ReportSelectField label="Тип" value={typeFilter === "all" ? "" : typeFilter} onChange={(value) => { setTypeFilter(value || "all"); setPage(1) }} options={availableTypes} />
+        <button type="button" onClick={() => setFilterOpen(false)} className="h-9 rounded-[3px] bg-[#5d6474] px-5 text-[13px] font-semibold uppercase text-white shadow">Применить</button>
+      </div>
+    </div>
+  )
+  const actions = tab === "movement" ? (
+    <div className="relative">
+      <button type="button" onClick={() => setMenuOpen((value) => !value)} aria-label="Ещё" className="flex h-8 w-8 items-center justify-center text-[#555]">
+        <MoreVertical className="h-5 w-5" />
+      </button>
+      {menuOpen && (
+        <div className="absolute right-0 top-8 z-30 w-52 border border-[#e8e8e8] bg-white py-1 shadow-xl">
+          <button type="button" onClick={() => { downloadExcel(); setMenuOpen(false) }} className="block w-full px-4 py-2 text-left text-[13px] hover:bg-[#f2f5f8]">Скачать список</button>
+          <button type="button" onClick={() => setMenuOpen(false)} className="block w-full px-4 py-2 text-left text-[13px] hover:bg-[#f2f5f8]">Настройка колонок</button>
+        </div>
+      )}
+    </div>
+  ) : null
+  const icons = (
+    <>
+      {tab === "movement" && <ListChecks className="mr-5 h-6 w-6 text-[#555]" />}
+      <button type="button" onClick={downloadExcel} aria-label="Скачать Excel"><svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#555]"><path d={RI.download} /></svg></button>
+    </>
+  )
+  const link = (value: ReactNode) => <b className="font-semibold text-[#1ea1f2]">{value}</b>
+  const emptyText = "По вашему запросу ничего не найдено"
+  const transferCols = "minmax(0,0.6fr) repeat(6,minmax(0,1fr))"
+  const transferHeads = ["№", "Дата запроса", "Склад", "Тип", "Кому", "Передал", "Дата передачи"]
+  const transferRender = (row: TransferRow) => [<span key="n" className="text-[#4f71dc]">{row.no}</span>, row.requestDate, row.warehouse, row.type, row.to, row.sender, row.transferDate]
+
   return (
-    <main className="min-h-[calc(100vh-4rem)] bg-[#f2f5f8] px-7 pb-7">
-      <header className="mb-5 flex items-center justify-between">
-        <h1 className="flex items-center text-2xl font-bold text-slate-600">
-          <FavoritesButton className="inline-flex items-center gap-2 text-[#4f71dc]" />
-          <span className="mx-2 text-slate-400">|</span> План приемок и передач
-        </h1>
-        {tab === "movement" && (
-          <div className="relative">
-            <button type="button" onClick={() => setMenuOpen((value) => !value)} aria-label="Ещё" className="text-slate-500 hover:text-slate-800">
-              <MoreVertical className="h-6 w-6" />
-            </button>
-            {menuOpen && (
-              <div className="absolute right-0 top-8 z-30 w-52 rounded border border-slate-200 bg-white py-1 shadow-xl">
-                <button type="button" onClick={() => { downloadExcel(); setMenuOpen(false) }} className="block w-full px-4 py-2 text-left text-sm hover:bg-slate-50">Скачать список</button>
-                <button type="button" onClick={() => setMenuOpen(false)} className="block w-full px-4 py-2 text-left text-sm hover:bg-slate-50">Настройка колонок</button>
+    <RefPage>
+      <RefHeader title="План приемок и передач">{actions}</RefHeader>
+      <div className="mb-[19px]">
+        <RefTabs labels={tabs.map((item) => item.label)} value={tabLabel} onChange={(label) => { const next = tabs.find((item) => item.label === label); if (next) changeTab(next.id) }} />
+      </div>
+      <RefCard>
+        <RefToolbar
+          linkFilter
+          filterOpen={filterOpen}
+          onToggleFilter={() => setFilterOpen((value) => !value)}
+          filterPanel={filterPanel}
+          query={query}
+          onQuery={(value) => { setQuery(value); setPage(1) }}
+          pageSize={pageSize}
+          onPageSize={() => undefined}
+          from={filteredRows.length ? (safePage - 1) * pageSize + 1 : 0}
+          to={Math.min(safePage * pageSize, filteredRows.length)}
+          total={filteredRows.length}
+          page={safePage}
+          pageCount={pageCount}
+          onPage={setPage}
+          icons={icons}
+        />
+
+        {tab === "receipt" && (
+          <div className="overflow-x-auto bg-white">
+            <div style={{ minWidth: 900 }}>
+              <div className="grid h-[50px] items-center bg-[#5d6474] px-[30px] font-semibold text-white" style={{ gridTemplateColumns: "minmax(0,0.6fr) repeat(4,minmax(0,1fr))" }}>
+                {["№", "От кого", "Тип", "Дата приемки", "Склад"].map((head) => <div key={head} className="px-2">{head}</div>)}
               </div>
-            )}
+              {(visible as ReceiptRow[]).map((row) => (
+                <Fragment key={row.no}>
+                  <div onClick={() => setExpandedReceipt((current) => (current === row.no ? null : row.no))} className="grid min-h-[50px] cursor-pointer items-center border-b border-dotted border-[#d6d6d6] px-[30px] py-[7px] hover:bg-[#f2f5f8]" style={{ gridTemplateColumns: "minmax(0,0.6fr) repeat(4,minmax(0,1fr))" }}>
+                    <div className="px-2 text-[#4f71dc]">{row.no}</div><div className="px-2">{row.person}</div><div className="px-2">{row.type}</div><div className="px-2">{row.date}</div><div className="px-2">{row.warehouse}</div>
+                  </div>
+                  {expandedReceipt === row.no && (
+                    <div className="m-4 border border-[#e8e8e8] bg-white p-6 shadow-sm">
+                      <div className="mb-5 flex items-center justify-end gap-4 text-[#555]">
+                        <button type="button" onClick={() => window.print()} aria-label="Печать"><Printer className="h-5 w-5" /></button>
+                        <button type="button" onClick={() => acceptReceipt(row)} aria-label="Принять" className="flex h-8 w-8 items-center justify-center rounded-full bg-[#4f71dc] text-white hover:brightness-95"><Check className="h-4 w-4" /></button>
+                      </div>
+                      <div className="grid gap-8 lg:grid-cols-[2fr_1fr]">
+                        <div>
+                          <table className="w-full text-left text-[13px]">
+                            <thead><tr className="text-[#555]"><th className="py-2 pr-4">Товар</th><th className="py-2 pr-4">Тип товара</th><th className="py-2 pr-4">Кол-во</th></tr></thead>
+                            <tbody>{row.items.map((item) => <tr key={item.product} className="border-t border-dotted border-[#d6d6d6]"><td className="py-2 pr-4">{item.product}</td><td className="py-2 pr-4">{item.type}</td><td className="py-2 pr-4">{item.qty}</td></tr>)}</tbody>
+                          </table>
+                          <p className="mt-3 font-semibold">Общее количество {row.items[0]?.qty}</p>
+                        </div>
+                        <div>
+                          <p className="text-[#555]">Создал:</p><p className="mb-4 font-semibold">{row.creator}</p>
+                          <p className="text-[#555]">Комментарий:</p><p className="font-semibold">{row.comment}</p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </Fragment>
+              ))}
+              {visible.length === 0 && <div className="px-4 py-16 text-center text-[#666]">{emptyText}</div>}
+            </div>
           </div>
         )}
-      </header>
-
-      <div className="relative space-y-6 pb-8">
-        <div className="grid grid-cols-5 overflow-hidden rounded-sm bg-white shadow">
-          {tabs.map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              onClick={() => changeTab(item.id)}
-              className={`h-16 border-b-4 text-[17px] transition ${tab === item.id ? "border-[#526fe4] text-[#526fe4]" : "border-transparent text-slate-900 hover:bg-slate-50"}`}
-            >
-              {item.label}
-            </button>
-          ))}
-        </div>
-
-        <section className="overflow-hidden rounded-sm bg-white shadow">
-          <div className="flex h-16 flex-wrap items-center gap-4 px-5">
-            <button type="button" onClick={() => setFilterOpen((value) => !value)} className="flex items-center gap-1 text-[#526fe4]">
-              <Filter className="h-4 w-4" />Показать фильтр⌄
-            </button>
-            <label className="relative w-96 max-w-[35vw]">
-              <input value={query} onChange={(event) => { setQuery(event.target.value); setPage(1) }} placeholder="Поиск" className="w-full border-b border-slate-300 px-1 py-2 outline-none focus:border-[#526fe4]" />
-              <Search className="absolute right-1 top-2 h-6 w-6 text-slate-300" />
-            </label>
-            <div className="ml-auto flex items-center gap-5 text-slate-500">
-              <span>25⌄</span>
-              <span>{filteredRows.length ? (safePage - 1) * pageSize + 1 : 0} - {Math.min(safePage * pageSize, filteredRows.length)} из {filteredRows.length}</span>
-              <button type="button" onClick={() => setPage((value) => Math.max(1, value - 1))} disabled={safePage <= 1} aria-label="Назад" className="disabled:opacity-30"><ChevronLeft /></button>
-              <button type="button" onClick={() => setPage((value) => Math.min(pageCount, value + 1))} disabled={safePage >= pageCount} aria-label="Вперед" className="disabled:opacity-30"><ChevronRight /></button>
-              {tab === "movement" && <ListChecks className="h-5 w-5 text-slate-400" />}
-              <button type="button" onClick={downloadExcel} aria-label="Скачать Excel"><Download className="h-6 w-6 text-slate-600" /></button>
-            </div>
-          </div>
-
-          {filterOpen && (
-            <div className="absolute left-0 top-20 z-30 w-[390px] rounded-sm bg-white p-6 shadow-2xl">
-              <div className="mb-8 flex items-center justify-between text-xl text-slate-500">
-                <span>Фильтр</span>
-                <button type="button" onClick={() => setFilterOpen(false)} aria-label="Закрыть"><X /></button>
-              </div>
-              <div className="space-y-6">
-                <label className="block border-b border-slate-300 pb-2 font-medium">
-                  Склад
-                  <select value={warehouseFilter} onChange={(event) => { setWarehouseFilter(event.target.value); setPage(1) }} className="mt-2 block w-full bg-white outline-none">
-                    <option value="all">Все</option>
-                    {availableWarehouses.map((warehouse) => <option key={warehouse} value={warehouse}>{warehouse}</option>)}
-                  </select>
-                </label>
-                <label className="block border-b border-slate-300 pb-2 font-medium">
-                  Тип
-                  <select value={typeFilter} onChange={(event) => { setTypeFilter(event.target.value); setPage(1) }} className="mt-2 block w-full bg-white outline-none">
-                    <option value="all">Все</option>
-                    {availableTypes.map((type) => <option key={type} value={type}>{type}</option>)}
-                  </select>
-                </label>
-                <button type="button" onClick={() => setFilterOpen(false)} className="rounded bg-[#5d6474] px-5 py-3 text-white shadow">ПРИМЕНИТЬ</button>
-              </div>
-            </div>
-          )}
-
-          {tab === "receipt" && (
-            <table className="w-full text-left">
-              <thead className="bg-[#5d6474] text-white">
-                <tr><th className="h-16 px-9 font-semibold">№</th><th className="px-5 font-semibold">От кого</th><th className="px-5 font-semibold">Тип</th><th className="px-5 font-semibold">Дата приемки</th><th className="px-5 font-semibold">Склад</th></tr>
-              </thead>
-              <tbody>
-                {(visible as ReceiptRow[]).map((row) => (
-                  <Fragment key={row.no}>
-                    <tr onClick={() => setExpandedReceipt((current) => (current === row.no ? null : row.no))} className="h-[62px] cursor-pointer border-b border-dashed border-slate-200 even:bg-[#f2f6f9] hover:bg-slate-50">
-                      <td className="px-9 text-[#4f71dc]">{row.no}</td>
-                      <td className="px-5">{row.person}</td>
-                      <td className="px-5">{row.type}</td>
-                      <td className="px-5">{row.date}</td>
-                      <td className="px-5">{row.warehouse}</td>
-                    </tr>
-                    {expandedReceipt === row.no && (
-                      <tr>
-                        <td colSpan={5} className="bg-[#f8fafc] p-0">
-                          <div className="m-4 rounded border border-slate-200 bg-white p-6 shadow-sm">
-                            <div className="mb-5 flex items-center justify-end gap-4 text-slate-500">
-                              <button type="button" onClick={() => window.print()} aria-label="Печать" className="hover:text-[#4f71dc]"><Printer className="h-5 w-5" /></button>
-                              <button type="button" onClick={() => acceptReceipt(row)} aria-label="Принять" className="flex h-8 w-8 items-center justify-center rounded-full bg-[#4f71dc] text-white hover:brightness-95">
-                                <Check className="h-4 w-4" />
-                              </button>
-                            </div>
-                            <div className="grid gap-8 lg:grid-cols-[2fr_1fr]">
-                              <div>
-                                <table className="w-full text-left text-sm">
-                                  <thead>
-                                    <tr className="text-slate-500"><th className="py-2 pr-4">Товар</th><th className="py-2 pr-4">Тип товара</th><th className="py-2 pr-4">Кол-во</th></tr>
-                                  </thead>
-                                  <tbody>
-                                    {row.items.map((item) => (
-                                      <tr key={item.product} className="border-t border-dashed border-slate-200">
-                                        <td className="py-2 pr-4">{item.product}</td>
-                                        <td className="py-2 pr-4">{item.type}</td>
-                                        <td className="py-2 pr-4">{item.qty}</td>
-                                      </tr>
-                                    ))}
-                                  </tbody>
-                                </table>
-                                <p className="mt-3 font-semibold text-slate-700">Общее количество {row.items[0]?.qty}</p>
-                              </div>
-                              <div>
-                                <p className="text-slate-500">Создал:</p>
-                                <p className="mb-4 font-semibold text-slate-800">{row.creator}</p>
-                                <p className="text-slate-500">Комментарий:</p>
-                                <p className="font-semibold text-slate-800">{row.comment}</p>
-                              </div>
-                            </div>
-                          </div>
-                        </td>
-                      </tr>
-                    )}
-                  </Fragment>
-                ))}
-                {visible.length === 0 && <tr><td colSpan={5} className="p-16 text-center text-slate-400">По вашему запросу ничего не найдено</td></tr>}
-              </tbody>
-            </table>
-          )}
-
-          {tab === "transfer" && (
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[1000px] text-left">
-                <thead className="bg-[#5d6474] text-white">
-                  <tr><th className="h-16 px-9 font-semibold">№</th><th className="px-5 font-semibold">Дата запроса</th><th className="px-5 font-semibold">Склад</th><th className="px-5 font-semibold">Тип</th><th className="px-5 font-semibold">Кому</th><th className="px-5 font-semibold">Передал</th><th className="px-5 font-semibold">Дата передачи</th></tr>
-                </thead>
-                <tbody>
-                  {(visible as TransferRow[]).map((row) => (
-                    <tr key={row.no} className="h-[62px] border-b border-dashed border-slate-200 even:bg-[#f2f6f9]">
-                      <td className="px-9 text-[#4f71dc]">{row.no}</td><td className="px-5">{row.requestDate}</td><td className="px-5">{row.warehouse}</td><td className="px-5">{row.type}</td><td className="px-5">{row.to}</td><td className="px-5">{row.sender}</td><td className="px-5">{row.transferDate}</td>
-                    </tr>
-                  ))}
-                  {visible.length === 0 && <tr><td colSpan={7} className="p-16 text-center text-slate-400">По вашему запросу ничего не найдено</td></tr>}
-                </tbody>
-              </table>
-            </div>
-          )}
-
-          {tab === "movement" && (
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[1100px] text-left">
-                <thead className="bg-[#5d6474] text-white">
-                  <tr><th className="h-16 px-9 font-semibold">Товар</th><th className="px-5 font-semibold">Кол-во</th><th className="px-5 font-semibold">Серия</th><th className="px-5 font-semibold">Дата</th><th className="px-5 font-semibold">Склад</th><th className="px-5 font-semibold">Тип</th></tr>
-                </thead>
-                <tbody>
-                  {(visible as MovementRow[]).map((row, index) => {
-                    const [word, docId] = row.type.split(" ")
-                    return (
-                      <tr key={`${row.type}-${row.date}-${index}`} className="h-[62px] border-b border-dashed border-slate-200 even:bg-[#f2f6f9]">
-                        <td className="px-9"><span className="flex items-center gap-2">{row.dir === "up" ? <ArrowUp className="h-4 w-4 text-red-400" /> : <ArrowDown className="h-4 w-4 text-green-500" />}{row.product}</span></td>
-                        <td className="px-5">{row.quantity}</td>
-                        <td className="px-5">{row.series}</td>
-                        <td className="px-5">{row.date}</td>
-                        <td className="px-5">{row.warehouse}</td>
-                        <td className="px-5">{docId ? <span>{word} <b className="font-normal text-sky-500">{docId}</b></span> : word}</td>
-                      </tr>
-                    )
-                  })}
-                  {visible.length === 0 && <tr><td colSpan={6} className="p-16 text-center text-slate-400">По вашему запросу ничего не найдено</td></tr>}
-                </tbody>
-              </table>
-            </div>
-          )}
-
-          {tab === "receiptHistory" && (
-            <table className="w-full text-left">
-              <thead className="bg-[#5d6474] text-white">
-                <tr><th className="h-16 px-9 font-semibold">№ заказа</th><th className="px-5 font-semibold">От кого</th><th className="px-5 font-semibold">Тип</th><th className="px-5 font-semibold">Дата приемки</th><th className="px-5 font-semibold">Принял</th><th className="px-5 font-semibold">Склад</th></tr>
-              </thead>
-              <tbody>
-                {(visible as ReceiptHistoryRow[]).map((row) => (
-                  <tr key={row.no} className="h-[62px] border-b border-dashed border-slate-200 even:bg-[#f2f6f9]">
-                    <td className="px-9 text-[#4f71dc]">{row.no}</td><td className="px-5">{row.person}</td><td className="px-5">{row.type}</td><td className="px-5">{row.date}</td><td className="px-5">{row.accepted}</td><td className="px-5">{row.warehouse}</td>
-                  </tr>
-                ))}
-                {visible.length === 0 && <tr><td colSpan={6} className="p-16 text-center text-slate-400">По вашему запросу ничего не найдено</td></tr>}
-              </tbody>
-            </table>
-          )}
-
-          {tab === "transferHistory" && (
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[1000px] text-left">
-                <thead className="bg-[#5d6474] text-white">
-                  <tr><th className="h-16 px-9 font-semibold">№</th><th className="px-5 font-semibold">Дата запроса</th><th className="px-5 font-semibold">Склад</th><th className="px-5 font-semibold">Тип</th><th className="px-5 font-semibold">Кому</th><th className="px-5 font-semibold">Передал</th><th className="px-5 font-semibold">Дата передачи</th></tr>
-                </thead>
-                <tbody>
-                  {(visible as TransferRow[]).map((row) => (
-                    <tr key={row.no} className="h-[62px] border-b border-dashed border-slate-200 even:bg-[#f2f6f9]">
-                      <td className="px-9 text-[#4f71dc]">{row.no}</td><td className="px-5">{row.requestDate}</td><td className="px-5">{row.warehouse}</td><td className="px-5">{row.type}</td><td className="px-5">{row.to}</td><td className="px-5">{row.sender}</td><td className="px-5">{row.transferDate}</td>
-                    </tr>
-                  ))}
-                  {visible.length === 0 && <tr><td colSpan={7} className="p-16 text-center text-slate-400">По вашему запросу ничего не найдено</td></tr>}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </section>
-      </div>
-    </main>
+        {tab === "transfer" && <RefTable cols={transferCols} heads={transferHeads} rows={visible as TransferRow[]} rowKey={(row) => row.no} render={transferRender} empty={emptyText} />}
+        {tab === "transferHistory" && <RefTable cols={transferCols} heads={transferHeads} rows={visible as TransferRow[]} rowKey={(row) => row.no} render={transferRender} empty={emptyText} />}
+        {tab === "movement" && (
+          <RefTable
+            cols="minmax(0,1.3fr) repeat(5,minmax(0,1fr))"
+            heads={["Товар", "Кол-во", "Серия", "Дата", "Склад", "Тип"]}
+            rows={visible as MovementRow[]}
+            rowKey={(row) => `${row.type}-${row.date}-${row.product}-${row.quantity}`}
+            empty={emptyText}
+            render={(row) => {
+              const [word, docId] = row.type.split(" ")
+              return [
+                <span key="p" className="flex items-center gap-2">{row.dir === "up" ? <ArrowUp className="h-4 w-4 text-[#f06c6c]" /> : <ArrowDown className="h-4 w-4 text-[#71ce87]" />}{row.product}</span>,
+                row.quantity,
+                row.series,
+                row.date,
+                row.warehouse,
+                docId ? <span key="t">{word} {link(docId)}</span> : word,
+              ]
+            }}
+          />
+        )}
+        {tab === "receiptHistory" && (
+          <RefTable
+            cols="minmax(0,0.6fr) repeat(5,minmax(0,1fr))"
+            heads={["№ заказа", "От кого", "Тип", "Дата приемки", "Принял", "Склад"]}
+            rows={visible as ReceiptHistoryRow[]}
+            rowKey={(row) => row.no}
+            empty={emptyText}
+            render={(row) => [<span key="n" className="text-[#4f71dc]">{row.no}</span>, row.person, row.type, row.date, row.accepted, row.warehouse]}
+          />
+        )}
+      </RefCard>
+    </RefPage>
   )
 }

@@ -184,11 +184,8 @@ export function WarehousesView({ embedded = false }: { embedded?: boolean }) {
       </div>
 
       <div className="flex flex-wrap items-center gap-4 px-5 py-4">
-        <button type="button" onClick={openCreate} className="text-[15px] text-[#4f71dc] hover:underline">
+        <button type="button" onClick={openCreate} className="text-[13px] text-[#4f71dc] hover:underline">
           + добавить склад
-        </button>
-        <button type="button" onClick={() => setImportOpen(true)} className="inline-flex items-center gap-1 text-[15px] text-[#4f71dc] hover:underline">
-          <FileText className="h-4 w-4" /> Импорт с Excel
         </button>
         <label className="relative ml-4 w-72">
           <input value={query} onChange={(event) => { setQuery(event.target.value); setPage(1) }} placeholder="Поиск" className="w-full border-b border-slate-300 py-2 pr-10 outline-none focus:border-[#4f71dc]" />
@@ -227,7 +224,7 @@ export function WarehousesView({ embedded = false }: { embedded?: boolean }) {
           ) : visible.map((row) => (
             <tr key={row.id} className="group border-b border-dashed border-slate-300 hover:bg-slate-50">
               <td className="px-9 py-4">{row.id}</td>
-              <td className="px-5 py-4 text-[#4f71dc]">{row.name}</td>
+              <td className="px-5 py-4">{row.name}</td>
               <td className="px-5 py-4">{row.address}</td>
               <td className="px-5 py-4">{row.branch}</td>
               <td className="px-5 py-4">{row.manager}</td>

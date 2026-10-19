@@ -896,7 +896,7 @@ export function ClientModuleView({ clientModule }: { clientModule: ClientModule 
             </div>
 
             <form onSubmit={saveRow}>
-              <div className="grid gap-4 px-5 py-5 sm:grid-cols-2 sm:px-6">
+              <div className="grid gap-4 px-5 py-4 text-[13px] sm:grid-cols-2 sm:px-6">
                 <FormField label={t("Название")}>
                   <input
                     autoFocus

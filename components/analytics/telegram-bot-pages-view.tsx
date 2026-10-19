@@ -2,7 +2,7 @@
 
 import { Fragment, FormEvent, useEffect, useMemo, useState } from "react"
 import { ChevronLeft, ChevronRight, Pencil, Search, X } from "lucide-react"
-import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
+import { RefHeader, RefPage } from "@/components/ref/list-kit"
 
 type Lang = "ru" | "uz" | "en"
 
@@ -84,13 +84,8 @@ export function TelegramBotPagesView() {
   }
 
   return (
-    <main className="min-h-[calc(100vh-4rem)] bg-[#f2f5f8] px-7 pb-7">
-      <header className="mb-5">
-        <h1 className="text-2xl font-bold text-slate-600">
-          <FavoritesButton className="inline-flex items-center gap-2 text-[#4f71dc]" />
-          <span className="mx-2 text-slate-400">|</span> Страницы телеграм бота
-        </h1>
-      </header>
+    <RefPage>
+      <RefHeader title="Страницы телеграм бота" />
 
       <section className="overflow-hidden rounded bg-white shadow">
         <div className="flex flex-wrap items-center gap-4 px-5 py-3">
@@ -217,6 +212,6 @@ export function TelegramBotPagesView() {
           </form>
         </div>
       )}
-    </main>
+    </RefPage>
   )
 }

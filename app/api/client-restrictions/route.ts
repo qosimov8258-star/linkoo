@@ -8,11 +8,20 @@ import { createClientRestriction, listClientRestrictions } from "@/lib/client-re
 
 const clientRestrictionSchema = z.object({
   name: z.string().trim().min(1),
+  config: z
+    .object({
+      type: z.string().optional(),
+      by: z.string().optional(),
+      minQty: z.boolean().optional(),
+      clients: z.array(z.string()).optional(),
+      items: z.array(z.object({ name: z.string(), qty: z.number() })).optional(),
+    })
+    .optional(),
 })
 
 export async function GET() {
   const user = await getCurrentUser()
-  if (!user) return NextResponse.json({ error: "Tizimga kirilmagan" }, { status: 401 })
+  if (!user) return NextResponse.json({ error: "Вы не вошли в систему" }, { status: 401 })
   return NextResponse.json((await listClientRestrictions()))
 }
 

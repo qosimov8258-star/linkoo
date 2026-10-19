@@ -15,7 +15,7 @@ const priceListSchema = z.object({
 
 export async function GET() {
   const user = await getCurrentUser()
-  if (!user) return NextResponse.json({ error: "Tizimga kirilmagan" }, { status: 401 })
+  if (!user) return NextResponse.json({ error: "Вы не вошли в систему" }, { status: 401 })
   return NextResponse.json((await listPriceLists()))
 }
 

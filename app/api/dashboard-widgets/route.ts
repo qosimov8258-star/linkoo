@@ -17,7 +17,7 @@ const dashboardWidgetSchema = z.object({
 
 export async function GET(request: NextRequest) {
   const user = await getCurrentUser()
-  if (!user) return NextResponse.json({ error: "Tizimga kirilmagan" }, { status: 401 })
+  if (!user) return NextResponse.json({ error: "Вы не вошли в систему" }, { status: 401 })
 
   const reportSlug = request.nextUrl.searchParams.get("reportSlug") ?? undefined
   return NextResponse.json((await listDashboardWidgets(reportSlug)))

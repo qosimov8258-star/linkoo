@@ -3,6 +3,7 @@
 import { Search, X } from "lucide-react"
 import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
+import { compareText } from "@/components/ref/list-kit"
 
 import { readExcelRows } from "@/lib/excel-import"
 import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
@@ -10,6 +11,7 @@ import { useLanguage } from "@/lib/i18n/language-context"
 
 import { AddOrderDialog } from "./add-order-dialog"
 import { OrderDetailCard } from "./order-detail"
+import { EMPTY_ORDER_FILTERS, OrderFilterPanel, countOrderFilters, matchesOrderFilters, type OrderFilters } from "./order-filter-panel"
 import type { Order } from "./orders-data"
 
 export function OrdersView() {
@@ -18,47 +20,67 @@ export function OrdersView() {
   const [orders, setOrders] = useState<Order[]>([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState("")
-  const [tab, setTab] = useState<string>("Все")
+  const [tab, setTab] = useState<string>("Активные")
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(25)
-  const [selectMode, setSelectMode] = useState(false)
+  const [selectMode, setSelectMode] = useState(true)
   const [query, setQuery] = useState("")
   const [selected, setSelected] = useState<Order | null>(null)
   const [checkedIds, setCheckedIds] = useState<number[]>([])
   const [filterOpen, setFilterOpen] = useState(false)
-  const [zoneFilter, setZoneFilter] = useState("Все зоны")
+  const [chipOn, setChipOn] = useState(true)
+  const [filters, setFilters] = useState<OrderFilters>(EMPTY_ORDER_FILTERS)
   const [notice, setNotice] = useState("")
   const [addOpen, setAddOpen] = useState(false)
   const [initialShopId, setInitialShopId] = useState<number | undefined>()
   const [bulkPayOpen, setBulkPayOpen] = useState(false)
   const importInputRef = useRef<HTMLInputElement>(null)
   const detailRowRef = useRef<HTMLDivElement>(null)
-  const zones = useMemo(() => Array.from(new Set(orders.map((row) => row.zone).filter(Boolean))), [orders])
+  const activeFilterCount = countOrderFilters(filters)
 
   const filtered = useMemo(
     () =>
       orders
         .filter((row) => `${row.id} ${row.client} ${row.agent}`.toLowerCase().includes(query.toLowerCase()))
-        .filter((row) => zoneFilter === "Все зоны" || row.zone === zoneFilter)
+        .filter((row) => matchesOrderFilters(row, filters))
         .filter((row) =>
           tab === "Активные"
-            ? row.status !== "Доставлено" && row.status !== "Отменен"
+            ? row.status !== "Доставлено" && row.status !== "Отменен" && row.status !== "В пути"
             : tab === "Доставляется"
               ? row.status === "В пути"
               : tab === "Доставленные"
                 ? row.status === "Доставлено"
                 : true,
         ),
-    [orders, query, zoneFilter, tab],
+    [orders, query, filters, tab],
   )
+  const [sort, setSort] = useState<{ head: string; desc: boolean } | null>(null)
+  const sortedRows = useMemo(() => {
+    if (!sort) return filtered
+    const value = (row: Order): string => {
+      switch (sort.head) {
+        case "№": return String(row.id)
+        case "Клиент": return row.client
+        case "Тип": return row.type
+        case "Дата создания": return row.created
+        case "Дата доставки": return row.delivery
+        case "Агент": return row.agent
+        case "Сумма заказа": return row.amount
+        case "Баланс": return row.balance
+        case "Статус": return row.status
+        default: return ""
+      }
+    }
+    return [...filtered].sort((a, b) => (sort.desc ? -1 : 1) * compareText(value(a), value(b)))
+  }, [filtered, sort])
   const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize))
   const pageStart = (Math.min(page, pageCount) - 1) * pageSize
-  const pageRows = filtered.slice(pageStart, pageStart + pageSize)
+  const pageRows = sortedRows.slice(pageStart, pageStart + pageSize)
   const totals = useMemo(
     () => ({
       orders: sumByCurrency(filtered),
       returns: sumByCurrency([]),
-      fact: sumByCurrency(filtered.filter((row) => row.status === "Доставлено")),
+      fact: sumByCurrency(filtered),
     }),
     [filtered],
   )
@@ -337,17 +359,33 @@ export function OrdersView() {
             { label: t("Заказы"), value: totals.orders },
             { label: t("Возвраты"), value: totals.returns },
             { label: t("Факт"), value: totals.fact },
-          ].map((group) => (
-            <div key={group.label} className="flex-1 pt-1">
-              <span className="mr-[5px]">{group.label} :</span>
+          ].map((group, index) => (
+            <div key={group.label} className={`flex-1 pt-1 ${index === 1 ? "text-center" : index === 2 ? "text-right" : ""}`}>
+              <span className="mr-[5px]">{group.label}:</span>
               {group.value}
             </div>
           ))}
         </div>
 
         <div className="relative bg-white shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
-          <div className="flex h-[50px] items-center px-[5px]">
+          {filterOpen && (
+            <OrderFilterPanel
+              orders={orders}
+              filters={filters}
+              onChange={(next) => { setFilters(next); setPage(1) }}
+              onApply={() => setFilterOpen(false)}
+              onClose={() => setFilterOpen(false)}
+            />
+          )}
+          <div className={`h-[50px] items-center px-[5px] ${filterOpen ? "hidden" : "flex"}`}>
             <div className="w-[318px] shrink-0">
+            {chipOn && activeFilterCount === 0 ? (
+              <div className="relative flex h-[40px] w-[255px] items-center bg-[#f2f5f8] pl-[12px] text-[13px] text-[#5d6474]">
+                <span>{t("Фильтр: 1 элемента")}</span>
+                <button type="button" onClick={() => setFilterOpen(true)} aria-label={t("Изменить фильтр")} className="ml-auto flex h-[40px] w-[40px] items-center justify-center"><svg viewBox="0 0 24 24" className="h-5 w-5 fill-[#5d6474]"><path d={ICON.edit ?? "M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"} /></svg></button>
+                <button type="button" onClick={() => setChipOn(false)} aria-label={t("Очистить фильтр")} className="flex h-[40px] w-[40px] items-center justify-center text-[#5d6474]">⊗</button>
+              </div>
+            ) : (
             <button
               type="button"
               onClick={() => setFilterOpen((value) => !value)}
@@ -355,22 +393,12 @@ export function OrdersView() {
             >
               <svg viewBox="0 0 24 24" className="mb-1 h-[18px] w-[18px] fill-white"><path d={ICON.filter} /></svg>
               <span className="pl-2 pr-4">{filterOpen ? t("Скрыть фильтр") : t("Показать фильтр")}</span>
+              {activeFilterCount > 0 && (
+                <span className="mr-3 flex h-5 min-w-5 items-center justify-center rounded-full bg-white px-1 text-[11px] text-[#4f71dc]">{activeFilterCount}</span>
+              )}
             </button>
-            </div>
-            {filterOpen && (
-              <div className="absolute left-[5px] top-[46px] z-20 w-64 border border-slate-200 bg-white p-4 shadow-xl">
-                <label className="block text-xs font-medium text-slate-500">
-                  {t("Зона")}
-                  <select value={zoneFilter} onChange={(event) => { setZoneFilter(event.target.value); setPage(1) }} className="mt-1 block w-full border-b border-slate-300 bg-white py-2 text-sm outline-none">
-                    <option value="Все зоны">{t("Все зоны")}</option>
-                    {zones.map((zone) => (
-                      <option key={zone}>{zone}</option>
-                    ))}
-                  </select>
-                </label>
-                <button type="button" onClick={() => setFilterOpen(false)} className="mt-4 w-full rounded bg-[#4f71dc] py-2 text-sm font-semibold text-white">{t("Применить")}</button>
-              </div>
             )}
+            </div>
             <div className="relative ml-[18px] flex w-[248px] items-center">
               <input
                 value={query}
@@ -417,9 +445,14 @@ export function OrdersView() {
 
           <div className="overflow-x-auto">
             <div className="min-w-[1100px]">
-              <div className="grid h-[50px] items-center bg-[#5d6474] px-[30px] font-semibold text-white" style={{ gridTemplateColumns: COLS }}>
+              <div className={`h-[50px] items-center bg-[#5d6474] px-[30px] font-semibold text-white ${filterOpen ? "hidden" : "grid"}`} style={{ gridTemplateColumns: COLS }}>
                 {["№", "Клиент", "Тип", "Дата создания", "Доставщик", "Дата доставки", "Агент", "Сумма заказа", "Баланс", "Статус"].map((head) => (
-                  <div key={head} className="px-2 leading-[18px]">{t(head)}</div>
+                  <div key={head} className="px-2 leading-[18px]">
+                    <button type="button" onClick={() => setSort((current) => (current?.head === head ? (current.desc ? null : { head, desc: true }) : { head, desc: false }))} className="text-left font-semibold hover:opacity-80">
+                      {t(head)}
+                      {sort?.head === head ? <span className="ml-1 text-[10px]">{sort.desc ? "▼" : "▲"}</span> : null}
+                    </button>
+                  </div>
                 ))}
               </div>
               {loading ? (
@@ -565,9 +598,10 @@ function sumByCurrency(rows: Order[]) {
     if (parsed) totals.set(parsed.currency, (totals.get(parsed.currency) ?? 0) + parsed.number)
   }
   const label = (currency: string) => (currency === "EUR" ? "Euro" : currency)
-  return [...totals.entries()].map(([currency, number], index, all) => (
+  const shown = [...totals.entries()].filter(([currency, number]) => currency !== "EUR" || number !== 0)
+  return shown.map(([currency, number], index, all) => (
     <span key={currency} className="mr-[5px]">
-      {number.toLocaleString("ru-RU", { maximumFractionDigits: 3 })} {label(currency)} {index < all.length - 1 ? "," : ""}
+      {number.toLocaleString("ru-RU", { maximumFractionDigits: 2 })} {label(currency)}{index < all.length - 1 ? " ," : ""}
     </span>
   ))
 }

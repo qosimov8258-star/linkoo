@@ -1,40 +1,148 @@
 "use client"
 
-import { FormEvent, useMemo, useState } from "react"
-import { Download, Settings, X } from "lucide-react"
-import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
+import { useEffect, useMemo, useState } from "react"
+import { X } from "lucide-react"
+import { RI, RefButton, RefHeader } from "@/components/ref/list-kit"
+import { ReportMultiChipField, ReportPage, ReportRangeField, ReportSelectField, formatShortReportDate } from "@/components/ref/report-kit"
 
 type PeriodData = { stores: number; storePercent: number; sum: number; sumPercent: number; dynamic?: number }
 type ClassificationRow = { name: string; periods: [PeriodData, PeriodData, PeriodData] }
+type Period = { from: string; to: string }
+type ClientRow = { name: string }
+type OrderRow = { client: string; created: string; amount: string; type: string }
 
-const initialRows: ClassificationRow[] = []
+const GEAR = "M19.43 12.98c.04-.32.07-.64.07-.98s-.03-.66-.07-.98l2.11-1.65c.19-.15.24-.42.12-.64l-2-3.46c-.12-.22-.39-.3-.61-.22l-2.49 1c-.52-.4-1.08-.73-1.69-.98l-.38-2.65C14.46 2.18 14.25 2 14 2h-4c-.25 0-.46.18-.49.42l-.38 2.65c-.61.25-1.17.59-1.69.98l-2.49-1c-.23-.09-.49 0-.61.22l-2 3.46c-.13.22-.07.49.12.64l2.11 1.65c-.04.32-.07.65-.07.98s.03.66.07.98l-2.11 1.65c-.19.15-.24.42-.12.64l2 3.46c.12.22.39.3.61.22l2.49-1c.52.4 1.08.73 1.69.98l.38 2.65c.03.24.24.42.49.42h4c.25 0 .46-.18.49-.42l.38-2.65c.61-.25 1.17-.59 1.69-.98l2.49 1c.23.09.49 0 .61-.22l2-3.46c.12-.22.07-.49-.12-.64l-2.11-1.65zM12 15.5c-1.93 0-3.5-1.57-3.5-3.5s1.57-3.5 3.5-3.5 3.5 1.57 3.5 3.5-1.57 3.5-3.5 3.5z"
+
+type ClassRow = { name: string; amount: number }
+
+const DEFAULT_CLASSES: ClassRow[] = [
+  { name: "< 1 млн", amount: 1_000_000 },
+  { name: "1-2 млн", amount: 2_000_000 },
+  { name: "2-3 млн", amount: 3_000_000 },
+  { name: "3-5 млн", amount: 5_000_000 },
+  { name: "5-10 млн", amount: 10_000_000 },
+  { name: "10-20 млн", amount: 20_000_000 },
+]
+
+function bucketNames(classes: ClassRow[]) {
+  const last = classes[classes.length - 1]
+  return ["Нет заказа", ...classes.map((row) => row.name), `> ${last ? last.amount / 1_000_000 : 0} млн`]
+}
+
+function bucketOf(total: number, classes: ClassRow[]) {
+  if (total <= 0) return 0
+  const index = classes.findIndex((row) => total < row.amount)
+  return index === -1 ? classes.length + 1 : index + 1
+}
+
+function isoDate(date: Date) {
+  const pad = (value: number) => String(value).padStart(2, "0")
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
+}
+
+// Same tolerant parsing as the other order reports: ISO date or "06 сент. 14:23" (no year).
+function orderDate(value: string): Date | null {
+  const iso = value.match(/^(\d{4})-(\d{2})-(\d{2})/)
+  if (iso) return new Date(Number(iso[1]), Number(iso[2]) - 1, Number(iso[3]))
+  const ru = value.match(/(\d{1,2})\s+([а-яё]+)\.?/i)
+  if (!ru) return null
+  const names = ["янв", "февр", "мар", "апр", "мая", "июня", "июля", "авг", "сент", "окт", "нояб", "дек"]
+  const month = names.indexOf(ru[2].toLowerCase())
+  if (month < 0) return null
+  const year = value.match(/(\d{4})/)
+  return new Date(year ? Number(year[1]) : new Date().getFullYear(), month, Number(ru[1]))
+}
+
+function defaultPeriods(): [Period, Period, Period] {
+  const now = new Date()
+  return [2, 1, 0].map((back) => {
+    const start = new Date(now.getFullYear(), now.getMonth() - back, 1)
+    const end = new Date(now.getFullYear(), now.getMonth() - back + 1, 0)
+    return { from: isoDate(start), to: isoDate(end) }
+  }) as [Period, Period, Period]
+}
 
 const selects = {
-  zone: ["Все зоны", "Andijon shaharchasi", "Arslan", "chilonzor"],
-  status: ["Все статусы", "Активный", "Неактивный"],
-  brand: ["Все бренды", "Alpen Gold", "Apple", "Aqua de lux"],
-  productType: ["Все типы товара", "Мыло", "Напитки", "Снеки"],
-  agent: ["Все ответственные агенты", "Samandar Abdurahmonov", "Хайрулло Доставщик"],
-  branch: ["Все филиалы", "777", "878", "Andijon"],
-  clientType: ["Все типы клиента", "horeca", "market", "market100"],
+  zone: ["Andijon shaharchasi", "Arslan", "chilonzor"],
+  status: ["Новый", "Принят", "Передан доставщику", "Доставлен", "Отменён", "Возврат"],
+  brand: ["Alpen Gold", "Apple", "Aqua de lux"],
+  productType: ["Мыло", "Напитки", "Снеки"],
+  agent: ["Samandar Abdurahmonov", "Хайрулло Доставщик"],
+  branch: ["777", "878", "Andijon"],
+  clientType: ["horeca", "market", "market100"],
   dateBy: ["Доставки", "Заказы", "Оплаты"],
   closing: ["Незакрыто", "Закрыто", "Все"],
 }
 type SelectKey = keyof typeof selects
+const labels: Record<SelectKey, string> = { zone: "Зона", status: "Статус", brand: "Бренд", productType: "Тип товара", agent: "Ответственный агент магазина", branch: "Филиалы", clientType: "Тип клиента", dateBy: "По дате", closing: "Статус закрытия" }
 
 export function ClientDynamicsView() {
   const [settingsOpen, setSettingsOpen] = useState(false)
-  const [periods, setPeriods] = useState(["2026-05-01", "2026-06-01", "2026-07-01"])
-  const [filters, setFilters] = useState<Record<SelectKey, string>>(
-    Object.fromEntries(Object.entries(selects).map(([key, value]) => [key, value[0]])) as Record<SelectKey, string>,
-  )
-  const [rows, setRows] = useState(initialRows)
-  const periodLabels = useMemo(() => periods.map(periodLabel), [periods])
+  const [classes, setClasses] = useState<ClassRow[]>(DEFAULT_CLASSES)
+  const [periods, setPeriods] = useState<[Period, Period, Period]>(defaultPeriods)
+  const [filters, setFilters] = useState<Record<SelectKey, string>>({ zone: "", status: "", brand: "", productType: "", agent: "", branch: "", clientType: "", dateBy: "Доставки", closing: "Незакрыто" })
+  const [statuses, setStatuses] = useState<string[]>(["Передан доставщику", "Доставлен"])
+  const [clients, setClients] = useState<ClientRow[]>([])
+  const [orders, setOrders] = useState<OrderRow[]>([])
+  const [applied, setApplied] = useState(periods)
+  const periodLabels = useMemo(() => applied.map(periodLabel), [applied])
 
-  function apply(event: FormEvent) {
-    event.preventDefault()
-    setRows(filters.status === "Неактивный" ? initialRows.filter((row) => row.name === "Нет заказа") : initialRows)
-  }
+  useEffect(() => {
+    let cancelled = false
+    Promise.all([
+      fetch("/api/clients").then((response) => (response.ok ? (response.json() as Promise<ClientRow[]>) : [])),
+      fetch("/api/orders").then((response) => (response.ok ? (response.json() as Promise<OrderRow[]>) : [])),
+    ])
+      .then(([clientRows, orderRows]) => {
+        if (cancelled) return
+        setClients(clientRows)
+        setOrders(orderRows)
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  // Every store lands in one bucket per period by the sum of its (non-return) orders in that period.
+  const rows = useMemo<ClassificationRow[]>(() => {
+    const perPeriod = applied.map((period) => {
+      const totals = new Map<string, number>()
+      for (const order of orders) {
+        if (order.type === "Возврат") continue
+        const date = orderDate(order.created)
+        if (!date || isoDate(date) < period.from || isoDate(date) > period.to) continue
+        totals.set(order.client, (totals.get(order.client) ?? 0) + (Number.parseFloat(order.amount.replace(/[^\d.,-]/g, "").replace(",", ".")) || 0))
+      }
+      const buckets = bucketNames(classes).map(() => ({ stores: 0, sum: 0 }))
+      for (const client of clients) {
+        const total = totals.get(client.name) ?? 0
+        const bucket = buckets[bucketOf(total, classes)]
+        bucket.stores += 1
+        bucket.sum += total
+      }
+      const storeTotal = clients.length || 1
+      const sumTotal = buckets.reduce((sum, bucket) => sum + bucket.sum, 0) || 1
+      return buckets.map((bucket) => ({
+        stores: bucket.stores,
+        storePercent: Math.round((bucket.stores / storeTotal) * 100),
+        sum: bucket.sum,
+        sumPercent: Math.round((bucket.sum / sumTotal) * 100),
+      }))
+    })
+    return bucketNames(classes).map((name, index) => {
+      const dynamic = (current: number, previous: number) => (previous > 0 ? Math.round(((current - previous) / previous) * 100) : 0)
+      return {
+        name,
+        periods: [
+          perPeriod[0][index],
+          { ...perPeriod[1][index], dynamic: dynamic(perPeriod[1][index].stores, perPeriod[0][index].stores) },
+          { ...perPeriod[2][index], dynamic: dynamic(perPeriod[2][index].stores, perPeriod[1][index].stores) },
+        ],
+      }
+    })
+  }, [applied, clients, orders])
+
   function download() {
     const header = ["Классификация", ...periodLabels.flatMap((label) => [`${label} магазинов`, "%", "Сумма заказа", "%", "Динамика`"])].join(";")
     const body = rows.map((row) => [row.name, ...row.periods.flatMap((item) => [item.stores, item.storePercent, item.sum, item.sumPercent, item.dynamic ?? ""])].join(";"))
@@ -46,55 +154,141 @@ export function ClientDynamicsView() {
     URL.revokeObjectURL(url)
   }
 
-  return (
-    <main className="min-h-[calc(100vh-4rem)] bg-slate-100">
-      <header className="flex flex-wrap items-center gap-3 px-5 py-4 text-xl font-bold sm:px-10 sm:text-2xl">
-        <FavoritesButton className="flex items-center gap-2 text-[#5470e8]" />
-        <span className="text-slate-500">|</span><h1 className="text-slate-600">Классификация и динамика клиентов</h1>
-        <div className="ml-auto flex gap-3">
-          <button type="button" onClick={download} className="rounded bg-[#71ce87] px-5 py-2 text-base text-white"><Download className="mr-2 inline h-5 w-5" />Скачать</button>
-          <button type="button" onClick={() => setSettingsOpen(true)} className="rounded bg-[#5470e8] px-5 py-2 text-base text-white"><Settings className="mr-2 inline h-5 w-5" />Настроить классификацию</button>
-        </div>
-      </header>
+  const setPeriod = (index: number, patch: Partial<Period>) => setPeriods((current) => current.map((item, i) => (i === index ? { ...item, ...patch } : item)) as [Period, Period, Period])
+  const th = "border border-[#ddd] px-1 py-[10px] text-center text-[12px] font-semibold leading-4 text-[#47494b]"
 
-      <form onSubmit={apply} className="mx-4 rounded bg-white p-6 shadow sm:mx-9">
-        <h2 className="mb-8 text-lg text-slate-500">Фильтр</h2>
-        <div className="grid gap-x-3 gap-y-8 md:grid-cols-2 xl:grid-cols-4">
-          {(["zone", "status", "brand", "productType", "agent", "branch", "clientType", "dateBy", "closing"] as SelectKey[]).map((key) => <Select key={key} name={key} value={filters[key]} onChange={(value) => setFilters((current) => ({ ...current, [key]: value }))} />)}
-          {periods.map((value, index) => <label key={index} className="text-xs">{["Первый период", "Второй период", "Третий период"][index]}<input type="month" value={value.slice(0, 7)} onChange={(event) => setPeriods((current) => current.map((item, i) => i === index ? `${event.target.value}-01` : item))} className="mt-1 block w-full border-b py-2 text-base" /></label>)}
+  return (
+    <ReportPage>
+      <div className="pl-[30px] pr-[38px]">
+        <RefHeader title="Классификация и динамика клиентов">
+          <RefButton icon={RI.chart} green label="Скачать" onClick={download} />
+          <RefButton icon={GEAR} label="Настроить классификацию" onClick={() => setSettingsOpen(true)} />
+        </RefHeader>
+      </div>
+
+      <form
+        onSubmit={(event) => {
+          event.preventDefault()
+          setApplied(periods)
+        }}
+        className="mx-7 bg-white px-[20px] pb-[11px] pt-[10px] shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]"
+      >
+        <h2 className="text-[14px] leading-[18px] text-[#666]">Фильтр</h2>
+        <div className="mt-[6px] grid gap-x-[10px] gap-y-[13px] md:grid-cols-2 xl:grid-cols-4">
+          {(["zone", "status", "brand", "productType", "agent", "branch", "clientType", "dateBy"] as SelectKey[]).map((key) =>
+            key === "status" ? (
+              <ReportMultiChipField key={key} label={labels[key]} values={statuses} options={selects.status} onChange={setStatuses} />
+            ) : (
+            <ReportSelectField key={key} label={labels[key]} value={filters[key]} options={selects[key]} onChange={(value) => setFilters((current) => ({ ...current, [key]: value }))} clearable={key === "dateBy"} />
+            ),
+          )}
+          {periods.map((period, index) => (
+            <ReportRangeField className="mt-[9px]" key={index} label={["Первый период", "Второй период", "Третий период"][index]} from={period.from} to={period.to} onFrom={(value) => setPeriod(index, { from: value })} onTo={(value) => setPeriod(index, { to: value })} />
+          ))}
+          <ReportSelectField label={labels.closing} value={filters.closing} options={selects.closing} onChange={(value) => setFilters((current) => ({ ...current, closing: value }))} />
         </div>
-        <button type="submit" className="mt-7 rounded bg-slate-600 px-6 py-3 font-bold text-white">ФИЛЬТР</button>
+        <button type="submit" className="mt-[14px] h-9 w-[88px] rounded-[3px] bg-[#5d6474] text-[13px] font-semibold uppercase text-white shadow-[0_2px_5px_rgba(0,0,0,0.25)] hover:brightness-110">Фильтр</button>
       </form>
 
-      <section className="mx-4 mt-3 overflow-hidden bg-white sm:mx-9">
-        <table className="w-full table-fixed border-collapse text-[10px] sm:text-xs xl:text-sm">
+      <section className="mx-7 mt-[10px] overflow-x-auto bg-white">
+        <table className="w-full min-w-[1200px] table-fixed border-collapse text-[13px]">
           <colgroup>
-            <col className="w-[10%]" />
-            {Array.from({ length: 14 }).map((_, index) => <col key={index} />)}
+            {[152, 137, 80, 115, 81, 114, 68, 95, 79, 83, 108, 64, 90, 90, 87].map((width, index) => <col key={index} style={{ width: `${(width / 1443) * 100}%` }} />)}
           </colgroup>
-          <thead><tr><th rowSpan={2} className="border px-1 py-4 text-left sm:px-2">Классификация</th>{periodLabels.map((label, index) => <th key={label} colSpan={index === 0 ? 4 : 5} className={`border px-1 py-4 text-center sm:px-2 ${index ? "border-l-2 border-l-slate-800" : ""}`}>{label}</th>)}</tr><tr>{periodLabels.flatMap((_, period) => ["Кол. магазинов", "%", "Сумма заказа", "%", ...(period ? ["Динамика"] : [])].map((title, index) => <th key={`${period}-${index}`} className={`break-words border px-1 py-4 leading-tight sm:px-2 ${period && index === 0 ? "border-l-2 border-l-slate-800" : ""}`}>{title}</th>))}</tr></thead>
+          <thead>
+            <tr><th rowSpan={2} className={th}>Классификация</th>{periodLabels.map((label, index) => <th key={label} colSpan={index === 0 ? 4 : 5} className={`${th} ${index ? "border-l-2 border-l-black" : ""}`}>{label}</th>)}</tr>
+            <tr>{periodLabels.flatMap((_, period) => ["Колв. магазинов", "%", "Сумма заказа", "%", ...(period ? ["Динамика"] : [])].map((title, index) => <th key={`${period}-${index}`} className={`${th} ${period && index === 0 ? "border-l-2 border-l-black" : ""}`}>{title}</th>))}</tr>
+          </thead>
           <tbody>
-            {rows.map((row) => <tr key={row.name}><td className="break-words border px-1 py-5 sm:px-2">{row.name}</td>{row.periods.flatMap((data, period) => [<td key={`${period}-stores`} className={`border px-1 py-5 text-right text-[#5470e8] sm:px-2 ${period ? "border-l-2 border-l-slate-800" : ""}`}>{format(data.stores)}</td>, <td key={`${period}-sp`} className="border px-1 py-5 text-right sm:px-2">{data.storePercent} %</td>, <td key={`${period}-sum`} className="break-words border px-1 py-5 text-right sm:px-2">{format(data.sum)}</td>, <td key={`${period}-sump`} className="border px-1 py-5 text-right sm:px-2">{data.sumPercent} %</td>, ...(period ? [<td key={`${period}-dynamic`} className="border px-1 py-3 text-center sm:px-2"><Dynamic value={data.dynamic ?? 0} /></td>] : [])])}</tr>)}
-            <TotalRow periodLabels={periodLabels} />
+            {rows.map((row) => (
+              <tr key={row.name} className="h-[57px]">
+                <td className="border border-[#ddd] px-[6px]">{row.name}</td>
+                {row.periods.flatMap((data, period) => [
+                  <td key={`${period}-stores`} className={`border border-[#ddd] px-[6px] text-right font-semibold text-[#4f71dc] ${period ? "border-l-2 border-l-black" : ""}`}>{format(data.stores)}</td>,
+                  <td key={`${period}-sp`} className="border border-[#ddd] px-[6px] text-right">{data.storePercent} %</td>,
+                  <td key={`${period}-sum`} className="border border-[#ddd] px-[6px] text-right">{format(Math.round(data.sum))}</td>,
+                  <td key={`${period}-sump`} className="border border-[#ddd] px-[6px] text-right">{data.sumPercent} %</td>,
+                  ...(period ? [<td key={`${period}-dynamic`} className="border border-[#ddd] p-[6px] text-center"><Dynamic value={data.dynamic ?? 0} spaced={period === 1} /></td>] : []),
+                ])}
+              </tr>
+            ))}
           </tbody>
         </table>
       </section>
 
-      {settingsOpen && <ClassificationSettings onClose={() => setSettingsOpen(false)} />}
-    </main>
+      {settingsOpen && <ClassificationSettings classes={classes} onSave={(next) => { setClasses(next); setSettingsOpen(false) }} onClose={() => setSettingsOpen(false)} />}
+    </ReportPage>
   )
 }
 
-function TotalRow({ periodLabels }: { periodLabels: string[] }) {
-  const totals = [[0, 0, 0, 0], [0, 0, 0, 0, 0], [0, 0, 0, 0, 0]]
-  return <tr className="bg-[#555] font-bold text-white"><td className="border p-2">Итого активные<br />клиенты</td>{periodLabels.flatMap((_, period) => totals[period].map((value, index) => index === 4 ? <td key={`${period}-${index}`} className="border p-2 text-center"><Dynamic value={value} /></td> : <td key={`${period}-${index}`} className={`border p-2 text-right ${period && index === 0 ? "border-l-2 border-l-white" : ""}`}>{index === 1 || index === 3 ? `${value} %` : format(value)}</td>))}</tr>
+function Dynamic({ value, spaced }: { value: number; spaced?: boolean }) {
+  const positive = value > 0
+  return <span className={`inline-block w-full rounded-[3px] py-[8px] text-[13px] font-semibold ${positive ? "bg-[#dff5e3] text-[#35b653]" : "bg-[#fde2e2] text-[#f25555]"}`}>{positive ? "▲" : "▼"} {format(value)}{spaced ? " %" : "%"}</span>
 }
-function Dynamic({ value }: { value: number }) { const positive = value > 0; return <span className={`inline-block w-full rounded px-0.5 py-2 font-medium sm:px-1 ${positive ? "bg-emerald-100 text-emerald-500" : "bg-rose-100 text-rose-500"}`}>{positive ? "▲" : "▼"} {format(value)} %</span> }
-function ClassificationSettings({ onClose }: { onClose: () => void }) {
-  const [limits, setLimits] = useState(["1", "2", "3", "5", "10", "20"])
-  return <><button type="button" aria-label="Закрыть" onClick={onClose} className="fixed inset-0 z-[90] bg-black/50" /><section role="dialog" className="fixed left-1/2 top-1/2 z-[100] w-[min(700px,calc(100vw-32px))] -translate-x-1/2 -translate-y-1/2 bg-white shadow-2xl"><header className="flex justify-between border-b p-7 text-lg font-bold">Настроить классификацию<button type="button" onClick={onClose}><X /></button></header><div className="p-8"><p className="mb-5 text-slate-500">Границы суммы заказа, млн SUM</p><div className="grid grid-cols-2 gap-4 sm:grid-cols-3">{limits.map((limit, index) => <input key={index} type="number" min="0" value={limit} onChange={(event) => setLimits((current) => current.map((item, i) => i === index ? event.target.value : item))} className="border-b p-2" />)}</div></div><footer className="flex justify-end border-t p-6"><button type="button" onClick={onClose} className="font-bold uppercase text-sky-500">Сохранить</button></footer></section></>
+function ClassificationSettings({ classes, onSave, onClose }: { classes: ClassRow[]; onSave: (rows: ClassRow[]) => void; onClose: () => void }) {
+  const [rows, setRows] = useState(classes)
+  const [draftName, setDraftName] = useState("")
+  const [draftAmount, setDraftAmount] = useState("")
+  const fmt = (value: number) => (value ? value.toLocaleString("ru-RU") : "")
+  const float = "absolute left-0 top-0 text-[10px] font-bold leading-3"
+  return (
+    <div className="fixed inset-0 z-[90] bg-black/[0.54]" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+      <section role="dialog" className="fixed bottom-[48px] left-1/2 top-[80px] flex w-[500px] max-w-full -translate-x-1/2 flex-col bg-white text-[13px] text-[#333] shadow-[0_10px_30px_rgba(0,0,0,0.3)]">
+        <header className="flex h-[60px] shrink-0 items-center justify-between border-b border-[#efefef] pl-[30px] pr-[22px]">
+          <b className="uppercase">Настройки</b>
+          <button type="button" onClick={onClose} aria-label="Закрыть"><X className="h-6 w-6" /></button>
+        </header>
+        <div className="min-h-0 flex-1 overflow-y-auto px-[30px] pb-[20px]">
+          {rows.map((row, index) => (
+            <div key={index} className="relative grid h-[102px] grid-cols-[215px_1fr] gap-x-[10px] pt-[60px]">
+              <label className="relative block h-[36px] border-b border-[#e8e8e8]">
+                <span className={`${float} -top-[18px]`}>Название</span>
+                <input value={row.name} onChange={(event) => setRows((current) => current.map((item, i) => (i === index ? { ...item, name: event.target.value } : item)))} className="absolute inset-x-0 bottom-0 h-[26px] bg-transparent font-semibold outline-none" />
+              </label>
+              <label className="relative block h-[36px] border-b border-[#e8e8e8]">
+                <span className={`${float} -top-[18px]`}>Сумма закупа до <span className="text-[#e57373]">*</span></span>
+                <input
+                  value={fmt(row.amount)}
+                  onChange={(event) => {
+                    const amount = Number(event.target.value.replace(/\D/g, "")) || 0
+                    setRows((current) => current.map((item, i) => (i === index ? { ...item, amount } : item)))
+                  }}
+                  className="absolute inset-x-0 bottom-0 h-[26px] bg-transparent font-semibold outline-none"
+                />
+              </label>
+              <button type="button" aria-label="Удалить" onClick={() => setRows((current) => current.filter((_, i) => i !== index))} className="absolute right-0 top-[20px] flex h-[40px] w-[40px] items-center justify-center rounded-[3px] bg-[#e57373]">
+                <span className="h-[2px] w-[14px] bg-white" />
+              </button>
+            </div>
+          ))}
+          <div className="mt-[20px] grid grid-cols-[215px_1fr] gap-x-[10px]">
+            <label className="relative block h-[50px] border-b border-[#e8e8e8]">
+              <span className={`absolute left-0 font-semibold ${draftName ? "top-0 text-[10px]" : "top-[28px] text-[13px]"}`}>Название</span>
+              <input value={draftName} onChange={(event) => setDraftName(event.target.value)} className="absolute inset-x-0 bottom-0 h-[26px] bg-transparent font-semibold outline-none" />
+            </label>
+            <input value={draftAmount} onChange={(event) => setDraftAmount(event.target.value.replace(/\D/g, ""))} placeholder="20 000 000" className="h-[52px] bg-[#f2f5f8] px-[12px] outline-none placeholder:text-[#999]" />
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              const amount = Number(draftAmount)
+              if (!draftName.trim() || !amount) return
+              setRows((current) => [...current, { name: draftName.trim(), amount }].sort((a, b) => a.amount - b.amount))
+              setDraftName("")
+              setDraftAmount("")
+            }}
+            className="mt-[20px] h-[35px] w-full rounded-[3px] bg-[#4f71dc] font-semibold text-white hover:brightness-95"
+          >
+            Добавить
+          </button>
+        </div>
+        <footer className="flex h-[57px] shrink-0 items-center justify-end gap-[20px] border-t border-[#efefef] pr-[10px]">
+          <button type="button" onClick={() => setRows(DEFAULT_CLASSES)} className="h-[35px] rounded-[3px] bg-[#71ce87] px-[16px] font-bold uppercase text-white hover:brightness-95">Восстановить</button>
+          <button type="button" onClick={() => onSave(rows)} className="h-[35px] rounded-[3px] bg-[#71ce87] px-[16px] font-bold uppercase text-white hover:brightness-95">Сохранить</button>
+        </footer>
+      </section>
+    </div>
+  )
 }
-const labels: Record<SelectKey, string> = { zone: "Зона", status: "Статус", brand: "Бренд", productType: "Тип товара", agent: "Ответственный агент магазина", branch: "Филиалы", clientType: "Тип клиента", dateBy: "По дате", closing: "Статус закрытия" }
-function Select({ name, value, onChange }: { name: SelectKey; value: string; onChange: (value: string) => void }) { return <label className="font-semibold">{labels[name]}<select value={value} onChange={(event) => onChange(event.target.value)} className="mt-1 block w-full border-b bg-white py-2 font-normal">{selects[name].map((option) => <option key={option}>{option}</option>)}</select></label> }
-function periodLabel(value: string) { const date = new Date(`${value}T00:00:00`); const end = new Date(date.getFullYear(), date.getMonth() + 1, 0); return `01 ${date.toLocaleString("ru-RU", { month: "long" })} ${date.getFullYear()} - ${end.getDate()} ${end.toLocaleString("ru-RU", { month: "long" })} ${end.getFullYear()}` }
+function periodLabel(period: Period) { return `${formatShortReportDate(period.from)} - ${formatShortReportDate(period.to)}` }
 function format(value: number) { return value.toLocaleString("ru-RU") }

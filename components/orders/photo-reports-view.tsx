@@ -1,7 +1,7 @@
 "use client"
 
 import { Download, Filter, Search, X } from "lucide-react"
-import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
+import { RefHeader, RefPage, RefTabs } from "@/components/ref/list-kit"
 import { useState } from "react"
 import { useLanguage } from "@/lib/i18n/language-context"
 
@@ -26,22 +26,21 @@ export function PhotoReportsView() {
     URL.revokeObjectURL(url)
   }
 
-  return <main className="min-h-screen bg-slate-100 text-slate-800">
-    <header className="flex items-center justify-between bg-slate-50 px-10 py-4">
-      <h1 className="text-[27px] font-bold text-slate-600"><FavoritesButton className="text-[#4f71dc]" /> <span className="font-normal">|</span> {t("Фотоотчеты")}</h1>
-      <button onClick={download} className="rounded-md bg-[#71ce87] px-5 py-2.5 font-semibold text-white"><Download className="mr-2 inline h-5"/>{t("Скачать Excel")}</button>
-    </header>
-    <section className="mx-9 mt-1 overflow-hidden rounded-t-lg bg-white shadow-sm">
-      <div className="grid grid-cols-4 border-b">{tabs.map((item) => <button key={item} onClick={() => setTab(item)} className={`py-4 text-[17px] ${tab === item ? "border-b-4 border-[#5869f0]" : ""}`}>{t(item)}</button>)}</div>
-      <div className="flex h-16 items-center gap-5 px-3">
-        <button onClick={() => setFilterOpen(true)} className="rounded-md bg-[#4f71dc] px-4 py-3 font-semibold text-white"><Filter className="mr-2 inline h-4"/>{t("Фильтр")} / {applied ? 1 : 1}</button>
-        <span className="font-medium text-[#4f71dc]">01.08.2026 - 31.08.2026</span>
-        <div className="relative mx-auto w-80"><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("Поиск")} className="w-full border-b border-slate-300 py-2 outline-none"/><Search className="absolute right-1 top-2 text-slate-400"/></div>
-        <span>{t("Фотоотчеты")}: <b>{query ? 0 : 0} {t("шт")}</b></span>
+  return <RefPage>
+    <RefHeader title={t("Фотоотчеты")}>
+      <button onClick={download} className="flex h-[30px] items-center gap-2 rounded-[5px] bg-[#71ce87] px-4 text-[13px] font-semibold text-white hover:brightness-95"><Download className="h-4 w-4"/>{t("Скачать Excel")}</button>
+    </RefHeader>
+    <section className="overflow-hidden bg-white shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
+      <RefTabs labels={[...tabs]} value={tab} onChange={(value) => setTab(value as (typeof tabs)[number])} />
+      <div className="flex h-[50px] items-center gap-5 px-[10px]">
+        <button onClick={() => setFilterOpen(true)} className="flex h-[30px] items-center gap-2 rounded-[5px] bg-[#4f71dc] px-4 text-[13px] font-semibold text-white hover:brightness-95"><Filter className="h-4 w-4"/>{t("Фильтр")} / {applied ? 1 : 1}</button>
+        <span className="text-[12px] font-bold text-[#4f71dc]">01.10.2026 - 31.10.2026</span>
+        <div className="relative mx-auto w-[260px]"><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("Поиск")} className="w-full border-b border-[#d0d0d0] py-1 text-[13px] outline-none"/><Search className="absolute right-1 top-1 h-4 w-4 text-slate-400"/></div>
+        <span className="text-[13px]">{t("Фотоотчеты")}: <b>{query ? 0 : 0} {t("шт")}</b></span>
       </div>
     </section>
     {filterOpen && <FilterDialog close={() => setFilterOpen(false)} apply={() => { setApplied(true); setFilterOpen(false) }} />}
-  </main>
+  </RefPage>
 }
 
 function FilterDialog({ close, apply }: { close: () => void; apply: () => void }) {

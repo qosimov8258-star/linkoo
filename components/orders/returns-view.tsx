@@ -3,9 +3,11 @@
 import { X } from "lucide-react"
 import { RI, RefBand, RefButton, RefCard, RefHeader, RefIconButton, RefPage, RefTable, RefTabs, RefToolbar, usePaging } from "@/components/ref/list-kit"
 import { useMemo, useState } from "react"
+import { RETURNS_SEED } from "./returns-data"
+import { AddReturnDialog } from "./add-return-dialog"
 import { useLanguage } from "@/lib/i18n/language-context"
 
-type ReturnRow = {
+export type ReturnRow = {
   id: number
   client: string
   zone: string
@@ -13,7 +15,7 @@ type ReturnRow = {
   organization: string
   deliverer: string
   date: string
-  acceptedDate?: string
+  acceptedDate?: string | null
   creator: string
   accepted?: boolean
   amount: string
@@ -23,22 +25,13 @@ type ReturnRow = {
 
 const warehouses = ["05,08,2025(1)", "Andijon skladi", "Suhrob sklad", "toshkent", "123 test"]
 
-const initial: ReturnRow[] = [
-  { id: 222, client: "ЧЛ Ибраева Мадина", zone: "", warehouse: "Andijon skladi", organization: "NEW ORG", deliverer: "Admin Ritm", date: "17 июля 2026, 08:24", creator: "Admin Ritm", agent: "Хайрулло Доставщик", amount: "10 000 SUM" },
-  { id: 220, client: "klient 1", zone: "chilonzor", warehouse: "Andijon skladi", organization: "NEW ORG", deliverer: "Quvonchbek Admin", date: "16 мая 2026, 09:47", acceptedDate: "06 июня 2026, 11:20", creator: "Admin Ritm", agent: "Samandar Abdurahmonov", amount: "11 000 SUM", accepted: true },
-  { id: 219, client: "Бахт маркет", zone: "", warehouse: "05,08,2025(1)", organization: "Lalaku", deliverer: "Admin Ritm", date: "11 мая 2026, 09:44", acceptedDate: "09 мая 2026, 09:45", creator: "Admin Ritm", agent: "MrJakhon Ziyayev", amount: "66 SUM", accepted: true },
-  { id: 218, client: "loe messi", zone: "spark", warehouse: "Andijon skladi", organization: "energetik", deliverer: "N/A", date: "07 мая 2026, 13:09", creator: "Admin Ritm", agent: "Admin Ritm", amount: "1,6 USD" },
-  { id: 217, client: "new klient707", zone: "", warehouse: "toshkent", organization: "energetik", deliverer: "Temur Raupov", date: "28 мар. 2026, 17:28", creator: "Admin Ritm", agent: "Temur Raupov", amount: "86 910 120 SUM" },
-  { id: 216, client: "marketsavdo1", zone: "spark", warehouse: "Suhrob sklad", organization: "Lalaku", deliverer: "MrJakhon Ziyayev", date: "04 мар. 2026, 19:08", creator: "Admin Ritm", agent: "MrJakhon Ziyayev", amount: "360 000 SUM", comment: "тест" },
-  { id: 210, client: "Asu market", zone: "", warehouse: "Suhrob sklad", organization: "Lalaku", deliverer: "Admin Ritm", date: "20 янв. 2026, 17:22", acceptedDate: "23 янв. 2026, 16:08", creator: "Admin Ritm", agent: "Temur Raupov", amount: "6 000 SUM", accepted: true },
-  { id: 205, client: "mustafo", zone: "spark", warehouse: "toshkent", organization: "energetik", deliverer: "Admin Ritm", date: "11 янв. 2026, 19:47", acceptedDate: "11 янв. 2026, 19:48", creator: "Admin Ritm", agent: "Admin Ritm", amount: "646 750 SUM", accepted: true },
-]
+const initial: ReturnRow[] = RETURNS_SEED
 
 function parseAmount(amount: string): { value: number; currency: string } {
   const match = amount.trim().match(/^([\d\s.,]+)\s*(SUM|USD|Euro|EUR)$/i)
   if (!match) return { value: 0, currency: "SUM" }
   const value = Number(match[1].replace(/\s/g, "").replace(",", ".")) || 0
-  const currency = match[2].toUpperCase() === "EUR" ? "Euro" : match[2].toUpperCase() === "USD" ? "USD" : "SUM"
+  const currency = match[2].toUpperCase().startsWith("EUR") ? "Euro" : match[2].toUpperCase() === "USD" ? "USD" : "SUM"
   return { value, currency }
 }
 
@@ -116,7 +109,7 @@ export function ReturnsView() {
         <RefTabs labels={["Надо принять", "Принятые", "Все"]} value={tab} onChange={(value) => { setTab(value); paging.setPage(1) }} />
         <RefBand>
           <span>
-            {t("Возвраты")} : {formatTotal(totals.SUM)} SUM , {formatTotal(totals.Euro)} Euro , {formatTotal(totals.USD)} USD
+            {t("Возвраты")}: {formatTotal(totals.SUM)} SUM , {formatTotal(totals.Euro)} Euro , {formatTotal(totals.USD)} USD
           </span>
         </RefBand>
         <RefToolbar
@@ -154,7 +147,7 @@ export function ReturnsView() {
         />
         <RefTable
           cols="minmax(0,50fr) minmax(0,170fr) minmax(0,130fr) minmax(0,110fr) minmax(0,145fr) minmax(0,90fr) minmax(0,130fr) minmax(0,100fr) minmax(0,125fr) minmax(0,40fr)"
-          heads={[t("№"), t("От кого"), t("Склад"), t("Доставщик"), t("Дата возврата"), t("Создал"), t("Ответственный агент"), t("Комментарий"), t("Сумма возврата"), ""]}
+          heads={[t("№"), t("Клиент"), t("Склад"), t("Доставщик"), t("Дата возврата"), t("Создал"), t("Ответственный агент"), t("Комментарий"), t("Сумма возврата"), ""]}
           rows={pageRows}
           rowKey={(row) => row.id}
           onRowClick={(row) => setSelected(selected?.id === row.id ? null : row)}
@@ -185,23 +178,7 @@ export function ReturnsView() {
         />
       </RefCard>
       {selected && <Detail row={selected} close={() => setSelected(null)} onEdit={updateClient} onCancelRequest={cancelReturn} />}
-      {addOpen && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/[0.54] p-4">
-          <form onSubmit={(event) => { event.preventDefault(); addReturn((new FormData(event.currentTarget).get("client") as string)?.trim()) }} className="w-full max-w-[500px] bg-white font-sans text-[13px] shadow-xl">
-            <div className="flex items-center justify-between border-b border-[#efefef] px-[30px] py-5">
-              <h3 className="text-[13px] font-bold uppercase">{t("Добавить возврат")}</h3>
-              <button type="button" onClick={() => setAddOpen(false)} aria-label={t("Закрыть")}><X className="h-5 w-5" /></button>
-            </div>
-            <label className="m-[30px] block border-b border-[#e0e0e0] pb-2 text-[10px] font-bold">
-              {t("Клиент")}
-              <input autoFocus name="client" className="mt-1 block w-full bg-transparent text-[13px] font-semibold outline-none" />
-            </label>
-            <div className="flex justify-end border-t border-[#efefef] px-[30px] py-4">
-              <button type="submit" className="text-[13px] font-semibold uppercase text-[#0a9ddb]">{t("Создать")}</button>
-            </div>
-          </form>
-        </div>
-      )}
+      {addOpen && <AddReturnDialog onClose={() => setAddOpen(false)} onCreated={addReturn} />}
     </RefPage>
   )
 }

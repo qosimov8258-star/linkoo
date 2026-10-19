@@ -8,11 +8,11 @@ type RouteParams = { params: Promise<{ id: string }> }
 
 export async function DELETE(_request: Request, { params }: RouteParams) {
   const user = await getCurrentUser()
-  if (!user) return NextResponse.json({ error: "Tizimga kirilmagan" }, { status: 401 })
+  if (!user) return NextResponse.json({ error: "Вы не вошли в систему" }, { status: 401 })
 
   const { id } = await params
   const ok = (await revokeSession(id, user.id))
-  if (!ok) return NextResponse.json({ error: "Sessiya topilmadi" }, { status: 404 })
+  if (!ok) return NextResponse.json({ error: "Сессия не найдена" }, { status: 404 })
 
   const response = NextResponse.json({ ok: true })
   if (id === user.sessionId) {

@@ -1,10 +1,9 @@
 "use client"
 
-import { FormEvent, Fragment, useEffect, useMemo, useState } from "react"
-import { Download, PlusCircle } from "lucide-react"
+import { Fragment, useEffect, useMemo, useState } from "react"
 import { downloadExcelTable } from "@/lib/excel-export"
 import { DashboardDialog } from "./dashboard-dialog"
-import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
+import { ReportBand, ReportDateField, ReportEmpty, ReportFilters, ReportHeader, ReportPage } from "@/components/ref/report-kit"
 
 type AgentRow = {
   name: string
@@ -165,75 +164,29 @@ export function AgentVisitsView({ supervisorMode = false }: { supervisorMode?: b
     [supervisorAscending],
   )
 
-  function apply(event: FormEvent) {
-    event.preventDefault()
-    if (draftFrom <= draftTo) setRange({ from: draftFrom, to: draftTo })
-  }
-
   return (
-    <main className="min-h-[calc(100vh-4rem)] bg-slate-100">
-      <header className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-300 bg-slate-100 px-5 py-4 sm:px-10">
-        <div className="flex items-center gap-3 text-xl font-bold sm:text-2xl">
-          <FavoritesButton className="flex items-center gap-2 text-[#5470e8]" />
-          <span className="text-slate-500">|</span>
-          <h1 className="text-slate-600">
-            {supervisorMode ? "Визиты агентов по супервайзерам" : "Визиты агента"}
-          </h1>
-        </div>
+    <ReportPage>
+      <ReportHeader
+        title={supervisorMode ? "Визиты агентов по супервайзерам" : "Визиты агента"}
+        onExcel={downloadCsv}
+        onDashboard={() => setDashboardOpen(true)}
+        inDashboard={inDashboard}
+      />
 
-        <div className="flex flex-wrap gap-3">
-          <button
-            type="button"
-            onClick={downloadCsv}
-            className="inline-flex items-center gap-2 rounded-md bg-[#71ce87] px-5 py-2.5 font-semibold text-white hover:brightness-95"
-          >
-            <Download className="h-5 w-5" />
-            Скачать Excel
-          </button>
-          <button
-            type="button"
-            onClick={() => setDashboardOpen(true)}
-            className="inline-flex items-center gap-2 rounded-md bg-[#5470e8] px-5 py-2.5 font-semibold text-white hover:brightness-95"
-          >
-            <PlusCircle className="h-5 w-5" />
-            {inDashboard ? "Добавлено в дашборд" : "Добавить в дашборд"}
-          </button>
-        </div>
-      </header>
+      <ReportBand>
+        <ReportFilters
+          onApply={() => {
+            if (draftFrom <= draftTo) setRange({ from: draftFrom, to: draftTo })
+          }}
+          applyDisabled={draftFrom > draftTo}
+        >
+          <ReportDateField label="Дата создания от" value={draftFrom} max={draftTo} onChange={setDraftFrom} />
+          <ReportDateField label="Дата создания до" value={draftTo} min={draftFrom} onChange={setDraftTo} />
+        </ReportFilters>
 
-      <section className="bg-white px-4 py-3 sm:px-10">
-        <form onSubmit={apply}>
-          <div className="grid max-w-[920px] gap-5 sm:grid-cols-2">
-            <label className="text-xs font-medium text-slate-800">
-              Дата создания от
-              <input
-                type="date"
-                value={draftFrom}
-                max={draftTo}
-                onChange={(event) => setDraftFrom(event.target.value)}
-                className="mt-1 block w-full border-0 border-b border-slate-300 bg-transparent px-0 py-2 text-base outline-none focus:border-brand-blue"
-              />
-            </label>
-            <label className="text-xs font-medium text-slate-800">
-              Дата создания до
-              <input
-                type="date"
-                value={draftTo}
-                min={draftFrom}
-                onChange={(event) => setDraftTo(event.target.value)}
-                className="mt-1 block w-full border-0 border-b border-slate-300 bg-transparent px-0 py-2 text-base outline-none focus:border-brand-blue"
-              />
-            </label>
-          </div>
-          <button
-            type="submit"
-            disabled={draftFrom > draftTo}
-            className="mt-3 w-full rounded-md bg-[#71ce87] py-3 font-bold text-white hover:brightness-95 disabled:opacity-50"
-          >
-            Применить
-          </button>
-        </form>
-
+        {(supervisorMode ? orderedSupervisorGroups.length : rows.length) === 0 ? (
+          <ReportEmpty />
+        ) : (
         <div className="mt-3 overflow-x-auto border border-slate-300 visits-scrollbar">
           <table className="w-full min-w-[1220px] border-collapse text-[16px] text-slate-800">
             <thead className="bg-slate-50">
@@ -320,7 +273,8 @@ export function AgentVisitsView({ supervisorMode = false }: { supervisorMode?: b
             </tbody>
           </table>
         </div>
-      </section>
+        )}
+      </ReportBand>
 
       {overlayOpen && (
         <button
@@ -343,7 +297,7 @@ export function AgentVisitsView({ supervisorMode = false }: { supervisorMode?: b
           onSave={() => setInDashboard(true)}
         />
       )}
-    </main>
+    </ReportPage>
   )
 }
 

@@ -13,6 +13,10 @@ export type Client = {
   balance?: number
   tab: "unconfirmed" | "problem" | "plan" | "closing" | "all"
   branch?: string
+  /** Has an agent route assigned (reference «Маршрут»). */
+  inRoute?: boolean
+  /** Shown under the «Проблемные» tab. */
+  isProblem?: boolean
   salesChannel?: string
   realizationBy?: string
   address?: string
@@ -26,6 +30,9 @@ export type Client = {
   autoDelivery?: boolean
   unlimitedDebt?: boolean
   attributes?: Record<string, string>
+  /** Per-currency balance lines, e.g. "12 047 000 SUM". */
+  balanceLines?: string[]
+  createdAt?: string
 }
 
 export const clients: Client[] = [

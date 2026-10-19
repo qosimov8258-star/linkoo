@@ -1,14 +1,12 @@
 "use client"
 
-import Image from "next/image"
-import { FormEvent, useEffect, useMemo, useState } from "react"
-import { Download, PlusCircle } from "lucide-react"
+import { useEffect, useMemo, useState } from "react"
 import { downloadExcelTable } from "@/lib/excel-export"
 import { DashboardDialog } from "./dashboard-dialog"
-import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
+import { ReportBand, ReportChipField, ReportDateField, ReportEmpty, ReportFilters, ReportHeader, ReportPage, ReportSelectField } from "@/components/ref/report-kit"
 
-const ALL_AGENTS = "Все агенты"
-const ALL_SUPERVISORS = "Все супервайзеры"
+const ALL_AGENTS = ""
+const ALL_SUPERVISORS = ""
 
 function inputDate(date: Date) {
   const year = date.getFullYear()
@@ -55,11 +53,11 @@ export function AgentWorkingTimeView() {
     }
   }, [])
 
-  const agents = useMemo(() => [ALL_AGENTS, ...employees.map((employee) => employee.name).filter(Boolean).sort((a, b) => a.localeCompare(b, "ru"))], [employees])
+  const agents = useMemo(() => [...employees.map((employee) => employee.name).filter(Boolean).sort((a, b) => a.localeCompare(b, "ru"))], [employees])
   const supervisors = useMemo(() => {
     const supervisorNames = employees.filter((employee) => /супервайзер|supervisor/i.test(employee.position)).map((employee) => employee.name)
     const names = supervisorNames.length > 0 ? supervisorNames : employees.map((employee) => employee.name)
-    return [ALL_SUPERVISORS, ...Array.from(new Set(names)).filter(Boolean).sort((a, b) => a.localeCompare(b, "ru"))]
+    return Array.from(new Set(names)).filter(Boolean).sort((a, b) => a.localeCompare(b, "ru"))
   }, [employees])
 
   useEffect(() => {
@@ -78,11 +76,6 @@ export function AgentWorkingTimeView() {
     }
   }, [overlayOpen])
 
-  function apply(event: FormEvent) {
-    event.preventDefault()
-    if (from <= to) setAppliedAgent(agent)
-  }
-
   function downloadCsv() {
     downloadExcelTable("agent-working-time.xls", [
       ["Агент", "Супервайзер", "Показатель", "Дата от", "Дата до"],
@@ -91,68 +84,25 @@ export function AgentWorkingTimeView() {
   }
 
   return (
-    <main className="min-h-[calc(100vh-4rem)] bg-slate-100">
-      <header className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-200 px-5 py-4 sm:px-10">
-        <div className="flex items-center gap-3 text-xl font-bold sm:text-2xl">
-          <FavoritesButton className="flex items-center gap-2 text-[#5470e8]" />
-          <span className="text-slate-500">|</span>
-          <h1 className="text-slate-600">Время работы агента</h1>
-        </div>
-        <div className="flex flex-wrap gap-3">
-          <button type="button" onClick={downloadCsv} className="inline-flex items-center gap-2 rounded-md bg-[#71ce87] px-5 py-2.5 font-semibold text-white hover:brightness-95">
-            <Download className="h-5 w-5" /> Скачать Excel
-          </button>
-          <button type="button" onClick={() => setDashboardOpen(true)} className="inline-flex items-center gap-2 rounded-md bg-[#5470e8] px-5 py-2.5 font-semibold text-white hover:brightness-95">
-            <PlusCircle className="h-5 w-5" /> Добавить в дашборд
-          </button>
-        </div>
-      </header>
+    <ReportPage>
+      <ReportHeader title="Время работы агента" onExcel={downloadCsv} onDashboard={() => setDashboardOpen(true)} />
 
-      <section className="bg-white px-4 py-3 sm:px-10">
-        <form onSubmit={apply}>
-          <div className="grid gap-x-5 gap-y-10 md:grid-cols-2 xl:grid-cols-4">
-            <label className="text-xs font-medium">
-              Дата создания от
-              <input type="date" value={from} max={to} onChange={(event) => setFrom(event.target.value)} className="mt-1 block w-full border-0 border-b border-slate-300 bg-transparent px-0 py-2 text-base outline-none focus:border-brand-blue" />
-            </label>
-            <label className="text-xs font-medium">
-              Дата создания до
-              <input type="date" value={to} min={from} onChange={(event) => setTo(event.target.value)} className="mt-1 block w-full border-0 border-b border-slate-300 bg-transparent px-0 py-2 text-base outline-none focus:border-brand-blue" />
-            </label>
-            <label className="text-xs font-medium">
-              Показать по
-              <select value={metric} onChange={(event) => setMetric(event.target.value)} className="mt-1 block w-full border-0 border-b border-slate-300 bg-white px-0 py-2 text-base font-semibold outline-none">
-                <option>Время нахождения</option>
-                <option>Время визита</option>
-                <option>Время в пути</option>
-                <option>Рабочее время</option>
-              </select>
-            </label>
-            <label className="text-xs font-medium">
-              Супервайзер
-              <select value={supervisor} onChange={(event) => setSupervisor(event.target.value)} className="mt-1 block w-full border-0 border-b border-slate-300 bg-white px-0 py-2 text-base font-semibold outline-none">
-                {supervisors.map((item) => <option key={item}>{item}</option>)}
-              </select>
-            </label>
-            <label className="text-xs font-medium md:col-span-2 xl:col-span-1">
-              Агент
-              <select value={agent} onChange={(event) => setAgent(event.target.value)} className="mt-1 block w-full border-0 border-b border-slate-300 bg-white px-0 py-2 text-base font-semibold outline-none">
-                {agents.map((item) => <option key={item}>{item}</option>)}
-              </select>
-            </label>
-          </div>
-          <button type="submit" disabled={from > to} className="mt-3 w-full rounded-md bg-[#71ce87] py-3 font-bold text-white hover:brightness-95 disabled:opacity-50">
-            Применить
-          </button>
-        </form>
+      <ReportBand>
+        <ReportFilters
+          onApply={() => {
+            if (from <= to) setAppliedAgent(agent)
+          }}
+          applyDisabled={from > to}
+        >
+          <ReportDateField label="Дата создания от" value={from} max={to} onChange={setFrom} />
+          <ReportDateField label="Дата создания до" value={to} min={from} onChange={setTo} />
+          <ReportChipField label="Показать по" value={metric} options={["Время нахождения", "Время визита", "Время в пути", "Рабочее время"]} onChange={setMetric} />
+          <ReportSelectField label="Супервайзер" value={supervisor} onChange={setSupervisor} options={supervisors} />
+          <ReportSelectField label="Агент" value={agent} onChange={setAgent} options={agents} />
+        </ReportFilters>
 
-        <div className="flex min-h-[380px] flex-col items-center justify-center py-12">
-          <Image src="/robot-mascot.png" alt="Робот-помощник" width={150} height={150} priority className="h-36 w-36 object-contain" />
-          <p className="mt-7 text-lg text-slate-400">
-            {appliedAgent === "Все агенты" ? "По вашему запросу ничего не найдено..." : `${appliedAgent}: данные не найдены...`}
-          </p>
-        </div>
-      </section>
+        <ReportEmpty text={appliedAgent ? `${appliedAgent}: данные не найдены...` : undefined} />
+      </ReportBand>
 
       {overlayOpen && (
         <button type="button" aria-label="Закрыть окно" onClick={() => setDashboardOpen(false)} className="fixed inset-0 z-[90] cursor-default bg-black/55" />
@@ -169,6 +119,6 @@ export function AgentWorkingTimeView() {
           onClose={() => setDashboardOpen(false)}
         />
       )}
-    </main>
+    </ReportPage>
   )
 }

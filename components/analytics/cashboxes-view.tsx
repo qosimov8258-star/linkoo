@@ -367,8 +367,8 @@ export function CashboxesView({ embedded = false }: { embedded?: boolean }) {
   if (managing) {
     return (
       <main className={embedded ? "min-w-0 flex-1" : "min-h-[calc(100vh-4rem)] bg-[#f2f5f8] px-7 pb-7"}>
-        <header className="mb-5 flex flex-wrap items-center justify-between gap-3">
-          <h1 className="text-2xl font-bold text-slate-600">{t("Управление кассами")}</h1>
+        <header className="flex h-[60px] flex-wrap items-center justify-between gap-3">
+          <h1 className="flex items-center text-[18px] font-bold text-[#5d6474]">{t("Управление кассами")}</h1>
           <div className="flex flex-wrap items-center gap-3">
             <button type="button" onClick={() => setAcceptOpen(true)} className="rounded border border-[#4f71dc] px-4 py-2.5 font-semibold text-[#4f71dc] hover:bg-blue-50">
               {t("Принять наличные")}{pending.length > 0 ? ` (${pending.length})` : ""}
@@ -436,10 +436,10 @@ export function CashboxesView({ embedded = false }: { embedded?: boolean }) {
           <table className="w-full text-left">
             <thead className="bg-[#5d6474] text-white">
               <tr>
-                <th className="px-9 py-5">№</th>
-                <th className="px-5 py-5">{t("Детали")}</th>
-                <th className="px-5 py-5">{t("Указанная дата")}</th>
-                <th className="px-5 py-5 text-right">{t("Сумма")}</th>
+                <th className="px-9 py-4 text-[13px]">№</th>
+                <th className="px-5 py-4 text-[13px]">{t("Детали")}</th>
+                <th className="px-5 py-4 text-[13px]">{t("Указанная дата")}</th>
+                <th className="px-5 py-4 text-[13px] text-right">{t("Сумма")}</th>
                 <th className="w-12" />
               </tr>
             </thead>
@@ -666,13 +666,13 @@ export function CashboxesView({ embedded = false }: { embedded?: boolean }) {
         <table className="w-full text-left">
           <thead className="bg-[#5d6474] text-white">
             <tr>
-              <th className="px-9 py-5">Id</th>
-              <th className="px-5 py-5">{t("Наименование")}</th>
-              <th className="px-5 py-5">{t("Валюта")}</th>
-              <th className="px-5 py-5">{t("Кассир")}</th>
-              <th className="px-5 py-5">{t("Тип")}</th>
-              <th className="px-5 py-5">{t("Вэнсел")}</th>
-              <th className="px-5 py-5">{t("Порядковый номер")}</th>
+              <th className="px-9 py-4 text-[13px]">Id</th>
+              <th className="px-5 py-4 text-[13px]">{t("Наименование")}</th>
+              <th className="px-5 py-4 text-[13px]">{t("Валюта")}</th>
+              <th className="px-5 py-4 text-[13px]">{t("Кассир")}</th>
+              <th className="px-5 py-4 text-[13px]">{t("Тип")}</th>
+              <th className="px-5 py-4 text-[13px]">{t("Вэнсел")}</th>
+              <th className="px-5 py-4 text-[13px]">{t("Порядковый номер")}</th>
               <th className="w-12" />
             </tr>
           </thead>
@@ -684,7 +684,7 @@ export function CashboxesView({ embedded = false }: { embedded?: boolean }) {
             ) : visible.map((box) => (
               <tr key={box.id} className="group border-b border-dashed border-slate-300 hover:bg-slate-50">
                 <td className="px-9 py-4">{box.id}</td>
-                <td className="px-5 py-4 text-[#4f71dc]">{box.name}</td>
+                <td className="px-5 py-4">{box.name}</td>
                 <td className="px-5 py-4">{box.currency}</td>
                 <td className="px-5 py-4">{t(box.cashier)}</td>
                 <td className="px-5 py-4">{t(box.paymentType)}</td>
@@ -789,7 +789,7 @@ export function CashboxesView({ embedded = false }: { embedded?: boolean }) {
               </button>
             </div>
             <footer className="flex justify-end border-t p-5">
-              <button type="button" disabled={!importFile || importSaving} onClick={saveImport} className="rounded bg-[#71ce87] px-5 py-3 font-semibold text-white hover:brightness-95 disabled:opacity-40">
+              <button type="button" disabled={!importFile || importSaving} onClick={saveImport} className="inline-flex items-center h-[30px] rounded-[5px] bg-[#71ce87] px-4 text-[13px] font-semibold text-white hover:brightness-95 disabled:opacity-40">
                 {importSaving ? t("Импорт...") : t("Сохранить")}
               </button>
             </footer>

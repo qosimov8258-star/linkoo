@@ -5,7 +5,7 @@ import { ChangeEvent, Fragment, FormEvent, useEffect, useMemo, useState } from "
 import { downloadExcelTable } from "@/lib/excel-export"
 import { mapHeaderColumns, readExcelRows } from "@/lib/excel-import"
 import { useLanguage } from "@/lib/i18n/language-context"
-import { EmptyState, HoverActions, ImportDialog, LineField, LineSelect, ListToolbar, Modal, SaveButton, grayHead } from "./catalog-ui"
+import { CheckBox, EmptyState, HoverActions, ImportDialog, LineField, LineSelect, ListToolbar, Modal, SaveButton, grayHead } from "./catalog-ui"
 import type { UnitOfMeasure } from "./units-of-measure-data"
 
 const IMPORT_HEADER_ALIASES: Record<string, string> = {
@@ -25,6 +25,7 @@ export function UnitsOfMeasureView({ embedded = false }: { embedded?: boolean })
   const [loadError, setLoadError] = useState("")
   const [query, setQuery] = useState("")
   const [page, setPage] = useState(1)
+  const [weighted, setWeighted] = useState(false)
   const [editing, setEditing] = useState<UnitOfMeasure | "new" | null>(null)
   const [draft, setDraft] = useState(emptyDraft)
   const [formError, setFormError] = useState("")
@@ -258,18 +259,20 @@ export function UnitsOfMeasureView({ embedded = false }: { embedded?: boolean })
 
       {editing !== null && (
         <Modal
-          title={editing === "new" ? t("Добавить единицу измерения") : t("Изменить единицу измерения")}
+          title={editing === "new" ? t("Добавить измерение") : t("Изменить измерение")}
           onClose={() => setEditing(null)}
           footer={<SaveButton disabled={saving || !draft.name.trim()} onClick={() => void save({ preventDefault() {} } as FormEvent)}>{saving ? t("Сохранение...") : t("Сохранить")}</SaveButton>}
         >
           <LineSelect
-            label={t("Родительское измерение")}
+            label={t("Родительская категория")}
+            required
             value={topLevel.find((unit) => String(unit.id) === draft.parentId)?.name ?? ""}
             onChange={(name) => setDraft((value) => ({ ...value, parentId: String(topLevel.find((unit) => unit.name === name)?.id ?? "") }))}
             options={topLevel.filter((unit) => editing === "new" || unit.id !== (editing as UnitOfMeasure).id).map((unit) => unit.name)}
             onClear={() => setDraft((value) => ({ ...value, parentId: "" }))}
           />
           <div className="mt-[27px]"><LineField label={t("Наименование")} required value={draft.name} onChange={(value) => setDraft((current) => ({ ...current, name: value }))} /></div>
+          <div className="mt-[16px]"><CheckBox checked={weighted} onChange={setWeighted} label={t("Развесной товар")} /></div>
           {formError && <p className="mt-4 text-[13px] font-semibold text-rose-600">{formError}</p>}
         </Modal>
       )}

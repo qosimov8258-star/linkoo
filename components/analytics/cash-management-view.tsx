@@ -301,9 +301,9 @@ export function CashManagementView() {
 
   return (
     <main className="min-h-[calc(100vh-4rem)] bg-[#f2f5f8]">
-      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-white px-9 py-4">
-        <h1 className="flex items-center text-2xl font-bold text-slate-600">
-          <FavoritesButton className="flex items-center gap-2 text-2xl font-bold text-[#4f71dc]" /> <span className="mx-1 text-slate-400">|</span> Управления кассой
+      <header className="flex h-[60px] flex-wrap items-center justify-between gap-3">
+        <h1 className="flex items-center text-[18px] font-bold text-[#5d6474]">
+          <FavoritesButton className="flex items-center gap-[5px] text-[18px] font-bold text-[#4f71dc]" /> <span className="mx-[11px] inline-block h-[21px] w-[2px] bg-[#5d6474]" /> Управления кассой
         </h1>
         {selectedCashbox && (
           <div className="flex flex-wrap items-center gap-3">
@@ -327,7 +327,7 @@ export function CashManagementView() {
         <div className="mx-9 mt-4 rounded border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm font-medium text-emerald-700">{notice}</div>
       )}
 
-      <div className="flex gap-5 px-9 py-5">
+      <div className="flex gap-5 px-9 py-4 text-[13px]">
         <aside className="w-72 shrink-0 overflow-hidden rounded bg-white shadow">
           <p className="border-b border-slate-100 px-4 py-3 font-semibold text-slate-700">Кассы</p>
           <button
@@ -357,12 +357,12 @@ export function CashManagementView() {
         <section className="min-w-0 flex-1">
           <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
             <h2 className="text-lg font-semibold text-slate-700">{selectedId === "all" ? "Общий объем" : selectedCashbox?.name}</h2>
-            {selectedCashbox && (
+            {(
               <div className="flex items-center gap-3">
-                <button type="button" onClick={() => setModal("transfer")} className="rounded border border-[#4f71dc] px-4 py-2 text-sm font-semibold text-[#4f71dc] hover:bg-blue-50">
+                <button type="button" onClick={() => (selectedCashbox ? setModal("transfer") : window.alert("Выберите кассу"))} className="h-[26px] rounded-[2px] border border-[#4f71dc] px-4 text-[13px] text-[#4f71dc] hover:bg-blue-50">
                   <ArrowLeftRight className="mr-1.5 inline h-4 w-4" /> Перевод
                 </button>
-                <button type="button" onClick={() => setModal("request")} className="rounded border border-emerald-500 px-4 py-2 text-sm font-semibold text-emerald-600 hover:bg-emerald-50">
+                <button type="button" onClick={() => (selectedCashbox ? setModal("request") : window.alert("Выберите кассу"))} className="h-[26px] rounded-[2px] border border-[#71ce87] px-4 text-[13px] text-[#71ce87] hover:bg-emerald-50">
                   Запрос средств
                 </button>
                 <button type="button" onClick={() => setHistoryOpen((value) => !value)} aria-label="История" className={`rounded-full border p-2 ${historyOpen ? "border-[#4f71dc] text-[#4f71dc]" : "border-slate-300 text-slate-500"}`}>
@@ -412,11 +412,11 @@ export function CashManagementView() {
             <table className="w-full text-left">
               <thead className="bg-[#5d6474] text-white">
                 <tr>
-                  <th className="px-9 py-5">№</th>
-                  {selectedId === "all" && <th className="px-5 py-5">Касса</th>}
-                  <th className="px-5 py-5">Детали</th>
-                  <th className="px-5 py-5">Указанная дата</th>
-                  <th className="px-5 py-5 text-right">Сумма</th>
+                  <th className="px-9 py-4 text-[13px]">№</th>
+                  {selectedId === "all" && <th className="px-5 py-4 text-[13px]">Касса</th>}
+                  <th className="px-5 py-4 text-[13px]">Детали</th>
+                  <th className="px-5 py-4 text-[13px]">Указанная дата</th>
+                  <th className="px-5 py-4 text-[13px] text-right">Сумма</th>
                   <th className="w-12" />
                 </tr>
               </thead>

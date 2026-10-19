@@ -1,42 +1,14 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
-import {
-  ChevronDown,
-  Clock,
-  CreditCard,
-  Download,
-  Filter,
-  Info,
-  ListChecks,
-  Pencil,
-  RefreshCw,
-  Reply,
-  AlignJustify,
-  Search,
-  Trash2,
-  Wallet,
-} from "lucide-react"
-import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
+import { Clock, CreditCard, Info, Pencil, Reply, Trash2, Wallet } from "lucide-react"
+import { RI, RefButton, RefCard, RefHeader, RefPage, RefTable, RefTabs, RefToolbar } from "@/components/ref/list-kit"
+import { ReportSelectField } from "@/components/ref/report-kit"
 import { downloadExcelTable } from "@/lib/excel-export"
 
 import type { PaymentRow } from "./customer-payments-data"
 
 const number = (value: number, fraction = 0) => new Intl.NumberFormat("ru-RU", { minimumFractionDigits: fraction, maximumFractionDigits: fraction }).format(value)
-
-const RU_MONTHS: Record<string, number> = {
-  "янв.": 0, "февр.": 1, "мар.": 2, "апр.": 3, "мая": 4, "июня": 5,
-  "июля": 6, "авг.": 7, "сент.": 8, "окт.": 9, "нояб.": 10, "дек.": 11,
-}
-
-function parseRuDate(value: string): number {
-  const match = value.match(/(\d{1,2})\s+([а-яё.]+)\s+(\d{4})(?:,\s*(\d{1,2}):(\d{2}))?/i)
-  if (!match) return 0
-  const [, day, monthName, year, hour, minute] = match
-  const month = RU_MONTHS[monthName.toLocaleLowerCase("ru")]
-  if (month === undefined) return 0
-  return new Date(Number(year), month, Number(day), Number(hour ?? 0), Number(minute ?? 0)).getTime()
-}
 
 function PaymentIcon({ type }: { type: "cash" | "card" }) {
   if (type === "card") return <CreditCard className="inline h-4 w-4 text-[#4f71dc]" />
@@ -52,16 +24,14 @@ export function CustomerPaymentsView() {
   const [tab, setTab] = useState<"pending" | "accepted" | "all">("all")
   const [search, setSearch] = useState("")
   const [filterOpen, setFilterOpen] = useState(false)
-  const [organizationFilter, setOrganizationFilter] = useState("Все организации")
-  const [agentFilter, setAgentFilter] = useState("Все агенты")
-  const [kassaFilter, setKassaFilter] = useState("Все кассы")
+  const [organizationFilter, setOrganizationFilter] = useState("")
+  const [agentFilter, setAgentFilter] = useState("")
+  const [kassaFilter, setKassaFilter] = useState("")
   const [pageSize, setPageSize] = useState(25)
   const [page, setPage] = useState(1)
   const [historyOpenId, setHistoryOpenId] = useState<number | null>(null)
   const [editingId, setEditingId] = useState<number | null>(null)
   const [editingComment, setEditingComment] = useState("")
-  const [sortKey, setSortKey] = useState<keyof PaymentRow | null>(null)
-  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc")
 
   useEffect(() => {
     let cancelled = false
@@ -87,46 +57,23 @@ export function CustomerPaymentsView() {
     }
   }, [])
 
-  const toggleSort = (key: keyof PaymentRow) => {
-    if (sortKey === key) setSortDir((current) => (current === "asc" ? "desc" : "asc"))
-    else { setSortKey(key); setSortDir("asc") }
-  }
-
-  const organizations = ["Все организации", ...new Set(rows.map((row) => row.organization))]
-  const agents = ["Все агенты", ...new Set(rows.map((row) => row.agent))]
-  const kassas = ["Все кассы", ...new Set(rows.map((row) => row.kassa).filter(Boolean))]
+  const organizations = [...new Set(rows.map((row) => row.organization))]
+  const agents = [...new Set(rows.map((row) => row.agent))]
+  const kassas = [...new Set(rows.map((row) => row.kassa).filter(Boolean))]
 
   const filtered = useMemo(() => {
     return rows.filter((row) => {
       if (tab === "pending" && row.accepted) return false
       if (tab === "accepted" && !row.accepted) return false
       if (search.trim() && !row.client.toLocaleLowerCase("ru").includes(search.trim().toLocaleLowerCase("ru"))) return false
-      if (organizationFilter !== "Все организации" && row.organization !== organizationFilter) return false
-      if (agentFilter !== "Все агенты" && row.agent !== agentFilter) return false
-      if (kassaFilter !== "Все кассы" && row.kassa !== kassaFilter) return false
+      if (organizationFilter !== "" && row.organization !== organizationFilter) return false
+      if (agentFilter !== "" && row.agent !== agentFilter) return false
+      if (kassaFilter !== "" && row.kassa !== kassaFilter) return false
       return true
     })
   }, [agentFilter, kassaFilter, organizationFilter, rows, search, tab])
 
-  const sorted = useMemo(() => {
-    if (!sortKey) return filtered
-    const isDateKey = sortKey === "paidAt" || sortKey === "acceptedAt"
-    const copy = [...filtered]
-    copy.sort((a, b) => {
-      const av = a[sortKey]
-      const bv = b[sortKey]
-      let result: number
-      if (isDateKey) {
-        result = parseRuDate(String(av)) - parseRuDate(String(bv))
-      } else if (typeof av === "string" && typeof bv === "string") {
-        result = av.localeCompare(bv, "ru")
-      } else {
-        result = Number(av) - Number(bv)
-      }
-      return sortDir === "asc" ? result : -result
-    })
-    return copy
-  }, [filtered, sortDir, sortKey])
+  const sorted = filtered
 
   const maxPage = Math.max(1, Math.ceil(sorted.length / pageSize))
   const safePage = Math.min(page, maxPage)
@@ -134,7 +81,7 @@ export function CustomerPaymentsView() {
 
   const pendingRows = rows.filter((row) => !row.accepted)
   const acceptedRows = rows.filter((row) => row.accepted)
-  const isDefaultFilters = !search.trim() && organizationFilter === "Все организации" && agentFilter === "Все агенты" && kassaFilter === "Все кассы"
+  const isDefaultFilters = !search.trim() && organizationFilter === "" && agentFilter === "" && kassaFilter === ""
   const totalLabel = isDefaultFilters ? (tab === "pending" ? pendingRows.length : tab === "accepted" ? acceptedRows.length : rows.length) : filtered.length
 
   // Сводная шапка отражает реальные данные из базы (не только видимую выборку строк).
@@ -214,204 +161,96 @@ export function CustomerPaymentsView() {
     downloadExcelTable("customer-payments", [header, ...body])
   }
 
-  return (
-    <main className="min-h-screen bg-[#f2f5f8] text-[#17233b]">
-      <header className="flex min-h-[76px] items-center justify-between border-b border-[#d8dee7] bg-[#f2f5f8] px-6 md:px-9">
-        <div className="flex items-center gap-3">
-          <FavoritesButton className="flex items-center gap-2 text-2xl font-bold text-[#4f71dc]" /><span className="text-3xl font-light text-[#586174]">|</span>
-          <span className="text-2xl font-bold text-[#586174]">Оплаты от клиентов</span>
-        </div>
-        <button onClick={downloadExcel} className="flex h-11 items-center gap-2 rounded-md bg-[#69cd87] px-5 font-semibold text-white">
-          <Download className="h-5 w-5" /> Скачать Excel
-        </button>
-      </header>
+  const filterPanel = (
+    <div className="grid w-[640px] grid-cols-3 gap-x-[12px] bg-white p-6 text-[13px] shadow-[0_3px_10px_rgba(0,0,0,0.16),0_3px_10px_rgba(0,0,0,0.23)]">
+      <ReportSelectField label="Организация" value={organizationFilter} onChange={(value) => { setOrganizationFilter(value); setPage(1) }} options={organizations} />
+      <ReportSelectField label="Ответственный агент" value={agentFilter} onChange={(value) => { setAgentFilter(value); setPage(1) }} options={agents} />
+      <ReportSelectField label="Касса" value={kassaFilter} onChange={(value) => { setKassaFilter(value); setPage(1) }} options={kassas} />
+    </div>
+  )
+  const ic = "h-6 w-6 fill-[#555]"
+  const toolbarIcons = (
+    <>
+      <svg viewBox="0 0 24 24" className={ic} aria-hidden><path d={RI.checklist} /></svg>
+      <button onClick={downloadExcel} aria-label="Скачать" className="ml-[22px]"><svg viewBox="0 0 24 24" className={ic}><path d={RI.download} /></svg></button>
+      <svg viewBox="0 0 24 24" className={`${ic} ml-[22px]`} aria-hidden><path d="M3 21h18v-2H3v2zm0-4h18v-2H3v2zm0-4h18v-2H3v2zm0-4h18V7H3v2zm0-6v2h18V3H3z" /></svg>
+      <button onClick={() => setPage(1)} aria-label="Обновить" className="ml-[22px]"><svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#4f71dc]"><path d={RI.sync} /></svg></button>
+      <svg viewBox="0 0 24 24" className="ml-[22px] h-6 w-6 fill-[#bbb]" aria-hidden><path d={RI.edit} /></svg>
+    </>
+  )
 
-      <div className="bg-[#4f5fd9] px-6 py-3 text-[15px] font-semibold text-white md:px-9">
+  return (
+    <RefPage>
+      <RefHeader title="Оплаты от клиентов">
+        <RefButton icon={RI.download} green label="Скачать Excel" onClick={downloadExcel} />
+      </RefHeader>
+
+      <div className="-mx-7 bg-[#5869f0] px-[33px] py-[4px] text-[13px] font-semibold leading-4 text-white">
         Оплаты от клиентов: {number(SUMMARY_TOTALS.sum, 2)} SUM , {number(SUMMARY_TOTALS.usd, 3)} USD , {number(SUMMARY_TOTALS.eur, 3)} Euro
       </div>
 
-      <section className="grid grid-cols-3 bg-white text-center">
-        {(
-          [
-            ["pending", "Не принятые"],
-            ["accepted", "Принятые"],
-            ["all", "Все"],
-          ] as const
-        ).map(([key, label]) => (
-          <button
-            key={key}
-            onClick={() => { setTab(key); setPage(1) }}
-            className={`border-b-2 py-4 text-[16px] font-medium ${tab === key ? "border-[#4f5fd9] text-[#17233b]" : "border-transparent text-[#586174]"}`}
-          >
-            {label}
-          </button>
-        ))}
-      </section>
+      <div className="mt-[1px]">
+        <RefTabs labels={["Не принятые", "Принятые", "Все"]} value={tab === "pending" ? "Не принятые" : tab === "accepted" ? "Принятые" : "Все"} onChange={(label) => { setTab(label === "Не принятые" ? "pending" : label === "Принятые" ? "accepted" : "all"); setPage(1) }} />
+      </div>
 
-      <section className="flex flex-wrap items-center gap-5 border-b border-[#e1e5eb] bg-white px-6 py-3 md:px-9">
-        <button onClick={() => setFilterOpen((value) => !value)} className="flex items-center gap-1 font-medium text-[#4f71dc]">
-          <Filter className="h-4 w-4" /> Показать фильтр <ChevronDown className={`h-4 w-4 transition ${filterOpen ? "rotate-180" : ""}`} />
-        </button>
-
-        <label className="relative min-w-[220px] flex-1 border-b border-[#dbe0e8] pb-1.5">
-          <input value={search} onChange={(event) => { setSearch(event.target.value); setPage(1) }} placeholder="Поиск" className="w-full bg-transparent pr-7 text-[15px] outline-none placeholder:text-[#9aa3b6]" />
-          <Search className="pointer-events-none absolute right-0 top-0.5 h-5 w-5 text-[#9aa3b6]" />
-        </label>
-
-        <select value={pageSize} onChange={(event) => { setPageSize(Number(event.target.value)); setPage(1) }} className="h-9 bg-transparent text-[#586174]">
-          <option value={10}>10</option>
-          <option value={25}>25</option>
-          <option value={50}>50</option>
-        </select>
-
-        <span className="text-[#586174]">{filtered.length ? (safePage - 1) * pageSize + 1 : 0} - {Math.min(safePage * pageSize, filtered.length)} из {totalLabel}</span>
-
-        <button disabled={safePage === 1} onClick={() => setPage((value) => Math.max(1, value - 1))} className="rounded-full border border-[#dbe0e8] p-1 text-[#9aa3b6] disabled:opacity-40">
-          <ChevronDown className="h-5 w-5 rotate-90" />
-        </button>
-        <button disabled={safePage === maxPage} onClick={() => setPage((value) => Math.min(maxPage, value + 1))} className="rounded-full border border-[#4f71dc] p-1 text-[#4f71dc] disabled:opacity-40">
-          <ChevronDown className="h-5 w-5 -rotate-90" />
-        </button>
-
-        <ListChecks className="h-5 w-5 text-[#586174]" />
-        <button onClick={downloadExcel} aria-label="Скачать"><Download className="h-5 w-5 text-[#586174]" /></button>
-        <AlignJustify className="h-5 w-5 text-[#586174]" />
-        <button onClick={() => setPage(1)} aria-label="Обновить"><RefreshCw className="h-5 w-5 text-[#586174]" /></button>
-        <Pencil className="h-5 w-5 text-[#586174]" />
-
-        <button onClick={acceptToCashbox} className="ml-auto flex h-11 items-center gap-2 rounded-md bg-[#4f5fd9] px-5 font-semibold text-white">
-          <Wallet className="h-5 w-5" /> Принять на кассу
-        </button>
-      </section>
-
-      {filterOpen && (
-        <section className="grid grid-cols-1 gap-6 border-b border-[#e1e5eb] bg-white px-6 py-6 sm:grid-cols-3 md:px-9">
-          {(
-            [
-              ["Организация", organizationFilter, setOrganizationFilter, organizations],
-              ["Ответственный агент", agentFilter, setAgentFilter, agents],
-              ["Касса", kassaFilter, setKassaFilter, kassas],
-            ] as const
-          ).map(([label, value, setter, options]) => (
-            <label key={label} className="relative block border-b border-[#dbe0e8] pb-2 text-[15px] font-medium">
-              {label}
-              <select value={value} onChange={(event) => { setter(event.target.value); setPage(1) }} className="mt-1 block w-full appearance-none bg-transparent pr-6 text-[15px] font-normal outline-none">
-                {options.map((option) => <option key={option}>{option}</option>)}
-              </select>
-              <ChevronDown className="pointer-events-none absolute right-0 top-6 h-4 w-4 text-[#9aa3b6]" />
-            </label>
-          ))}
-        </section>
-      )}
-
-      <section className="overflow-x-auto bg-white pb-10">
-        <table className="min-w-[1750px] w-full border-collapse text-[14px]">
-          <thead className="bg-[#5d6474] text-white">
-            <tr>
-              {(
-                [
-                  ["№", "id"],
-                  ["Клиент", "client"],
-                  ["Создал", "createdBy"],
-                  ["Дата оплаты", "paidAt"],
-                  ["Дата приемки", "acceptedAt"],
-                  ["Ответственный агент", "agent"],
-                  ["Организация", "organization"],
-                  ["Сумма", "amount"],
-                  ["Сумма в кассе", null],
-                  ["Касса", "kassa"],
-                  ["Комментарий", null],
-                ] as const
-              ).map(([title, key]) => (
-                <th
-                  key={title}
-                  role={key ? "button" : undefined}
-                  tabIndex={key ? 0 : undefined}
-                  onClick={key ? () => toggleSort(key) : undefined}
-                  onKeyDown={key ? (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); toggleSort(key) } } : undefined}
-                  className={`whitespace-nowrap px-4 py-4 text-left font-semibold ${key ? "cursor-pointer select-none hover:bg-[#727b8e]" : ""}`}
-                >
-                  {key ? (
-                    <span className="inline-flex items-center gap-1.5">
-                      {title}
-                      <ChevronDown className={`h-3.5 w-3.5 transition ${sortKey === key ? "opacity-100" : "opacity-50"} ${sortKey === key && sortDir === "desc" ? "rotate-180" : ""}`} />
-                    </span>
-                  ) : title}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {loading ? (
-              <tr><td colSpan={11} className="px-4 py-16 text-center text-[#9aa3b6]">Загрузка оплат...</td></tr>
-            ) : loadError ? (
-              <tr><td colSpan={11} className="px-4 py-16 text-center text-red-600">{loadError}</td></tr>
-            ) : visible.map((row, index) => (
-              <tr key={row.id} className={`group relative border-b border-dashed border-slate-200 ${index % 2 ? "bg-[#f6f9fc]" : "bg-white"}`}>
-                <td className="px-4 py-4 align-top">{row.id}</td>
-                <td className="px-4 py-4 align-top">
-                  <div>{row.client}</div>
-                  {row.clientCode && <div className="text-[13px] font-medium text-[#4f71dc]">{row.clientCode}</div>}
-                </td>
-                <td className="px-4 py-4 align-top">{row.createdBy}</td>
-                <td className="px-4 py-4 align-top">{row.paidAt}</td>
-                <td className="px-4 py-4 align-top">{row.acceptedAt || "-"}</td>
-                <td className="px-4 py-4 align-top">{row.agent}</td>
-                <td className="px-4 py-4 align-top">{row.organization}</td>
-                <td className="px-4 py-4 align-top">
-                  <div className="flex items-center gap-1.5 font-semibold text-[#3aa76d]">
-                    {number(row.amount, row.currency === "USD" ? 0 : 0)} {row.currency} <PaymentIcon type={row.icon} />
-                    {row.currency === "USD" && <Info className="h-3.5 w-3.5 text-[#9aa3b6]" />}
-                  </div>
-                  {row.currency === "USD" && <div className="text-[13px] text-[#586174]">{number(row.amountSumEquivalent ?? 0, 2)} SUM</div>}
-                </td>
-                <td className="px-4 py-4 align-top">
-                  {row.currency === "USD" ? (
-                    <>
-                      <div className="flex items-center gap-1">{number(row.amount, 0)} {row.currency} <Info className="h-3.5 w-3.5 text-[#9aa3b6]" /></div>
-                      <div className="text-[13px] text-[#586174]">0 SUM</div>
-                    </>
-                  ) : (
-                    `${number(row.cashAmount)} SUM`
-                  )}
-                </td>
-                <td className="relative px-4 py-4 align-top">
-                  <div className="group-hover:invisible">
-                    {row.accepted
-                      ? <span className="font-medium text-[#4f71dc]">{row.kassa}</span>
-                      : <span className="text-[#17233b]">Не принято</span>}
-                  </div>
-                  <div className="invisible absolute inset-0 flex items-center gap-3 px-4 group-hover:visible">
-                    <button aria-label="История" onClick={() => setHistoryOpenId(row.id)} className="text-[#e0a83e] hover:text-[#c98f22]"><Clock className="h-4 w-4" /></button>
-                    <button aria-label="Вернуть" onClick={() => revertRow(row.id)} className="text-[#586174] hover:text-[#17233b]"><Reply className="h-4 w-4" /></button>
-                    <button aria-label="Редактировать" onClick={() => startEdit(row)} className="text-[#e5484d] hover:text-[#c53238]"><Pencil className="h-4 w-4" /></button>
-                    <button aria-label="Удалить" onClick={() => deleteRow(row.id)} className="text-[#e5484d] hover:text-[#c53238]"><Trash2 className="h-4 w-4" /></button>
-                  </div>
-                </td>
-                <td className="px-4 py-4 align-top">
-                  {editingId === row.id ? (
-                    <div className="flex items-center gap-2">
-                      <input
-                        autoFocus
-                        value={editingComment}
-                        onChange={(event) => setEditingComment(event.target.value)}
-                        onKeyDown={(event) => event.key === "Enter" && saveEdit(row.id)}
-                        className="w-full border-b border-[#4f71dc] bg-transparent text-sm outline-none"
-                      />
-                      <button onClick={() => saveEdit(row.id)} className="text-xs font-semibold text-[#4f71dc]">OK</button>
-                    </div>
-                  ) : (
-                    row.comment
-                  )}
-                </td>
-              </tr>
-            ))}
-            {!loading && !loadError && visible.length === 0 && (
-              <tr><td colSpan={11} className="px-4 py-16 text-center text-[#9aa3b6]">Ничего не найдено по заданным фильтрам</td></tr>
-            )}
-          </tbody>
-        </table>
-      </section>
+      <RefCard>
+        <RefToolbar
+          linkFilter
+          filterOpen={filterOpen}
+          onToggleFilter={() => setFilterOpen((value) => !value)}
+          filterPanel={filterPanel}
+          query={search}
+          onQuery={(value) => { setSearch(value); setPage(1) }}
+          pageSize={pageSize}
+          onPageSize={(size) => { setPageSize(size); setPage(1) }}
+          from={filtered.length ? (safePage - 1) * pageSize + 1 : 0}
+          to={Math.min(safePage * pageSize, filtered.length)}
+          total={totalLabel}
+          page={safePage}
+          pageCount={maxPage}
+          onPage={setPage}
+          icons={toolbarIcons}
+          extra={<button onClick={acceptToCashbox} className="ml-[10px] flex h-[30px] items-center rounded-[3px] bg-[#4f71dc] px-4 text-[13px] font-semibold text-white hover:brightness-95"><Wallet className="mr-2 h-[18px] w-[18px]" />Принять на кассу</button>}
+        />
+        <RefTable
+          cols="36px 148px 124px 124px 124px 124px 124px 124px 123px 76px minmax(0,1fr)"
+          minWidth={1300}
+          heads={["№", "Клиент", "Создал", "Дата оплаты", "Дата приемки", "Ответственный агент", "Организация", "Сумма", "Сумма в кассе", "Касса", "Комментарий"]}
+          rows={loading || loadError ? [] : visible}
+          rowKey={(row) => row.id}
+          rowClass={() => "group relative"}
+          empty={loading ? "Загрузка оплат..." : loadError || "Ничего не найдено по заданным фильтрам"}
+          render={(row) => [
+            row.id,
+            <div key="c"><div>{row.client}</div>{row.clientCode && <div className="text-[#4f71dc]">{row.clientCode}</div>}</div>,
+            row.createdBy,
+            row.paidAt,
+            row.acceptedAt || "-",
+            row.agent,
+            row.organization,
+            <div key="a">
+              <div className="flex items-center gap-1.5 font-semibold text-[#71ce87]">{number(row.amount)} {row.currency} <PaymentIcon type={row.icon} />{row.currency === "USD" && <Info className="h-3.5 w-3.5 text-[#9aa3b6]" />}</div>
+              {row.currency === "USD" && <div className="text-[12px] text-[#555]">{number(row.amountSumEquivalent ?? 0, 2)} SUM</div>}
+            </div>,
+            row.currency === "USD" ? <div key="k"><div className="flex items-center gap-1">{number(row.amount)} {row.currency} <Info className="h-3.5 w-3.5 text-[#4f71dc]" /></div><div className="text-[12px] text-[#555]">0 SUM</div></div> : `${number(row.cashAmount)} SUM`,
+            <div key="x" className="relative">
+              <div className="group-hover:invisible">{row.accepted ? <span className="text-[#4f71dc]">{row.kassa}</span> : <span>Не принято</span>}</div>
+              <div className="invisible absolute inset-0 flex items-center gap-2 group-hover:visible">
+                <button aria-label="История" onClick={() => setHistoryOpenId(row.id)} className="text-[#e0a83e]"><Clock className="h-4 w-4" /></button>
+                <button aria-label="Вернуть" onClick={() => revertRow(row.id)} className="text-[#555]"><Reply className="h-4 w-4" /></button>
+                <button aria-label="Редактировать" onClick={() => startEdit(row)} className="text-[#e5484d]"><Pencil className="h-4 w-4" /></button>
+                <button aria-label="Удалить" onClick={() => deleteRow(row.id)} className="text-[#e5484d]"><Trash2 className="h-4 w-4" /></button>
+              </div>
+            </div>,
+            editingId === row.id ? (
+              <div key="e" className="flex items-center gap-2">
+                <input autoFocus value={editingComment} onChange={(event) => setEditingComment(event.target.value)} onKeyDown={(event) => event.key === "Enter" && saveEdit(row.id)} className="w-full border-b border-[#4f71dc] bg-transparent outline-none" />
+                <button onClick={() => saveEdit(row.id)} className="text-xs font-semibold text-[#4f71dc]">OK</button>
+              </div>
+            ) : row.comment,
+          ]}
+        />
+      </RefCard>
 
       {historyOpenId !== null && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/30" onClick={() => setHistoryOpenId(null)}>
@@ -426,6 +265,6 @@ export function CustomerPaymentsView() {
           </div>
         </div>
       )}
-    </main>
+    </RefPage>
   )
 }

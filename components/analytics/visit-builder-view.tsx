@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState, type Dispatch, type SetStateAction } from "react"
+import { useEffect, useState, type Dispatch, type SetStateAction } from "react"
 import {
   Bookmark,
   ChevronDown,
@@ -13,7 +13,8 @@ import {
   Users,
   X,
 } from "lucide-react"
-import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
+import { RefHeader } from "@/components/ref/list-kit"
+import { ReportPage } from "@/components/ref/report-kit"
 import { useLanguage } from "@/lib/i18n/language-context"
 
 const columns = [
@@ -111,6 +112,27 @@ function monthStart() {
   return inputDate(new Date(today.getFullYear(), today.getMonth(), 1))
 }
 
+function monthEnd() {
+  const today = new Date()
+  return inputDate(new Date(today.getFullYear(), today.getMonth() + 1, 0))
+}
+
+const SHORT_MONTHS = ["Янв.", "Февр.", "Март", "Апр.", "Май", "Июнь", "Июль", "Авг.", "Сент.", "Окт.", "Нояб.", "Дек."]
+
+function shortDate(value: string) {
+  const [year, month, day] = value.split("-").map(Number)
+  return `${String(day).padStart(2, "0")} ${SHORT_MONTHS[month - 1]} ${year}`
+}
+
+export const INFO_ITEMS = new Set([
+  "Выполнение плана, %", "Strike Rate, %", "Отказано",
+  "Вес продуктов заказа", "Вес продуктов возврата", "Вес продуктов факт",
+  "Кол. бонусов заказа", "Кол. бонусов возврата", "Кол. бонусов факт",
+  "Прибыль от продаж", "Наценка Заказа (%)",
+  "Документ №", "Документ Тип", "Документ Отв.агент", "Документ Отв.агент (Имя)",
+  "Документ Отв.агент (Фамилия)", "Документ Супервайзер", "Документ Аудиторы",
+])
+
 function downloadFile(filename: string, content: string, type: string) {
   const url = URL.createObjectURL(new Blob([content], { type }))
   const anchor = document.createElement("a")
@@ -125,11 +147,10 @@ export function VisitBuilderView({ variant = "visits" }: { variant?: "visits" | 
   const isSales = variant === "sales"
   const availableColumns = isSales ? salesColumns : columns
   const availableGroupings = isSales ? salesGroupings : groupings
-  const today = useMemo(() => inputDate(new Date()), [])
-  const [activeTab, setActiveTab] = useState(isSales ? "РЕАЛИЗАЦИЯ" : "ВИЗИТ")
+  const [activeTab, setActiveTab] = useState(isSales ? "ЗАКАЗ И ВОЗВРАТ ПО ДАТЕ РЕАЛИЗАЦИИ" : "ВИЗИТ")
   const [settingsVisible, setSettingsVisible] = useState(true)
-  const [selectedColumns, setSelectedColumns] = useState<string[]>(isSales ? ["АКБ заказа", "Сумма заказов"] : ["План визитов", "Посещено"])
-  const [verticalGroups, setVerticalGroups] = useState<string[]>(isSales ? ["Дата по дням"] : ["Пользователь"])
+  const [selectedColumns, setSelectedColumns] = useState<string[]>([])
+  const [verticalGroups, setVerticalGroups] = useState<string[]>([])
   const [horizontalGroups, setHorizontalGroups] = useState<string[]>([])
   const [columnQuery, setColumnQuery] = useState("")
   const [verticalQuery, setVerticalQuery] = useState("")
@@ -140,7 +161,7 @@ export function VisitBuilderView({ variant = "visits" }: { variant?: "visits" | 
   const [zone, setZone] = useState("")
   const [extraFilters, setExtraFilters] = useState<string[]>([])
   const [from, setFrom] = useState(monthStart)
-  const [to, setTo] = useState(today)
+  const [to, setTo] = useState(monthEnd)
   const [reportReady, setReportReady] = useState(false)
   const [savedReports, setSavedReports] = useState<SavedReport[]>(initialReports)
   const [reportsOpen, setReportsOpen] = useState(false)
@@ -210,7 +231,7 @@ export function VisitBuilderView({ variant = "visits" }: { variant?: "visits" | 
   const shownColumns = availableColumns.filter((item) => item.toLowerCase().includes(columnQuery.toLowerCase()))
   const shownVertical = availableGroupings.filter((item) => item.toLowerCase().includes(verticalQuery.toLowerCase()))
   const shownHorizontal = availableGroupings.filter((item) => item.toLowerCase().includes(horizontalQuery.toLowerCase()))
-  const invalid = selectedColumns.length === 0 || from > to
+  const invalid = from > to
   const filteredReports = savedReports.filter((report) =>
     `${report.name} ${report.model}`.toLocaleLowerCase("ru").includes(reportQuery.toLocaleLowerCase("ru")),
   )
@@ -243,43 +264,40 @@ export function VisitBuilderView({ variant = "visits" }: { variant?: "visits" | 
   }
 
   return (
-    <main className="min-h-[calc(100vh-4rem)] bg-slate-100 px-4 pb-10">
-      <header className="flex flex-wrap items-center justify-between gap-4 py-4 sm:px-5">
-        <div className="flex items-center gap-3 text-xl font-bold sm:text-2xl">
-          <FavoritesButton className="flex items-center gap-2 text-[#5470e8]" />
-          <span className="text-slate-500">|</span>
-          <h1 className="text-slate-600">{t(isSales ? "Отчет по продажам" : "Конструктор")}</h1>
-        </div>
-        <div className="flex overflow-hidden rounded-md shadow">
-          {(isSales ? ["ЗАКАЗ И ВОЗВРАТ ПО ДАТЕ РЕАЛИЗАЦИИ", "ЗАКАЗ И ВОЗВРАТ ПО ДАТЕ СОЗДАНИЯ"] : ["ВИЗИТ", "ЗАДАЧИ", "ОТКАЗЫ"]).map((tab) => (
-            <button key={tab} type="button" onClick={() => { setActiveTab(tab); setReportReady(false) }} className={`border-r border-slate-200 px-6 py-2.5 ${activeTab === tab ? "bg-green-500 text-white" : "bg-white hover:bg-slate-50"}`}>
-              {t(tab)}
-            </button>
-          ))}
-        </div>
-      </header>
+    <ReportPage>
+      <div className="pl-[30px] pr-[38px]">
+        <RefHeader title={t(isSales ? "Отчет по продажам" : "Конструктор")}>
+          <div className="flex overflow-hidden rounded-[3px] shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
+            {(isSales ? ["ЗАКАЗ И ВОЗВРАТ ПО ДАТЕ РЕАЛИЗАЦИИ", "ЗАКАЗ И ВОЗВРАТ ПО ДАТЕ СОЗДАНИЯ"] : ["ВИЗИТ", "ЗАДАЧИ", "ОТКАЗЫ"]).map((tab) => (
+              <button key={tab} type="button" onClick={() => { setActiveTab(tab); setReportReady(false) }} className={`h-[30px] px-4 text-[13px] font-medium uppercase transition-colors ${activeTab === tab ? "bg-[#2bcd53] text-white" : "bg-white text-black hover:bg-[#f2f5f8]"}`}>
+                {t(tab)}
+              </button>
+            ))}
+          </div>
+        </RefHeader>
+      </div>
 
-      <section className="bg-white shadow">
-        <div className="flex flex-wrap items-center gap-4 border-b border-slate-200 px-5 py-4">
-          <button type="button" onClick={saveReport} className="inline-flex items-center gap-2 rounded-md bg-[#5470e8] px-5 py-3 font-semibold text-white">
-            <Bookmark className="h-5 w-5 fill-white" /> {t("Сохранить")}
+      <section className="mx-7 bg-white shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
+        <div className="flex h-[60px] flex-wrap items-center gap-[15px] px-[30px]">
+          <button type="button" onClick={saveReport} className="flex h-[38px] items-center rounded-[3px] bg-[#4f71dc] px-[15px] text-[13px] font-semibold text-white hover:brightness-95">
+            <Bookmark className="mr-3 h-[18px] w-[18px] fill-white" /> {t("Сохранить")}
           </button>
-          <button type="button" onClick={() => setReportsOpen(true)} className="inline-flex items-center gap-2 rounded-md bg-[#ff806b] px-5 py-3 font-semibold text-white">
-            <FileBox className="h-5 w-5 fill-white" /> {t("Отчеты")}
+          <button type="button" onClick={() => setReportsOpen(true)} className="flex h-[38px] items-center rounded-[3px] bg-[#ff8a6f] px-[15px] text-[13px] font-semibold text-white hover:brightness-95">
+            <FileBox className="mr-3 h-[18px] w-[18px] fill-white" /> {t("Отчеты")}
           </button>
-          <button type="button" onClick={downloadReport} className="inline-flex items-center gap-2 rounded-md bg-[#4db7af] px-5 py-3 font-semibold text-white">
-            <Download className="h-5 w-5" /> {t("Скачать")}
+          <button type="button" onClick={downloadReport} className="flex h-[38px] items-center rounded-[3px] bg-[#4db6ac] px-[15px] text-[13px] font-semibold text-white hover:brightness-95">
+            <Download className="mr-3 h-[18px] w-[18px]" /> {t("Скачать")}
           </button>
-          <div className="ml-auto flex flex-wrap items-center gap-5">
-            <label className="flex items-center gap-2 text-sm font-semibold text-[#5470e8]">
-              <input type="date" value={from} max={to} onChange={(event) => setFrom(event.target.value)} className="border-0 bg-transparent" />
-              -
-              <input type="date" value={to} min={from} onChange={(event) => setTo(event.target.value)} className="border-0 bg-transparent" />
-            </label>
-            <button type="button" onClick={() => setSettingsVisible((value) => !value)} className="rounded-md bg-[#5470e8] px-7 py-3 font-medium text-white shadow">
+          <div className="ml-auto flex flex-wrap items-center gap-[19px]">
+            <span className="relative text-[12px] font-bold text-[#4f71dc]">
+              {shortDate(from)} - {shortDate(to)}
+              <input type="date" aria-label={t("Дата от")} value={from} max={to} onChange={(event) => event.target.value && setFrom(event.target.value)} className="absolute left-0 top-0 h-full w-[48%] cursor-pointer opacity-0" />
+              <input type="date" aria-label={t("Дата до")} value={to} min={from} onChange={(event) => event.target.value && setTo(event.target.value)} className="absolute right-0 top-0 h-full w-[48%] cursor-pointer opacity-0" />
+            </span>
+            <button type="button" onClick={() => setSettingsVisible((value) => !value)} className="h-[38px] w-[215px] rounded-[3px] bg-[#4f71dc] text-[13px] font-medium text-white shadow-[0_2px_5px_rgba(0,0,0,0.2)] hover:brightness-95">
               {t(settingsVisible ? "СКРЫТЬ НАСТРОЙКИ ▲" : "ПОКАЗАТЬ НАСТРОЙКИ ▼")}
             </button>
-            <button type="button" disabled={invalid} onClick={() => { setReportReady(true); setMessage(t("Отчет успешно сформирован")) }} className="rounded-md bg-green-500 px-7 py-3 font-medium text-white shadow disabled:opacity-50">
+            <button type="button" disabled={invalid} onClick={() => { if (selectedColumns.length === 0) { setMessage(t("Выберите хотя бы одну колонку")); return } setReportReady(true); setMessage(t("Отчет успешно сформирован")) }} className="h-[38px] w-[195px] rounded-[3px] bg-[#2bcd53] text-[13px] font-medium text-white shadow-[0_2px_5px_rgba(0,0,0,0.2)] hover:brightness-95 disabled:opacity-50">
               {t("СФОРМИРОВАТЬ ОТЧЕТ")}
             </button>
           </div>
@@ -292,14 +310,14 @@ export function VisitBuilderView({ variant = "visits" }: { variant?: "visits" | 
         )}
 
         {settingsVisible && (
-          <div className="grid min-h-[640px] divide-y divide-slate-200 lg:grid-cols-[1fr_1fr_1fr_1fr] lg:divide-x lg:divide-y-0">
+          <div className="grid divide-y divide-[#ececec] border-t border-[#ececec] shadow-[0_2px_6px_rgba(0,0,0,0.12)] lg:grid-cols-4 lg:divide-x lg:divide-y-0">
             <OptionColumn title="Колонки" placeholder="Поиск колонки..." query={columnQuery} onQuery={setColumnQuery} items={shownColumns} selected={selectedColumns} onToggle={(item) => toggle(item, setSelectedColumns)} info />
-            <OptionColumn title="Вертикальная группировка" placeholder="Поиск вертикальных группировки..." query={verticalQuery} onQuery={setVerticalQuery} items={shownVertical} selected={verticalGroups} onToggle={(item) => toggle(item, setVerticalGroups)} />
-            <OptionColumn title="Горизонтальная группировка" placeholder="Поиск горизонтальных группировки..." query={horizontalQuery} onQuery={setHorizontalQuery} items={shownHorizontal} selected={horizontalGroups} onToggle={(item) => toggle(item, setHorizontalGroups)} />
-            <div className="p-6">
-              <h2 className="text-xl font-bold">{t("Фильтр")}</h2>
-              <label className="mt-3 flex items-center gap-3 font-semibold">
-                <input type="checkbox" checked={showTotals} onChange={(event) => setShowTotals(event.target.checked)} className="h-5 w-5 accent-slate-500" />
+            <OptionColumn title="Вертикальная группировка" placeholder="Поиск вертикальных группировки..." query={verticalQuery} onQuery={setVerticalQuery} items={shownVertical} selected={verticalGroups} onToggle={(item) => toggle(item, setVerticalGroups)} info />
+            <OptionColumn title="Горизонтальная группировка" placeholder="Поиск горизонтальных группировки..." query={horizontalQuery} onQuery={setHorizontalQuery} items={shownHorizontal} selected={horizontalGroups} onToggle={(item) => toggle(item, setHorizontalGroups)} info />
+            <div className="px-[20px] pb-[20px] pt-[20px]">
+              <h2 className="text-[15px] font-bold leading-[18px]">{t("Фильтр")}</h2>
+              <label className="mt-[11px] flex cursor-pointer items-center gap-[9px] text-[13px] font-medium">
+                <input type="checkbox" checked={showTotals} onChange={(event) => setShowTotals(event.target.checked)} className={CHECKBOX} />
                 {t("Показать итоги")}
               </label>
               {isSales ? salesFilters.map((label) => <FilterSelect key={label} label={label} value="" onChange={() => undefined} options={["Все", "Выбрано"]} />) : <>
@@ -315,8 +333,8 @@ export function VisitBuilderView({ variant = "visits" }: { variant?: "visits" | 
                   <button type="button" onClick={() => setExtraFilters((current) => current.filter((_, itemIndex) => itemIndex !== index))} aria-label={t("Удалить фильтр")}><span className="text-xl">×</span></button>
                 </div>
               ))}
-              <button type="button" onClick={() => setExtraFilters((current) => [...current, ""])} className="mt-5 w-full rounded-md bg-[#5470e8] px-4 py-3 font-medium text-white">
-                {t("ДОБАВИТЬ ИНДИВИДУАЛЬНЫЙ ФИЛЬТР")}
+              <button type="button" onClick={() => setExtraFilters((current) => [...current, ""])} className="mt-[18px] h-9 w-full rounded-[3px] bg-[#4f71dc] text-[13px] font-medium uppercase text-white hover:brightness-95">
+                {t("ДОБАВИТЬ ИНДИВИДУАЛЬНЫЙ")}
               </button>
             </div>
           </div>
@@ -406,25 +424,28 @@ export function VisitBuilderView({ variant = "visits" }: { variant?: "visits" | 
           </div>
         </aside>
       )}
-    </main>
+    </ReportPage>
   )
 }
+
+export const CHECKBOX =
+  "h-[14px] w-[14px] shrink-0 cursor-pointer appearance-none rounded-[2px] border-2 border-[#444] bg-white checked:border-[#444] checked:bg-[#444] checked:bg-[url('data:image/svg+xml;utf8,<svg%20xmlns=%22http://www.w3.org/2000/svg%22%20viewBox=%220%200%2024%2024%22><path%20fill=%22white%22%20d=%22M9%2016.2L4.8%2012l-1.4%201.4L9%2019%2021%207l-1.4-1.4z%22/></svg>')] checked:bg-[length:12px] checked:bg-center checked:bg-no-repeat"
 
 function OptionColumn({ title, placeholder, query, onQuery, items, selected, onToggle, info = false }: { title: string; placeholder: string; query: string; onQuery: (value: string) => void; items: string[]; selected: string[]; onToggle: (item: string) => void; info?: boolean }) {
   const { t } = useLanguage()
   return (
-    <div className="p-6">
-      <h2 className="text-xl font-bold">{t(title)}</h2>
-      <label className="relative mt-3 block">
-        <input value={query} onChange={(event) => onQuery(event.target.value)} placeholder={t(placeholder)} className="w-full rounded border border-slate-300 bg-slate-50 px-3 py-3 pr-10 outline-none focus:border-brand-blue" />
-        <Search className="absolute right-3 top-1/2 h-6 w-6 -translate-y-1/2" />
+    <div className="px-[20px] pb-[30px] pt-[20px]">
+      <h2 className="text-[15px] font-bold leading-[18px]">{t(title)}</h2>
+      <label className="relative mt-[11px] block">
+        <input value={query} onChange={(event) => onQuery(event.target.value)} placeholder={t(placeholder)} className="h-[42px] w-full rounded-[3px] bg-[#f2f5f8] px-[11px] pr-10 text-[12px] outline-none placeholder:text-[#999]" />
+        <Search className="absolute right-3 top-1/2 h-5 w-5 -translate-y-1/2" />
       </label>
-      <div className="mt-4 space-y-3">
+      <div className="mt-[14px]">
         {items.map((item) => (
-          <label key={item} className="flex cursor-pointer items-center gap-3 font-semibold">
-            <input type="checkbox" checked={selected.includes(item)} onChange={() => onToggle(item)} className="h-5 w-5 accent-[#5470e8]" />
+          <label key={item} className="flex min-h-[30px] cursor-pointer items-center gap-[9px] text-[13px] font-medium">
+            <input type="checkbox" checked={selected.includes(item)} onChange={() => onToggle(item)} className={CHECKBOX} />
             {t(item)}
-            {info && ["Выполнение плана, %", "Strike Rate, %", "Отказано"].includes(item) && <Info className="h-5 w-5 text-slate-500" />}
+            {info && INFO_ITEMS.has(item) && <Info className="h-[18px] w-[18px] text-[#555]" />}
           </label>
         ))}
       </div>
@@ -435,13 +456,13 @@ function OptionColumn({ title, placeholder, query, onQuery, items, selected, onT
 function FilterSelect({ label, value, onChange, options }: { label: string; value: string; onChange: (value: string) => void; options: string[] }) {
   const { t } = useLanguage()
   return (
-    <label className="relative mt-9 block">
-      <span className="sr-only">{t(label)}</span>
-      <select value={value} onChange={(event) => onChange(event.target.value)} className="w-full appearance-none border-0 border-b border-slate-300 bg-white py-3 pr-8 text-base outline-none">
+    <label className="relative mt-[22px] block h-[45px] border-b border-[#e0e0e0]">
+      <span className="absolute inset-x-0 top-[18px] text-[13px] leading-[18px] text-black">{value ? t(value) : t(label)}</span>
+      <select value={value} onChange={(event) => onChange(event.target.value)} className="absolute inset-0 h-full w-full cursor-pointer appearance-none opacity-0">
         <option value="">{t(label)}</option>
         {options.map((option, index) => <option key={`${option}-${index}`} value={option}>{t(option)}</option>)}
       </select>
-      <ChevronDown className="pointer-events-none absolute right-1 top-3 h-5 w-5 text-slate-400" />
+      <svg viewBox="0 0 24 24" className="pointer-events-none absolute bottom-[4px] right-0 h-6 w-6 fill-[#999]" aria-hidden><path d="M7 10l5 5 5-5z" /></svg>
     </label>
   )
 }

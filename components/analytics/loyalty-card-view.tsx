@@ -1,8 +1,9 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
-import { ChevronDown, Expand, MinusCircle, PlusCircle, Search, X } from "lucide-react"
-import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
+import { ChevronDown, MinusCircle, PlusCircle, X } from "lucide-react"
+import { RefHeader } from "@/components/ref/list-kit"
+import { ReportPage, ReportPager, ReportSearchField } from "@/components/ref/report-kit"
 
 type Money = { euro: number; sum: number; usd: number }
 type Transaction = { id: number; type: string; action: string; date: string; amount: number; currency: keyof Money }
@@ -21,7 +22,7 @@ const number = (value: number) => new Intl.NumberFormat("ru-RU", { maximumFracti
 
 function AmountText({ value }: { value: number }) {
   if (value === 0) return <span>0</span>
-  return <span className={`font-semibold ${value > 0 ? "text-[#3aa76d]" : "text-[#e5484d]"}`}>{number(value)}</span>
+  return <span className={value > 0 ? "text-[#71ce87]" : "text-[#e57373]"}>{number(value)}</span>
 }
 
 export function LoyaltyCardView() {
@@ -81,77 +82,47 @@ export function LoyaltyCardView() {
   }
 
   return (
-    <main className="min-h-screen bg-white text-[#17233b]">
-      <header className="flex min-h-[76px] items-center border-b border-[#d8dee7] bg-[#f2f5f8] px-6 md:px-9">
-        <div className="flex items-center gap-3">
-          <FavoritesButton className="flex items-center gap-3 text-2xl font-bold text-[#4f71dc]" />
-          <span className="text-3xl font-light text-[#586174]">|</span>
-          <span className="text-2xl font-bold text-[#586174]">Накопительная карта</span>
+    <ReportPage>
+      <div className="pl-[30px] pr-[38px]"><RefHeader title="Накопительная карта" /></div>
+
+      <section className="mx-[28px] bg-white shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
+        <div className="relative flex h-[55px] items-center">
+          <button onClick={() => setFilterOpen((value) => !value)} className="ml-[30px] self-start pt-[12px] text-[13px] text-[#4f71dc]">Показать фильтр ⌄</button>
+          <div className="absolute left-[460px] top-[16px]"><ReportSearchField value={search} onChange={(value) => { setSearch(value); setPage(1) }} width={255} /></div>
+          <div className="ml-auto flex items-center gap-[20px] pr-[30px] pt-[8px]">
+            <ReportPager pageSize={pageSize} onPageSize={(size) => { setPageSize(size); setPage(1) }} rangeLabel={`${filtered.length ? (safePage - 1) * pageSize + 1 : 0} - ${Math.min(safePage * pageSize, filtered.length)} из ${totalLabel}`} canPrev={safePage > 1} canNext={safePage < maxPage} onPrev={() => setPage((value) => Math.max(1, value - 1))} onNext={() => setPage((value) => Math.min(maxPage, value + 1))} />
+            <button aria-label="Полный экран" onClick={() => document.documentElement.requestFullscreen?.()}><svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#444]"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z" /></svg></button>
+          </div>
         </div>
-      </header>
+        {filterOpen && (
+          <div className="mx-[25px] mb-3 w-[300px] bg-white p-5 shadow-[0_3px_10px_rgba(0,0,0,0.16),0_3px_10px_rgba(0,0,0,0.23)]">
+            <ReportSearchField value={search} onChange={(value) => { setSearch(value); setPage(1) }} width={260} label="Клиент" />
+          </div>
+        )}
 
-      <section className="flex flex-wrap items-center gap-4 px-6 py-4 md:px-9">
-        <button onClick={() => setFilterOpen((value) => !value)} className="flex items-center gap-1 font-medium text-[#4f71dc]">
-          Показать фильтр <ChevronDown className={`h-4 w-4 transition ${filterOpen ? "rotate-180" : ""}`} />
-        </button>
-        <label className="relative min-w-[220px] flex-1 border-b border-[#dbe0e8] pb-1.5">
-          <input value={search} onChange={(event) => { setSearch(event.target.value); setPage(1) }} placeholder="Поиск" className="w-full bg-transparent pr-7 text-[15px] outline-none placeholder:text-[#9aa3b6]" />
-          <Search className="pointer-events-none absolute right-0 top-0.5 h-5 w-5 text-[#9aa3b6]" />
-        </label>
-        <select value={pageSize} onChange={(event) => { setPageSize(Number(event.target.value)); setPage(1) }} className="h-9 bg-transparent text-[#586174]">
-          <option value={10}>10</option>
-          <option value={25}>25</option>
-          <option value={50}>50</option>
-        </select>
-        <span className="text-[#586174]">{filtered.length ? (safePage - 1) * pageSize + 1 : 0} - {Math.min(safePage * pageSize, filtered.length)} из {totalLabel}</span>
-        <button disabled={safePage === 1} onClick={() => setPage((value) => Math.max(1, value - 1))} className="rounded-full border border-[#dbe0e8] p-1 text-[#9aa3b6] disabled:opacity-40">
-          <ChevronDown className="h-5 w-5 rotate-90" />
-        </button>
-        <button disabled={safePage === maxPage} onClick={() => setPage((value) => Math.min(maxPage, value + 1))} className="rounded-full border border-[#4f71dc] p-1 text-[#4f71dc] disabled:opacity-40">
-          <ChevronDown className="h-5 w-5 -rotate-90" />
-        </button>
-        <button aria-label="Полный экран" onClick={() => document.documentElement.requestFullscreen?.()} className="text-[#586174]"><Expand className="h-5 w-5" /></button>
-      </section>
-
-      {filterOpen && (
-        <section className="grid grid-cols-1 gap-6 border-b border-[#e1e5eb] bg-white px-6 py-6 sm:grid-cols-3 md:px-9">
-          <label className="block border-b border-[#dbe0e8] pb-2 text-[15px] font-medium">
-            Клиент
-            <input placeholder="Введите имя..." value={search} onChange={(event) => setSearch(event.target.value)} className="mt-1 block w-full bg-transparent text-[15px] font-normal outline-none placeholder:text-[#9aa3b6]" />
-          </label>
-        </section>
-      )}
-
-      <section className="overflow-x-auto bg-white pb-10">
-        <table className="w-full border-collapse text-[14px]">
-          <thead>
-            <tr className="bg-white text-[#17233b]">
-              <th className="border-b border-[#e1e5eb] px-4 py-3 text-left font-semibold">Клиент</th>
-              <th className="border-b border-[#e1e5eb] bg-[#eaf2fb] px-4 py-3 text-left font-semibold">Euro</th>
-              <th className="border-b border-[#e1e5eb] bg-[#eaf2fb] px-4 py-3 text-left font-semibold">SUM</th>
-              <th className="border-b border-[#e1e5eb] bg-[#eaf2fb] px-4 py-3 text-left font-semibold">USD</th>
-            </tr>
-          </thead>
-          <tbody>
+        <div className="flex overflow-x-auto border-t border-[#e8e8e8] text-[13px]">
+          <div className="w-[300px] shrink-0 shadow-[2px_0_4px_rgba(0,0,0,0.1)]">
+            <div className="flex h-[40px] items-center border-b border-[#e8e8e8] px-[15px] font-semibold">Клиент</div>
             {visible.map((row, index) => (
-              <tr key={row.id} className={index % 2 ? "bg-[#f6f9fc]" : "bg-white"}>
-                <td className="border-b border-[#e1e5eb] px-4 py-3.5">
-                  <div className="flex items-center gap-2">
-                    <button aria-label="Добавить расход" onClick={() => setModal({ type: "expense", clientId: row.id })} className="text-[#e5484d]"><MinusCircle className="h-6 w-6 fill-[#ff5d63] text-white" /></button>
-                    <button aria-label="Добавить" onClick={() => setModal({ type: "add", clientId: row.id })} className="text-[#39ca79]"><PlusCircle className="h-6 w-6 fill-[#39ca79] text-white" /></button>
-                    <button onClick={() => setInfoTarget(row)} className="text-[#4f71dc] hover:underline">{row.client}</button>
-                  </div>
-                </td>
-                <td className="border-b border-[#e1e5eb] px-4 py-3.5"><AmountText value={row.balance.euro} /></td>
-                <td className="border-b border-[#e1e5eb] px-4 py-3.5"><AmountText value={row.balance.sum} /></td>
-                <td className="border-b border-[#e1e5eb] px-4 py-3.5"><AmountText value={row.balance.usd} /></td>
-              </tr>
+              <div key={row.id} className={`flex h-[40px] items-center justify-between px-[15px] ${index % 2 ? "bg-[#f2f5f8]" : "bg-white"}`}>
+                <button onClick={() => setInfoTarget(row)} className="max-w-[190px] truncate text-left hover:underline">{row.client}</button>
+                <span className="flex items-center gap-[12px]">
+                  <button aria-label="Добавить расход" onClick={() => setModal({ type: "expense", clientId: row.id })}><MinusCircle className="h-[20px] w-[20px] fill-[#ff5d63] text-white" /></button>
+                  <button aria-label="Добавить" onClick={() => setModal({ type: "add", clientId: row.id })}><PlusCircle className="h-[20px] w-[20px] fill-[#71ce87] text-white" /></button>
+                </span>
+              </div>
             ))}
-            {!loading && visible.length === 0 && (
-              <tr><td colSpan={4} className="border-b border-[#e1e5eb] px-4 py-16 text-center text-[#9aa3b6]">Ничего не найдено</td></tr>
-            )}
-          </tbody>
-        </table>
+          </div>
+          <div className="min-w-[600px] flex-1">
+            <div className="grid h-[40px] grid-cols-[200px_522px_1fr] items-center border-b border-[#e8e8e8] bg-white px-[20px] font-semibold text-[#555]"><span>Euro</span><span>SUM</span><span>USD</span></div>
+            {visible.map((row, index) => (
+              <div key={row.id} className={`grid h-[40px] grid-cols-[200px_522px_1fr] items-center px-[20px] ${index % 2 ? "bg-[#f2f5f8]" : "bg-white"}`}>
+                <AmountText value={row.balance.euro} /><AmountText value={row.balance.sum} /><AmountText value={row.balance.usd} />
+              </div>
+            ))}
+          </div>
+        </div>
+        {!loading && visible.length === 0 && <p className="py-16 text-center text-[13px] text-[#8c8c8c]">Ничего не найдено</p>}
       </section>
 
       {infoTarget && (
@@ -205,7 +176,7 @@ export function LoyaltyCardView() {
           }}
         />
       )}
-    </main>
+    </ReportPage>
   )
 }
 

@@ -45,7 +45,7 @@ export function GoodsMovementView() {
 
   return (
     <section className="min-h-[calc(100vh-64px)] bg-[#f2f5f8] p-4 text-[#18233a] md:p-9">
-      <h1 className="mb-5 flex items-center text-2xl font-semibold text-[#566074]"><FavoritesButton className="flex items-center gap-2 text-[#4f71dc]" /> | План приемок и передач</h1>
+      <h1 className="mb-5 flex items-center text-2xl font-semibold text-[#566074]"><FavoritesButton className="flex items-center gap-[5px] text-[18px] font-bold text-[#4f71dc]" /> | План приемок и передач</h1>
       <div className="overflow-hidden rounded-sm bg-white shadow">
         <div className="grid grid-cols-2 md:grid-cols-5">
           {tabs.map((item) => (

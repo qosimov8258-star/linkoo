@@ -1,9 +1,11 @@
 "use client"
 
-import { BarChart3, ChevronLeft, ChevronRight, Clock3, FileText, Pencil, PlusCircle, Search, X } from "lucide-react"
+import { CheckBox, LineField, LineSelect, Modal, SaveButton } from "@/components/analytics/catalog-ui"
+import { Clock3, FileText, Pencil, PlusCircle, X } from "lucide-react"
+import Image from "next/image"
 import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react"
 
-import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
+import { RI, RefButton, RefCard, RefHeader, RefPage, RefTable, RefTabs, RefToolbar } from "@/components/ref/list-kit"
 import { mapHeaderColumns, readExcelRows } from "@/lib/excel-import"
 import { taskResponsibles as responsibles, taskStatusLabels as statusLabels, taskStores as stores, type Task } from "./tasks-data"
 
@@ -29,12 +31,14 @@ export function TasksView() {
   const [storeFilter, setStoreFilter] = useState("Все магазины")
   const [editing, setEditing] = useState<"new" | null>(null)
   const [draft, setDraft] = useState(emptyDraft)
+  const [repeatPlan, setRepeatPlan] = useState(false)
+  const [taskDate, setTaskDate] = useState("")
   const [saving, setSaving] = useState(false)
   const [importOpen, setImportOpen] = useState(false)
   const [importFile, setImportFile] = useState<File | null>(null)
   const [importSaving, setImportSaving] = useState(false)
   const importInputRef = useRef<HTMLInputElement>(null)
-  const pageSize = 25
+  const [pageSize, setPageSize] = useState(25)
 
   useEffect(() => {
     let cancelled = false
@@ -65,8 +69,9 @@ export function TasksView() {
       tasks
         .filter((task) => tab === "all" || task.status === tab)
         .filter((task) => storeFilter === "Все магазины" || task.store === storeFilter)
+        .filter((task) => !filterActive || task.date.startsWith(new Date().toISOString().slice(0, 7)))
         .filter((task) => `${task.responsible} ${task.store} ${task.description}`.toLowerCase().includes(query.toLowerCase())),
-    [tasks, tab, storeFilter, query],
+    [tasks, tab, storeFilter, query, filterActive],
   )
   const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize))
   const safePage = Math.min(page, pageCount)
@@ -191,150 +196,88 @@ export function TasksView() {
   ]
 
   return (
-    <main className="min-h-[calc(100vh-4rem)] bg-[#f2f5f8] px-7 pb-7">
-      <header className="mb-5 flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-bold text-slate-600">
-          <FavoritesButton className="inline-flex items-center gap-2 text-[#4f71dc]" />
-          <span className="mx-2 text-slate-400">|</span> Задачи
-        </h1>
-        <div className="flex items-center gap-3">
-          <input ref={importInputRef} type="file" accept=".csv,.xls,.xlsx" onChange={pickImportFile} className="hidden" />
-          <button type="button" onClick={() => setImportOpen(true)} className="inline-flex items-center gap-2 rounded bg-[#4f71dc] px-5 py-2.5 font-semibold text-white hover:brightness-95">
-            <BarChart3 className="h-4 w-4" /> Импортировать
-          </button>
-          <button type="button" onClick={() => { setDraft(emptyDraft()); setEditing("new") }} className="inline-flex items-center gap-2 rounded bg-[#71ce87] px-5 py-2.5 font-semibold text-white hover:brightness-95">
-            <PlusCircle className="h-4 w-4" /> Добавить
-          </button>
-        </div>
-      </header>
+    <RefPage>
+      <input ref={importInputRef} type="file" accept=".csv,.xls,.xlsx" onChange={pickImportFile} className="hidden" />
+      <RefHeader title="Задачи">
+        <RefButton icon={RI.chart} label="Импортировать" onClick={() => setImportOpen(true)} />
+        <RefButton icon={RI.add} green label="Добавить" onClick={() => { setDraft(emptyDraft()); setEditing("new") }} />
+      </RefHeader>
 
-      <section className="overflow-hidden rounded bg-white shadow">
-        <div className="flex border-b border-slate-200 text-center">
-          {tabs.map((item) => (
-            <button
-              key={item.key}
-              type="button"
-              onClick={() => { setTab(item.key); setPage(1) }}
-              className={`flex-1 border-b-2 py-4 text-[15px] font-medium ${tab === item.key ? "border-[#4f71dc] text-[#4f71dc]" : "border-transparent text-slate-600 hover:text-slate-800"}`}
-            >
-              {item.label}
-            </button>
-          ))}
-        </div>
+      <RefCard className="bg-white">
+        <RefTabs labels={tabs.map((item) => item.label)} value={tabs.find((item) => item.key === tab)?.label ?? ""} onChange={(label) => { setTab(tabs.find((item) => item.label === label)?.key ?? tab); setPage(1) }} />
+      </RefCard>
 
-        <div className="relative flex flex-wrap items-center gap-4 px-5 py-3">
-          {filterActive ? (
-            <div className="flex items-center gap-2 rounded-md bg-[#f6f9fc] px-4 py-2 text-[#586174]">
-              Фильтр: 1 элемента
-              <button type="button" onClick={() => setFilterEditOpen((value) => !value)} aria-label="Изменить фильтр"><Pencil className="h-4 w-4 text-[#9aa3b6] hover:text-[#4f71dc]" /></button>
-              <button type="button" onClick={() => setFilterActive(false)} aria-label="Очистить фильтр"><X className="h-5 w-5 rounded-full border border-[#9aa3b6] p-0.5 text-[#9aa3b6] hover:text-[#e5484d]" /></button>
-              {filterEditOpen && (
-                <div className="absolute left-5 top-full z-20 mt-2 w-64 border border-slate-200 bg-white p-4 shadow-xl">
-                  <label className="block text-xs font-medium text-slate-500">
-                    Магазин
-                    <select value={storeFilter} onChange={(event) => setStoreFilter(event.target.value)} className="mt-1 block w-full border-b border-slate-300 bg-white py-2 text-sm outline-none">
-                      <option>Все магазины</option>
-                      {stores.map((item) => <option key={item}>{item}</option>)}
-                    </select>
-                  </label>
-                  <button type="button" onClick={() => setFilterEditOpen(false)} className="mt-4 w-full rounded bg-[#5d6474] py-2 text-sm font-semibold text-white">Применить</button>
-                </div>
-              )}
-            </div>
-          ) : (
-            <button type="button" onClick={() => setFilterActive(true)} className="text-[#4f71dc]">Показать фильтр⌄</button>
-          )}
-          <label className="relative ml-auto w-64">
-            <input value={query} onChange={(event) => { setQuery(event.target.value); setPage(1) }} placeholder="Поиск" className="w-full border-b border-slate-300 py-2 pr-10 outline-none focus:border-[#4f71dc]" />
-            <Search className="absolute right-2 top-2 h-5 w-5 text-slate-300" />
-          </label>
-          <span className="text-slate-500">25</span>
-          <span className="text-slate-500">
-            {filtered.length ? (safePage - 1) * pageSize + 1 : 0} - {Math.min(safePage * pageSize, filtered.length)} из {filtered.length}
-          </span>
-          <button type="button" onClick={() => setPage((value) => Math.max(1, value - 1))} disabled={safePage <= 1} aria-label="Назад" className="rounded-full border-2 p-1 disabled:opacity-30">
-            <ChevronLeft className="h-4 w-4" />
-          </button>
-          <button type="button" onClick={() => setPage((value) => Math.min(pageCount, value + 1))} disabled={safePage >= pageCount} aria-label="Вперед" className="rounded-full border-2 p-1 disabled:opacity-30">
-            <ChevronRight className="h-4 w-4" />
-          </button>
-        </div>
-
+      <RefCard className="mt-[20px] bg-white">
+        <RefToolbar
+          leftSlot={
+            filterActive ? (
+              <div className="relative mr-[10px] flex h-[40px] items-center bg-[#f2f5f8] pl-[12px] text-[13px] text-[#5d6474]">
+                <span>Фильтр: 1 элемента</span>
+                <button type="button" onClick={() => setFilterEditOpen((value) => !value)} aria-label="Изменить фильтр" className="ml-[8px] flex h-[40px] w-[40px] items-center justify-center"><Pencil className="h-4 w-4 text-[#5d6474]" /></button>
+                <button type="button" onClick={() => setFilterActive(false)} aria-label="Очистить фильтр" className="flex h-[40px] w-[40px] items-center justify-center"><X className="h-5 w-5 rounded-full border border-[#5d6474] p-0.5 text-[#5d6474]" /></button>
+                {filterEditOpen && (
+                  <div className="absolute left-0 top-full z-20 mt-1 w-64 border border-slate-200 bg-white p-4 shadow-xl">
+                    <label className="block text-[10px] font-bold">
+                      Магазин
+                      <select value={storeFilter} onChange={(event) => setStoreFilter(event.target.value)} className="mt-1 block w-full border-b border-[#e0e0e0] bg-white py-2 text-[13px] font-normal outline-none">
+                        <option>Все магазины</option>
+                        {stores.map((item) => <option key={item}>{item}</option>)}
+                      </select>
+                    </label>
+                    <button type="button" onClick={() => setFilterEditOpen(false)} className="mt-4 h-[30px] w-full rounded-[5px] bg-[#4f71dc] text-[13px] font-semibold text-white">Применить</button>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <button type="button" onClick={() => setFilterActive(true)} className="pl-[5px] text-[13px] text-[#4f71dc]">Показать фильтр ⌄</button>
+            )
+          }
+          query={query}
+          onQuery={(value) => { setQuery(value); setPage(1) }}
+          pageSize={pageSize}
+          onPageSize={(value) => { setPageSize(value); setPage(1) }}
+          from={filtered.length ? (safePage - 1) * pageSize + 1 : 0}
+          to={Math.min(safePage * pageSize, filtered.length)}
+          total={filtered.length}
+          page={safePage}
+          pageCount={pageCount}
+          onPage={setPage}
+        />
         {loadError && <p className="px-5 pb-3 text-sm text-red-500">{loadError}</p>}
-
-        <table className="w-full text-left">
-          <thead className="bg-[#5d6474] text-white">
-            <tr>
-              <th className="px-9 py-5">№</th>
-              <th className="px-5 py-5">Ответственный</th>
-              <th className="px-5 py-5">Дата задачи</th>
-              <th className="px-5 py-5">Магазин</th>
-              <th className="px-5 py-5">Описание</th>
-              <th className="w-16" />
-            </tr>
-          </thead>
-          <tbody>
-            {visible.map((task) => (
-              <tr key={task.id} className="border-b border-dashed border-slate-300 hover:bg-slate-50">
-                <td className="px-9 py-4">{task.id}</td>
-                <td className="px-5 py-4 text-[#4f71dc]">{task.responsible}</td>
-                <td className="px-5 py-4">{task.date}</td>
-                <td className="px-5 py-4">{task.store}</td>
-                <td className="px-5 py-4">{task.description}</td>
-                <td className="px-5 py-4 text-right">
-                  <button
-                    type="button"
-                    onClick={() => cycleStatus(task.id)}
-                    aria-label={`Статус: ${statusLabels[task.status]}`}
-                    title={statusLabels[task.status]}
-                    className={task.status === "in_progress" ? "text-amber-500" : task.status === "fulfilled" ? "text-[#71ce87]" : "text-slate-400"}
-                  >
-                    <Clock3 className="h-5 w-5" />
-                  </button>
-                </td>
-              </tr>
-            ))}
-            {!loading && visible.length === 0 && (
-              <tr>
-                <td colSpan={6} className="px-5 py-10 text-center text-slate-400">
-                  Ничего не найдено
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </section>
+        <RefTable
+          cols="110px 207px 103px 206px minmax(0,1fr) 60px"
+          heads={["№", "Ответственный", "Дата задачи", "Магазин", "Описание", ""]}
+          rows={visible}
+          rowKey={(task) => task.id}
+          empty={loading ? "" : <div className="flex min-h-[200px] flex-col items-center justify-center gap-3"><Image src="/robot-empty.png" alt="" width={120} height={120} className="h-[110px] w-[110px] object-contain" /><p className="text-[13px] text-[#666]">По вашему запросу ничего не найдено</p></div>}
+          render={(task) => [
+            task.id,
+            task.responsible,
+            task.date ? new Date(`${task.date}T00:00:00`).toLocaleDateString("ru-RU", { day: "2-digit", month: "short", year: "numeric" }).replace(" г.", "") : "",
+            task.store,
+            task.description,
+            <button
+              key="s"
+              type="button"
+              onClick={() => cycleStatus(task.id)}
+              aria-label={`Статус: ${statusLabels[task.status]}`}
+              title={statusLabels[task.status]}
+              className={task.status === "in_progress" ? "text-amber-500" : task.status === "fulfilled" ? "text-[#71ce87]" : "text-slate-400"}
+            >
+              <Clock3 className="h-5 w-5" />
+            </button>,
+          ]}
+        />
+      </RefCard>
 
       {editing === "new" && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
-          <form onSubmit={save} className="w-full max-w-md rounded-lg bg-white p-6 shadow-xl">
-            <div className="mb-5 flex justify-between">
-              <h2 className="text-xl font-bold">Добавить задачу</h2>
-              <button type="button" onClick={() => setEditing(null)} aria-label="Закрыть">
-                <X />
-              </button>
-            </div>
-            <label className="mb-2 block font-medium">Ответственный</label>
-            <select value={draft.responsible} onChange={(event) => setDraft((value) => ({ ...value, responsible: event.target.value }))} className="mb-4 w-full rounded border border-slate-300 px-3 py-2.5">
-              {responsibles.map((item) => <option key={item}>{item}</option>)}
-            </select>
-            <label className="mb-2 block font-medium">Магазин</label>
-            <select value={draft.store} onChange={(event) => setDraft((value) => ({ ...value, store: event.target.value }))} className="mb-4 w-full rounded border border-slate-300 px-3 py-2.5">
-              {stores.map((item) => <option key={item}>{item}</option>)}
-            </select>
-            <label className="mb-2 block font-medium">Описание</label>
-            <textarea autoFocus value={draft.description} onChange={(event) => setDraft((value) => ({ ...value, description: event.target.value }))} rows={3} className="w-full resize-none rounded border border-slate-300 px-3 py-2.5" />
-            <div className="mt-6 flex justify-end gap-3">
-              <button type="button" onClick={() => setEditing(null)} className="rounded border px-4 py-2">
-                Отмена
-              </button>
-              <button type="submit" disabled={saving} className="inline-flex items-center gap-2 rounded bg-[#5474e6] px-4 py-2 font-semibold text-white disabled:opacity-60">
-                <PlusCircle className="h-4 w-4" />
-                {saving ? "Сохранение..." : "Сохранить"}
-              </button>
-            </div>
-          </form>
-        </div>
+        <Modal title="Добавить задачу" onClose={() => setEditing(null)} footer={<SaveButton disabled={saving} onClick={() => void save({ preventDefault() {} } as FormEvent)}>{saving ? "Сохранение..." : "Сохранить"}</SaveButton>}>
+          <LineField label="Описание" required autoFocus value={draft.description} onChange={(value) => setDraft((current) => ({ ...current, description: value }))} />
+          <div className="mt-[10px]"><LineSelect label="Магазин" required value={draft.store} onChange={(value) => setDraft((current) => ({ ...current, store: value }))} options={stores} /></div>
+          <div className="mt-[10px]"><LineSelect label="Ответственный пользователь" required value={draft.responsible} onChange={(value) => setDraft((current) => ({ ...current, responsible: value }))} options={responsibles} /></div>
+          <div className="mt-[10px]"><LineField label="Дата задачи" required value={taskDate} onChange={setTaskDate} /></div>
+          <div className="mt-[18px]"><CheckBox checked={repeatPlan} onChange={setRepeatPlan} label="Повторить план" /></div>
+        </Modal>
       )}
 
       {importOpen && (
@@ -357,13 +300,13 @@ export function TasksView() {
               </button>
             </div>
             <footer className="flex justify-end border-t p-5">
-              <button type="button" disabled={!importFile || importSaving} onClick={saveImport} className="rounded bg-[#71ce87] px-5 py-3 font-semibold text-white hover:brightness-95 disabled:opacity-40">
+              <button type="button" disabled={!importFile || importSaving} onClick={saveImport} className="inline-flex items-center h-[30px] rounded-[5px] bg-[#71ce87] px-4 text-[13px] font-semibold text-white hover:brightness-95 disabled:opacity-40">
                 {importSaving ? "Импорт..." : "Сохранить"}
               </button>
             </footer>
           </div>
         </div>
       )}
-    </main>
+    </RefPage>
   )
 }

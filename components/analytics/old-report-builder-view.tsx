@@ -1,36 +1,137 @@
 "use client"
 
-import { useState } from "react"
+import { Fragment, useMemo, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
 import { Bookmark, Download, FolderOpen } from "lucide-react"
 import { downloadExcelTable } from "@/lib/excel-export"
-import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
+import { RefHeader } from "@/components/ref/list-kit"
+import { ReportEmpty, ReportPage, ReportSelectField } from "@/components/ref/report-kit"
+import { useLanguage } from "@/lib/i18n/language-context"
+import { CheckRow, DEFAULT_OPTIONS, OptionsPanelBody, Panel, toggleIn, usePanelDismiss, type TableOptions } from "./builder-panels"
 
 const measures = ["Сумма продаж", "Количество заказов", "Количество клиентов", "Средний чек"]
-const groupings = ["Модель", "Филиал", "Бренд", "Продукт", "Агент"]
-const tableOptimizations = ["Обычная", "Компактная", "С переносом строк"]
-const verticalGroupings = ["Без группировки", "По модели", "По филиалу"]
-const horizontalGroupings = ["Без группировки", "По месяцам", "По кварталам"]
+const models = ["Стандарт", "Премиум"]
+const verticalGroupings = ["Модель", "Филиал"]
+const horizontalGroupings = ["По месяцам", "По кварталам"]
+const filterModels = ["Стандарт", "Премиум", "Эконом"]
+type PanelKey = "columns" | "table" | "vertical" | "horizontal" | "filters"
+
+/** Deterministic demo orders so the table is stable between renders. */
+const RECORDS = Array.from({ length: 72 }, (_, i) => ({
+  model: filterModels[i % 3],
+  branch: ["Ташкент", "Самарканд"][i % 2],
+  month: 8 + (i % 3),
+  orderId: 3000 + Math.floor(i / 2),
+  clientId: 100 + (i % 7),
+  amount: 120000 + ((i * 41) % 19) * 33000,
+}))
+type Rec = (typeof RECORDS)[number]
+const VERTICAL_KEY: Record<string, (r: Rec) => string> = { "Модель": (r) => r.model, "Филиал": (r) => r.branch }
+const MONTH_NAMES = ["Август", "Сентябрь", "Октябрь"]
+
+function aggregate(measure: string, rows: Rec[]) {
+  const sum = rows.reduce((total, r) => total + r.amount, 0)
+  const orders = new Set(rows.map((r) => r.orderId)).size
+  if (measure === "Сумма продаж") return sum
+  if (measure === "Количество заказов") return orders
+  if (measure === "Количество клиентов") return new Set(rows.map((r) => r.clientId)).size
+  return orders ? Math.round(sum / orders) : 0
+}
+
+const CARD = "bg-white shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]"
+const LINK = "text-[13px] text-[#4f71dc]"
+const CHIP = "flex h-[32px] w-[114px] flex-col items-center justify-center rounded-[3px] bg-[#4f71dc] px-1 text-center text-[13px] font-semibold leading-[15px] text-white hover:brightness-95"
+
+const VIEW_ICONS = [
+  "M3.5 18.49l6-6.01 4 4L22 6.92l-1.41-1.41-7.09 7.97-4-4L2 16.99z",
+  "M11 2v20c-5.07-.5-9-4.79-9-10s3.93-9.5 9-10zm2.03 0v8.99H22c-.47-4.74-4.24-8.52-8.97-8.99zm0 11.01V22c4.74-.47 8.5-4.25 8.97-8.99h-8.97z",
+  "M5 9.2h3V19H5zM10.6 5h2.8v14h-2.8zm5.6 8H19v6h-2.8z",
+  "M10 10.02h5V21h-5zM17 21h3c1.1 0 2-.9 2-2v-9h-5v11zm3-18H5c-1.1 0-2 .9-2 2v3h19V5c0-1.1-.9-2-2-2zM3 19c0 1.1.9 2 2 2h3V10H3v9z",
+]
 
 export function OldReportBuilderView() {
   const router = useRouter()
+  const { t } = useLanguage()
   const [chosen, setChosen] = useState<string[]>([])
-  const [showReport, setShowReport] = useState(false)
+  const [model, setModel] = useState("")
   const [saved, setSaved] = useState(false)
-  const [columnsOpen, setColumnsOpen] = useState(false)
-  const [tableOptimization, setTableOptimization] = useState(tableOptimizations[0])
-  const [verticalGrouping, setVerticalGrouping] = useState(verticalGroupings[0])
-  const [horizontalGrouping, setHorizontalGrouping] = useState(horizontalGroupings[0])
-  const [openDropdown, setOpenDropdown] = useState<string | null>(null)
-  const [filtersOpen, setFiltersOpen] = useState(false)
+  const [options, setOptions] = useState<TableOptions>(DEFAULT_OPTIONS)
+  const [vertical, setVertical] = useState<string[]>([])
+  const [horizontal, setHorizontal] = useState<string[]>([])
+  const [modelFilter, setModelFilter] = useState<string[]>([])
+  const [open, setOpen] = useState<PanelKey | null>(null)
+  const [dChosen, setDChosen] = useState<string[]>([])
+  const [dOptions, setDOptions] = useState<TableOptions>(DEFAULT_OPTIONS)
+  const [dVertical, setDVertical] = useState<string[]>([])
+  const [dHorizontal, setDHorizontal] = useState<string[]>([])
+  const [dModelFilter, setDModelFilter] = useState<string[]>([])
   const [quickFilterOpen, setQuickFilterOpen] = useState(false)
   const [quickFilter, setQuickFilter] = useState("")
-  const toggle = (item: string) => setChosen((current) => current.includes(item) ? current.filter((value) => value !== item) : [...current, item])
-  const selected = chosen.length ? chosen : ["Сумма продаж"]
-  const download = () => downloadExcelTable("old-report-builder.xls", [["Модель", ...selected], ["Стандарт", ...selected.map(() => 0)], ["Премиум", ...selected.map(() => 0)]])
+  const [view, setView] = useState(3)
+  const toolbarRef = useRef<HTMLDivElement>(null)
+
+  const openPanel = (key: PanelKey) => {
+    if (open === key) return setOpen(null)
+    setQuickFilterOpen(false)
+    setDChosen(chosen); setDOptions(options); setDVertical(vertical); setDHorizontal(horizontal); setDModelFilter(modelFilter)
+    setOpen(key)
+  }
+  const accept = () => {
+    if (open === "columns") setChosen(dChosen)
+    if (open === "table") setOptions(dOptions)
+    if (open === "vertical") setVertical(dVertical)
+    if (open === "horizontal") setHorizontal(dHorizontal)
+    if (open === "filters") setModelFilter(dModelFilter)
+    setOpen(null)
+  }
+  usePanelDismiss(open !== null, toolbarRef, () => setOpen(null))
+
+  const table = useMemo(() => {
+    const scope = RECORDS.filter((r) => (!model || r.model === model) && (!modelFilter.length || modelFilter.includes(r.model)) && r.model.toLowerCase().includes(quickFilter.toLowerCase()))
+    const accessors = vertical.map((label) => VERTICAL_KEY[label]).filter(Boolean)
+    const groups = new Map<string, { keys: string[]; rows: Rec[] }>()
+    for (const rec of scope) {
+      const keys = accessors.map((fn) => fn(rec))
+      const id = keys.join("\u0000")
+      const group = groups.get(id) ?? { keys, rows: [] }
+      group.rows.push(rec)
+      groups.set(id, group)
+    }
+    const body = [...groups.values()].sort((x, y) => x.keys.join("\u0000").localeCompare(y.keys.join("\u0000"), "ru"))
+    if (!accessors.length) body.push({ keys: [], rows: scope })
+    const quarterly = horizontal[0] === "По кварталам"
+    const periods = horizontal.length ? (quarterly ? ["Q3", "Q4"] : MONTH_NAMES) : []
+    const periodOf = (r: Rec) => (quarterly ? (r.month <= 9 ? 0 : 1) : r.month - 8)
+    const cellsFor = (rows: Rec[]) => chosen.map((measure) => ({
+      periods: periods.map((_, p) => aggregate(measure, rows.filter((r) => periodOf(r) === p))),
+      total: aggregate(measure, rows),
+    }))
+    const rows = body.map((g) => ({ keys: g.keys, cells: cellsFor(g.rows) }))
+    const spans = rows.map((row, i) => row.keys.map((_, c) => {
+      const same = (j: number) => j > 0 && rows[j].keys.slice(0, c + 1).join("\u0000") === rows[j - 1].keys.slice(0, c + 1).join("\u0000")
+      if (same(i)) return 0
+      let n = 1
+      while (i + n < rows.length && same(i + n)) n++
+      return n
+    }))
+    return { periods, rows, totals: cellsFor(scope), spans }
+  }, [model, modelFilter, quickFilter, vertical, horizontal, chosen])
+
+  const fmt = (value: number) => (options.formatted ? value.toLocaleString("ru-RU") : String(value))
+  const groupLabels = vertical.length ? vertical : ["Модель"]
+  const showPeriods = table.periods.length > 0
+  // with periods the per-measure "Итого" column is the right-hand total; without them the single value column already is the total
+  const rightTotal = options.totalsRight && showPeriods
+
+  const download = () => {
+    const header = [...groupLabels.map((g) => t(g)), ...chosen.flatMap((m) => [...table.periods.map((p) => `${t(m)} ${t(p)}`), ...(rightTotal ? [`${t(m)} ${t("Итого")}`] : showPeriods ? [] : [t(m)])])]
+    const rows = table.rows.map((row) => [...(vertical.length ? row.keys : [t("Все")]), ...row.cells.flatMap((c) => [...c.periods, ...(rightTotal || !showPeriods ? [c.total] : [])])])
+    const footer = options.totalsBottom ? [[t("Итого"), ...groupLabels.slice(1).map(() => ""), ...table.totals.flatMap((c) => [...c.periods, ...(rightTotal || !showPeriods ? [c.total] : [])])]] : []
+    downloadExcelTable("old-report-builder.xls", [header, ...rows, ...footer])
+  }
   const save = async () => {
     try {
-      const config = { chosen, tableOptimization, verticalGrouping, horizontalGrouping }
+      const config = { chosen, options, vertical, horizontal, modelFilter }
       const response = await fetch("/api/old-saved-reports", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -44,16 +145,125 @@ export function OldReportBuilderView() {
       // ignore network failures, no flash on failure
     }
   }
-  return <main className="min-h-[calc(100vh-4rem)] bg-[#f2f5f8] text-[#17233b]"><header className="px-9 py-5"><div className="flex items-center gap-3"><FavoritesButton className="flex items-center gap-2 text-2xl font-bold text-[#4f71dc]" /><span className="text-3xl text-slate-500">|</span><h1 className="text-2xl font-bold text-slate-600">Конструктор отчетов</h1></div></header><section className="mx-9 rounded-md bg-white shadow-sm"><div className="flex items-center gap-5 border-b px-12 py-4"><span className="font-bold text-[#4f71dc]">01 Авг. 2026 - 31 Авг. 2026</span><label className="mx-auto flex w-96 items-center gap-2 border-b py-1">Модель<select className="ml-auto bg-transparent outline-none"><option>Все модели</option><option>Стандарт</option><option>Премиум</option></select></label></div><div className="flex flex-wrap items-center gap-4 px-10 py-3">
-  <div className="relative"><button onClick={() => setColumnsOpen((v) => !v)} className="text-[#4f71dc]">Колонки⌄</button>{columnsOpen && <div className="absolute left-0 top-full z-20 w-56 border border-slate-200 bg-white p-3 shadow-xl">{measures.map((item) => <label key={item} className="mb-2 flex gap-2 text-sm"><input type="checkbox" checked={chosen.includes(item)} onChange={() => toggle(item)} />{item}</label>)}</div>}</div>
-  <button onClick={download} className="flex items-center gap-2 rounded bg-[#4db6ac] px-5 py-3 font-semibold text-white"><Download />Скачать</button>
-  <button onClick={() => void save()} className="flex items-center gap-2 rounded bg-[#4f71dc] px-5 py-3 font-semibold text-white"><Bookmark />{saved ? "Сохранено ✓" : "Сохранить"}</button>
-  <button onClick={() => router.push("/analytics/report-list")} className="flex items-center gap-2 rounded bg-[#ff8967] px-5 py-3 font-semibold text-white"><FolderOpen />Отчеты</button>
-  <button onClick={() => router.push("/analytics/flexible-dashboard")} className="flex items-center gap-2 rounded bg-[#ff8967] px-5 py-3 font-semibold text-white"><FolderOpen />Виджеты</button>
-  <div className="relative ml-auto"><button onClick={() => setOpenDropdown((v) => (v === "table" ? null : "table"))} className="rounded bg-[#4f71dc] px-4 py-3 font-semibold text-white">Оптимизация таблицы: {tableOptimization}⌄</button>{openDropdown === "table" && <div className="absolute right-0 top-full z-20 w-56 border border-slate-200 bg-white py-1 shadow-xl">{tableOptimizations.map((item) => <button key={item} onClick={() => { setTableOptimization(item); setOpenDropdown(null) }} className="block w-full px-3 py-2 text-left text-sm hover:bg-slate-50">{item}</button>)}</div>}</div>
-  <div className="relative"><button onClick={() => setOpenDropdown((v) => (v === "vertical" ? null : "vertical"))} className="rounded bg-[#4f71dc] px-4 py-3 font-semibold text-white">Вертикальная группировка: {verticalGrouping}⌄</button>{openDropdown === "vertical" && <div className="absolute right-0 top-full z-20 w-56 border border-slate-200 bg-white py-1 shadow-xl">{verticalGroupings.map((item) => <button key={item} onClick={() => { setVerticalGrouping(item); setOpenDropdown(null) }} className="block w-full px-3 py-2 text-left text-sm hover:bg-slate-50">{item}</button>)}</div>}</div>
-  <div className="relative"><button onClick={() => setOpenDropdown((v) => (v === "horizontal" ? null : "horizontal"))} className="rounded bg-[#4f71dc] px-4 py-3 font-semibold text-white">Горизонтальная группировка: {horizontalGrouping}⌄</button>{openDropdown === "horizontal" && <div className="absolute right-0 top-full z-20 w-56 border border-slate-200 bg-white py-1 shadow-xl">{horizontalGroupings.map((item) => <button key={item} onClick={() => { setHorizontalGrouping(item); setOpenDropdown(null) }} className="block w-full px-3 py-2 text-left text-sm hover:bg-slate-50">{item}</button>)}</div>}</div>
-  <div className="relative"><button onClick={() => setFiltersOpen((v) => !v)} className="text-[#4f71dc]">Фильтры⌄</button>{filtersOpen && <div className="absolute right-0 top-full z-20 w-64 border border-slate-200 bg-white p-4 text-sm text-slate-500 shadow-xl">Фильтры по колонкам появятся здесь после выбора замеров.</div>}</div>
-  <div className="relative"><button onClick={() => setQuickFilterOpen((v) => !v)} className="text-[#4f71dc]">Быстрый фильтр⌄</button>{quickFilterOpen && <div className="absolute right-0 top-full z-20 w-64 border border-slate-200 bg-white p-3 shadow-xl"><input autoFocus value={quickFilter} onChange={(event) => setQuickFilter(event.target.value)} placeholder="Модель..." className="w-full border-b border-slate-300 py-2 text-sm outline-none" /></div>}</div>
-</div></section><section className="mx-9 mt-6 min-h-[340px] bg-white shadow-sm">{!showReport ? <div className="flex min-h-[340px] flex-col items-center justify-center"><img src="/robot-mascot.png" alt="Робот-помощник" className="h-40 w-40 object-contain" /><p className="mt-3 text-slate-400">Выберите замеры и группировки, затем примените изменения</p><div className="mt-6 flex gap-10">{[["Замеры", measures], ["Группировка", groupings]].map(([title, values]) => <div key={String(title)} className="w-56"><p className="mb-3 font-semibold">{title}</p>{(values as string[]).map((item) => <label className="mb-2 flex gap-2" key={item}><input type="checkbox" checked={chosen.includes(item)} onChange={() => toggle(item)} />{item}</label>)}</div>)}</div><button onClick={() => setShowReport(true)} className="mt-6 rounded bg-[#27cd58] px-6 py-3 font-semibold text-white">ПРИМЕНИТЬ ИЗМЕНЕНИЯ</button></div> : <div className="p-8"><table className="w-full border-collapse"><thead><tr className="bg-slate-100"><th className="border p-3 text-left">Модель</th>{selected.map((item) => <th key={item} className="border p-3 text-right">{item}</th>)}</tr></thead><tbody>{["Стандарт", "Премиум", "Эконом"].filter((model) => model.toLowerCase().includes(quickFilter.toLowerCase())).map((model) => <tr key={model}><td className="border p-3">{model}</td>{selected.map((item) => <td key={item} className="border p-3 text-right">{(0).toLocaleString("ru-RU")}</td>)}</tr>)}</tbody></table></div>}</section></main>
+  const cell = "border border-[#ececec] px-3 py-2"
+
+  return (
+    <ReportPage>
+      <div className="pl-[30px] pr-[38px]"><RefHeader title={t("Конструктор отчетов")} /></div>
+
+      <section className={`mx-7 ${CARD}`}>
+        <div className="relative flex h-[48px] items-center border-b border-[#ececec] px-[38px]">
+          <span className="text-[12px] font-bold text-[#4f71dc]">{t("01 Окт. 2026 - 31 Окт. 2026")}</span>
+          <div className="absolute left-[478px] top-[8px] w-[300px]"><ReportSelectField label={t("Модель")} value={model} onChange={setModel} options={models} clearable={false} /></div>
+          <div className="ml-auto flex gap-[1px]">
+            {VIEW_ICONS.map((path, index) => (
+              <button key={index} type="button" onClick={() => setView(index)} aria-label={`view-${index}`} className={`flex h-[26px] w-[48px] items-center justify-center rounded-[3px] ${view === index ? "bg-[#4f71dc]" : "bg-[#e0e0e0]"}`}>
+                <svg viewBox="0 0 24 24" className="h-[18px] w-[18px] fill-white"><path d={path} /></svg>
+              </button>
+            ))}
+          </div>
+        </div>
+        <div ref={toolbarRef} className="relative flex flex-wrap items-center gap-[14px] px-[30px] py-[8px]">
+          <button onClick={() => openPanel("columns")} className={LINK}>{t("Колонки")} ⌄</button>
+          <button onClick={download} className="ml-[60px] flex h-[32px] items-center rounded-[3px] bg-[#4db6ac] px-4 text-[13px] font-semibold text-white hover:brightness-95"><Download className="mr-3 h-[16px] w-[16px]" />{t("Скачать")}</button>
+          <button onClick={() => void save()} className="flex h-[32px] items-center rounded-[3px] bg-[#4f71dc] px-4 text-[13px] font-semibold text-white hover:brightness-95"><Bookmark className="mr-3 h-[16px] w-[16px] fill-white" />{saved ? t("Сохранено ✓") : t("Сохранить")}</button>
+          <button onClick={() => router.push("/analytics/report-list")} className="flex h-[32px] items-center rounded-[3px] bg-[#ff8a6f] px-4 text-[13px] font-semibold text-white hover:brightness-95"><FolderOpen className="mr-3 h-[16px] w-[16px] fill-white" />{t("Отчеты")}</button>
+          <button onClick={() => router.push("/analytics/flexible-dashboard")} className="flex h-[32px] items-center rounded-[3px] bg-[#ff8a6f] px-4 text-[13px] font-semibold text-white hover:brightness-95"><FolderOpen className="mr-3 h-[16px] w-[16px] fill-white" />{t("Виджеты")}</button>
+          <div className="ml-auto flex items-center gap-[14px]">
+            <button onClick={() => openPanel("table")} className={CHIP}><span>{t("Оптимизация таблицы")} ⌄</span></button>
+            <button onClick={() => openPanel("vertical")} className={CHIP}><span>{t("Вертикальная группировка")} ⌄</span></button>
+            <button onClick={() => openPanel("horizontal")} className={CHIP}><span>{t("Горизонтальная группировка")} ⌄</span></button>
+            <button onClick={() => openPanel("filters")} className={LINK}>{t("Фильтры")}{modelFilter.length ? ` (${modelFilter.length})` : ""} ⌄</button>
+            <div className="relative">
+              <button onClick={() => { setOpen(null); setQuickFilterOpen((v) => !v) }} className={LINK}>{t("Быстрый фильтр")} ⌄</button>
+              {quickFilterOpen && <div className="absolute right-0 top-full z-20 mt-1 w-64 border border-[#e8e8e8] bg-white p-3 shadow-xl"><input autoFocus value={quickFilter} onChange={(event) => setQuickFilter(event.target.value)} placeholder={`${t("Модель")}...`} className="w-full border-b border-[#e0e0e0] py-2 text-[13px] outline-none" /></div>}
+            </div>
+          </div>
+
+          {open === "columns" && (
+            <Panel title={t("Колонки")} onClose={() => setOpen(null)} onAccept={accept} className="left-[30px]">
+              {measures.map((item) => <CheckRow key={item} checked={dChosen.includes(item)} onChange={() => setDChosen(toggleIn(dChosen, item))}>{t(item)}</CheckRow>)}
+            </Panel>
+          )}
+          {open === "table" && (
+            <Panel title={t("Оптимизация таблицы")} onClose={() => setOpen(null)} onAccept={accept} className="right-[330px]">
+              <OptionsPanelBody value={dOptions} onChange={setDOptions} />
+            </Panel>
+          )}
+          {open === "vertical" && (
+            <Panel title={t("Вертикальная группировка")} onClose={() => setOpen(null)} onAccept={accept} className="right-[200px]">
+              {verticalGroupings.map((item) => <CheckRow key={item} checked={dVertical.includes(item)} onChange={() => setDVertical(toggleIn(dVertical, item))}>{t(item)}</CheckRow>)}
+            </Panel>
+          )}
+          {open === "horizontal" && (
+            <Panel title={t("Горизонтальная группировка")} onClose={() => setOpen(null)} onAccept={accept} className="right-[120px]">
+              {horizontalGroupings.map((item) => <CheckRow key={item} checked={dHorizontal.includes(item)} onChange={() => setDHorizontal(dHorizontal.includes(item) ? [] : [item])}>{t(item)}</CheckRow>)}
+            </Panel>
+          )}
+          {open === "filters" && (
+            <Panel title={t("Фильтры")} onClose={() => setOpen(null)} onAccept={accept} className="right-[60px]">
+              <p className="pb-1 text-[13px] font-semibold uppercase text-[#4f71dc]">{t("Модель")}</p>
+              {filterModels.map((item) => <CheckRow key={item} checked={dModelFilter.includes(item)} onChange={() => setDModelFilter(toggleIn(dModelFilter, item))}>{t(item)}</CheckRow>)}
+            </Panel>
+          )}
+        </div>
+      </section>
+
+      <section className={`mx-7 mt-[20px] ${CARD}`}>
+        {chosen.length === 0 ? (
+          <ReportEmpty className="pb-[34px] pt-[10px]" text={t("Выберите замеры и группировки, затем примените изменения")} />
+        ) : (
+          <div className="overflow-x-auto p-6">
+            <table className="w-full border-collapse text-[13px]">
+              <thead>
+                <tr className="bg-[#f2f5f8]">
+                  {groupLabels.map((g) => <th key={g} rowSpan={showPeriods ? 2 : 1} className={`${cell} text-left`}>{t(g)}</th>)}
+                  {chosen.map((m) => <th key={m} colSpan={showPeriods ? table.periods.length + (rightTotal ? 1 : 0) : 1} className={`${cell} ${showPeriods ? "text-center" : "text-right"}`}>{t(m)}</th>)}
+                </tr>
+                {showPeriods && (
+                  <tr className="bg-[#f2f5f8]">
+                    {chosen.map((m) => (
+                      <Fragment key={m}>
+                        {table.periods.map((p) => <th key={p} className={`${cell} text-right font-medium`}>{t(p)}</th>)}
+                        {rightTotal && <th className={`${cell} text-right`}>{t("Итого")}</th>}
+                      </Fragment>
+                    ))}
+                  </tr>
+                )}
+              </thead>
+              <tbody>
+                {table.rows.map((row, i) => (
+                  <tr key={i}>
+                    {vertical.length === 0 && <td className={cell}>{t("Все")}</td>}
+                    {row.keys.map((key, c) => {
+                      const span = table.spans[i][c]
+                      if (options.merge) return span ? <td key={c} rowSpan={span} className={`${cell} align-top`}>{t(key)}</td> : null
+                      return <td key={c} className={cell}>{t(key)}</td>
+                    })}
+                    {row.cells.map((c, m) => (
+                      <Fragment key={m}>
+                        {showPeriods ? c.periods.map((v, p) => <td key={p} className={`${cell} text-right`}>{fmt(v)}</td>) : <td className={`${cell} text-right`}>{fmt(c.total)}</td>}
+                        {rightTotal && <td className={`${cell} bg-[#fafbfc] text-right font-semibold`}>{fmt(c.total)}</td>}
+                      </Fragment>
+                    ))}
+                  </tr>
+                ))}
+                {options.totalsBottom && (
+                  <tr className="bg-[#f2f5f8] font-bold">
+                    <td colSpan={groupLabels.length} className={cell}>{t("Итого")}</td>
+                    {table.totals.map((c, m) => (
+                      <Fragment key={m}>
+                        {showPeriods ? c.periods.map((v, p) => <td key={p} className={`${cell} text-right`}>{fmt(v)}</td>) : <td className={`${cell} text-right`}>{fmt(c.total)}</td>}
+                        {rightTotal && <td className={`${cell} text-right`}>{fmt(c.total)}</td>}
+                      </Fragment>
+                    ))}
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+    </ReportPage>
+  )
 }

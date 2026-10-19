@@ -4,7 +4,7 @@ import Image from "next/image"
 import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react"
 import { ChevronLeft, ChevronRight, Copy, ListChecks, Pencil, PlusCircle, RefreshCw, Search, Trash2, X } from "lucide-react"
 
-import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
+import { RefHeader, RefPage } from "@/components/ref/list-kit"
 import { readExcelRows } from "@/lib/excel-import"
 
 type PlanEntry = { employee: string; survey: string }
@@ -167,27 +167,21 @@ export function SurveyPlanView() {
   }
 
   return (
-    <main className="min-h-[calc(100vh-4rem)] bg-slate-100 px-4 pb-8 sm:px-9">
-      <header className="flex flex-wrap items-center justify-between gap-3 py-4">
-        <h1 className="text-2xl font-bold text-slate-600">
-          <FavoritesButton className="inline-flex items-center gap-2 text-[#4f71dc]" />
-          <span className="mx-2 text-slate-400">|</span> План опроса
-        </h1>
-        <div className="flex items-center gap-3">
-          <input ref={fileInputRef} type="file" accept=".csv,.xls,.xlsx,text/csv" onChange={handleImport} className="hidden" />
-          <button type="button" onClick={() => fileInputRef.current?.click()} className="inline-flex items-center gap-2 rounded bg-[#4f71dc] px-5 py-2.5 font-semibold text-white hover:brightness-95">
-            <RefreshCw className="h-4 w-4" />
-            Установить с EXCEL
-          </button>
-        </div>
-      </header>
+    <RefPage>
+      <RefHeader title="План опроса">
+        <input ref={fileInputRef} type="file" accept=".csv,.xls,.xlsx,text/csv" onChange={handleImport} className="hidden" />
+        <button type="button" onClick={() => fileInputRef.current?.click()} className="flex h-[30px] items-center gap-2 rounded-[5px] bg-[#4f71dc] px-4 text-[13px] font-semibold text-white hover:brightness-95">
+          <RefreshCw className="h-4 w-4" />
+          Установить с EXCEL
+        </button>
+      </RefHeader>
 
       <section className="overflow-hidden rounded bg-white shadow">
-        <div className="flex flex-wrap items-end gap-5 border-b border-slate-200 px-6 py-4">
-          <label className="text-xs font-medium text-slate-500">
+        <div className="flex flex-wrap items-end gap-[15px] px-[10px] py-[8px] text-[13px]">
+          <label className="text-[10px] font-bold text-black">
             Месяц
             <div className="mt-1 flex items-center gap-2 border-b border-slate-300 pb-1 pr-1">
-              <select value={month} onChange={(event) => setMonth(event.target.value)} className="bg-white text-base font-semibold text-slate-800 outline-none">
+              <select value={month} onChange={(event) => setMonth(event.target.value)} className="bg-white text-[13px] text-black outline-none">
                 {months.map((item) => (
                   <option key={item}>{item}</option>
                 ))}
@@ -197,16 +191,16 @@ export function SurveyPlanView() {
               </button>
             </div>
           </label>
-          <label className="text-xs font-medium text-slate-500">
+          <label className="text-[10px] font-bold text-black">
             Год
-            <select value={year} onChange={(event) => setYear(event.target.value)} className="mt-1 block border-b border-slate-300 bg-white pb-1 text-base font-semibold text-slate-800 outline-none">
+            <select value={year} onChange={(event) => setYear(event.target.value)} className="mt-1 block border-b border-slate-300 bg-white pb-1 text-[13px] font-normal text-black outline-none">
               {years.map((item) => (
                 <option key={item}>{item}</option>
               ))}
             </select>
           </label>
-          <label className="relative w-64">
-            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Поиск" className="w-full border-b border-slate-300 py-3 pr-10 outline-none focus:border-[#4f71dc]" />
+          <label className="relative ml-[18px] w-[248px]">
+            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Поиск" className="w-full border-b border-[#e0e0e0] py-1 pr-10 text-[13px] outline-none focus:border-[#5d6474]" />
             <Search className="absolute right-2 top-3 h-5 w-5 text-slate-300" />
           </label>
           <div className="ml-auto flex flex-wrap items-center gap-4">
@@ -278,7 +272,7 @@ export function SurveyPlanView() {
 
         {rows.length === 0 && (
           <div className="flex min-h-[340px] flex-col items-center justify-center gap-4 py-10">
-            <Image src="/robot-mascot.png" alt="Робот-помощник" width={150} height={150} priority className="h-36 w-36 object-contain" />
+            <Image src="/robot-empty.png" alt="Робот-помощник" width={190} height={190} priority className="h-36 w-36 object-contain" />
             <p className="text-lg text-slate-400">По вашему запросу ничего не найдено</p>
           </div>
         )}
@@ -329,6 +323,6 @@ export function SurveyPlanView() {
           </div>
         </div>
       )}
-    </main>
+    </RefPage>
   )
 }

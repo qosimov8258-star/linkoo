@@ -2,6 +2,7 @@
 
 import { useState } from "react"
 import Link from "next/link"
+import { usePathname } from "next/navigation"
 
 import {
   analyticsMenuGroups,
@@ -162,7 +163,7 @@ const resourceMenuGroups: Record<string, ResourceMenuGroup[]> = {
     {
       title: "Отчёты",
       items: [
-        menuEntry("widgets", "Виджеты", generalHref),
+        { label: "Виджеты", href: "/?widgets=1" },
         menuEntry("flexible-dashboard", "Гибкий дашборд", generalHref),
         menuEntry("new-report-builder", "Новый конструктор отчетов", generalHref),
         menuEntry("old-report-builder", "Старый конструктор отчетов", generalHref),
@@ -210,16 +211,17 @@ function LinkColumn({
   onSelect: (item: string) => void
 }) {
   const { t } = useLanguage()
+  const pathname = usePathname()
   return (
-    <div className="min-w-0">
+    <div className="min-w-0 shrink-0">
       <h3 className="mb-3 ml-3 text-[13px] font-bold text-[#5869f0]">{t(title)}</h3>
       <ul className="flex flex-col">
         {items.map((item) => (
-          <li key={`${item.href}-${item.label}`} className="rounded-[12px] border-b border-[#f1f1f1] py-[10px] pl-[5px]">
+          <li key={`${item.href}-${item.label}`} className={`rounded-[12px] border-b border-[#f1f1f1] py-[10px] pl-[5px] pr-[5px] transition-colors hover:bg-white ${item.href === pathname ? "bg-white" : ""}`}>
             <Link
               href={item.href}
               onClick={() => onSelect(item.label)}
-              className="block w-full rounded-[5px] p-[5px] text-left font-[Arial,Helvetica,sans-serif] text-[13px] font-semibold leading-6 text-[#333] hover:bg-[#f2f5f8]"
+              className="block w-full rounded-[5px] p-[5px] text-left font-[Arial,Helvetica,sans-serif] text-[13px] font-semibold leading-5 text-[#333]"
             >
               {t(item.label)}
             </Link>
@@ -242,8 +244,8 @@ export function AnalyticsMenu({ onSelect, onMouseEnter, onMouseLeave }: Props) {
       onMouseLeave={onMouseLeave}
       className="w-[1160px] max-w-[calc(100vw-1rem)]"
     >
-      <div className="mt-[7px] grid min-h-[550px] grid-cols-[320px_minmax(0,1fr)] overflow-hidden rounded-[10px] bg-[#f9fafb] font-sans text-[#333] shadow-[0_1px_3px_rgba(0,0,0,0.12),0_1px_2px_rgba(0,0,0,0.24)]">
-        <div className="bg-white px-5 pt-5">
+      <div className="mt-[7px] grid grid-cols-[320px_minmax(0,1fr)] overflow-hidden rounded-[10px] bg-[#f9fafb] font-sans text-[#333] shadow-[0_1px_3px_rgba(0,0,0,0.12),0_1px_2px_rgba(0,0,0,0.24)]">
+        <div className="bg-white px-5 pb-5 pt-5">
           <h3 className="mb-3 ml-3 text-[13px] font-bold text-[#5869f0]">Resources</h3>
           <ul className="flex flex-col">
             {analyticsResources
@@ -282,7 +284,7 @@ export function AnalyticsMenu({ onSelect, onMouseEnter, onMouseLeave }: Props) {
 
         <div
           key={activeResource}
-          className="grid grid-cols-[repeat(3,240px)] items-start gap-0 px-5 py-8 animate-in fade-in-0 duration-150"
+          className="flex items-start gap-[4px] px-5 py-8 animate-in fade-in-0 duration-150"
         >
           {activeGroups.map((group) => (
             <LinkColumn

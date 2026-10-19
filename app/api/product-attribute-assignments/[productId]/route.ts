@@ -12,7 +12,7 @@ type RouteParams = { params: Promise<{ productId: string }> }
 
 export async function GET(_request: Request, { params }: RouteParams) {
   const user = await getCurrentUser()
-  if (!user) return NextResponse.json({ error: "Tizimga kirilmagan" }, { status: 401 })
+  if (!user) return NextResponse.json({ error: "Вы не вошли в систему" }, { status: 401 })
   return NextResponse.json(await getProductAttributeAssignments(Number((await params).productId)))
 }
 

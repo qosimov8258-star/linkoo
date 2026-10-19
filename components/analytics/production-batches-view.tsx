@@ -5,7 +5,7 @@ import { ChevronDown, ChevronLeft, ChevronRight, Download, FileText, Plus, Searc
 
 import { downloadExcelTable } from "@/lib/excel-export"
 import { mapHeaderColumns, readExcelRows } from "@/lib/excel-import"
-import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
+import { RI, RefCard, RefHeader, RefIconButton, RefPage, RefTable, RefTabs, RefToolbar } from "@/components/ref/list-kit"
 
 const IMPORT_HEADER_ALIASES: Record<string, string> = {
   "дата партии": "batchDate", "дата": "batchDate", "date": "batchDate",
@@ -216,95 +216,61 @@ export function ProductionBatchesView() {
   }
 
   return (
-    <main className="min-h-[calc(100vh-4rem)] bg-slate-100 text-slate-800">
-      <header className="flex items-center justify-between px-8 py-4">
-        <div className="flex items-center gap-3">
-          <FavoritesButton className="flex items-center gap-2 text-2xl font-semibold text-blue-600" />
-          <span className="text-2xl text-slate-500">|</span>
-          <span className="text-2xl font-semibold text-slate-600">Партии</span>
-        </div>
-        <div className="flex items-center gap-3">
-          <button onClick={() => setImportOpen(true)} aria-label="Импорт с Excel" className="rounded-md bg-blue-600 p-3 text-white shadow">
-            <FileText className="h-7 w-7" />
-          </button>
-          <button onClick={() => setAddOpen(true)} aria-label="Добавить партию" className="rounded-md bg-blue-600 p-3 text-white shadow">
-            <Plus className="h-7 w-7" />
-          </button>
-        </div>
-      </header>
+    <RefPage>
+      <RefHeader
+        title="Партии"
+        left={<button type="button" className="ml-[10px] h-[34px] rounded-[3px] bg-[#3a3f4b] px-[20px] text-[13px] font-medium text-white">Производство</button>}
+      >
+        <button onClick={() => setAddOpen(true)} aria-label="Добавить партию" className="flex h-[40px] w-[40px] items-center justify-center rounded-[3px] bg-[#4f71dc] text-white hover:brightness-95">
+          <Plus className="h-6 w-6" />
+        </button>
+      </RefHeader>
 
-      <section className="mx-8 mb-6 overflow-hidden rounded-sm bg-white shadow">
-        <div className="grid grid-cols-3">
-          {([
-            ["process", "В процессе"],
-            ["completed", "Завершенные"],
-            ["all", "Все"],
-          ] as const).map(([value, label]) => (
-            <button
-              key={value}
-              onClick={() => switchTab(value)}
-              className={`border-b-4 px-4 py-5 text-lg ${tab === value ? "border-blue-600" : "border-transparent"}`}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-      </section>
+      <RefCard className="bg-white">
+        <RefTabs labels={["В процессе", "Завершенные", "Все"]} value={tab === "process" ? "В процессе" : tab === "completed" ? "Завершенные" : "Все"} onChange={(label) => switchTab(label === "В процессе" ? "process" : label === "Завершенные" ? "completed" : "all")} />
+      </RefCard>
 
-      <section className="mx-8 overflow-hidden bg-white shadow">
-        <div className="flex flex-wrap items-center justify-between gap-4 px-2 py-4">
-          <button onClick={() => setFilterOpen((value) => !value)} className="flex items-center gap-1 text-blue-600">
-            Показать фильтр <ChevronDown className="h-4 w-4" />
-          </button>
-          <label className="relative w-96 max-w-full">
-            <input value={query} onChange={(event) => { setQuery(event.target.value); setPage(1) }} placeholder="Поиск" className="w-full border-b border-slate-300 py-2 pr-10 outline-none focus:border-blue-600" />
-            <Search className="absolute right-1 top-2 h-6 w-6 text-slate-400" />
-          </label>
-          <div className="flex items-center gap-5 text-slate-600">
-            <select value={pageSize} onChange={(event) => { setPageSize(Number(event.target.value)); setPage(1) }} className="bg-transparent">
-              {[10, 25, 50].map((size) => <option key={size}>{size}</option>)}
-            </select>
-            <span>{first} - {last} из {filtered.length}</span>
-            <button onClick={() => setPage((value) => Math.max(1, value - 1))} disabled={safePage === 1} aria-label="Предыдущая страница"><ChevronLeft className="h-7 w-7" /></button>
-            <button onClick={() => setPage((value) => Math.min(pageCount, value + 1))} disabled={safePage === pageCount} aria-label="Следующая страница"><ChevronRight className="h-7 w-7" /></button>
-            <button onClick={() => downloadExcel(filtered)} aria-label="Скачать Excel"><Download className="h-7 w-7" /></button>
-          </div>
-        </div>
-
-        {filterOpen && (
-          <div className="grid gap-5 border-t bg-slate-50 p-5 md:grid-cols-3">
-            <label><span className="mb-2 block text-sm font-semibold">Этап производства</span><select value={stageFilter} onChange={(event) => { setStageFilter(event.target.value); setPage(1) }} className="w-full border-b bg-white p-2"><option>Все этапы</option>{stages.map((stage) => <option key={stage}>{stage}</option>)}</select></label>
-            <label><span className="mb-2 block text-sm font-semibold">Пользователь</span><select value={userFilter} onChange={(event) => { setUserFilter(event.target.value); setPage(1) }} className="w-full border-b bg-white p-2"><option>Все пользователи</option><option>Admin Ritm</option></select></label>
-            <button onClick={() => { setStageFilter("Все этапы"); setUserFilter("Все пользователи"); setQuery(""); setPage(1) }} className="self-end rounded-md bg-slate-600 px-5 py-2 text-white">Очистить</button>
-          </div>
-        )}
-
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[1100px] border-collapse">
-            <thead className="bg-[#5d6474] text-left text-white">
-              <tr>
-                {["№", "Дата начала", "Дата завершения", "Дата партии", "Этап производства", "Пользователь", "Статус"].map((header) => <th key={header} className="px-10 py-5 font-semibold">{header}</th>)}
-              </tr>
-            </thead>
-            <tbody>
-              {visible.map((batch) => (
-                <tr key={batch.id} className="border-b border-dashed border-slate-300 hover:bg-slate-50">
-                  <td className="px-12 py-5">{batch.id}</td>
-                  <td className="px-10 py-5">{batch.startedAt}</td>
-                  <td className="px-10 py-5">{batch.completedAt}</td>
-                  <td className="px-10 py-5">{batch.batchDate}</td>
-                  <td className="px-10 py-5">{batch.stage}</td>
-                  <td className="px-10 py-5">{batch.user}</td>
-                  <td className="px-10 py-5">
-                    <span className={`mr-3 inline-block h-2.5 w-2.5 rounded-full ${batch.status === "В процессе" ? "bg-amber-400" : batch.status === "Завершен" ? "bg-sky-400" : "bg-red-400"}`} />
-                    {batch.status}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </section>
+      <RefCard className="mt-[20px] bg-white">
+        <RefToolbar
+          linkFilter
+          filterOpen={filterOpen}
+          onToggleFilter={() => setFilterOpen((value) => !value)}
+          filterPanel={
+            <div className="grid w-[420px] gap-4 border border-slate-200 bg-white p-4 shadow-xl">
+              <label><span className="mb-1 block text-[10px] font-bold">Этап производства</span><select value={stageFilter} onChange={(event) => { setStageFilter(event.target.value); setPage(1) }} className="w-full border-b border-[#e0e0e0] bg-white py-1 text-[13px] outline-none"><option>Все этапы</option>{stages.map((item) => <option key={item}>{item}</option>)}</select></label>
+              <label><span className="mb-1 block text-[10px] font-bold">Пользователь</span><select value={userFilter} onChange={(event) => { setUserFilter(event.target.value); setPage(1) }} className="w-full border-b border-[#e0e0e0] bg-white py-1 text-[13px] outline-none"><option>Все пользователи</option><option>Admin Ritm</option></select></label>
+              <button onClick={() => { setStageFilter("Все этапы"); setUserFilter("Все пользователи"); setQuery(""); setPage(1) }} className="h-[30px] rounded-[5px] bg-[#5d6474] text-[13px] font-semibold text-white">Очистить</button>
+            </div>
+          }
+          query={query}
+          onQuery={(value) => { setQuery(value); setPage(1) }}
+          pageSize={pageSize}
+          onPageSize={(value) => { setPageSize(value); setPage(1) }}
+          from={first}
+          to={last}
+          total={filtered.length}
+          page={safePage}
+          pageCount={pageCount}
+          onPage={setPage}
+          extra={<RefIconButton path={RI.download} label="Скачать Excel" onClick={() => downloadExcel(filtered)} />}
+        />
+        <RefTable
+          cols="minmax(0,1fr) minmax(0,2fr) minmax(0,2fr) minmax(0,2fr) minmax(0,2fr) minmax(0,2fr) minmax(0,1.5fr)"
+          heads={["№", "Дата начала", "Дата завершения", "Дата партии", "Этап производства", "Пользователь", "Статус"]}
+          rows={visible}
+          rowKey={(batch) => batch.id}
+          empty="Ничего не найдено"
+          render={(batch) => [
+            batch.id,
+            batch.startedAt,
+            batch.completedAt,
+            batch.batchDate,
+            batch.stage,
+            batch.user,
+            <span key="s" className="flex items-center"><span className={`mr-[8px] inline-block h-[7px] w-[7px] rounded-full ${batch.status === "В процессе" ? "bg-[#f0ad4e]" : batch.status === "Завершен" ? "bg-[#1ea1f2]" : "bg-[#fa8072]"}`} />{batch.status}</span>,
+          ]}
+        />
+      </RefCard>
 
       {addOpen && (
         <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/45 p-4" role="dialog" aria-modal="true">
@@ -353,6 +319,6 @@ export function ProductionBatchesView() {
           </div>
         </div>
       )}
-    </main>
+    </RefPage>
   )
 }

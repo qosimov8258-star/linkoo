@@ -17,7 +17,7 @@ export function parseSupplierCategoryInput(body: unknown): SupplierCategoryInput
 
 export async function listSupplierCategories(): Promise<SupplierCategory[]> {
   const db = getDb()
-  return (await db.prepare("SELECT id, name FROM supplier_categories ORDER BY id ASC").all()) as Row[]
+  return (await db.prepare("SELECT id, name FROM supplier_categories ORDER BY id DESC").all()) as Row[]
 }
 
 export async function getSupplierCategory(id: number): Promise<SupplierCategory | null> {

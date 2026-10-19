@@ -10,15 +10,19 @@ import { useLanguage } from "@/lib/i18n/language-context"
 export function CatalogHeader({ addLabel, onAdd, from, to, total, onPrev, onNext, extra }: { addLabel: string; onAdd: () => void; from: number; to: number; total: number; onPrev?: () => void; onNext?: () => void; extra?: ReactNode }) {
   const { t } = useLanguage()
   return (
-    <div className="flex h-[64px] items-center justify-between border-b border-[#eef0f4] pt-[14px]">
+    <div className="flex h-[65px] items-center justify-between border-b border-[#eef0f4] pt-[14px]">
       <div className="flex items-center">
         <button type="button" onClick={onAdd} className="pl-[15px] text-[13px] text-[#4f71dc] hover:underline">+ {addLabel}</button>
         {extra}
       </div>
       <div className="flex items-center pr-[3px] text-[13px]">
         <span>{from} - {to} {t("из")} {total}</span>
-        <button type="button" onClick={onPrev} disabled={!onPrev} aria-label={t("Назад")} className="ml-[22px] flex h-5 w-5 items-center justify-center rounded-full border border-[#b2b2b2] text-[#b2b2b2] disabled:opacity-100"><ChevronLeft className="h-4 w-4" /></button>
-        <button type="button" onClick={onNext} disabled={!onNext} aria-label={t("Вперед")} className="ml-[9px] flex h-5 w-5 items-center justify-center rounded-full border border-[#b2b2b2] text-[#b2b2b2]"><ChevronRight className="h-4 w-4" /></button>
+        <button type="button" onClick={onPrev} disabled={!onPrev} aria-label={t("Назад")} className="ml-[22px] flex h-6 w-6 items-center justify-center">
+          <svg viewBox="0 0 24 24" className={`h-6 w-6 ${onPrev ? "fill-black/55" : "fill-black/30"}`}><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm1-12l-5 4 5 4V8z" /></svg>
+        </button>
+        <button type="button" onClick={onNext} disabled={!onNext} aria-label={t("Вперед")} className="ml-[5px] flex h-6 w-6 items-center justify-center">
+          <svg viewBox="0 0 24 24" className={`h-6 w-6 ${onNext ? "fill-black/55" : "fill-black/30"}`}><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zM11 8v8l5-4-5-4z" /></svg>
+        </button>
       </div>
     </div>
   )
@@ -37,12 +41,12 @@ export function Modal({ title, onClose, footer, children }: { title: string; onC
   }, [onClose])
   return createPortal(
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50">
-      <div className="w-[700px] max-w-full bg-white text-[13px] text-[#333] shadow-xl">
+      <div className="w-[500px] max-w-full bg-white text-[13px] text-[#333] shadow-xl">
         <header className="flex h-[60px] items-center justify-between border-b border-[#e8ebf0] pl-[30px] pr-[28px]">
           <h3 className="text-[13px] font-bold uppercase">{title}</h3>
           <button type="button" onClick={onClose} aria-label={t("Закрыть")} className="text-slate-500 hover:text-slate-800"><X className="h-6 w-6" /></button>
         </header>
-        <div className="min-h-[300px] px-[30px] pb-[20px] pt-[39px]">{children}</div>
+        <div className="px-[30px] pb-[24px] pt-[24px]">{children}</div>
         <footer className="flex h-[57px] items-center justify-end border-t border-[#e8ebf0] pr-[10px]">{footer}</footer>
       </div>
     </div>,
@@ -55,6 +59,26 @@ export function SaveButton({ disabled, onClick, children }: { disabled?: boolean
     <button type={onClick ? "button" : "submit"} onClick={onClick} disabled={disabled} className="h-9 min-w-[111px] rounded-[3px] bg-[#71ce87] px-[16px] text-[12px] font-bold uppercase text-white hover:brightness-95 disabled:bg-[#ade3b9]">
       {children}
     </button>
+  )
+}
+
+export function SaveLink({ disabled, onClick, children }: { disabled?: boolean; onClick?: () => void; children: ReactNode }) {
+  return (
+    <button type={onClick ? "button" : "submit"} onClick={onClick} disabled={disabled} className="h-9 px-[16px] text-[12px] font-bold uppercase text-[#1ea1f2] hover:opacity-80 disabled:opacity-40">
+      {children}
+    </button>
+  )
+}
+
+export function ToggleRow({ checked, onChange, label }: { checked: boolean; onChange: (value: boolean) => void; label: string }) {
+  return (
+    <label className="flex cursor-pointer items-center gap-[10px] text-[13px] font-semibold">
+      <span className={`relative inline-block h-[14px] w-[34px] rounded-full ${checked ? "bg-[#9fb1f5]" : "bg-[#c8c8c8]"}`}>
+        <span className={`absolute top-[-3px] h-[20px] w-[20px] rounded-full shadow ${checked ? "left-[16px] bg-[#4f71dc]" : "left-[-2px] bg-[#f1f1f1]"}`} />
+        <input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} className="sr-only" />
+      </span>
+      {label}
+    </label>
   )
 }
 
@@ -140,11 +164,14 @@ export function ListToolbar({
   extra,
   hideAdd,
   compact,
+  slim,
 }: {
   addLabel: string
   onAdd: () => void
   hideAdd?: boolean
   compact?: boolean
+  /** 50px strip with the add-link near the top (client types). */
+  slim?: boolean
   bigPlus?: boolean
   query?: string
   onQuery?: (value: string) => void
@@ -158,9 +185,9 @@ export function ListToolbar({
 }) {
   const { t } = useLanguage()
   return (
-    <div className={`relative flex items-center whitespace-nowrap pr-[7px] text-[13px] text-[#333] ${compact ? "h-[51px]" : "h-[60px]"}`}>
+    <div className={`relative flex items-center whitespace-nowrap pr-[7px] text-[13px] text-[#333] ${slim ? "h-[50px]" : compact ? "h-[51px]" : "h-[60px]"}`}>
       {!hideAdd && (
-        <button type="button" onClick={onAdd} className="flex items-center gap-[6px] pl-[20px] pt-[8px] text-[13px] text-[#4f71dc] hover:underline">
+        <button type="button" onClick={onAdd} className={`flex items-center gap-[6px] pl-[20px] text-[13px] text-[#4f71dc] hover:underline ${slim ? "pt-[4px]" : "pt-[8px]"}`}>
           <span className={bigPlus ? "text-[26px] font-light leading-none" : ""}>+</span>
           {addLabel}
         </button>
@@ -191,7 +218,7 @@ export function ListToolbar({
 }
 
 export const grayHead = "grid h-[50px] items-center bg-[#5d6474] pl-[30px] font-bold text-white"
-export const listRow = "group relative grid min-h-[50px] cursor-pointer items-center border-b-2 border-dotted border-[#d9e0e5] pl-[30px] hover:bg-[#f8f9fb]"
+export const listRow = "group relative grid min-h-[50px] items-center border-b-2 border-dotted border-[#d9e0e5] pl-[30px] hover:bg-[#f8f9fb]"
 
 /** Pencil + trash that appear on row hover, like the reference. */
 export function HoverActions({ onEdit, onDelete, offset = 34 }: { onEdit: () => void; onDelete?: () => void; offset?: number }) {

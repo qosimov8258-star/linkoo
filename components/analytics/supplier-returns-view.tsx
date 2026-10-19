@@ -309,12 +309,12 @@ export function SupplierReturnsView({ embedded = false }: { embedded?: boolean }
   return (
     <main className={embedded ? "min-w-0 flex-1" : "min-h-[calc(100vh-4rem)] bg-[#f2f5f8] px-7 pb-7"}>
       {!embedded && (
-        <header className="mb-5 flex items-center justify-between">
-          <h1 className="flex items-center text-2xl font-bold text-slate-600">
-            <FavoritesButton className="inline-flex items-center gap-2 text-[#4f71dc]" />
-            <span className="mx-2 text-slate-400">|</span> {t("Возврат поставщиков")}
+        <header className="flex h-[60px] flex-wrap items-center justify-between gap-3">
+          <h1 className="flex items-center text-[18px] font-bold text-[#5d6474]">
+            <FavoritesButton className="flex items-center gap-[5px] text-[18px] font-bold text-[#4f71dc]" />
+            <span className="mx-[11px] inline-block h-[21px] w-[2px] bg-[#5d6474]" /> {t("Возврат поставщиков")}
           </h1>
-          <button type="button" onClick={openCreate} className="inline-flex items-center gap-2 rounded bg-[#71ce87] px-5 py-2.5 font-semibold text-white hover:brightness-95">
+          <button type="button" onClick={openCreate} className="inline-flex items-center gap-2 h-[30px] rounded-[5px] bg-[#71ce87] px-4 text-[13px] font-semibold text-white hover:brightness-95">
             <Plus className="h-4 w-4" /> {t("Добавить")}
           </button>
         </header>
@@ -366,13 +366,13 @@ export function SupplierReturnsView({ embedded = false }: { embedded?: boolean }
         <table className="w-full text-left">
           <thead className="bg-[#5d6474] text-white">
             <tr>
-              <th className="px-9 py-5">{t("№")}</th>
-              <th className="px-5 py-5">{t("От кого")}</th>
-              <th className="px-5 py-5">{t("Склад")}</th>
-              <th className="px-5 py-5">{t("Добавил")}</th>
-              <th className="px-5 py-5">{t("Дата возврата")}</th>
-              <th className="px-5 py-5">{t("Сумма возврата")}</th>
-              <th className="px-5 py-5">{t("Статус")}</th>
+              <th className="px-9 py-4 text-[13px]">{t("№")}</th>
+              <th className="px-5 py-4 text-[13px]">{t("От кого")}</th>
+              <th className="px-5 py-4 text-[13px]">{t("Склад")}</th>
+              <th className="px-5 py-4 text-[13px]">{t("Добавил")}</th>
+              <th className="px-5 py-4 text-[13px]">{t("Дата возврата")}</th>
+              <th className="px-5 py-4 text-[13px]">{t("Сумма возврата")}</th>
+              <th className="px-5 py-4 text-[13px]">{t("Статус")}</th>
             </tr>
           </thead>
           <tbody>
@@ -381,7 +381,7 @@ export function SupplierReturnsView({ embedded = false }: { embedded?: boolean }
                 {expandedId !== row.id && (
                   <tr onClick={() => toggleExpand(row)} className="cursor-pointer border-b border-dashed border-slate-300 hover:bg-slate-50">
                     <td className="px-9 py-4">{row.id}</td>
-                    <td className="px-5 py-4 text-[#4f71dc]">{row.fromWhom}</td>
+                    <td className="px-5 py-4">{row.fromWhom}</td>
                     <td className="px-5 py-4">{row.warehouse}</td>
                     <td className="px-5 py-4">{row.addedBy}</td>
                     <td className="px-5 py-4">{row.date}, {row.time}</td>
@@ -514,15 +514,15 @@ export function SupplierReturnsView({ embedded = false }: { embedded?: boolean }
       )}
 
       {modalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
-          <form onSubmit={save} className="flex max-h-[90vh] w-full max-w-4xl flex-col rounded bg-white">
-            <header className="flex items-center justify-between border-b p-6">
+        <div className="fixed inset-0 z-50 flex bg-white text-[13px]">
+          <form onSubmit={save} className="flex h-full w-full flex-col bg-white">
+            <header className="flex h-[58px] shrink-0 items-center justify-between border-b border-[#efefef] px-[14px]">
               <b className="uppercase">{editingId !== null ? `${t("Изменить возврат №")}${editingId}` : t("Возврат поставщика")}</b>
               <button type="button" onClick={() => setModalOpen(false)} aria-label={t("Закрыть")}><X className="h-5 w-5" /></button>
             </header>
 
-            <div className="flex-1 overflow-y-auto p-8">
-              <div className="grid gap-8 sm:grid-cols-[1fr_1.4fr]">
+            <div className="flex-1 overflow-y-auto px-[14px] py-[16px]">
+              <div className="grid gap-[40px] sm:grid-cols-[405px_1fr]">
                 <div className="space-y-4">
                   <div className="flex items-end justify-between gap-3 border-b border-slate-200 pb-2">
                     <label className="block flex-1 font-medium">

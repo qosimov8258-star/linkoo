@@ -173,21 +173,18 @@ export function SupplierCategoriesView({ embedded = false }: { embedded?: boolea
   return (
     <main className={embedded ? "min-w-0 flex-1" : "min-h-[calc(100vh-4rem)] bg-[#f2f5f8] px-7 pb-7"}>
       {!embedded && (
-        <header className="mb-5">
-          <h1 className="flex items-center text-2xl font-bold text-slate-600">
-            <FavoritesButton className="inline-flex items-center gap-2 text-[#4f71dc]" />
-            <span className="mx-2 text-slate-400">|</span> Категории поставщиков
+        <header className="flex h-[60px] flex-wrap items-center justify-between gap-3">
+          <h1 className="flex items-center text-[18px] font-bold text-[#5d6474]">
+            <FavoritesButton className="flex items-center gap-[5px] text-[18px] font-bold text-[#4f71dc]" />
+            <span className="mx-[11px] inline-block h-[21px] w-[2px] bg-[#5d6474]" /> Категории поставщиков
           </h1>
         </header>
       )}
 
       <div className={embedded ? "" : ""}>
         <div className="mb-4 flex flex-wrap items-center gap-4">
-          <button type="button" onClick={openCreate} className="text-[17px] text-[#4f71dc] hover:underline">
+          <button type="button" onClick={openCreate} className="text-[13px] text-[#4f71dc] hover:underline">
             + Добавить категорию поставщика
-          </button>
-          <button type="button" onClick={() => setImportOpen(true)} className="inline-flex items-center gap-2 rounded bg-[#4f71dc] px-5 py-2.5 font-semibold text-white hover:brightness-95">
-            <FileText className="h-4 w-4" /> Импорт с Excel
           </button>
         </div>
 
@@ -195,7 +192,7 @@ export function SupplierCategoriesView({ embedded = false }: { embedded?: boolea
           <table className="w-full text-left">
             <thead className="bg-[#5d6474] text-white">
               <tr>
-                <th className="px-9 py-5">Категории</th>
+                <th className="px-9 py-4 text-[13px]">Категории</th>
                 <th className="w-24" />
               </tr>
             </thead>
@@ -206,8 +203,8 @@ export function SupplierCategoriesView({ embedded = false }: { embedded?: boolea
                 <tr><td colSpan={2} className="px-9 py-10 text-center text-red-600">{loadError}</td></tr>
               ) : categories.map((category) => (
                 <tr key={category.id} className="group border-b border-dashed border-slate-300 hover:bg-slate-50">
-                  <td className="px-9 py-5">{category.name}</td>
-                  <td className="px-5 py-5">
+                  <td className="px-9 py-4 text-[13px] font-bold">{category.name}</td>
+                  <td className="px-5 py-4 text-[13px]">
                     <div className="hidden items-center justify-end gap-3 pr-4 text-slate-500 group-hover:flex">
                       <button type="button" onClick={() => openEdit(category)} aria-label="Изменить">
                         <Pencil className="h-5 w-5" />
@@ -280,7 +277,7 @@ export function SupplierCategoriesView({ embedded = false }: { embedded?: boolea
               </button>
             </div>
             <footer className="flex justify-end border-t p-5">
-              <button type="button" disabled={!importFile || importSaving} onClick={saveImport} className="rounded bg-[#71ce87] px-5 py-3 font-semibold text-white hover:brightness-95 disabled:opacity-40">
+              <button type="button" disabled={!importFile || importSaving} onClick={saveImport} className="inline-flex items-center h-[30px] rounded-[5px] bg-[#71ce87] px-4 text-[13px] font-semibold text-white hover:brightness-95 disabled:opacity-40">
                 {importSaving ? "Импорт..." : "Сохранить"}
               </button>
             </footer>

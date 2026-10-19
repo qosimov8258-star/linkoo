@@ -3,6 +3,9 @@ import type { Metadata, Viewport } from 'next'
 import { TopNav } from '@/components/dashboard/top-nav'
 import { BrandCornerLogo } from '@/components/dashboard/brand-corner-logo'
 import { getServerLanguage } from '@/lib/i18n/server'
+import { TableFitter } from '@/components/ref/table-fitter'
+import { TableSorter } from '@/components/ref/table-sorter'
+import { DomTranslator } from '@/lib/i18n/dom-translator'
 import { LanguageProvider } from '@/lib/i18n/language-context'
 import './globals.css'
 
@@ -44,6 +47,9 @@ export default async function RootLayout({
             {children}
             <BrandCornerLogo />
           </div>
+          <DomTranslator />
+          <TableSorter />
+          <TableFitter />
         </LanguageProvider>
         {process.env.NODE_ENV === 'production' && <Analytics />}
       </body>

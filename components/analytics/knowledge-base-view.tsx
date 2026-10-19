@@ -217,11 +217,8 @@ export function KnowledgeBaseView({ embedded = false }: { embedded?: boolean }) 
     <main className={embedded ? "min-w-0 flex-1" : "min-h-[calc(100vh-4rem)] bg-[#f2f5f8] px-7 pb-7"}>
       <div className={embedded ? "" : "overflow-hidden rounded bg-white shadow"}>
         <div className="flex flex-wrap items-center gap-4 px-5 py-4">
-          <button type="button" onClick={openCreate} className="text-[17px] text-[#4f71dc] hover:underline">
+          <button type="button" onClick={openCreate} className="text-[13px] text-[#4f71dc] hover:underline">
             + Добавить
-          </button>
-          <button type="button" onClick={() => setImportOpen(true)} className="flex items-center gap-1 text-[17px] text-[#4f71dc] hover:underline">
-            <FileText className="h-4 w-4" /> Импорт с Excel
           </button>
           <label className="relative ml-4 w-72">
             <input value={query} onChange={(event) => { setQuery(event.target.value); setPage(1) }} placeholder="Поиск" className="w-full border-b border-slate-300 py-2 pr-10 outline-none focus:border-[#4f71dc]" />
@@ -242,17 +239,17 @@ export function KnowledgeBaseView({ embedded = false }: { embedded?: boolean }) 
         <table className="w-full text-left">
           <thead className="bg-[#5d6474] text-white">
             <tr>
-              <th className="px-9 py-5">№</th>
-              <th className="px-5 py-5">Наименование</th>
+              <th className="px-9 py-4 text-[13px]">№</th>
+              <th className="px-5 py-4 text-[13px]">Наименование</th>
               <th className="w-24" />
             </tr>
           </thead>
           <tbody>
             {visible.map((article) => (
               <tr key={article.id} className="group border-b border-dashed border-slate-300 hover:bg-slate-50">
-                <td className="px-9 py-5">{article.id}</td>
-                <td className="px-5 py-5 text-[#4f71dc]">{article.name}</td>
-                <td className="px-5 py-5">
+                <td className="px-9 py-4 text-[13px]">{article.id}</td>
+                <td className="px-5 py-4 text-[13px]">{article.name}</td>
+                <td className="px-5 py-4 text-[13px]">
                   <div className="hidden items-center justify-end gap-3 pr-4 text-slate-500 group-hover:flex">
                     <button type="button" onClick={() => openEdit(article)} aria-label="Изменить">
                       <Pencil className="h-5 w-5" />
@@ -351,7 +348,7 @@ export function KnowledgeBaseView({ embedded = false }: { embedded?: boolean }) 
               </button>
             </div>
             <footer className="flex justify-end border-t p-5">
-              <button type="button" disabled={!importFile || importSaving} onClick={saveImport} className="rounded bg-[#71ce87] px-5 py-3 font-semibold text-white hover:brightness-95 disabled:opacity-40">
+              <button type="button" disabled={!importFile || importSaving} onClick={saveImport} className="inline-flex items-center h-[30px] rounded-[5px] bg-[#71ce87] px-4 text-[13px] font-semibold text-white hover:brightness-95 disabled:opacity-40">
                 {importSaving ? "Импорт..." : "Сохранить"}
               </button>
             </footer>

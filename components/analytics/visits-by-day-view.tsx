@@ -1,10 +1,9 @@
 "use client"
 
-import { FormEvent, useEffect, useMemo, useState } from "react"
-import { Download, PlusCircle, X } from "lucide-react"
+import { useEffect, useMemo, useState } from "react"
 import { downloadExcelTable } from "@/lib/excel-export"
 import { DashboardDialog } from "./dashboard-dialog"
-import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
+import { ReportBand, ReportChipField, ReportDateField, ReportEmpty, ReportFilters, ReportHeader, ReportPage } from "@/components/ref/report-kit"
 
 type AgentRoute = {
   agent: string
@@ -97,11 +96,6 @@ export function VisitsByDayView() {
     return result
   }, [range])
 
-  function apply(event: FormEvent) {
-    event.preventDefault()
-    if (draftFrom <= draftTo) setRange({ from: draftFrom, to: draftTo })
-  }
-
   function downloadVisitsCsv() {
     const rows = [
       ["Агент", ...days.map((day) => String(day.day))],
@@ -111,78 +105,26 @@ export function VisitsByDayView() {
   }
 
   return (
-    <main className="min-h-[calc(100vh-4rem)] bg-slate-100">
-      <header className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-300 bg-slate-100 px-5 py-4 sm:px-10">
-        <div className="flex items-center gap-3 text-xl font-bold sm:text-2xl">
-          <FavoritesButton className="flex items-center gap-2 text-[#5470e8]" />
-          <span className="text-slate-500">|</span>
-          <h1 className="text-slate-600">Визиты по дням</h1>
-        </div>
+    <ReportPage>
+      <ReportHeader title="Визиты по дням" onExcel={downloadVisitsCsv} onDashboard={() => setDashboardOpen(true)} inDashboard={inDashboard} />
 
-        <div className="flex flex-wrap gap-3">
-          <button
-            type="button"
-            onClick={downloadVisitsCsv}
-            className="inline-flex items-center gap-2 rounded-md bg-[#71ce87] px-5 py-2.5 font-semibold text-white hover:brightness-95"
-          >
-            <Download className="h-5 w-5" />
-            Скачать Excel
-          </button>
-          <button
-            type="button"
-            onClick={() => setDashboardOpen(true)}
-            className="inline-flex items-center gap-2 rounded-md bg-[#5470e8] px-5 py-2.5 font-semibold text-white hover:brightness-95"
-          >
-            <PlusCircle className="h-5 w-5" />
-            {inDashboard ? "Добавлено в дашборд" : "Добавить в дашборд"}
-          </button>
-        </div>
-      </header>
+      <ReportBand>
+        <ReportFilters
+          onApply={() => {
+            if (draftFrom <= draftTo) setRange({ from: draftFrom, to: draftTo })
+          }}
+          applyDisabled={draftFrom > draftTo}
+        >
+          <ReportDateField label="Дата создания от" value={draftFrom} max={draftTo} onChange={setDraftFrom} />
+          <ReportDateField label="Дата создания до" value={draftTo} min={draftFrom} onChange={setDraftTo} />
+          <ReportChipField label="Колонка" value="Визит" />
+        </ReportFilters>
 
-      <section className="bg-white px-4 py-3 sm:px-10">
-        <form onSubmit={apply}>
-          <div className="grid gap-4 md:grid-cols-[minmax(220px,1fr)_minmax(220px,1fr)_minmax(260px,1fr)]">
-            <label className="text-xs font-medium text-slate-800">
-              Дата создания от
-              <input
-                type="date"
-                value={draftFrom}
-                max={draftTo}
-                onChange={(event) => setDraftFrom(event.target.value)}
-                className="mt-1 block w-full border-0 border-b border-slate-300 bg-transparent px-0 py-2 text-base outline-none focus:border-brand-blue"
-              />
-            </label>
-            <label className="text-xs font-medium text-slate-800">
-              Дата создания до
-              <input
-                type="date"
-                value={draftTo}
-                min={draftFrom}
-                onChange={(event) => setDraftTo(event.target.value)}
-                className="mt-1 block w-full border-0 border-b border-slate-300 bg-transparent px-0 py-2 text-base outline-none focus:border-brand-blue"
-              />
-            </label>
-            <label className="text-xs font-medium text-slate-800">
-              Колонка
-              <span className="mt-1 flex min-h-10 items-center border-b border-slate-300">
-                <span className="inline-flex items-center gap-2 bg-[#5c6df3] px-2 py-1 font-semibold text-white">
-                  <X className="h-3 w-3" />
-                  Визит
-                </span>
-              </span>
-            </label>
-          </div>
-          <button
-            type="submit"
-            disabled={draftFrom > draftTo}
-            className="mt-3 w-full rounded-md bg-[#71ce87] py-3 font-bold text-white hover:brightness-95 disabled:opacity-50"
-          >
-            Применить
-          </button>
-        </form>
-
+        {agents.length === 0 ? (
+          <ReportEmpty />
+        ) : (
         <div className="mt-3 overflow-x-auto border border-slate-300 visits-scrollbar">
-          <table className="min-w-max border-collapse text-[15px] text-slate-800">
+          <table className="min-w-max border-collapse text-[13px] text-slate-800">
             <thead>
               <tr className="bg-slate-50">
                 <th className="sticky left-0 z-20 w-[375px] min-w-[260px] border-b border-r border-slate-300 bg-slate-50 px-3 py-4" />
@@ -216,19 +158,14 @@ export function VisitsByDayView() {
                   ))}
                 </tr>
               ))}
-              {agents.length === 0 && (
-                <tr>
-                  <td colSpan={days.length + 1} className="border-b border-slate-300 px-3 py-10 text-center text-slate-400">
-                    Нет данных по маршрутам агентов
-                  </td>
-                </tr>
-              )}
             </tbody>
           </table>
         </div>
-      </section>
+        )}
+      </ReportBand>
 
-      {overlayOpen && (
+      
+{overlayOpen && (
         <button
           type="button"
           aria-label="Окнони yopish"
@@ -249,6 +186,6 @@ export function VisitsByDayView() {
           onSave={() => setInDashboard(true)}
         />
       )}
-    </main>
+    </ReportPage>
   )
 }

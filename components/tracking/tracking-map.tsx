@@ -3,7 +3,8 @@
 import { useEffect, useRef } from "react"
 import L from "leaflet"
 import "leaflet/dist/leaflet.css"
-import { mapAgents, mapClients, mapZones } from "./tracking-data"
+import { mapAgents, mapClients } from "./tracking-data"
+import zonePolygons from "./zone-polygons.json"
 import { useLanguage } from "@/lib/i18n/language-context"
 
 type TrackingMapProps = {
@@ -24,8 +25,8 @@ export function TrackingMap({ showAgents, showClients, showZones }: TrackingMapP
     if (!containerRef.current || mapRef.current) return
 
     const map = L.map(containerRef.current, {
-      center: [41.3, 69.24],
-      zoom: 11,
+      center: [41.31, 69.27],
+      zoom: 12,
       zoomControl: false,
       attributionControl: false,
     })
@@ -83,14 +84,18 @@ export function TrackingMap({ showAgents, showClients, showZones }: TrackingMapP
       )
     })
 
-    const zoneLayers = mapZones.map((zone) =>
-      L.circle(zone.center, {
-        radius: zone.radius,
-        color: zone.color,
-        fillColor: zone.color,
-        fillOpacity: 0.1,
-        weight: 2,
-      }).bindTooltip(zone.name),
+    const zoneLayers = (zonePolygons as unknown as { id: number; name: string; ring: [number, number][] }[])
+      .filter((zone) => {
+        const lats = zone.ring.map((point) => point[0])
+        const lngs = zone.ring.map((point) => point[1])
+        return Math.max(...lats) - Math.min(...lats) < 0.12 && Math.max(...lngs) - Math.min(...lngs) < 0.12
+      })
+      .map((zone) =>
+      L.polygon(zone.ring, { color: "#1b3a6b", weight: 2, fillColor: "#5aaee8", fillOpacity: 0.38 }).bindTooltip(zone.name, {
+        permanent: true,
+        direction: "center",
+        className: "zone-label",
+      }),
     )
 
     agentLayerRef.current = L.layerGroup(agentMarkers)

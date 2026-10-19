@@ -1,24 +1,11 @@
 "use client"
 
 import { useMemo, useState } from "react"
-import { useRouter } from "next/navigation"
-import { BarChart, ChevronDown, Expand, Filter, Settings, X } from "lucide-react"
-import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
+import { Settings, X } from "lucide-react"
+import { RI, RefHeader } from "@/components/ref/list-kit"
+import { ReportBalanceToolbar, ReportCheckboxField, ReportFilterPanel, ReportGridTable, ReportInputField, ReportPage, ReportPager, ReportSelectField, ReportTopRow } from "@/components/ref/report-kit"
 import { downloadExcelTable } from "@/lib/excel-export"
 import { useLanguage } from "@/lib/i18n/language-context"
-
-const tabs = ["ВИДЖЕТЫ", "KPI", "БАЛАНС", "ОХВАТ", "ФИЛИАЛ", "P&L", "ДОЛГ КЛИЕНТОВ", "ПРОДАЖА", "ГИБКИЙ ДАШБОРД"] as const
-const tabHref: Partial<Record<(typeof tabs)[number], string>> = {
-  "ВИДЖЕТЫ": "/",
-  "ОХВАТ": "/analytics/coverage-analysis",
-  "P&L": "/analytics/pnl",
-  "ДОЛГ КЛИЕНТОВ": "/analytics/client-debts",
-  "ГИБКИЙ ДАШБОРД": "/analytics/flexible-dashboard",
-  "ФИЛИАЛ": "/analytics/branch-tab",
-  "ПРОДАЖА": "/analytics/sales-tab",
-  "KPI": "/analytics/kpi-performance",
-  "БАЛАНС": "/analytics/balance-tab",
-}
 
 type DebtRow = {
   id: number
@@ -64,22 +51,8 @@ function AmountCell({ value, fraction = 3 }: { value: number; fraction?: number 
   return <span className="font-semibold text-[#e5484d]">{number(value, fraction)}</span>
 }
 
-function SelectField({ label, value, setValue, options }: { label: string; value: string; setValue: (value: string) => void; options: string[] }) {
-  const { t } = useLanguage()
-  return (
-    <label className="relative block border-b border-[#dbe0e8] pb-2 text-[15px] font-medium text-[#586174]">
-      {t(label)}
-      <select value={value} onChange={(event) => setValue(event.target.value)} className="mt-1 block w-full appearance-none bg-transparent pr-6 text-[15px] font-normal text-[#17233b] outline-none">
-        {options.map((option) => <option key={option} value={option}>{t(option)}</option>)}
-      </select>
-      <ChevronDown className="pointer-events-none absolute right-0 top-8 h-4 w-4 text-[#9aa3b6]" />
-    </label>
-  )
-}
-
 export function ClientDebtsView() {
   const { t } = useLanguage()
-  const router = useRouter()
   const [view, setView] = useState<"clients" | "orders">("orders")
   const [search, setSearch] = useState("")
   const [pageSize, setPageSize] = useState(25)
@@ -96,17 +69,17 @@ export function ClientDebtsView() {
   const [p2Draft, setP2Draft] = useState("30")
   const [p3Draft, setP3Draft] = useState("120")
 
-  const [branch, setBranch] = useState("Все филиалы")
-  const [organization, setOrganization] = useState("Все организации")
-  const [orderCreator, setOrderCreator] = useState("Все")
-  const [courierFilter, setCourierFilter] = useState("Все")
-  const [clientType, setClientType] = useState("Все типы")
-  const [confirmStatus, setConfirmStatus] = useState("Все")
-  const [zone, setZone] = useState("Все зоны")
-  const [orderStatus, setOrderStatus] = useState("Все")
-  const [transactionType, setTransactionType] = useState("Все")
-  const [paymentType, setPaymentType] = useState("Все")
-  const [hasDebtPeriod, setHasDebtPeriod] = useState("Не важно")
+  const [branch, setBranch] = useState("")
+  const [organization, setOrganization] = useState("")
+  const [orderCreator, setOrderCreator] = useState("")
+  const [courierFilter, setCourierFilter] = useState("")
+  const [clientType, setClientType] = useState("")
+  const [confirmStatus, setConfirmStatus] = useState("")
+  const [zone, setZone] = useState("")
+  const [orderStatus, setOrderStatus] = useState("")
+  const [transactionType, setTransactionType] = useState("")
+  const [paymentType, setPaymentType] = useState("")
+  const [hasDebtPeriod, setHasDebtPeriod] = useState("")
   const [daysFrom, setDaysFrom] = useState("")
   const [daysTo, setDaysTo] = useState("")
   const [onlyNeedsRecalc, setOnlyNeedsRecalc] = useState(false)
@@ -161,207 +134,108 @@ export function ClientDebtsView() {
     }
   }
 
+  const stat = (label: string, lines: { text: string; tone: "red" | "orange" }[], progress = true) => (
+    <div>
+      <p className="text-[13px] leading-[17px]">{label}</p>
+      {lines.map((line, index) => (
+        <p key={index} className={`text-[15px] font-semibold leading-[19px] ${line.tone === "red" ? "text-[#f0605a]" : "text-[#ff7a2f]"}`}>{line.text}</p>
+      ))}
+      {progress && <p className="mt-[1px] text-[13px] leading-[17px]"><span className="text-[15px] text-[#1ea1f2]">0</span> / <span className="text-[15px] text-[#1ea1f2]">0</span> {t("Заказов обработано")}</p>}
+    </div>
+  )
+  const heads = ["Заказ №", "", "Клиент", "Прошло дней", "Сумма заказа", "Долг", "Срок оплаты", "Агент", "Общий долг (SUM)", "Общий долг (USD)", "Общий долг (Euro)", "Доставщик", "Дата реализации", "Дата доставки", "Дата создания"]
+  const clientHeadGroups = [{ title: "", span: 1 }, ...[`${t("Прошло до")} ${p1} ${t("дней")}`, `${t("С")} ${p1} ${t("дней - До")} ${p2}`, `${t("С")} ${p2} ${t("дней - До")} ${p3}`, `${t("Больше")} ${p3} ${t("дней")}`, t("Итого")].map((title) => ({ title, span: 3 })), { title: t("Дополнительная информация"), span: 5 }]
+
   return (
-    <main className="min-h-screen bg-white text-[#17233b]">
-      <header className="flex min-h-[76px] items-center justify-between border-b border-[#d8dee7] bg-[#f2f5f8] px-6 md:px-9">
-        <div className="flex items-center gap-3">
-          <FavoritesButton className="flex items-center gap-3 text-2xl font-bold text-[#4f71dc]" />
-          <span className="text-3xl font-light text-[#586174]">|</span>
-          <span className="text-2xl font-bold text-[#586174]">{t("Долги с заказов")}</span>
-        </div>
-        <nav className="flex flex-wrap gap-2">
-          {tabs.map((tab) => (
-            <button
-              key={tab}
-              onClick={() => { const href = tabHref[tab]; if (href) router.push(href) }}
-              className={`rounded-md px-4 py-2.5 text-sm font-bold ${tab === "ДОЛГ КЛИЕНТОВ" ? "bg-[#3aca6a] text-white" : "bg-white text-[#586174] hover:bg-slate-100"}`}
-            >
-              {t(tab)}
-            </button>
-          ))}
-        </nav>
-      </header>
+    <ReportPage>
+      <div className="pl-[30px] pr-[38px]"><RefHeader title={t("Долги с заказов")} /></div>
 
-      <section className="flex flex-wrap items-center gap-4 px-6 py-4 md:px-9">
-        <button onClick={() => setFilterOpen(true)} className="flex h-11 items-center gap-2 rounded-md bg-[#4f71dc] px-5 font-semibold text-white">
-          <Filter className="h-4 w-4" /> {t("Фильтр")}
-        </button>
-        <span className="font-semibold text-[#4f71dc]">{t("Во всей организации")}</span>
-        <button onClick={() => { setP1Draft(String(p1)); setP2Draft(String(p2)); setP3Draft(String(p3)); setPeriodOpen(true) }} className="ml-auto flex h-11 items-center gap-2 rounded-md border border-[#4f71dc] px-5 font-semibold text-[#4f71dc]">
-          <Settings className="h-5 w-5" /> {t("Настроить период")}
-        </button>
-        <button onClick={downloadAll} className="flex h-11 items-center gap-2 rounded-md bg-[#4caf72] px-5 font-semibold text-white">
-          <BarChart className="h-5 w-5" /> {t("Скачать")}
-        </button>
-      </section>
+      <section className="border-b border-[#d9d9d9] bg-white pb-[1px] pt-[21px]">
+        <div className="relative px-[30px]">
+          <ReportTopRow filterLabel={t("Фильтр")} scope={t("Во всей организации")} onFilter={() => setFilterOpen(true)} onDownload={downloadAll} />
+          <div className="absolute right-[147px] top-0 flex gap-[10px]">
+            <button className="flex h-[34px] items-center rounded-[5px] bg-[#4f71dc] pl-[14px] pr-[16px] text-[13px] font-semibold text-white hover:brightness-95"><svg viewBox="0 0 24 24" className="mr-[9px] h-[18px] w-[18px] fill-white" aria-hidden><path d={RI.filter} /></svg>{t("Показать на карте")}</button>
+            <button onClick={() => { setP1Draft(String(p1)); setP2Draft(String(p2)); setP3Draft(String(p3)); setPeriodOpen(true) }} className="flex h-[34px] items-center rounded-[5px] bg-[#4f71dc] pl-[14px] pr-[16px] text-[13px] font-semibold text-white hover:brightness-95"><Settings className="mr-[9px] h-[18px] w-[18px]" />{t("Настроить период")}</button>
+          </div>
+        </div>
 
-      <section className="grid grid-cols-1 gap-6 px-6 pb-6 sm:grid-cols-2 lg:grid-cols-5 md:px-9">
-        <div>
-          <p className="text-[#586174]">{t("Прошло до")} {p1} {t("дней")}</p>
-          <p className="mt-2 font-semibold"><span className="text-[#4f71dc]">0</span> / <span className="text-[#4f71dc]">0</span> {t("Заказов обработано")}</p>
+        <div className="mt-[13px] grid grid-cols-1 gap-x-[20px] px-[30px] sm:grid-cols-2 lg:grid-cols-5">
+          {stat(`${t("Прошло до")} ${p1} ${t("дней")}`, [])}
+          {stat(`${t("С")} ${p1} ${t("дней - До")} ${p2}`, [])}
+          {stat(`${t("С")} ${p2} ${t("дней - До")} ${p3}`, [{ text: "0 SUM", tone: "red" }, { text: "0 USD", tone: "orange" }])}
+          {stat(`${t("Больше")} ${p3} ${t("дней")}`, [{ text: "0 Euro", tone: "red" }, { text: "0 SUM", tone: "red" }, { text: "0 USD", tone: "red" }], false)}
+          {stat(t("Общий долг"), [{ text: "0 Euro", tone: "red" }, { text: "0 SUM", tone: "red" }, { text: "0 USD", tone: "red" }])}
         </div>
-        <div>
-          <p className="text-[#586174]">{t("С")} {p1} {t("дней - До")} {p2}</p>
-          <p className="mt-2 font-semibold"><span className="text-[#4f71dc]">0</span> / <span className="text-[#4f71dc]">0</span> {t("Заказов обработано")}</p>
-        </div>
-        <div>
-          <p className="text-[#586174]">{t("С")} {p2} {t("дней - До")} {p3}</p>
-          <p className="font-semibold text-[#e5484d]">0 SUM</p>
-          <p className="font-semibold text-[#e0952e]">0 USD</p>
-          <p className="mt-2 font-semibold"><span className="text-[#4f71dc]">0</span> / <span className="text-[#4f71dc]">0</span> {t("Заказов обработано")}</p>
-        </div>
-        <div>
-          <p className="text-[#586174]">{t("Больше")} {p3} {t("дней")}</p>
-          <p className="font-semibold text-[#e5484d]">0 Euro</p>
-          <p className="font-semibold text-[#e5484d]">0 SUM</p>
-          <p className="font-semibold text-[#e5484d]">0 USD</p>
-        </div>
-        <div>
-          <p className="text-[#586174]">{t("Общий долг")}</p>
-          <p className="font-semibold text-[#e5484d]">0 Euro</p>
-          <p className="font-semibold text-[#e5484d]">0 SUM</p>
-          <p className="font-semibold text-[#e5484d]">0 USD</p>
-          <p className="mt-2 font-semibold"><span className="text-[#4f71dc]">0</span> / <span className="text-[#4f71dc]">0</span> {t("Заказов обработано")}</p>
-        </div>
-      </section>
 
-      {needsRecalc > 0 && (
-        <section className="mx-6 mb-6 flex flex-wrap items-center justify-between gap-3 rounded-md border border-[#f5c2c7] bg-[#fdecee] px-6 py-4 md:mx-9">
-          <p className="text-[#c53238]">{t("Требуется перерасчет долгов клиентов")}: {needsRecalc} {t("шт. Долги этих клиентов исключены из итогов")}</p>
-          <button onClick={() => setNeedsRecalc(0)} className="rounded-md bg-[#4f71dc] px-5 py-2.5 font-semibold text-white">{t("Пересчитать")}</button>
-        </section>
-      )}
+        {needsRecalc > 0 && (
+          <div className="mx-[30px] mt-[14px] flex items-center justify-between border-l-[3px] border-[#e5484d] bg-[#fdecee] px-[10px] py-[14px] text-[13px] font-semibold text-[#b5121b]">
+            <p>{t("Требуется перерасчет долгов клиентов")}: <span className="text-[#1ea1f2]">{needsRecalc}</span> {t("шт. Долги этих клиентов исключены из итогов")}</p>
+            <button onClick={() => setNeedsRecalc(0)} className="h-[30px] rounded-[3px] bg-[#4f71dc] px-4 text-[13px] font-semibold text-white">{t("Пересчитать")}</button>
+          </div>
+        )}
 
-      <section className="flex flex-wrap items-center gap-4 px-6 py-3 md:px-9">
-        <h2 className="text-lg font-semibold text-[#586174]">{t("Статистика по должникам")}</h2>
-        <div className="flex overflow-hidden rounded-md">
-          <button onClick={() => { setView("clients"); setPage(1) }} className={`px-5 py-2.5 text-[13px] font-bold uppercase tracking-wide ${view === "clients" ? "bg-[#4f71dc] text-white" : "border border-[#4f71dc] text-[#4f71dc]"}`}>{t("Клиенты")}</button>
-          <button onClick={() => { setView("orders"); setPage(1) }} className={`px-5 py-2.5 text-[13px] font-bold uppercase tracking-wide ${view === "orders" ? "bg-[#4f71dc] text-white" : "border border-[#4f71dc] text-[#4f71dc]"}`}>{t("Заказы")}</button>
-        </div>
-        <label className="relative min-w-[220px] flex-1 border-b border-[#dbe0e8] pb-1.5">
-          <input value={search} onChange={(event) => { setSearch(event.target.value); setPage(1) }} placeholder={t("Поиск")} className="w-full bg-transparent pr-7 text-[15px] outline-none placeholder:text-[#9aa3b6]" />
-        </label>
-        <select value={pageSize} onChange={(event) => { setPageSize(Number(event.target.value)); setPage(1) }} className="h-9 bg-transparent text-[#586174]">
-          <option value={10}>10</option>
-          <option value={25}>25</option>
-          <option value={50}>50</option>
-        </select>
-        <span className="text-[#586174]">{visibleCount ? (safePage - 1) * pageSize + 1 : 0} - {Math.min(safePage * pageSize, visibleCount)} {t("из")} {view === "orders" ? ordersTotalLabel : clientsTotalLabel}</span>
-        <button disabled={safePage === 1} onClick={() => setPage((value) => Math.max(1, value - 1))} className="rounded-full border border-[#dbe0e8] p-1 text-[#9aa3b6] disabled:opacity-40">
-          <ChevronDown className="h-5 w-5 rotate-90" />
-        </button>
-        <button disabled={safePage === maxPage} onClick={() => setPage((value) => Math.min(maxPage, value + 1))} className="rounded-full border border-[#4f71dc] p-1 text-[#4f71dc] disabled:opacity-40">
-          <ChevronDown className="h-5 w-5 -rotate-90" />
-        </button>
-        <button aria-label={t("Полный экран")} onClick={() => document.documentElement.requestFullscreen?.()} className="text-[#586174]"><Expand className="h-5 w-5" /></button>
-      </section>
+        <ReportBalanceToolbar
+          search={search}
+          onSearch={(value) => { setSearch(value); setPage(1) }}
+          searchLeft={690}
+          left={
+            <div className="flex items-center gap-[100px]">
+              <span className="text-[13px] font-semibold">{t("Статистика по должникам")}</span>
+              <div className="flex">
+                <button onClick={() => { setView("clients"); setPage(1) }} className={`h-[30px] rounded-l-[3px] border px-4 text-[13px] uppercase ${view === "clients" ? "border-[#4f71dc] bg-[#4f71dc] text-white" : "border-[#e0e0e0] bg-white text-black"}`}>{t("Клиенты")}</button>
+                <button onClick={() => { setView("orders"); setPage(1) }} className={`h-[30px] rounded-r-[3px] border px-4 text-[13px] uppercase ${view === "orders" ? "border-[#4f71dc] bg-[#4f71dc] text-white" : "border-[#e0e0e0] bg-white text-black"}`}>{t("Заказы")}</button>
+              </div>
+            </div>
+          }
+          pager={
+            <div className="flex items-center gap-[20px]">
+              <ReportPager pageSize={pageSize} onPageSize={(size) => { setPageSize(size); setPage(1) }} rangeLabel={`${visibleCount ? (safePage - 1) * pageSize + 1 : 0} - ${Math.min(safePage * pageSize, visibleCount)} ${t("из")} ${view === "orders" ? ordersTotalLabel : clientsTotalLabel}`} canPrev={safePage > 1} canNext={safePage < maxPage} onPrev={() => setPage((value) => Math.max(1, value - 1))} onNext={() => setPage((value) => Math.min(maxPage, value + 1))} />
+              <button aria-label={t("Полный экран")} onClick={() => document.documentElement.requestFullscreen?.()}><svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#444]"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z" /></svg></button>
+            </div>
+          }
+        />
 
-      <section className="overflow-x-auto bg-white pb-10">
         {view === "orders" ? (
-          <table className="min-w-[1900px] w-full border-collapse text-[14px]">
-            <thead className="bg-[#f6f9fc] text-[#586174]">
-              <tr>
-                <th className="whitespace-nowrap px-4 py-3 text-left font-semibold">{t("Заказ №")}</th>
-                <th className="px-2 py-3" />
-                <th className="whitespace-nowrap px-4 py-3 text-left font-semibold">{t("Клиент")}</th>
-                <th className="whitespace-nowrap px-4 py-3 text-left font-semibold">{t("Прошло дней")}</th>
-                <th className="whitespace-nowrap px-4 py-3 text-left font-semibold">{t("Сумма заказа")}</th>
-                <th className="whitespace-nowrap px-4 py-3 text-left font-semibold">{t("Долг")}</th>
-                <th className="whitespace-nowrap px-4 py-3 text-left font-semibold">{t("Срок оплаты")}</th>
-                <th className="whitespace-nowrap px-4 py-3 text-left font-semibold">{t("Агент")}</th>
-                <th className="whitespace-nowrap px-4 py-3 text-left font-semibold">{t("Общий долг (SUM)")}</th>
-                <th className="whitespace-nowrap px-4 py-3 text-left font-semibold">{t("Общий долг (USD)")}</th>
-                <th className="whitespace-nowrap px-4 py-3 text-left font-semibold">{t("Общий долг (Euro)")}</th>
-                <th className="whitespace-nowrap px-4 py-3 text-left font-semibold">{t("Доставщик")}</th>
-                <th className="whitespace-nowrap px-4 py-3 text-left font-semibold">{t("Дата реализации")}</th>
-                <th className="whitespace-nowrap px-4 py-3 text-left font-semibold">{t("Дата доставки")}</th>
-                <th className="whitespace-nowrap px-4 py-3 text-left font-semibold">{t("Дата создания")}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {visibleOrders.map((row, index) => (
-                <tr key={row.id} className={index % 2 ? "bg-[#f6f9fc]" : "bg-white"}>
-                  <td className="border-t border-[#e1e5eb] px-4 py-3.5">{row.id}</td>
-                  <td className="border-t border-[#e1e5eb] px-2 py-3.5 text-center">
-                    <input type="checkbox" checked={selected.has(row.id)} onChange={() => toggleOne(row.id)} className="h-4 w-4 accent-[#4f71dc]" />
-                  </td>
-                  <td className="border-t border-[#e1e5eb] px-4 py-3.5 font-medium text-[#4f71dc]">{row.client}</td>
-                  <td className="border-t border-[#e1e5eb] px-4 py-3.5">{row.daysPassed}</td>
-                  <td className="border-t border-[#e1e5eb] px-4 py-3.5">{number(row.orderAmount, row.orderAmount % 1 ? 2 : 0)} {row.orderCurrency}</td>
-                  <td className="border-t border-[#e1e5eb] px-4 py-3.5 text-[#e5484d]">{number(row.debt, row.debt % 1 ? 2 : 0)}</td>
-                  <td className="border-t border-[#e1e5eb] px-4 py-3.5 text-[#4f71dc]">{row.dueDate}</td>
-                  <td className="border-t border-[#e1e5eb] px-4 py-3.5">{row.agent}</td>
-                  <td className="border-t border-[#e1e5eb] px-4 py-3.5 text-[#e5484d]">{number(row.totalDebtSum, 2)}</td>
-                  <td className="border-t border-[#e1e5eb] px-4 py-3.5">{number(row.totalDebtUsd, 3)}</td>
-                  <td className="border-t border-[#e1e5eb] px-4 py-3.5">{number(row.totalDebtEur)}</td>
-                  <td className="border-t border-[#e1e5eb] px-4 py-3.5">{row.courier}</td>
-                  <td className="border-t border-[#e1e5eb] px-4 py-3.5">{row.realizationDate}</td>
-                  <td className="border-t border-[#e1e5eb] px-4 py-3.5">{row.deliveryDate}</td>
-                  <td className="border-t border-[#e1e5eb] px-4 py-3.5">{row.createdAt}</td>
-                </tr>
-              ))}
-              {visibleOrders.length === 0 && (
-                <tr><td colSpan={15} className="border-t border-[#e1e5eb] px-4 py-16 text-center text-[#9aa3b6]">{t("Ничего не найдено")}</td></tr>
-              )}
-            </tbody>
-          </table>
+          <ReportGridTable
+            minWidth={1900}
+            emptyText={t("Нет данных")}
+            heads={heads.map((head, index) => index === 1 ? <input key="all" type="checkbox" className="h-[14px] w-[14px] accent-[#444]" aria-label="all" /> : t(head))}
+            rows={visibleOrders.map((row) => [
+              row.id,
+              <input key="c" type="checkbox" checked={selected.has(row.id)} onChange={() => toggleOne(row.id)} className="h-[14px] w-[14px] accent-[#444]" />,
+              <span key="cl" className="text-[#4f71dc]">{row.client}</span>,
+              row.daysPassed,
+              `${number(row.orderAmount, row.orderAmount % 1 ? 2 : 0)} ${row.orderCurrency}`,
+              <span key="d" className="font-semibold text-[#f0605a]">{number(row.debt, row.debt % 1 ? 2 : 0)}</span>,
+              <span key="due" className="text-[#4f71dc]">{row.dueDate}</span>,
+              row.agent,
+              <span key="s" className="font-semibold text-[#f0605a]">{number(row.totalDebtSum, 2)}</span>,
+              <span key="u" className="font-semibold text-[#f0605a]">{number(row.totalDebtUsd, 3)}</span>,
+              <span key="e" className="font-semibold text-[#f0605a]">{number(row.totalDebtEur)}</span>,
+              row.courier,
+              row.realizationDate,
+              row.deliveryDate,
+              row.createdAt,
+            ])}
+          />
         ) : (
-          <table className="min-w-[2100px] w-full border-collapse text-[14px]">
-            <thead>
-              <tr className="bg-[#edf2f7] text-[#253653]">
-                <th className="border border-[#e1e5eb] px-4 py-2" />
-                <th colSpan={3} className="border border-[#e1e5eb] px-4 py-2 text-center font-medium">{t("Прошло до")} {p1} {t("дней")}</th>
-                <th colSpan={3} className="border border-[#e1e5eb] px-4 py-2 text-center font-medium">{t("С")} {p1} {t("дней - До")} {p2}</th>
-                <th colSpan={3} className="border border-[#e1e5eb] px-4 py-2 text-center font-medium">{t("С")} {p2} {t("дней - До")} {p3}</th>
-                <th colSpan={3} className="border border-[#e1e5eb] px-4 py-2 text-center font-medium">{t("Больше")} {p3} {t("дней")}</th>
-                <th colSpan={3} className="border border-[#e1e5eb] px-4 py-2 text-center font-medium">{t("Итого")}</th>
-                <th colSpan={5} className="border border-[#e1e5eb] px-4 py-2 text-center font-medium">{t("Дополнительная информация")}</th>
-              </tr>
-              <tr className="bg-white text-[#17233b]">
-                <th className="border-b border-[#e1e5eb] px-4 py-2 text-left font-semibold">{t("Клиенты")}</th>
-                {Array.from({ length: 5 }).map((_, groupIndex) =>
-                  ["SUM", "USD", "Euro"].map((currency) => (
-                    <th key={`${groupIndex}-${currency}`} className="border-b border-[#e1e5eb] px-4 py-2 font-semibold">{currency}</th>
-                  )),
-                )}
-                <th className="border-b border-[#e1e5eb] px-4 py-2 text-left font-semibold">{t("Тел")}</th>
-                <th className="border-b border-[#e1e5eb] px-4 py-2 text-left font-semibold">{t("Адрес")}</th>
-                <th className="border-b border-[#e1e5eb] px-4 py-2 text-left font-semibold">{t("Ориентир")}</th>
-                <th className="border-b border-[#e1e5eb] px-4 py-2 text-left font-semibold">{t("Ответственный агент")}</th>
-                <th className="border-b border-[#e1e5eb] px-4 py-2 text-left font-semibold">{t("Тип")}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {visibleClients.map((row, index) => (
-                <tr key={row.id} className={index % 2 ? "bg-[#f6f9fc]" : "bg-white"}>
-                  <td className="border-t border-[#e1e5eb] px-4 py-3.5">{row.client}</td>
-                  <td className="border-t border-[#e1e5eb] px-4 py-3.5">0</td>
-                  <td className="border-t border-[#e1e5eb] px-4 py-3.5">0</td>
-                  <td className="border-t border-[#e1e5eb] px-4 py-3.5">0</td>
-                  <td className="border-t border-[#e1e5eb] px-4 py-3.5">0</td>
-                  <td className="border-t border-[#e1e5eb] px-4 py-3.5">0</td>
-                  <td className="border-t border-[#e1e5eb] px-4 py-3.5">0</td>
-                  <td className="border-t border-[#e1e5eb] px-4 py-3.5">0</td>
-                  <td className="border-t border-[#e1e5eb] px-4 py-3.5">0</td>
-                  <td className="border-t border-[#e1e5eb] px-4 py-3.5">0</td>
-                  <td className="border-t border-[#e1e5eb] px-4 py-3.5"><AmountCell value={row.overSum} fraction={2} /></td>
-                  <td className="border-t border-[#e1e5eb] px-4 py-3.5"><AmountCell value={row.overUsd} fraction={3} /></td>
-                  <td className="border-t border-[#e1e5eb] px-4 py-3.5">0</td>
-                  <td className="border-t border-[#e1e5eb] px-4 py-3.5"><AmountCell value={row.overSum} fraction={2} /></td>
-                  <td className="border-t border-[#e1e5eb] px-4 py-3.5"><AmountCell value={row.overUsd} fraction={3} /></td>
-                  <td className="border-t border-[#e1e5eb] px-4 py-3.5">0</td>
-                  <td className="border-t border-[#e1e5eb] px-4 py-3.5">{row.phone}</td>
-                  <td className="border-t border-[#e1e5eb] px-4 py-3.5">{row.address}</td>
-                  <td className="border-t border-[#e1e5eb] px-4 py-3.5">{row.landmark}</td>
-                  <td className="border-t border-[#e1e5eb] px-4 py-3.5">{row.agent}</td>
-                  <td className="border-t border-[#e1e5eb] px-4 py-3.5">{row.type}</td>
-                </tr>
-              ))}
-              {visibleClients.length === 0 && (
-                <tr><td colSpan={20} className="border-t border-[#e1e5eb] px-4 py-16 text-center text-[#9aa3b6]">{t("Ничего не найдено")}</td></tr>
-              )}
-            </tbody>
-          </table>
+          <ReportGridTable
+            minWidth={2100}
+            emptyText={t("Нет данных")}
+            groups={clientHeadGroups}
+            heads={[t("Клиенты"), ...Array.from({ length: 5 }).flatMap(() => ["SUM", "USD", "Euro"]), t("Тел"), t("Адрес"), t("Ориентир"), t("Ответственный агент"), t("Тип")]}
+            rows={visibleClients.map((row) => [
+              row.client,
+              0, 0, 0, 0, 0, 0, 0, 0, 0,
+              <AmountCell key="a" value={row.overSum} fraction={2} />,
+              <AmountCell key="b" value={row.overUsd} fraction={3} />,
+              0,
+              <AmountCell key="c" value={row.overSum} fraction={2} />,
+              <AmountCell key="d" value={row.overUsd} fraction={3} />,
+              0,
+              row.phone, row.address, row.landmark, row.agent, row.type,
+            ])}
+          />
         )}
       </section>
 
@@ -394,50 +268,23 @@ export function ClientDebtsView() {
       )}
 
       {filterOpen && (
-        <div className="fixed inset-0 z-[100] flex items-start justify-center overflow-y-auto bg-black/30 py-10" onClick={() => setFilterOpen(false)}>
-          <div onClick={(event) => event.stopPropagation()} className="w-[1100px] max-w-[94vw] rounded-md bg-white shadow-2xl">
-            <header className="flex items-center justify-between border-b px-8 py-6">
-              <h2 className="text-lg font-semibold text-[#586174]">{t("Фильтр")}</h2>
-              <button aria-label={t("Закрыть")} onClick={() => setFilterOpen(false)}><X className="h-6 w-6 rounded-full border-2 border-[#9aa3b6] p-0.5 text-[#9aa3b6]" /></button>
-            </header>
-            <div className="grid grid-cols-1 gap-x-10 gap-y-7 px-8 py-7 sm:grid-cols-2 lg:grid-cols-4">
-              <SelectField label="Филиалы" value={branch} setValue={setBranch} options={["Все филиалы", "Самарканд", "Ташкент", "Наманган"]} />
-              <SelectField label="Организация" value={organization} setValue={setOrganization} options={["Все организации", "Linko"]} />
-              <SelectField label="Заказ оформил" value={orderCreator} setValue={setOrderCreator} options={["Все", "Admin Ritm", "Тп 1 Исмоилов Гани", "Тп 2 Алиса"]} />
-              <SelectField label="Доставщик" value={courierFilter} setValue={setCourierFilter} options={["Все", "Admin Ritm", "Quvonchbek Admin", "Хайрулло Доставщик"]} />
-              <SelectField label="Тип клиента" value={clientType} setValue={setClientType} options={["Все типы", "Оптовый", "Розничный", "Розница"]} />
-              <SelectField label="Статус подтверждения клиента" value={confirmStatus} setValue={setConfirmStatus} options={["Все", "Подтвержден", "Не подтвержден"]} />
-              <SelectField label="Зона" value={zone} setValue={setZone} options={["Все зоны", "Розничный", "Рабочий", "Не рабочий зона"]} />
-              <SelectField label="Статус заказа" value={orderStatus} setValue={setOrderStatus} options={["Все", "Доставлен", "В пути", "Отменен"]} />
-              <SelectField label="Тип оплаты (транзакции)" value={transactionType} setValue={setTransactionType} options={["Все", "Наличными", "Перечислением"]} />
-              <SelectField label="Тип оплаты" value={paymentType} setValue={setPaymentType} options={["Все", "SUM", "USD", "Euro"]} />
-              <SelectField label="Есть задолженность за период" value={hasDebtPeriod} setValue={setHasDebtPeriod} options={["Не важно", "Да", "Нет"]} />
-              <div>
-                <p className="mb-1 text-[13px] font-medium text-[#586174]">{t("Прошло дней с последней оплаты")}</p>
-                <div className="flex items-center gap-3">
-                  <input value={daysFrom} onChange={(event) => setDaysFrom(event.target.value)} type="number" placeholder={t("От (дней)")} className="w-full border-b border-[#dbe0e8] bg-transparent pb-2 text-[15px] outline-none placeholder:text-[#586174]" />
-                  <input value={daysTo} onChange={(event) => setDaysTo(event.target.value)} type="number" placeholder={t("До (дней)")} className="w-full border-b border-[#dbe0e8] bg-transparent pb-2 text-[15px] outline-none placeholder:text-[#586174]" />
-                </div>
-              </div>
-              {(["Период создания", "Дата доставки", "Период даты оплаты", "Период реализации"] as const).map((label) => (
-                <label key={label} className="block border-b border-[#dbe0e8] pb-2 text-[15px] font-medium">
-                  {t(label)}
-                  <input type="date" className="mt-1 block w-full bg-transparent text-[15px] font-normal outline-none" />
-                </label>
-              ))}
-            </div>
-            <div className="border-t px-8 py-6">
-              <label className="flex items-center gap-2 text-[14px] text-[#17233b]">
-                <input type="checkbox" checked={onlyNeedsRecalc} onChange={(event) => setOnlyNeedsRecalc(event.target.checked)} className="h-4 w-4 accent-[#4f71dc]" />
-                {t("Требуется перерасчет")}
-              </label>
-            </div>
-            <div className="px-8 pb-8">
-              <button onClick={() => setFilterOpen(false)} className="block w-full rounded-md bg-[#6fcf97] py-3.5 text-center font-semibold text-white hover:bg-[#5fbf87]">{t("Применить")}</button>
-            </div>
-          </div>
-        </div>
+        <ReportFilterPanel onClose={() => setFilterOpen(false)} onApply={() => setFilterOpen(false)}>
+          <ReportSelectField label="Филиалы" value={branch} onChange={setBranch} options={["Самарканд", "Ташкент", "Наманган"]} />
+          <ReportSelectField label="Организация" value={organization} onChange={setOrganization} options={["Linko"]} />
+          <ReportSelectField label="Заказ оформил" value={orderCreator} onChange={setOrderCreator} options={["Admin Ritm", "Тп 1 Исмоилов Гани", "Тп 2 Алиса"]} />
+          <ReportSelectField label="Доставщик" value={courierFilter} onChange={setCourierFilter} options={["Admin Ritm", "Quvonchbek Admin", "Хайрулло Доставщик"]} />
+          <ReportSelectField label="Тип клиента" value={clientType} onChange={setClientType} options={["Оптовый", "Розничный", "Розница"]} />
+          <ReportSelectField label="Статус подтверждения клиента" value={confirmStatus} onChange={setConfirmStatus} options={["Подтвержден", "Не подтвержден"]} />
+          <ReportSelectField label="Зона" value={zone} onChange={setZone} options={["Розничный", "Рабочий", "Не рабочий зона"]} />
+          <ReportSelectField label="Статус заказа" value={orderStatus} onChange={setOrderStatus} options={["Доставлен", "В пути", "Отменен"]} />
+          <ReportSelectField label="Тип оплаты (транзакции)" value={transactionType} onChange={setTransactionType} options={["Наличными", "Перечислением"]} />
+          <ReportSelectField label="Тип оплаты" value={paymentType} onChange={setPaymentType} options={["SUM", "USD", "Euro"]} />
+          <ReportSelectField label="Есть задолженность за период" value={hasDebtPeriod} onChange={setHasDebtPeriod} options={["Да", "Нет"]} />
+          <ReportInputField label="Прошло дней с последней оплаты (от)" value={daysFrom} onChange={setDaysFrom} />
+          <ReportInputField label="Прошло дней с последней оплаты (до)" value={daysTo} onChange={setDaysTo} />
+          <ReportCheckboxField label="Требуется перерасчет" checked={onlyNeedsRecalc} onChange={setOnlyNeedsRecalc} />
+        </ReportFilterPanel>
       )}
-    </main>
+    </ReportPage>
   )
 }

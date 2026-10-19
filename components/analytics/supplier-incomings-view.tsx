@@ -392,12 +392,12 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
   return (
     <main className={embedded ? "min-w-0 flex-1" : "min-h-[calc(100vh-4rem)] bg-[#f2f5f8] px-7 pb-7"}>
       {!embedded && (
-        <header className="mb-5 flex items-center justify-between">
-          <h1 className="flex items-center text-2xl font-bold text-slate-600">
-            <FavoritesButton className="inline-flex items-center gap-2 text-[#4f71dc]" />
-            <span className="mx-2 text-slate-400">|</span> {t("Приход от поставщиков")}
+        <header className="flex h-[60px] flex-wrap items-center justify-between gap-3">
+          <h1 className="flex items-center text-[18px] font-bold text-[#5d6474]">
+            <FavoritesButton className="flex items-center gap-[5px] text-[18px] font-bold text-[#4f71dc]" />
+            <span className="mx-[11px] inline-block h-[21px] w-[2px] bg-[#5d6474]" /> {t("Приход от поставщиков")}
           </h1>
-          <button type="button" onClick={openCreate} className="inline-flex items-center gap-2 rounded bg-[#71ce87] px-5 py-2.5 font-semibold text-white hover:brightness-95">
+          <button type="button" onClick={openCreate} className="inline-flex items-center gap-2 h-[30px] rounded-[5px] bg-[#71ce87] px-4 text-[13px] font-semibold text-white hover:brightness-95">
             <Plus className="h-4 w-4" /> {t("Добавить")}
           </button>
         </header>
@@ -461,15 +461,15 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
         <table className="w-full text-left">
           <thead className="bg-[#5d6474] text-white">
             <tr>
-              <th className="px-9 py-5">{t("№")}</th>
-              <th className="px-5 py-5">{t("Поставщик")}</th>
-              <th className="px-5 py-5">{t("Склад")}</th>
-              <th className="px-5 py-5">{t("Дата поставки")}</th>
-              <th className="px-5 py-5">{t("Тип оплаты")}</th>
-              <th className="px-5 py-5">{t("Номер договора")}</th>
-              <th className="px-5 py-5">{t("Сумма поставки")}</th>
-              <th className="px-5 py-5">{t("Статус")}</th>
-              <th className="px-5 py-5">{t("Счет фактура")}</th>
+              <th className="px-9 py-4 text-[13px]">{t("№")}</th>
+              <th className="px-5 py-4 text-[13px]">{t("Поставщик")}</th>
+              <th className="px-5 py-4 text-[13px]">{t("Склад")}</th>
+              <th className="px-5 py-4 text-[13px]">{t("Дата поставки")}</th>
+              <th className="px-5 py-4 text-[13px]">{t("Тип оплаты")}</th>
+              <th className="px-5 py-4 text-[13px]">{t("Номер договора")}</th>
+              <th className="px-5 py-4 text-[13px]">{t("Сумма поставки")}</th>
+              <th className="px-5 py-4 text-[13px]">{t("Статус")}</th>
+              <th className="px-5 py-4 text-[13px]">{t("Счет фактура")}</th>
             </tr>
           </thead>
           <tbody>
@@ -478,7 +478,7 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
                 {expandedId !== row.id && (
                   <tr onClick={() => toggleExpand(row)} className="cursor-pointer border-b border-dashed border-slate-300 hover:bg-slate-50">
                     <td className="px-9 py-4">{row.id}</td>
-                    <td className="px-5 py-4 text-[#4f71dc]">{row.supplier}</td>
+                    <td className="px-5 py-4">{row.supplier}</td>
                     <td className="px-5 py-4">{row.warehouse}</td>
                     <td className="px-5 py-4">{row.date}</td>
                     <td className="px-5 py-4">{row.paymentType}</td>
@@ -693,8 +693,8 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
       )}
 
       {modalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
-          <form onSubmit={save} className="flex max-h-[90vh] w-full max-w-4xl flex-col rounded bg-white">
+        <div className="fixed inset-0 z-50 flex bg-white">
+          <form onSubmit={save} className="flex h-full w-full flex-col bg-white">
             <header className="flex items-center justify-between border-b p-6">
               <b className="uppercase">{editingId !== null ? `${t("Изменить поставку №")} ${editingId}` : t("Добавление поставки")}</b>
               <button type="button" onClick={() => setModalOpen(false)} aria-label={t("Закрыть")}><X className="h-5 w-5" /></button>

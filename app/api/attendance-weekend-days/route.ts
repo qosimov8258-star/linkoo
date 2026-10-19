@@ -14,11 +14,11 @@ const weekendDaysSchema = z.object({
 
 export async function GET(request: NextRequest) {
   const user = await getCurrentUser()
-  if (!user) return NextResponse.json({ error: "Tizimga kirilmagan" }, { status: 401 })
+  if (!user) return NextResponse.json({ error: "Вы не вошли в систему" }, { status: 401 })
 
   const year = Number(request.nextUrl.searchParams.get("year"))
   const month = Number(request.nextUrl.searchParams.get("month"))
-  if (!Number.isFinite(year) || !Number.isFinite(month)) return NextResponse.json({ error: "year va month talab qilinadi" }, { status: 400 })
+  if (!Number.isFinite(year) || !Number.isFinite(month)) return NextResponse.json({ error: "Требуются year и month" }, { status: 400 })
 
   return NextResponse.json((await listWeekendDays(year, month)))
 }
