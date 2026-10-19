@@ -1,44 +1,41 @@
 import { NextResponse } from "next/server"
-import { z } from "zod"
 
+import { getCurrentUser } from "@/lib/current-user"
 import { requireRole } from "@/lib/rbac"
-import { parseJsonBody } from "@/lib/validation"
-import { deleteRepricing, parseRepricingInput, updateRepricing } from "@/lib/repricings-repo"
-
-const repricingSchema = z.object({
-  priceListId: z.number().finite(),
-  productId: z.number().finite(),
-  amount: z.number().optional(),
-  currency: z.enum(["SUM", "USD", "Euro"]).optional(),
-  status: z.enum(["проведен", "черновик"]).optional(),
-  user: z.string().trim().optional(),
-})
+import { parseRepricingId } from "@/lib/repricings-api"
+import { cancelRepricing, getRepricing, repricingErrorResponse } from "@/lib/repricings-repo"
 
 type RouteParams = { params: Promise<{ id: string }> }
 
-export async function PUT(request: Request, { params }: RouteParams) {
-  const auth = await requireRole("manager")
-  if ("error" in auth) return auth.error
-  const user = auth.user
+const NOT_FOUND = { error: "Переоценка не найдена" }
 
-  const id = Number((await params).id)
-  const parsed = await parseJsonBody(request, repricingSchema)
-  if (parsed.error) return parsed.error
-
-  const input = parseRepricingInput(parsed.data, user.displayName)
-  if (!input) return NextResponse.json({ error: "Прайс-лист и товар обязательны" }, { status: 400 })
-
-  const repricing = (await updateRepricing(id, input))
-  if (!repricing) return NextResponse.json({ error: "Переоценка не найдена" }, { status: 404 })
+// GET /api/repricings/[id] — demo GET main/reprice/:id/: the document with its lines and the ids of
+// the linked repricings it created (`children`).
+export async function GET(_request: Request, { params }: RouteParams) {
+  const user = await getCurrentUser()
+  if (!user) return NextResponse.json({ error: "Tizimga kirilmagan" }, { status: 401 })
+  const id = parseRepricingId((await params).id)
+  const repricing = id ? await getRepricing(id) : null
+  if (!repricing) return NextResponse.json(NOT_FOUND, { status: 404 })
   return NextResponse.json(repricing)
 }
 
+// DELETE /api/repricings/[id] — demo DELETE main/reprice/:id/: cancels the repricing ("отменен") and
+// restores the previous prices. 409 {error, conflicts: [ids]} when a later finished repricing of the
+// same price list touched one of its items.
 export async function DELETE(_request: Request, { params }: RouteParams) {
   const auth = await requireRole("manager")
   if ("error" in auth) return auth.error
 
-  const id = Number((await params).id)
-  const ok = (await deleteRepricing(id))
-  if (!ok) return NextResponse.json({ error: "Переоценка не найдена" }, { status: 404 })
-  return NextResponse.json({ ok: true })
+  const id = parseRepricingId((await params).id)
+  if (!id) return NextResponse.json(NOT_FOUND, { status: 404 })
+  try {
+    const repricing = await cancelRepricing(id, auth.user.displayName)
+    if (!repricing) return NextResponse.json(NOT_FOUND, { status: 404 })
+    return NextResponse.json(repricing)
+  } catch (error) {
+    const response = repricingErrorResponse(error)
+    if (response) return response
+    throw error
+  }
 }

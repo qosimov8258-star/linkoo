@@ -76,7 +76,7 @@ function catalogSql(t: StockTables): string {
       ${rc("unit")}::text, ${rc("organization")}::text, ${rc("supplier")}::text, NULL::double precision, NULL::double precision,
       ${rc("price_lists")}::text, ${rc("price_list")}::text, ${rc("cash_price")}::text, ${rc("min_stock")}::text, ${rc("mass")}::text,
       ${rc("volume")}::text, ${rc("sub_unit")}::text
-      FROM raw_materials r`)
+      FROM raw_materials r ${t.col("raw_materials", "deleted") ? "WHERE COALESCE(r.deleted, 0) = 0" : ""}`)
   }
   return parts.join(" UNION ALL ")
 }
@@ -85,7 +85,7 @@ export function catalogKey(kind: string, id: number): StockItemKey {
   return `${kind}:${id}`
 }
 
-/** Every product (not deleted) and raw material, products first, by name. */
+/** Every product and raw material that is not deleted, products first, by name. */
 export async function loadStockCatalog(db: PgDb = getDb(), tables?: StockTables): Promise<StockCatalogItem[]> {
   const t = tables ?? (await stockTables(db))
   const sql = catalogSql(t)

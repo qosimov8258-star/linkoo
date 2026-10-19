@@ -3,6 +3,7 @@ import { z } from "zod"
 
 import { requireRole } from "@/lib/rbac"
 import { parseJsonBody } from "@/lib/validation"
+import { RepricingError } from "@/lib/repricings-read"
 import { repriceFromIncoming } from "@/lib/supplier-incomings-repo"
 
 const repriceSchema = z.object({
@@ -20,7 +21,13 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
   if ("error" in auth) return auth.error
   const parsed = await parseJsonBody(request, repriceSchema)
   if (parsed.error) return parsed.error
-  const result = await repriceFromIncoming(Number((await params).id), parsed.data, auth.user.displayName)
+  let result: Awaited<ReturnType<typeof repriceFromIncoming>>
+  try {
+    result = await repriceFromIncoming(Number((await params).id), parsed.data, auth.user.displayName)
+  } catch (error) {
+    if (error instanceof RepricingError) return NextResponse.json({ error: error.message }, { status: error.status })
+    throw error
+  }
   if (result === "not_found") return NextResponse.json({ error: "Приемка не найдена" }, { status: 404 })
   if (result === "price_list_not_found") return NextResponse.json({ error: "Прайс-лист не найден" }, { status: 404 })
   return NextResponse.json(result)

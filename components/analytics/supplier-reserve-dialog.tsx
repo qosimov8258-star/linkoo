@@ -22,7 +22,7 @@ export function SupplierReserveDialog({ supplier, onClose, onSaved }: { supplier
     Promise.all([fetch("/api/products").then((response) => (response.ok ? response.json() : [])), fetch("/api/raw-materials").then((response) => (response.ok ? response.json() : []))])
       .then(([products, rawMaterials]) => {
         if (cancelled) return
-        const items = [...(products as Array<{ name: string; cost: number }>), ...(rawMaterials as Array<{ name: string }>).map((item) => ({ name: item.name, cost: 0 }))]
+        const items = [...(products as Array<{ name: string; cost: number; deleted?: boolean }>).filter((item) => !item.deleted), ...(rawMaterials as Array<{ name: string }>).map((item) => ({ name: item.name, cost: 0 }))]
         setCatalog(items.sort((a, b) => a.name.localeCompare(b.name, "ru")))
       })
       .catch(() => {})

@@ -1,404 +1,328 @@
 "use client"
 
-import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react"
-import { ChevronDown, ChevronLeft, ChevronRight, Filter, PlusCircle, Search, Upload, X } from "lucide-react"
+import { Fragment, useCallback, useEffect, useState, type ReactNode } from "react"
+import { useSearchParams } from "next/navigation"
+import { ArrowDown, ArrowUp, ArrowUpDown, FileSpreadsheet, Plus, RefreshCw, Search } from "lucide-react"
 
-import { readExcelRows } from "@/lib/excel-import"
+import { BalancePagination } from "@/components/analytics/balance/pagination"
+import { buildCashQuery, useCashJson, type CashQuery } from "@/components/analytics/cash/use-cash"
+import { CashSnackbar, FormField, MultiPick, SearchSelect, useCanWrite, type SnackbarMessage } from "@/components/analytics/cash-management-shared"
+import { FilterPopup, FilterToggle } from "@/components/analytics/internal-transfers-filter"
+import { docDate, formatSum } from "@/components/analytics/internal-transfers-shared"
 import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
+import { downloadExcelTable } from "@/lib/excel-export"
+import { useLanguage } from "@/lib/i18n/language-context"
+import { RepricingDetailPanel, RepricingStatusLabel } from "./repricing-detail"
+import { RepricingLinkedDialog } from "./repricing-dialogs"
+import { RepricingFormDialog } from "./repricing-form"
+import {
+  REPRICINGS_API,
+  REPRICING_STATUSES,
+  REPRICING_STATUS_LABELS,
+  type Repricing,
+  type RepricingListResult,
+  type RepricingOptions,
+  type RepricingStatus,
+} from "./repricing-data"
 
-import { repricingCurrencies as currencies, type Repricing } from "./repricing-data"
-import type { PriceList } from "./price-lists-data"
-import type { Product } from "./products-data"
+// "Переоценка" (demo #/revaluation, chunk c143: list 5205, filter 4463, detail 5206, create 5207/5208,
+// linked 5210). Header buttons "Переоценку связанных" (tooltip "Создать переоценку для связанных
+// прайс-листов") and "Добавить"; toolbar "Показать фильтр" (Прайс лист, Пользователь, Статус, Товар),
+// search, paginator, Excel; columns № | Создал | Дата создания | Прайс лист | Сумма переоценки |
+// Статус (проведен / отменен); a row opens its detail in place. The URL keeps the state; the price
+// lists page links here with ?openCreateDialog=true&priceListId=&currency= ("Установить цену").
 
-const number = (value: number) => new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 2 }).format(value)
+const PAGE_SIZES = [10, 25, 50, 100, 200, 500] as const
+
+type Filters = { priceLists: string[]; users: string[]; status: RepricingStatus | ""; products: string[] }
+const EMPTY: Filters = { priceLists: [], users: [], status: "", products: [] }
+type ViewState = { search: string; ordering: string; page: number; pageSize: number; filters: Filters; detailId: number | null }
+type CreateState = { priceListId: number | null; currency: string } | null
+
+const positiveInt = (value: string | null) => {
+  const number = Number(value)
+  return Number.isInteger(number) && number > 0 ? number : null
+}
+
+function stateFromParams(params: URLSearchParams): ViewState {
+  const list = (name: string) => [...new Set(params.getAll(name).map((value) => value.trim()).filter(Boolean))]
+  const status = params.get("status") as RepricingStatus | null
+  return {
+    search: params.get("search") ?? "",
+    ordering: params.get("ordering") ?? "",
+    page: positiveInt(params.get("page")) ?? 1,
+    pageSize: positiveInt(params.get("pageSize")) ?? 25,
+    filters: { priceLists: list("priceList"), users: list("user"), status: status && REPRICING_STATUSES.includes(status) ? status : "", products: list("product") },
+    detailId: positiveInt(params.get("id")),
+  }
+}
+
+function createFromParams(params: URLSearchParams): CreateState {
+  if (params.get("openCreateDialog") !== "true") return null
+  return { priceListId: positiveInt(params.get("priceListId")), currency: params.get("currency") ?? "" }
+}
+
+function listQuery(state: ViewState, pageSize = state.pageSize): CashQuery {
+  const f = state.filters
+  return { paged: 1, search: state.search, ordering: state.ordering, page: pageSize ? state.page : 1, pageSize: String(pageSize), priceList: f.priceLists, user: f.users, status: f.status, product: f.products }
+}
+
+function stateToSearch(state: ViewState): string {
+  const f = state.filters
+  return buildCashQuery({ search: state.search, ordering: state.ordering, page: state.page > 1 ? state.page : "", pageSize: state.pageSize, priceList: f.priceLists, user: f.users, status: f.status, product: f.products, id: state.detailId ?? "" })
+}
+
+function RepricingFilter({ filters, options, onClose, onApply }: { filters: Filters; options: RepricingOptions | null; onClose: () => void; onApply: (filters: Filters) => void }) {
+  const { t } = useLanguage()
+  const [draft, setDraft] = useState(filters)
+  return (
+    <FilterPopup onClose={onClose} onSubmit={() => onApply(draft)}>
+      <MultiPick label={t("Прайс лист")} options={(options?.priceLists ?? []).map((list) => ({ value: String(list.id), label: list.name }))} value={draft.priceLists} onChange={(priceLists) => setDraft((current) => ({ ...current, priceLists }))} />
+      <MultiPick label={t("Пользователь")} options={(options?.users ?? []).map((user) => ({ value: user, label: user }))} value={draft.users} onChange={(users) => setDraft((current) => ({ ...current, users }))} />
+      <FormField label={t("Статус")}>
+        <SearchSelect
+          value={draft.status}
+          options={REPRICING_STATUSES.map((status) => ({ value: status, label: t(REPRICING_STATUS_LABELS[status]) }))}
+          placeholder={t("Все")}
+          onChange={(status) => setDraft((current) => ({ ...current, status: status as RepricingStatus | "" }))}
+        />
+      </FormField>
+      <MultiPick label={t("Товар")} options={(options?.products ?? []).map((product) => ({ value: product.key, label: product.name }))} value={draft.products} onChange={(products) => setDraft((current) => ({ ...current, products }))} />
+    </FilterPopup>
+  )
+}
+
+function SortIcon({ ordering, sortKey }: { ordering: string; sortKey: string }) {
+  if (ordering === sortKey) return <ArrowUp className="h-3.5 w-3.5" />
+  if (ordering === `-${sortKey}`) return <ArrowDown className="h-3.5 w-3.5" />
+  return <ArrowUpDown className="h-3.5 w-3.5 opacity-40" />
+}
 
 export function RepricingView() {
-  const [rows, setRows] = useState<Repricing[]>([])
-  const [loading, setLoading] = useState(true)
-  const [loadError, setLoadError] = useState("")
-  const [priceLists, setPriceLists] = useState<PriceList[]>([])
-  const [products, setProducts] = useState<Product[]>([])
-
-  const [search, setSearch] = useState("")
+  const { t, language } = useLanguage()
+  const searchParams = useSearchParams()
+  const canEdit = useCanWrite()
+  const [state, setState] = useState<ViewState>(() => stateFromParams(new URLSearchParams(searchParams.toString())))
+  const [create, setCreate] = useState<CreateState>(() => createFromParams(new URLSearchParams(searchParams.toString())))
+  const [searchDraft, setSearchDraft] = useState(state.search)
   const [filterOpen, setFilterOpen] = useState(false)
-  const [priceListFilter, setPriceListFilter] = useState("Все")
-  const [userFilter, setUserFilter] = useState("Все")
-  const [statusFilter, setStatusFilter] = useState("Все")
-  const [productFilter, setProductFilter] = useState("Все")
-  const [pageSize, setPageSize] = useState(25)
-  const [page, setPage] = useState(1)
-  const [linkedModalOpen, setLinkedModalOpen] = useState(false)
-  const [addModalOpen, setAddModalOpen] = useState(false)
+  const [linkedOpen, setLinkedOpen] = useState(false)
+  const [detailVersion, setDetailVersion] = useState(0)
+  const [message, setMessage] = useState<SnackbarMessage | null>(null)
+
+  const list = useCashJson<RepricingListResult>(`${REPRICINGS_API}?${buildCashQuery(listQuery(state))}`)
+  const options = useCashJson<RepricingOptions>(`${REPRICINGS_API}/options`)
+  const data = list.data
+  const rows = data?.results ?? []
 
   useEffect(() => {
-    let cancelled = false
-    setLoading(true)
-    Promise.all([
-      fetch("/api/repricings").then((response) => {
-        if (!response.ok) throw new Error("Не удалось загрузить переоценки")
-        return response.json() as Promise<Repricing[]>
-      }),
-      fetch("/api/price-lists").then((response) => (response.ok ? (response.json() as Promise<PriceList[]>) : [])),
-      fetch("/api/products").then((response) => (response.ok ? (response.json() as Promise<Product[]>) : [])),
-    ])
-      .then(([repricings, lists, productRows]) => {
-        if (cancelled) return
-        setRows(repricings)
-        setPriceLists(lists)
-        setProducts(productRows.filter((product) => !product.deleted))
-        setLoadError("")
-      })
-      .catch(() => {
-        if (!cancelled) setLoadError("Не удалось загрузить переоценки с сервера")
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false)
-      })
-    return () => {
-      cancelled = true
+    const search = stateToSearch(state)
+    if (window.location.search.slice(1) !== search) window.history.replaceState(window.history.state, "", `${window.location.pathname}?${search}`)
+  }, [state])
+
+  useEffect(() => {
+    const value = searchDraft.trim()
+    if (value === state.search) return
+    const timer = window.setTimeout(() => setState((current) => ({ ...current, search: value, page: 1 })), 400)
+    return () => window.clearTimeout(timer)
+  }, [searchDraft, state.search])
+
+  useEffect(() => {
+    if (!data || list.loading || state.page <= 1) return
+    const last = Math.max(1, Math.ceil(data.count / Math.max(1, state.pageSize)))
+    if (state.page > last) setState((current) => ({ ...current, page: last }))
+  }, [data, list.loading, state.page, state.pageSize])
+
+  const update = (patch: Partial<ViewState>) => setState((current) => ({ ...current, ...patch }))
+  const notify = useCallback((text: string, error = false) => setMessage({ text, tone: error ? "error" : "success" }), [])
+  const closeSnackbar = useCallback(() => setMessage(null), [])
+  const refresh = useCallback(() => {
+    list.reload()
+    options.reload()
+    setDetailVersion((value) => value + 1)
+  }, [list, options])
+  const sort = (key: string) => update({ ordering: state.ordering === key ? `-${key}` : state.ordering === `-${key}` ? "" : key, page: 1 })
+  const sortHeader = (key: string, label: ReactNode) => (
+    <button type="button" onClick={() => sort(key)} className="inline-flex items-center gap-1 font-semibold">
+      {label}
+      <SortIcon ordering={state.ordering} sortKey={key} />
+    </button>
+  )
+  const f = state.filters
+  const filterCount = [f.priceLists.length > 0, f.users.length > 0, Boolean(f.status), f.products.length > 0].filter(Boolean).length
+
+  const downloadExcel = async () => {
+    try {
+      const response = await fetch(`${REPRICINGS_API}?${buildCashQuery(listQuery(state, 0))}`, { cache: "no-store" })
+      const body = (await response.json().catch(() => null)) as (RepricingListResult & { error?: string }) | null
+      if (!response.ok || !body) throw new Error(body?.error || `HTTP ${response.status}`)
+      downloadExcelTable(t("Переоценка"), [
+        ["№", t("Создал"), t("Дата создания"), t("Прайс лист"), t("Сумма переоценки"), t("Валюта"), t("Статус"), t("Комментарий")],
+        ...body.results.map((row: Repricing) => [row.id, row.createdBy, docDate(row.createdAt, language, true), row.priceList, row.total, row.currency, t(REPRICING_STATUS_LABELS[row.status]), row.comment]),
+      ])
+    } catch (reason) {
+      notify(reason instanceof Error ? t(reason.message) : t("Сервер недоступен, попробуйте ещё раз"), true)
     }
-  }, [])
-
-  const priceListOptions = useMemo(() => Array.from(new Set(rows.map((row) => row.priceList))).filter(Boolean), [rows])
-  const userOptions = useMemo(() => Array.from(new Set(rows.map((row) => row.user))).filter(Boolean), [rows])
-  const productOptions = useMemo(() => Array.from(new Set(rows.map((row) => row.product))).filter(Boolean), [rows])
-
-  const filtered = useMemo(() => {
-    return rows.filter((row) => {
-      if (search.trim() && !String(row.id).includes(search.trim()) && !row.priceList.toLocaleLowerCase("ru").includes(search.trim().toLocaleLowerCase("ru"))) return false
-      if (priceListFilter !== "Все" && row.priceList !== priceListFilter) return false
-      if (userFilter !== "Все" && row.user !== userFilter) return false
-      if (statusFilter !== "Все" && row.status !== statusFilter) return false
-      if (productFilter !== "Все" && row.product !== productFilter) return false
-      return true
-    })
-  }, [priceListFilter, productFilter, rows, search, statusFilter, userFilter])
-
-  const maxPage = Math.max(1, Math.ceil(filtered.length / pageSize))
-  const safePage = Math.min(page, maxPage)
-  const visible = filtered.slice((safePage - 1) * pageSize, safePage * pageSize)
-
-  function handleCreated(created: Repricing[]) {
-    if (!created.length) return
-    setRows((current) => [...created, ...current].sort((a, b) => b.id - a.id))
   }
 
+  const headerButton = "inline-flex h-[30px] items-center gap-1.5 rounded-sm bg-[#71ce87] px-3 text-[14px] font-semibold text-white hover:brightness-95"
+  const th = "whitespace-nowrap px-3 py-3 text-left font-semibold"
+  const td = "px-3 py-3 align-middle"
   return (
-    <main className="min-h-screen bg-white text-[#17233b]">
-      <header className="flex flex-wrap items-center justify-between gap-4 border-b border-[#e1e5eb] px-6 py-5 md:px-9">
-        <div className="flex items-center gap-3">
+    <main className="min-h-screen bg-[#f1f4f8] text-[#17233b]">
+      <header className="flex min-h-[76px] flex-wrap items-center justify-between gap-4 border-b border-[#d8dee7] bg-[#f2f5f8] px-4 py-3 md:px-9">
+        <div className="flex min-w-0 items-center gap-3">
           <FavoritesButton className="flex items-center gap-3 text-2xl font-bold text-[#4f70e7]" />
           <span className="text-3xl font-light text-[#586174]">|</span>
-          <span className="text-2xl font-bold text-[#586174]">Переоценка</span>
+          <h1 className="truncate text-xl font-bold text-[#586174] md:text-2xl">{t("Переоценка")}</h1>
         </div>
-        <div className="flex gap-4">
-          <button onClick={() => setLinkedModalOpen(true)} className="flex h-11 items-center gap-2 rounded-md bg-[#69cd87] px-5 font-semibold text-white">
-            <PlusCircle className="h-5 w-5" /> Переоценку связанных
-          </button>
-          <button onClick={() => setAddModalOpen(true)} className="flex h-11 items-center gap-2 rounded-md bg-[#69cd87] px-5 font-semibold text-white">
-            <PlusCircle className="h-5 w-5" /> Добавить
-          </button>
-        </div>
+        {canEdit && (
+          <div className="flex flex-wrap items-center gap-2.5">
+            <button type="button" onClick={() => setLinkedOpen(true)} title={t("Создать переоценку для связанных прайс-листов")} className={headerButton}>
+              <Plus className="h-4 w-4" /> {t("Переоценку связанных")}
+            </button>
+            <button type="button" onClick={() => setCreate({ priceListId: null, currency: "" })} title={t("Добавление")} className={headerButton}>
+              <Plus className="h-4 w-4" /> {t("Добавить")}
+            </button>
+          </div>
+        )}
       </header>
 
-      <section className="flex flex-wrap items-center gap-5 px-6 py-4 md:px-9">
-        <button onClick={() => setFilterOpen((value) => !value)} className="flex h-11 items-center gap-2 rounded-md bg-[#4f70df] px-5 font-semibold text-white">
-          <Filter className="h-5 w-5" /> Показать фильтр
-        </button>
-
-        <label className="relative min-w-[220px] flex-1 border-b border-[#dbe0e8] pb-1.5">
-          <input value={search} onChange={(event) => { setSearch(event.target.value); setPage(1) }} placeholder="Поиск" className="w-full bg-transparent pr-7 text-[15px] outline-none placeholder:text-[#9aa3b6]" />
-          <Search className="pointer-events-none absolute right-0 top-0.5 h-5 w-5 text-[#9aa3b6]" />
-        </label>
-
-        <select value={pageSize} onChange={(event) => { setPageSize(Number(event.target.value)); setPage(1) }} className="h-9 bg-transparent text-[#586174]">
-          <option value={10}>10</option>
-          <option value={25}>25</option>
-          <option value={50}>50</option>
-        </select>
-
-        <span className="text-[#586174]">{filtered.length ? (safePage - 1) * pageSize + 1 : 0} - {Math.min(safePage * pageSize, filtered.length)} из {filtered.length}</span>
-
-        <button disabled={safePage === 1} onClick={() => setPage((value) => Math.max(1, value - 1))} className="rounded-full border border-[#dbe0e8] p-1 text-[#9aa3b6] disabled:opacity-40">
-          <ChevronLeft className="h-5 w-5" />
-        </button>
-        <button disabled={safePage === maxPage} onClick={() => setPage((value) => Math.min(maxPage, value + 1))} className="rounded-full border border-[#4f70e7] p-1 text-[#4f70e7] disabled:opacity-40">
-          <ChevronRight className="h-5 w-5" />
-        </button>
-      </section>
-
-      {filterOpen && (
-        <section className="relative border-b border-[#e1e5eb] px-6 pb-6 pt-2 md:px-9">
-          <div className="mb-5 flex items-center justify-between">
-            <h2 className="text-lg text-[#586174]">Фильтр</h2>
-            <button aria-label="Закрыть" onClick={() => setFilterOpen(false)}><X className="h-6 w-6 rounded-full border-2 border-[#9aa3b6] p-0.5 text-[#9aa3b6]" /></button>
+      <section className="mx-4 mb-10 mt-4 rounded-sm bg-white shadow-sm md:mx-6">
+        <div className="flex flex-wrap items-center gap-x-5 gap-y-3 border-b border-[#e1e5eb] px-4 py-3 md:px-6">
+          <div className="relative">
+            <FilterToggle
+              count={filterCount}
+              open={filterOpen}
+              onOpen={() => setFilterOpen(true)}
+              onClose={() => setFilterOpen(false)}
+              onClear={() => {
+                setFilterOpen(false)
+                update({ filters: { ...EMPTY }, page: 1, detailId: null })
+              }}
+            />
+            {filterOpen && (
+              <RepricingFilter
+                filters={state.filters}
+                options={options.data}
+                onClose={() => setFilterOpen(false)}
+                onApply={(filters) => {
+                  setFilterOpen(false)
+                  update({ filters, page: 1, detailId: null })
+                }}
+              />
+            )}
           </div>
-          <div className="grid grid-cols-1 gap-8 sm:grid-cols-2 lg:grid-cols-4">
-            {(
-              [
-                ["Прайс лист", priceListFilter, setPriceListFilter, ["Все", ...priceListOptions]],
-                ["Пользователь", userFilter, setUserFilter, ["Все", ...userOptions]],
-                ["Статус", statusFilter, setStatusFilter, ["Все", "проведен", "черновик"]],
-                ["Товар", productFilter, setProductFilter, ["Все", ...productOptions]],
-              ] as const
-            ).map(([label, value, setter, options]) => (
-              <label key={label} className="relative block border-b border-[#dbe0e8] pb-2 text-[15px] font-medium">
-                {label}
-                <select value={value} onChange={(event) => { setter(event.target.value); setPage(1) }} className="mt-1 block w-full appearance-none bg-transparent pr-6 text-[15px] font-normal outline-none">
-                  {options.map((option) => <option key={option}>{option}</option>)}
-                </select>
-                <ChevronDown className="pointer-events-none absolute right-0 top-7 h-4 w-4 text-[#9aa3b6]" />
-              </label>
-            ))}
+          <label className="relative min-w-[180px] flex-1 border-b border-[#dbe0e8] pb-1.5 md:max-w-[340px]">
+            <input value={searchDraft} onChange={(event) => setSearchDraft(event.target.value)} placeholder={t("Поиск")} aria-label={t("Поиск")} className="w-full bg-transparent pr-7 text-[15px] outline-none placeholder:text-[#9aa3b6]" />
+            <Search className="pointer-events-none absolute right-0 top-0.5 h-5 w-5 text-[#9aa3b6]" />
+          </label>
+          <div className="ml-auto flex flex-wrap items-center gap-3">
+            <BalancePagination page={state.page} pageSize={state.pageSize} count={data?.count ?? 0} sizes={PAGE_SIZES} onChange={({ page, pageSize }) => update({ page, pageSize, detailId: null })} />
+            <button type="button" onClick={list.reload} title={t("Обновить список")} aria-label={t("Обновить список")} className="flex h-9 w-9 items-center justify-center rounded-full text-[#666] hover:bg-[#f2f5f8]">
+              <RefreshCw className={`h-5 w-5 ${list.loading ? "animate-spin" : ""}`} />
+            </button>
+            <button type="button" onClick={() => void downloadExcel()} disabled={!data} title={t("Скачать Excel")} aria-label={t("Скачать Excel")} className="flex h-9 w-9 items-center justify-center rounded-full text-[#666] hover:bg-[#f2f5f8] disabled:opacity-40">
+              <FileSpreadsheet className="h-5 w-5" />
+            </button>
           </div>
-          <button onClick={() => setFilterOpen(false)} className="mt-6 rounded-sm bg-[#586174] px-6 py-3 font-bold uppercase tracking-wide text-white">Применить</button>
-        </section>
-      )}
+        </div>
 
-      <section className="overflow-x-auto">
-        <table className="min-w-[1200px] w-full border-collapse text-[15px]">
-          <thead className="bg-[#626b7e] text-white">
-            <tr>
-              <th className="px-4 py-4 text-left font-semibold">№</th>
-              <th className="px-4 py-4 text-left font-semibold">Создал</th>
-              <th className="px-4 py-4 text-left font-semibold">Дата создания</th>
-              <th className="px-4 py-4 text-left font-semibold">Прайс лист</th>
-              <th className="px-4 py-4 text-left font-semibold">Сумма переоценки</th>
-              <th className="px-4 py-4 text-left font-semibold">Статус</th>
-            </tr>
-          </thead>
-          <tbody>
-            {loading ? (
-              <tr><td colSpan={6} className="px-4 py-16 text-center text-[#9aa3b6]">Загрузка переоценок...</td></tr>
-            ) : loadError ? (
-              <tr><td colSpan={6} className="px-4 py-16 text-center text-red-600">{loadError}</td></tr>
-            ) : (
-              visible.map((row, index) => (
-                <tr key={row.id} className={`border-b border-dashed border-slate-200 ${index % 2 ? "bg-[#f6f9fc]" : "bg-white"}`}>
-                  <td className="px-4 py-4">{row.id}</td>
-                  <td className="px-4 py-4">{row.createdBy}</td>
-                  <td className="px-4 py-4">{row.createdAt}</td>
-                  <td className="px-4 py-4 font-medium text-[#4f70e7]">{row.priceList}</td>
-                  <td className="px-4 py-4 font-medium text-[#a35933]">{number(row.amount)} {row.currency}</td>
-                  <td className="px-4 py-4">
-                    <span className="inline-flex items-center gap-2">
-                      <span className="h-2.5 w-2.5 rounded-full bg-[#69cd87]" /> {row.status}
-                    </span>
+        {list.error && (
+          <div className="flex flex-wrap items-center gap-3 px-6 py-3 text-[#e57373]">
+            <span>
+              {t("Не удалось загрузить данные")}: {t(list.error)}
+            </span>
+            <button type="button" onClick={list.reload} className="font-semibold text-[#4f70e7] hover:underline">
+              {t("Повторить")}
+            </button>
+          </div>
+        )}
+
+        <div className={`overflow-x-auto ${list.loading ? "opacity-60" : ""}`}>
+          <table className="w-full min-w-[820px] border-collapse text-[14px]">
+            <thead>
+              <tr className="border-b border-[#e1e5eb]">
+                <th className={`${th} w-[8%] pl-6`}>{sortHeader("id", "№")}</th>
+                <th className={`${th} w-[24%]`}>{t("Создал")}</th>
+                <th className={`${th} w-[20%]`}>{sortHeader("created_date", t("Дата создания"))}</th>
+                <th className={`${th} w-[18%]`}>{t("Прайс лист")}</th>
+                <th className={`${th} w-[18%]`}>{sortHeader("total", t("Сумма переоценки"))}</th>
+                <th className={`${th} pr-6`}>{t("Статус")}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row) => {
+                const open = state.detailId === row.id
+                return (
+                  <Fragment key={row.id}>
+                    <tr onClick={() => update({ detailId: open ? null : row.id })} className={`cursor-pointer border-b border-[#efefef] ${open ? "bg-[#eef2ff]" : "hover:bg-[#f2f5f8]"}`}>
+                      <td className={`${td} pl-6 font-semibold`}>{row.id}</td>
+                      <td className={td}>{row.createdBy || t("Не указано")}</td>
+                      <td className={`${td} whitespace-nowrap`}>{docDate(row.createdAt, language)}</td>
+                      <td className={td}>{row.priceList || t("Не указано")}</td>
+                      <td className={`${td} whitespace-nowrap`}>{formatSum(row.total, row.currency)}</td>
+                      <td className={`${td} pr-6`}>
+                        <RepricingStatusLabel status={row.status} />
+                      </td>
+                    </tr>
+                    {open && (
+                      <tr>
+                        <td colSpan={6} className="bg-[#f2f5f8] px-2 py-3 md:px-4">
+                          <RepricingDetailPanel
+                            key={`${row.id}-${detailVersion}`}
+                            id={row.id}
+                            canEdit={canEdit}
+                            onClose={() => update({ detailId: null })}
+                            onOpen={(id) => update({ detailId: id })}
+                            onChanged={refresh}
+                            notify={notify}
+                          />
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
+                )
+              })}
+              {!rows.length && (
+                <tr>
+                  <td colSpan={6} className="px-4 py-16 text-center text-[#9aa3b6]">
+                    {list.loading ? t("Загрузка...") : list.error ? "" : t("По вашему запросу ничего не найдено")}
                   </td>
                 </tr>
-              ))
-            )}
-            {!loading && !loadError && visible.length === 0 && (
-              <tr><td colSpan={6} className="px-4 py-16 text-center text-[#9aa3b6]">Ничего не найдено</td></tr>
-            )}
-          </tbody>
-        </table>
+              )}
+            </tbody>
+          </table>
+        </div>
       </section>
 
-      {linkedModalOpen && <LinkedRevaluationModal priceLists={priceLists} onClose={() => setLinkedModalOpen(false)} />}
-      {addModalOpen && (
-        <AddRevaluationModal
-          priceLists={priceLists}
-          products={products}
-          onClose={() => setAddModalOpen(false)}
-          onCreated={handleCreated}
+      {create && (
+        <RepricingFormDialog
+          initial={create}
+          options={options.data}
+          onClose={() => setCreate(null)}
+          onSaved={(result) => {
+            setCreate(null)
+            const linked = result.linked.length ? ` ${t("Связанные переоценки")}: ${result.linked.map((doc) => `№ ${doc.id}`).join(", ")}` : ""
+            notify(`${t("Успешно сохранено")}.${linked}`)
+            refresh()
+            if (result.repricing) update({ detailId: result.repricing.id, page: 1 })
+          }}
         />
       )}
+      {linkedOpen && (
+        <RepricingLinkedDialog
+          options={options.data}
+          onClose={() => setLinkedOpen(false)}
+          onSaved={(text, firstId) => {
+            setLinkedOpen(false)
+            notify(text)
+            refresh()
+            if (firstId) update({ detailId: firstId, page: 1 })
+          }}
+        />
+      )}
+      <CashSnackbar message={message} onClose={closeSnackbar} />
     </main>
-  )
-}
-
-function LinkedRevaluationModal({ priceLists, onClose }: { priceLists: PriceList[]; onClose: () => void }) {
-  const [priceListId, setPriceListId] = useState(priceLists[0]?.id ?? 0)
-  const [saving, setSaving] = useState(false)
-
-  async function save() {
-    setSaving(true)
-    try {
-      const priceListName = priceLists.find((item) => item.id === priceListId)?.name ?? ""
-      await fetch("/api/linked-repricings", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ priceListId, priceListName }),
-      })
-    } catch {
-      // ignore network failures, still close like the rest of the app does
-    }
-    setSaving(false)
-    onClose()
-  }
-
-  return (
-    <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/40" onClick={onClose}>
-      <div onClick={(event) => event.stopPropagation()} className="w-[600px] max-w-[92vw] rounded-md bg-white shadow-2xl">
-        <header className="flex items-center justify-between border-b px-8 py-6">
-          <h2 className="text-xl font-bold uppercase tracking-wide">Добавить прайс-лист</h2>
-          <button aria-label="Закрыть" onClick={onClose}><X className="h-6 w-6 text-slate-500" /></button>
-        </header>
-        <div className="px-8 py-8">
-          <label className="relative block border-b border-[#dbe0e8] pb-2 text-[13px] font-medium text-[#586174]">
-            Прайс лист
-            <select value={priceListId} onChange={(event) => setPriceListId(Number(event.target.value))} className="mt-1 block w-full appearance-none bg-transparent pr-6 text-[16px] font-semibold text-[#17233b] outline-none">
-              {priceLists.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
-            </select>
-            <ChevronDown className="pointer-events-none absolute right-0 top-7 h-4 w-4 text-[#9aa3b6]" />
-          </label>
-        </div>
-        <footer className="flex justify-start border-t px-8 py-5">
-          <button disabled={saving} onClick={() => void save()} className="rounded-sm bg-[#69cd87] px-6 py-2.5 font-bold uppercase tracking-wide text-white disabled:opacity-60">
-            {saving ? "Сохранение..." : "Сохранить"}
-          </button>
-        </footer>
-      </div>
-    </div>
-  )
-}
-
-type NewItem = { id: number; productId: number | null; price: string }
-
-function AddRevaluationModal({
-  priceLists,
-  products,
-  onClose,
-  onCreated,
-}: {
-  priceLists: PriceList[]
-  products: Product[]
-  onClose: () => void
-  onCreated: (created: Repricing[]) => void
-}) {
-  const [priceListId, setPriceListId] = useState<number | "">("")
-  const [currency, setCurrency] = useState<(typeof currencies)[number] | "">("")
-  const [comment, setComment] = useState("")
-  const [items, setItems] = useState<NewItem[]>([{ id: 1, productId: null, price: "" }])
-  const [saving, setSaving] = useState(false)
-  const importInputRef = useRef<HTMLInputElement>(null)
-
-  const importFromExcel = (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0]
-    event.target.value = ""
-    if (!file) return
-    void (async () => {
-      const rows = await readExcelRows(file)
-      const parsed = rows
-        .filter(([productName]) => productName && !/^(товар|наименование|product)$/i.test(productName))
-        .map(([productName, price], index) => {
-          const match = products.find((product) => product.name === productName)
-          return { id: Date.now() + index, productId: match ? match.id : null, price: price || "" }
-        })
-      if (parsed.length) setItems((current) => [...current.filter((item) => item.productId || item.price), ...parsed, { id: Date.now() + parsed.length, productId: null, price: "" }])
-    })()
-  }
-
-  const updateItem = (id: number, patch: Partial<NewItem>) => {
-    setItems((current) => {
-      const next = current.map((item) => (item.id === id ? { ...item, ...patch } : item))
-      const last = next[next.length - 1]
-      if (last.productId || last.price) next.push({ id: last.id + 1, productId: null, price: "" })
-      return next
-    })
-  }
-
-  async function save() {
-    if (!priceListId || !currency) return
-    const validItems = items.filter((item) => item.productId !== null && item.price)
-    if (!validItems.length) {
-      onClose()
-      return
-    }
-    setSaving(true)
-    const created: Repricing[] = []
-    for (const item of validItems) {
-      try {
-        const response = await fetch("/api/repricings", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            priceListId,
-            productId: item.productId,
-            amount: Number(item.price) || 0,
-            currency,
-            status: "проведен",
-          }),
-        })
-        if (response.ok) created.push((await response.json()) as Repricing)
-      } catch {
-        // ignore individual row failures
-      }
-    }
-    setSaving(false)
-    onCreated(created)
-    onClose()
-  }
-
-  return (
-    <div className="fixed inset-0 z-[110] flex flex-col bg-white">
-      <header className="flex items-center justify-between border-b px-9 py-6">
-        <h2 className="text-lg font-bold uppercase tracking-wide">Добавление</h2>
-        <button aria-label="Закрыть" onClick={onClose}><X className="h-6 w-6 text-slate-500" /></button>
-      </header>
-      <div className="grid min-h-0 flex-1 grid-cols-1 overflow-y-auto md:grid-cols-[380px_1fr]">
-        <div className="space-y-8 border-b border-r-0 px-9 py-8 md:border-b-0 md:border-r">
-          <label className="relative block border-b border-[#dbe0e8] pb-2 text-[15px] font-medium">
-            Прайс лист <span className="text-red-500">*</span>
-            <select value={priceListId} onChange={(event) => setPriceListId(event.target.value ? Number(event.target.value) : "")} className="mt-1 block w-full appearance-none bg-transparent pr-6 text-[15px] font-normal outline-none">
-              <option value="" />
-              {priceLists.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
-            </select>
-            <ChevronDown className="pointer-events-none absolute right-0 top-7 h-4 w-4 text-[#9aa3b6]" />
-          </label>
-          <label className="relative block border-b border-[#dbe0e8] pb-2 text-[15px] font-medium">
-            Валюта <span className="text-red-500">*</span>
-            <select value={currency} onChange={(event) => setCurrency(event.target.value as (typeof currencies)[number])} className="mt-1 block w-full appearance-none bg-transparent pr-6 text-[15px] font-normal outline-none">
-              <option value="" />
-              {currencies.map((item) => <option key={item}>{item}</option>)}
-            </select>
-            <ChevronDown className="pointer-events-none absolute right-0 top-7 h-4 w-4 text-[#9aa3b6]" />
-          </label>
-          <label className="block border-b border-[#dbe0e8] pb-2 text-[15px] font-medium">
-            <input value={comment} onChange={(event) => setComment(event.target.value)} placeholder="Оставить комментарий..." className="mt-1 block w-full bg-transparent text-[15px] outline-none placeholder:text-[#17233b]" />
-          </label>
-        </div>
-
-        <div className="px-9 py-8">
-          <div className="mb-4 flex items-center justify-between">
-            <h3 className="font-medium text-[#586174]">Список товаров</h3>
-            <input ref={importInputRef} type="file" accept=".csv,.xls,.xlsx" onChange={importFromExcel} className="hidden" />
-            <button type="button" onClick={() => importInputRef.current?.click()} className="text-sm font-medium text-[#4f70e7]"><Upload className="mr-1 inline h-4 w-4" />импортировать с excel</button>
-          </div>
-          <div className="rounded bg-[#f2f5f8]">
-            <div className="grid grid-cols-[1fr_240px_60px] items-center gap-6 px-4 py-3 text-sm font-medium text-[#586174]">
-              <span>Наименование</span>
-              <span>Новая цена</span>
-              <span />
-            </div>
-            {items.map((item) => (
-              <div key={item.id} className="grid grid-cols-[1fr_240px_60px] items-center gap-6 border-t border-white px-4 py-3">
-                <select
-                  value={item.productId ?? ""}
-                  onChange={(event) => updateItem(item.id, { productId: event.target.value ? Number(event.target.value) : null })}
-                  className="border-b border-[#dbe0e8] bg-transparent py-1 text-[15px] outline-none"
-                >
-                  <option value="" />
-                  {products.map((product) => <option key={product.id} value={product.id}>{product.name}</option>)}
-                </select>
-                <input
-                  value={item.price}
-                  onChange={(event) => updateItem(item.id, { price: event.target.value })}
-                  placeholder="0"
-                  className="border-b border-[#dbe0e8] bg-transparent py-1 text-[15px] outline-none"
-                />
-                <span className={`text-lg ${item.productId && item.price ? "text-[#4f70e7]" : "text-[#c7ccd6]"}`}>✓</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-      <footer className="flex justify-end border-t px-9 py-5">
-        <button type="button" disabled={saving} onClick={() => void save()} className="font-bold uppercase tracking-wide text-[#4f70e7] disabled:opacity-60">
-          {saving ? "Сохранение..." : "Сохранить"}
-        </button>
-      </footer>
-    </div>
   )
 }

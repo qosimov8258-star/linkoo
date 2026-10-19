@@ -1,409 +1,208 @@
 "use client"
 
+import { MoreVertical, Pencil, Trash2 } from "lucide-react"
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
+
+import { CashSnackbar, useCanWrite, type SnackbarMessage } from "@/components/analytics/cash-management-shared"
+import { CatalogPageLayout } from "@/components/dashboard/catalog-sidebar"
+import { formatStatementDate } from "@/lib/finance/dates"
+import { useLanguage } from "@/lib/i18n/language-context"
+import { BrandFormDialog } from "./brands-form"
+import { BRANDS_API, BRAND_ORDERINGS, type Brand, type BrandListResult } from "./brands-data"
 import {
-  ChevronLeft,
-  ChevronRight,
-  FileText,
-  ImagePlus,
-  MoreVertical,
-  Pencil,
-  Plus,
-  Search,
-  Trash2,
-  X,
-} from "lucide-react"
-import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react"
+  DictionaryDeleteDialog,
+  DictionaryToolbar,
+  MessageRow,
+  SortHeader,
+  dictionaryListUrl,
+  useClampPage,
+  useDictionaryList,
+  useDictionaryUrlState,
+} from "./dictionaries-shared"
 
-import { downloadExcelTable } from "@/lib/excel-export"
-import { mapHeaderColumns, readExcelRows } from "@/lib/excel-import"
-import { brandOrganizations as organizations, type Brand } from "./brands-data"
+// "Бренд" (demo #/brand, Settings → Бренд; API main/brand/?thumbnail_type=large).
+// Settings side menu + "+ Добавить бренд", search, paginator and the grid
+// Id | Фото | Наименование | Организация | Дата создания (all sortable) with a ⋮ menu
+// (Изменить / Удалить) per row. Create / update dialog = brands-form.tsx, delete confirm =
+// dictionaries-shared.tsx. URL state: ?search ?ordering ?page ?pageSize ?openCreateDialog=true,
+// ?brand=<id>&openUpdateDialog=true | openDeleteDialog=true.
 
-const IMPORT_HEADER_ALIASES: Record<string, string> = {
-  "наименование": "name", "название": "name", "name": "name",
-  "организация": "organization", "organization": "organization",
-}
-
-function emptyDraft() {
-  return { name: "", organization: "", photoUrl: null as string | null }
-}
+const COLUMNS = 6
 
 export function BrandsView({ embedded = false }: { embedded?: boolean }) {
-  const [brands, setBrands] = useState<Brand[]>([])
-  const [loading, setLoading] = useState(true)
-  const [loadError, setLoadError] = useState("")
-  const [query, setQuery] = useState("")
-  const [page, setPage] = useState(1)
-  const [openMenuId, setOpenMenuId] = useState<number | null>(null)
-  const [modalOpen, setModalOpen] = useState(false)
-  const [editingId, setEditingId] = useState<number | null>(null)
-  const [draft, setDraft] = useState(emptyDraft)
-  const [formError, setFormError] = useState("")
-  const [saving, setSaving] = useState(false)
-  const fileInputRef = useRef<HTMLInputElement>(null)
-  const [importOpen, setImportOpen] = useState(false)
-  const [importFile, setImportFile] = useState<File | null>(null)
-  const [importSaving, setImportSaving] = useState(false)
-  const importInputRef = useRef<HTMLInputElement>(null)
-  const pageSize = 25
+  if (embedded) return <BrandsGrid />
+  return (
+    <CatalogPageLayout>
+      <BrandsGrid />
+    </CatalogPageLayout>
+  )
+}
 
-  useEffect(() => {
-    let cancelled = false
-    setLoading(true)
-    fetch("/api/brands")
-      .then(async (response) => {
-        if (!response.ok) throw new Error("Не удалось загрузить бренды")
-        return (await response.json()) as Brand[]
-      })
-      .then((data) => {
-        if (cancelled) return
-        setBrands(data)
-        setLoadError("")
-      })
-      .catch(() => {
-        if (!cancelled) setLoadError("Не удалось загрузить бренды с сервера")
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false)
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [])
+function BrandsGrid() {
+  const { t, language } = useLanguage()
+  const { state, update, dialog, setDialog } = useDictionaryUrlState("brand", BRAND_ORDERINGS, 25)
+  const { data, loading, error, reload } = useDictionaryList<BrandListResult>(dictionaryListUrl(BRANDS_API, state, false))
+  const [notice, setNotice] = useState<SnackbarMessage | null>(null)
+  const canEdit = useCanWrite()
+  const closeNotice = useCallback(() => setNotice(null), [])
+  const closeDialog = useCallback(() => setDialog(null), [setDialog])
+  useClampPage(data?.count, loading, state, update)
 
-  const filtered = useMemo(() => {
-    if (!query.trim()) return brands
-    const q = query.trim().toLowerCase()
-    return brands.filter((brand) => brand.name.toLowerCase().includes(q))
-  }, [brands, query])
-
-  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize))
-  const safePage = Math.min(page, pageCount)
-  const visible = filtered.slice((safePage - 1) * pageSize, safePage * pageSize)
-
-  function openCreate() {
-    setDraft(emptyDraft())
-    setFormError("")
-    setEditingId(null)
-    setModalOpen(true)
-  }
-
-  function openEdit(brand: Brand) {
-    setDraft({ name: brand.name, organization: brand.organization === "Не указано" ? "" : brand.organization, photoUrl: brand.photoUrl && brand.photoUrl !== "brand" ? brand.photoUrl : null })
-    setFormError("")
-    setEditingId(brand.id)
-    setModalOpen(true)
-    setOpenMenuId(null)
-  }
-
-  async function remove(id: number) {
-    if (!window.confirm("Удалить бренд?")) return
-    try {
-      const response = await fetch(`/api/brands/${id}`, { method: "DELETE" })
-      if (!response.ok) {
-        const data = await response.json().catch(() => ({}))
-        window.alert(data.error || "Не удалось удалить бренд")
-        return
-      }
-      setBrands((current) => current.filter((brand) => brand.id !== id))
-      setOpenMenuId(null)
-    } catch {
-      window.alert("Сервер недоступен, попробуйте ещё раз")
-    }
-  }
-
-  function pickPhoto(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0]
-    if (!file) return
-    const reader = new FileReader()
-    reader.onload = () => setDraft((value) => ({ ...value, photoUrl: String(reader.result ?? "") }))
-    reader.readAsDataURL(file)
-    event.target.value = ""
-  }
-
-  async function save(event: FormEvent) {
-    event.preventDefault()
-    const name = draft.name.trim()
-    if (!name || !draft.organization) return
-
-    setSaving(true)
-    setFormError("")
-    try {
-      const isEdit = editingId !== null
-      const response = await fetch(isEdit ? `/api/brands/${editingId}` : "/api/brands", {
-        method: isEdit ? "PUT" : "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, organization: draft.organization, photoUrl: draft.photoUrl }),
-      })
-      if (!response.ok) {
-        const data = await response.json().catch(() => ({}))
-        setFormError(data.error || "Не удалось сохранить бренд")
-        return
-      }
-      const saved = (await response.json()) as Brand
-      setBrands((current) => (isEdit ? current.map((brand) => (brand.id === editingId ? saved : brand)) : [saved, ...current]))
-      setModalOpen(false)
-    } catch {
-      setFormError("Сервер недоступен, попробуйте ещё раз")
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  function downloadTemplate() {
-    downloadExcelTable("brands-template", [["Наименование", "Организация"]])
-  }
-
-  function pickImportFile(event: ChangeEvent<HTMLInputElement>) {
-    setImportFile(event.target.files?.[0] ?? null)
-  }
-
-  async function saveImport() {
-    if (!importFile) return
-    setImportSaving(true)
-    try {
-      const rows = await readExcelRows(importFile)
-      if (!rows.length) {
-        window.alert("Не удалось найти данные для импорта в выбранном файле")
-        return
-      }
-      const fieldByIndex = mapHeaderColumns(rows[0], IMPORT_HEADER_ALIASES)
-      const hasHeader = Array.from(fieldByIndex.values()).includes("name")
-      const dataRows = hasHeader ? rows.slice(1) : rows
-
-      const parsed: { name: string; organization: string }[] = []
-      for (const row of dataRows) {
-        const record: Record<string, string> = {}
-        if (hasHeader) {
-          row.forEach((cell, index) => {
-            const field = fieldByIndex.get(index)
-            if (field) record[field] = cell
-          })
-        } else {
-          record.name = row[0] ?? ""
-          record.organization = row[1] ?? ""
-        }
-        if (!record.name || /^(наименование|название|name)$/i.test(record.name)) continue
-        parsed.push({ name: record.name, organization: organizations.includes(record.organization) ? record.organization : organizations[0] })
-      }
-
-      if (!parsed.length) {
-        window.alert("Не удалось найти данные для импорта в выбранном файле")
-        return
-      }
-
-      const created: Brand[] = []
-      let failed = 0
-      for (const item of parsed) {
-        try {
-          const response = await fetch("/api/brands", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ name: item.name, organization: item.organization, photoUrl: null }),
-          })
-          if (response.ok) created.push((await response.json()) as Brand)
-          else failed += 1
-        } catch {
-          failed += 1
-        }
-      }
-      if (created.length) setBrands((current) => [...created, ...current])
-      if (failed) window.alert(`Импортировано ${created.length} из ${parsed.length}. Не удалось сохранить: ${failed}`)
-    } finally {
-      setImportSaving(false)
-      setImportOpen(false)
-      setImportFile(null)
-    }
-  }
+  const rows = data?.results ?? []
+  const created = (brand: Brand) => (brand.createdAt ? formatStatementDate(brand.createdAt, language, false).replace(/\s*г\.$/, "") : brand.createdDate)
+  const sort = (next: string) => update({ ordering: next, page: 1 })
 
   return (
-    <main className={embedded ? "min-w-0 flex-1" : "min-h-[calc(100vh-4rem)] bg-[#f1f4f8] px-9 py-5"}>
-      {!embedded && (
-        <header className="mb-5 flex items-center justify-between">
-          <h1 className="text-2xl font-bold text-slate-600">Бренд</h1>
-        </header>
-      )}
+    <section className="min-w-0 flex-1 px-6 pb-6 pt-4 lg:px-9">
+      <DictionaryToolbar addLabel={canEdit ? t("Добавить бренд") : null} onAdd={() => setDialog({ kind: "create" })} state={state} update={update} count={data?.count ?? 0} />
 
-      <section className="overflow-hidden rounded bg-white shadow">
-        <div className="flex flex-wrap items-center gap-4 px-5 py-4">
-          <button type="button" onClick={openCreate} className="inline-flex items-center gap-2 text-[16px] font-medium text-[#4f70e7] hover:underline">
-            <Plus className="h-4 w-4" /> Добавить бренд
-          </button>
-          <button type="button" onClick={() => setImportOpen(true)} className="inline-flex items-center gap-2 rounded bg-[#4f70e7] px-5 py-2.5 font-semibold text-white hover:brightness-95">
-            <FileText className="h-4 w-4" /> Импорт с Excel
-          </button>
-          <label className="relative ml-auto w-64">
-            <input
-              value={query}
-              onChange={(event) => { setQuery(event.target.value); setPage(1) }}
-              placeholder="Поиск"
-              className="w-full border-b border-slate-300 py-2 pr-10 outline-none focus:border-[#4f70e7]"
-            />
-            <Search className="absolute right-2 top-2 h-5 w-5 text-slate-300" />
-          </label>
-          <span className="text-slate-500">25</span>
-          <span className="text-slate-500">
-            {filtered.length ? (safePage - 1) * pageSize + 1 : 0} - {Math.min(safePage * pageSize, filtered.length)} из {filtered.length}
-          </span>
-          <button type="button" onClick={() => setPage((value) => Math.max(1, value - 1))} disabled={safePage <= 1} aria-label="Назад" className="disabled:opacity-30">
-            <ChevronLeft className="h-5 w-5 text-slate-400" />
-          </button>
-          <button type="button" onClick={() => setPage((value) => Math.min(pageCount, value + 1))} disabled={safePage >= pageCount} aria-label="Вперед" className="disabled:opacity-30">
-            <ChevronRight className="h-5 w-5 text-slate-400" />
-          </button>
-        </div>
-
-        <table className="w-full text-left">
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[760px] text-left text-[14px]">
           <thead className="bg-[#626b7e] text-white">
             <tr>
-              <th className="px-9 py-5">Id</th>
-              <th className="px-5 py-5">Фото</th>
-              <th className="px-5 py-5">Наименование</th>
-              <th className="px-5 py-5">Организация</th>
-              <th className="px-5 py-5">Дата создания</th>
-              <th className="w-12" />
+              <SortHeader label="Id" field="id" ordering={state.ordering} onSort={sort} className="w-20 pl-6" />
+              <SortHeader label={t("Фото")} field="image" ordering={state.ordering} onSort={sort} className="w-28" />
+              <SortHeader label={t("Наименование")} field="name" ordering={state.ordering} onSort={sort} />
+              <SortHeader label={t("Организация")} field="division" ordering={state.ordering} onSort={sort} />
+              <SortHeader label={t("Дата создания")} field="created_date" ordering={state.ordering} onSort={sort} />
+              <th className="w-16" />
             </tr>
           </thead>
-          <tbody>
-            {loading ? (
-              <tr><td colSpan={6} className="px-9 py-10 text-center text-slate-400">Загрузка брендов...</td></tr>
-            ) : loadError ? (
-              <tr><td colSpan={6} className="px-9 py-10 text-center text-red-600">{loadError}</td></tr>
-            ) : visible.map((brand) => (
-              <tr key={brand.id} onClick={() => openEdit(brand)} className="cursor-pointer border-b border-dashed border-slate-300 hover:bg-slate-50">
-                <td className="px-9 py-4">{brand.id}</td>
-                <td className="px-5 py-4">
-                  {brand.photoUrl && brand.photoUrl !== "brand" && (
-                    <img src={brand.photoUrl} alt={brand.name} className="h-9 w-9 rounded object-cover" />
-                  )}
-                  {brand.photoUrl === "brand" && (
-                    <span className="flex h-9 w-9 items-center justify-center rounded border border-slate-200 bg-slate-50 text-slate-300">
-                      <ImagePlus className="h-4 w-4" />
+          <tbody className={loading && data ? "opacity-60" : undefined}>
+            {loading && !data ? (
+              <MessageRow colSpan={COLUMNS}>{t("Загрузка...")}</MessageRow>
+            ) : error ? (
+              <MessageRow colSpan={COLUMNS} tone="error">
+                {t(error)}
+              </MessageRow>
+            ) : rows.length === 0 ? (
+              <MessageRow colSpan={COLUMNS}>{t("По вашему запросу ничего не найдено")}</MessageRow>
+            ) : (
+              rows.map((brand) => (
+                <tr key={brand.id} className="border-b border-dashed border-slate-300 hover:bg-slate-50">
+                  <td className="py-3 pl-6 pr-4 text-[#586174]">{brand.id}</td>
+                  <td className="px-4 py-2">
+                    <span className="flex h-10 w-10 items-center justify-center overflow-hidden">
+                      {/* eslint-disable-next-line @next/next/no-img-element -- private API pictures */}
+                      {brand.photoUrl && <img src={brand.photoUrl} alt="" className="max-h-10 max-w-10 object-contain" />}
                     </span>
-                  )}
-                </td>
-                <td className="px-5 py-4 text-[#4f70e7]">{brand.name}</td>
-                <td className="px-5 py-4">{brand.organization}</td>
-                <td className="px-5 py-4">{brand.createdDate}</td>
-                <td className="relative px-3 py-4 text-right">
-                  <button
-                    type="button"
-                    onClick={(event) => { event.stopPropagation(); setOpenMenuId((current) => (current === brand.id ? null : brand.id)) }}
-                    aria-label="Ещё"
-                    className="text-slate-500 hover:text-slate-800"
-                  >
-                    <MoreVertical className="h-5 w-5" />
-                  </button>
-                  {openMenuId === brand.id && (
-                    <div onClick={(event) => event.stopPropagation()} className="absolute right-3 top-12 z-30 w-44 rounded border border-slate-200 bg-white py-1 text-left shadow-xl">
-                      <button type="button" onClick={() => openEdit(brand)} className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm hover:bg-slate-50">
-                        <Pencil className="h-4 w-4" /> Изменить
-                      </button>
-                      <button type="button" onClick={() => remove(brand.id)} className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm text-rose-500 hover:bg-slate-50">
-                        <Trash2 className="h-4 w-4" /> Удалить
-                      </button>
-                    </div>
-                  )}
-                </td>
-              </tr>
-            ))}
+                  </td>
+                  <td className="px-4 py-3 font-medium">{brand.name}</td>
+                  <td className="px-4 py-3">{brand.organization || t("Не указано")}</td>
+                  <td className="whitespace-nowrap px-4 py-3">{created(brand)}</td>
+                  <td className="px-2 py-3 text-right">
+                    {canEdit && (
+                      <RowMenu
+                        onEdit={() => setDialog({ kind: "update", id: brand.id })}
+                        onDelete={() => setDialog({ kind: "delete", id: brand.id, name: brand.name })}
+                      />
+                    )}
+                  </td>
+                </tr>
+              ))
+            )}
           </tbody>
         </table>
+      </div>
 
-        {!loading && !loadError && visible.length === 0 && (
-          <div className="flex min-h-[240px] flex-col items-center justify-center gap-3 py-10">
-            <p className="text-lg text-slate-400">По вашему запросу ничего не найдено</p>
-          </div>
-        )}
-      </section>
-
-      {modalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
-          <form onSubmit={save} className="flex max-h-[90vh] w-full max-w-lg flex-col rounded bg-white">
-            <header className="flex items-center justify-between border-b p-6">
-              <b className="uppercase">{editingId !== null ? "Изменить бренд" : "Добавить бренд"}</b>
-              <button type="button" onClick={() => setModalOpen(false)} aria-label="Закрыть"><X className="h-5 w-5" /></button>
-            </header>
-            <div className="flex-1 space-y-5 overflow-y-auto p-8">
-              <label className="block border-b border-slate-200 pb-2 font-medium">
-                Наименование <span className="text-red-500">*</span>
-                <input autoFocus value={draft.name} onChange={(event) => setDraft((value) => ({ ...value, name: event.target.value }))} className="mt-2 block w-full outline-none" />
-              </label>
-              <label className="block border-b border-slate-200 pb-2 font-medium">
-                Организация <span className="text-red-500">*</span>
-                <select value={draft.organization} onChange={(event) => setDraft((value) => ({ ...value, organization: event.target.value }))} className="mt-2 block w-full bg-white outline-none">
-                  <option value="" disabled>Выберите организацию</option>
-                  {organizations.map((org) => <option key={org} value={org}>{org}</option>)}
-                </select>
-              </label>
-
-              <input ref={fileInputRef} type="file" accept="image/*" onChange={pickPhoto} className="hidden" />
-              {draft.photoUrl ? (
-                <div className="relative mx-auto w-fit">
-                  <img src={draft.photoUrl} alt="Фото бренда" className="h-40 w-40 rounded object-cover" />
-                  <button
-                    type="button"
-                    onClick={() => setDraft((value) => ({ ...value, photoUrl: null }))}
-                    aria-label="Удалить фото"
-                    className="absolute -right-2 -top-2 rounded-full bg-white p-1 text-slate-500 shadow hover:text-rose-500"
-                  >
-                    <X className="h-4 w-4" />
-                  </button>
-                  <button type="button" onClick={() => fileInputRef.current?.click()} className="mt-2 block w-full text-center text-sm text-[#4f70e7] hover:underline">
-                    Заменить фото
-                  </button>
-                </div>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  className="mx-auto flex h-40 w-40 flex-col items-center justify-center gap-2 rounded border-2 border-dashed border-slate-300 text-slate-500 hover:border-[#4f70e7] hover:text-[#4f70e7]"
-                >
-                  <ImagePlus className="h-8 w-8" />
-                  Добавьте фото
-                </button>
-              )}
-              {formError && <p className="text-sm font-medium text-rose-600">{formError}</p>}
-            </div>
-            <footer className="flex justify-end border-t p-5">
-              <button type="submit" disabled={saving} className="rounded bg-[#6ccd8b] px-6 py-3 font-semibold text-white hover:brightness-95 disabled:opacity-60">
-                {saving ? "Сохранение..." : "Сохранить"}
-              </button>
-            </footer>
-          </form>
-        </div>
+      {(dialog?.kind === "create" || dialog?.kind === "update") && (
+        <BrandFormDialog
+          key={dialog.kind === "update" ? `update-${dialog.id}` : "create"}
+          brandId={dialog.kind === "update" ? dialog.id : null}
+          onClose={closeDialog}
+          onSaved={() => {
+            setDialog(null)
+            setNotice({ text: "Успешно сохранено", tone: "success" })
+            reload()
+          }}
+        />
       )}
 
-      {importOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
-          <div className="w-full max-w-md rounded bg-white">
-            <header className="flex items-center justify-between border-b p-6">
-              <b className="uppercase">Импорт с Excel</b>
-              <button type="button" onClick={() => { setImportOpen(false); setImportFile(null) }} aria-label="Закрыть">
-                <X className="h-5 w-5" />
-              </button>
-            </header>
-            <div className="p-8">
-              <button type="button" onClick={downloadTemplate} className="mb-4 font-semibold text-[#4f70e7] hover:underline">
-                1. Скачать шаблон
-              </button>
-              <input ref={importInputRef} type="file" accept=".csv,.xls,.xlsx" onChange={pickImportFile} className="hidden" />
-              <button
-                type="button"
-                onClick={() => importInputRef.current?.click()}
-                className="flex w-full flex-col items-center justify-center gap-3 rounded border-2 border-dashed border-slate-300 py-10 text-slate-500 hover:border-[#4f70e7] hover:text-[#4f70e7]"
-              >
-                <FileText className="h-8 w-8" />
-                {importFile ? importFile.name : "Добавьте файл Excel или нажмите для выбора"}
-              </button>
-            </div>
-            <footer className="flex justify-end border-t p-5">
-              <button type="button" disabled={!importFile || importSaving} onClick={saveImport} className="rounded bg-[#6ccd8b] px-5 py-3 font-semibold text-white hover:brightness-95 disabled:opacity-40">
-                {importSaving ? "Импорт..." : "Сохранить"}
-              </button>
-            </footer>
-          </div>
+      {dialog?.kind === "delete" && (
+        <DictionaryDeleteDialog
+          key={`delete-${dialog.id}`}
+          api={BRANDS_API}
+          id={dialog.id}
+          name={dialog.name}
+          onClose={closeDialog}
+          onDeleted={() => {
+            setDialog(null)
+            setNotice({ text: "Успешно удалено", tone: "success" })
+            reload()
+          }}
+          onFailed={(message) => setNotice({ text: message, tone: "error" })}
+        />
+      )}
+
+      <CashSnackbar message={notice} onClose={closeNotice} />
+    </section>
+  )
+}
+
+/** Demo IconMenu ⋮: Изменить / Удалить (fixed, so the table's scroll box never clips it). */
+function RowMenu({ onEdit, onDelete }: { onEdit: () => void; onDelete: () => void }) {
+  const { t } = useLanguage()
+  const [anchor, setAnchor] = useState<{ top: number; right: number } | null>(null)
+  const ref = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!anchor) return
+    const close = () => setAnchor(null)
+    const onDown = (event: MouseEvent) => {
+      if (ref.current && !ref.current.contains(event.target as Node)) close()
+    }
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") close()
+    }
+    document.addEventListener("mousedown", onDown)
+    document.addEventListener("keydown", onKey)
+    window.addEventListener("scroll", close, true)
+    window.addEventListener("resize", close)
+    return () => {
+      document.removeEventListener("mousedown", onDown)
+      document.removeEventListener("keydown", onKey)
+      window.removeEventListener("scroll", close, true)
+      window.removeEventListener("resize", close)
+    }
+  }, [anchor])
+  const toggle = (button: HTMLButtonElement) => {
+    if (anchor) return setAnchor(null)
+    const rect = button.getBoundingClientRect()
+    // Below the button when there is room, otherwise above it (menu ≈ 100 px).
+    const top = rect.bottom + 100 > window.innerHeight ? Math.max(8, rect.top - 100) : rect.top
+    setAnchor({ top, right: Math.max(8, window.innerWidth - rect.right) })
+  }
+  const item = (label: string, icon: ReactNode, action: () => void) => (
+    <button
+      type="button"
+      role="menuitem"
+      onClick={() => {
+        setAnchor(null)
+        action()
+      }}
+      className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-[13px] text-[#333] hover:bg-slate-100"
+    >
+      {icon}
+      {label}
+    </button>
+  )
+  return (
+    <div ref={ref} className="inline-block">
+      <button
+        type="button"
+        onClick={(event) => toggle(event.currentTarget)}
+        aria-haspopup="menu"
+        aria-expanded={Boolean(anchor)}
+        aria-label={t("Действия")}
+        className="rounded-full p-2 text-[#666] hover:bg-slate-100"
+      >
+        <MoreVertical className="h-5 w-5" />
+      </button>
+      {anchor && (
+        <div role="menu" style={{ top: anchor.top, right: anchor.right }} className="fixed z-50 min-w-[160px] rounded bg-white py-1 text-left shadow-lg ring-1 ring-black/5">
+          {item(t("Изменить"), <Pencil className="h-4 w-4 text-[#666]" />, onEdit)}
+          {item(t("Удалить"), <Trash2 className="h-4 w-4 text-[#666]" />, onDelete)}
         </div>
       )}
-    </main>
+    </div>
   )
 }

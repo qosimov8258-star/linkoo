@@ -22,8 +22,6 @@ type Branch = {
   currency: "SUM" | "USD" | "Euro"
 }
 
-const priceLists = ["donalik", "11111", "123123123", "asus vivobook", "attack", "Attack250", "Шт14", "savdo", "Bozor narx", "tovar"]
-
 const seedBranches: Branch[] = []
 
 export const branchNames = seedBranches.map((branch) => branch.name)
@@ -34,13 +32,28 @@ export function BranchesView({ embedded = false }: { embedded?: boolean }) {
   const [page, setPage] = useState(1)
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const [editing, setEditing] = useState<Branch | null>(null)
-  const [draft, setDraft] = useState({ name: "", priceList: priceLists[0], currency: "SUM" as Branch["currency"], debtTracking: true, isMain: false })
+  // Price lists come from "Прайс-листы" (active ones); "" = not set.
+  const [priceLists, setPriceLists] = useState<string[]>([])
+  const [draft, setDraft] = useState({ name: "", priceList: "", currency: "SUM" as Branch["currency"], debtTracking: true, isMain: false })
   const [importOpen, setImportOpen] = useState(false)
   const [importFile, setImportFile] = useState<File | null>(null)
   const [importSaving, setImportSaving] = useState(false)
   const importInputRef = useRef<HTMLInputElement>(null)
   const [loadError, setLoadError] = useState("")
   const pageSize = 25
+
+  useEffect(() => {
+    let cancelled = false
+    fetch("/api/price-lists")
+      .then(async (response) => (response.ok ? ((await response.json()) as { name: string }[]) : []))
+      .then((data) => {
+        if (!cancelled) setPriceLists(data.map((item) => item.name).filter(Boolean))
+      })
+      .catch(() => undefined)
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -70,8 +83,8 @@ export function BranchesView({ embedded = false }: { embedded?: boolean }) {
   const selected = selectedId !== null ? branches.find((branch) => branch.id === selectedId) ?? null : null
 
   function openCreate() {
-    setDraft({ name: "", priceList: priceLists[0], currency: "SUM", debtTracking: true, isMain: false })
-    setEditing({ id: 0, name: "", date: "", debtTracking: true, isMain: false, priceList: priceLists[0], currency: "SUM" })
+    setDraft({ name: "", priceList: priceLists[0] ?? "", currency: "SUM", debtTracking: true, isMain: false })
+    setEditing({ id: 0, name: "", date: "", debtTracking: true, isMain: false, priceList: priceLists[0] ?? "", currency: "SUM" })
   }
 
   function openEdit(branch: Branch) {
@@ -170,7 +183,7 @@ export function BranchesView({ embedded = false }: { embedded?: boolean }) {
         const currency = (["SUM", "USD", "Euro"] as const).find((item) => item.toLowerCase() === record.currency?.toLowerCase()) ?? "SUM"
         parsed.push({
           name: record.name,
-          priceList: priceLists.includes(record.priceList) ? record.priceList : priceLists[0],
+          priceList: priceLists.find((item) => item.toLowerCase() === record.priceList?.trim().toLowerCase()) ?? "",
           currency,
         })
       }
@@ -316,7 +329,8 @@ export function BranchesView({ embedded = false }: { embedded?: boolean }) {
             <input autoFocus value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} className="mb-4 w-full rounded border border-slate-300 px-3 py-2.5" />
             <label className="mb-2 block font-medium">Прайс лист</label>
             <select value={draft.priceList} onChange={(event) => setDraft({ ...draft, priceList: event.target.value })} className="mb-4 w-full rounded border border-slate-300 px-3 py-2.5">
-              {priceLists.map((item) => (
+              <option value="">Не указано</option>
+              {[...priceLists, ...(draft.priceList && !priceLists.includes(draft.priceList) ? [draft.priceList] : [])].map((item) => (
                 <option key={item}>{item}</option>
               ))}
             </select>

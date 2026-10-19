@@ -1,15 +1,33 @@
-export type UnitOfMeasure = { id: number; name: string; createdDate: string; parentId: number | null }
+import type { DictionaryUsage } from "./dictionaries-data"
 
-export const knownUnitsOfMeasure: UnitOfMeasure[] = [
-  { id: 1, name: "шт15", createdDate: "11 апр. 2026", parentId: null },
-  { id: 2, name: "блок14", createdDate: "07 янв. 2026", parentId: null },
-  { id: 3, name: "шт14", createdDate: "07 янв. 2026", parentId: 2 },
-  { id: 4, name: "тонна", createdDate: "06 янв. 2026", parentId: null },
-  { id: 5, name: "Qop", createdDate: "19 дек. 2025", parentId: null },
-  { id: 6, name: "block", createdDate: "20 нояб. 2025", parentId: null },
-  { id: 7, name: "новый шт", createdDate: "10 дек. 2025", parentId: 6 },
-  { id: 8, name: "Комплект", createdDate: "20 нояб. 2025", parentId: null },
-  { id: 9, name: "blok2", createdDate: "20 нояб. 2025", parentId: 8 },
-  { id: 10, name: "blok1", createdDate: "20 нояб. 2025", parentId: null },
-  { id: 11, name: "plok", createdDate: "09 июля 2025", parentId: null },
-]
+// "Ед.измерения" (demo #/measurement, API main/measurement/ and the tree
+// main/measurement/hierarchy/). Two levels (the parent picker lists top-level units only,
+// demo params {parent: 0}). Products store the unit NAME in unit / product_group / sub_unit.
+
+export const UNITS_OF_MEASURE_API = "/api/units-of-measure"
+
+/** The first four fields are the original GET /api/units-of-measure array shape. */
+export type UnitOfMeasure = {
+  id: number
+  name: string
+  /** "08 окт. 2026". */
+  createdDate: string
+  parentId: number | null
+  /** "Развесной товар" (demo is_weighted). */
+  isWeighted: boolean
+  /** Local ISO "YYYY-MM-DDTHH:MM:SS". */
+  createdAt: string
+}
+
+export type UnitOfMeasureNode = UnitOfMeasure & { parentName: string; children: UnitOfMeasureNode[] }
+
+/** GET /api/units-of-measure?view=tree … — top-level units (paged) with their children. */
+export type UnitOfMeasureTreeResult = { count: number; results: UnitOfMeasureNode[] }
+
+/** GET /api/units-of-measure/[id] (?usage=1 adds `usage`). */
+export type UnitOfMeasureDetail = UnitOfMeasure & { parentName: string; childCount: number; usage?: DictionaryUsage[] }
+
+export type UnitOfMeasurePayload = { name: string; parentId: number | null; isWeighted: boolean }
+
+export const UNIT_ORDERINGS = ["name", "created_date"] as const
+export type UnitOrderingField = (typeof UNIT_ORDERINGS)[number]

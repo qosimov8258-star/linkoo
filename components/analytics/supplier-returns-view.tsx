@@ -144,7 +144,7 @@ export function SupplierReturnsView({ embedded = false }: { embedded?: boolean }
       if (priceListsRes?.ok) setPriceListOptions(((await priceListsRes.json()) as { name: string }[]).map((item) => item.name))
       if (branchesRes?.ok) setBranchOptions(((await branchesRes.json()) as { name: string }[]).map((item) => item.name))
       const catalog: { name: string; cost?: number }[] = []
-      if (productsRes?.ok) catalog.push(...((await productsRes.json()) as { name: string; cost: number }[]))
+      if (productsRes?.ok) catalog.push(...((await productsRes.json()) as { name: string; cost: number; deleted?: boolean }[]).filter((item) => !item.deleted))
       if (rawMaterialsRes?.ok) catalog.push(...((await rawMaterialsRes.json()) as { name: string }[]))
       setProductOptions(Array.from(new Set(catalog.map((item) => item.name))).sort((a, b) => a.localeCompare(b, "ru")))
       setProductCosts(Object.fromEntries(catalog.filter((item) => item.cost).map((item) => [item.name, Number(item.cost)])))

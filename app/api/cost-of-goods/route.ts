@@ -1,51 +1,28 @@
-import { NextResponse } from "next/server"
-import { z } from "zod"
+import { NextRequest, NextResponse } from "next/server"
 
 import { getCurrentUser } from "@/lib/current-user"
+import { entryBodySchema, entryResponse, legacyRow, parseListQuery, toEntryInput } from "@/lib/net-cost-api"
+import { createNetCostEntry } from "@/lib/net-cost-entries"
+import { listNetCost } from "@/lib/net-cost-repo"
 import { requireRole } from "@/lib/rbac"
 import { parseJsonBody } from "@/lib/validation"
-import { createCostOfGoodsRow, listCostOfGoodsRows } from "@/lib/cost-of-goods-repo"
 
-const costOfGoodsRowSchema = z.object({
-  name: z.string().trim().min(1),
-  warehouse: z.string().optional(),
-  date: z.string().optional(),
-  avgCost: z.coerce.number().catch(0),
-  cost: z.coerce.number().catch(0),
-  passed: z.boolean().optional(),
-  supplyNumber: z.string().optional(),
-  calculatedBalance: z.coerce.number().catch(0),
-  actualBalance: z.coerce.number().catch(0),
-  totalRevaluation: z.coerce.number().catch(0),
-  lastCheckTime: z.string().optional(),
-})
-
-export async function GET() {
+/** "Себестоимость" list (demo stock/net_cost/). With page / pageSize: `{count, page, pageSize,
+ * results, currency}`; without: the legacy array of {id, name, warehouse, avgCost, cost, passed, …}. */
+export async function GET(request: NextRequest) {
   const user = await getCurrentUser()
   if (!user) return NextResponse.json({ error: "Tizimga kirilmagan" }, { status: 401 })
-  return NextResponse.json((await listCostOfGoodsRows()))
+  const { query, paged } = parseListQuery(request.url)
+  if (paged) return NextResponse.json(await listNetCost(query))
+  const all = await listNetCost({ ...query, page: 1, pageSize: 0 })
+  return NextResponse.json(all.results.map(legacyRow))
 }
 
-export async function POST(request: Request) {
+/** "Добавить себестоимость": {item: "product:<id>", cost, date: YYYY-MM-DD, warehouse ('' = Общий), comment}. */
+export async function POST(request: NextRequest) {
   const auth = await requireRole("manager")
   if ("error" in auth) return auth.error
-
-  const parsed = await parseJsonBody(request, costOfGoodsRowSchema)
+  const parsed = await parseJsonBody(request, entryBodySchema)
   if (parsed.error) return parsed.error
-
-  const date = parsed.data.date || new Date().toISOString()
-  const created = await createCostOfGoodsRow({
-    name: parsed.data.name,
-    warehouse: parsed.data.warehouse ?? "",
-    date,
-    avgCost: parsed.data.avgCost,
-    cost: parsed.data.cost,
-    passed: parsed.data.passed ?? false,
-    supplyNumber: parsed.data.supplyNumber ?? "",
-    calculatedBalance: parsed.data.calculatedBalance,
-    actualBalance: parsed.data.actualBalance,
-    totalRevaluation: parsed.data.totalRevaluation,
-    lastCheckTime: parsed.data.lastCheckTime || date,
-  })
-  return NextResponse.json(created, { status: 201 })
+  return entryResponse(await createNetCostEntry(toEntryInput(parsed.data), auth.user.displayName), 201)
 }

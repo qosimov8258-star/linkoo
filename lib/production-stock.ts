@@ -32,7 +32,7 @@ export function nameKey(name: string) {
 
 export async function listCatalog(db: PgDb): Promise<CatalogItem[]> {
   const products = (await db.prepare("SELECT id, name, unit, type FROM products WHERE deleted = 0 ORDER BY name").all()) as Array<{ id: number; name: string; unit: string; type: string }>
-  const rawMaterials = (await db.prepare("SELECT id, name, unit, type FROM raw_materials ORDER BY name").all()) as Array<{ id: number; name: string; unit: string; type: string }>
+  const rawMaterials = (await db.prepare("SELECT id, name, unit, type FROM raw_materials WHERE COALESCE(to_jsonb(raw_materials)->>'deleted', '0') = '0' ORDER BY name").all()) as Array<{ id: number; name: string; unit: string; type: string }>
   return [
     ...rawMaterials.map((row) => ({ key: itemKey("raw_material", row.id), kind: "raw_material" as const, id: row.id, name: row.name, unit: row.unit, type: row.type })),
     ...products.map((row) => ({ key: itemKey("product", row.id), kind: "product" as const, id: row.id, name: row.name, unit: row.unit, type: row.type })),

@@ -195,7 +195,8 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
       }
       // Raw materials are received from suppliers too (production stock).
       const catalog: { name: string; unit: string }[] = []
-      if (productsRes?.ok) catalog.push(...((await productsRes.json()) as { name: string; unit: string }[]))
+      // Soft-deleted products ("Удалённые") are not offered.
+      if (productsRes?.ok) catalog.push(...((await productsRes.json()) as { name: string; unit: string; deleted?: boolean }[]).filter((item) => !item.deleted))
       if (rawMaterialsRes?.ok) catalog.push(...((await rawMaterialsRes.json()) as { name: string; unit: string }[]))
       setProductOptions(Array.from(new Set(catalog.map((item) => item.name))).sort((a, b) => a.localeCompare(b, "ru")))
       setProductUnits(Object.fromEntries(catalog.map((item) => [item.name, item.unit])))

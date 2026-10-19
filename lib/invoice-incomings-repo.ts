@@ -514,7 +514,7 @@ type CatalogItem = { kind: "product" | "raw_material"; id: number; name: string;
 
 async function loadCatalog(db: PgDb): Promise<{ byIkpu: Map<string, CatalogItem>; byName: Map<string, CatalogItem> }> {
   const products = (await db.prepare("SELECT id, name, ikpu FROM products WHERE COALESCE(deleted, 0) = 0 ORDER BY id").all()) as Array<{ id: number; name: string; ikpu: string | null }>
-  const raw = (await db.prepare("SELECT id, name, ikpu FROM raw_materials ORDER BY id").all()) as Array<{ id: number; name: string; ikpu: string | null }>
+  const raw = (await db.prepare("SELECT id, name, ikpu FROM raw_materials r WHERE COALESCE(to_jsonb(r)->>'deleted', '0') = '0' ORDER BY id").all()) as Array<{ id: number; name: string; ikpu: string | null }>
   const items: CatalogItem[] = [
     ...products.map((row) => ({ kind: "product" as const, id: row.id, name: row.name, ikpu: (row.ikpu ?? "").trim() })),
     ...raw.map((row) => ({ kind: "raw_material" as const, id: row.id, name: row.name, ikpu: (row.ikpu ?? "").trim() })),

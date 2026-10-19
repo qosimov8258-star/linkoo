@@ -6,6 +6,9 @@ import type { SupplyPaymentsResult } from "@/components/analytics/supplier-payme
 import { listSupplyPayments, paidBySupply } from "@/lib/cash/supplier-payments"
 import { ensureCashSchema } from "@/lib/cash/schema"
 import { claimInvoiceForIncoming, ensureInvoiceIncomingsSchema } from "@/lib/invoice-incomings-link"
+import { ensureRepricingsSchema } from "@/lib/repricings-read"
+import { availableByKey } from "@/lib/repricings-items"
+import { createRepricingTx } from "@/lib/repricings-repo"
 
 // Supplier incomings ("Приход от поставщиков"). A supply is created
 // "ожидает", is accepted onto the warehouse ("принят") or cancelled
@@ -468,7 +471,8 @@ export async function productSupplyHistory(productName: string, db?: PgDb): Prom
  * accepted supply it falls back to the product's initial (default) cost. */
 export async function recalcProductCosts(db: PgDb, productNames: string[]) {
   for (const name of Array.from(new Set(productNames.map((value) => value.trim()).filter(Boolean)))) {
-    const product = (await db.prepare("SELECT id, cost, initial_cost FROM products WHERE name = ?").get(name)) as
+    // Same rule as the stock core: the live product owning the name (fin_key), lowest id.
+    const product = (await db.prepare("SELECT id, cost, initial_cost FROM products WHERE fin_key(name) = fin_key(?) AND COALESCE(deleted, 0) = 0 ORDER BY id LIMIT 1").get(name)) as
       | { id: number; cost: number; initial_cost: number | null }
       | undefined
     if (!product) continue
@@ -501,55 +505,31 @@ export async function listIncomingLogs(incomingId: number): Promise<IncomingLog[
 
 export type RepriceInput = { priceListId: number; currency: string; comment: string; prices: Array<{ product: string; price: number }> }
 
-type PriceEntry = { name: string; cash: number; nonCash: number; min: number; max: number; currency?: string; nonCashCurrency?: string }
-
-const priceMonths = ["янв.", "февр.", "мар.", "апр.", "мая", "июня", "июля", "авг.", "сент.", "окт.", "нояб.", "дек."]
-
-/** Writes the calculated selling prices into the chosen price list of each
- * product and records them as repricing (Переоценка) documents. */
+/** Writes the calculated selling prices into the chosen price list as one
+ * finished repricing (Переоценка) document, so it can be viewed and cancelled
+ * there like any other repricing. */
 export async function repriceFromIncoming(incomingId: number, input: RepriceInput, userName: string): Promise<{ updated: number; missing: string[] } | "not_found" | "price_list_not_found"> {
   await incomingsDb()
+  await ensureRepricingsSchema()
+  const available = await availableByKey()
   return withTransaction(async (tx) => {
     const incoming = await lockIncoming(tx, incomingId)
     if (!incoming) return "not_found"
     const priceList = (await tx.prepare("SELECT id, name FROM price_lists WHERE id = ?").get(input.priceListId)) as { id: number; name: string } | undefined
     if (!priceList) return "price_list_not_found"
-    const now = new Date()
-    const label = `${String(now.getDate()).padStart(2, "0")} ${priceMonths[now.getMonth()]} ${now.getFullYear()}`
     const missing: string[] = []
-    let updated = 0
+    const products: Array<{ kind: "product"; id: number; price: number }> = []
     for (const line of input.prices) {
       if (!(line.price >= 0)) continue
-      const product = (await tx.prepare("SELECT id, price_lists FROM products WHERE name = ?").get(line.product)) as
-        | { id: number; price_lists: string }
-        | undefined
-      if (!product) {
-        missing.push(line.product)
-        continue
-      }
-      let entries: PriceEntry[] = []
-      try {
-        entries = JSON.parse(product.price_lists) as PriceEntry[]
-      } catch {
-        entries = []
-      }
-      const entry = entries.find((item) => item.name === priceList.name)
-      if (entry) Object.assign(entry, { cash: line.price, nonCash: line.price, currency: input.currency, nonCashCurrency: input.currency })
-      else entries.push({ name: priceList.name, cash: line.price, nonCash: line.price, min: 0, max: 0, currency: input.currency, nonCashCurrency: input.currency })
-      const prices = entries.flatMap((item) => [item.cash, item.nonCash]).filter((value) => value > 0)
-      await tx
-        .prepare("UPDATE products SET price_lists = ?, price_min = ?, price_max = ?, price_updated_date = ?, updated_at = datetime('now') WHERE id = ?")
-        .run(JSON.stringify(entries), prices.length ? Math.min(...prices) : 0, prices.length ? Math.max(...prices) : 0, label, product.id)
-      await tx
-        .prepare(
-          `INSERT INTO repricings (created_by, created_at_label, price_list_id, product_id, amount, currency, status, "user")
-           VALUES (?, ?, ?, ?, ?, ?, 'проведен', ?)`,
-        )
-        .run(userName, label, priceList.id, product.id, line.price, input.currency, userName)
-      updated += 1
+      const product = (await tx.prepare("SELECT id FROM products WHERE fin_key(name) = fin_key(?) AND COALESCE(deleted, 0) = 0 ORDER BY id LIMIT 1").get(line.product)) as { id: number } | undefined
+      if (product) products.push({ kind: "product", id: product.id, price: line.price })
+      else missing.push(line.product)
     }
-    await addLog(tx, incomingId, "repriced", userName, `${priceList.name}: ${updated}${input.comment ? ` — ${input.comment}` : ""}`)
-    return { updated, missing }
+    if (products.length) {
+      await createRepricingTx(tx, { priceListId: priceList.id, currency: input.currency, comment: input.comment, products, connected: false }, userName, available, "supplier_incoming")
+    }
+    await addLog(tx, incomingId, "repriced", userName, `${priceList.name}: ${products.length}${input.comment ? ` — ${input.comment}` : ""}`)
+    return { updated: products.length, missing }
   })
 }
 
