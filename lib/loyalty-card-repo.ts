@@ -3,7 +3,7 @@ import "server-only"
 import { z } from "zod"
 
 import { getDb, withTransaction, type PgDb } from "@/lib/db"
-import { loyaltyCurrency } from "@/lib/cash/common"
+import { clientCashbackBalance, lockClientCashback, loyaltyCurrency, MAX_DB_ID, MAX_MONEY } from "@/lib/cash/common"
 import { loadCurrencyContext, withSeenCodes, type CurrencyContext } from "@/lib/finance/context"
 import { currencyLabel, normCurrency, roundMoney } from "@/lib/finance/currency"
 import { parseAnyDate } from "@/lib/finance/dates"
@@ -28,6 +28,9 @@ import type {
 //   manual "Добавить" / "Списать" (this page)        type 'additional', ±amount
 //   cash payout "Выдача денег для Кэшбек" / "Карта клиента"
 //     (lib/cash/write.ts, op 22)                      −amount, transaction_id = cash entry id
+// A write-off ("Списать") or payout never takes the balance below zero: every
+// writer locks the client's cashback (lockClientCashback) and checks the
+// balance in that currency inside its transaction.
 // Balance(client, currency) = Σ amount grouped by client_id and
 // COALESCE(fin_cur(currency), base) — the expression the management balance
 // ("Кешбэк покупателей", lib/finance/management.ts) uses, so both agree.
@@ -56,7 +59,7 @@ CREATE TABLE IF NOT EXISTS loyalty_card_transactions (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   client_id INTEGER NOT NULL,
   currency TEXT NOT NULL DEFAULT 'sum',
-  amount REAL NOT NULL DEFAULT 0,
+  amount DOUBLE PRECISION NOT NULL DEFAULT 0,
   comment TEXT NOT NULL DEFAULT '',
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -128,10 +131,10 @@ export type LoyaltyDetailQuery = z.infer<typeof loyaltyDetailQuerySchema>
 
 /** Demo POST sales/cash_back/custom_price/ {price: ±price, currency, comment, client}. */
 export const loyaltyTransactionSchema = z.object({
-  clientId: z.coerce.number().int().positive(),
+  clientId: z.coerce.number().int().positive().max(MAX_DB_ID),
   /** add = "Добавить" (приход), expense = "Списать" (расход). */
   kind: z.enum(["add", "expense"]),
-  amount: z.coerce.number().finite().positive().max(1e13),
+  amount: z.coerce.number().finite().positive().max(MAX_MONEY),
   currency: z.string().trim().min(1).max(16),
   comment: z.string().trim().max(500).optional(),
 })
@@ -419,6 +422,12 @@ export async function createLoyaltyCardTransaction(input: LoyaltyTransactionInpu
   const signed = input.kind === "expense" ? -amount : amount
 
   return withTransaction(async (tx) => {
+    if (input.kind === "expense") {
+      // "Списать" never takes more than the client has in that currency.
+      await lockClientCashback(tx, client.id)
+      const balance = await clientCashbackBalance(tx, client.id, code, cc.base)
+      if (amount > balance + 0.005) throw new LoyaltyInputError("Недостаточно кэшбэка у клиента", 400)
+    }
     const inserted = await tx
       .prepare(
         `INSERT INTO loyalty_card_transactions (client_id, currency, amount, comment, type, created_by)

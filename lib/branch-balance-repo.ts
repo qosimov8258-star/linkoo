@@ -4,6 +4,8 @@ import { z } from "zod"
 
 import { getBranch } from "@/lib/branches-repo"
 import { getDb } from "@/lib/db"
+import { MAX_ID, MAX_MONEY } from "@/lib/finance/api"
+import { loadCurrencyContext } from "@/lib/finance/context"
 import { ledgerCurrency, normCurrency } from "@/lib/finance/currency"
 import { nowLocalIso, parseAnyDate } from "@/lib/finance/dates"
 import { ensureLedgerExtensions } from "@/lib/finance/schema"
@@ -14,7 +16,19 @@ import { ensureLedgerExtensions } from "@/lib/finance/schema"
 // column. Amounts are stored positive, the sign comes from `kind`. Balances
 // themselves are computed by lib/finance (GET /api/balances/branch).
 
-async function ensureSchema(db: ReturnType<typeof getDb>) {
+declare global {
+  var __linkoBranchBalanceSchema: Promise<void> | undefined
+}
+
+function ensureSchema(db: ReturnType<typeof getDb>): Promise<void> {
+  globalThis.__linkoBranchBalanceSchema ??= createSchema(db).catch((error: unknown) => {
+    globalThis.__linkoBranchBalanceSchema = undefined
+    throw error
+  })
+  return globalThis.__linkoBranchBalanceSchema
+}
+
+async function createSchema(db: ReturnType<typeof getDb>) {
   await db.exec(`
     CREATE TABLE IF NOT EXISTS branch_balance_transactions (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -22,12 +36,22 @@ async function ensureSchema(db: ReturnType<typeof getDb>) {
       branch_name TEXT NOT NULL DEFAULT '',
       kind TEXT NOT NULL DEFAULT 'add',
       currency TEXT NOT NULL DEFAULT 'sum',
-      amount REAL NOT NULL,
+      amount DOUBLE PRECISION NOT NULL,
       date TEXT NOT NULL DEFAULT '',
       comment TEXT NOT NULL DEFAULT '',
       created_by TEXT NOT NULL DEFAULT '',
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
+  `)
+  // The first version stored amounts as REAL (float4, ~7 significant digits).
+  await db.exec(`
+    DO $$ BEGIN
+      IF EXISTS (SELECT 1 FROM information_schema.columns
+                 WHERE table_schema = current_schema() AND table_name = 'branch_balance_transactions'
+                   AND column_name = 'amount' AND data_type = 'real') THEN
+        ALTER TABLE branch_balance_transactions ALTER COLUMN amount TYPE double precision;
+      END IF;
+    END $$;
   `)
   await ensureLedgerExtensions(db)
 }
@@ -89,7 +113,7 @@ function rowToTransaction(row: Row): BranchBalanceTransaction {
  * расход" posts amount × −1 to the same endpoint). */
 export const branchBalanceTransactionSchema = z
   .object({
-    branchId: z.coerce.number({ error: "Выберите филиал" }).int("Выберите филиал").positive("Выберите филиал"),
+    branchId: z.coerce.number({ error: "Выберите филиал" }).int("Выберите филиал").positive("Выберите филиал").max(MAX_ID, "Выберите филиал"),
     /** Ignored when the branch exists (the stored name is taken from branches). */
     branchName: z.string().trim().optional(),
     kind: z.enum(BRANCH_BALANCE_KINDS).optional(),
@@ -103,7 +127,8 @@ export const branchBalanceTransactionSchema = z
     amount: z.coerce
       .number({ error: "Введите сумму" })
       .finite("Введите сумму")
-      .refine((value) => value !== 0, "Введите сумму"),
+      .refine((value) => value !== 0, "Введите сумму")
+      .refine((value) => Math.abs(value) <= MAX_MONEY, "Слишком большая сумма"),
     /** "YYYY-MM-DDTHH:mm", "YYYY-MM-DD HH:mm" or "YYYY-MM-DD"; default now. */
     date: z
       .string()
@@ -150,12 +175,16 @@ export async function getBranchBalanceTransaction(id: number): Promise<BranchBal
   return row ? rowToTransaction(row) : null
 }
 
-/** Inserts one manual entry; null when the branch does not exist. */
-export async function createBranchBalanceTransaction(input: BranchBalanceTransactionInput, createdBy: string): Promise<BranchBalanceTransaction | null> {
+export type BranchBalanceWriteError = "branch_not_found" | "currency_not_found"
+
+/** Inserts one manual entry; an error code when the branch or the currency does not exist. */
+export async function createBranchBalanceTransaction(input: BranchBalanceTransactionInput, createdBy: string): Promise<BranchBalanceTransaction | BranchBalanceWriteError> {
   const branch = await getBranch(input.branchId)
-  if (!branch) return null
+  if (!branch) return "branch_not_found"
   const db = getDb()
   await ensureSchema(db)
+  const code = normCurrency(input.currency)
+  if (!(await loadCurrencyContext(db)).currencies.some((currency) => currency.code === code)) return "currency_not_found"
   const result = await db
     .prepare(
       `INSERT INTO branch_balance_transactions (branch_id, branch_name, kind, currency, amount, date, comment, created_by)
@@ -165,7 +194,7 @@ export async function createBranchBalanceTransaction(input: BranchBalanceTransac
       branchId: branch.id,
       branchName: branch.name,
       kind: input.kind,
-      currency: ledgerCurrency(input.currency),
+      currency: ledgerCurrency(code),
       amount: input.amount,
       date: storedDate(input.date),
       comment: input.comment,

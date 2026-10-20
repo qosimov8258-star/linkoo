@@ -4,7 +4,7 @@ import type { PgDb } from "@/lib/db"
 import type { CurrencyContext } from "@/lib/finance/context"
 import { normCurrency, roundMoney } from "@/lib/finance/currency"
 import { nowLocalIso } from "@/lib/finance/dates"
-import { CashError, loadCashbox, loadClient, localDateTime, loyaltyCurrency, pickRate, type CashboxInfo } from "@/lib/cash/common"
+import { CashError, defaultExpenseCategory, loadCashbox, loadClient, localDateTime, loyaltyCurrency, pickRate, resolveOrganization, type CashboxInfo } from "@/lib/cash/common"
 import { CASH_OP, CASH_OP_LABELS } from "@/lib/cash/types"
 
 // Cashback payout of a confirmed "Запрос на снятие кэшбэка", written INSIDE the
@@ -20,10 +20,14 @@ import { CASH_OP, CASH_OP_LABELS } from "@/lib/cash/types"
 // so the cash list, every balance page (cashbox ledger, management "Кешбэк
 // покупателей"), "Накопительная карта" and the cash page's edit / delete
 // (which remove the loyalty row) treat it like any other op-22 payout.
-// The demo confirmation only picks a cashbox, so the entry has no expense
-// category (the cash page asks for one only if the operation is edited there).
+// The demo confirmation only picks a cashbox: the entry gets the first expense
+// category with the cashback option ("Выдача денег для Кэшбек", else "Карта
+// клиента") so the expense reports never show an unnamed row, and the
+// organization of the client's contracts / the cashbox (resolveOrganization).
 // createCashOperation() is not used because it opens its own transaction and
-// requires a category with the cashback option.
+// requires a category with the cashback option. The CALLER checks the client's
+// cashback balance (assertCashbackAvailable) and the cashbox balance
+// (guardCashboxBalances) in the same transaction.
 
 export type CashbackPayoutInput = {
   cashboxId: number
@@ -51,19 +55,21 @@ export async function insertCashbackPayout(tx: PgDb, input: CashbackPayoutInput,
   const signed = -amount
   const cashRate = pickRate(cashbox.currency, cc)
   const now = nowLocalIso()
+  const category = await defaultExpenseCategory(tx, ["client_contract", "client_card_out"])
+  const organization = await resolveOrganization(tx, "", { clientId: client.id, cashboxId: cashbox.id })
   const values: Record<string, unknown> = {
     cashbox_id: cashbox.id,
     description: `${CASH_OP_LABELS[op]} ${client.name}`,
-    category: "",
+    category: category?.name ?? "",
     client_name: client.name,
     branch: "",
-    organization: "",
+    organization,
     comment: input.comment,
     entry_date: localDateTime(undefined),
     amount: signed,
     op_type: op,
     income_category_id: null,
-    expense_category_id: null,
+    expense_category_id: category?.id ?? null,
     client_id: client.id,
     supply_id: null,
     supply_expense_id: null,

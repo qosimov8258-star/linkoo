@@ -30,7 +30,7 @@ async function ensureSchema(db: ReturnType<typeof getDb>) {
     CREATE TABLE IF NOT EXISTS subscriptions (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       plan_name TEXT NOT NULL,
-      price REAL NOT NULL DEFAULT 0,
+      price DOUBLE PRECISION NOT NULL DEFAULT 0,
       billing_period TEXT NOT NULL DEFAULT 'Месяц',
       status TEXT NOT NULL DEFAULT 'Активна',
       renews_at TEXT NOT NULL DEFAULT '',
@@ -38,6 +38,15 @@ async function ensureSchema(db: ReturnType<typeof getDb>) {
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
+    -- Money precision (contract 3): an older database created these columns as REAL (float4).
+    DO $$
+    DECLARE c text;
+    BEGIN
+      FOR c IN SELECT column_name FROM information_schema.columns
+                WHERE table_schema = current_schema() AND table_name = 'subscriptions' AND data_type = 'real' LOOP
+        EXECUTE format('ALTER TABLE subscriptions ALTER COLUMN %I TYPE double precision USING (%I::text)::double precision', c, c);
+      END LOOP;
+    END $$;
   `)
 }
 

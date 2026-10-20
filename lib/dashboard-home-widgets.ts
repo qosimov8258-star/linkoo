@@ -15,6 +15,9 @@ export type HomeWidgetDef = {
   defaultChecked: boolean
 }
 
+// Widgets of the home page. "placeholder" widgets have no data source yet
+// (they render as an empty report row), so they are off by default;
+// agentSales / akbTrend / couriers switch parts of the agent visits widget.
 export const HOME_WIDGETS: HomeWidgetDef[] = [
   { key: "sales", label: "Продажи", kind: "statcard", defaultChecked: true },
   { key: "payments", label: "Оплаты", kind: "statcard", defaultChecked: true },
@@ -29,25 +32,18 @@ export const HOME_WIDGETS: HomeWidgetDef[] = [
   { key: "agentSales", label: "Продажи агентов", kind: "placeholder", defaultChecked: true },
   { key: "agentBranchVisits", label: "Визиты агента по филиалам", kind: "agentBranchVisits", defaultChecked: true },
   { key: "akbTrend", label: "Тенденция акб и отказов", kind: "placeholder", defaultChecked: true },
-  { key: "refusals", label: "Отказы", kind: "placeholder", defaultChecked: true },
+  { key: "refusals", label: "Отказы", kind: "placeholder", defaultChecked: false },
   { key: "couriers", label: "Доставщики", kind: "placeholder", defaultChecked: true },
   { key: "cashboxes", label: "Кассы", kind: "cashboxSummary", defaultChecked: true },
-  { key: "productAnalysis", label: "Анализ по товару", kind: "placeholder", defaultChecked: true },
-  { key: "warehouseWriteoff", label: "Склад списание по ндям", kind: "placeholder", defaultChecked: true },
-  { key: "ttVisitsByTp", label: "Посещение ТТ по ТП", kind: "placeholder", defaultChecked: true },
-  { key: "warehouseIncomeByDay", label: "Склад приход по дням", kind: "placeholder", defaultChecked: true },
-  { key: "fev4Info", label: "4-fev info", kind: "placeholder", defaultChecked: true },
-  { key: "visitConstructor", label: "конструктор по визитов", kind: "placeholder", defaultChecked: true },
-  { key: "testOtchot", label: "test otchot", kind: "placeholder", defaultChecked: true },
-  { key: "okbReport", label: "отчет ОКБ", kind: "placeholder", defaultChecked: true },
-  { key: "skidka", label: "skidka", kind: "placeholder", defaultChecked: true },
-  { key: "productTypeRating", label: "Тип продукта рейтинг 1", kind: "placeholder", defaultChecked: true },
-  { key: "testUchun", label: "Test Uchun", kind: "placeholder", defaultChecked: true },
-  { key: "productNames", label: "названия продукта", kind: "placeholder", defaultChecked: true },
-  { key: "agentReports", label: "отчеты по агентам", kind: "placeholder", defaultChecked: true },
+  { key: "productAnalysis", label: "Анализ по товару", kind: "placeholder", defaultChecked: false },
+  { key: "warehouseWriteoff", label: "Склад списание по дням", kind: "placeholder", defaultChecked: false },
+  { key: "ttVisitsByTp", label: "Посещение ТТ по ТП", kind: "placeholder", defaultChecked: false },
+  { key: "warehouseIncomeByDay", label: "Склад приход по дням", kind: "placeholder", defaultChecked: false },
 ]
 
-const STORAGE_KEY = "linko.dashboard.homeWidgets.v2"
+// v3: the reference tenant's custom report placeholders were removed and
+// placeholders are off by default, so older saved selections start over.
+const STORAGE_KEY = "linko.dashboard.homeWidgets.v3"
 
 export function defaultSelectedHomeWidgets(): string[] {
   return HOME_WIDGETS.filter((widget) => widget.defaultChecked).map((widget) => widget.key)

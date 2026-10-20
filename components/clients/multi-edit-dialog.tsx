@@ -6,6 +6,7 @@ import { FilterSelect } from "@/components/ref/list-kit"
 import { useLanguage } from "@/lib/i18n/language-context"
 
 import type { Client } from "./clients-data"
+import { useDirectoryNames } from "./use-directory"
 
 export type MultiEditPatch = Partial<Pick<Client, "deliverer" | "zone" | "agent" | "type" | "collector" | "branch" | "unlimitedDebt">>
 
@@ -34,16 +35,19 @@ export function MultiEditDialog({ clients, onSave, onClose }: { clients: Client[
   const { t } = useLanguage()
   const [values, setValues] = useState({ deliverer: "", zone: "", agent: "", type: "", status: "", category: "", collector: "", branch: "" })
   const [checks, setChecks] = useState<Record<string, boolean>>({})
+  // People are employees and types are client types (the API refuses other names).
+  const employees = useDirectoryNames("employees")
+  const clientTypes = useDirectoryNames("clientTypes")
   const options = useMemo(
     () => ({
-      deliverers: uniq(clients.map((c) => c.deliverer)),
+      deliverers: employees,
       zones: uniq(clients.map((c) => c.zone)),
-      agents: uniq(clients.map((c) => c.agent)),
-      types: uniq(clients.map((c) => c.type)),
-      collectors: uniq(clients.map((c) => c.collector)),
+      agents: employees,
+      types: clientTypes,
+      collectors: employees,
       branches: uniq(clients.map((c) => c.branch)),
     }),
-    [clients],
+    [clients, employees, clientTypes],
   )
   const set = (key: keyof typeof values) => (value: string) => setValues((current) => ({ ...current, [key]: value }))
 

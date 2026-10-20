@@ -52,8 +52,9 @@ async function resolveWarehouse(db: PgDb, name: string): Promise<string | null> 
   return row ? row.name : null
 }
 
+/** Contract 3: money |x| ≤ 1e13 (a cost is never negative). */
 function validCost(value: number): boolean {
-  return Number.isFinite(value) && value >= 0 && value < 1e15
+  return Number.isFinite(value) && value >= 0 && value <= 1e13
 }
 
 async function duplicateOf(db: PgDb, item: Resolved, day: string, warehouse: string, exceptId: number): Promise<number | null> {

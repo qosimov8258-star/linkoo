@@ -3,29 +3,49 @@ import "server-only"
 import { z } from "zod"
 
 import { PRICE_LIST_SORT_KEYS, type PriceListActive, type PriceListInput, type PriceListListQuery } from "@/lib/price-lists-repo"
+import { parsePageParam } from "@/lib/stock/paging"
 
 // Request parsing of /api/price-lists/** (the older body {name, currency, linkedList, calcMethod}
 // is still accepted).
 
-const num = z.union([z.number(), z.string()])
+const num = z.union([z.number(), z.string().max(64)])
 
-const toNumber = (value: unknown): number => {
-  const parsed = Number(String(value ?? "").replace(/\s/g, "").replace(",", "."))
-  return Number.isFinite(parsed) ? parsed : 0
+/** Number or numeric text ("12 500", "0,5") → number; NaN for anything else ("oʻn ming", "12 000 soʻm"). */
+export const toNumber = (value: unknown): number => {
+  if (typeof value === "number") return value
+  const text = String(value ?? "").replace(/[\s\u00a0\u202f]/g, "").replace(",", ".")
+  return text && /^[+-]?(\d+\.?\d*|\.\d+)(e[+-]?\d+)?$/i.test(text) ? Number(text) : Number.NaN
 }
+
+const blankToUndefined = (value: unknown) => (value === null || (typeof value === "string" && !value.trim()) ? undefined : value)
+
+/** "Порядок": a whole number (text that is not a number is a 400, never a silent 0). */
+const positionSchema = z.preprocess(
+  blankToUndefined,
+  z
+    .union([z.number(), z.string().max(32)])
+    .transform((value) => toNumber(value))
+    .pipe(z.number({ error: "Введите целое число" }).int("Введите целое число").min(-1_000_000, "Введите целое число").max(1_000_000, "Введите целое число"))
+    .optional(),
+)
+
+/** A calculation-method value (percent, amount, rate, rounding step): a number, |x| ≤ 1e13. */
+const methodValueSchema = num
+  .transform((value) => toNumber(value))
+  .pipe(z.number({ error: "Введите число" }).min(-1e13, "Введите число").max(1e13, "Введите число"))
 
 export const priceListBodySchema = z.object({
   name: z.string().trim().min(1).max(200),
   currency: z.string().trim().max(20).optional(),
-  position: num.optional().nullable(),
+  position: positionSchema,
   isActive: z.boolean().optional(),
   isDefaultForOrder: z.boolean().optional(),
-  connectedPriceListId: z.number().int().positive().nullable().optional(),
+  connectedPriceListId: z.number().int().positive().max(2_147_483_647).nullable().optional(),
   linkedList: z.string().trim().max(200).optional(),
   calcMethodId: z.string().trim().max(50).nullable().optional(),
   /** Older body: the method NAME or id. */
   calcMethod: z.string().trim().max(200).optional(),
-  methodValues: z.array(z.object({ methodKey: z.string().trim().min(1).max(50), value: num })).max(20).optional(),
+  methodValues: z.array(z.object({ methodKey: z.string().trim().min(1).max(50), value: methodValueSchema })).max(20).optional(),
 })
 
 export type PriceListBody = z.infer<typeof priceListBodySchema>
@@ -34,13 +54,13 @@ export function toPriceListInput(body: PriceListBody): PriceListInput {
   return {
     name: body.name,
     currency: body.currency || undefined,
-    position: body.position === undefined || body.position === null || body.position === "" ? undefined : toNumber(body.position),
+    position: body.position,
     isActive: body.isActive,
     isDefaultForOrder: body.isDefaultForOrder,
     connectedPriceListId: body.connectedPriceListId,
     linkedList: body.connectedPriceListId === undefined ? body.linkedList : undefined,
     calcMethodId: body.calcMethodId !== undefined ? body.calcMethodId : body.calcMethod === undefined ? undefined : body.calcMethod === "Не указано" ? null : body.calcMethod,
-    methodValues: body.methodValues?.map((item) => ({ methodKey: item.methodKey, value: toNumber(item.value) })),
+    methodValues: body.methodValues?.map((item) => ({ methodKey: item.methodKey, value: item.value })),
   }
 }
 
@@ -57,7 +77,7 @@ export function parsePriceListQuery(url: string): { paged: PriceListListQuery | 
     paged: {
       search: (params.get("search") ?? "").slice(0, 200),
       ordering: PRICE_LIST_SORT_KEYS.includes(ordering.replace(/^-/, "")) ? ordering : "",
-      page: Math.max(1, Math.floor(Number(params.get("page")) || 1)),
+      page: parsePageParam(params.get("page")),
       pageSize: Number.isFinite(pageSize) && pageSize >= 0 ? Math.min(5000, Math.floor(pageSize)) : 25,
       // The page shows every list (active and not) unless asked otherwise.
       active: activeParam ? active : "all",
@@ -93,7 +113,7 @@ export const priceGridSaveSchema = z.object({
 
 export type PriceGridSaveInput = z.infer<typeof priceGridSaveSchema>
 
-/** "" / null / undefined → undefined (keep); otherwise a number. */
+/** "" / null / undefined → undefined (keep); otherwise a number — NaN when the text is not one. */
 export function optionalNumber(value: number | string | null | undefined): number | undefined {
   if (value === undefined || value === null || (typeof value === "string" && !value.trim())) return undefined
   return toNumber(value)

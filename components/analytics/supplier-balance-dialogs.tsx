@@ -510,7 +510,8 @@ export function SupplierRequestDialog({
 
 // --- delete confirm --------------------------------------------------------------
 
-export function SupplierDeleteDialog({ id, onClose, onDeleted, onFailed }: { id: number; onClose: () => void; onDeleted: () => void; onFailed: () => void }) {
+/** `onFailed` gets the server's reason (e.g. a paid money request cannot be deleted). */
+export function SupplierDeleteDialog({ id, onClose, onDeleted, onFailed }: { id: number; onClose: () => void; onDeleted: () => void; onFailed: (error?: string) => void }) {
   const { t } = useLanguage()
   const [saving, setSaving] = useState(false)
   const remove = async () => {
@@ -518,7 +519,7 @@ export function SupplierDeleteDialog({ id, onClose, onDeleted, onFailed }: { id:
     const result = await sendJson(`/api/supplier-balance-transactions/${id}`, "DELETE")
     setSaving(false)
     if (result.ok) onDeleted()
-    else onFailed()
+    else onFailed(result.error)
   }
   return (
     <div className="fixed inset-0 z-[130] flex items-start justify-center bg-black/40 px-4 pt-32" onClick={onClose}>

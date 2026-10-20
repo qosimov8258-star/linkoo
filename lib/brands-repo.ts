@@ -7,12 +7,11 @@ import {
   CREATED_ORDER_SQL,
   DELETE_BLOCKED,
   DictionaryError,
-  REQUIRED,
   createdDateLabel,
   dictionariesDb,
   fieldError,
   lockDictionary,
-  organizationRequired,
+  resolveOrganization,
   storedImageUrl,
   type DictionaryListQuery,
 } from "@/lib/dictionaries-schema"
@@ -24,7 +23,8 @@ import type { Brand, BrandDetail, BrandListResult } from "@/components/analytics
 //   * names are unique by fin_key; a rename is carried into every text column `brand`
 //     (products, raw_materials, …) in the same transaction and a delete is refused
 //     (409 + usage) while anything uses the brand (lib/dictionaries-refs.ts);
-//   * Организация is a name, required as soon as organizations exist;
+//   * Организация is a name, required as soon as organizations exist and it must be one of
+//     them (400 "Организация не найдена"; an unchanged legacy value of an edited brand is kept);
 //   * the picture is a data URL in brands.photo_url, served by GET /api/brands/[id]/image.
 
 type Row = { id: number; name: string; organization: string | null; image_ref: string | null; image_version: string | null; created_iso: string }
@@ -109,12 +109,13 @@ export async function getBrandImage(id: number): Promise<string | null> {
 /** Write input; `undefined` = keep the stored value (PUT) / the default (POST). */
 export type BrandInput = { name: string; organization?: string; image?: string | null }
 
-async function validate(tx: PgDb, id: number | null, name: string, organization: string): Promise<void> {
+/** Checks the fields; returns the organization in its stored spelling. */
+async function validate(tx: PgDb, id: number | null, name: string, organization: string, currentOrganization?: string | null): Promise<string> {
   const duplicate = await tx
     .prepare("SELECT id FROM brands WHERE fin_key(name) = fin_key(@name) AND (@exceptId::int IS NULL OR id <> @exceptId::int) LIMIT 1")
     .get({ name, exceptId: id })
   if (duplicate) throw fieldError("name", DUPLICATE)
-  if (!organization && (await organizationRequired(tx))) throw fieldError("organization", REQUIRED)
+  return resolveOrganization(tx, organization, currentOrganization)
 }
 
 /** Demo POST main/brand/ {name, division, image}. */
@@ -123,8 +124,7 @@ export async function createBrand(input: BrandInput): Promise<Brand> {
   return withTransaction(async (tx) => {
     await lockDictionary(tx, "brands")
     const name = input.name.trim()
-    const organization = (input.organization ?? "").trim()
-    await validate(tx, null, name, organization)
+    const organization = await validate(tx, null, name, (input.organization ?? "").trim())
     const result = await tx
       .prepare("INSERT INTO brands (name, organization, photo_url, created_at, updated_at) VALUES (@name, @organization, @image, datetime('now'), datetime('now'))")
       .run({ name, organization, image: input.image ?? null })
@@ -142,8 +142,13 @@ export async function updateBrand(id: number, input: BrandInput): Promise<BrandU
     const current = await readRow(tx, id, true)
     if (!current) return null
     const name = input.name.trim()
-    const organization = input.organization === undefined ? cleanText(current.organization) : input.organization.trim()
-    await validate(tx, id, name, organization)
+    const organization = await validate(
+      tx,
+      id,
+      name,
+      input.organization === undefined ? cleanText(current.organization) : input.organization.trim(),
+      cleanText(current.organization),
+    )
     let renamed: DictionaryRenameChange[] = []
     if (current.name !== name) {
       await lockCatalog(tx)

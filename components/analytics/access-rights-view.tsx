@@ -4,6 +4,7 @@ import { ChevronLeft, ChevronRight, Pencil, Search, Trash2, X } from "lucide-rea
 import { FormEvent, useEffect, useMemo, useState } from "react"
 
 import type { AccessRight, Capability, Permission } from "./access-rights-data"
+import { UsersPanel } from "./users-view"
 
 function emptyDraft() {
   return { name: "", capabilityIds: [] as number[] }
@@ -105,7 +106,13 @@ export function AccessRightsView() {
     if (!window.confirm("Удалить эти права доступа?")) return
     try {
       const response = await fetch(`/api/access-rights/${id}`, { method: "DELETE" })
-      if (!response.ok) return
+      if (!response.ok) {
+        // 409 while users or dashboard widgets are linked to it (the usage list names them).
+        const data = (await response.json().catch(() => ({}))) as { error?: string; usage?: { label: string; count: number }[] }
+        const usage = data.usage?.map((item) => `${item.label}: ${item.count}`).join(", ")
+        window.alert(`${data.error || "Не удалось удалить права доступа"}${usage ? ` (${usage})` : ""}`)
+        return
+      }
       setRoles((list) => list.filter((role) => role.id !== id))
     } catch {
       window.alert("Сервер недоступен, попробуйте ещё раз")
@@ -209,6 +216,8 @@ export function AccessRightsView() {
           )}
         </tbody>
       </table>
+
+      {!loading && !loadError && <UsersPanel accessRights={roles} />}
 
       {editing !== null && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">

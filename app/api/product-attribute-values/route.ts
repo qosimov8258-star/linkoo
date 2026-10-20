@@ -7,7 +7,7 @@ import { parseJsonBody } from "@/lib/validation"
 import { createProductAttributeValue, listProductAttributeValues } from "@/lib/product-attribute-values-repo"
 
 const clientAttributeValueSchema = z.object({
-  attribute: z.string().trim().min(1),
+  attribute: z.string().trim().min(1).max(255, "Не более 255 символов"),
   values: z.array(z.string().trim()).optional(),
 })
 

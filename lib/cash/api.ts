@@ -4,20 +4,30 @@ import { NextResponse } from "next/server"
 import { z } from "zod"
 
 import { isIsoDay } from "@/lib/finance/dates"
-import { CashError } from "@/lib/cash/common"
+import { CashError, isDbId, MAX_DB_ID, MAX_MONEY, MAX_PAGE, MAX_PAGE_SIZE, MAX_RATE } from "@/lib/cash/common"
 import type { CashListQuery } from "@/lib/cash/list"
 import { MONEY_REQUEST_STATUSES, type MoneyRequestStatus } from "@/lib/cash/types"
 
 // Query / body schemas of the /api/cash/** routes (zod v4) and the shared
 // error mapping. List params are repeated (?cashbox=1&cashbox=2); id lists also
-// accept the demo's "1-2-3" form. Booleans: 1 / true.
+// accept the demo's "1-2-3" form. Booleans: 1 / true. Ids beyond int4 are
+// ignored (they cannot exist), page / pageSize are clamped, money |x| ≤ 1e13,
+// rates 0 < x ≤ 1e9 (contract 3).
 
 export type ParsedQuery<T> = { data: T; error?: undefined } | { data?: undefined; error: NextResponse }
 
-/** CashError → { error, field } with its status; anything else is rethrown (500). */
+/** CashError → { error, field } with its status. A Postgres data error (class 22:
+ * value out of range, invalid date, …) is bad input → 400; anything else is
+ * logged and answered with a generic 500 (never the database message). */
 export function cashErrorResponse(error: unknown): NextResponse {
   if (error instanceof CashError) return NextResponse.json({ error: error.message, field: error.field ?? null }, { status: error.status })
-  throw error
+  const code = (error as { code?: unknown } | null)?.code
+  if (typeof code === "string" && code.startsWith("22")) {
+    console.warn("[cash] rejected input:", (error as Error).message)
+    return NextResponse.json({ error: "Ma'lumotlar noto'g'ri", field: null }, { status: 400 })
+  }
+  console.error("[cash] unexpected error", error)
+  return NextResponse.json({ error: "Внутренняя ошибка сервера", field: null }, { status: 500 })
 }
 
 function invalid(error: z.ZodError) {
@@ -33,7 +43,7 @@ function idList(search: URLSearchParams, name: string): number[] {
     .getAll(name)
     .flatMap((value) => value.split(/[,-]/))
     .map((value) => Number(value.trim()))
-    .filter((value) => Number.isInteger(value) && value > 0)
+    .filter(isDbId)
 }
 
 function textList(search: URLSearchParams, name: string): string[] {
@@ -59,6 +69,16 @@ function intParam(search: URLSearchParams, name: string): number | undefined {
   if (value === null || value === "") return undefined
   const parsed = Number(value)
   return Number.isFinite(parsed) ? Math.floor(parsed) : undefined
+}
+
+/** page (1..MAX_PAGE) and pageSize (0 = all, else 1..MAX_PAGE_SIZE) of a list query; huge values are clamped. */
+function paging(search: URLSearchParams): { page?: number; pageSize?: number } {
+  const page = intParam(search, "page")
+  const pageSize = intParam(search, "pageSize")
+  return {
+    page: page === undefined ? undefined : Math.min(MAX_PAGE, Math.max(1, page)),
+    pageSize: pageSize === undefined || pageSize < 0 ? undefined : Math.min(MAX_PAGE_SIZE, pageSize),
+  }
 }
 
 function badParam(name: string, hint = "YYYY-MM-DD") {
@@ -97,8 +117,7 @@ export function parseCashListQuery(url: string): ParsedQuery<CashListQuery> {
       search: search.get("search")?.trim() || undefined,
       sources,
       ordering: search.get("ordering")?.trim() || undefined,
-      page: intParam(search, "page"),
-      pageSize: intParam(search, "pageSize"),
+      ...paging(search),
     },
   }
 }
@@ -138,11 +157,10 @@ export function parseAcceptPaymentsQuery(url: string): ParsedQuery<{
       currency,
       organization: search.get("organization") ?? "",
       branch: search.get("branch") ?? "",
-      agentCashboxId: intParam(search, "agentCashbox") || null,
+      agentCashboxId: idList(search, "agentCashbox")[0] ?? null,
       from: from ?? undefined,
       to: to ?? undefined,
-      page: intParam(search, "page"),
-      pageSize: intParam(search, "pageSize"),
+      ...paging(search),
     },
   }
 }
@@ -165,8 +183,7 @@ export function parseMoneyRequestsQuery(url: string): ParsedQuery<{
       search: search.get("search")?.trim() || undefined,
       supplierIds: idList(search, "supplier"),
       ordering: search.get("ordering")?.trim() || undefined,
-      page: intParam(search, "page"),
-      pageSize: intParam(search, "pageSize"),
+      ...paging(search),
     },
   }
 }
@@ -197,21 +214,21 @@ export function parseExpectedPaymentsQuery(url: string): ParsedQuery<{
       to: to ?? undefined,
       onlyOpen: search.get("all") !== "1",
       ordering: search.get("ordering")?.trim() || undefined,
-      page: intParam(search, "page"),
-      pageSize: intParam(search, "pageSize"),
+      ...paging(search),
     },
   }
 }
 
 // --- bodies -------------------------------------------------------------------
 
-const id = z.coerce.number().int().positive()
+const id = z.coerce.number().int().positive().max(MAX_DB_ID, { error: "Не найдено" })
 const optId = id.optional()
-const money = z.coerce.number().finite()
+/** Money: |x| ≤ 1e13 (contract 3). */
+const money = z.coerce.number().finite().min(-MAX_MONEY, { error: "Слишком большая сумма" }).max(MAX_MONEY, { error: "Слишком большая сумма" })
 const text = z.string().trim()
 const optText = text.optional()
 const rateType = z.enum(["current", "order", "custom"]).optional()
-const optRate = z.coerce.number().finite().positive().optional()
+const optRate = z.coerce.number().finite().positive().max(MAX_RATE, { error: "Слишком большой курс" }).optional()
 
 const operationFields = {
   date: optText,

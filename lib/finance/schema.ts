@@ -248,6 +248,12 @@ export const LEDGER_EXTENSIONS: Record<string, Record<string, string>> = {
   branch_balance_transactions: {
     created_by: "TEXT NOT NULL DEFAULT ''",
   },
+  // Contract 6: orders link their client by id (the orders module writes it;
+  // the name stays as a snapshot). Rows without it are filled by name below
+  // (backfillOrderClients), so renaming a client keeps its orders.
+  orders: {
+    client_id: "INTEGER",
+  },
 }
 
 /** Every table the ledger reads (most are created lazily by their own repo). */
@@ -291,6 +297,9 @@ const LEDGER_TABLES = [
   // client balance corrections ("Сверка магазина через бот": Списать / Добавить,
   // "Установить долг с Excel"; lib/finance-store-reconciliation.ts)
   "client_balance_corrections",
+  // client returns (Продажи → Возвраты, sales module): accepted ones credit the client
+  "client_returns",
+  "client_return_items",
 ]
 
 export type FinanceSchema = {
@@ -371,6 +380,38 @@ export async function ensureLedgerExtensions(db: PgDb = getDb()): Promise<void> 
   await addMissingColumns(db, map)
 }
 
+declare global {
+  var __linkoOrderClientBackfillAt: number | undefined
+}
+
+/** Minimum pause between two order → client backfills of one process. */
+const ORDER_CLIENT_BACKFILL_MS = 2000
+
+/** Orders link their client by orders.client_id (contract 6; the orders
+ * module writes it). Rows without it — written before the column existed or
+ * by a writer that does not set it — get the id the ledger would match by
+ * name (lowest client id with that name) as soon as a finance read or write
+ * runs, so renaming the client later keeps them. Runs on the caller's
+ * connection (it may be a transaction), at most every couple of seconds per
+ * process; rows locked by other transactions are skipped until the next run.
+ * Only NULLs are filled (orders of a client that does not exist stay NULL and
+ * are matched by name); idempotent. */
+async function backfillOrderClients(db: PgDb, map: Map<string, Set<string>>): Promise<void> {
+  if (!map.get("orders")?.has("client_id") || !map.get("orders")?.has("client") || !map.get("clients")?.has("name")) return
+  const now = Date.now()
+  if (now - (globalThis.__linkoOrderClientBackfillAt ?? 0) < ORDER_CLIENT_BACKFILL_MS) return
+  globalThis.__linkoOrderClientBackfillAt = now
+  await db.exec(
+    `UPDATE orders o SET client_id = m.client_id
+       FROM (SELECT x.id, k.id AS client_id
+               FROM orders x
+               JOIN (SELECT fin_key(name) AS k, MIN(id) AS id FROM clients GROUP BY 1) k ON k.k = fin_key(x.client)
+              WHERE x.client_id IS NULL
+              FOR UPDATE OF x SKIP LOCKED) m
+      WHERE o.id = m.id AND o.client_id IS NULL`,
+  )
+}
+
 /** Installs the fin_* SQL functions (once per process), adds missing
  * extension columns and returns which ledger tables/columns exist. Call at
  * the start of every finance read or write. */
@@ -378,6 +419,7 @@ export async function ensureFinanceSchema(db: PgDb = getDb()): Promise<FinanceSc
   await ensureFunctions()
   let map = await introspect(db, LEDGER_TABLES)
   if (await addMissingColumns(db, map)) map = await introspect(db, LEDGER_TABLES)
+  await backfillOrderClients(db, map)
   return {
     has: (table) => map.has(table),
     col: (table, column) => map.get(table)?.has(column) ?? false,

@@ -8,7 +8,8 @@ import { catalogKey, cleanText, type CatalogOptions } from "@/lib/products-types
 // GET /api/{products|raw-materials}/options — choices of the product form and filter:
 // the reference tables (price lists, currencies, units, product types, brands, suppliers,
 // organizations, employees as agents, supplier incomings as "Поставка") merged with the
-// values the items already use, so nothing stored is missing from a select.
+// values the items already use, so nothing stored is missing from a select (agents: the
+// active employees only, the limit API refuses other names).
 
 async function existing(db: PgDb, tables: string[]): Promise<Set<string>> {
   const rows = (await db
@@ -49,7 +50,8 @@ export async function getCatalogOptions(): Promise<CatalogOptions> {
   if (tables.has("price_lists")) {
     const cols = await columnsOf(db, "price_lists")
     const active = cols.has("is_active") ? "WHERE COALESCE(is_active, 1) <> 0" : ""
-    const order = cols.has("position") ? "position, id" : "id"
+    // The default list ("По умолчанию для заказа") first: a new price row starts on it.
+    const order = `${cols.has("is_default_for_order") ? "COALESCE(is_default_for_order, 0) DESC, " : ""}${cols.has("position") ? "position, id" : "id"}`
     const currency = cols.has("currency") ? "currency" : "''"
     const rows = (await db.prepare(`SELECT name, ${currency} AS currency FROM price_lists ${active} ORDER BY ${order}`).all()) as Array<{ name: string; currency: string }>
     for (const row of rows) priceLists.push({ name: String(row.name ?? "").trim(), currency: String(row.currency ?? "") })
@@ -75,7 +77,11 @@ export async function getCatalogOptions(): Promise<CatalogOptions> {
     const base = rows.find((row) => Number(row.is_base) === 1)
     if (base) baseCurrency = String(base.code || base.name).trim() || baseCurrency
   }
-  const allCurrencies = unique([baseCurrency, ...currencies, ...usedCurrencies, ...priceLists.map((entry) => entry.currency)])
+  // The base currency first (a new price row defaults to currencies[0]), the others sorted.
+  const allCurrencies = [
+    baseCurrency,
+    ...unique([...currencies, ...usedCurrencies, ...priceLists.map((entry) => entry.currency)]).filter((code) => catalogKey(code) !== catalogKey(baseCurrency)),
+  ]
 
   const types = new Map<string, { name: string; children: Map<string, string> }>()
   const addType = (parent: unknown, child?: unknown) => {
@@ -101,7 +107,7 @@ export async function getCatalogOptions(): Promise<CatalogOptions> {
   for (const row of itemTypes) addType(row.type, row.subcategory)
 
   const table = (name: string, sql: string) => (tables.has(name) ? values(db, sql) : Promise.resolve([] as string[]))
-  const [units, brands, suppliers, organizations, employees, itemUnits, itemBrands, itemSuppliers, itemOrganizations, colors, limitAgents] = await Promise.all([
+  const [units, brands, suppliers, organizations, employees, itemUnits, itemBrands, itemSuppliers, itemOrganizations, colors] = await Promise.all([
     table("units_of_measure", "SELECT name AS v FROM units_of_measure"),
     table("brands", "SELECT name AS v FROM brands"),
     table("suppliers", "SELECT name AS v FROM suppliers"),
@@ -112,7 +118,6 @@ export async function getCatalogOptions(): Promise<CatalogOptions> {
     values(db, ITEMS("supplier")),
     values(db, ITEMS("organization")),
     values(db, ITEMS("color")),
-    values(db, "SELECT agent AS v FROM product_limits"),
   ])
 
   let supplies: CatalogOptions["supplies"] = []
@@ -133,7 +138,8 @@ export async function getCatalogOptions(): Promise<CatalogOptions> {
     suppliers: unique([...suppliers, ...itemSuppliers]),
     organizations: unique([...organizations, ...itemOrganizations]),
     colors: unique(colors),
-    agents: unique([...employees, ...limitAgents]),
+    // "Добавить лимит" accepts employees only (POST …/limits checks the names).
+    agents: unique(employees),
     supplies,
   }
 }

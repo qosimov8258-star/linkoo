@@ -5,6 +5,7 @@ import { z } from "zod"
 
 import { ContractError } from "@/lib/contracts-repo"
 import { CONTRACT_TABS, normalizeContractStatus, type ContractListQuery, type ContractTab } from "@/lib/contracts-types"
+import { MAX_ID } from "@/lib/finance/api"
 
 // HTTP helpers of /api/contracts/** (route files export only handlers).
 
@@ -17,7 +18,8 @@ function bad(name: string, hint: string) {
 const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/
 
 function ids(values: string[]): number[] {
-  return [...new Set(values.flatMap((value) => value.split(/[-,]/)).map((value) => Number(value)).filter((value) => Number.isInteger(value) && value > 0))]
+  // Canonical digits only ("0x10" / "1e1" never select another record).
+  return [...new Set(values.flatMap((value) => value.split(/[-,]/)).map((value) => value.trim()).filter((value) => /^\d+$/.test(value)).map(Number).filter((value) => value > 0 && value <= MAX_ID))]
 }
 
 function texts(values: string[]): string[] {
@@ -35,7 +37,7 @@ export function parseContractListQuery(url: string): Parsed<ContractListQuery> {
   if (!tab || !CONTRACT_TABS.includes(tab)) return { error: bad("status", "active | completed | all") }
   const page = Number(search.get("page") ?? 1)
   const pageSize = Number(search.get("pageSize") ?? search.get("page_size") ?? 25)
-  if (!Number.isInteger(page) || page < 1) return { error: bad("page", ">= 1") }
+  if (!Number.isInteger(page) || page < 1 || page > 1_000_000) return { error: bad("page", "1..1000000") }
   if (!Number.isInteger(pageSize) || pageSize < 0 || pageSize > 5000) return { error: bad("pageSize", "0..5000") }
   const fromDate = (search.get("fromDate") ?? search.get("begin_date") ?? "").trim()
   const toDate = (search.get("toDate") ?? search.get("end_date") ?? "").trim()
@@ -43,7 +45,7 @@ export function parseContractListQuery(url: string): Parsed<ContractListQuery> {
   if (toDate && !ISO_DAY.test(toDate)) return { error: bad("toDate", "YYYY-MM-DD") }
   const contract = (search.get("ids") ?? "").trim()
   const contractId = contract ? Number(contract) : null
-  if (contractId !== null && (!Number.isInteger(contractId) || contractId <= 0)) return { error: bad("ids", "contract id") }
+  if (contractId !== null && (!/^\d+$/.test(contract) || !Number.isInteger(contractId) || contractId <= 0 || contractId > MAX_ID)) return { error: bad("ids", "contract id") }
   const ordering = (search.get("ordering") ?? "").trim()
   if (ordering && !/^-?[a-z_]+$/.test(ordering)) return { error: bad("ordering", "field or -field") }
   return {
@@ -63,18 +65,18 @@ export function parseContractListQuery(url: string): Parsed<ContractListQuery> {
   }
 }
 
-const optionalId = z.preprocess((value) => (value === "" || value === undefined ? null : value), z.coerce.number().int().positive().nullable())
+const optionalId = z.preprocess((value) => (value === "" || value === undefined ? null : value), z.coerce.number().int().positive().max(MAX_ID).nullable())
 
 /** POST /api/contracts, PUT /api/contracts/[id] (demo ContractsCreateForm). Business rules live in the repo. */
 export const contractBodySchema = z.object({
-  contractNumber: z.preprocess((value) => (value === "" || value === undefined ? null : value), z.coerce.number().int().nullable()).optional(),
+  contractNumber: z.preprocess((value) => (value === "" || value === undefined ? null : value), z.coerce.number().int().min(0).max(MAX_ID).nullable()).optional(),
   contractPrefix: z.string().max(20).optional(),
   contractSuffix: z.string().max(20).optional(),
   createdDate: z.string().max(40).optional(),
   officialName: z.string().max(300).default(""),
   inn: z.string().max(40).default(""),
-  clientIds: z.array(z.coerce.number().int().positive()).max(500).default([]),
-  agentId: z.coerce.number().int().default(0),
+  clientIds: z.array(z.coerce.number().int().positive().max(MAX_ID)).max(500).default([]),
+  agentId: z.coerce.number().int().min(0).max(MAX_ID).default(0),
   status: z.string().default("active"),
   comment: z.string().max(2000).optional(),
   organizationId: optionalId.optional(),
@@ -105,14 +107,17 @@ export const contractImportSchema = z.object({
     .max(2000),
 })
 
+/** Route param → positive 32-bit id (the INTEGER columns), else null (→ 404). */
 export function parseIdParam(value: string): number | null {
-  const id = Number(value)
-  return Number.isInteger(id) && id > 0 ? id : null
+  // Canonical digits only: "0x10" or "1e1" must never resolve to record 16 / 10.
+  if (!/^\d+$/.test(String(value ?? "").trim())) return null
+  const id = Number(String(value).trim())
+  return Number.isInteger(id) && id > 0 && id <= MAX_ID ? id : null
 }
 
 export function optionalNumberParam(search: URLSearchParams, name: string): number | null {
   const value = Number(search.get(name) ?? "")
-  return Number.isInteger(value) && value > 0 ? value : null
+  return Number.isInteger(value) && value > 0 && value <= MAX_ID ? value : null
 }
 
 export function contractErrorResponse(error: unknown): NextResponse {

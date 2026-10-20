@@ -34,6 +34,7 @@ export function actorName(user: Actor): string {
 }
 
 export const NOT_FOUND = "Инвентарь не найден"
+const FUTURE_DATE = "Дата не может быть позже сегодняшнего дня"
 export const LINKED = "Удаление невозможно из-за связи с другими данными"
 const REQUIRED = "Обязательное поле"
 
@@ -310,6 +311,7 @@ async function normalizeInput(db: PgDb, input: InventoryItemInput, current: Lock
   if (!stockNumber) throw new InventoryError(REQUIRED, 400, "stockNumber")
   await checkStockNumber(db, stockNumber, current?.id ?? null)
   if (!isIsoDay(input.date)) throw new InventoryError(REQUIRED, 400, "date")
+  if (!current && input.date > todayIso()) throw new InventoryError(FUTURE_DATE, 400, "date")
   const clientId = !current && input.clientId ? input.clientId : null
   const client = clientId ? await clientName(db, clientId) : ""
   return { warehouse, productId: product.id, productName: product.name, condition, responsible, clientId, client, serialNumber, stockNumber, date: input.date, comment: input.comment.trim() }
@@ -422,12 +424,29 @@ export async function changeInventoryClient(id: number, input: InventoryChangeIn
     if (attached && giveId && giveId === item.client_id) throw new InventoryError("Инвентарь уже прикреплен к этому клиенту", 409, "giveClient")
     const give = giveId ? { id: giveId, name: await clientName(tx, giveId, "giveClient") } : null
     const today = todayIso()
+    const takeDate = attached ? input.takeDate || input.giveDate || today : ""
+    const giveDate = give ? input.giveDate || today : ""
+    // A move happens today or earlier, never before the item's previous movement
+    // (the latest one registered, its registration included), and a give never
+    // before the take it follows.
+    const last = (await tx
+      .prepare("SELECT LEAST(left(move_date, 10), ?) AS day FROM inventory_item_logs WHERE item_id = ? AND btrim(move_date) <> '' ORDER BY id DESC LIMIT 1")
+      .get(today, id)) as { day: string | null } | undefined
+    for (const [date, field] of [
+      [takeDate, "takeDate"],
+      [giveDate, "giveDate"],
+    ] as const) {
+      if (!date) continue
+      if (date > today) throw new InventoryError(FUTURE_DATE, 400, field)
+      if (last?.day && date < last.day) throw new InventoryError("Дата не может быть раньше предыдущего движения", 400, field)
+    }
+    if (takeDate && giveDate && giveDate < takeDate) throw new InventoryError("Дата передачи не может быть раньше даты изъятия", 400, "giveDate")
     if (attached) {
-      await takeFromClient(tx, item, { date: input.takeDate || input.giveDate || today, condition, comment, user: by })
+      await takeFromClient(tx, item, { date: takeDate, condition, comment, user: by })
       item.client_id = null
       item.client = ""
     }
-    if (give) await giveToClient(tx, item, give, { date: input.giveDate || today, condition, comment, user: by })
+    if (give) await giveToClient(tx, item, give, { date: giveDate, condition, comment, user: by })
   })
   return (await getInventoryItem(id))!
 }

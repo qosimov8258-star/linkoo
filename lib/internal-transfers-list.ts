@@ -3,6 +3,7 @@ import "server-only"
 import { getDb } from "@/lib/db"
 import { loadCurrencyContext } from "@/lib/finance/context"
 import { getStockOptions } from "@/lib/stock/options"
+import { jsonLines } from "@/lib/stock/sources"
 import { ensureTransfersSchema, rowToTransfer, type TransferRow } from "@/lib/internal-transfers-repo"
 import type { Transfer, TransferListResult, TransferOptions, TransferStatus, TransferWarehouse } from "@/lib/internal-transfers-types"
 
@@ -104,7 +105,8 @@ function where(query: TransferListQuery): { sql: string; params: Record<string, 
     params.search = `%${search.replace(/[\\%_]/g, (char) => `\\${char}`)}%`
     params.search_id = /^\d{1,9}$/.test(search) ? Number(search) : -1
     parts.push(`(t.id = @search_id OR t.from_warehouse ILIKE @search OR t.to_warehouse ILIKE @search OR t.created_by ILIKE @search
-      OR t.comment ILIKE @search OR t.invoice_number ILIKE @search OR t.transport_number ILIKE @search OR t.driver ILIKE @search OR t.items ILIKE @search)`)
+      OR t.comment ILIKE @search OR t.invoice_number ILIKE @search OR t.transport_number ILIKE @search OR t.driver ILIKE @search
+      OR EXISTS (SELECT 1 FROM jsonb_array_elements(${jsonLines("t.items")}) AS l(j) WHERE l.j ->> 'product' ILIKE @search))`)
   }
   return { sql: parts.length ? `WHERE ${parts.join(" AND ")}` : "", params }
 }

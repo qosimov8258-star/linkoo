@@ -9,10 +9,17 @@ import { buildMovementsSql, buildPendingSql, COST_RECEIPT_FILTER } from "@/lib/s
 import type { StockBalance, StockBalanceQuery, StockCatalogItem, StockItemKey, StockPending } from "@/lib/stock/types"
 
 // Balances = SUM of the signed movements up to a moment, per (warehouse,
-// item). Average cost = weighted average of every receipt with a known cost
-// (supply incl. its expenses, non-defective production output, inventory
-// surplus at its cost) up to the same moment, across ALL warehouses (a
-// transfer moves goods, not value); it falls back to the catalog cost.
+// item). Брак (defects) = defective units received (production output flagged
+// defective, transfers of defective units) minus defective units taken out
+// (write-off / transfer lines flagged "defect").
+//
+// Cost: THE cost of goods of the app is lib/stock/costs.ts (the moving average
+// of the "Себестоимость" ledger). This module must not import it (costs.ts
+// reads the ledger through it), so callers that show values pass those costs
+// in (`costs` below). Without them the value falls back to the core's own
+// periodic average of every receipt with a known cost (supply incl. expenses,
+// non-defective production output, inventory surplus at its cost) up to the
+// same moment, across ALL warehouses, then the catalog cost.
 // Warehouses are grouped by fin_key(name) and shown with the warehouses
 // table's spelling when one matches.
 
@@ -74,11 +81,16 @@ function costOf(row: { in_qty: number | null; in_value: number | null }, fallbac
   return inQty > 0 ? (Number(row.in_value) || 0) / inQty : fallback
 }
 
-/** Balance rows with the receipt totals behind their average cost. */
+/** Balance rows with the receipt totals behind their average cost. `costs`
+ * (unit cost per item key, lib/stock/costs.ts) values the rows when given,
+ * `warehouseCosts` (item key → fin_key(warehouse) → cost) overrides it for the
+ * warehouses that are their own cost scope; defective units carry no value. */
 export async function computeStockBalances(
   query: StockBalanceQuery = {},
   db: PgDb = getDb(),
   catalog?: StockCatalogItem[],
+  costs?: Map<StockItemKey, number>,
+  warehouseCosts?: Map<StockItemKey, Map<string, number>>,
 ): Promise<StockBalanceRow[]> {
   const { sql, params, tables: t } = await movementsQuery({ excludeInventoryId: query.excludeInventoryId }, db)
   const warehouses = (query.warehouses ?? []).map((name) => String(name ?? "")).filter((name) => name.trim())
@@ -114,15 +126,16 @@ export async function computeStockBalances(
   const fallback = new Map(items.map((item) => [item.key, item.fallbackCost]))
   return rows.map((row) => {
     const qty = round(row.qty)
-    const cost = costOf(row, fallback.get(row.item_key) ?? 0)
+    const defects = round(row.defects)
+    const cost = warehouseCosts?.get(row.item_key)?.get(row.wk) ?? costs?.get(row.item_key) ?? costOf(row, fallback.get(row.item_key) ?? 0)
     return {
       key: row.item_key,
       warehouse: row.warehouse,
       warehouseKey: row.wk,
       qty,
-      value: round(qty * cost, 4),
+      value: round((qty - (costs ? defects : 0)) * cost, 4),
       cost: round(cost, 6),
-      defects: round(row.defects),
+      defects,
       inQty: round(Number(row.in_qty) || 0),
       inValue: round(Number(row.in_value) || 0, 4),
     }

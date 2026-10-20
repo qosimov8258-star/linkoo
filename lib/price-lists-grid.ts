@@ -1,17 +1,30 @@
 import "server-only"
 
-import { getDb, withTransaction, type PgDb } from "@/lib/db"
+import { getDb, withTransaction } from "@/lib/db"
+import { loadCurrencyContext } from "@/lib/finance/context"
 import { normCurrency } from "@/lib/finance/currency"
-import { findItemPrice, itemPriceEntries, setItemPrices, type ItemPriceChange, type ItemPriceEntry } from "@/lib/item-prices"
+import {
+  INVALID_PRICE,
+  findItemPrice,
+  isValidPrice,
+  itemPriceEntries,
+  loadPriceCurrencyContext,
+  setItemPrices,
+  type ItemPriceChange,
+  type ItemPriceEntry,
+} from "@/lib/item-prices"
 import { optionalNumber, type PriceGridSaveInput } from "@/lib/price-lists-api"
 import { priceListsByIds } from "@/lib/price-lists-repo"
-import { getStockBalances, getStockCatalog } from "@/lib/stock/ledger"
+import { getItemCosts } from "@/lib/stock/costs"
 import type { PriceGridEntry, PriceGridKind, PriceGridResult, PriceGridRow, PriceGridSaveResult } from "@/components/analytics/price-lists-data"
 
 // Price-setting grid "Установить цену в прайс-лист" (demo c9 module 4389 + set-price serializers,
-// API sales/price_list_item/add_items_separately/): items (products that are not deleted + raw
-// materials) × the chosen price lists, with cash / non-cash price, currencies and min / max.
-// Saving writes every item through lib/item-prices.ts in ONE transaction.
+// API sales/price_list_item/add_items_separately/): items (products and raw materials that are not
+// deleted) × the chosen price lists, with cash / non-cash price, currencies and min / max.
+// Saving writes every item through lib/item-prices.ts in ONE transaction; every value must be a
+// number 0 ≤ x ≤ 1e13 and the currencies must exist (400 otherwise, nothing is written); a deleted
+// item is skipped like a missing one. The "Наценка" base (cost=1) is the one cost of goods
+// (lib/stock/costs.ts, contract 1).
 
 type ItemRow = {
   kind: PriceGridKind
@@ -35,7 +48,7 @@ const ITEMS_SQL = `
   UNION ALL
   SELECT 'raw_material', r.id, r.name, r.article, r.barcode, r.type, r.brand, r.unit, to_jsonb(r)->>'price_lists',
          to_jsonb(r)->>'price_list', to_jsonb(r)->>'cash_price', to_jsonb(r)->>'non_cash_price'
-    FROM raw_materials r`
+    FROM raw_materials r WHERE COALESCE(to_jsonb(r)->>'deleted', '0') = '0'`
 
 function itemEntries(row: ItemRow): ItemPriceEntry[] {
   return itemPriceEntries(row.price_lists, { priceList: row.price_list, cashPrice: row.cash_price, nonCashPrice: row.non_cash_price })
@@ -75,25 +88,6 @@ export function parsePriceGridQuery(url: string): PriceGridQuery {
   }
 }
 
-/** Average stock cost per item key (value / qty over warehouses with stock), else the catalog cost. */
-async function itemCosts(db: PgDb): Promise<Map<string, number>> {
-  const [catalog, balances] = await Promise.all([getStockCatalog(db), getStockBalances({}, db)])
-  const totals = new Map<string, { qty: number; value: number }>()
-  for (const balance of balances) {
-    if (!(balance.qty > 0)) continue
-    const total = totals.get(balance.key) ?? { qty: 0, value: 0 }
-    total.qty += balance.qty
-    total.value += balance.value
-    totals.set(balance.key, total)
-  }
-  const costs = new Map<string, number>()
-  for (const item of catalog) {
-    const total = totals.get(item.key)
-    costs.set(item.key, total && total.qty > 0 && total.value > 0 ? Math.round((total.value / total.qty) * 100) / 100 : item.fallbackCost)
-  }
-  return costs
-}
-
 export async function priceGrid(query: PriceGridQuery): Promise<PriceGridResult> {
   const db = getDb()
   const priceLists = (await priceListsByIds(db, query.priceListIds)).sort((a, b) => query.priceListIds.indexOf(a.id) - query.priceListIds.indexOf(b.id))
@@ -115,7 +109,8 @@ export async function priceGrid(query: PriceGridQuery): Promise<PriceGridResult>
   }
   matched.sort((a, b) => a.name.localeCompare(b.name, "ru") || (a.kind === b.kind ? a.id - b.id : a.kind === "product" ? -1 : 1))
   const pageRows = query.pageSize > 0 ? matched.slice((query.page - 1) * query.pageSize, query.page * query.pageSize) : matched
-  const costs = query.withCost ? await itemCosts(db) : new Map<string, number>()
+  // The one cost of goods (moving average of "Себестоимость", base currency, today).
+  const costs = query.withCost ? await getItemCosts({}, db) : new Map<string, number>()
   const results = pageRows.map((row): PriceGridRow => {
     const key = `${row.kind}:${row.id}`
     const entries = itemEntries(row)
@@ -164,39 +159,52 @@ export class PriceGridError extends Error {
   }
 }
 
+export const CURRENCY_NOT_FOUND = "Валюта не найдена"
+
 /** Demo POST sales/price_list_item/add_items_separately/: writes the grid in one transaction. */
 export async function savePriceGrid(input: PriceGridSaveInput): Promise<PriceGridSaveResult> {
+  const db = getDb()
   const ids = [...new Set(input.rows.flatMap((row) => row.prices.map((price) => price.priceListId)))]
-  const lists = await priceListsByIds(getDb(), ids)
+  const lists = await priceListsByIds(db, ids)
   const names = new Map(lists.map((list) => [list.id, list.name]))
   const missing = ids.filter((id) => !names.has(id))
   if (missing.length) throw new PriceGridError("Прайс-лист не найден")
+  const currencies = new Set((await loadCurrencyContext(db)).currencies.map((currency) => currency.code))
   const cashCurrency = normCurrency(input.cashCurrency)
   const nonCashCurrency = normCurrency(input.nonCashCurrency || input.cashCurrency)
+  if (!currencies.has(cashCurrency) || !currencies.has(nonCashCurrency)) throw new PriceGridError(CURRENCY_NOT_FOUND)
+
+  // Every value is checked before anything is written: text that is not a number ("oʻn ming",
+  // "12 000 soʻm"), a negative or a too large price is a 400, never a silent 0.
+  const rows: Array<{ kind: PriceGridKind; id: number; changes: ItemPriceChange[] }> = []
+  for (const row of input.rows) {
+    const changes: ItemPriceChange[] = []
+    for (const price of row.prices) {
+      const values = [price.cash, price.nonCash, price.min, price.max].map(optionalNumber)
+      const [cash, nonCash, min, max] = values
+      if (values.every((value) => value === undefined)) continue
+      if (values.some((value) => value !== undefined && value < 0)) throw new PriceGridError("Цена не может быть отрицательной")
+      if (values.some((value) => value !== undefined && !isValidPrice(value))) throw new PriceGridError(INVALID_PRICE)
+      changes.push({
+        priceList: names.get(price.priceListId)!,
+        cash,
+        nonCash,
+        min,
+        max,
+        currency: cash !== undefined ? cashCurrency : undefined,
+        nonCashCurrency: nonCash !== undefined || cash !== undefined ? nonCashCurrency : undefined,
+      })
+    }
+    if (changes.length) rows.push({ kind: row.kind, id: row.id, changes })
+  }
+
   return withTransaction(async (tx) => {
+    const context = await loadPriceCurrencyContext(tx)
     let updated = 0
     const skipped: PriceGridSaveResult["skipped"] = []
-    for (const row of input.rows) {
-      const changes: ItemPriceChange[] = []
-      for (const price of row.prices) {
-        const cash = optionalNumber(price.cash)
-        const nonCash = optionalNumber(price.nonCash)
-        const min = optionalNumber(price.min)
-        const max = optionalNumber(price.max)
-        if (cash === undefined && nonCash === undefined && min === undefined && max === undefined) continue
-        if ([cash, nonCash, min, max].some((value) => value !== undefined && value < 0)) throw new PriceGridError("Цена не может быть отрицательной")
-        changes.push({
-          priceList: names.get(price.priceListId)!,
-          cash,
-          nonCash,
-          min,
-          max,
-          currency: cash !== undefined ? cashCurrency : undefined,
-          nonCashCurrency: nonCash !== undefined || cash !== undefined ? nonCashCurrency : undefined,
-        })
-      }
-      if (!changes.length) continue
-      const result = await setItemPrices(tx, row.kind, row.id, changes)
+    for (const row of rows) {
+      // Missing or deleted ("Удалённые") items are not priced.
+      const result = await setItemPrices(tx, row.kind, row.id, row.changes, { live: true, context })
       if (!result) skipped.push({ kind: row.kind, id: row.id })
       else if (result.changed) updated += 1
     }

@@ -191,7 +191,14 @@ export function RepricingDetailPanel({
       {confirm && (
         <ConfirmDialog
           title={confirm === "recalc" ? t("Перерасчет по текущей дате") : t("Отменить переоценку")}
-          text={confirm === "recalc" ? `№ ${doc.id}` : t("Старые цены товаров будут восстановлены.")}
+          text={
+            confirm === "recalc"
+              ? `№ ${doc.id}`
+              : doc.children.length
+                ? // The linked documents derived from this one are cancelled with it (their lists go back too).
+                  `${t("Старые цены товаров будут восстановлены.")} ${t("Связанные переоценки тоже будут отменены")}: ${doc.children.map((child) => `№ ${child}`).join(", ")}`
+                : t("Старые цены товаров будут восстановлены.")
+          }
           confirmLabel={confirm === "recalc" ? "Подтвердить" : "Отменить переоценку"}
           tone={confirm === "recalc" ? "blue" : "red"}
           busy={busy}

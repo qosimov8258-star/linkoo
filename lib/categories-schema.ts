@@ -158,6 +158,8 @@ export function wantsPagedList(params: URLSearchParams): boolean {
 }
 
 export function parseCategoryId(value: string): number | null {
+  // Canonical digits only ("0x10" / "1e1" never resolve to another record).
+  if (!/^\d+$/.test(String(value ?? ""))) return null
   const id = Number(value)
   return Number.isInteger(id) && id > 0 && id <= 2_147_483_647 ? id : null
 }

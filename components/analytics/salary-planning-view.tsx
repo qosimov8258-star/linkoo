@@ -2,11 +2,12 @@
 
 import Image from "next/image"
 import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react"
-import { ChevronLeft, ChevronRight, Copy, Download, FileText, ListChecks, Pencil, PlusCircle, RefreshCw, X } from "lucide-react"
+import { ChevronLeft, ChevronRight, Copy, FileText, ListChecks, Pencil, X } from "lucide-react"
 import { RI, RefButton, RefHeader, RefPage, RefTabs } from "@/components/ref/list-kit"
 
 import { downloadExcelTable } from "@/lib/excel-export"
 import { mapHeaderColumns, readExcelRows } from "@/lib/excel-import"
+import { useLanguage } from "@/lib/i18n/language-context"
 
 const months = ["Январь", "Февраль", "Март", "Апрель", "Май", "Июнь", "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"]
 
@@ -19,11 +20,31 @@ const IMPORT_HEADER_ALIASES: Record<string, string> = {
 type SalaryRow = {
   id: number
   employee: string
+  employeeId: number | null
+  /** Plan period (one plan per employee and month). */
+  year: number
+  /** 1–12. */
+  month: number
   salary: number
   bonus: number
   kpi: number
   credited: boolean
 }
+
+type EmployeeOption = { id: number; name: string }
+
+/** Body of POST / PUT /api/salary-plans for a row with changes. */
+function planBody(row: SalaryRow, changes: Partial<SalaryRow> = {}) {
+  const next = { ...row, ...changes }
+  return JSON.stringify({ employeeId: next.employeeId, employee: next.employee, year: next.year, month: next.month, salary: next.salary, bonus: next.bonus, kpi: next.kpi, credited: next.credited })
+}
+
+async function errorText(response: Response, fallback: string): Promise<string> {
+  const data = (await response.json().catch(() => null)) as { error?: string } | null
+  return data?.error || fallback
+}
+
+const nameKey = (value: string) => value.trim().replace(/\s+/g, " ").toLowerCase()
 
 function download(filename: string, content: string) {
   const url = URL.createObjectURL(new Blob([`\uFEFF${content}`], { type: "text/csv;charset=utf-8" }))
@@ -35,6 +56,7 @@ function download(filename: string, content: string) {
 }
 
 export function SalaryPlanningView() {
+  const { t } = useLanguage()
   const today = new Date()
   const fileRef = useRef<HTMLInputElement>(null)
   const [rows, setRows] = useState<SalaryRow[]>([])
@@ -54,23 +76,27 @@ export function SalaryPlanningView() {
   const [importSaving, setImportSaving] = useState(false)
   const importInputRef = useRef<HTMLInputElement>(null)
 
+  // Plans of the chosen month (Месяц / Год).
   useEffect(() => {
     let cancelled = false
-    fetch("/api/salary-plans")
+    fetch(`/api/salary-plans?year=${year}&month=${month + 1}`)
       .then(async (response) => {
         if (!response.ok) throw new Error("Не удалось загрузить зарплаты")
         return (await response.json()) as SalaryRow[]
       })
       .then((data) => {
-        if (!cancelled) setRows(data)
+        if (cancelled) return
+        setRows(data)
+        setSelected([])
+        setPage(1)
       })
       .catch(() => {
-        if (!cancelled) window.alert("Не удалось загрузить зарплаты с сервера")
+        if (!cancelled) window.alert(t("Не удалось загрузить зарплаты с сервера"))
       })
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [year, month, t])
 
   const filtered = useMemo(
     () =>
@@ -91,23 +117,19 @@ export function SalaryPlanningView() {
   async function setCredited(credited: boolean) {
     const targets = rows.filter((row) => selected.includes(row.id))
     const updated: SalaryRow[] = []
-    let failed = 0
+    const errors: string[] = []
     for (const row of targets) {
       try {
-        const response = await fetch(`/api/salary-plans/${row.id}`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ employee: row.employee, salary: row.salary, bonus: row.bonus, kpi: row.kpi, credited }),
-        })
+        const response = await fetch(`/api/salary-plans/${row.id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: planBody(row, { credited }) })
         if (response.ok) updated.push((await response.json()) as SalaryRow)
-        else failed += 1
+        else errors.push(`${row.employee}: ${t(await errorText(response, "Не удалось обновить"))}`)
       } catch {
-        failed += 1
+        errors.push(row.employee)
       }
     }
     if (updated.length) setRows((current) => current.map((row) => updated.find((item) => item.id === row.id) ?? row))
-    if (failed) window.alert(`Не удалось обновить записей: ${failed}`)
-    setMessage(credited ? "Зарплата зачислена" : "Зачисление отменено")
+    if (errors.length) window.alert(`${t("Не удалось обновить записей")}: ${errors.length}\n${errors.join("\n")}`)
+    setMessage(credited ? t("Зарплата зачислена") : t("Зачисление отменено"))
   }
 
   async function recalcKpi() {
@@ -115,14 +137,11 @@ export function SalaryPlanningView() {
     try {
       const updated: SalaryRow[] = []
       let failed = 0
-      for (const row of rows) {
+      // Credited plans are history: their accrual is not recalculated.
+      for (const row of rows.filter((item) => !item.credited)) {
         const bonus = Math.round((row.salary * row.kpi) / 100)
         try {
-          const response = await fetch(`/api/salary-plans/${row.id}`, {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ employee: row.employee, salary: row.salary, bonus, kpi: row.kpi, credited: row.credited }),
-          })
+          const response = await fetch(`/api/salary-plans/${row.id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: planBody(row, { bonus }) })
           if (response.ok) updated.push((await response.json()) as SalaryRow)
           else failed += 1
         } catch {
@@ -130,29 +149,28 @@ export function SalaryPlanningView() {
         }
       }
       if (updated.length) setRows((current) => current.map((row) => updated.find((item) => item.id === row.id) ?? row))
-      if (failed) window.alert(`Не удалось пересчитать записей: ${failed}`)
-      setMessage("KPI пересчитан")
+      if (failed) window.alert(t(`Не удалось пересчитать записей: ${failed}`))
+      setMessage(t("KPI пересчитан"))
     } finally {
       setRecalculating(false)
     }
   }
 
-  async function addSalary(employee: string, salary: number, kpi: number) {
+  async function addSalary(employeeId: number, salary: number, kpi: number) {
     try {
       const response = await fetch("/api/salary-plans", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ employee, salary, bonus: 0, kpi, credited: false }),
+        body: JSON.stringify({ employeeId, salary, bonus: 0, kpi, credited: false, year, month: month + 1 }),
       })
       if (!response.ok) {
-        const data = await response.json().catch(() => ({}))
-        window.alert(data.error || "Не удалось добавить зарплату")
+        window.alert(t(await errorText(response, "Не удалось добавить зарплату")))
         return
       }
       const saved = (await response.json()) as SalaryRow
       setRows((current) => [...current, saved])
       setAddOpen(false)
-      setMessage("Зарплата добавлена")
+      setMessage(t("Зарплата добавлена"))
     } catch {
       window.alert("Сервер недоступен, попробуйте ещё раз")
     }
@@ -164,11 +182,7 @@ export function SalaryPlanningView() {
     let failed = 0
     for (const row of targets) {
       try {
-        const response = await fetch(`/api/salary-plans/${row.id}`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ employee: row.employee, salary, bonus: row.bonus, kpi, credited: row.credited }),
-        })
+        const response = await fetch(`/api/salary-plans/${row.id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: planBody(row, { salary, kpi }) })
         if (response.ok) updated.push((await response.json()) as SalaryRow)
         else failed += 1
       } catch {
@@ -177,31 +191,52 @@ export function SalaryPlanningView() {
     }
     if (updated.length) setRows((current) => current.map((row) => updated.find((item) => item.id === row.id) ?? row))
     setPlansOpen(false)
-    setMessage("Планы обновлены")
-    if (failed) window.alert(`Не удалось обновить записей: ${failed}`)
+    setMessage(t("Планы обновлены"))
+    if (failed) window.alert(`${t("Не удалось обновить записей")}: ${failed}`)
   }
 
+  /** Copies the selected plans to the next month (not credited there). */
   async function duplicateSelected() {
     if (!selected.length) return
     const targets = rows.filter((row) => selected.includes(row.id))
-    const created: SalaryRow[] = []
-    let failed = 0
+    const nextYear = month === 11 ? year + 1 : year
+    const nextMonth = month === 11 ? 1 : month + 2
+    let copied = 0
+    const errors: string[] = []
     for (const row of targets) {
       try {
         const response = await fetch("/api/salary-plans", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ employee: `${row.employee} — копия`, salary: row.salary, bonus: row.bonus, kpi: row.kpi, credited: row.credited }),
+          body: planBody(row, { year: nextYear, month: nextMonth, credited: false }),
         })
-        if (response.ok) created.push((await response.json()) as SalaryRow)
-        else failed += 1
+        if (response.ok) copied += 1
+        else errors.push(`${row.employee}: ${t(await errorText(response, "Не удалось скопировать"))}`)
       } catch {
-        failed += 1
+        errors.push(row.employee)
       }
     }
-    if (created.length) setRows((current) => [...current, ...created])
-    setMessage("Выбранные строки скопированы")
-    if (failed) window.alert(`Не удалось скопировать записей: ${failed}`)
+    setMessage(`${t("Скопировано на следующий месяц")}: ${copied}`)
+    if (errors.length) window.alert(`${t("Не удалось скопировать записей")}: ${errors.length}\n${errors.join("\n")}`)
+  }
+
+  /** Creates the plan of `employee` for the chosen month, or updates its plan when there is one (credited plans are skipped). */
+  async function upsertPlan(item: { employee: string; salary: number; bonus: number; kpi: number }): Promise<SalaryRow | string> {
+    const existing = rows.find((row) => nameKey(row.employee) === nameKey(item.employee))
+    if (existing?.credited) return `${item.employee}: ${t("Сначала отмените зачисление")}`
+    const response = existing
+      ? await fetch(`/api/salary-plans/${existing.id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: planBody(existing, { salary: item.salary, bonus: item.bonus, kpi: item.kpi }) })
+      : await fetch("/api/salary-plans", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ employee: item.employee, salary: item.salary, bonus: item.bonus, kpi: item.kpi, credited: false, year, month: month + 1 }),
+        })
+    if (!response.ok) return `${item.employee}: ${t(await errorText(response, "Не удалось импортировать"))}`
+    return (await response.json()) as SalaryRow
+  }
+
+  function mergeRows(saved: SalaryRow[]) {
+    setRows((current) => [...current.map((row) => saved.find((item) => item.id === row.id) ?? row), ...saved.filter((item) => !current.some((row) => row.id === item.id))])
   }
 
   function exportCsv() {
@@ -221,32 +256,21 @@ export function SalaryPlanningView() {
     event.target.value = ""
     if (!imported.length) return
 
-    // "Обновить с excel" replaces the whole plan list: clear existing rows, then recreate from the file
-    for (const row of rows) {
-      try {
-        await fetch(`/api/salary-plans/${row.id}`, { method: "DELETE" })
-      } catch {
-        // best effort — continue even if one delete fails
-      }
-    }
-    const created: SalaryRow[] = []
-    let failed = 0
+    // "Обновить с excel": the file's plans for the chosen month (existing plans of the same employee are updated).
+    const saved: SalaryRow[] = []
+    const errors: string[] = []
     for (const item of imported) {
       try {
-        const response = await fetch("/api/salary-plans", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(item),
-        })
-        if (response.ok) created.push((await response.json()) as SalaryRow)
-        else failed += 1
+        const result = await upsertPlan(item)
+        if (typeof result === "string") errors.push(result)
+        else saved.push(result)
       } catch {
-        failed += 1
+        errors.push(item.employee)
       }
     }
-    setRows(created)
-    setMessage(`Импортировано сотрудников: ${created.length}`)
-    if (failed) window.alert(`Не удалось импортировать записей: ${failed}`)
+    mergeRows(saved)
+    setMessage(`${t("Импортировано сотрудников")}: ${saved.length}`)
+    if (errors.length) window.alert(`${t("Не удалось импортировать записей")}: ${errors.length}\n${errors.join("\n")}`)
   }
 
   function downloadTemplate() {
@@ -292,24 +316,20 @@ export function SalaryPlanningView() {
         return
       }
 
-      const created: SalaryRow[] = []
-      let failed = 0
+      const saved: SalaryRow[] = []
+      const errors: string[] = []
       for (const item of parsed) {
         try {
-          const response = await fetch("/api/salary-plans", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ employee: item.employee, salary: item.salary, bonus: 0, kpi: item.kpi, credited: false }),
-          })
-          if (response.ok) created.push((await response.json()) as SalaryRow)
-          else failed += 1
+          const result = await upsertPlan({ employee: item.employee, salary: item.salary, bonus: 0, kpi: item.kpi })
+          if (typeof result === "string") errors.push(result)
+          else saved.push(result)
         } catch {
-          failed += 1
+          errors.push(item.employee)
         }
       }
-      if (created.length) setRows((current) => [...current, ...created])
-      setMessage(`Импортировано сотрудников: ${created.length}`)
-      if (failed) window.alert(`Не удалось импортировать записей: ${failed}`)
+      mergeRows(saved)
+      setMessage(`${t("Импортировано сотрудников")}: ${saved.length}`)
+      if (errors.length) window.alert(`${t("Не удалось импортировать записей")}: ${errors.length}\n${errors.join("\n")}`)
     } finally {
       setImportSaving(false)
       setImportOpen(false)
@@ -320,55 +340,55 @@ export function SalaryPlanningView() {
   return (
     <RefPage>
       <input ref={fileRef} type="file" accept=".csv" onChange={importCsv} className="hidden" />
-      <RefHeader title="Зарплата и установка планов">
-        <RefButton icon={RI.sync} green label="Перерасчет KPI" onClick={() => void recalcKpi()} />
-        <RefButton icon={RI.sync} label="Обновить с excel" onClick={() => fileRef.current?.click()} />
-        <RefButton icon={RI.download} green label="Скачать EXCEL" onClick={exportCsv} />
-        <RefButton icon={RI.add} green label="Добавить зарплату" onClick={() => setAddOpen(true)} />
+      <RefHeader title={t("Зарплата и установка планов")}>
+        <RefButton icon={RI.sync} green label={t("Перерасчет KPI")} disabled={recalculating} onClick={() => void recalcKpi()} />
+        <RefButton icon={RI.sync} label={t("Обновить с excel")} onClick={() => fileRef.current?.click()} />
+        <RefButton icon={RI.download} green label={t("Скачать EXCEL")} onClick={exportCsv} />
+        <RefButton icon={RI.add} green label={t("Добавить зарплату")} onClick={() => setAddOpen(true)} />
       </RefHeader>
 
       <section className="bg-white shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
         <RefTabs labels={["Не зачислено", "Зачислено", "Все"]} value={tab} onChange={(value) => { setTab(value); setPage(1) }} />
         <div className="flex flex-wrap items-end gap-[15px] px-[10px] py-[8px] text-[13px]">
           <label className="text-[10px] font-bold text-black">
-            Месяц
+            {t("Месяц")}
             <div className="mt-1 flex items-center gap-2 border-b py-1 pr-1">
               <select value={month} onChange={(event) => setMonth(Number(event.target.value))} className="bg-white text-[13px] text-black outline-none">
-                {months.map((item, index) => <option key={item} value={index}>{item}</option>)}
+                {months.map((item, index) => <option key={item} value={index}>{t(item)}</option>)}
               </select>
-              <button type="button" aria-label="Очистить месяц" onClick={() => setMonth(today.getMonth())} className="text-slate-400 hover:text-slate-600"><X className="h-4 w-4" /></button>
+              <button type="button" aria-label={t("Очистить месяц")} onClick={() => setMonth(today.getMonth())} className="text-slate-400 hover:text-slate-600"><X className="h-4 w-4" /></button>
             </div>
           </label>
-          <label className="text-[10px] font-bold text-black">Год<select value={year} onChange={(event) => setYear(Number(event.target.value))} className="mt-1 block border-0 border-b py-1 text-[13px] font-normal text-black">{[2025, 2026, 2027].map((item) => <option key={item}>{item}</option>)}</select></label>
-          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Поиск" className="ml-auto w-[248px] border-0 border-b px-0 py-1 text-[13px] outline-none" />
+          <label className="text-[10px] font-bold text-black">{t("Год")}<select value={year} onChange={(event) => setYear(Number(event.target.value))} className="mt-1 block border-0 border-b py-1 text-[13px] font-normal text-black">{[today.getFullYear() - 2, today.getFullYear() - 1, today.getFullYear(), today.getFullYear() + 1].map((item) => <option key={item}>{item}</option>)}</select></label>
+          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("Поиск")} className="ml-auto w-[248px] border-0 border-b px-0 py-1 text-[13px] outline-none" />
           <select value={pageSize} onChange={(event) => setPageSize(Number(event.target.value))}><option>10</option><option>25</option><option>50</option></select>
-          <span>{filtered.length ? `${(page - 1) * pageSize + 1} - ${Math.min(page * pageSize, filtered.length)} из ${filtered.length}` : "0 из 0"}</span>
-          <button type="button" aria-label="Назад" disabled={page === 1} onClick={() => setPage((value) => value - 1)} className="rounded-full border-2 p-1 disabled:opacity-30"><ChevronLeft className="h-4 w-4" /></button>
-          <button type="button" aria-label="Вперед" disabled={page === pages} onClick={() => setPage((value) => value + 1)} className="rounded-full border-2 p-1 disabled:opacity-30"><ChevronRight className="h-4 w-4" /></button>
+          <span>{filtered.length ? `${(page - 1) * pageSize + 1} - ${Math.min(page * pageSize, filtered.length)} ${t("из")} ${filtered.length}` : `0 ${t("из")} 0`}</span>
+          <button type="button" aria-label={t("Назад")} disabled={page === 1} onClick={() => setPage((value) => value - 1)} className="rounded-full border-2 p-1 disabled:opacity-30"><ChevronLeft className="h-4 w-4" /></button>
+          <button type="button" aria-label={t("Вперед")} disabled={page === pages} onClick={() => setPage((value) => value + 1)} className="rounded-full border-2 p-1 disabled:opacity-30"><ChevronRight className="h-4 w-4" /></button>
           <ListChecks className="text-slate-500" />
-          <button type="button" onClick={() => setCredited(true)} className="inline-flex h-[30px] items-center rounded-[5px] bg-[#71ce87] px-4 text-[13px] font-semibold text-white disabled:opacity-50">Зачислить</button>
-          <button type="button" onClick={() => setCredited(false)} className="inline-flex h-[30px] items-center rounded-[5px] bg-[#ff786e] px-4 text-[13px] font-semibold text-white disabled:opacity-50">Отменить зачисление</button>
-          <button type="button" onClick={() => setPlansOpen(true)} className="inline-flex h-[30px] items-center rounded-[5px] bg-[#5470e8] px-4 text-[13px] font-semibold text-white disabled:opacity-50"><Pencil className="mr-2 inline h-4 w-4" />Изменить планы</button>
-          <button type="button" aria-label="Копировать выбранные" onClick={() => void duplicateSelected()}><Copy /></button>
+          <button type="button" onClick={() => setCredited(true)} className="inline-flex h-[30px] items-center rounded-[5px] bg-[#71ce87] px-4 text-[13px] font-semibold text-white disabled:opacity-50">{t("Зачислить")}</button>
+          <button type="button" onClick={() => setCredited(false)} className="inline-flex h-[30px] items-center rounded-[5px] bg-[#ff786e] px-4 text-[13px] font-semibold text-white disabled:opacity-50">{t("Отменить зачисление")}</button>
+          <button type="button" onClick={() => setPlansOpen(true)} className="inline-flex h-[30px] items-center rounded-[5px] bg-[#5470e8] px-4 text-[13px] font-semibold text-white disabled:opacity-50"><Pencil className="mr-2 inline h-4 w-4" />{t("Изменить планы")}</button>
+          <button type="button" aria-label={t("Копировать выбранные")} onClick={() => void duplicateSelected()}><Copy /></button>
         </div>
         {message && <div className="flex justify-between bg-blue-50 px-5 py-2 text-blue-700">{message}<button type="button" onClick={() => setMessage("")}>×</button></div>}
-        <div className="overflow-x-auto"><table className="w-full min-w-[900px]"><thead className="bg-[#5d6474] text-white"><tr><th className="px-5 py-4 text-[13px] text-left">Сотрудник</th><th className="px-5 py-4 text-[13px] text-left">Зарплата</th><th className="px-5 py-4 text-[13px] text-left">Сумма бонусов</th><th className="px-5 py-4 text-[13px] text-left">Итоговая зарплата</th><th className="px-5 py-4 text-[13px] text-left">KPI</th></tr></thead><tbody>{shown.map((row) => <tr key={row.id} className="border-b"><td className="px-5 py-4"><label className="flex items-center gap-3"><input type="checkbox" checked={selected.includes(row.id)} onChange={() => toggleSelected(row.id)} />{row.employee}</label></td><td className="px-5 py-4 text-left">{row.salary.toLocaleString("ru-RU")}</td><td className="px-5 py-4 text-left">{row.bonus.toLocaleString("ru-RU")}</td><td className="px-5 py-4 text-left">{(row.salary + row.bonus).toLocaleString("ru-RU")}</td><td className="px-5 py-4 text-left">{row.kpi}%</td></tr>)}</tbody></table></div>
-        {!shown.length && <div className="flex min-h-[345px] flex-col items-center justify-center"><Image src="/robot-empty.png" alt="Робот-помощник" width={150} height={150} priority /><p className="mt-6 text-slate-400">По вашему запросу ничего не найдено</p></div>}
+        <div className="overflow-x-auto"><table className="w-full min-w-[900px]"><thead className="bg-[#5d6474] text-white"><tr><th className="px-5 py-4 text-[13px] text-left">{t("Сотрудник")}</th><th className="px-5 py-4 text-[13px] text-left">{t("Зарплата")}</th><th className="px-5 py-4 text-[13px] text-left">{t("Сумма бонусов")}</th><th className="px-5 py-4 text-[13px] text-left">{t("Итоговая зарплата")}</th><th className="px-5 py-4 text-[13px] text-left">KPI</th></tr></thead><tbody>{shown.map((row) => <tr key={row.id} className="border-b"><td className="px-5 py-4"><label className="flex items-center gap-3"><input type="checkbox" checked={selected.includes(row.id)} onChange={() => toggleSelected(row.id)} />{row.employee}</label></td><td className="px-5 py-4 text-left">{row.salary.toLocaleString("ru-RU")}</td><td className="px-5 py-4 text-left">{row.bonus.toLocaleString("ru-RU")}</td><td className="px-5 py-4 text-left">{(row.salary + row.bonus).toLocaleString("ru-RU")}</td><td className="px-5 py-4 text-left">{row.kpi}%</td></tr>)}</tbody></table></div>
+        {!shown.length && <div className="flex min-h-[345px] flex-col items-center justify-center"><Image src="/robot-empty.png" alt={t("Робот-помощник")} width={150} height={150} priority /><p className="mt-6 text-slate-400">{t("По вашему запросу ничего не найдено")}</p></div>}
       </section>
-      {addOpen && <SalaryModal title="Добавить зарплату" onClose={() => setAddOpen(false)} onSave={(employee, salary, kpi) => void addSalary(employee, salary, kpi)} />}
+      {addOpen && <SalaryModal title={t("Добавить зарплату")} onClose={() => setAddOpen(false)} onSave={(employeeId, salary, kpi) => void addSalary(employeeId, salary, kpi)} />}
       {plansOpen && <PlansModal onClose={() => setPlansOpen(false)} onSave={(salary, kpi) => void updatePlans(salary, kpi)} />}
       {importOpen && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/45 p-4">
           <div className="w-full max-w-md rounded bg-white">
             <header className="flex items-center justify-between border-b p-6">
-              <b className="uppercase">Импорт с Excel</b>
+              <b className="uppercase">{t("Импорт с Excel")}</b>
               <button type="button" onClick={() => { setImportOpen(false); setImportFile(null) }} aria-label="Закрыть">
                 <X className="h-5 w-5" />
               </button>
             </header>
             <div className="p-8">
               <button type="button" onClick={downloadTemplate} className="mb-4 font-semibold text-[#5470e8] hover:underline">
-                1. Скачать шаблон
+                1. {t("Скачать шаблон")}
               </button>
               <input ref={importInputRef} type="file" accept=".csv,.xls,.xlsx" onChange={pickImportFile} className="hidden" />
               <button
@@ -377,12 +397,12 @@ export function SalaryPlanningView() {
                 className="flex w-full flex-col items-center justify-center gap-3 rounded border-2 border-dashed border-slate-300 py-10 text-slate-500 hover:border-[#5470e8] hover:text-[#5470e8]"
               >
                 <FileText className="h-8 w-8" />
-                {importFile ? importFile.name : "Добавьте файл Excel или нажмите для выбора"}
+                {importFile ? importFile.name : t("Добавьте файл Excel или нажмите для выбора")}
               </button>
             </div>
             <footer className="flex justify-end border-t p-5">
               <button type="button" disabled={!importFile || importSaving} onClick={saveImport} className="inline-flex items-center h-[30px] rounded-[5px] bg-[#71ce87] px-4 text-[13px] font-semibold text-white hover:brightness-95 disabled:opacity-40">
-                {importSaving ? "Импорт..." : "Сохранить"}
+                {importSaving ? t("Импорт...") : t("Сохранить")}
               </button>
             </footer>
           </div>
@@ -392,16 +412,31 @@ export function SalaryPlanningView() {
   )
 }
 
-function SalaryModal({ title, onClose, onSave }: { title: string; onClose: () => void; onSave: (employee: string, salary: number, kpi: number) => void }) {
+function SalaryModal({ title, onClose, onSave }: { title: string; onClose: () => void; onSave: (employeeId: number, salary: number, kpi: number) => void }) {
+  const { t } = useLanguage()
+  const [employees, setEmployees] = useState<EmployeeOption[]>([])
   const [employee, setEmployee] = useState("")
   const [salary, setSalary] = useState("")
   const [kpi, setKpi] = useState("0")
-  function submit(event: FormEvent) { event.preventDefault(); if (employee.trim() && Number(salary) >= 0) onSave(employee.trim(), Number(salary), Number(kpi)) }
-  return <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/55 p-4"><form onSubmit={submit} className="w-full max-w-xl bg-white shadow-2xl"><header className="flex justify-between border-b px-7 py-5"><h2 className="font-bold uppercase">{title}</h2><button type="button" onClick={onClose}><X /></button></header><div className="space-y-5 p-7"><input required value={employee} onChange={(event) => setEmployee(event.target.value)} placeholder="Сотрудник" className="w-full border-b py-3" /><input required type="number" min="0" value={salary} onChange={(event) => setSalary(event.target.value)} placeholder="Зарплата" className="w-full border-b py-3" /><input type="number" min="0" max="100" value={kpi} onChange={(event) => setKpi(event.target.value)} placeholder="KPI, %" className="w-full border-b py-3" /></div><footer className="flex justify-end border-t px-7 py-5"><button type="submit" className="font-bold uppercase text-sky-500">Сохранить</button></footer></form></div>
+  useEffect(() => {
+    let cancelled = false
+    fetch("/api/employees")
+      .then(async (response) => (response.ok ? ((await response.json()) as EmployeeOption[]) : []))
+      .then((data) => {
+        if (!cancelled && Array.isArray(data)) setEmployees(data)
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [])
+  function submit(event: FormEvent) { event.preventDefault(); if (Number(employee) > 0 && Number(salary) >= 0) onSave(Number(employee), Number(salary), Number(kpi)) }
+  return <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/55 p-4"><form onSubmit={submit} className="w-full max-w-xl bg-white shadow-2xl"><header className="flex justify-between border-b px-7 py-5"><h2 className="font-bold uppercase">{title}</h2><button type="button" onClick={onClose}><X /></button></header><div className="space-y-5 p-7"><select required value={employee} onChange={(event) => setEmployee(event.target.value)} className="w-full border-b bg-white py-3"><option value="">{t("Сотрудник")}</option>{employees.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select><input required type="number" min="0" value={salary} onChange={(event) => setSalary(event.target.value)} placeholder={t("Зарплата")} className="w-full border-b py-3" /><input type="number" min="0" max="100" value={kpi} onChange={(event) => setKpi(event.target.value)} placeholder="KPI, %" className="w-full border-b py-3" /></div><footer className="flex justify-end border-t px-7 py-5"><button type="submit" className="font-bold uppercase text-sky-500">Сохранить</button></footer></form></div>
 }
 
 function PlansModal({ onClose, onSave }: { onClose: () => void; onSave: (salary: number, kpi: number) => void }) {
+  const { t } = useLanguage()
   const [salary, setSalary] = useState("0")
   const [kpi, setKpi] = useState("0")
-  return <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/55 p-4"><form onSubmit={(event) => { event.preventDefault(); onSave(Number(salary), Number(kpi)) }} className="w-full max-w-lg bg-white"><header className="flex justify-between border-b px-7 py-5"><h2 className="font-bold">ИЗМЕНИТЬ ПЛАНЫ</h2><button type="button" onClick={onClose}><X /></button></header><div className="space-y-5 p-7"><input type="number" min="0" value={salary} onChange={(event) => setSalary(event.target.value)} placeholder="Зарплата" className="w-full border-b py-3" /><input type="number" min="0" max="100" value={kpi} onChange={(event) => setKpi(event.target.value)} placeholder="KPI, %" className="w-full border-b py-3" /></div><footer className="flex justify-end border-t px-7 py-5"><button className="font-bold uppercase text-sky-500">Сохранить</button></footer></form></div>
+  return <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/55 p-4"><form onSubmit={(event) => { event.preventDefault(); onSave(Number(salary), Number(kpi)) }} className="w-full max-w-lg bg-white"><header className="flex justify-between border-b px-7 py-5"><h2 className="font-bold">{t("ИЗМЕНИТЬ ПЛАНЫ")}</h2><button type="button" onClick={onClose}><X /></button></header><div className="space-y-5 p-7"><input type="number" min="0" value={salary} onChange={(event) => setSalary(event.target.value)} placeholder={t("Зарплата")} className="w-full border-b py-3" /><input type="number" min="0" max="100" value={kpi} onChange={(event) => setKpi(event.target.value)} placeholder="KPI, %" className="w-full border-b py-3" /></div><footer className="flex justify-end border-t px-7 py-5"><button className="font-bold uppercase text-sky-500">{t("Сохранить")}</button></footer></form></div>
 }

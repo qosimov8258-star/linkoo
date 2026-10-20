@@ -21,6 +21,13 @@ function todayLabel() {
   return new Intl.DateTimeFormat("ru-RU", { day: "2-digit", month: "short", year: "numeric" }).format(new Date())
 }
 
+/** The server's message (409: duplicate name, or the usage list of a type in use). */
+async function errorOf(response: Response, t: (key: string) => string): Promise<string> {
+  const body = (await response.json().catch(() => null)) as { error?: string; usage?: Array<{ label: string; count: number }> } | null
+  const usage = body?.usage?.map((entry) => `${t(entry.label)}: ${entry.count}`).join(", ")
+  return body?.error ? `${t(body.error)}${usage ? ` (${usage})` : ""}` : t("Не удалось сохранить")
+}
+
 export function ClientTypesView({ embedded = false }: { embedded?: boolean }) {
   const { t } = useLanguage()
   const [items, setItems] = useState(initialTypes)
@@ -74,7 +81,7 @@ export function ClientTypesView({ embedded = false }: { embedded?: boolean }) {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ name: draft.name.trim(), supplier: draft.supplier.trim() }),
         })
-        if (!response.ok) return
+        if (!response.ok) return window.alert(await errorOf(response, t))
         const saved = (await response.json()) as ClientType
         setItems((current) => current.map((item) => (item.id === saved.id ? saved : item)))
       } else {
@@ -83,7 +90,7 @@ export function ClientTypesView({ embedded = false }: { embedded?: boolean }) {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ name: draft.name.trim(), supplier: draft.supplier.trim() }),
         })
-        if (!response.ok) return
+        if (!response.ok) return window.alert(await errorOf(response, t))
         const saved = (await response.json()) as ClientType
         setItems((current) => [saved, ...current])
       }
@@ -96,7 +103,7 @@ export function ClientTypesView({ embedded = false }: { embedded?: boolean }) {
   async function remove(id: number) {
     try {
       const response = await fetch(`/api/client-types/${id}`, { method: "DELETE" })
-      if (!response.ok) return
+      if (!response.ok) return window.alert(await errorOf(response, t))
       setItems((current) => current.filter((row) => row.id !== id))
     } catch {
       window.alert(t("Сервер недоступен, попробуйте ещё раз"))

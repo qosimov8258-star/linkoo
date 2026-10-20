@@ -1,67 +1,62 @@
 import { NextResponse } from "next/server"
-import { z } from "zod"
 
+import { employeeErrorResponse, employeeSchema, toEmployeeInput } from "@/app/api/employees/schema"
+import { parseBody, parseId } from "@/lib/auth-request"
+import { getCurrentUser } from "@/lib/current-user"
+import { deleteEmployee, getEmployee, updateEmployee } from "@/lib/employees-repo"
 import { requireRole } from "@/lib/rbac"
-import { parseJsonBody } from "@/lib/validation"
-import { deleteEmployee, updateEmployee, type EmployeeInput } from "@/lib/employees-repo"
-
-const employeeSchema = z.object({
-  firstName: z.string().trim().min(1),
-  lastName: z.string().trim().min(1),
-  phone: z.string().trim().optional(),
-  integrationCode: z.string().optional(),
-  position: z.string().optional(),
-  branch: z.string().optional(),
-  systemAccess: z.boolean().optional(),
-  showInTracking: z.boolean().optional(),
-  twoStepCheck: z.boolean().optional(),
-  sessionLimit: z.boolean().optional(),
-  gpsCheck: z.boolean().optional(),
-  startPoint: z.boolean().optional(),
-  organizations: z.array(z.string()).optional(),
-  active: z.boolean().optional(),
-})
-
-function toEmployeeInput(data: z.infer<typeof employeeSchema>): EmployeeInput {
-  return {
-    firstName: data.firstName,
-    lastName: data.lastName,
-    phone: data.phone ?? "",
-    integrationCode: data.integrationCode ?? "",
-    position: data.position ?? "",
-    branch: data.branch ?? "",
-    systemAccess: data.systemAccess ?? true,
-    showInTracking: data.showInTracking ?? true,
-    twoStepCheck: data.twoStepCheck ?? false,
-    sessionLimit: data.sessionLimit ?? false,
-    gpsCheck: data.gpsCheck ?? true,
-    startPoint: data.startPoint ?? false,
-    organizations: data.organizations ?? [],
-    active: data.active ?? true,
-  }
-}
 
 type RouteParams = { params: Promise<{ id: string }> }
 
+const NOT_FOUND = { error: "Сотрудник не найден" }
+
+export async function GET(_request: Request, { params }: RouteParams) {
+  const user = await getCurrentUser()
+  if (!user) return NextResponse.json({ error: "Вы не вошли в систему" }, { status: 401 })
+  const id = parseId((await params).id)
+  const employee = id ? await getEmployee(id) : null
+  if (!employee) return NextResponse.json(NOT_FOUND, { status: 404 })
+  return NextResponse.json(employee)
+}
+
+// PUT /api/employees/[id] — a changed name is carried into cashboxes,
+// warehouses, clients (agent / deliverer / collector), documents and production
+// staff that store it.
 export async function PUT(request: Request, { params }: RouteParams) {
   const auth = await requireRole("manager")
   if ("error" in auth) return auth.error
 
-  const id = Number((await params).id)
-  const parsed = await parseJsonBody(request, employeeSchema)
+  const id = parseId((await params).id)
+  if (!id) return NextResponse.json(NOT_FOUND, { status: 404 })
+  const parsed = await parseBody(request, employeeSchema)
   if (parsed.error) return parsed.error
 
-  const employee = (await updateEmployee(id, toEmployeeInput(parsed.data)))
-  if (!employee) return NextResponse.json({ error: "Сотрудник не найден" }, { status: 404 })
-  return NextResponse.json(employee)
+  try {
+    const employee = await updateEmployee(id, toEmployeeInput(parsed.data))
+    if (!employee) return NextResponse.json(NOT_FOUND, { status: 404 })
+    return NextResponse.json(employee)
+  } catch (error) {
+    const response = employeeErrorResponse(error)
+    if (response) return response
+    throw error
+  }
 }
 
+// DELETE /api/employees/[id] — 409 {error: "Удаление невозможно из-за связи с другими данными", usage}
+// while a cashbox, warehouse, client, document or production record refers to the employee.
 export async function DELETE(_request: Request, { params }: RouteParams) {
   const auth = await requireRole("manager")
   if ("error" in auth) return auth.error
 
-  const id = Number((await params).id)
-  const ok = (await deleteEmployee(id))
-  if (!ok) return NextResponse.json({ error: "Сотрудник не найден" }, { status: 404 })
-  return NextResponse.json({ ok: true })
+  const id = parseId((await params).id)
+  if (!id) return NextResponse.json(NOT_FOUND, { status: 404 })
+  try {
+    const ok = await deleteEmployee(id)
+    if (!ok) return NextResponse.json(NOT_FOUND, { status: 404 })
+    return NextResponse.json({ ok: true })
+  } catch (error) {
+    const response = employeeErrorResponse(error)
+    if (response) return response
+    throw error
+  }
 }

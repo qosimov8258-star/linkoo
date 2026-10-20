@@ -4,6 +4,8 @@ import { useState } from "react"
 import Image from "next/image"
 import { ChevronDown, Pencil, X } from "lucide-react"
 import { ReportPage, WidgetHeader, WidgetUserCard } from "@/components/ref/report-kit"
+import { useDirectoryNames } from "@/components/clients/use-directory"
+import { useLanguage } from "@/lib/i18n/language-context"
 
 
 type Period = "СЕГОДНЯ" | "ВЧЕРА" | "ПОСЛ. 7" | "МЕСЯЦ" | "СВОЯ"
@@ -19,15 +21,17 @@ const breakdownSections: { key: BreakdownKey; title: string; totalOkb: number }[
 ]
 
 function EmptyBlock({ label }: { label: string }) {
+  const { t } = useLanguage()
   return (
     <div className="flex flex-col items-center justify-center py-14">
-      <Image src="/robot-empty.png" alt="Робот-помощник" width={96} height={96} className="h-24 w-24 object-contain" />
-      <p className="mt-3 text-[#9aa3b6]">{label}</p>
+      <Image src="/robot-empty.png" alt={t("Робот-помощник")} width={96} height={96} className="h-24 w-24 object-contain" />
+      <p className="mt-3 text-[#9aa3b6]">{t(label)}</p>
     </div>
   )
 }
 
 function SortableTh({ label, sortKey, active, onSort }: { label: string; sortKey: string; active: boolean; onSort: (key: string) => void }) {
+  const { t } = useLanguage()
   return (
     <th
       role="button"
@@ -36,12 +40,15 @@ function SortableTh({ label, sortKey, active, onSort }: { label: string; sortKey
       onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onSort(sortKey) } }}
       className={`cursor-pointer select-none whitespace-nowrap px-4 py-3 text-left font-semibold ${active ? "text-[#4f71dc]" : "text-[#586174]"} hover:text-[#4f71dc]`}
     >
-      <span className="inline-flex items-center gap-1.5">{label}<ChevronDown className="h-3.5 w-3.5" /></span>
+      <span className="inline-flex items-center gap-1.5">{t(label)}<ChevronDown className="h-3.5 w-3.5" /></span>
     </th>
   )
 }
 
 export function SalesTabView() {
+  const { t } = useLanguage()
+  // Branches of the factory itself (never another tenant's names).
+  const branches = useDirectoryNames("branches")
   const [period, setPeriod] = useState<Period>("МЕСЯЦ")
   const [metric, setMetric] = useState<(typeof metrics)[number]>("ПРОДАЖИ")
   const [filterActive, setFilterActive] = useState(true)
@@ -67,27 +74,28 @@ export function SalesTabView() {
             onClick={() => setMetric(item)}
             className={`h-[30px] rounded-[3px] px-[22px] text-[13px] font-medium uppercase shadow-[0_1px_3px_rgba(0,0,0,0.12)] ${metric === item ? "bg-[#2bcd53] text-white" : "bg-white text-black hover:bg-[#f2f5f8]"}`}
           >
-            {item}
+            {t(item)}
           </button>
         ))}
         {filterActive && (
           <div className="relative ml-auto flex h-[46px] items-stretch gap-[1px] text-[13px] text-[#555]">
-            <span className="flex items-center bg-[#e8e8e8] px-[28px]">Фильтр: 1 элемента</span>
-            <button type="button" onClick={() => setFilterEditOpen((value) => !value)} aria-label="Изменить фильтр" className="flex w-[48px] items-center justify-center bg-[#e8e8e8]"><Pencil className="h-5 w-5 text-[#586174] hover:text-[#4f71dc]" /></button>
-            <button type="button" aria-label="Очистить фильтр" onClick={() => setFilterActive(false)} className="flex w-[46px] items-center justify-center bg-[#e8e8e8]"><X className="h-5 w-5 rounded-full border border-[#586174] p-0.5 text-[#586174] hover:text-[#e5484d]" /></button>
+            <span className="flex items-center bg-[#e8e8e8] px-[28px]">{t("Фильтр: 1 элемента")}</span>
+            <button type="button" onClick={() => setFilterEditOpen((value) => !value)} aria-label={t("Изменить фильтр")} className="flex w-[48px] items-center justify-center bg-[#e8e8e8]"><Pencil className="h-5 w-5 text-[#586174] hover:text-[#4f71dc]" /></button>
+            <button type="button" aria-label={t("Очистить фильтр")} onClick={() => setFilterActive(false)} className="flex w-[46px] items-center justify-center bg-[#e8e8e8]"><X className="h-5 w-5 rounded-full border border-[#586174] p-0.5 text-[#586174] hover:text-[#e5484d]" /></button>
             {filterEditOpen && (
               <div className="absolute right-0 top-full z-20 mt-2 w-64 border border-[#e1e5eb] bg-white p-4 shadow-xl">
                 <label className="block text-xs font-medium text-[#586174]">
-                  Филиал
+                  {t("Филиал")}
                   <select value={filterLabel} onChange={(event) => setFilterLabel(event.target.value)} className="mt-1 block w-full border-b border-[#dbe0e8] bg-white py-2 text-sm outline-none">
-                    <option>Все филиалы</option>
-                    <option>777</option>
-                    <option>878</option>
-                    <option>Andijon</option>
-                    <option>AURUM samarqand</option>
+                    <option value="Все филиалы">{t("Все филиалы")}</option>
+                    {branches.map((name) => (
+                      <option key={name} value={name}>
+                        {name}
+                      </option>
+                    ))}
                   </select>
                 </label>
-                <button type="button" onClick={() => setFilterEditOpen(false)} className="mt-4 w-full rounded bg-[#5470e8] py-2 text-sm font-semibold text-white">Применить</button>
+                <button type="button" onClick={() => setFilterEditOpen(false)} className="mt-4 w-full rounded bg-[#5470e8] py-2 text-sm font-semibold text-white">{t("Применить")}</button>
               </div>
             )}
           </div>
@@ -96,26 +104,26 @@ export function SalesTabView() {
 
       <section className="mx-[30px] mt-[20px] grid grid-cols-1 gap-[16px] sm:grid-cols-2 lg:grid-cols-3">
         <div className="min-h-[410px] rounded-[12px] bg-white p-[20px] shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
-          <h3 className="mb-4 text-[16px] font-semibold">Продажи по территории</h3>
+          <h3 className="mb-4 text-[16px] font-semibold">{t("Продажи по территории")}</h3>
         </div>
         <div className="min-h-[410px] rounded-[12px] bg-white p-[20px] shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
-          <h3 className="mb-4 text-[16px] font-semibold">Продажи по пользователям</h3>
+          <h3 className="mb-4 text-[16px] font-semibold">{t("Продажи по пользователям")}</h3>
         </div>
         <div className="min-h-[410px] rounded-[12px] bg-white p-[20px] shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
-          <h3 className="mb-4 text-[16px] font-semibold">Продажи по типу продукта</h3>
+          <h3 className="mb-4 text-[16px] font-semibold">{t("Продажи по типу продукта")}</h3>
         </div>
       </section>
 
       <section className="mx-[30px] mt-[16px] rounded-[12px] bg-white p-[20px] shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
         <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
-          <h2 className="text-[18px] font-semibold">Продажа</h2>
+          <h2 className="text-[18px] font-semibold">{t("Продажа")}</h2>
           <div className="flex items-center gap-6">
             <div className="flex overflow-hidden rounded-sm">
               {salesRanges.map((item) => (
-                <button key={item} onClick={() => setSalesRange(item)} className={`h-[30px] border px-[16px] text-[13px] font-medium uppercase ${salesRange === item ? "border-[#2bcd53] bg-[#2bcd53] text-white" : "border-[#e8e8e8] bg-white text-black"}`}>{item}</button>
+                <button key={item} onClick={() => setSalesRange(item)} className={`h-[30px] border px-[16px] text-[13px] font-medium uppercase ${salesRange === item ? "border-[#2bcd53] bg-[#2bcd53] text-white" : "border-[#e8e8e8] bg-white text-black"}`}>{t(item)}</button>
               ))}
             </div>
-            <h2 className="text-[18px] font-semibold">По типам оплаты</h2>
+            <h2 className="text-[18px] font-semibold">{t("По типам оплаты")}</h2>
           </div>
         </div>
         <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
@@ -133,7 +141,7 @@ export function SalesTabView() {
 
       {breakdownSections.map((section) => (
         <section key={section.key} className="mx-[30px] mt-[20px]">
-          <h2 className="mb-[10px] text-[18px] font-semibold">{section.title}</h2>
+          <h2 className="mb-[10px] text-[18px] font-semibold">{t(section.title)}</h2>
           <div className="grid grid-cols-1 overflow-hidden rounded-[12px] bg-white shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)] lg:grid-cols-[3fr_1fr]">
             <div className="min-h-[360px]">
               <table className="w-full border-collapse text-[13px]">
@@ -151,7 +159,7 @@ export function SalesTabView() {
                 </tbody>
                 <tfoot>
                   <tr className="border-t border-[#e1e5eb] font-semibold">
-                    <td className="px-4 py-3">Итого</td>
+                    <td className="px-4 py-3">{t("Итого")}</td>
                     <td className="px-4 py-3">{section.totalOkb}</td>
                     <td className="px-4 py-3">0</td>
                     <td className="px-4 py-3">0 %</td>
@@ -162,7 +170,7 @@ export function SalesTabView() {
             </div>
             <div className="flex flex-col items-center justify-center text-center">
               <span className="text-[12px] font-bold">0</span>
-              <span className="text-[10px] lowercase text-[#555]">итого</span>
+              <span className="text-[10px] lowercase text-[#555]">{t("итого")}</span>
             </div>
           </div>
         </section>

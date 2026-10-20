@@ -76,17 +76,37 @@ export function OrdersView() {
   const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize))
   const pageStart = (Math.min(page, pageCount) - 1) * pageSize
   const pageRows = sortedRows.slice(pageStart, pageStart + pageSize)
-  const totals = useMemo(
-    () => ({
-      orders: sumByCurrency(filtered),
-      returns: sumByCurrency([]),
-      fact: sumByCurrency(filtered),
-    }),
-    [filtered],
-  )
+  // Accepted client returns of the listed orders (Продажи → Возвраты).
+  const [returnsByOrder, setReturnsByOrder] = useState<Map<number, { currency: string; amount: number }[]>>(new Map())
+  const totals = useMemo(() => {
+    const orderTotals = totalsByCurrency(filtered.filter((row) => row.status !== "Отменен" && row.status !== "Не подтвержден").map((row) => row.amount))
+    const returnTotals = new Map<string, number>()
+    for (const row of filtered) {
+      for (const entry of returnsByOrder.get(row.id) ?? []) returnTotals.set(entry.currency, (returnTotals.get(entry.currency) ?? 0) + entry.amount)
+    }
+    const fact = new Map(orderTotals)
+    for (const [currency, amount] of returnTotals) fact.set(currency, (fact.get(currency) ?? 0) - amount)
+    return { orders: renderTotals(orderTotals), returns: renderTotals(returnTotals), fact: renderTotals(fact) }
+  }, [filtered, returnsByOrder])
   const alertCount = orders.filter((row) => row.negative).length
   const transitCount = orders.filter((row) => row.status === "В пути").length
   const stockCount = orders.filter((row) => row.status === "Есть на складе").length
+
+  useEffect(() => {
+    let cancelled = false
+    fetch("/api/client-returns?tab=accepted")
+      .then((response) => (response.ok ? (response.json() as Promise<{ rows: { orderId: number | null; currency: string; amount: number }[] }>) : null))
+      .then((data) => {
+        if (cancelled || !data) return
+        const map = new Map<number, { currency: string; amount: number }[]>()
+        for (const row of data.rows) if (row.orderId) map.set(row.orderId, [...(map.get(row.orderId) ?? []), { currency: row.currency, amount: row.amount }])
+        setReturnsByOrder(map)
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -172,9 +192,8 @@ export function OrdersView() {
 
   function exportCsv() {
     const rows = checkedIds.length ? filtered.filter((row) => checkedIds.includes(row.id)) : filtered
-    const cell = (value: string | number) => `"${String(value).replace(/"/g, '""')}"`
-    const csv = [["№", "Клиент", "Тип", "Дата создания", "Дата доставки", "Агент", "Сумма заказа", "Баланс", "Статус"].join(";")]
-      .concat(rows.map((row) => [row.id, row.client, row.type, row.created, row.delivery, row.agent, row.amount, row.balance, row.status].map(cell).join(";")))
+    const csv = [["№", "Клиент", "Тип", "Дата создания", "Доставщик", "Дата доставки", "Агент", "Сумма заказа", "Баланс", "Статус"].map(csvCell).join(";")]
+      .concat(rows.map((row) => [row.id, row.client, row.type, row.created, delivererOf(row), row.delivery, row.agent, row.amount, row.balance, row.status].map(csvCell).join(";")))
       .join("\n")
     const url = URL.createObjectURL(new Blob(["\ufeff" + csv], { type: "text/csv;charset=utf-8" }))
     const link = document.createElement("a")
@@ -209,39 +228,51 @@ export function OrdersView() {
       return
     }
     const ids = [...checkedIds]
-    setOrders((current) => current.map((row) => (ids.includes(row.id) ? { ...row, status: "В пути" } : row)))
     setCheckedIds([])
-    flash(`${ids.length} ${t("заказ(ов) передано в доставку")}`)
-    try {
-      await Promise.all(
-        ids.map((id) =>
-          fetch(`/api/orders/${id}`, {
+    // The server checks each transition and the stock; only what it accepted changes here.
+    const results = await Promise.all(
+      ids.map(async (id) => {
+        try {
+          const response = await fetch(`/api/orders/${id}`, {
             method: "PATCH",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ status: "В пути" }),
-          }),
-        ),
-      )
-    } catch {
-      flash(t("Не удалось сохранить часть изменений на сервере"))
-    }
+          })
+          const body = (await response.json().catch(() => null)) as (Order & { error?: string }) | null
+          return response.ok && body ? { id, order: body } : { id, error: body?.error ?? "Не удалось сохранить изменения на сервере" }
+        } catch {
+          return { id, error: "Не удалось сохранить изменения на сервере" }
+        }
+      }),
+    )
+    const updated = results.flatMap((result) => ("order" in result && result.order ? [result.order] : []))
+    setOrders((current) => current.map((row) => updated.find((order) => order.id === row.id) ?? row))
+    const failed = results.filter((result) => "error" in result && result.error)
+    flash(
+      failed.length
+        ? `${updated.length} ${t("заказ(ов) передано в доставку")}. №${failed[0].id}: ${t(String((failed[0] as { error: string }).error))}`
+        : `${updated.length} ${t("заказ(ов) передано в доставку")}`,
+    )
   }
 
-  async function updateOrder(id: number, patch: Partial<Order>) {
-    setOrders((current) => current.map((row) => (row.id === id ? { ...row, ...patch } : row)))
-    setSelected((current) => (current && current.id === id ? { ...current, ...patch } : current))
+  async function updateOrder(id: number, patch: Partial<Order>): Promise<boolean> {
     try {
       const response = await fetch(`/api/orders/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(patch),
       })
-      if (!response.ok) throw new Error("update failed")
-      const updated = (await response.json()) as Order
-      setOrders((current) => current.map((row) => (row.id === id ? updated : row)))
-      setSelected((current) => (current && current.id === id ? updated : current))
+      const body = (await response.json().catch(() => null)) as (Order & { error?: string }) | null
+      if (!response.ok || !body) {
+        flash(body?.error ? t(body.error) : t("Не удалось сохранить изменения на сервере"))
+        return false
+      }
+      setOrders((current) => current.map((row) => (row.id === id ? body : row)))
+      setSelected((current) => (current && current.id === id ? body : current))
+      return true
     } catch {
       flash(t("Не удалось сохранить изменения на сервере"))
+      return false
     }
   }
 
@@ -269,25 +300,30 @@ export function OrdersView() {
     if (!file) return
     void (async () => {
       const rows = await readExcelRows(file)
+      // Imported rows (client, amount) become unconfirmed orders without lines;
+      // the server validates the client and the amount of each.
       const parsed = rows
         .filter(([client]) => client && !/^(клиент|client)$/i.test(client))
-        .map(([client, amount]) => ({ client, amount: amount || "0 SUM" }))
+        .map(([client, amount]) => ({ client, amount: amount || "0", status: "Не подтвержден" }))
       if (!parsed.length) return
-      try {
-        const created = await Promise.all(
-          parsed.map((row) =>
-            fetch("/api/orders", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify(row),
-            }).then((response) => response.json() as Promise<Order>),
-          ),
-        )
-        setOrders((current) => [...created, ...current])
-        flash(`${t("Импортировано заказов:")} ${created.length}`)
-      } catch {
-        flash(t("Не удалось импортировать заказы"))
+      const created: Order[] = []
+      const errors: string[] = []
+      for (const row of parsed) {
+        try {
+          const response = await fetch("/api/orders", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(row),
+          })
+          const body = (await response.json().catch(() => null)) as (Order & { error?: string }) | null
+          if (response.ok && body) created.push(body)
+          else errors.push(`${row.client}: ${t(body?.error ?? "Не удалось импортировать заказы")}`)
+        } catch {
+          errors.push(`${row.client}: ${t("Не удалось импортировать заказы")}`)
+        }
       }
+      setOrders((current) => [...created, ...current])
+      flash(errors.length ? `${t("Импортировано заказов:")} ${created.length}. ${t("Ошибки")}: ${errors.slice(0, 3).join("; ")}` : `${t("Импортировано заказов:")} ${created.length}`)
     })()
   }
 
@@ -485,11 +521,11 @@ export function OrdersView() {
                       <div className="px-2 leading-[16.25px]">{row.client}<br /><span>{t("Зона")} : {row.zone || t("Не указано")}</span></div>
                       <div className="px-2 leading-[16.25px]">{row.type}<br /><b className="font-semibold">{row.product}</b></div>
                       <div className="px-2">{row.created}</div>
-                      <div className="px-2 leading-[16.25px]">Admin Ritm<br /><span className="text-[#4f71dc]">{t("Не указано")}</span></div>
-                      <div className="px-2">{row.delivery}</div>
-                      <div className="px-2 leading-[16.25px]">{row.agent}<br /><span className="text-[#4f71dc]">{t("0 кг.")}</span></div>
+                      <div className="px-2 leading-[16.25px]">{delivererOf(row) || t("Не указано")}<br /><span className="text-[#4f71dc]">{row.deliveryType ? t(row.deliveryType) : t("Не указано")}</span></div>
+                      <div className="px-2">{displayDay(row.delivery)}</div>
+                      <div className="px-2 leading-[16.25px]">{row.agent}<br /><span className="text-[#4f71dc]">{row.warehouse || t("Склад не указан")}</span></div>
                       <div className="px-2">{row.amount}</div>
-                      <div className={`px-2 font-semibold ${row.negative ? "text-[#e57373]" : "text-[#48a34b]"}`}>{row.balance}</div>
+                      <div className={`px-2 font-semibold ${row.negative ? "text-[#e57373]" : "text-[#48a34b]"}`}>{row.balance || "—"}</div>
                       <div className="flex items-center gap-[10px] px-2">
                         <StatusIcon status={row.status} />
                         <svg viewBox="0 0 24 24" className="h-5 w-5 fill-[#e57373]"><path d={ICON.card} /></svg>
@@ -591,17 +627,45 @@ function parseAmount(value: string) {
   return Number.isFinite(number) ? { number, currency: match[2].toUpperCase() } : null
 }
 
-function sumByCurrency(rows: Order[]) {
-  const totals = new Map<string, number>([["SUM", 0], ["EUR", 0], ["USD", 0]])
-  for (const row of rows) {
-    const parsed = parseAmount(row.amount)
-    if (parsed) totals.set(parsed.currency, (totals.get(parsed.currency) ?? 0) + parsed.number)
+/** The order's deliverer, else the client's ("Ответственный доставщик"). */
+function delivererOf(row: Order): string {
+  if (row.deliveryMan) return row.deliveryMan
+  return row.clientDeliverer && row.clientDeliverer !== "Не указано" ? row.clientDeliverer : ""
+}
+
+const SHORT_MONTHS = ["янв.", "февр.", "мар.", "апр.", "мая", "июня", "июля", "авг.", "сент.", "окт.", "нояб.", "дек."]
+
+/** "2026-10-21" → "21 окт. 2026"; other texts as they are. */
+export function displayDay(value: string): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value ?? "")
+  return match ? `${match[3]} ${SHORT_MONTHS[Number(match[2]) - 1] ?? ""} ${match[1]}` : value
+}
+
+/** A CSV cell; texts that a spreadsheet would run as a formula (= + - @, tab, CR) are
+ * prefixed with an apostrophe (plain numbers stay numbers). */
+export function csvCell(value: string | number): string {
+  let text = String(value ?? "")
+  if (/^[=+\-@\t\r]/.test(text) && !/^-?\d+([.,]\d+)?$/.test(text)) text = `'${text}`
+  return `"${text.replace(/"/g, '""')}"`
+}
+
+function totalsByCurrency(amounts: string[]): Map<string, number> {
+  const totals = new Map<string, number>([["SUM", 0]])
+  for (const amount of amounts) {
+    // Multi-currency amounts are joined with ", "; a decimal comma has no space after it.
+    for (const part of amount.split(/,\s+/)) {
+      const parsed = parseAmount(part)
+      if (parsed) totals.set(parsed.currency, (totals.get(parsed.currency) ?? 0) + parsed.number)
+    }
   }
-  const label = (currency: string) => (currency === "EUR" ? "Euro" : currency)
-  const shown = [...totals.entries()].filter(([currency, number]) => currency !== "EUR" || number !== 0)
+  return totals
+}
+
+function renderTotals(totals: Map<string, number>) {
+  const shown = [...totals.entries()].filter(([currency, number]) => currency === "SUM" || number !== 0)
   return shown.map(([currency, number], index, all) => (
     <span key={currency} className="mr-[5px]">
-      {number.toLocaleString("ru-RU", { maximumFractionDigits: 2 })} {label(currency)}{index < all.length - 1 ? " ," : ""}
+      {number.toLocaleString("ru-RU", { maximumFractionDigits: 2 })} {currency}{index < all.length - 1 ? " ," : ""}
     </span>
   ))
 }

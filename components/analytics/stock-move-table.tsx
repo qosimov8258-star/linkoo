@@ -95,11 +95,13 @@ export function StockMoveTable({
                 {columns.map((column) => {
                   const qty = shownMoveValue(column, row.qty[column.field])
                   const value = shownMoveValue(column, row.value?.[column.field] ?? 0)
-                  const linkable = clickableCells && column.field !== "begin" && column.field !== "end" && qty !== 0
+                  const linkable = clickableCells && !column.valueOnly && column.field !== "begin" && column.field !== "end" && qty !== 0
                   return (
                     <Fragment key={column.field}>
                       <td className="whitespace-nowrap border-b border-r border-[#efefef] px-3 py-2">
-                        {linkable ? (
+                        {column.valueOnly ? (
+                          ""
+                        ) : linkable ? (
                           <button type="button" onClick={() => onCellClick(row, column.field)} className="text-[#4f71dc] hover:underline">
                             {formatQty(qty)}
                           </button>

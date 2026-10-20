@@ -29,10 +29,20 @@ export const TRANSFER_STATUS_COLORS: Record<TransferStatus, string> = {
   отменен: "#e57373",
 }
 
-/** Detail / log labels (capitalised in the demo detail). */
+/** List labels (lower case, as the demo list shows them). The stored status keeps the
+ * legacy spelling 'потвержден'; only the label is spelled correctly. */
+export const TRANSFER_STATUS_LABELS: Record<TransferStatus, string> = {
+  ожидает: "ожидает",
+  потвержден: "подтвержден",
+  "в пути": "в пути",
+  принят: "принят",
+  отменен: "отменен",
+}
+
+/** Detail / log labels (capitalised in the demo detail), spelled like TRANSFER_STATUS_LABELS. */
 export const TRANSFER_STATUS_TITLES: Record<TransferStatus, string> = {
   ожидает: "Ожидает",
-  потвержден: "Потвержден",
+  потвержден: "Подтвержден",
   "в пути": "В пути",
   принят: "Принят",
   отменен: "Отменен",
@@ -61,7 +71,7 @@ export type TransferLogAction = "created" | "updated" | "approved" | "given" | "
 export const TRANSFER_LOG_LABELS: Record<TransferLogAction, string> = {
   created: "Создан",
   updated: "Изменен",
-  approved: "Потвержден",
+  approved: "Подтвержден",
   given: "Передан со склада",
   cancel_given: "Отмена передачи",
   accepted: "Принять на склад",
@@ -94,6 +104,10 @@ export type TransferItem = {
   /** Weight of one unit, kg. */
   weight: number
   series: string
+  /** Defective units (Брак): taken from the source's defects and kept as defects at the target. */
+  defect?: boolean
+  /** "cost": no price list, `price` is the cost of goods when the goods left. */
+  priced?: "cost"
 }
 
 export type Transfer = {
@@ -169,6 +183,8 @@ export type StockPickRow = {
   /** On hand (incl. defects). */
   qty: number
   defects: number
+  /** Defective units that may leave (lines flagged "Брак"). */
+  defectsAvailable: number
   reserved: number
   /** qty − defects − reserved. */
   available: number
@@ -181,7 +197,24 @@ export type StockPickRow = {
 export type StockPickResult = { warehouse: string; priceList: string; rows: StockPickRow[] }
 
 /** A line that cannot be given / written off (409 body `shortages`). */
-export type StockShortage = { key: string; product: string; unit: string; required: number; available: number }
+export type StockShortage = { key: string; product: string; unit: string; required: number; available: number; defect?: boolean }
+
+/** Kilograms in one unit of `unit` when the unit itself is a weight ("kg", "gramm",
+ * "tonna", "qop (50 kg)"); null otherwise. */
+export function unitKilograms(unit: string): number | null {
+  const text = String(unit ?? "").trim().toLowerCase()
+  if (/^(kg|кг|kilo|kilogramm?|килограмм?)\.?$/.test(text)) return 1
+  if (/^(g|г|гр|gr|gramm?|грамм?)\.?$/.test(text)) return 0.001
+  if (/^(t|т|tn|тн|tonna|тонна)\.?$/.test(text)) return 1000
+  const inner = /(\d+(?:[.,]\d+)?)\s*(?:kg|кг)(?![a-zа-я])/.exec(text)
+  if (inner) return Number(inner[1].replace(",", ".")) || null
+  return null
+}
+
+/** Weight of one unit, kg: the item's own weight (mass), else what a weight unit implies. */
+export function unitWeightKg(unit: string, weight: number): number {
+  return Number(weight) > 0 ? Number(weight) : (unitKilograms(unit) ?? 0)
+}
 
 /** Body of a successful POST action / create / update. */
 export type TransferMutationResult = Transfer

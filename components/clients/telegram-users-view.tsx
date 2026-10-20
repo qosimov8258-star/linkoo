@@ -12,14 +12,9 @@ type Filters = { client: string; agentClients: string; createdBegin: string; cre
 const emptyFilters: Filters = { client: "", agentClients: "", createdBegin: "", createdEnd: "", activeBegin: "", activeEnd: "" }
 const WAITING = "В ожидании"
 
-const initialUsers: TgUser[] = [
-  { id: "5780398737", name: "mm xue", handle: "@fqdptea", client: WAITING, phone: "", lang: "Узбекча", first: "2026-04-30T03:22", last: "2026-04-30T03:22" },
-  { id: "5077528257", name: "Adilet", handle: "@Adilet_20_03", client: WAITING, phone: "", lang: "Узбекча", first: "2026-05-20T18:37", last: "2026-05-20T20:25" },
-  { id: "739613050", name: "A.", handle: "@radizabavi17", client: "Arslan", phone: "+998998845492", lang: "Узбекча", first: "2026-02-03T14:17", last: "2026-02-03T14:18" },
-  { id: "6627602444", name: "Khusanjon", handle: "@Abdinazarov_Khusanjon", client: WAITING, phone: "+998930890824", lang: "Узбекча", first: "2026-02-03T16:46", last: "2026-02-03T16:46" },
-  { id: "6419955571", name: "Linko (RITM) (tech_support)", handle: "@Linko_tech_support", client: "Ritm ritm", phone: "+998900459618", lang: "Узбекча", first: "2026-02-11T18:56", last: "2026-02-11T19:00" },
-  { id: "1957471768", name: "Friends", handle: "@qazwazqq", client: WAITING, phone: "", lang: "Узбекча", first: "2026-03-15T02:05", last: "2026-03-15T02:05" },
-]
+// No Telegram bot is connected, so there are no bot users. (The list used to
+// ship real-looking third-party Telegram handles copied from another tenant.)
+const initialUsers: TgUser[] = []
 
 export function TelegramUsersView() {
   const { t } = useLanguage()

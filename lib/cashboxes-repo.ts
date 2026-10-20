@@ -230,7 +230,7 @@ type ReferenceTable = { table: string; idColumns: string[]; kassa: boolean }
 
 /** Section labels (Russian i18n keys) of the referencing tables. */
 const TABLE_LABELS: Record<string, string> = {
-  cash_management_entries: "Управления кассой",
+  cash_management_entries: "Управление кассой",
   customer_payments: "Оплаты от клиентов",
   supplier_payments: "Оплаты поставщикам",
   cash_transfers: "Перевод между кассами",

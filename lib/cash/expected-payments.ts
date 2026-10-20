@@ -2,15 +2,17 @@ import "server-only"
 
 import { getDb } from "@/lib/db"
 import { nameKey } from "@/lib/finance/entities"
-import { CashError, currencyContext, loadCategories } from "@/lib/cash/common"
-import { orderDue, orderDues, type OrderDue } from "@/lib/cash/orders"
+import { CashError, currencyContext, loadCategories, pageOf } from "@/lib/cash/common"
+import { allocatedOrderDue, allocatedOrderDues, type AllocatedOrderDue } from "@/lib/cash/orders"
 import { ensureCashSchema } from "@/lib/cash/schema"
 import { createCashOperation } from "@/lib/cash/write"
 import type { CashOperationInput, CashWriteResult } from "@/lib/cash/types"
 
-// "Ожидаемые оплаты": orders (not cancelled) with an unpaid remainder, one row
+// "Ожидаемые оплаты": orders the ledger counts with an unpaid remainder, one row
 // per order × currency, and the pay action (the shared "Приход" dialog in
-// order mode → customer_payments op 3 with order_id).
+// order mode → customer_payments op 3 with order_id). Remainders follow the
+// same rule as "Долги с заказов" (lib/cash/orders.ts allocatedOrderDues): the
+// client's unlinked payments pay its oldest orders first.
 
 export type ExpectedPaymentsQuery = {
   /** Order id (exact) or client-name substring. */
@@ -41,7 +43,10 @@ export type ExpectedPaymentRow = {
   delivery: string
   currency: string
   total: number
+  /** Linked payments + FIFO share of the client's other credits. */
   paid: number
+  /** The FIFO share alone (included in paid). */
+  allocated: number
   remaining: number
 }
 
@@ -54,7 +59,7 @@ export type ExpectedPaymentsResult = {
   totals: Array<{ currency: string; total: number; paid: number; remaining: number }>
 }
 
-function flatten(dues: OrderDue[]): ExpectedPaymentRow[] {
+function flatten(dues: AllocatedOrderDue[]): ExpectedPaymentRow[] {
   return dues.flatMap((due) =>
     due.currencies.map((part) => ({
       key: `${due.id}-${part.currency}`,
@@ -68,6 +73,7 @@ function flatten(dues: OrderDue[]): ExpectedPaymentRow[] {
       currency: part.currency,
       total: part.total,
       paid: part.paid,
+      allocated: part.allocated,
       remaining: part.remaining,
     })),
   )
@@ -77,7 +83,8 @@ export async function listExpectedPayments(query: ExpectedPaymentsQuery): Promis
   const db = getDb()
   await ensureCashSchema(db)
   const cc = await currencyContext(db)
-  let rows = flatten(await orderDues(db, null, cc)).filter((row) => row.status !== "Отменен")
+  // Orders the client ledger counts as debt (not Отменен / Не подтвержден, existing client) — as "Долги с заказов".
+  let rows = flatten((await allocatedOrderDues(db, null, cc)).filter((due) => due.counted))
   if (query.onlyOpen !== false) rows = rows.filter((row) => row.remaining > 0.005)
   const search = nameKey(query.search)
   if (search) rows = rows.filter((row) => String(row.orderId) === search || nameKey(row.client.name).includes(search))
@@ -104,8 +111,7 @@ export async function listExpectedPayments(query: ExpectedPaymentsQuery): Promis
     item.remaining += row.remaining
     totals.set(row.currency, item)
   }
-  const pageSize = query.pageSize === 0 ? 0 : Math.max(1, Math.floor(query.pageSize ?? 25))
-  const page = Math.max(1, Math.floor(query.page ?? 1))
+  const { page, pageSize } = pageOf(query.page, query.pageSize)
   return {
     baseCurrency: cc.base,
     count: rows.length,
@@ -122,10 +128,10 @@ export async function listExpectedPayments(query: ExpectedPaymentsQuery): Promis
 }
 
 /** Order header for the pay dialog (totals / paid / remaining per currency). */
-export async function getOrderDue(orderId: number): Promise<OrderDue | null> {
+export async function getOrderDue(orderId: number): Promise<AllocatedOrderDue | null> {
   const db = getDb()
   await ensureCashSchema(db)
-  return orderDue(db, orderId, await currencyContext(db))
+  return allocatedOrderDue(db, orderId, await currencyContext(db))
 }
 
 export type PayOrderInput = Omit<CashOperationInput, "kind" | "orderId" | "moneyRequestId" | "supplierId" | "supplyId">

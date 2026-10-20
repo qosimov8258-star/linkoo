@@ -6,6 +6,7 @@ import { Download, X } from "lucide-react"
 import * as echarts from "echarts"
 import { RefHeader } from "@/components/ref/list-kit"
 import { ReportPage, ReportSelectField, WidgetHeader, WidgetUserCard } from "@/components/ref/report-kit"
+import { useLanguage } from "@/lib/i18n/language-context"
 
 type ZoneRow = {
   zone: string
@@ -25,7 +26,7 @@ const tabs = ["ВИДЖЕТЫ", "KPI", "БАЛАНС", "ОХВАТ", "ФИЛИА
 const tabHref: Partial<Record<string, string>> = {
   "ВИДЖЕТЫ": "/",
   "P&L": "/analytics/pnl",
-  "ДОЛГ КЛИЕНТОВ": "/analytics/client-debts",
+  "ДОЛГ КЛИЕНТОВ": "/analytics/order-debts",
   "ГИБКИЙ ДАШБОРД": "/analytics/flexible-dashboard",
   "ФИЛИАЛ": "/analytics/branch-tab",
   "ПРОДАЖА": "/analytics/sales-tab",
@@ -40,6 +41,7 @@ function iso(date: Date) {
 }
 
 export function CoverageAnalysisView() {
+  const { t } = useLanguage()
   const router = useRouter()
   const now = useMemo(() => new Date(), [])
   const [period, setPeriod] = useState("СВОЯ")
@@ -61,7 +63,7 @@ export function CoverageAnalysisView() {
 
   useEffect(() => {
     let cancelled = false
-    fetch("/api/clients")
+    fetch("/api/clients?balances=0")
       .then((response) => (response.ok ? (response.json() as Promise<ClientRecord[]>) : Promise.reject()))
       .then((data) => {
         if (!cancelled) setClients(data)
@@ -76,7 +78,7 @@ export function CoverageAnalysisView() {
 
   useEffect(() => {
     let cancelled = false
-    fetch("/api/orders")
+    fetch("/api/orders?balances=0")
       .then((response) => (response.ok ? (response.json() as Promise<OrderRecord[]>) : Promise.reject()))
       .then((data) => {
         if (!cancelled) setOrders(data)
@@ -227,14 +229,14 @@ export function CoverageAnalysisView() {
         period={period}
         onPeriod={(item) => (item === "СВОЯ" ? setPeriod("СВОЯ") : changePeriod(item))}
       >
-        <button type="button" onClick={() => router.push("/clients/territory?openInfo=true")} className="mr-[18px] h-[30px] rounded-[3px] bg-[#71ce87] px-[15px] text-[13px] font-semibold text-white hover:brightness-95">Изменить территории</button>
-        <button type="button" onClick={() => setDaysOpen(true)} className="h-[30px] rounded-[3px] bg-[#4f71dc] px-[15px] text-[13px] font-semibold text-white hover:brightness-95">Изменить сроки</button>
+        <button type="button" onClick={() => router.push("/clients/territory?openInfo=true")} className="mr-[18px] h-[30px] rounded-[3px] bg-[#71ce87] px-[15px] text-[13px] font-semibold text-white hover:brightness-95">{t("Изменить территории")}</button>
+        <button type="button" onClick={() => setDaysOpen(true)} className="h-[30px] rounded-[3px] bg-[#4f71dc] px-[15px] text-[13px] font-semibold text-white hover:brightness-95">{t("Изменить сроки")}</button>
       </WidgetUserCard>
 
       <div className="mx-[30px]">
       <form onSubmit={apply} className={`${card} mt-[20px] flex h-[77px] items-center gap-[10px] px-[30px]`}>
         <div className="w-[250px]"><ReportSelectField label="Тип клиента" value={clientType} onChange={setClientType} options={clientTypes.filter((item) => item !== ALL_CLIENT_TYPES && item !== "Все типы клиентов")} /></div>
-        <button className="mt-[2px] h-[30px] rounded-[3px] bg-[#4f71dc] px-[15px] text-[13px] font-semibold text-white hover:brightness-95">Применить</button>
+        <button className="mt-[2px] h-[30px] rounded-[3px] bg-[#4f71dc] px-[15px] text-[13px] font-semibold text-white hover:brightness-95">{t("Применить")}</button>
       </form>
 
       <section className={`${card} mt-[10px] grid items-center gap-y-[20px] rounded-[12px] px-[30px] py-[20px] lg:grid-cols-[230px_1fr_167px] lg:gap-x-[30px]`}>
@@ -249,8 +251,8 @@ export function CoverageAnalysisView() {
       <CoverageChart rows={visibleRows.slice(0, 28)} />
 
       <section className="mt-8 overflow-hidden rounded-xl bg-white shadow">
-        {tableVisible && <table className="w-full table-fixed border-collapse text-xs md:text-sm"><thead className="bg-slate-100"><tr>{[["zone", "Зона"], ["okb", "ОКБ"], ["akb", "АКБ"], ["visits", "Визит"], ["refusal", "Отказ"], ["newPoints", "Новые точки"], ["stopped", "Перестали покупать < 30 дней"], ["noOrder", "Нет заказа до сегодняшнего дня"]].map(([key, title]) => <th key={key} onClick={() => sortBy(key as keyof ZoneRow)} className="cursor-pointer border-b px-2 py-4 text-left">{title} ↕</th>)}</tr></thead><tbody>{visibleRows.map((row) => <tr key={row.zone}><td className="border px-2 py-3">{row.zone}</td><td className="border px-2 py-3 text-sky-500">{format(row.okb)}</td><td className={`border px-2 py-3 font-bold text-white ${row.akb ? "bg-emerald-400" : "bg-[#e57373]"}`}>{row.okb ? `${((row.akb / row.okb) * 100).toFixed(1)} %` : "0 %"} <span className="float-right">{row.akb}</span></td><td className="border px-2 py-3">{row.visits}</td><td className="border px-2 py-3">{row.refusal}</td><td className="border px-2 py-3">{row.newPoints}</td><td className="border px-2 py-3">{row.stopped}</td><td className="border px-2 py-3">{row.noOrder}</td></tr>)}</tbody></table>}
-        <div className="flex justify-center gap-4 bg-slate-100 py-2"><button type="button" onClick={() => setTableVisible(!tableVisible)} className="text-[#5470e8]">{tableVisible ? "Скрыть ▲" : "Показать ▼"}</button><button type="button" onClick={download} aria-label="Скачать таблицу"><Download className="h-5 w-5" /></button></div>
+        {tableVisible && <table className="w-full table-fixed border-collapse text-xs md:text-sm"><thead className="bg-slate-100"><tr>{[["zone", "Зона"], ["okb", "ОКБ"], ["akb", "АКБ"], ["visits", "Визит"], ["refusal", "Отказ"], ["newPoints", "Новые точки"], ["stopped", "Перестали покупать < 30 дней"], ["noOrder", "Нет заказа до сегодняшнего дня"]].map(([key, title]) => <th key={key} onClick={() => sortBy(key as keyof ZoneRow)} className="cursor-pointer border-b px-2 py-4 text-left">{t(title)} ↕</th>)}</tr></thead><tbody>{visibleRows.map((row) => <tr key={row.zone}><td className="border px-2 py-3">{row.zone}</td><td className="border px-2 py-3 text-sky-500">{format(row.okb)}</td><td className={`border px-2 py-3 font-bold text-white ${row.akb ? "bg-emerald-400" : "bg-[#e57373]"}`}>{row.okb ? `${((row.akb / row.okb) * 100).toFixed(1)} %` : "0 %"} <span className="float-right">{row.akb}</span></td><td className="border px-2 py-3">{row.visits}</td><td className="border px-2 py-3">{row.refusal}</td><td className="border px-2 py-3">{row.newPoints}</td><td className="border px-2 py-3">{row.stopped}</td><td className="border px-2 py-3">{row.noOrder}</td></tr>)}</tbody></table>}
+        <div className="flex justify-center gap-4 bg-slate-100 py-2"><button type="button" onClick={() => setTableVisible(!tableVisible)} className="text-[#5470e8]">{tableVisible ? t("Скрыть ▲") : t("Показать ▼")}</button><button type="button" onClick={download} aria-label={t("Скачать таблицу")}><Download className="h-5 w-5" /></button></div>
       </section>
 
       </div>
@@ -264,21 +266,21 @@ export function CoverageAnalysisView() {
             className="w-[500px] max-w-full bg-white text-[13px] text-[#333] shadow-[0_10px_30px_rgba(0,0,0,0.3)]"
           >
             <header className="flex h-[60px] items-center justify-between border-b border-[#efefef] pl-[30px] pr-[28px]">
-              <b className="uppercase">Изменить дни</b>
-              <button type="button" onClick={() => setDaysOpen(false)} aria-label="Закрыть"><X className="h-6 w-6" /></button>
+              <b className="uppercase">{t("Изменить дни")}</b>
+              <button type="button" onClick={() => setDaysOpen(false)} aria-label={t("Закрыть")}><X className="h-6 w-6" /></button>
             </header>
             <div className="px-[30px] pb-[16px] pt-[16px]">
               <label className="relative block h-[67px] border-b border-[#e0e0e0]">
-                <span className="absolute left-0 top-[12px] text-[10px] font-bold leading-3">Количество дней для активных клиентов</span>
+                <span className="absolute left-0 top-[12px] text-[10px] font-bold leading-3">{t("Количество дней для активных клиентов")}</span>
                 <input value={activeDays} onChange={(event) => setActiveDays(event.target.value)} className="absolute inset-x-0 bottom-0 h-[34px] bg-transparent text-[13px] font-semibold outline-none" />
               </label>
               <label className="relative mt-[0px] block h-[67px] border-b border-[#e0e0e0]">
-                <span className="absolute left-0 top-[12px] text-[10px] font-bold leading-3">Количество дней для неактивных клиентов</span>
+                <span className="absolute left-0 top-[12px] text-[10px] font-bold leading-3">{t("Количество дней для неактивных клиентов")}</span>
                 <input value={inactiveDays} onChange={(event) => setInactiveDays(event.target.value)} className="absolute inset-x-0 bottom-0 h-[34px] bg-transparent text-[13px] font-semibold outline-none" />
               </label>
             </div>
             <footer className="flex h-[57px] items-center justify-end border-t border-[#efefef] pr-[10px]">
-              <button type="submit" className="h-9 rounded-[3px] bg-[#71ce87] px-[16px] text-[13px] font-bold uppercase text-white hover:brightness-95">Сохранить</button>
+              <button type="submit" className="h-9 rounded-[3px] bg-[#71ce87] px-[16px] text-[13px] font-bold uppercase text-white hover:brightness-95">{t("Сохранить")}</button>
             </footer>
           </form>
         </div>
@@ -290,21 +292,23 @@ export function CoverageAnalysisView() {
 }
 
 function Ring({ value, label }: { value: number; label: string }) {
+  const { t } = useLanguage()
   const shown = Math.min(100, value)
   return (
     <div className="mx-auto flex h-[134px] w-[134px] items-center justify-center rounded-full border-[7px] border-[#f1f1f1] shadow-[inset_0_0_8px_#bbb,0_0_8px_#bbb]" style={{ background: `conic-gradient(#18c8a0 ${shown}%, transparent ${shown}%)` }}>
       <div className="flex h-[100px] w-[100px] flex-col items-center justify-center rounded-full bg-white text-center">
         <strong className="text-[22px] font-bold leading-6">{value.toFixed(1).replace(".", ",")} %</strong>
-        <small className="text-[8px] font-semibold uppercase leading-3">{label}</small>
+        <small className="text-[8px] font-semibold uppercase leading-3">{t(label)}</small>
       </div>
     </div>
   )
 }
 function Metric({ value, label, red, green }: { value: number; label: string; red?: boolean; green?: boolean }) {
+  const { t } = useLanguage()
   return (
     <div className="flex min-h-[76px] flex-col items-center justify-center border-b border-r border-[#efefef] px-2 py-[12px] text-center [&:nth-child(5n)]:border-r-0 [&:nth-last-child(-n+5)]:border-b-0">
       <strong className={`text-[22px] font-semibold leading-6 ${red ? "text-[#ef7373]" : green ? "text-[#71ce87]" : "text-[#1ea1f2]"}`}>{format(value)}</strong>
-      <p className="mt-[2px] text-[16px] leading-[19px] text-[#555]">{label}</p>
+      <p className="mt-[2px] text-[16px] leading-[19px] text-[#555]">{t(label)}</p>
     </div>
   )
 }
@@ -478,9 +482,9 @@ function CoverageChart({ rows }: { rows: ZoneRow[] }) {
     </section>
   )
 }
-function TerritoryDialog({ zones, selected, onChange, onClose }: { zones: ZoneRow[]; selected: string[]; onChange: (value: string[]) => void; onClose: () => void }) { return <Modal title="Изменить территории" onClose={onClose}><label className="mb-4 flex gap-3 font-bold"><input type="checkbox" checked={selected.length === zones.length} onChange={(event) => onChange(event.target.checked ? zones.map((row) => row.zone) : [])} />Выбрать все</label><div className="grid max-h-[430px] gap-2 overflow-y-auto sm:grid-cols-2">{zones.map((row) => <label key={row.zone} className="flex gap-3 border-b py-2"><input type="checkbox" checked={selected.includes(row.zone)} onChange={() => onChange(selected.includes(row.zone) ? selected.filter((item) => item !== row.zone) : [...selected, row.zone])} />{row.zone}</label>)}</div><button type="button" onClick={onClose} className="mt-5 w-full rounded bg-[#5470e8] py-3 font-bold text-white">Применить</button></Modal> }
-function DateDialog({ from, to, setFrom, setTo, onClose }: { from: string; to: string; setFrom: (value: string) => void; setTo: (value: string) => void; onClose: () => void }) { return <Modal title="Изменить сроки" onClose={onClose}><div className="grid gap-5 sm:grid-cols-2"><label>Дата от<input type="date" value={from} max={to} onChange={(e) => setFrom(e.target.value)} className="mt-2 block w-full border-b py-2" /></label><label>Дата до<input type="date" value={to} min={from} onChange={(e) => setTo(e.target.value)} className="mt-2 block w-full border-b py-2" /></label></div><button type="button" onClick={onClose} className="mt-8 w-full rounded bg-[#5470e8] py-3 font-bold text-white">Применить</button></Modal> }
-function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) { return <><button type="button" aria-label="Закрыть" onClick={onClose} className="fixed inset-0 z-[90] bg-black/50" /><section role="dialog" className="fixed left-1/2 top-1/2 z-[100] w-[min(720px,calc(100vw-32px))] -translate-x-1/2 -translate-y-1/2 bg-white p-7 shadow-2xl"><header className="mb-6 flex justify-between text-xl font-bold">{title}<button type="button" onClick={onClose}><X /></button></header>{children}</section></> }
+function TerritoryDialog({ zones, selected, onChange, onClose }: { zones: ZoneRow[]; selected: string[]; onChange: (value: string[]) => void; onClose: () => void }) { const { t } = useLanguage(); return <Modal title={t("Изменить территории")} onClose={onClose}><label className="mb-4 flex gap-3 font-bold"><input type="checkbox" checked={selected.length === zones.length} onChange={(event) => onChange(event.target.checked ? zones.map((row) => row.zone) : [])} />{t("Выбрать все")}</label><div className="grid max-h-[430px] gap-2 overflow-y-auto sm:grid-cols-2">{zones.map((row) => <label key={row.zone} className="flex gap-3 border-b py-2"><input type="checkbox" checked={selected.includes(row.zone)} onChange={() => onChange(selected.includes(row.zone) ? selected.filter((item) => item !== row.zone) : [...selected, row.zone])} />{row.zone}</label>)}</div><button type="button" onClick={onClose} className="mt-5 w-full rounded bg-[#5470e8] py-3 font-bold text-white">{t("Применить")}</button></Modal> }
+function DateDialog({ from, to, setFrom, setTo, onClose }: { from: string; to: string; setFrom: (value: string) => void; setTo: (value: string) => void; onClose: () => void }) { const { t } = useLanguage(); return <Modal title={t("Изменить сроки")} onClose={onClose}><div className="grid gap-5 sm:grid-cols-2"><label>{t("Дата от")}<input type="date" value={from} max={to} onChange={(e) => setFrom(e.target.value)} className="mt-2 block w-full border-b py-2" /></label><label>{t("Дата до")}<input type="date" value={to} min={from} onChange={(e) => setTo(e.target.value)} className="mt-2 block w-full border-b py-2" /></label></div><button type="button" onClick={onClose} className="mt-8 w-full rounded bg-[#5470e8] py-3 font-bold text-white">{t("Применить")}</button></Modal> }
+function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) { const { t } = useLanguage(); return <><button type="button" aria-label={t("Закрыть")} onClick={onClose} className="fixed inset-0 z-[90] bg-black/50" /><section role="dialog" className="fixed left-1/2 top-1/2 z-[100] w-[min(720px,calc(100vw-32px))] -translate-x-1/2 -translate-y-1/2 bg-white p-7 shadow-2xl"><header className="mb-6 flex justify-between text-xl font-bold">{title}<button type="button" onClick={onClose}><X /></button></header>{children}</section></> }
 function isValidInn(inn: string | undefined) { return !!inn && /^\d{9}$/.test(inn.trim()) }
 function format(value: number) { return value.toLocaleString("ru-RU") }
 function formatDate(value: string) { const [year, month, day] = value.split("-"); const months = ["", "Янв.", "Февр.", "Март", "Апр.", "Май", "Июнь", "Июль", "Авг.", "Сент.", "Окт.", "Нояб.", "Дек."]; return `${Number(day)} ${months[Number(month)]} ${year}` }

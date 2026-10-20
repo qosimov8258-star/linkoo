@@ -13,7 +13,7 @@ export async function GET(request: Request) {
   if (!user) return NextResponse.json({ error: "Tizimga kirilmagan" }, { status: 401 })
   const params = new URL(request.url).searchParams
   const id = Number(params.get("priceList"))
-  const [list] = Number.isInteger(id) && id > 0 ? await priceListsByIds(getDb(), [id]) : []
+  const [list] = Number.isInteger(id) && id > 0 && id <= 2_147_483_647 ? await priceListsByIds(getDb(), [id]) : []
   if (!list) return NextResponse.json({ error: "Прайс-лист не найден" }, { status: 404 })
   return NextResponse.json(await repricingPickRows(list, (params.get("search") ?? "").slice(0, 200)))
 }

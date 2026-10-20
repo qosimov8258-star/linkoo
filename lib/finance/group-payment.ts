@@ -1,6 +1,6 @@
 import "server-only"
 
-import { getDb, withTransaction } from "@/lib/db"
+import { getDb, withTransaction, type PgDb } from "@/lib/db"
 import { insertCustomerPayment } from "@/lib/finance/customer-payment"
 import { loadCurrencyContext } from "@/lib/finance/context"
 import { normCurrency, roundMoney } from "@/lib/finance/currency"
@@ -38,7 +38,9 @@ export type GroupPaymentInput = {
   /** Organization (division) name — required like in the demo. */
   organization: string
   branch?: string
-  /** Income category name (income_categories.name). */
+  /** Income category id (income_categories.id); wins over the name. */
+  incomeCategoryId?: number | null
+  /** Income category name (income_categories.name), resolved to its id. */
   incomeCategory?: string
   deliveryMan?: string
   /** "Подтвержденный приход (Я получил деньги)": accepted into the cashbox now. Default true. */
@@ -51,6 +53,22 @@ export type GroupPaymentInput = {
 }
 
 export type GroupPaymentResult = { ids: number[]; currency: string; total: number; accepted: boolean }
+
+/** Income category of a payment: by id, else by name (case/space-insensitive,
+ * lowest id), so customer_payments.income_category_id is always stored and the
+ * cash page can edit the row. null = no category chosen ("Не указано"). */
+async function resolveIncomeCategory(db: PgDb, id: number | null, name: string): Promise<{ id: number; name: string } | null> {
+  if (!id && !nameKey(name)) return null
+  const exists = (await db.prepare("SELECT to_regclass('income_categories') IS NOT NULL AS ok").get()) as { ok: boolean } | undefined
+  if (!exists?.ok) throw new FinanceInputError("Категория не найдена", 404)
+  const row = (
+    id
+      ? await db.prepare("SELECT id, name FROM income_categories WHERE id = @id").get({ id })
+      : await db.prepare("SELECT id, name FROM income_categories WHERE fin_key(name) = fin_key(@name) ORDER BY id LIMIT 1").get({ name })
+  ) as { id: number; name: string } | undefined
+  if (!row) throw new FinanceInputError("Категория не найдена", 404)
+  return { id: Number(row.id), name: String(row.name) }
+}
 
 export async function createGroupPayment(input: GroupPaymentInput, createdBy: string): Promise<GroupPaymentResult> {
   const db = getDb()
@@ -83,6 +101,8 @@ export async function createGroupPayment(input: GroupPaymentInput, createdBy: st
     return { client, amount: item.amount, comment: item.comment?.trim() || input.comment?.trim() || "" }
   })
 
+  const category = await resolveIncomeCategory(db, input.incomeCategoryId ?? null, input.incomeCategory ?? "")
+
   const currency = normCurrency(cashbox.currency)
   const cc = await loadCurrencyContext(db)
   const rate = input.rateType === "custom" && input.customRate && input.customRate > 0 ? input.customRate : (cc.rates[currency] ?? null)
@@ -105,7 +125,8 @@ export async function createGroupPayment(input: GroupPaymentInput, createdBy: st
         organization: input.organization.trim(),
         branch: input.branch?.trim() ?? "",
         deliveryMan: input.deliveryMan?.trim() ?? "",
-        incomeCategory: input.incomeCategory?.trim() ?? "",
+        incomeCategory: category?.name ?? "",
+        incomeCategoryId: category?.id ?? null,
         comment: row.comment,
         createdBy,
         opType: 6,

@@ -5,7 +5,9 @@ import { z } from "zod"
 
 import { normCurrency } from "@/lib/finance/currency"
 import { InvoiceError } from "@/lib/invoice-incomings-repo"
+import { MAX_MONEY, MAX_QTY } from "@/lib/supplier-refs"
 import { INVOICE_TABS, type InvoiceInput, type InvoiceListQuery, type InvoiceTab } from "@/lib/invoice-incomings-types"
+import { parseIdSegment } from "@/lib/validation"
 
 // HTTP helpers of /api/invoice-incomings/** (route files export only handlers).
 
@@ -54,15 +56,15 @@ export function parseInvoiceListQuery(url: string): Parsed<InvoiceListQuery> {
   }
 }
 
-const optionalId = z.preprocess((value) => (value === "" || value === undefined ? null : value), z.coerce.number().int().positive().nullable())
+const optionalId = z.preprocess((value) => (value === "" || value === undefined ? null : value), z.coerce.number().int().positive().max(2_147_483_647).nullable())
 const text = (max: number) => z.string().max(max).default("")
 
 const lineSchema = z.object({
   name: text(500),
   ikpu: text(40),
   unit: text(40),
-  quantity: z.coerce.number().finite(),
-  price: z.coerce.number().finite(),
+  quantity: z.coerce.number().finite().max(MAX_QTY),
+  price: z.coerce.number().finite().max(MAX_MONEY),
   vatRate: z.preprocess((value) => (value === "" || value === undefined ? null : value), z.coerce.number().min(0).max(100).nullable()),
   match: z
     .object({ kind: z.enum(["product", "raw_material"]), id: z.coerce.number().int().positive() })
@@ -129,8 +131,8 @@ export const invoiceImportSchema = z.object({
 })
 
 export function parseIdParam(value: string): number | null {
-  const id = Number(value)
-  return Number.isInteger(id) && id > 0 ? id : null
+  // Canonical digits only ("0x10" / "1e1" never resolve to another record).
+  return parseIdSegment(value)
 }
 
 export function invoiceErrorResponse(error: unknown): NextResponse {

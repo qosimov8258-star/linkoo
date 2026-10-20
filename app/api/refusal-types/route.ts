@@ -7,7 +7,7 @@ import { parseJsonBody } from "@/lib/validation"
 import { createRefusalType, listRefusalTypes, parseRefusalTypeInput } from "@/lib/refusal-types-repo"
 
 const refusalTypeSchema = z.object({
-  name: z.string().trim().min(1),
+  name: z.string().trim().min(1).max(255, "Не более 255 символов"),
   resolution: z.string().trim().optional(),
 })
 

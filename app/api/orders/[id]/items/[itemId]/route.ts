@@ -1,42 +1,51 @@
 import { NextResponse } from "next/server"
-import { z } from "zod"
 
+import { parseBody } from "@/lib/auth-request"
+import { deleteOrderItem, updateOrderItem } from "@/lib/order-items-repo"
+import { orderErrorResponse, orderLineSchema, routeId } from "@/lib/orders-api"
 import { requireRole } from "@/lib/rbac"
-import { parseJsonBody } from "@/lib/validation"
-import { deleteOrderItem, updateOrderItem, type OrderItemInput } from "@/lib/order-items-repo"
 
 type RouteParams = { params: Promise<{ id: string; itemId: string }> }
 
-const orderItemSchema = z.object({
-  productId: z.number().int().positive().optional(),
-  productName: z.string().trim().min(1),
-  unit: z.string().trim().min(1).max(50).optional(),
-  quantity: z.number().positive(),
-  unitPrice: z.number().nonnegative(),
-  costPrice: z.number().nonnegative().optional(),
-  discountPercent: z.number().min(0).max(100).optional(),
-  currency: z.string().trim().min(1).max(10).optional(),
-})
+const ITEM_NOT_FOUND = { error: "Позиция не найдена" }
 
 export async function PUT(request: Request, { params }: RouteParams) {
   const auth = await requireRole("manager")
   if ("error" in auth) return auth.error
 
   const { id, itemId } = await params
-  const parsed = await parseJsonBody(request, orderItemSchema)
+  const orderId = routeId(id)
+  const lineId = routeId(itemId)
+  if (!orderId) return NextResponse.json({ error: "Заказ не найден" }, { status: 404 })
+  if (!lineId) return NextResponse.json(ITEM_NOT_FOUND, { status: 404 })
+  const parsed = await parseBody(request, orderLineSchema)
   if (parsed.error) return parsed.error
 
-  const item = await updateOrderItem(Number(id), Number(itemId), parsed.data satisfies OrderItemInput)
-  if (!item) return NextResponse.json({ error: "Позиция не найдена" }, { status: 404 })
-  return NextResponse.json(item)
+  try {
+    const item = await updateOrderItem(orderId, lineId, parsed.data, auth.user)
+    if (!item) return NextResponse.json(ITEM_NOT_FOUND, { status: 404 })
+    return NextResponse.json(item)
+  } catch (error) {
+    return orderErrorResponse(error)
+  }
 }
 
+// DELETE — the last line too: the order total then becomes 0.
 export async function DELETE(_request: Request, { params }: RouteParams) {
   const auth = await requireRole("manager")
   if ("error" in auth) return auth.error
 
   const { id, itemId } = await params
-  const ok = await deleteOrderItem(Number(id), Number(itemId))
-  if (!ok) return NextResponse.json({ error: "Позиция не найдена" }, { status: 404 })
-  return NextResponse.json({ ok: true })
+  const orderId = routeId(id)
+  const lineId = routeId(itemId)
+  if (!orderId) return NextResponse.json({ error: "Заказ не найден" }, { status: 404 })
+  if (!lineId) return NextResponse.json(ITEM_NOT_FOUND, { status: 404 })
+
+  try {
+    const ok = await deleteOrderItem(orderId, lineId, auth.user)
+    if (!ok) return NextResponse.json(ITEM_NOT_FOUND, { status: 404 })
+    return NextResponse.json({ ok: true })
+  } catch (error) {
+    return orderErrorResponse(error)
+  }
 }

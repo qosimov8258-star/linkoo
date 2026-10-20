@@ -2,10 +2,15 @@ import "server-only"
 
 import { getDb, withTransaction, type PgDb } from "@/lib/db"
 import { isIsoDay, nowLocalIso, parseAnyDate, parseAnyDay, todayIso } from "@/lib/finance/dates"
+import { costsInWarehouse, getWarehouseItemCosts } from "@/lib/stock/costs"
+import { getStockBalances } from "@/lib/stock/ledger"
+import { nowLocalMoment } from "@/lib/stock/moments"
 import { ensureStockSchema } from "@/lib/stock/schema"
 import {
   catalogIndex,
+  countedByInventory,
   findShortages,
+  findWarehouse,
   lockWarehouseStock,
   resolveLine,
   round6,
@@ -13,11 +18,13 @@ import {
   textKey,
   warehouseStock,
   type CatalogIndex,
+  type WarehouseRef,
 } from "@/lib/internal-transfers-stock"
 import {
   TRANSFER_EDITABLE,
   TRANSFER_STATUSES,
   TRANSFER_TRANSITIONS,
+  unitWeightKg,
   type StockShortage,
   type Transfer,
   type TransferAction,
@@ -32,15 +39,24 @@ import {
 // action log internal_transfer_logs ("Логи", with a snapshot of the lines for
 // "Детали изменений товаров"). Status changes go through transferAction (the
 // state machine of lib/internal-transfers-types.ts); giving is refused when
-// the source warehouse lacks the goods (stock core balances).
+// the source warehouse lacks the goods (stock core balances). Both warehouses
+// must be registered (Склады) and active for new movements; action dates
+// cannot be in the future; a give / accept a confirmed inventory already
+// counted cannot be undone. Without a price list the lines are valued at the
+// cost of goods (lib/stock/costs.ts) when the goods leave, so transfers between
+// branches reach the branch balances.
+
+/** Contract 3 bounds. */
+export const MAX_TRANSFER_QTY = 1e9
+export const MAX_TRANSFER_PRICE = 1e13
 
 declare global {
-  var __linkoTransfersSchemaV1: Promise<void> | undefined
+  var __linkoTransfersSchemaV2: Promise<void> | undefined
 }
 
 export async function ensureTransfersSchema(): Promise<void> {
-  if (!globalThis.__linkoTransfersSchemaV1) {
-    globalThis.__linkoTransfersSchemaV1 = (async () => {
+  if (!globalThis.__linkoTransfersSchemaV2) {
+    globalThis.__linkoTransfersSchemaV2 = (async () => {
       await ensureStockSchema()
       await getDb().exec(`
         ALTER TABLE internal_transfers ADD COLUMN IF NOT EXISTS given_at TEXT NOT NULL DEFAULT '';
@@ -64,13 +80,62 @@ export async function ensureTransfersSchema(): Promise<void> {
           created_at TEXT NOT NULL DEFAULT ''
         );
         CREATE INDEX IF NOT EXISTS internal_transfer_logs_transfer_idx ON internal_transfer_logs (transfer_id);
+        DO $$ BEGIN
+          IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'internal_transfers' AND column_name = 'amount' AND data_type = 'real') THEN
+            ALTER TABLE internal_transfers ALTER COLUMN amount TYPE double precision;
+          END IF;
+          IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'internal_transfers' AND column_name = 'weight' AND data_type = 'real') THEN
+            ALTER TABLE internal_transfers ALTER COLUMN weight TYPE double precision;
+          END IF;
+        END $$;
       `)
+      try {
+        await valueUnpricedTransfers()
+      } catch (error) {
+        // Valuing old rows must never block the module; it is retried by the next process.
+        console.error("internal transfers: valuing transfers without a price list", error)
+      }
     })().catch((error) => {
-      globalThis.__linkoTransfersSchemaV1 = undefined
+      globalThis.__linkoTransfersSchemaV2 = undefined
       throw error
     })
   }
-  await globalThis.__linkoTransfersSchemaV1
+  await globalThis.__linkoTransfersSchemaV2
+}
+
+/** Transfers that left without a price list before they were valued at cost (amount 0):
+ * their lines get the cost of goods of the day they were given (one-time, idempotent:
+ * only rows that still have no value). */
+async function valueUnpricedTransfers(): Promise<void> {
+  const db = getDb()
+  const rows = (await db
+    .prepare(
+      `SELECT id, from_warehouse, items, given_at, created_at_label, created_at FROM internal_transfers
+       WHERE status IN ('в пути', 'принят') AND btrim(COALESCE(price_list, '')) = '' AND COALESCE(amount, 0) = 0`,
+    )
+    .all()) as Array<{ id: number; from_warehouse: string; items: string; given_at: string; created_at_label: string; created_at: string }>
+  if (!rows.length) return
+  const index = await catalogIndex(db)
+  const costsByDay = new Map<string, Awaited<ReturnType<typeof getWarehouseItemCosts>>>()
+  for (const row of rows) {
+    const day = parseAnyDay(row.given_at) ?? parseAnyDay(row.created_at_label) ?? parseAnyDay(row.created_at, true) ?? todayIso()
+    let costs = costsByDay.get(day)
+    if (!costs) costsByDay.set(day, (costs = await getWarehouseItemCosts({ date: day }, db)))
+    const items = priceAtCost(parseItems(row.items), index, costsInWarehouse(costs, row.from_warehouse))
+    const amount = round6(items.reduce((sum, item) => sum + item.quantity * item.price, 0))
+    if (amount > 0) {
+      await db.prepare("UPDATE internal_transfers SET items = @items, amount = @amount WHERE id = @id AND COALESCE(amount, 0) = 0").run({ id: row.id, items: JSON.stringify(items), amount })
+    }
+  }
+}
+
+/** The lines of a transfer without a price list, valued at the cost of goods (`priced: "cost"`). */
+function priceAtCost(items: TransferItem[], index: CatalogIndex, costs: Map<string, number>): TransferItem[] {
+  return items.map((item) => {
+    const key = index.byKey.has(item.key) ? item.key : resolveLine(index, { key: item.key, product: item.product }).key
+    // Брак carries no value.
+    return { ...item, price: item.defect ? 0 : round6(costs.get(key) ?? 0), priced: "cost" as const }
+  })
 }
 
 export type TransferRow = {
@@ -101,7 +166,7 @@ export type TransferRow = {
   currency: string
 }
 
-function parseItems(text: string): TransferItem[] {
+export function parseItems(text: string): TransferItem[] {
   let parsed: unknown
   try {
     parsed = JSON.parse(text || "[]")
@@ -119,8 +184,11 @@ function parseItems(text: string): TransferItem[] {
       unit: String(line.unit ?? ""),
       quantity: Number(String(line.quantity ?? 0).replace(",", ".")) || 0,
       price: Number(line.price) || 0,
-      weight: Number(line.weight) || 0,
+      // Lines saved before kg goods had a weight: the unit implies it.
+      weight: unitWeightKg(String(line.unit ?? ""), Number(line.weight) || 0),
       series: String(line.series ?? ""),
+      ...(line.defect === true ? { defect: true } : {}),
+      ...(line.priced === "cost" ? { priced: "cost" as const } : {}),
     }))
 }
 
@@ -130,6 +198,8 @@ const statusOf = (value: string): TransferStatus => ((TRANSFER_STATUSES as strin
 const localIso = (value: string, utc = false) => (value ? (parseAnyDate(value, utc) ?? value) : "")
 
 export function rowToTransfer(row: TransferRow): Transfer {
+  const items = parseItems(row.items)
+  const storedWeight = Number(row.weight) || 0
   return {
     id: row.id,
     fromWarehouse: row.from_warehouse,
@@ -138,7 +208,7 @@ export function rowToTransfer(row: TransferRow): Transfer {
     createdAt: localIso(row.created_at_label) || localIso(row.created_at, true),
     deliveredAt: parseAnyDay(row.delivered_at) ?? row.delivered_at,
     amount: round6(Number(row.amount) || 0),
-    weight: round6(Number(row.weight) || 0),
+    weight: round6(storedWeight || items.reduce((sum, item) => sum + item.quantity * item.weight, 0)),
     status: statusOf(row.status),
     priceList: row.price_list,
     currency: row.currency ?? "",
@@ -147,7 +217,7 @@ export function rowToTransfer(row: TransferRow): Transfer {
     transportNumber: row.transport_number,
     driver: row.driver,
     comment: row.comment,
-    items: parseItems(row.items),
+    items,
     givenAt: localIso(row.given_at ?? ""),
     givenBy: row.given_by ?? "",
     acceptedAt: localIso(row.accepted_at ?? ""),
@@ -168,7 +238,7 @@ export async function getTransfer(id: number, db?: PgDb): Promise<Transfer | nul
 // Input
 // ---------------------------------------------------------------------------
 
-export type TransferLineInput = { key?: string; product?: string; quantity: number; price?: number; series?: string }
+export type TransferLineInput = { key?: string; product?: string; quantity: number; price?: number; series?: string; defect?: boolean }
 
 export type TransferInput = {
   fromWarehouse: string
@@ -189,7 +259,7 @@ export type TransferInput = {
   items: TransferLineInput[]
 }
 
-export type TransferError = { error: string; status: 400 | 404 | 409; shortages?: StockShortage[] }
+export type TransferError = { error: string; status: 400 | 404 | 409; shortages?: StockShortage[]; field?: string }
 export type TransferChange = Transfer | TransferError
 
 export function isTransferError(value: unknown): value is TransferError {
@@ -203,58 +273,98 @@ class TransferAbort extends Error {
   }
 }
 
-/** Local date-time of the moment of an action: the chosen day + the current time. */
+/** Local date-time of the moment of an action (milliseconds: the cost ledger orders the
+ * day's movements by it): now, or the end of an earlier chosen day (a back-dated action
+ * happened some time that day: after its other movements). */
 function momentOf(day?: string): string {
-  const now = nowLocalIso()
-  return day && isIsoDay(day) ? `${day}${now.slice(10)}` : now
+  const now = nowLocalMoment()
+  if (!day || !isIsoDay(day) || day >= now.slice(0, 10)) return now
+  return `${day}T23:59:59`
 }
 
 function createdMoment(value: string): string {
   const text = value.trim()
-  if (!text) return nowLocalIso()
+  if (!text) return nowLocalMoment()
   if (isIsoDay(text)) return momentOf(text)
   return parseAnyDate(text) ?? nowLocalIso()
 }
 
 type NormalizedInput = Omit<TransferInput, "items"> & { items: TransferItem[]; amount: number; weight: number }
 
-function normalize(input: TransferInput, index: CatalogIndex): NormalizedInput | TransferError {
-  const fromWarehouse = input.fromWarehouse.trim()
-  const toWarehouse = input.toWarehouse.trim()
-  if (!fromWarehouse || !toWarehouse) return { error: "Склад не выбран", status: 400 }
+/** A warehouse of a document: registered, and active unless it is the one the edited document already has. */
+async function documentWarehouse(db: PgDb, name: string, keep: string | undefined, field: string): Promise<WarehouseRef | TransferError> {
+  const found = await findWarehouse(db, name)
+  if (!found) return { error: "Склад не найден", status: 400, field }
+  if (!found.active && !(keep !== undefined && textKey(keep) === textKey(found.name))) return { error: "Склад неактивен", status: 400, field }
+  return found
+}
+
+/** Non-catalog ("name:") keys the source warehouse's ledger has (legacy document names), plus the edited document's. */
+async function movableOrphans(db: PgDb, warehouse: string, current?: Transfer): Promise<Set<string>> {
+  const keys = new Set<string>()
+  const wanted = textKey(warehouse)
+  for (const row of await getStockBalances({ warehouses: [warehouse] }, db)) if (row.key.startsWith("name:") && textKey(row.warehouse) === wanted) keys.add(row.key)
+  for (const item of current?.items ?? []) if (item.key.startsWith("name:")) keys.add(`name:${textKey(item.key.slice(5))}`)
+  return keys
+}
+
+async function normalize(db: PgDb, input: TransferInput, index: CatalogIndex, current?: Transfer): Promise<NormalizedInput | TransferError> {
+  if (!input.fromWarehouse.trim() || !input.toWarehouse.trim()) return { error: "Склад не выбран", status: 400 }
+  const from = await documentWarehouse(db, input.fromWarehouse, current?.fromWarehouse, "fromWarehouse")
+  if (isTransferError(from)) return from
+  const to = await documentWarehouse(db, input.toWarehouse, current?.toWarehouse, "toWarehouse")
+  if (isTransferError(to)) return to
+  const fromWarehouse = from.name
+  const toWarehouse = to.name
   if (textKey(fromWarehouse) === textKey(toWarehouse)) return { error: "Склад отправитель и склад получатель должны отличаться", status: 400 }
   const deliveredAt = input.deliveredAt.trim() ? parseAnyDay(input.deliveredAt) : todayIso()
   if (!deliveredAt) return { error: "Неверная дата доставки", status: 400 }
+  if (!input.items.length) return { error: "Добавьте товары", status: 400, field: "items" }
+  let orphans: Set<string> | null = null
   const items: TransferItem[] = []
-  for (const line of input.items) {
-    const quantity = round6(Number(line.quantity) || 0)
-    if (!(quantity > 0)) continue
+  for (const [position, line] of input.items.entries()) {
+    const field = `items.${position}`
+    if (!String(line.key ?? "").trim() && !String(line.product ?? "").trim()) return { error: "Выберите товар", status: 400, field: `${field}.key` }
+    const quantity = round6(Number(line.quantity))
+    if (!Number.isFinite(Number(line.quantity)) || !(quantity > 0)) return { error: "Количество должно быть больше 0", status: 400, field: `${field}.quantity` }
+    if (quantity > MAX_TRANSFER_QTY) return { error: "Слишком большое количество", status: 400, field: `${field}.quantity` }
+    const rawPrice = Number(line.price ?? 0)
+    if (!Number.isFinite(rawPrice) || rawPrice < 0 || rawPrice > MAX_TRANSFER_PRICE) return { error: "Неверная цена", status: 400, field: `${field}.price` }
     const resolved = resolveLine(index, line)
-    if (!resolved.name) continue
-    if (!resolved.item && !String(line.key ?? "").startsWith("name:")) return { error: `Товар не найден: ${resolved.name}`, status: 400 }
-    const price = round6(Math.max(0, Number(line.price) || 0))
+    let key = resolved.key
+    if (!resolved.item) {
+      // Only goods the source already holds under a legacy document name may move by name.
+      key = `name:${textKey(key.startsWith("name:") ? key.slice(5) : resolved.name)}`
+      orphans ??= await movableOrphans(db, fromWarehouse, current)
+      if (!resolved.name || key === "name:" || !orphans.has(key)) return { error: "Товар не найден", status: 400, field: `${field}.key` }
+    }
     items.push({
       id: items.length + 1,
-      key: resolved.key,
+      key,
       product: resolved.name,
       article: resolved.item?.article ?? "",
       unit: resolved.item?.unit ?? "",
       quantity,
-      price,
-      weight: resolved.item?.weight ?? 0,
+      price: round6(rawPrice),
+      weight: unitWeightKg(resolved.item?.unit ?? "", resolved.item?.weight ?? 0),
       series: String(line.series ?? "").trim(),
+      ...(line.defect ? { defect: true } : {}),
     })
   }
-  if (!items.length) return { error: "Добавьте товары", status: 400 }
+  const createdAt = createdMoment(input.createdAt)
+  // Without a price list the lines are valued at the cost of goods (re-valued when given).
+  const priced = input.priceList.trim()
+    ? items
+    : priceAtCost(items, index, costsInWarehouse(await getWarehouseItemCosts({ date: createdAt.slice(0, 10) }, db), fromWarehouse))
   return {
     ...input,
     fromWarehouse,
     toWarehouse,
     deliveredAt,
-    createdAt: createdMoment(input.createdAt),
-    items,
-    amount: round6(items.reduce((sum, item) => sum + item.quantity * item.price, 0)),
-    weight: round6(items.reduce((sum, item) => sum + item.quantity * item.weight, 0)),
+    createdAt,
+    items: priced,
+    amount: round6(priced.reduce((sum, item) => sum + item.quantity * item.price, 0)),
+    weight: round6(priced.reduce((sum, item) => sum + item.quantity * item.weight, 0)),
   }
 }
 
@@ -331,20 +441,42 @@ async function applyAction(tx: PgDb, current: Transfer, action: TransferAction, 
   if (!transition.from.includes(current.status)) {
     throw new TransferAbort({ error: `Действие недоступно для текущего статуса передачи (${current.status})`, status: 409 })
   }
-  if (options.date && !isIsoDay(options.date)) throw new TransferAbort({ error: "Неверная дата", status: 400 })
+  if (options.date && !isIsoDay(options.date)) throw new TransferAbort({ error: "Неверная дата", status: 400, field: "date" })
+  if (options.date && options.date > todayIso()) throw new TransferAbort({ error: "Дата не может быть позже сегодняшнего дня", status: 400, field: "date" })
   const moment = momentOf(options.date)
-  const set: Record<string, string> = { status: transition.to }
+  const set: Record<string, string | number> = { status: transition.to }
+  /** The movement must not touch an inactive warehouse (closed to new movements). */
+  const requireActive = async (names: string[]) => {
+    for (const name of names) {
+      const found = await findWarehouse(tx, name)
+      if (!found) throw new TransferAbort({ error: "Склад не найден", status: 400 })
+      if (!found.active) throw new TransferAbort({ error: "Склад неактивен", status: 400 })
+    }
+  }
+  /** A confirmed inventory already counted the movement: undoing it would break the count. */
+  const requireUncounted = async (warehouse: string, at: string) => {
+    if (await countedByInventory(tx, warehouse, at.slice(0, 10), at)) throw new TransferAbort({ error: "Отменение невозможно из-за связи с другими данными", status: 409 })
+  }
   if (action === "give") {
+    await requireActive([current.fromWarehouse, current.toWarehouse])
     await lockWarehouseStock(tx, [current.fromWarehouse])
+    const catalog = index ?? (await catalogIndex(tx))
     const stock = await warehouseStock(current.fromWarehouse, moment.slice(0, 10), tx)
-    const shortages = findShortages(current.items, index ?? (await catalogIndex(tx)), stock)
+    const shortages = findShortages(current.items, catalog, stock)
     if (shortages.length) throw new TransferAbort({ error: shortageMessage(current.fromWarehouse, shortages), status: 409, shortages })
     Object.assign(set, { given_at: moment, given_by: userName })
+    if (!current.priceList.trim()) {
+      // Valued at the cost of goods of the moment the goods leave.
+      const items = priceAtCost(current.items, catalog, new Map([...stock].map(([key, item]) => [key, item.cost])))
+      Object.assign(set, { items: JSON.stringify(items), amount: round6(items.reduce((sum, item) => sum + item.quantity * item.price, 0)) })
+    }
   } else if (action === "accept") {
+    await requireActive([current.toWarehouse])
     const givenDay = current.givenAt.slice(0, 10)
-    if (givenDay && moment.slice(0, 10) < givenDay) throw new TransferAbort({ error: "Дата приемки не может быть раньше даты передачи", status: 400 })
-    Object.assign(set, { accepted_at: moment, accepted_by: userName })
+    if (givenDay && moment.slice(0, 10) < givenDay) throw new TransferAbort({ error: "Дата приемки не может быть раньше даты передачи", status: 400, field: "date" })
+    Object.assign(set, { accepted_at: moment < current.givenAt ? current.givenAt : moment, accepted_by: userName })
   } else if (action === "cancel_accepted") {
+    await requireUncounted(current.toWarehouse, current.acceptedAt)
     // The goods leave the target again: it must still have them.
     await lockWarehouseStock(tx, [current.toWarehouse])
     const stock = await warehouseStock(current.toWarehouse, current.acceptedAt.slice(0, 10) || undefined, tx)
@@ -354,6 +486,7 @@ async function applyAction(tx: PgDb, current: Transfer, action: TransferAction, 
     }
     Object.assign(set, { accepted_at: "", accepted_by: "" })
   } else if (action === "cancel_given") {
+    await requireUncounted(current.fromWarehouse, current.givenAt)
     Object.assign(set, { given_at: "", given_by: "" })
   } else if (action === "cancel") {
     Object.assign(set, { cancelled_at: moment, cancelled_by: userName })
@@ -427,8 +560,9 @@ function values(input: NormalizedInput) {
 
 export async function createTransfer(input: TransferInput, userName: string): Promise<TransferChange> {
   await ensureTransfersSchema()
-  const index = await catalogIndex()
-  const data = normalize(input, index)
+  const db = getDb()
+  const index = await catalogIndex(db)
+  const data = await normalize(db, input, index)
   if (isTransferError(data)) return data
   if (input.status === "отменен") return { error: "Нельзя создать отмененную передачу", status: 400 }
   const initial: TransferStatus = input.status === "ожидает" ? "ожидает" : "потвержден"
@@ -447,13 +581,16 @@ export async function createTransfer(input: TransferInput, userName: string): Pr
 
 export async function updateTransfer(id: number, input: TransferInput, userName: string): Promise<TransferChange> {
   await ensureTransfersSchema()
-  const data = normalize(input, await catalogIndex())
+  const db = getDb()
+  const before = await getTransfer(id, db)
+  if (!before) return { error: "Передача не найдена", status: 404 }
+  const data = await normalize(db, input, await catalogIndex(db), before)
   if (isTransferError(data)) return data
   return inTransaction(async (tx) => {
     const current = await lockTransfer(tx, id)
     if (!current) return { error: "Передача не найдена", status: 404 }
     if (!TRANSFER_EDITABLE.includes(current.status)) {
-      return { error: "Изменять можно только передачу в статусе «ожидает» или «потвержден»", status: 409 }
+      return { error: "Изменять можно только передачу в статусе «ожидает» или «подтвержден»", status: 409 }
     }
     const status: TransferStatus = input.status === "ожидает" ? "ожидает" : input.status === "потвержден" ? "потвержден" : current.status
     const row = values(data)
@@ -468,9 +605,13 @@ export async function updateTransfer(id: number, input: TransferInput, userName:
 /** Hard delete of a transfer without stock effect (the UI cancels instead). */
 export async function deleteTransfer(id: number): Promise<"ok" | "not_found" | "locked"> {
   await ensureTransfersSchema()
-  const current = await getTransfer(id)
-  if (!current) return "not_found"
-  if (current.status === "в пути" || current.status === "принят") return "locked"
-  await getDb().prepare("DELETE FROM internal_transfers WHERE id = @id").run({ id })
-  return "ok"
+  // The status is read from the locked row, so a delete racing "give" can never
+  // wipe a transfer that has just gone in transit.
+  return withTransaction(async (tx) => {
+    const locked = (await tx.prepare("SELECT status FROM internal_transfers WHERE id = @id FOR UPDATE").get({ id })) as { status: string } | undefined
+    if (!locked) return "not_found"
+    if (locked.status === "в пути" || locked.status === "принят") return "locked"
+    await tx.prepare("DELETE FROM internal_transfers WHERE id = @id").run({ id })
+    return "ok"
+  })
 }

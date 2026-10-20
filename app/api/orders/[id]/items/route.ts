@@ -1,40 +1,41 @@
 import { NextResponse } from "next/server"
-import { z } from "zod"
 
+import { parseBody } from "@/lib/auth-request"
 import { getCurrentUser } from "@/lib/current-user"
+import { createOrderItem, listOrderItems } from "@/lib/order-items-repo"
+import { orderErrorResponse, orderLineSchema, routeId } from "@/lib/orders-api"
+import { getOrder } from "@/lib/orders-repo"
 import { requireRole } from "@/lib/rbac"
-import { parseJsonBody } from "@/lib/validation"
-import { createOrderItem, listOrderItems, type OrderItemInput } from "@/lib/order-items-repo"
 
 type RouteParams = { params: Promise<{ id: string }> }
 
-const orderItemSchema = z.object({
-  productId: z.number().int().positive().optional(),
-  productName: z.string().trim().min(1),
-  unit: z.string().trim().min(1).max(50).optional(),
-  quantity: z.number().positive(),
-  unitPrice: z.number().nonnegative(),
-  costPrice: z.number().nonnegative().optional(),
-  discountPercent: z.number().min(0).max(100).optional(),
-  currency: z.string().trim().min(1).max(10).optional(),
-})
+const NOT_FOUND = { error: "Заказ не найден" }
 
 export async function GET(_request: Request, { params }: RouteParams) {
   const user = await getCurrentUser()
   if (!user) return NextResponse.json({ error: "Вы не вошли в систему" }, { status: 401 })
 
-  const orderId = Number((await params).id)
+  const orderId = routeId((await params).id)
+  if (!orderId || !(await getOrder(orderId, { withBalances: false }))) return NextResponse.json(NOT_FOUND, { status: 404 })
   return NextResponse.json(await listOrderItems(orderId))
 }
 
+// POST /api/orders/[id]/items {productId, quantity, unitPrice, …} — 404 for an
+// unknown order, 409 when the order is no longer editable or stock is short,
+// 400 for a product that is not in the catalog / not for sale or another currency.
 export async function POST(request: Request, { params }: RouteParams) {
   const auth = await requireRole("manager")
   if ("error" in auth) return auth.error
 
-  const orderId = Number((await params).id)
-  const parsed = await parseJsonBody(request, orderItemSchema)
+  const orderId = routeId((await params).id)
+  if (!orderId) return NextResponse.json(NOT_FOUND, { status: 404 })
+  const parsed = await parseBody(request, orderLineSchema)
   if (parsed.error) return parsed.error
 
-  const item = await createOrderItem(orderId, parsed.data satisfies OrderItemInput)
-  return NextResponse.json(item, { status: 201 })
+  try {
+    const item = await createOrderItem(orderId, parsed.data, auth.user)
+    return NextResponse.json(item, { status: 201 })
+  } catch (error) {
+    return orderErrorResponse(error)
+  }
 }

@@ -1,6 +1,7 @@
 import "server-only"
 
 import { withTransaction, type PgDb } from "@/lib/db"
+import { loadCurrencyContext } from "@/lib/finance/context"
 import { normCurrency } from "@/lib/finance/currency"
 import { findItemPrice, setItemPrices } from "@/lib/item-prices"
 import { dependentPriceLists, priceListsByIds } from "@/lib/price-lists-repo"
@@ -46,6 +47,9 @@ export {
 //     links are followed.
 // Rows written by a supply's "Наценка" (lib/supplier-incomings-repo.ts: one product per row,
 // product_id + amount = new price, items '[]') are read as one-line documents without old price.
+// Only live items are repriced ("Удалённые" ones are "Товар не найден"); the currency must be one
+// of the currencies table. Cancelling a document also cancels the linked documents derived from
+// it (parent_id chain), deepest first, in the same transaction — the linked lists go back too.
 
 // ---------------------------------------------------------------------------
 // Writes
@@ -61,6 +65,8 @@ function dateLabel(now = new Date()): string {
 }
 
 type PriceTarget = { kind: RepricingItemKind; id: number; price: number }
+
+export const CURRENCY_NOT_FOUND = "Валюта не найдена"
 
 /** Applies prices to one list and returns the lines (unchanged prices are dropped when `skipUnchanged`). */
 async function applyPrices(
@@ -78,7 +84,13 @@ async function applyPrices(
   const ordered = [...targets].sort((a, b) => (a.kind === b.kind ? a.id - b.id : a.kind === "product" ? -1 : 1))
   for (const target of ordered) {
     const key = `${target.kind}:${target.id}`
-    const result = await setItemPrices(tx, target.kind, target.id, [{ priceList: list.name, cash: target.price, nonCash: target.price, currency, nonCashCurrency: currency }])
+    const result = await setItemPrices(
+      tx,
+      target.kind,
+      target.id,
+      [{ priceList: list.name, cash: target.price, nonCash: target.price, currency, nonCashCurrency: currency }],
+      { live: true },
+    )
     if (!result) {
       missing.push(key)
       continue
@@ -219,6 +231,7 @@ export async function createRepricingTx(
   for (const product of input.products) unique.set(`${product.kind}:${product.id}`, product)
   if (!unique.size) throw new RepricingError("Добавьте товары")
   const currency = normCurrency(input.currency, list.currency)
+  if (!(await loadCurrencyContext(tx)).currencies.some((known) => known.code === currency)) throw new RepricingError(CURRENCY_NOT_FOUND)
   const { lines, missing } = await applyPrices(tx, list, currency, [...unique.values()], available, false)
   if (missing.length) throw new RepricingError("Товар не найден", 400, { missing })
   const id = await insertDoc(tx, { priceListId: list.id, currency, comment: input.comment, lines, user, source, parentId: null })
@@ -234,7 +247,9 @@ export async function createRepricing(input: RepricingInput, user: string): Prom
   return withTransaction(async (tx) => {
     const { id, linkedIds, skipped } = await createRepricingTx(tx, input, user, available)
     const repricing = await detailOf(tx, (await readRow(tx, id))!)
-    const linked = await Promise.all(linkedIds.map(async (linkedId) => detailOf(tx, (await readRow(tx, linkedId))!)))
+    // One by one: a transaction client runs one query at a time.
+    const linked: RepricingDetail[] = []
+    for (const linkedId of linkedIds) linked.push(await detailOf(tx, (await readRow(tx, linkedId))!))
     return { repricing, linked, skipped }
   })
 }
@@ -269,14 +284,34 @@ export async function createConnectedRepricings(priceListId: number, user: strin
       if (parentId !== null) catalog = await repricingCatalog(tx)
     }
     await repriceDependents(tx, list, pricesOf(catalog, list.name), available, user, "", parentId, visited, outcome)
-    const linked = await Promise.all(outcome.ids.map(async (id) => detailOf(tx, (await readRow(tx, id))!)))
+    const linked: RepricingDetail[] = []
+    for (const id of outcome.ids) linked.push(await detailOf(tx, (await readRow(tx, id))!))
     return { priceList: list, repricing: null, linked, skipped: outcome.skipped }
   })
   await recordLinkedRepricing({ priceListId: result.priceList.id, priceListName: result.priceList.name, repricingIds: result.linked.map((doc) => doc.id) }, user)
   return { repricing: result.repricing, linked: result.linked, skipped: result.skipped }
 }
 
-/** Cancel ("отменен", demo DELETE main/reprice/:id/): restores the previous prices of every line. */
+/** The document and every linked document derived from it (parent_id chain), oldest first. */
+async function documentTree(tx: PgDb, id: number): Promise<number[]> {
+  const rows = (await tx
+    .prepare(
+      `WITH RECURSIVE tree(id) AS (
+         SELECT id FROM repricings WHERE id = @id
+         UNION SELECT r.id FROM repricings r JOIN tree t ON r.parent_id = t.id
+       )
+       SELECT id FROM tree ORDER BY id`,
+    )
+    .all({ id })) as Array<{ id: number }>
+  return rows.map((row) => Number(row.id))
+}
+
+/**
+ * Cancel ("отменен", demo DELETE main/reprice/:id/): restores the previous prices of every line —
+ * of this document and of the linked documents derived from it (their prices were computed from
+ * this one), deepest first, all in one transaction. Refused (409, nothing changed) when a line has
+ * no stored old price or a later finished repricing outside this tree touched one of the items.
+ */
 export async function cancelRepricing(id: number, user: string): Promise<RepricingDetail | null> {
   await ensureRepricingsSchema()
   return withTransaction(async (tx) => {
@@ -284,39 +319,54 @@ export async function cancelRepricing(id: number, user: string): Promise<Reprici
     const row = await readRow(tx, id, true)
     if (!row) return null
     if (statusOf(row.status) === "canceled") throw new RepricingError("Переоценка уже отменена")
-    const lines = parseLines(row)
-    if (lines.some((line) => line.legacy || line.oldEntry === undefined)) throw new RepricingError("Отмена невозможна: старые цены не сохранены", 409)
-    const [list] = row.price_list_id === null ? [] : await priceListsByIds(tx, [Number(row.price_list_id)])
-    if (!list) throw new RepricingError("Прайс-лист не найден", 409)
-    // A later finished repricing of the same price list that touched one of the items wins.
-    const keys = lines.map((line) => line.key)
-    const later = (await tx
-      .prepare(
-        `SELECT r.id FROM repricings r
-          WHERE r.id > @id AND r.price_list_id = @priceListId AND r.status <> '${STATUS_DB.canceled}'
-            AND (('product:' || r.product_id) = ANY(@keys::text[])
-                 OR (r.items LIKE '[%' AND EXISTS (SELECT 1 FROM jsonb_array_elements(r.items::jsonb) e WHERE e->>'key' = ANY(@keys::text[]))))
-          ORDER BY r.id`,
-      )
-      .all({ id, priceListId: row.price_list_id, keys })) as Array<{ id: number }>
-    if (later.length) {
-      throw new RepricingError("Отмена невозможна: позже проведена переоценка этих товаров", 409, { conflicts: later.map((item) => Number(item.id)) })
+    const tree = await documentTree(tx, id)
+    const docs: Array<{ id: number; lines: StoredLine[]; list: PriceList }> = []
+    for (const docId of tree) {
+      const doc = docId === id ? row : await readRow(tx, docId, true)
+      if (!doc || statusOf(doc.status) === "canceled") continue
+      const lines = parseLines(doc)
+      if (lines.some((line) => line.legacy || line.oldEntry === undefined)) throw new RepricingError("Отмена невозможна: старые цены не сохранены", 409)
+      const [list] = doc.price_list_id === null ? [] : await priceListsByIds(tx, [Number(doc.price_list_id)])
+      if (!list) throw new RepricingError("Прайс-лист не найден", 409)
+      docs.push({ id: docId, lines, list })
     }
-    const ordered = [...lines].sort((a, b) => (a.kind === b.kind ? a.id - b.id : a.kind === "product" ? -1 : 1))
-    for (const line of ordered) {
-      const old = line.oldEntry
-      await setItemPrices(
-        tx,
-        line.kind,
-        Number(line.id),
-        old
-          ? [{ priceList: list.name, cash: old.cash, nonCash: old.nonCash, currency: old.currency, nonCashCurrency: old.nonCashCurrency }]
-          : [{ priceList: list.name, remove: true }],
-      )
+    // A later finished repricing of the same price list that touched one of the items wins
+    // (the documents being cancelled together do not count).
+    const cancelling = docs.map((doc) => doc.id)
+    const conflicts = new Set<number>()
+    for (const doc of docs) {
+      const later = (await tx
+        .prepare(
+          `SELECT r.id FROM repricings r
+            WHERE r.id > @id AND r.price_list_id = @priceListId AND r.status <> '${STATUS_DB.canceled}' AND NOT (r.id = ANY(@cancelling::int[]))
+              AND (('product:' || r.product_id) = ANY(@keys::text[])
+                   OR (r.items LIKE '[%' AND EXISTS (SELECT 1 FROM jsonb_array_elements(r.items::jsonb) e WHERE e->>'key' = ANY(@keys::text[]))))
+            ORDER BY r.id`,
+        )
+        .all({ id: doc.id, priceListId: doc.list.id, keys: doc.lines.map((line) => line.key), cancelling })) as Array<{ id: number }>
+      for (const item of later) conflicts.add(Number(item.id))
     }
-    await tx
-      .prepare(`UPDATE repricings SET status = '${STATUS_DB.canceled}', canceled_at = datetime('now'), canceled_by = ?, updated_at = datetime('now') WHERE id = ?`)
-      .run(user, id)
+    if (conflicts.size) {
+      throw new RepricingError("Отмена невозможна: позже проведена переоценка этих товаров", 409, { conflicts: [...conflicts].sort((a, b) => a - b) })
+    }
+    // Deepest (newest) documents first, so each list gets back the price it had before the chain.
+    for (const doc of [...docs].reverse()) {
+      const ordered = [...doc.lines].sort((a, b) => (a.kind === b.kind ? a.id - b.id : a.kind === "product" ? -1 : 1))
+      for (const line of ordered) {
+        const old = line.oldEntry
+        await setItemPrices(
+          tx,
+          line.kind,
+          Number(line.id),
+          old
+            ? [{ priceList: doc.list.name, cash: old.cash, nonCash: old.nonCash, currency: old.currency, nonCashCurrency: old.nonCashCurrency }]
+            : [{ priceList: doc.list.name, remove: true }],
+        )
+      }
+      await tx
+        .prepare(`UPDATE repricings SET status = '${STATUS_DB.canceled}', canceled_at = datetime('now'), canceled_by = ?, updated_at = datetime('now') WHERE id = ?`)
+        .run(user, doc.id)
+    }
     return detailOf(tx, (await readRow(tx, id))!)
   })
 }

@@ -2,11 +2,11 @@ import { NextResponse } from "next/server"
 import { z } from "zod"
 
 import { requireRole } from "@/lib/rbac"
-import { parseJsonBody } from "@/lib/validation"
+import { invalidIdResponse, parseIdSegment, parseJsonBody } from "@/lib/validation"
 import { deleteKnowledgeBaseArticle, updateKnowledgeBaseArticle } from "@/lib/knowledge-base-repo"
 
 const knowledgeBaseArticleSchema = z.object({
-  name: z.string().trim().min(1),
+  name: z.string().trim().min(1).max(255, "Не более 255 символов"),
   text: z.string().optional(),
   active: z.boolean().optional(),
   roles: z.array(z.string()).optional(),
@@ -18,7 +18,8 @@ export async function PUT(request: Request, { params }: RouteParams) {
   const auth = await requireRole("manager")
   if ("error" in auth) return auth.error
 
-  const id = Number((await params).id)
+  const id = parseIdSegment((await params).id)
+  if (id === null) return invalidIdResponse()
   const parsed = await parseJsonBody(request, knowledgeBaseArticleSchema)
   if (parsed.error) return parsed.error
 
@@ -36,7 +37,8 @@ export async function DELETE(_request: Request, { params }: RouteParams) {
   const auth = await requireRole("manager")
   if ("error" in auth) return auth.error
 
-  const id = Number((await params).id)
+  const id = parseIdSegment((await params).id)
+  if (id === null) return invalidIdResponse()
   const ok = (await deleteKnowledgeBaseArticle(id))
   if (!ok) return NextResponse.json({ error: "Статья не найдена" }, { status: 404 })
   return NextResponse.json({ ok: true })

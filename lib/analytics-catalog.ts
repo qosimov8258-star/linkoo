@@ -644,7 +644,7 @@ const toolReports: AnalyticsReport[] = [
   },
   {
     slug: "cash-management",
-    label: "Управления кассой",
+    label: "Управление кассой",
     href: "/analytics/cash-management",
     description: "Управление кассовыми операциями и ежедневными движениями.",
     group: "tools",

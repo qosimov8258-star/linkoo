@@ -28,6 +28,13 @@ export const MOVEMENT_COLUMNS = {
 
 export type MovementColumn<K extends BalanceEntityKind = BalanceEntityKind> = (typeof MOVEMENT_COLUMNS)[K][number]
 
+/** Order statuses that are neither a sale nor a debt anywhere in finance
+ * (Баланс клиентов: "Все заказы (кроме неподтвержденных и отмененных заказов)"). */
+export const ORDER_EXCLUDED_STATUSES = ["Отменен", "Не подтвержден"] as const
+
+/** Released (shipped) order statuses: the goods left the warehouse, the order is realized. */
+export const ORDER_RELEASED_STATUSES = ["В пути", "Доставлено"] as const
+
 /** "+" = column is normally positive, "-" = normally negative, "±" = either. */
 export const MOVEMENT_SIGNS: Record<string, "+" | "-" | "±"> = {
   income: "+",

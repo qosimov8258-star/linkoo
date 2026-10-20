@@ -7,7 +7,7 @@ import { parseJsonBody } from "@/lib/validation"
 import { createOrderTimeRestriction, listOrderTimeRestrictions } from "@/lib/order-time-restrictions-repo"
 
 const orderTimeRestrictionSchema = z.object({
-  name: z.string().trim().min(1),
+  name: z.string().trim().min(1).max(255, "Не более 255 символов"),
   from: z.string().trim().optional(),
   to: z.string().trim().optional(),
   fullDay: z.boolean().optional(),

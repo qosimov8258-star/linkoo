@@ -142,7 +142,8 @@ export function StockLevelView() {
   }
 
   // --- cards ----------------------------------------------------------------------------
-  const pcs = state.unit === "amount" ? ` ${t("шт")}` : ""
+  // The unit only when every counted row shares it (kg, litre and pieces are never added up under one label).
+  const pcs = sum?.unit ? ` ${t(sum.unit)}` : ""
   const count = (value: number) => `${formatQty(value)}${pcs}`
   const money = (value: number) => `${formatMoney(value, 2)} ${currencyLabel(currency)}`
   const card = (label: string, amount: number, value: number) => (
@@ -249,7 +250,7 @@ export function StockLevelView() {
           />
           <Search className="pointer-events-none absolute right-0 top-0.5 h-5 w-5 text-[#9aa3b6]" />
         </label>
-        <label className="flex min-w-[170px] flex-col text-xs text-[#586174]" title={t("Покаазать в сгруппированном виде (блоки, коробки и тд.)")}>
+        <label className="flex min-w-[170px] flex-col text-xs text-[#586174]" title={t("Показать в сгруппированном виде (блоки, коробки и т. д.)")}>
           {t("Показать")}
           <span className="relative mt-1 flex h-10 items-center border-b border-[#ccd3dc]">
             <select value={state.unit} onChange={(event) => update({ unit: event.target.value as StockLevelUnit })} className="h-full w-full appearance-none bg-transparent pr-7 text-[15px] font-semibold text-[#17233b] outline-none">

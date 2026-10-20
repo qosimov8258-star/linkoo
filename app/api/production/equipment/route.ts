@@ -1,9 +1,8 @@
 import { NextResponse } from "next/server"
 
 import { requireRole } from "@/lib/rbac"
-import { parseJsonBody } from "@/lib/validation"
-import { errorResponse, notFound, positiveIntParam, requireViewer, schemas } from "@/lib/production-api"
-import { createEquipment, getStage, listEquipment } from "@/lib/production-stages-repo"
+import { errorResponse, guarded, parseBody, positiveIntParam, requireViewer, schemas } from "@/lib/production-api"
+import { createEquipment, listEquipment } from "@/lib/production-stages-repo"
 
 export async function GET(request: Request) {
   const denied = await requireViewer()
@@ -16,8 +15,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const auth = await requireRole("manager")
   if ("error" in auth) return auth.error
-  const parsed = await parseJsonBody(request, schemas.equipment)
+  const parsed = await parseBody(request, schemas.equipment)
   if (parsed.error) return parsed.error
-  if (!(await getStage(parsed.data.stageId))) return notFound("Этап не найден")
-  return NextResponse.json(await createEquipment(parsed.data), { status: 201 })
+  return guarded(async () => NextResponse.json(await createEquipment(parsed.data), { status: 201 }))
 }

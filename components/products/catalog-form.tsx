@@ -294,7 +294,7 @@ export function CatalogFormDialog({
         <>
           {error && <span className="mr-auto text-[13px] text-[#e57373]">{error}</span>}
           <PrimaryButton tone="blue" busy={busy} onClick={() => void save()}>
-            {t("Сохранить изменение")}
+            {t(item ? "Сохранить изменение" : "Сохранить")}
           </PrimaryButton>
         </>
       }
@@ -452,6 +452,7 @@ export function CatalogFormDialog({
             onChange={(prices) => set({ prices })}
             priceLists={options?.priceLists ?? []}
             currencies={options?.currencies ?? ["SUM"]}
+            savedNames={item?.priceLists.map((entry) => entry.name) ?? []}
             error={errors.priceLists}
           />
           {field(

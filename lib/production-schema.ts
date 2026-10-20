@@ -8,8 +8,12 @@ import { getDb, type PgDb } from "@/lib/db"
 // batch ("party") collects made / raw / defect stock movements for a stage.
 // Movements without a batch are the stage's shift activity.
 
+// Bump when createSchema changes, so a running dev server applies the new DDL
+// (the ready promise is cached on globalThis across hot reloads).
+const PRODUCTION_SCHEMA_VERSION = 3
+
 declare global {
-  var __linkoProductionSchemaReady: Promise<void> | undefined
+  var __linkoProductionSchema: { version: number; ready: Promise<void> } | undefined
 }
 
 async function createSchema(db: PgDb) {
@@ -126,20 +130,94 @@ async function createSchema(db: PgDb) {
     CREATE INDEX IF NOT EXISTS production_movements_party_idx ON production_movements (party_id);
     CREATE INDEX IF NOT EXISTS production_movements_stage_date_idx ON production_movements (stage_id, date);
     CREATE INDEX IF NOT EXISTS production_movements_warehouse_idx ON production_movements (warehouse);
+
+    -- v2: a batch keeps the warehouse it was created in (the stage's warehouse
+    -- may change later); the stage's responsible is an employee; inventory
+    -- adjustments point at their inventory.
+    ALTER TABLE production_parties ADD COLUMN IF NOT EXISTS warehouse TEXT NOT NULL DEFAULT '';
+    ALTER TABLE production_stages ADD COLUMN IF NOT EXISTS responsible_id INTEGER;
+    ALTER TABLE production_movements ADD COLUMN IF NOT EXISTS inventory_id INTEGER;
+
+    -- Money / quantity columns are double precision (older databases may hold real).
+    DO $production_types$
+    DECLARE r record;
+    BEGIN
+      FOR r IN
+        SELECT table_name, column_name FROM information_schema.columns
+        WHERE table_schema = current_schema() AND data_type = 'real'
+          AND table_name IN ('production_movements', 'production_recipes', 'production_recipe_items')
+      LOOP
+        EXECUTE format('ALTER TABLE %I ALTER COLUMN %I TYPE double precision', r.table_name, r.column_name);
+      END LOOP;
+    END
+    $production_types$;
+
+    -- Batches created before v2: the warehouse their stock actually moved in,
+    -- else the stage's current one.
+    UPDATE production_parties p SET warehouse = COALESCE(
+      (SELECT m.warehouse FROM production_movements m WHERE m.party_id = p.id AND m.warehouse <> '' ORDER BY m.id LIMIT 1),
+      (SELECT s.warehouse FROM production_stages s WHERE s.id = p.stage_id),
+      '')
+    WHERE p.warehouse = '';
+
+    -- Output cost (v3): everything the batch consumed (raw incl. spoiled raw)
+    -- ÷ its GOOD units; defective output (brak) carries no value, as in the
+    -- stock core and the cost ledger. A batch thus moves value from raw
+    -- materials to products without creating any. Idempotent repair of
+    -- batches costed by older rules (brak valued like good output).
+    UPDATE production_movements m SET cost = CASE WHEN m.is_defect = 1 THEN 0 ELSE t.unit END
+    FROM (
+      SELECT party_id,
+        CASE WHEN COALESCE(SUM(amount) FILTER (WHERE direction = 'made' AND is_defect <> 1), 0) > 0
+          THEN COALESCE(SUM(amount * cost) FILTER (WHERE direction = 'raw'), 0) / SUM(amount) FILTER (WHERE direction = 'made' AND is_defect <> 1)
+          ELSE 0 END AS unit
+      FROM production_movements WHERE party_id IS NOT NULL GROUP BY party_id
+    ) t
+    WHERE m.party_id = t.party_id AND m.direction = 'made'
+      AND m.cost IS DISTINCT FROM (CASE WHEN m.is_defect = 1 THEN 0 ELSE t.unit END);
+    -- Defective shift output carries no value either.
+    UPDATE production_movements SET cost = 0 WHERE party_id IS NULL AND direction = 'made' AND is_defect = 1 AND cost <> 0;
   `)
 }
 
-/** Lazily creates the production tables once per process and returns the db. */
+/** Lazily creates / upgrades the production tables once per process and returns the db. */
 export async function getProductionDb(): Promise<PgDb> {
   const db = getDb()
-  if (!globalThis.__linkoProductionSchemaReady) {
-    globalThis.__linkoProductionSchemaReady = createSchema(db).catch((error) => {
-      globalThis.__linkoProductionSchemaReady = undefined
+  if (globalThis.__linkoProductionSchema?.version !== PRODUCTION_SCHEMA_VERSION) {
+    const ready = createSchema(db).catch((error) => {
+      globalThis.__linkoProductionSchema = undefined
       throw error
     })
+    globalThis.__linkoProductionSchema = { version: PRODUCTION_SCHEMA_VERSION, ready }
   }
-  await globalThis.__linkoProductionSchemaReady
+  await globalThis.__linkoProductionSchema!.ready
   return db
+}
+
+/** A refused production request: HTTP status + message (+ extra JSON fields,
+ * e.g. the stock shortages). The API routes turn it into the response. */
+export class ProductionError extends Error {
+  readonly status: number
+  readonly details?: Record<string, unknown>
+  constructor(status: number, message: string, details?: Record<string, unknown>) {
+    super(message)
+    this.name = "ProductionError"
+    this.status = status
+    this.details = details
+  }
+}
+
+export function isProductionError(error: unknown): error is ProductionError {
+  return error instanceof Error && error.name === "ProductionError" && typeof (error as ProductionError).status === "number"
+}
+
+/** JS twin of fin_key(): lower-cased, trimmed, inner whitespace collapsed (NBSP counts as a space). */
+export function textKey(value: string | null | undefined): string {
+  return String(value ?? "")
+    .replace(/[\u00a0\u202f]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase()
 }
 
 export type ItemKind = "product" | "raw_material"

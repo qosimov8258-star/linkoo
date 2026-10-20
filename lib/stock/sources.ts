@@ -12,7 +12,8 @@ import type { StockTables } from "@/lib/stock/schema"
 //   kind       text   StockMoveKind
 //   doc_type   text   source table
 //   doc_id     integer
-//   is_defect  integer 0/1 (production output booked as defective)
+//   is_defect  integer 0/1 (production output booked as defective, and write-off /
+//              transfer lines that move such defective units: "Брак")
 // Document lines are JSON arrays in TEXT columns, keyed by product NAME: the
 // name is matched to the catalog by fin_key() (products first, then raw
 // materials); unmatched names keep a 'name:<key>' item so nothing disappears.
@@ -62,6 +63,17 @@ function rateOf(currency: string): string {
   return `COALESCE((@stk_rates::jsonb ->> COALESCE(fin_cur(${currency}), @stk_base))::double precision, 1)`
 }
 
+/** The rate snapshot of a document (contract 2: `rate_to_base` at acceptance) when it
+ * has one, else the live rate of its currency. */
+function snapshotRate(snapshot: string | null, currency: string): string {
+  return snapshot ? `COALESCE(NULLIF(${snapshot}, 0), ${rateOf(currency)})` : rateOf(currency)
+}
+
+/** A JSON line flag ("defect": true) as 0/1. */
+function jsonFlag(element: string, field: string): string {
+  return `(CASE WHEN lower(COALESCE(${element} ->> '${field}', '')) IN ('true', '1') THEN 1 ELSE 0 END)`
+}
+
 const KEY_JOIN = (alias: string, name: string) => `LEFT JOIN stk_names ${alias} ON ${alias}.k = fin_key(${name})`
 const KEY_OF = (alias: string, name: string) => `COALESCE(${alias}.item_key, 'name:' || fin_key(${name}))`
 
@@ -84,10 +96,11 @@ function namesCte(t: StockTables): string {
   )`
 }
 
-/** A line row of a JSON document: (day, warehouse, raw name, qty, value, kind, doc_type, doc_id). */
-function lineRow(day: string, warehouse: string, raw: string, qty: string, value: string, kind: string, docType: string, docId: string, from: string): string {
+/** A line row of a JSON document: (day, warehouse, raw name, qty, value, kind, doc_type, doc_id, is_defect). */
+function lineRow(day: string, warehouse: string, raw: string, qty: string, value: string, kind: string, docType: string, docId: string, from: string, isDefect = "0"): string {
   return `SELECT ${day} AS day, (${warehouse})::text AS warehouse, (${raw})::text AS raw, (${qty})::double precision AS qty,
-    (${value})::double precision AS value, '${kind}'::text AS kind, '${docType}'::text AS doc_type, (${docId})::integer AS doc_id
+    (${value})::double precision AS value, '${kind}'::text AS kind, '${docType}'::text AS doc_type, (${docId})::integer AS doc_id,
+    (${isDefect})::integer AS is_defect
   ${from}`
 }
 
@@ -107,17 +120,22 @@ export function buildMovementsSql(t: StockTables): string {
   const col = (table: string, column: string, alias: string, fallback = "NULL") => (t.col(table, column) ? `${alias}.${column}` : fallback)
 
   // Поставки: accepted supplies; unit cost incl. the supply's additional
-  // expenses spread over the lines (supplyCostLines), in base currency.
+  // expenses spread over the lines (supplyCostLines), in base currency at the
+  // rate saved on acceptance (rate_to_base) when there is one. Booked on the
+  // document date (a back-dated supply counts from its date), never later
+  // than the acceptance: the earlier of the two.
   if (t.has("supplier_incomings")) {
     const accepted = t.col("supplier_incomings", "accepted_at") ? "fin_ts(i.accepted_at)" : "NULL::timestamp"
     const currency = col("supplier_incomings", "currency", "i", "''")
     let expense = "0::double precision"
     if (t.has("supplier_incoming_expenses")) {
       const expCurrency = t.col("supplier_incoming_expenses", "currency") ? `COALESCE(NULLIF(btrim(e.currency), ''), ${currency})` : currency
-      expense = `(SELECT SUM(COALESCE(e.amount, 0) * ${rateOf(expCurrency)}) FROM supplier_incoming_expenses e WHERE e.incoming_id = i.id)`
+      const expRate = snapshotRate(t.col("supplier_incoming_expenses", "rate_to_base") ? "e.rate_to_base" : null, expCurrency)
+      expense = `(SELECT SUM(COALESCE(e.amount, 0) * ${expRate}) FROM supplier_incoming_expenses e WHERE e.incoming_id = i.id)`
     }
+    const rate = snapshotRate(t.col("supplier_incomings", "rate_to_base") ? "i.rate_to_base" : null, currency)
     ctes.push(`stk_sup_doc AS MATERIALIZED (
-      SELECT i.id, i.warehouse, ${dayOf(accepted, "fin_ts(i.date)", "fin_ts(i.created_at, true)")} AS day, ${rateOf(currency)} AS rate,
+      SELECT i.id, i.warehouse, ${dayOf(`LEAST(fin_ts(i.date), ${accepted})`, "fin_ts(i.created_at, true)")} AS day, ${rate} AS rate,
              COALESCE(${expense}, 0) AS expense, ${jsonDoc("i.items")} AS js
       FROM supplier_incomings i WHERE i.status = 'принят'
     )`)
@@ -141,12 +159,16 @@ export function buildMovementsSql(t: StockTables): string {
     )
   }
 
-  // Возврат по поставкам: handed back to the supplier ("завершен").
+  // Возврат по поставкам: handed back to the supplier ("завершен"), on the
+  // document date like the supply (never later than the hand-over). The value
+  // is the return price; the cost ledger (lib/stock/costs.ts) takes the goods
+  // out at their moving-average cost.
   if (t.has("supplier_returns")) {
     const transfer = t.col("supplier_returns", "transfer_time") ? "fin_ts(r.transfer_time)" : "NULL::timestamp"
     const currency = col("supplier_returns", "currency", "r", "''")
+    const rate = snapshotRate(t.col("supplier_returns", "rate_to_base") ? "r.rate_to_base" : null, currency)
     ctes.push(`stk_ret_doc AS MATERIALIZED (
-      SELECT r.id, r.warehouse, ${dayOf(transfer, "fin_ts(r.date)", "fin_ts(r.created_at, true)")} AS day, ${rateOf(currency)} AS rate, ${jsonDoc("r.items")} AS js
+      SELECT r.id, r.warehouse, ${dayOf(`LEAST(fin_ts(r.date), ${transfer})`, "fin_ts(r.created_at, true)")} AS day, ${rate} AS rate, ${jsonDoc("r.items")} AS js
       FROM supplier_returns r WHERE r.status = 'завершен'
     )`)
     lines.push(
@@ -156,6 +178,7 @@ export function buildMovementsSql(t: StockTables): string {
 
   // Списано: only finished write-offs ("закрыт") leave the warehouse;
   // pending ("ожидает", legacy "открыт") and cancelled ("отменен") do not.
+  // Lines flagged "defect" take defective units (Брак) out.
   if (t.has("write_offs")) {
     const status = t.col("write_offs", "status") ? "w.status = 'закрыт'" : "true"
     ctes.push(`stk_wo_doc AS MATERIALIZED (
@@ -163,7 +186,18 @@ export function buildMovementsSql(t: StockTables): string {
       FROM write_offs w WHERE ${status}
     )`)
     lines.push(
-      lineRow("d.day", "d.warehouse", "l.j ->> 'product'", `-${jsonNum("l.j", "qty")}`, `-${jsonNum("l.j", "qty")} * ${jsonNum("l.j", "cost")}`, "writeoff", "write_offs", "d.id", `FROM stk_wo_doc d CROSS JOIN LATERAL ${jsonElements("d.js")} AS l(j)`),
+      lineRow(
+        "d.day",
+        "d.warehouse",
+        "l.j ->> 'product'",
+        `-${jsonNum("l.j", "qty")}`,
+        `-${jsonNum("l.j", "qty")} * ${jsonNum("l.j", "cost")}`,
+        "writeoff",
+        "write_offs",
+        "d.id",
+        `FROM stk_wo_doc d CROSS JOIN LATERAL ${jsonElements("d.js")} AS l(j)`,
+        jsonFlag("l.j", "defect"),
+      ),
     )
   }
 
@@ -171,7 +205,9 @@ export function buildMovementsSql(t: StockTables): string {
   // given day), reach the target once accepted ("принят", on the accepted
   // day). "ожидает" / "потвержден" / "отменен" do not move goods. Rows from
   // before the given / accepted columns fall back to the document dates. Line
-  // prices are price-list prices, not costs, so the value is unknown (0).
+  // prices are price-list (or cost) prices, so the value is unknown here (0);
+  // the cost ledger values both legs at the moving-average cost. Lines
+  // flagged "defect" move defective units (Брак) on both sides.
   if (t.has("internal_transfers")) {
     const created = t.col("internal_transfers", "created_at_label") ? "fin_ts(tr.created_at_label)" : "NULL::timestamp"
     const delivered = t.col("internal_transfers", "delivered_at") ? "fin_ts(tr.delivered_at)" : "NULL::timestamp"
@@ -183,11 +219,12 @@ export function buildMovementsSql(t: StockTables): string {
       FROM internal_transfers tr WHERE tr.status IN ('в пути', 'принят')
     )`)
     ctes.push(`stk_tr AS MATERIALIZED (
-      SELECT d.id, d.status, d.from_warehouse, d.to_warehouse, d.out_day, d.in_day, l.j ->> 'product' AS raw, ${jsonNum("l.j", "quantity")} AS qty
+      SELECT d.id, d.status, d.from_warehouse, d.to_warehouse, d.out_day, d.in_day, l.j ->> 'product' AS raw, ${jsonNum("l.j", "quantity")} AS qty,
+             ${jsonFlag("l.j", "defect")} AS defect
       FROM stk_tr_doc d CROSS JOIN LATERAL ${jsonElements("d.js")} AS l(j)
     )`)
-    lines.push(lineRow("x.out_day", "x.from_warehouse", "x.raw", "-x.qty", "0", "transfer_out", "internal_transfers", "x.id", "FROM stk_tr x"))
-    lines.push(lineRow("x.in_day", "x.to_warehouse", "x.raw", "x.qty", "0", "transfer_in", "internal_transfers", "x.id", "FROM stk_tr x WHERE x.status = 'принят'"))
+    lines.push(lineRow("x.out_day", "x.from_warehouse", "x.raw", "-x.qty", "0", "transfer_out", "internal_transfers", "x.id", "FROM stk_tr x", "x.defect"))
+    lines.push(lineRow("x.in_day", "x.to_warehouse", "x.raw", "x.qty", "0", "transfer_in", "internal_transfers", "x.id", "FROM stk_tr x WHERE x.status = 'принят'", "x.defect"))
   }
 
   if (lines.length) {
@@ -199,11 +236,16 @@ export function buildMovementsSql(t: StockTables): string {
       LEFT JOIN stk_names n ON n.k = r.k
       WHERE r.k <> ''
     )`)
-    parts.push(row("l.day", "l.warehouse", "r.item_key", "l.qty", "l.value", "l.kind", "l.doc_type", "l.doc_id", "0", "FROM stk_lines l JOIN stk_raw r ON r.raw = l.raw"))
+    parts.push(row("l.day", "l.warehouse", "r.item_key", "l.qty", "l.value", "l.kind", "l.doc_type", "l.doc_id", "l.is_defect", "FROM stk_lines l JOIN stk_raw r ON r.raw = l.raw"))
   }
 
   // Производство: output (+, defects flagged), raw-material use (−) and
   // inventory adjustments (±) of batches that were not cancelled.
+  // Брак carries no value: the good output of a batch absorbs the value of
+  // everything the batch made (Σ made value = Σ raw value, however the batch
+  // spread it over its good and defective lines), so a good unit costs
+  // made value ÷ good units and defective units are worth 0. A batch with no
+  // good output (yet) books its output at the document cost.
   if (t.has("production_movements")) {
     const parties = t.has("production_parties")
     const exact = t.col("production_movements", "item_kind") && t.col("production_movements", "item_id")
@@ -213,35 +255,52 @@ export function buildMovementsSql(t: StockTables): string {
     const join = exact ? `LEFT JOIN stk_names n ON n.k = (CASE WHEN ${isExact} THEN NULL ELSE fin_key(m.item_name) END)` : KEY_JOIN("n", "m.item_name")
     const amount = "COALESCE(m.amount, 0)"
     const cost = "COALESCE(m.cost, 0)"
+    const hasDefect = t.col("production_movements", "is_defect")
+    const defect = hasDefect ? "COALESCE(m.is_defect, 0) = 1" : "false"
+    const byParty = hasDefect && t.col("production_movements", "party_id")
     // fin_ts once per distinct date text (many movements share a day).
     ctes.push("stk_pm_dates AS MATERIALIZED (SELECT DISTINCT date FROM production_movements)")
     ctes.push("stk_pm_days AS MATERIALIZED (SELECT date, to_char(fin_ts(date), 'YYYY-MM-DD') AS day FROM stk_pm_dates)")
+    if (byParty) {
+      ctes.push(`stk_pm_made AS MATERIALIZED (
+        SELECT party_id,
+               SUM(COALESCE(amount, 0) * COALESCE(cost, 0)) AS made_value,
+               SUM(CASE WHEN COALESCE(is_defect, 0) = 1 THEN 0 ELSE COALESCE(amount, 0) END) AS good_qty
+        FROM production_movements WHERE direction = 'made' AND party_id IS NOT NULL GROUP BY party_id
+      )`)
+    }
+    const madeValue = byParty
+      ? `CASE WHEN ${defect} THEN 0 WHEN pm.good_qty > 0 THEN ${amount} * pm.made_value / pm.good_qty ELSE ${amount} * ${cost} END`
+      : `CASE WHEN ${defect} THEN 0 ELSE ${amount} * ${cost} END`
     parts.push(
       row(
         "COALESCE(pd.day, " + dayOf("fin_ts(m.created_at, true)") + ")",
         "m.warehouse",
         key,
         `CASE WHEN m.direction = 'raw' THEN -${amount} ELSE ${amount} END`,
-        `CASE WHEN m.direction = 'raw' THEN -${amount} * ${cost} ELSE ${amount} * ${cost} END`,
+        // Defective (brak) units carry no value, so a brak adjustment moves 0 value too.
+        `CASE WHEN m.direction = 'raw' THEN -${amount} * ${cost} WHEN m.direction = 'made' THEN ${madeValue} WHEN ${defect} THEN 0 ELSE ${amount} * ${cost} END`,
         `CASE m.direction WHEN 'made' THEN 'manufacture_in' WHEN 'raw' THEN 'manufacture_out' ELSE CASE WHEN ${amount} >= 0 THEN 'none_in' ELSE 'none_out' END END`,
         "'production_movements'",
         "m.id",
-        "CASE WHEN m.direction = 'made' AND COALESCE(m.is_defect, 0) = 1 THEN 1 ELSE 0 END",
+        `CASE WHEN m.direction IN ('made', 'adjust') AND ${defect} THEN 1 ELSE 0 END`,
         `FROM production_movements m ${parties ? "LEFT JOIN production_parties p ON p.id = m.party_id" : ""} ${join}
          LEFT JOIN stk_pm_days pd ON pd.date = m.date
+         ${byParty ? "LEFT JOIN stk_pm_made pm ON pm.party_id = m.party_id" : ""}
          WHERE m.direction IN ('made', 'raw', 'adjust') AND ${parties ? "(p.id IS NULL OR p.status <> 'cancelled')" : "true"}`,
       ),
     )
   }
 
   // Инвентаризация: the difference of confirmed counts (tables created lazily
-  // by the inventory module, so only when they exist).
+  // by the inventory module, so only when they exist). Non-catalog lines
+  // ("name:<name>") are keyed like every other document ('name:' + fin_key).
   if (t.has("stock_inventories") && t.has("stock_inventory_items")) {
     parts.push(
       row(
         dayOf("fin_ts(si.inv_date)", "fin_ts(si.created_at, true)"),
         "si.warehouse",
-        "ii.item_key",
+        "CASE WHEN ii.item_key LIKE 'name:%' THEN 'name:' || fin_key(substr(ii.item_key, 6)) ELSE ii.item_key END",
         "ii.diff",
         "ii.diff * COALESCE(ii.cost, 0)",
         "CASE WHEN ii.diff >= 0 THEN 'inventory_in' ELSE 'inventory_out' END",
@@ -255,20 +314,25 @@ export function buildMovementsSql(t: StockTables): string {
   }
 
   // Выдано по заказу: client orders that name their warehouse and left it
-  // ("В пути" / "Доставлено"). The orders module has no warehouse yet, so
-  // this is empty until it does ("Есть на складе" = reserved, see pending).
+  // ("В пути" / "Доставлено"; "Есть на складе" = reserved, see pending). The
+  // day is the real ship moment (orders.shipped_at, ISO UTC) when the orders
+  // module recorded one, else the delivery / order date. The value is unknown
+  // here (0, the orders module leaves cost_price at 0): the cost ledger issues
+  // the goods at the moving-average cost of contract 1 (lib/stock/costs.ts),
+  // which this module cannot import (balances.ts reads it).
   if (t.has("orders") && t.has("order_items") && t.col("orders", "warehouse")) {
+    const shipped = t.col("orders", "shipped_at") ? "fin_ts(o.shipped_at::text, true)" : "NULL::timestamp"
     const created = t.col("orders", "created") ? "fin_ts(o.created)" : "NULL::timestamp"
     const delivery = t.col("orders", "delivery") ? "fin_ts(o.delivery)" : "NULL::timestamp"
     const name = t.col("order_items", "product_name") ? "oi.product_name" : "''"
     const key = t.col("order_items", "product_id") ? `CASE WHEN oi.product_id IS NOT NULL THEN 'product:' || oi.product_id ELSE ${KEY_OF("n", name)} END` : KEY_OF("n", name)
     parts.push(
       row(
-        dayOf(delivery, created, "fin_ts(o.created_at, true)"),
+        dayOf(shipped, delivery, created, "fin_ts(o.created_at, true)"),
         "o.warehouse",
         key,
         "-COALESCE(oi.quantity, 0)",
-        `-COALESCE(oi.quantity, 0) * ${t.col("order_items", "cost_price") ? "COALESCE(oi.cost_price, 0)" : "0"}`,
+        "0",
         "'order'",
         "'orders'",
         "o.id",
@@ -279,7 +343,33 @@ export function buildMovementsSql(t: StockTables): string {
     )
   }
 
-  // Возврат (client returns): no table yet — the kind stays, always empty.
+  // Возврат: accepted client returns (contract 5; tables owned by SALES and
+  // created lazily, so only when they exist): + quantity at the return's
+  // warehouse on the accepted day. The value is unknown here (0): the cost
+  // ledger brings the goods back at the moving-average cost (lib/stock/costs.ts).
+  if (t.has("client_returns") && t.has("client_return_items") && t.col("client_returns", "warehouse") && t.col("client_return_items", "return_id")) {
+    const accepted = t.col("client_returns", "accepted_at") ? "fin_ts(cr.accepted_at)" : "NULL::timestamp"
+    const dated = t.col("client_returns", "return_date") ? "fin_ts(cr.return_date)" : "NULL::timestamp"
+    const created = t.col("client_returns", "created_at") ? "fin_ts(cr.created_at, true)" : "NULL::timestamp"
+    const name = t.col("client_return_items", "product_name") ? "ci.product_name" : "''"
+    const key = t.col("client_return_items", "product_id") ? `CASE WHEN ci.product_id IS NOT NULL THEN 'product:' || ci.product_id ELSE ${KEY_OF("n", name)} END` : KEY_OF("n", name)
+    const status = t.col("client_returns", "status") ? "cr.status = 'accepted'" : "false"
+    parts.push(
+      row(
+        dayOf(accepted, dated, created),
+        "cr.warehouse",
+        key,
+        "COALESCE(ci.quantity, 0)",
+        "0",
+        "'return'",
+        "'client_returns'",
+        "cr.id",
+        "0",
+        `FROM client_returns cr JOIN client_return_items ci ON ci.return_id = cr.id ${KEY_JOIN("n", name)}
+         WHERE ${status} AND btrim(COALESCE(cr.warehouse, '')) <> ''`,
+      ),
+    )
+  }
 
   return `WITH ${ctes.join(",\n")}\n${parts.length ? parts.join("\nUNION ALL\n") : EMPTY}`
 }
@@ -297,7 +387,9 @@ export function buildPendingSql(t: StockTables): string {
       WHERE btrim(o.warehouse) <> '' AND o.status = 'Есть на складе'`)
   }
   if (t.has("internal_transfers")) {
-    parts.push(`SELECT tr.to_warehouse::text, (${KEY_OF("n", "l.j ->> 'product'")})::text, 0::double precision, ${jsonNum("l.j", "quantity")}
+    // Every part names its columns: the orders part may be missing (order_items is created lazily).
+    parts.push(`SELECT tr.to_warehouse::text AS warehouse, (${KEY_OF("n", "l.j ->> 'product'")})::text AS item_key, 0::double precision AS reserved,
+        (${jsonNum("l.j", "quantity")})::double precision AS transit
       FROM internal_transfers tr CROSS JOIN LATERAL jsonb_array_elements(${jsonLines("tr.items")}) AS l(j)
       ${KEY_JOIN("n", "l.j ->> 'product'")}
       WHERE tr.status = 'в пути' AND fin_key(l.j ->> 'product') <> ''`)

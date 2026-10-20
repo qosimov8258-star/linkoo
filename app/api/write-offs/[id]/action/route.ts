@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server"
 
 import { requireRole } from "@/lib/rbac"
-import { parseJsonBody } from "@/lib/validation"
+import { parseIdSegment, parseJsonBody } from "@/lib/validation"
 import { writeOffActionSchema, writeOffResponse } from "@/lib/write-offs-api"
 import { writeOffAction } from "@/lib/write-offs-repo"
 import type { WriteOffAction } from "@/lib/write-offs-types"
@@ -13,7 +13,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
   const auth = await requireRole("manager")
   if ("error" in auth) return auth.error
 
-  const id = Number((await params).id) || 0
+  const id = parseIdSegment((await params).id) ?? 0
   const parsed = await parseJsonBody(request, writeOffActionSchema)
   if (parsed.error) return parsed.error
 

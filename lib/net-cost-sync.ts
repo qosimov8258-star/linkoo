@@ -8,6 +8,7 @@ import { runItemLedger, type LedgerDocMeta, type LedgerEntry, type LedgerItemRes
 import { ensureNetCostSchema } from "@/lib/net-cost-schema"
 import type { NetCostTotalRow } from "@/lib/net-cost-types"
 import { getStockBalances, getStockCatalog, stockMovementsSql } from "@/lib/stock/ledger"
+import { preciseLocalMoment } from "@/lib/stock/moments"
 import { STOCK_TABLES } from "@/lib/stock/schema"
 
 // Loads the ledger's sources (the stock core's movements, the manual entries, document
@@ -20,8 +21,10 @@ import { STOCK_TABLES } from "@/lib/stock/schema"
 // parsing) and rebuild only when it differs; the rebuild runs under an advisory lock and
 // keeps record ids by natural key (document + item), so links stay valid.
 
-/** Bump when the ledger rules change: forces one rebuild everywhere. */
-const NET_COST_VERSION = "1"
+/** Bump when the ledger rules change: forces one rebuild everywhere.
+ * 2: real-moment order within a day, Брак held apart, neutral same-scope transfers.
+ * 3: a batch's good output absorbs the value of its Брак (lib/stock/sources.ts). */
+export const NET_COST_VERSION = "3"
 const CHUNK = 1000
 const EPS = 1e-6
 
@@ -81,7 +84,7 @@ export type LedgerInputs = {
   warehouses: Map<string, string>
 }
 
-const AT = (expr: string) => `to_char(${expr}, 'YYYY-MM-DD"T"HH24:MI:SS')`
+const AT = (expr: string) => `to_char(${expr}, 'YYYY-MM-DD"T"HH24:MI:SS.MS')`
 
 export function entryItemKey(row: { product_id: number | null; raw_material_id: number | null }): string {
   return row.product_id ? `product:${row.product_id}` : `raw_material:${row.raw_material_id}`
@@ -90,7 +93,17 @@ export function entryItemKey(row: { product_id: number | null; raw_material_id: 
 /** Everything one ledger run needs; `itemKey` limits it to one item (detail view). */
 export async function loadLedgerInputs(db: PgDb, itemKey?: string): Promise<LedgerInputs> {
   await ensureNetCostSchema()
-  const cols = await tableColumns(db, ["supplier_incomings", "production_movements", "stock_inventories", "internal_transfers", "warehouses", "products"])
+  const cols = await tableColumns(db, [
+    "supplier_incomings",
+    "supplier_returns",
+    "write_offs",
+    "production_movements",
+    "stock_inventories",
+    "internal_transfers",
+    "client_returns",
+    "warehouses",
+    "products",
+  ])
   const has = (table: string, column?: string) => (column ? Boolean(cols.get(table)?.has(column)) : cols.has(table))
 
   const warehouses = new Map<string, string>()
@@ -143,34 +156,62 @@ export async function loadLedgerInputs(db: PgDb, itemKey?: string): Promise<Ledg
     ids.get(row.doc_type)!.add(Number(row.doc_id))
   }
 
-  // Registration time of the documents (ordering within a day, "Анализ времены").
+  // Moment of each document's stock effect (ordering within a day) and its
+  // registration ("Анализ времены"): acceptance, hand-over, the write-off's
+  // finishing, production registration; each transfer leg its own moment.
+  // The first stored moment of the candidates that parses wins; ISO-like
+  // texts keep their milliseconds (fin_ts keeps seconds only).
+  type Candidate = { column: string; utc?: boolean }
   const meta = new Map<string, LedgerDocMeta>()
-  const metaQuery = async (table: string, select: string) => {
+  const metaQuery = async (table: string, moments: { at: Candidate[]; outAt?: Candidate[]; inAt?: Candidate[] }, extra = "") => {
     const list = [...(ids.get(table) ?? [])]
     if (!list.length || !has(table)) return
-    const found = (await db.prepare(`SELECT id, ${select} FROM ${table} WHERE id = ANY(@ids::int[])`).all({ ids: list })) as Array<{ id: number; at: string | null; sod?: number; fwk?: string }>
+    const groups = Object.entries(moments).map(([name, candidates]) => ({ name, candidates: (candidates ?? []).filter((candidate) => has(table, candidate.column)) }))
+    const select = groups.flatMap((group) =>
+      group.candidates.map(
+        (candidate, index) =>
+          `${candidate.column}::text AS ${group.name}_${index}_raw, ${AT(`fin_ts(NULLIF(btrim(${candidate.column}::text), '')${candidate.utc ? ", true" : ""})`)} AS ${group.name}_${index}_ts`,
+      ),
+    )
+    const found = (await db.prepare(`SELECT id${select.length ? `, ${select.join(", ")}` : ""}${extra ? `, ${extra}` : ""} FROM ${table} WHERE id = ANY(@ids::int[])`).all({ ids: list })) as Array<
+      Record<string, unknown> & { id: number; sod?: number; fwk?: string }
+    >
+    const pick = (row: Record<string, unknown>, group: (typeof groups)[number]) => {
+      for (const [index, candidate] of group.candidates.entries()) {
+        const parsed = row[`${group.name.toLowerCase()}_${index}_ts`]
+        if (typeof parsed !== "string" || !parsed) continue
+        return preciseLocalMoment(String(row[`${group.name.toLowerCase()}_${index}_raw`] ?? ""), candidate.utc) ?? parsed
+      }
+      return ""
+    }
     for (const row of found) {
+      const at = Object.fromEntries(groups.map((group) => [group.name, pick(row, group)]))
       meta.set(`${table}:${row.id}`, {
-        at: row.at ?? "",
+        at: at.at ?? "",
+        ...(moments.outAt ? { outAt: at.outAt ?? "" } : {}),
+        ...(moments.inAt ? { inAt: at.inAt ?? "" } : {}),
         startOfDay: row.sod === 0,
         endOfDay: row.sod === 1,
         fromWk: row.fwk ?? "",
       })
     }
   }
-  const created = (table: string) => (has(table, "created_at") ? "fin_ts(created_at, true)" : "NULL::timestamp")
-  await metaQuery("supplier_incomings", `${AT(`COALESCE(${has("supplier_incomings", "accepted_at") ? "fin_ts(accepted_at)" : "NULL::timestamp"}, ${created("supplier_incomings")})`)} AS at`)
-  await metaQuery("production_movements", `${AT(created("production_movements"))} AS at`)
-  await metaQuery(
-    "stock_inventories",
-    `${AT(`COALESCE(${has("stock_inventories", "confirmed_at") ? "fin_ts(confirmed_at, true)" : "NULL::timestamp"}, ${created("stock_inventories")})`)} AS at, ${
-      has("stock_inventories", "for_day_end") ? "COALESCE(for_day_end, 0)" : "0"
-    } AS sod`,
-  )
+  const created: Candidate = { column: "created_at", utc: true }
+  await metaQuery("supplier_incomings", { at: [{ column: "accepted_at" }, created] })
+  await metaQuery("supplier_returns", { at: [{ column: "transfer_time" }, created] })
+  await metaQuery("write_offs", { at: [{ column: "finished_at" }, { column: "date" }, created] })
+  await metaQuery("production_movements", { at: [created] })
+  await metaQuery("stock_inventories", { at: [{ column: "confirmed_at", utc: true }, created] }, `${has("stock_inventories", "for_day_end") ? "COALESCE(for_day_end, 0)" : "0"} AS sod`)
   await metaQuery(
     "internal_transfers",
-    `${AT(`COALESCE(${has("internal_transfers", "accepted_at") ? "fin_ts(accepted_at)" : "NULL::timestamp"}, ${created("internal_transfers")})`)} AS at, fin_key(from_warehouse) AS fwk`,
+    {
+      at: [{ column: "accepted_at" }, created],
+      outAt: [{ column: "given_at" }, { column: "created_at_label" }, created],
+      inAt: [{ column: "accepted_at" }, created],
+    },
+    "fin_key(from_warehouse) AS fwk",
   )
+  await metaQuery("client_returns", { at: [{ column: "accepted_at" }, created] })
 
   const entries = new Map<string, LedgerEntry[]>()
   const entryRows = (await db
@@ -202,8 +243,8 @@ export function itemLabel(inputs: Pick<LedgerInputs, "labels">, key: string): st
   return inputs.labels.get(key) ?? (key.startsWith("name:") ? key.slice(5) : key)
 }
 
-/** Runs the ledger of every item (or the one given). */
-export function runLedgers(inputs: LedgerInputs, options: { today?: string; collectDocs?: boolean; only?: string } = {}): Map<string, LedgerItemResult> {
+/** Runs the ledger of every item (or the one given); `trace` adds the value postings and daily averages. */
+export function runLedgers(inputs: LedgerInputs, options: { today?: string; collectDocs?: boolean; only?: string; trace?: boolean } = {}): Map<string, LedgerItemResult> {
   const today = options.today ?? todayIso()
   const keys = options.only ? [options.only] : [...new Set([...inputs.moves.keys(), ...inputs.entries.keys()])]
   const results = new Map<string, LedgerItemResult>()
@@ -218,6 +259,7 @@ export function runLedgers(inputs: LedgerInputs, options: { today?: string; coll
         today,
         meta: inputs.meta,
         collectDocs: options.collectDocs,
+        trace: options.trace,
       }),
     )
   }
@@ -226,13 +268,14 @@ export function runLedgers(inputs: LedgerInputs, options: { today?: string; coll
 
 // --- checks & totals ---------------------------------------------------------------------------
 
-/** "Анализ баланса": the ledger's balance today vs. the stock core's (per item and scope). */
+/** "Анализ баланса": the ledger's balance today vs. the stock core's (per item and scope;
+ * Брак is outside the ledger's balance on both sides). */
 async function applyBalanceCheck(db: PgDb, results: Map<string, LedgerItemResult>) {
   const core = new Map<string, Map<string, number>>()
   for (const row of await getStockBalances({}, db)) {
     const byWarehouse = core.get(row.key) ?? new Map<string, number>()
     const wk = finKey(row.warehouse)
-    byWarehouse.set(wk, (byWarehouse.get(wk) ?? 0) + row.qty)
+    byWarehouse.set(wk, (byWarehouse.get(wk) ?? 0) + row.qty - row.defects)
     core.set(row.key, byWarehouse)
   }
   for (const [key, result] of results) {

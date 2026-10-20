@@ -8,10 +8,27 @@ import { normCurrency, roundMoney } from "@/lib/finance/currency"
 import { isIsoDay } from "@/lib/finance/dates"
 import { nameKey, placeName } from "@/lib/finance/entities"
 import { getClientBalanceOptions } from "@/lib/finance-client-balance"
-import { detachPayment } from "@/lib/cash/accept"
 import { insertCustomerPayment } from "@/lib/finance/customer-payment"
-import { CashError, currencyContext, isoDayOrEmpty, loadClient, localDateTime, num, numOrNull, paymentKind, pickRate } from "@/lib/cash/common"
-import { orderDues } from "@/lib/cash/orders"
+import {
+  CashError,
+  currencyContext,
+  isDbId,
+  isoDayOrEmpty,
+  loadClient,
+  localDateTime,
+  MAX_DB_ID,
+  MAX_MONEY,
+  MAX_PAGE,
+  MAX_PAGE_SIZE,
+  MAX_RATE,
+  num,
+  numOrNull,
+  paymentKind,
+  pickRate,
+  resolveOrganization,
+} from "@/lib/cash/common"
+import { guardCashboxBalances } from "@/lib/cash/guard"
+import { allocatedOrderDues, orderClientIdSql } from "@/lib/cash/orders"
 import { ensureCashSchema } from "@/lib/cash/schema"
 import { deleteCashOperation } from "@/lib/cash/write"
 import {
@@ -45,7 +62,8 @@ import {
 // core's POST /api/cash/accept-cash { cashboxId, date, ids }.
 //
 // "Ожидаемые оплаты" (demo #/pending-payments): orders (not cancelled) with a
-// remainder (lib/cash/orders.ts orderDues), the demo's 10 filters, ordering,
+// remainder (lib/cash/orders.ts allocatedOrderDues — the same remainders as
+// "Долги с заказов"), the demo's 10 filters, ordering,
 // paging and totals per currency with the cash / bank split; the header of the
 // pay dialog. Paying is the core's POST /api/cash/orders/[id]/pay.
 //
@@ -94,13 +112,13 @@ async function ensureSchema(db: PgDb = getDb()): Promise<void> {
 const MAX_ROWS = 20000
 
 function paging(page: number | undefined, pageSize: number | undefined) {
-  const size = pageSize === 0 ? 0 : Math.min(MAX_ROWS, Math.max(1, Math.floor(pageSize ?? 25)))
-  const current = Math.max(1, Math.floor(page ?? 1))
+  const size = pageSize === 0 ? 0 : Math.min(MAX_ROWS, Math.max(1, Math.floor(Number.isFinite(pageSize) ? pageSize! : 25)))
+  const current = Math.min(MAX_PAGE, Math.max(1, Math.floor(Number.isFinite(page) ? page! : 1)))
   return { page: current, pageSize: size, limit: size || MAX_ROWS, offset: size ? (current - 1) * size : 0 }
 }
 
 const keys = (values: string[] | undefined) => [...new Set((values ?? []).map((value) => nameKey(placeName(value) || value)).filter(Boolean))]
-const ids = (values: number[] | undefined) => [...new Set((values ?? []).filter((value) => Number.isInteger(value) && value > 0))]
+const ids = (values: number[] | undefined) => [...new Set((values ?? []).filter(isDbId))]
 
 // --- Оплаты от клиентов: list ------------------------------------------------------
 
@@ -233,6 +251,9 @@ type ListRow = {
   client_confirmation: string
   agent: string
   delivery_man: string
+  is_deleted: number
+  deleted_at: string
+  deleted_by: string
 }
 
 const LIST_SELECT = `SELECT p.id, p.doc_no, COALESCE(p.client_id, ck.id) AS client_id, p.client, c.inn, p.created_by,
@@ -243,7 +264,8 @@ const LIST_SELECT = `SELECT p.id, p.doc_no, COALESCE(p.client_id, ck.id) AS clie
     COALESCE(p.real_amount, p.amount)::float8 AS real_amount, ${CASH_CUR} AS real_cur, p.custom_rate::float8 AS custom_rate, p.rate_type,
     COALESCE(NULLIF(fin_pt(p.icon), ''), 'cash') AS pt, cb.id AS cb_id, cb.name AS cb_name, cb.currency AS cb_cur,
     acb.id AS acb_id, acb.name AS acb_name, p.accepted, p.accept_id, ca.doc_no AS acceptance_doc, p.order_id, p.comment,
-    p.client_confirmation, p.agent, p.delivery_man`
+    p.client_confirmation, p.agent, p.delivery_man, p.is_deleted,
+    COALESCE(to_char(fin_ts(NULLIF(p.deleted_at, '')), 'YYYY-MM-DD"T"HH24:MI:SS'), '') AS deleted_at, p.deleted_by`
 
 const CONFIRMATIONS = new Set(["requested", "confirmed", "rejected", "auto"])
 
@@ -293,6 +315,9 @@ function toRow(row: ListRow, base: string, rates: Record<string, number | null>)
     clientConfirmation: (CONFIRMATIONS.has(row.client_confirmation) ? row.client_confirmation : "") as ClientConfirmation,
     agent: row.agent ?? "",
     deliveryMan: row.delivery_man ?? "",
+    isDeleted: num(row.is_deleted) !== 0,
+    deletedAt: num(row.is_deleted) !== 0 ? (row.deleted_at ?? "") : "",
+    deletedBy: num(row.is_deleted) !== 0 ? (row.deleted_by ?? "") : "",
   }
 }
 
@@ -404,51 +429,73 @@ export async function updateCustomerPayment(id: number, input: CustomerPaymentEd
     const row = await lockPayment(tx, id)
     if (row.accept_id) throw new CashError("Оплата входит в приемку наличных — измените приемку", 409)
     const cash = Number(input.amount)
-    if (!Number.isFinite(cash) || cash <= 0) throw new CashError("Укажите сумму", 400, "amount")
-    const inCashbox = row.cb_id !== null
-    const cashCur = inCashbox
-      ? normCurrency(row.cb_currency, cc.base)
-      : normCurrency(input.currency || row.real_currency || row.currency, cc.base)
-    // Order payments stay in the order currency (it reduces that order's remainder).
-    const debtCur = row.order_id ? normCurrency(row.currency, cc.base) : normCurrency(input.debtCurrency || cashCur, cc.base)
-    const custom = input.rateType === "custom"
-    const cashRate = pickRate(cashCur, cc, custom ? input.customRate : null)
-    const internal = cashRate ? cash * cashRate : null
-    let debt = cash
-    let debtRate: number | null = null
-    if (debtCur !== cashCur) {
-      debtRate = pickRate(debtCur, cc, custom ? input.debtRate : null)
-      if (internal === null || !debtRate) throw new CashError("Курс валюты не задан", 400, "currencyRate")
-      debt = roundMoney(internal / debtRate, 5)
-    }
-    const type = inCashbox ? paymentKind(row.cb_type) : (input.paymentType ?? (paymentKind(row.icon) === "bank" ? "bank" : "cash"))
-    await tx
-      .prepare(
-        `UPDATE customer_payments SET amount = @debt, currency = @debtCur, real_amount = @cash, real_currency = @cashCur,
-           amount_sum_equivalent = @internal, custom_rate = @cashRate, debt_rate = @debtRate, rate_type = @rateType,
-           icon = @icon, cash_amount = @cashAmount, organization = @organization, created_by = @createdBy, comment = @comment,
-           updated_at = datetime('now')
-         WHERE id = @id`,
-      )
-      .run({
-        id,
-        debt,
-        debtCur,
-        cash,
-        cashCur,
-        internal: internal === null ? null : roundMoney(internal),
-        cashRate,
-        debtRate,
-        rateType: custom ? "custom" : "current",
-        icon: type === "bank" ? "card" : "cash",
-        cashAmount: inCashbox && type === "cash" ? cash : 0,
-        organization: input.organization !== undefined ? input.organization.trim() : row.organization,
-        createdBy: input.createdBy?.trim() || row.created_by,
-        comment: input.comment !== undefined ? input.comment.trim() || "Не указано" : row.comment,
-      })
-    void user
+    if (!Number.isFinite(cash) || cash <= 0 || cash > MAX_MONEY) throw new CashError("Укажите сумму", 400, "amount")
+    const organization = input.organization?.trim() ? await resolveOrganization(tx, input.organization, {}, "organization") : input.organization !== undefined ? "" : row.organization
+    // Lowering an accepted payment takes money out of its cashbox.
+    await guardCashboxBalances(tx, [row.cb_id], cc.base, () => applyPaymentEdit(tx, id, row, input, cash, organization, cc))
   })
+  void user
   return (await getCustomerPayment(id))!
+}
+
+async function applyPaymentEdit(
+  tx: PgDb,
+  id: number,
+  row: LockedRow,
+  input: CustomerPaymentEditInput,
+  cash: number,
+  organization: string,
+  cc: Awaited<ReturnType<typeof currencyContext>>,
+): Promise<void> {
+  const inCashbox = row.cb_id !== null
+  const cashCur = inCashbox
+    ? normCurrency(row.cb_currency, cc.base)
+    : normCurrency(input.currency || row.real_currency || row.currency, cc.base)
+  // Order payments stay in the order currency (it reduces that order's remainder).
+  const debtCur = row.order_id ? normCurrency(row.currency, cc.base) : normCurrency(input.debtCurrency || cashCur, cc.base)
+  const custom = input.rateType === "custom"
+  const cashRate = pickRate(cashCur, cc, custom ? input.customRate : null)
+  const internal = cashRate ? cash * cashRate : null
+  let debt = cash
+  let debtRate: number | null = null
+  if (debtCur !== cashCur) {
+    debtRate = pickRate(debtCur, cc, custom ? input.debtRate : null)
+    if (internal === null || !debtRate) throw new CashError("Курс валюты не задан", 400, "currencyRate")
+    debt = roundMoney(internal / debtRate, 5)
+  }
+  if (row.order_id) {
+    // Never more than the order still owes (this payment's own amount counts as available).
+    const [due] = await allocatedOrderDues(tx, [row.order_id], cc)
+    const part = due?.currencies.find((item) => item.currency === debtCur)
+    const own = normCurrency(row.currency, cc.base) === debtCur ? num(row.amount) : 0
+    const tolerance = debtCur === cashCur ? 0.01 : Math.max(0.01, cashRate && debtRate ? (0.01 * cashRate) / debtRate : 0.01)
+    if (debt > (part?.remaining ?? 0) + own + tolerance) throw new CashError("Сумма больше остатка заказа", 400, "amount")
+  }
+  const type = inCashbox ? paymentKind(row.cb_type) : (input.paymentType ?? (paymentKind(row.icon) === "bank" ? "bank" : "cash"))
+  await tx
+    .prepare(
+      `UPDATE customer_payments SET amount = @debt, currency = @debtCur, real_amount = @cash, real_currency = @cashCur,
+         amount_sum_equivalent = @internal, custom_rate = @cashRate, debt_rate = @debtRate, rate_type = @rateType,
+         icon = @icon, cash_amount = @cashAmount, organization = @organization, created_by = @createdBy, comment = @comment,
+         updated_at = datetime('now')
+       WHERE id = @id`,
+    )
+    .run({
+      id,
+      debt,
+      debtCur,
+      cash,
+      cashCur,
+      internal: internal === null ? null : roundMoney(internal),
+      cashRate,
+      debtRate,
+      rateType: custom ? "custom" : "current",
+      icon: type === "bank" ? "card" : "cash",
+      cashAmount: inCashbox && type === "cash" ? cash : 0,
+      organization,
+      createdBy: input.createdBy?.trim() || row.created_by,
+      comment: input.comment !== undefined ? input.comment.trim() || "Не указано" : row.comment,
+    })
 }
 
 /** One row (deleted ones too, for the edit / delete responses). */
@@ -460,18 +507,15 @@ export async function getCustomerPayment(id: number): Promise<CustomerPaymentRow
   return row ? toRow(row, cc.base, cc.rates) : null
 }
 
-/** "Удалить транзакцию" (demo POST …/cancel/): soft delete through the cash core;
- * a payment inside an agent-cash acceptance is detached first (the acceptance
- * amount follows; an empty acceptance is removed). */
+/** "Удалить транзакцию" (demo POST …/cancel/): soft delete through the cash core,
+ * which also detaches a payment from its agent-cash acceptance in the same
+ * transaction (the acceptance amount follows; an emptied acceptance is removed). */
 export async function deleteCustomerPayment(id: number, user: string): Promise<{ id: number; deleted: boolean }> {
   const db = getDb()
   await ensureSchema(db)
-  const row = (await db.prepare("SELECT id, accept_id, is_deleted FROM customer_payments WHERE id = @id").get({ id })) as
-    | { id: number; accept_id: number | null; is_deleted: number }
-    | undefined
+  const row = (await db.prepare("SELECT id, is_deleted FROM customer_payments WHERE id = @id").get({ id })) as { id: number; is_deleted: number } | undefined
   if (!row) throw new CashError("Оплата не найдена", 404)
   if (num(row.is_deleted)) return { id, deleted: false }
-  if (row.accept_id) await detachPayment(Number(row.accept_id), id, user)
   const result = await deleteCashOperation(`customer-${id}`, user)
   return { id, deleted: result.deleted.length > 0 }
 }
@@ -508,21 +552,41 @@ export async function bulkUpdateCustomerPayments(input: CustomerPaymentBulkUpdat
   return { updated: result.changes }
 }
 
+/** Collector of a client's money: the client's agent when that is an employee,
+ * else the employee named like the login's display name ("Javohir Xolmatov (agent)"
+ * → "Javohir Xolmatov"), else "" (the acceptance falls back to the creator). */
+async function collectingAgent(tx: PgDb, clientAgent: string, user: string): Promise<string> {
+  const candidates = [placeName(clientAgent), placeName(user.replace(/\s*\([^()]*\)\s*$/, ""))].filter(Boolean)
+  for (const name of candidates) {
+    const row = (await tx
+      .prepare("SELECT btrim(first_name || ' ' || last_name) AS name FROM employees WHERE fin_key(first_name || ' ' || last_name) = fin_key(@name) ORDER BY id LIMIT 1")
+      .get({ name })) as { name: string } | undefined
+    if (row?.name) return row.name
+  }
+  return placeName(clientAgent)
+}
+
 /** "Добавить оплату" of the client card (legacy POST /api/client-payments): money
  * received from a client without a cashbox yet — a not accepted customer payment
  * (like an agent collection) that "Оплаты от клиентов" / "Принять деньги" accept
- * into a cashbox later. The client balance counts it at once (as before). */
+ * into a cashbox later. The client balance counts it at once (as before). The
+ * collection carries its agent (the client's agent / the collecting employee),
+ * the client's branch and an organization (client's contracts, else the agent's). */
 export async function createClientCardPayment(
-  input: { clientId: number; amount: number; currency?: string; comment?: string; paymentDate?: string },
+  input: { clientId: number; amount: number; currency?: string; comment?: string; paymentDate?: string; organization?: string },
   user: string,
 ): Promise<{ id: number; docNo: number }> {
   await ensureSchema()
   const cc = await currencyContext(getDb())
-  if (!(input.amount > 0)) throw new CashError("Укажите сумму", 400, "amount")
+  if (!(input.amount > 0) || input.amount > MAX_MONEY) throw new CashError("Укажите сумму", 400, "amount")
   const currency = normCurrency(input.currency, cc.base)
+  if (!cc.currencies.some((item) => item.code === currency)) throw new CashError("Неизвестная валюта", 400, "currency")
   const rate = pickRate(currency, cc)
   return withTransaction(async (tx) => {
     const client = await loadClient(tx, input.clientId)
+    const card = (await tx.prepare("SELECT agent, branch FROM clients WHERE id = @id").get({ id: client.id })) as { agent: string | null; branch: string | null } | undefined
+    const agent = await collectingAgent(tx, card?.agent ?? "", user)
+    const organization = await resolveOrganization(tx, input.organization, { clientId: client.id, employeeName: agent }, "organization")
     return insertCustomerPayment(tx, {
       client,
       cashbox: null,
@@ -531,10 +595,13 @@ export async function createClientCardPayment(
       realAmount: input.amount,
       realCurrency: currency,
       sumEquivalent: rate ? input.amount * rate : null,
-      date: localDateTime(input.paymentDate),
+      date: localDateTime(input.paymentDate, "paymentDate"),
       accepted: false,
       comment: input.comment,
       createdBy: user,
+      agent,
+      branch: placeName(card?.branch),
+      organization,
     })
   })
 }
@@ -600,18 +667,19 @@ export async function customerPaymentOptions(): Promise<CustomerPaymentOptions> 
 
 // --- Ожидаемые оплаты --------------------------------------------------------------------
 
-/** Orders with the fields the page shows (client by name, branch / zone / deliverer fallback from the client). */
-function ordersSql(where: string): string {
+/** Orders with the fields the page shows (client by id, legacy rows by name; branch / zone /
+ * deliverer fallback from the client). `clientId` = orderClientIdSql(). */
+function ordersSql(where: string, clientId: string): string {
   return `WITH ck AS (SELECT fin_key(name) AS k, MIN(id) AS id FROM clients GROUP BY 1),
   base AS (
-    SELECT o.id, o.client, ck.id AS client_id,
+    SELECT o.id, o.client, ${clientId} AS client_id,
            COALESCE(NULLIF(fin_place(o.zone), ''), fin_place(COALESCE(c.zone, '')), '') AS zone,
            fin_place(COALESCE(c.branch, '')) AS branch, fin_place(o.agent) AS agent,
            COALESCE(NULLIF(fin_place(o.delivery_man), ''), fin_place(COALESCE(c.deliverer, '')), '') AS delivery_man,
            o.status, fin_ts(o.created_at, true) AS created_ts, fin_ts(o.delivery) AS delivery_ts,
            fin_ts(NULLIF(o.payment_date, '')) AS payment_ts, fin_place(o.organization) AS organization,
            COALESCE(NULLIF(fin_pt(o.payment_type), ''), 'cash') AS payment_type
-    FROM orders o LEFT JOIN ck ON ck.k = fin_key(o.client) LEFT JOIN clients c ON c.id = ck.id
+    FROM orders o LEFT JOIN ck ON ck.k = fin_key(o.client) LEFT JOIN clients c ON c.id = ${clientId}
   )
   SELECT id, client, client_id, zone, branch, agent, delivery_man, status,
          COALESCE(to_char(created_ts, 'YYYY-MM-DD"T"HH24:MI:SS'), '') AS created,
@@ -669,7 +737,7 @@ export async function listExpectedOrders(query: ExpectedOrdersQuery): Promise<Ex
   await ensureSchema(db)
   const cc = await currencyContext(db)
   const search = nameKey(query.search)
-  const orders = (await db.prepare(ordersSql(ORDERS_WHERE)).all({
+  const orders = (await db.prepare(ordersSql(ORDERS_WHERE, await orderClientIdSql(db))).all({
     search,
     searchId: /^\d{1,9}$/.test(search) ? Number(search) : 0,
     branches: keys(query.branches),
@@ -686,7 +754,11 @@ export async function listExpectedOrders(query: ExpectedOrdersQuery): Promise<Ex
     dueFrom: query.dueFrom ?? "",
     dueTo: query.dueTo ?? "",
   })) as OrderBaseRow[]
-  const dues = new Map((orders.length ? await orderDues(db, orders.map((order) => order.id), cc) : []).map((due) => [due.id, due]))
+  // Same remainders as "Долги с заказов": linked payments + FIFO share of the client's other credits.
+  // Only orders the ledger counts as debt (not Не подтвержден, existing client), as "Долги с заказов".
+  const dues = new Map(
+    (orders.length ? await allocatedOrderDues(db, orders.map((order) => order.id), cc) : []).filter((due) => due.counted).map((due) => [due.id, due]),
+  )
   const rows: ExpectedOrderRow[] = []
   for (const order of orders) {
     for (const part of dues.get(order.id)?.currencies ?? []) {
@@ -708,6 +780,7 @@ export async function listExpectedOrders(query: ExpectedOrdersQuery): Promise<Ex
         currency: part.currency,
         total: part.total,
         paid: part.paid,
+        allocated: part.allocated,
         remaining: part.remaining,
       })
     }
@@ -773,9 +846,9 @@ export async function getExpectedOrder(orderId: number): Promise<ExpectedOrderDe
   const db = getDb()
   await ensureSchema(db)
   const cc = await currencyContext(db)
-  const order = (await db.prepare(ordersSql("id = @id")).get({ id: orderId })) as OrderBaseRow | undefined
+  const order = (await db.prepare(ordersSql("id = @id", await orderClientIdSql(db))).get({ id: orderId })) as OrderBaseRow | undefined
   if (!order) return null
-  const [due] = await orderDues(db, [orderId], cc)
+  const [due] = await allocatedOrderDues(db, [orderId], cc)
   const contracts = (await db
     .prepare(
       `SELECT id, official_name, organization, year FROM contracts
@@ -790,7 +863,14 @@ export async function getExpectedOrder(orderId: number): Promise<ExpectedOrderDe
     paymentType: orderPaymentType(order.payment_type),
     createdAt: order.created,
     status: order.status ?? "",
-    currencies: due?.currencies ?? [],
+    currencies: (due?.currencies ?? []).map((part) => ({
+      currency: part.currency,
+      total: part.total,
+      paid: part.paid,
+      linked: part.linked,
+      allocated: part.allocated,
+      remaining: part.remaining,
+    })),
     contracts: contracts.map((row) => ({
       id: row.id,
       // Same label the cash core stores (lib/cash/common.ts loadContract).
@@ -812,7 +892,7 @@ function idList(search: URLSearchParams, name: string): number[] {
     .getAll(name)
     .flatMap((value) => value.split(/[,-]/))
     .map((value) => Number(value.trim()))
-    .filter((value) => Number.isInteger(value) && value > 0)
+    .filter(isDbId)
 }
 
 const textList = (search: URLSearchParams, name: string) =>
@@ -826,6 +906,16 @@ function intParam(search: URLSearchParams, name: string): number | undefined {
   if (value === null || value === "") return undefined
   const parsed = Number(value)
   return Number.isFinite(parsed) ? Math.floor(parsed) : undefined
+}
+
+/** Clamped page (1..MAX_PAGE) / pageSize (0 = all, ≤ MAX_PAGE_SIZE); a negative size = default. */
+function pageParams(search: URLSearchParams): { page?: number; pageSize?: number } {
+  const page = intParam(search, "page")
+  const pageSize = intParam(search, "pageSize")
+  return {
+    page: page === undefined ? undefined : Math.min(MAX_PAGE, Math.max(1, page)),
+    pageSize: pageSize === undefined || pageSize < 0 ? undefined : Math.min(MAX_PAGE_SIZE, pageSize),
+  }
 }
 
 function days(search: URLSearchParams, names: string[]): { values: Record<string, string>; error?: NextResponse } {
@@ -871,8 +961,7 @@ export function parseCustomerPaymentsQuery(url: string): Parsed<CustomerPayments
       currency: search.get("currency")?.trim() || undefined,
       notAccept: flag === "1" || flag === "true",
       ordering: search.get("ordering")?.trim() || undefined,
-      page: intParam(search, "page"),
-      pageSize: intParam(search, "pageSize"),
+      ...pageParams(search),
     },
   }
 }
@@ -896,19 +985,18 @@ export function parseExpectedOrdersQuery(url: string): Parsed<ExpectedOrdersQuer
       organizations: textList(search, "organization"),
       statuses: textList(search, "status"),
       ordering: search.get("ordering")?.trim() || undefined,
-      page: intParam(search, "page"),
-      pageSize: intParam(search, "pageSize"),
+      ...pageParams(search),
     },
   }
 }
 
-const positiveId = z.coerce.number().int().positive()
+const positiveId = z.coerce.number().int().positive().max(MAX_DB_ID)
 const optText = z.string().trim().optional()
-const optRate = z.coerce.number().finite().positive().optional()
+const optRate = z.coerce.number().finite().positive().max(MAX_RATE).optional()
 
 /** Body of PUT /api/cash/customer-payments/[id]. */
 export const customerPaymentEditSchema = z.object({
-  amount: z.coerce.number().finite().positive(),
+  amount: z.coerce.number().finite().positive().max(MAX_MONEY),
   currency: optText,
   debtCurrency: optText,
   rateType: z.enum(["current", "custom"]).optional(),

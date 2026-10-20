@@ -10,16 +10,18 @@ import { useLanguage } from "@/lib/i18n/language-context"
 import type { Order } from "./orders-data"
 
 type Option = { value: string; label: string }
-type ShopRow = { id: number; name: string; agent?: string; zone?: string; type?: string }
+type ShopRow = { id: number; name: string; agent?: string; deliverer?: string; zone?: string; type?: string }
 type ProductRow = {
   id: number
   name: string
   type?: string
   brand?: string
   unit?: string
-  priceLists?: { name: string; cash?: number; nonCash?: number }[]
+  canSell?: boolean
+  deleted?: boolean
+  priceLists?: { name: string; cash?: number; nonCash?: number; currency?: string; nonCashCurrency?: string }[]
 }
-type LineItem = { productName: string; unit: string; quantity: number; unitPrice: number }
+type LineItem = { productId: number; productName: string; unit: string; quantity: number; unitPrice: number }
 
 const paymentTypes = ["Наличные", "Перечисление"]
 const deliveryTypes = ["Самовывоз", "Доставка"]
@@ -35,7 +37,7 @@ function formatDate(value: string) {
 }
 
 function money(value: number) {
-  return Math.round(value).toLocaleString("ru-RU")
+  return (Math.round(value * 100) / 100).toLocaleString("ru-RU", { maximumFractionDigits: 2 })
 }
 
 export function AddOrderDialog({
@@ -88,12 +90,13 @@ export function AddOrderDialog({
 
   useEffect(() => {
     const load = (url: string) => fetch(url).then((response) => (response.ok ? response.json() : []))
-    load("/api/clients").then((rows: ShopRow[]) => setShops(rows))
+    load("/api/clients?balances=0").then((rows: ShopRow[]) => setShops(rows))
     load("/api/employees").then((rows: { firstName: string; lastName: string }[]) => setAgents(rows.map((row) => `${row.firstName} ${row.lastName}`.trim())))
     load("/api/warehouses").then((rows: { name: string }[]) => setWarehouses(rows.map((row) => row.name)))
     load("/api/price-lists").then((rows: { name: string }[]) => setPriceLists(rows.map((row) => row.name)))
     load("/api/currencies").then((rows: { code: string }[]) => setCurrencies(rows.map((row) => row.code)))
-    load("/api/products").then((rows: ProductRow[]) => setProducts(rows))
+    // Only products that can be sold (the API refuses the others).
+    load("/api/products").then((rows: ProductRow[]) => setProducts(rows.filter((row) => row.canSell !== false && !row.deleted)))
   }, [])
 
   const shop = shops?.find((row) => String(row.id) === shopId)
@@ -119,6 +122,11 @@ export function AddOrderDialog({
     if (shop?.agent && shop.agent !== "Не указано") setAgent(shop.agent)
     else if (agents?.length) setAgent(agents[0])
   }, [shop, shops, shopId, agents, agent])
+  // The client's own deliverer is the default "Доставщик" of its orders.
+  useEffect(() => {
+    if (deliverer || !shop?.deliverer || shop.deliverer === "Не указано") return
+    if (agents?.includes(shop.deliverer)) setDeliverer(shop.deliverer)
+  }, [shop, agents, deliverer])
 
   // Esc asks for confirmation first; a second Esc leaves, Alt+Enter keeps working.
   useEffect(() => {
@@ -141,22 +149,28 @@ export function AddOrderDialog({
   const total = items.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0)
   const totalQty = items.reduce((sum, item) => sum + item.quantity, 0)
 
-  function priceOf(product: ProductRow, list = priceList, type = paymentType) {
+  // A price list price is used only in the order currency (a SUM price is not a USD price).
+  function priceOf(product: ProductRow, list = priceList, type = paymentType, inCurrency = currency) {
     const entry = product.priceLists?.find((row) => row.name === list)
-    return (type === "Перечисление" ? entry?.nonCash : entry?.cash) ?? 0
+    if (!entry) return 0
+    const nonCash = type === "Перечисление"
+    const entryCurrency = (nonCash ? entry.nonCashCurrency || entry.currency : entry.currency) || "SUM"
+    if (inCurrency && entryCurrency.toUpperCase() !== inCurrency.toUpperCase()) return 0
+    return (nonCash ? entry.nonCash : entry.cash) ?? 0
   }
 
   function changePricing(next: { paymentType?: string; currency?: string; priceList?: string }) {
     const nextType = next.paymentType ?? paymentType
     const nextList = next.priceList ?? priceList
+    const nextCurrency = next.currency ?? currency
     if (next.paymentType !== undefined) setPaymentType(next.paymentType)
     if (next.currency !== undefined) setCurrency(next.currency)
     if (next.priceList !== undefined) setPriceList(next.priceList)
     if (items.length) {
       setItems((current) =>
         current.map((item) => {
-          const product = products?.find((row) => row.name === item.productName)
-          return product ? { ...item, unitPrice: priceOf(product, nextList, nextType) } : item
+          const product = products?.find((row) => row.id === item.productId)
+          return product ? { ...item, unitPrice: priceOf(product, nextList, nextType, nextCurrency) } : item
         }),
       )
       setRepriceOpen(true)
@@ -167,7 +181,7 @@ export function AddOrderDialog({
     setItems((current) => {
       const merged = [...current]
       for (const row of rows) {
-        const index = merged.findIndex((item) => item.productName === row.productName)
+        const index = merged.findIndex((item) => item.productId === row.productId)
         if (index >= 0) merged[index] = { ...merged[index], quantity: merged[index].quantity + row.quantity }
         else merged.push(row)
       }
@@ -179,8 +193,9 @@ export function AddOrderDialog({
     const quantity = Number(inline.quantity)
     const unitPrice = Number(inline.unitPrice)
     if (!inline.product || !(quantity > 0) || !(unitPrice >= 0)) return
-    const product = products?.find((row) => row.name === inline.product)
-    addItems([{ productName: inline.product, unit: product?.unit || "шт.", quantity, unitPrice }])
+    const product = products?.find((row) => String(row.id) === inline.product)
+    if (!product) return
+    addItems([{ productId: product.id, productName: product.name, unit: product.unit || "шт.", quantity, unitPrice }])
     setInline({ product: "", quantity: "", unitPrice: "" })
     setInlineOpen(false)
   }
@@ -191,10 +206,24 @@ export function AddOrderDialog({
     if (!file) return
     void (async () => {
       const rows = await readExcelRows(file)
-      const parsed = rows
-        .map(([name, quantity, price]) => ({ productName: (name ?? "").trim(), unit: "шт.", quantity: Number(quantity), unitPrice: Number(price) }))
-        .filter((row) => row.productName && row.quantity > 0 && Number.isFinite(row.unitPrice))
+      const key = (value: string) => value.trim().toLowerCase().replace(/\s+/g, " ")
+      const byName = new Map((products ?? []).map((product) => [key(product.name), product]))
+      const unknown: string[] = []
+      const parsed: LineItem[] = []
+      for (const [name, quantity, price] of rows) {
+        const productName = (name ?? "").trim()
+        const qty = Number(quantity)
+        const unitPrice = Number(price)
+        if (!productName || !(qty > 0) || !Number.isFinite(unitPrice) || unitPrice < 0) continue
+        const product = byName.get(key(productName))
+        if (!product) {
+          unknown.push(productName)
+          continue
+        }
+        parsed.push({ productId: product.id, productName: product.name, unit: product.unit || "шт.", quantity: qty, unitPrice })
+      }
       if (parsed.length) addItems(parsed)
+      if (unknown.length) setError(`${t("Товары не найдены в каталоге")}: ${unknown.slice(0, 5).join(", ")}`)
     })()
   }
 
@@ -204,36 +233,39 @@ export function AddOrderDialog({
     if (!paymentType) return setError(t("Выберите тип оплаты"))
     if (!agent) return setError(t("Выберите агента"))
     if (!warehouse) return setError(t("Выберите склад"))
+    if (!currency) return setError(t("Выберите валюту"))
     if (!items.length) return setError(t("Вы еще не выбрали ни одного товара."))
     setSaving(true)
     try {
+      // One request: the order and its lines are saved together (all or nothing),
+      // in the chosen currency and warehouse; the server checks stock.
       const response = await fetch("/api/orders", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          client: shop.name,
+          clientId: shop.id,
           zone: shop.zone,
           type: shop.type,
-          product: priceList,
+          priceList,
           agent,
-          delivery: formatDate(deliveryDate),
-          amount: `${money(total)} ${currency}`,
+          currency,
+          warehouse,
+          deliveryMan: deliverer || undefined,
+          delivery: deliveryDate,
+          paymentDate: lastPayDate,
+          paymentType: paymentType === "Наличные" ? "cash" : paymentType === "Перечисление" ? "bank" : "",
+          deliveryType,
+          dealType: terms,
+          comment: comment.trim() || undefined,
+          status: confirmed ? "Есть на складе" : "Не подтвержден",
+          items: items.map((item) => ({ productId: item.productId, unit: item.unit, quantity: item.quantity, unitPrice: item.unitPrice, currency })),
         }),
       })
-      if (!response.ok) throw new Error("create failed")
-      const created = (await response.json()) as Order
-      await Promise.all(
-        items.map((item) =>
-          fetch(`/api/orders/${created.id}/items`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(item),
-          }),
-        ),
-      )
-      onCreated(created)
-    } catch {
-      setError(t("Не удалось создать заказ"))
+      const body = (await response.json().catch(() => null)) as (Order & { error?: string }) | null
+      if (!response.ok || !body) throw new Error(body?.error ? t(body.error) : t("Не удалось создать заказ"))
+      onCreated(body)
+    } catch (caught) {
+      setError(caught instanceof Error && caught.message ? caught.message : t("Не удалось создать заказ"))
       setSaving(false)
     }
   }
@@ -332,11 +364,11 @@ export function AddOrderDialog({
                   flat
                   value={inline.product}
                   onChange={(value) => {
-                    const product = products?.find((row) => row.name === value)
+                    const product = products?.find((row) => String(row.id) === value)
                     setInline({ product: value, quantity: inline.quantity || "1", unitPrice: product ? String(priceOf(product)) : "" })
                   }}
                   loading={!products}
-                  options={Array.from(new Set((products ?? []).map((row) => row.name))).map((name) => ({ value: name, label: name }))}
+                  options={(products ?? []).map((row) => ({ value: String(row.id), label: row.name }))}
                 />
               </div>
               <FlatInput label={t("Кол-во")} type="number" value={inline.quantity} onChange={(value) => setInline({ ...inline, quantity: value })} className="w-[200px]" />
@@ -371,7 +403,7 @@ export function AddOrderDialog({
               </thead>
               <tbody>
                 {items.map((item, index) => (
-                  <tr key={item.productName} className="border-t">
+                  <tr key={item.productId} className="border-t">
                     <td className="p-3">{index + 1}</td>
                     <td>{item.productName}</td>
                     <td>{item.quantity} {item.unit}</td>
@@ -390,7 +422,7 @@ export function AddOrderDialog({
 
       <footer className="flex h-[66px] shrink-0 items-center justify-between border-t border-slate-200 px-[30px]">
         <div className="flex items-center gap-6 text-[16px]">
-          <span>{t("Общая сумма заказа:")} <b>{money(total)}{currency && currency !== "SUM" ? ` ${currency}` : ""}</b></span>
+          <span>{t("Общая сумма заказа:")} <b>{money(total)}{currency ? ` ${currency}` : ""}</b></span>
           <span>{t("Общее кол-во:")} <b>{totalQty} {t("ед.")}</b></span>
           {error && <span className="text-[13px] text-red-500">{error}</span>}
         </div>
@@ -422,7 +454,7 @@ export function AddOrderDialog({
       {pickerOpen && (
         <ProductPicker
           products={products}
-          priceOf={priceOf}
+          priceOf={(product) => priceOf(product)}
           onClose={() => setPickerOpen(false)}
           onSave={(rows) => {
             addItems(rows)
@@ -480,7 +512,7 @@ export function ProductPicker({
     const rows: LineItem[] = []
     for (const product of products ?? []) {
       const quantity = Number(quantities[product.id])
-      if (quantity > 0) rows.push({ productName: product.name, unit: product.unit || "шт.", quantity, unitPrice: priceOf(product) })
+      if (quantity > 0) rows.push({ productId: product.id, productName: product.name, unit: product.unit || "шт.", quantity, unitPrice: priceOf(product) })
     }
     onSave(rows)
   }

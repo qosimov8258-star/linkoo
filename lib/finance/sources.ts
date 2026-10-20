@@ -1,7 +1,7 @@
 import "server-only"
 
 import type { FinanceSchema } from "@/lib/finance/schema"
-import { MOVEMENT_COLUMNS, type BalanceDateMode, type BalanceEntityKind } from "@/lib/finance/types"
+import { MOVEMENT_COLUMNS, ORDER_EXCLUDED_STATUSES, ORDER_RELEASED_STATUSES, type BalanceDateMode, type BalanceEntityKind } from "@/lib/finance/types"
 
 // The one ledger: for every entity kind, a UNION ALL of SELECTs over the real
 // money tables, each emitting uniform "movement" rows:
@@ -183,6 +183,45 @@ function need(ctx: SourceContext, ...names: string[]) {
 const utcTs = (expr: string) => `fin_ts(${expr}, true)`
 const ts = (...exprs: string[]) => `COALESCE(${exprs.join(", ")})`
 
+// --- orders (shared by the client ledger, Долги с заказов, branch KPI, P&L) ---
+
+const sqlList = (values: readonly string[]) => values.map((value) => `'${value.replace(/'/g, "''")}'`).join(", ")
+
+/** Orders that count as a sale / debt at all: not cancelled, not unconfirmed. */
+export function orderCountedSql(alias = "o"): string {
+  return `${alias}.status NOT IN (${sqlList(ORDER_EXCLUDED_STATUSES)})`
+}
+
+/** Released (shipped) orders: В пути / Доставлено. */
+export function orderReleasedSql(alias = "o"): string {
+  return `${alias}.status IN (${sqlList(ORDER_RELEASED_STATUSES)})`
+}
+
+/** Realization moment (local timestamp) of a released order: the moment it
+ * was shipped (orders.shipped_at, written by the orders module when the
+ * status becomes В пути / Доставлено). Legacy rows without it: the planned
+ * delivery day, but never later than the last change of the order (the status
+ * change happened at or before updated_at, so a future planned day is not a
+ * realization), else the creation moment. */
+export function orderRealizationTs(s: FinanceSchema, alias = "o"): string {
+  const parts: string[] = []
+  if (s.col("orders", "shipped_at")) parts.push(utcTs(`${alias}.shipped_at::text`))
+  const delivery = s.col("orders", "delivery") ? `fin_ts(${alias}.delivery)` : "NULL::timestamp"
+  const updated = s.col("orders", "updated_at") ? utcTs(`${alias}.updated_at`) : "NULL::timestamp"
+  parts.push(`LEAST(${delivery}, ${updated})`)
+  parts.push(utcTs(`${alias}.created_at`))
+  return ts(...parts)
+}
+
+/** Joins orders `o` to its existing client `c` (contract: by orders.client_id,
+ * by name only for legacy rows without an id; orders of a client that does
+ * not exist are dropped). Needs the CTE `keys` (k = fin_key(name), id). */
+export function orderClientJoin(s: FinanceSchema, o = "o", c = "oc", keys = "client_keys"): string {
+  return s.col("orders", "client_id")
+    ? `LEFT JOIN ${keys} ${c}_k ON ${o}.client_id IS NULL AND ${c}_k.k = fin_key(${o}.client) JOIN clients ${c} ON ${c}.id = COALESCE(${o}.client_id, ${c}_k.id)`
+    : `JOIN ${keys} ${c}_k ON ${c}_k.k = fin_key(${o}.client) JOIN clients ${c} ON ${c}.id = ${c}_k.id`
+}
+
 // --- cashboxes --------------------------------------------------------------
 
 function cashboxSources(ctx: SourceContext): string[] {
@@ -306,8 +345,8 @@ function cashboxSources(ctx: SourceContext): string[] {
 
 function orderStatusFilter(ctx: SourceContext): string {
   if (ctx.o.orderScope === "delivered") return "o.status = 'Доставлено'"
-  if (ctx.o.mode === "realization" || ctx.o.orderScope === "released") return "o.status IN ('В пути', 'Доставлено')"
-  return "o.status <> 'Отменен'"
+  if (ctx.o.mode === "realization" || ctx.o.orderScope === "released") return orderReleasedSql("o")
+  return orderCountedSql("o")
 }
 
 function clientSources(ctx: SourceContext): string[] {
@@ -333,23 +372,28 @@ function clientSources(ctx: SourceContext): string[] {
     ),
   )
 
-  const orderTs = realization ? ts("fin_ts(o.delivery)", utcTs("o.updated_at"), utcTs("o.created_at")) : utcTs("o.created_at")
+  // Orders follow their client by orders.client_id (renaming a client keeps
+  // its orders), legacy rows by name; they carry their own organization and
+  // payment type, so the Организация / Тип оплаты filters keep them.
+  const orderTs = realization ? orderRealizationTs(ctx.s, "o") : utcTs("o.created_at")
   const orderFields = (cur: string, amount: string): Partial<Record<Field, string>> => ({
-    ek: "ck.id",
+    ek: "oc.id",
     cur,
     ts: orderTs,
     col: "'order'",
     amt: `-(${amount})`,
+    org: ctx.s.col("orders", "organization") ? "fin_place(o.organization)" : "''",
+    pt: ctx.s.col("orders", "payment_type") ? "fin_pt(o.payment_type)" : "''",
     src: "'order'",
     src_id: "o.id",
     title: "'Заказ'",
     doc: "o.id::text",
     descr: "o.product",
-    cp: "o.client",
+    cp: "oc.name",
     cby: "o.agent",
     href: "'/orders'",
   })
-  const orderFrom = `FROM orders o JOIN client_keys ck ON ck.k = fin_key(o.client)`
+  const orderFrom = `FROM orders o ${orderClientJoin(ctx.s, "o", "oc", "client_keys")}`
   if (ctx.s.has("order_items")) {
     need(ctx, "oi_tot", "oi_orders")
     out.push(select(ctx, orderFields("t.cur", "t.amount"), `${orderFrom} JOIN oi_tot t ON t.order_id = o.id WHERE ${orderStatusFilter(ctx)}`))
@@ -363,6 +407,50 @@ function clientSources(ctx: SourceContext): string[] {
     )
   } else {
     out.push(select(ctx, orderFields("COALESCE(a.currency, @base)", "a.amount"), `${orderFrom} CROSS JOIN LATERAL fin_amounts(o.amount) a WHERE ${orderStatusFilter(ctx)}`))
+  }
+
+  // Client returns (Продажи → Возвраты, owned by the sales module): an
+  // accepted return credits the client by its amount on the acceptance day
+  // (both date modes); pending and cancelled returns have no effect. The
+  // organization / payment type come from the returned order, if any.
+  const CR = "client_returns"
+  if (ctx.s.has(CR) && ctx.s.col(CR, "status") && ctx.s.col(CR, "amount")) {
+    const returnOrder = ctx.s.col(CR, "order_id") && ctx.s.has("orders")
+    const returnClient = ctx.s.col(CR, "client_id")
+      ? ctx.s.col(CR, "client")
+        ? "LEFT JOIN client_keys rk ON r.client_id IS NULL AND rk.k = fin_key(r.client) JOIN clients rc ON rc.id = COALESCE(r.client_id, rk.id)"
+        : "JOIN clients rc ON rc.id = r.client_id"
+      : "JOIN client_keys rk ON rk.k = fin_key(r.client) JOIN clients rc ON rc.id = rk.id"
+    const acceptedTs = [
+      ctx.s.col(CR, "accepted_at") ? utcTs("r.accepted_at::text") : "",
+      ctx.s.col(CR, "return_date") ? "fin_ts(r.return_date::text)" : "",
+      ctx.s.col(CR, "created_at") ? utcTs("r.created_at::text") : "",
+    ].filter(Boolean)
+    out.push(
+      select(
+        ctx,
+        {
+          ek: "rc.id",
+          cur: `COALESCE(fin_cur(${col(ctx, "r", CR, "currency", "NULL")}), @base)`,
+          ts: acceptedTs.length ? ts(...acceptedTs) : "NULL::timestamp",
+          col: "'order_return'",
+          amt: "r.amount",
+          org: returnOrder && ctx.s.col("orders", "organization") ? "fin_place(ro.organization)" : "''",
+          pt: returnOrder && ctx.s.col("orders", "payment_type") ? "fin_pt(ro.payment_type)" : "''",
+          src: "'client_return'",
+          src_id: "r.id",
+          title: "'Возврат'",
+          doc: "r.id::text",
+          descr: col(ctx, "r", CR, "warehouse", "''"),
+          cmt: col(ctx, "r", CR, "comment", "''"),
+          cp: "rc.name",
+          cby: col(ctx, "r", CR, "accepted_by", "''"),
+          href: "'/analytics/returns'",
+        },
+        `FROM ${CR} r ${returnClient} ${returnOrder ? "LEFT JOIN orders ro ON ro.id = r.order_id" : ""}
+         WHERE r.status = 'accepted' AND COALESCE(r.amount, 0) <> 0`,
+      ),
+    )
   }
 
   if (ctx.s.has("client_payments")) {
@@ -407,7 +495,8 @@ function clientSources(ctx: SourceContext): string[] {
           cmt: "b.comment",
           cp: "c.name",
         },
-        `FROM ${table} b CROSS JOIN LATERAL fin_ids(b.client_ids) AS x(id) JOIN clients c ON c.id = x.id`,
+        // Cancelled rows (is_deleted = 1, amount already 0) are left out of the statements.
+        `FROM ${table} b CROSS JOIN LATERAL fin_ids(b.client_ids) AS x(id) JOIN clients c ON c.id = x.id WHERE ${alive(ctx, "b", table)}`,
       ),
     )
   }
@@ -526,7 +615,9 @@ function supplierSources(ctx: SourceContext): string[] {
         ek: ek("i.supplier"),
         nm: "i.supplier",
         cur: `COALESCE(fin_cur(${col(ctx, "i", "supplier_incomings", "currency", "NULL")}), @base)`,
-        ts: ts("fin_ts(" + col(ctx, "i", "supplier_incomings", "accepted_at", "''") + ")", "fin_ts(i.date)", utcTs("i.created_at")),
+        // The earlier of the document date and the acceptance (LEAST skips NULL), as
+        // lib/stock/sources.ts books it, so the supplier act and stock-by-date agree.
+        ts: ts("LEAST(fin_ts(i.date), fin_ts(" + col(ctx, "i", "supplier_incomings", "accepted_at", "''") + "))", utcTs("i.created_at")),
         col: "'supply'",
         amt: "-i.amount",
         org: "fin_place(i.organization)",
@@ -552,7 +643,7 @@ function supplierSources(ctx: SourceContext): string[] {
         ek: ek("r.from_whom"),
         nm: "r.from_whom",
         cur: "COALESCE(fin_cur(r.currency), @base)",
-        ts: ts("fin_ts(r.transfer_time)", "fin_ts(r.date)", utcTs("r.updated_at")),
+        ts: ts("LEAST(fin_ts(r.date), fin_ts(r.transfer_time))", utcTs("r.updated_at")),
         col: "'supply_return'",
         amt: "r.amount",
         org: "fin_place(r.organization)",
@@ -879,7 +970,22 @@ function employeeSources(ctx: SourceContext): string[] {
     )
   }
   if (ctx.s.has("salary_plans")) {
+    // Salary planning: a credited plan accrues its month's salary / KPI bonus.
+    // Dated when it was credited (credited_at), kept inside its own month
+    // (year, month), so editing a plan later never moves a past accrual.
+    // Legacy rows (no period / credited_at): the last change of the plan.
     need(ctx, "emp_keys")
+    const SPT = "salary_plans"
+    const credited = ctx.s.col(SPT, "credited_at") ? ts(utcTs("sp.credited_at"), utcTs("sp.updated_at")) : utcTs("sp.updated_at")
+    const hasPeriod = ctx.s.col(SPT, "year") && ctx.s.col(SPT, "month")
+    const start = "make_timestamp(sp.year, sp.month, 1, 0, 0, 0)"
+    const accrualTs = hasPeriod
+      ? `CASE WHEN sp.year BETWEEN 1900 AND 2200 AND sp.month BETWEEN 1 AND 12
+           THEN LEAST(GREATEST(${credited}, ${start}), ${start} + interval '1 month' - interval '1 second') ELSE ${credited} END`
+      : credited
+    const employee = ctx.s.col(SPT, "employee_id")
+      ? "LEFT JOIN emp_keys ek ON sp.employee_id IS NULL AND ek.k = fin_key(sp.employee) JOIN employees se ON se.id = COALESCE(sp.employee_id, ek.id)"
+      : "JOIN emp_keys ek ON ek.k = fin_key(sp.employee) JOIN employees se ON se.id = ek.id"
     for (const [field, column, title] of [
       ["salary", "monthly", "Зарплата"],
       ["bonus", "performance_bonus", "Зачислено KPI"],
@@ -888,16 +994,17 @@ function employeeSources(ctx: SourceContext): string[] {
         select(
           ctx,
           {
-            ek: "ek.id",
-            ts: utcTs("sp.updated_at"),
+            ek: "se.id",
+            ts: accrualTs,
             col: `'${column}'`,
             amt: `sp.${field}`,
             src: "'salary_plan'",
             src_id: "sp.id",
             title: `'${title}'`,
+            descr: hasPeriod ? "CASE WHEN sp.month BETWEEN 1 AND 12 THEN lpad(sp.month::text, 2, '0') || '.' || sp.year::text ELSE '' END" : "''",
             href: "'/analytics/salary-planning'",
           },
-          `FROM salary_plans sp JOIN emp_keys ek ON ek.k = fin_key(sp.employee) WHERE sp.credited = 1 AND sp.${field} <> 0`,
+          `FROM salary_plans sp ${employee} WHERE sp.credited = 1 AND sp.${field} <> 0`,
         ),
       )
     }

@@ -31,9 +31,10 @@ import type { CatalogKind, CatalogUsage } from "@/lib/products-types"
 //   any other table: text columns product / product_name / item_name (by name), TEXT columns
 //     items / lines / products (JSON, element field "product"), integer product_id /
 //     raw_material_id (by id).
-// Deliberately not rewritten: invoice_incoming_items.name (the supplier's e-invoice text,
-// linked by id), orders.product (summary generated from order_items), supplier_incoming_logs
-// .details (free text).
+// Deliberately not rewritten as a reference: invoice_incoming_items.name (the supplier's
+// e-invoice text, linked by id), orders.product (summary generated from order_items: after a
+// rename it is REBUILT from the renamed order_items of the affected orders, the way
+// lib/order-items-repo.ts writes it, "<name> x<qty>, …"), supplier_incoming_logs.details (free text).
 // Name-only references belong to the item that owns the name the way the stock core
 // resolves it: the live (not deleted) item with that fin_key, products before raw materials,
 // lowest id first. An item that does not own its name (a deleted duplicate) only carries
@@ -275,6 +276,32 @@ export async function catalogUsage(db: PgDb, item: { kind: CatalogKind; id: numb
 
 export type CatalogRenameChange = { table: string; column: string; rows: number }
 
+/** orders.product of the given orders rebuilt from their order_items (same text as lib/order-items-repo.ts). */
+async function rebuildOrderSummaries(db: PgDb, orderIds: number[]): Promise<number> {
+  if (!orderIds.length) return 0
+  const columns = (await db
+    .prepare(
+      `SELECT table_name, column_name FROM information_schema.columns
+        WHERE table_schema = current_schema() AND ((table_name = 'orders' AND column_name = 'product') OR (table_name = 'order_items' AND column_name IN ('order_id', 'quantity')))`,
+    )
+    .all()) as Array<{ table_name: string; column_name: string }>
+  if (columns.length < 3) return 0
+  const items = (await db
+    .prepare("SELECT order_id, product_name, quantity FROM order_items WHERE order_id = ANY(@ids::int[]) ORDER BY order_id, id")
+    .all({ ids: orderIds })) as Array<{ order_id: number; product_name: string; quantity: number | string }>
+  const summaries = new Map<number, string[]>()
+  for (const item of items) {
+    const id = Number(item.order_id)
+    summaries.set(id, [...(summaries.get(id) ?? []), `${item.product_name} x${Number(item.quantity)}`])
+  }
+  let rows = 0
+  for (const [id, parts] of summaries) {
+    const product = parts.join(", ")
+    rows += (await db.prepare("UPDATE orders SET product = @product WHERE id = @id AND product IS DISTINCT FROM @product").run({ id, product })).changes
+  }
+  return rows
+}
+
 /**
  * Rewrites every reference of the item from `oldName` to `newName` (exact new spelling).
  * Run it inside the transaction that renames the item row, before the row update.
@@ -291,8 +318,19 @@ export async function cascadeCatalogRename(db: PgDb, item: { kind: CatalogKind; 
     const column = q(ref.column)
     if (ref.type === "id") continue
     if (ref.type === "text") {
+      // Orders whose lines are the item: their summary text (orders list, "Товар" filter) follows.
+      const orderIds =
+        ref.table === "order_items"
+          ? ((await db.prepare(`SELECT DISTINCT order_id FROM ${table} WHERE ${textMatch(ref)} AND order_id IS NOT NULL`).all(params)) as Array<{ order_id: number }>).map(
+              (row) => Number(row.order_id),
+            )
+          : []
       const result = await db.prepare(`UPDATE ${table} SET ${column} = @new::text WHERE ${rowFilter(ref)}${textMatch(ref)} AND ${column} IS DISTINCT FROM @new::text`).run(params)
       record(ref, ref.column, result.changes)
+      if (orderIds.length) {
+        const rows = await rebuildOrderSummaries(db, orderIds)
+        if (rows > 0) changes.push({ table: "orders", column: "product", rows })
+      }
       if (ref.itemKey && owns) {
         // Lines counted while the name matched no catalog item keep a "name:<key>" key.
         const keys = await db

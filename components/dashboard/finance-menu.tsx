@@ -64,7 +64,7 @@ const balance: MenuItem[] = [
 ]
 
 const cashOperations: MenuItem[] = [
-  { label: "Управления кассой", href: "/analytics/cash-management" },
+  { label: "Управление кассой", href: "/analytics/cash-management" },
   { label: "Оплаты от клиентов", href: "/analytics/customer-payments" },
   { label: "Оплаты поставщикам", href: "/analytics/supplier-payments" },
   { label: "Ожидаемые расходы", href: "/analytics/expected-expenses" },
@@ -74,7 +74,8 @@ const cashOperations: MenuItem[] = [
 ]
 
 const additional: MenuItem[] = [
-  { label: "Долги поставщиков", href: "/analytics/supplier-debts" },
+  // The page lists deliverer (доставщик) debts; supplier debts live on "Баланс поставщиков".
+  { label: "Долги доставщиков", href: "/analytics/supplier-debts" },
   { label: "Долги с заказов", href: "/analytics/order-debts" },
   { label: "Сверка магазина через бот", href: "/analytics/store-reconciliation-bot" },
   { label: "Сверка счетов", href: "/analytics/account-reconciliation" },

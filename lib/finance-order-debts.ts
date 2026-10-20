@@ -9,11 +9,14 @@ import { payOrder } from "@/lib/cash/expected-payments"
 import { orderDues } from "@/lib/cash/orders"
 import { ensureCashSchema } from "@/lib/cash/schema"
 import type { CashWriteResult } from "@/lib/cash/types"
+import { MAX_ID, MAX_MONEY } from "@/lib/finance/api"
 import type { CurrencyContext } from "@/lib/finance/context"
 import { currencyLabel, normCurrency, roundMoney } from "@/lib/finance/currency"
 import { isIsoDay, todayIso } from "@/lib/finance/dates"
 import { innKey, nameKey, placeName } from "@/lib/finance/entities"
 import { getBalanceList } from "@/lib/finance/ledger"
+import { ensureFinanceSchema } from "@/lib/finance/schema"
+import { orderClientJoin, orderCountedSql, orderRealizationTs } from "@/lib/finance/sources"
 import { getClientBalanceOptions } from "@/lib/finance-client-balance"
 import {
   DEBT_BUCKETS,
@@ -54,9 +57,13 @@ import {
 // flagged "Требуется перерасчет" and excluded from the totals until a
 // recalculation attributes that debt to a date (order_debt_recalcs).
 //
+// Orders: every order the client ledger counts (not Отменен / Не подтвержден),
+// matched to the client exactly like the ledger (orders.client_id, by name for
+// legacy rows); orders of a client that does not exist are not listed.
 // Age of an order = days since its realization date (В пути / Доставлено:
-// parsed delivery → updated_at → created_at, the ledger's realization rule) or
-// since creation for orders not released yet. Buckets: ≤ p1, ≤ p2, ≤ p3, > p3
+// shipped_at, else the planned delivery day capped by updated_at, else
+// created_at — the ledger's realization rule, orderRealizationTs) or since
+// creation for orders not released yet. Buckets: ≤ p1, ≤ p2, ≤ p3, > p3
 // with the periods of order_debt_settings (default 7 / 30 / 120).
 
 const SCHEMA_VERSION = 1
@@ -230,22 +237,27 @@ const RELEASED = new Set(["в пути", "доставлено"])
 
 async function buildModel(db: PgDb): Promise<Model> {
   await ensureSchema(db)
+  const s = await ensureFinanceSchema(db)
   const [cc, config] = await Promise.all([currencyContext(db), readConfig(db)])
   const today = todayIso()
+  // Same orders and the same client resolution as the client ledger
+  // (lib/finance/sources.ts): counted statuses only, the client by
+  // orders.client_id (by name for legacy rows), orders of a client that does
+  // not exist are left out — so Σ order debts = Σ client debts.
   const [orderRows, clientRows, recalcRows, ledger] = await Promise.all([
     db
       .prepare(
         `WITH ck AS (SELECT fin_key(name) AS k, MIN(id) AS id FROM clients GROUP BY 1)
-         SELECT o.id, o.client, ck.id AS client_id, fin_place(o.zone) AS zone, fin_place(o.agent) AS agent,
+         SELECT o.id, o.client, oc.id AS client_id, fin_place(o.zone) AS zone, fin_place(o.agent) AS agent,
                 fin_place(o.delivery_man) AS delivery_man, fin_place(o.organization) AS organization,
                 COALESCE(NULLIF(fin_pt(o.payment_type), ''), 'cash') AS payment_type, o.status, COALESCE(o.product, '') AS product,
                 COALESCE(o.delivery, '') AS delivery,
                 to_char(fin_ts(o.created_at, true), 'YYYY-MM-DD"T"HH24:MI:SS') AS created,
                 to_char(fin_ts(o.delivery), 'YYYY-MM-DD') AS delivery_day,
-                to_char(COALESCE(fin_ts(o.delivery), fin_ts(o.updated_at, true), fin_ts(o.created_at, true)), 'YYYY-MM-DD') AS realization_day,
+                to_char(${orderRealizationTs(s, "o")}, 'YYYY-MM-DD') AS realization_day,
                 to_char(fin_ts(NULLIF(o.payment_date, '')), 'YYYY-MM-DD') AS payment_day
-         FROM orders o LEFT JOIN ck ON ck.k = fin_key(o.client)
-         WHERE o.status <> 'Отменен'`,
+         FROM orders o ${orderClientJoin(s, "o", "oc", "ck")}
+         WHERE ${orderCountedSql("o")}`,
       )
       .all() as Promise<OrderSqlRow[]>,
     db
@@ -310,14 +322,10 @@ async function buildModel(db: PgDb): Promise<Model> {
 
   const orders = new Map<number, OrderMeta>()
   for (const row of orderRows) {
-    const clientId = row.client_id === null ? null : Number(row.client_id)
-    const clientKey = clientId !== null ? String(clientId) : `name:${nameKey(row.client)}`
-    let client = clients.get(clientKey)
-    if (!client) {
-      // Orders whose client is not in the clients table (free-text name).
-      client = newClient({ key: clientKey, id: null, name: row.client ?? "", phone: "", address: "", guide: "", agent: "", type: "", zone: placeName(row.zone), branch: "" })
-      clients.set(clientKey, client)
-    }
+    const clientId = Number(row.client_id)
+    const clientKey = String(clientId)
+    const client = clients.get(clientKey)
+    if (!client) continue
     const createdAt = row.created ?? ""
     const createdDay = createdAt.slice(0, 10)
     const released = RELEASED.has(nameKey(row.status))
@@ -828,9 +836,7 @@ export async function updateOrderPaymentDates(orderIds: number[], paymentDate: s
   await ensureSchema(db)
   const ids = [...new Set(orderIds.filter((id) => Number.isInteger(id) && id > 0))]
   if (!ids.length) throw new CashError("Выберите хотя бы один заказ", 400, "orderIds")
-  const result = await db
-    .prepare("UPDATE orders SET payment_date = @day WHERE id = ANY(@ids::int[]) AND status <> 'Отменен'")
-    .run({ day: paymentDate, ids })
+  const result = await db.prepare(`UPDATE orders o SET payment_date = @day WHERE o.id = ANY(@ids::int[]) AND ${orderCountedSql("o")}`).run({ day: paymentDate, ids })
   return { updated: result.changes }
 }
 
@@ -845,7 +851,7 @@ export async function payOrdersGroup(input: OrderGroupPaymentInput, user: string
   const items = input.items.filter((item) => item.amount > 0)
   if (!items.length) throw new CashError("Укажите сумму", 400, "amount")
   const known = new Set(
-    ((await db.prepare("SELECT id FROM orders WHERE id = ANY(@ids::int[]) AND status <> 'Отменен'").all({ ids: items.map((item) => item.orderId) })) as Array<{ id: number }>).map((row) =>
+    ((await db.prepare(`SELECT o.id FROM orders o WHERE o.id = ANY(@ids::int[]) AND ${orderCountedSql("o")}`).all({ ids: items.map((item) => item.orderId) })) as Array<{ id: number }>).map((row) =>
       Number(row.id),
     ),
   )
@@ -887,7 +893,7 @@ export async function getOrderDebtOptions(): Promise<OrderDebtOptions> {
   await ensureSchema(db)
   const [base, rows] = await Promise.all([
     getClientBalanceOptions(db),
-    db.prepare("SELECT DISTINCT agent, delivery_man, organization, status, zone FROM orders WHERE status <> 'Отменен'").all() as Promise<
+    db.prepare(`SELECT DISTINCT o.agent, o.delivery_man, o.organization, o.status, o.zone FROM orders o WHERE ${orderCountedSql("o")}`).all() as Promise<
       Array<{ agent: string; delivery_man: string; organization: string; status: string; zone: string }>
     >,
   ])
@@ -977,32 +983,32 @@ const isoDay = z.string().trim().refine((value) => isIsoDay(value), "YYYY-MM-DD"
 
 /** Body of POST /api/order-debts/recalc. */
 export const orderDebtRecalcSchema = z.object({
-  clientId: z.coerce.number().int().positive().optional(),
+  clientId: z.coerce.number().int().positive().max(MAX_ID).optional(),
   fromDate: isoDay.optional(),
 })
 
 /** Body of POST /api/order-debts/payment-date. */
 export const orderPaymentDateSchema = z.object({
-  orderIds: z.array(z.coerce.number().int().positive()).min(1).max(5000),
+  orderIds: z.array(z.coerce.number().int().positive().max(MAX_ID)).min(1).max(5000),
   /** "" clears the date. */
   paymentDate: z.union([isoDay, z.literal("")]),
 })
 
 /** Body of POST /api/order-debts/group-payment. */
 export const orderGroupPaymentSchema = z.object({
-  cashboxId: z.coerce.number().int().positive(),
-  date: z.string().trim().optional(),
-  branch: z.string().trim().optional(),
-  categoryId: z.coerce.number().int().positive().optional(),
-  responsibleId: z.coerce.number().int().positive().optional(),
+  cashboxId: z.coerce.number().int().positive().max(MAX_ID),
+  date: z.string().trim().max(40).optional(),
+  branch: z.string().trim().max(200).optional(),
+  categoryId: z.coerce.number().int().positive().max(MAX_ID).optional(),
+  responsibleId: z.coerce.number().int().positive().max(MAX_ID).optional(),
   isVerified: z.boolean().optional(),
   comment: z.string().trim().optional(),
   items: z
     .array(
       z.object({
-        orderId: z.coerce.number().int().positive(),
+        orderId: z.coerce.number().int().positive().max(MAX_ID),
         /** Cash taken, in the cashbox currency. */
-        amount: z.coerce.number().finite().nonnegative(),
+        amount: z.coerce.number().finite().nonnegative().max(MAX_MONEY),
         /** Order part (debt) currency. */
         currency: z.string().trim().min(1),
         comment: z.string().trim().optional(),

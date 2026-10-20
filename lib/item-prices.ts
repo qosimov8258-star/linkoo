@@ -1,6 +1,8 @@
 import "server-only"
 
 import type { PgDb } from "@/lib/db"
+import { loadCurrencyContext } from "@/lib/finance/context"
+import { normCurrency } from "@/lib/finance/currency"
 
 // Shared writer of item prices (contract: goods spec "Shared price writer").
 //
@@ -13,8 +15,13 @@ import type { PgDb } from "@/lib/db"
 // Переоценка.
 //
 // setItemPrices() upserts entries of ONE item and recomputes the derived columns
-//   price_min / price_max = min / max of every positive cash and nonCash price of the item,
+//   price_min / price_max = min / max of every positive cash and nonCash price of the item, each
+//                           converted into the BASE currency with the current rates (an entry's
+//                           currency, else its price list's currency; prices in a currency without
+//                           a rate are left out), so a USD list never sits next to a SUM list;
 //   price_updated_date    = "17 окт. 2026" (local day; products only, or wherever the column exists).
+// Every price is 0 ≤ x ≤ MAX_PRICE (contract: money |x| ≤ 1e13); anything else is a RangeError
+// "Некорректная цена" that the callers turn into a 400.
 // It runs on the db handle it is given, so pass the transaction handle of withTransaction() and the
 // write commits / rolls back with the caller's document. The item row is locked (FOR UPDATE) for the
 // rest of that transaction.
@@ -64,6 +71,10 @@ export type SetItemPricesResult = {
 }
 
 const TABLES: Record<ItemPriceKind, string> = { product: "products", raw_material: "raw_materials" }
+
+/** Upper bound of a stored price (money contract: |x| ≤ 1e13). */
+export const MAX_PRICE = 1e13
+export const INVALID_PRICE = "Некорректная цена"
 
 const MONTHS = ["янв.", "февр.", "мар.", "апр.", "мая", "июня", "июля", "авг.", "сент.", "окт.", "нояб.", "дек."]
 
@@ -133,15 +144,74 @@ export function findItemPrice(entries: ItemPriceEntry[], priceList: string): Ite
   return entries.find((entry) => priceListKey(entry.name) === key) ?? null
 }
 
-/** Derived price_min / price_max: every positive cash / nonCash price of the item. */
-export function priceBounds(entries: ItemPriceEntry[]): { priceMin: number; priceMax: number } {
-  const prices = entries.flatMap((entry) => [entry.cash, entry.nonCash]).filter((value) => value > 0)
+/** Currencies needed to put every price of an item into the base currency. */
+export type PriceCurrencyContext = {
+  /** Canonical code of the base currency. */
+  base: string
+  /** Units of base per 1 unit (base = 1); null / missing = unknown. */
+  rates: Record<string, number | null>
+  /** Price-list key (priceListKey) → canonical currency of the list. */
+  listCurrency: Map<string, string>
+}
+
+/** Rates of the currencies table + the currency of every price list (load once per request / transaction). */
+export async function loadPriceCurrencyContext(db: PgDb): Promise<PriceCurrencyContext> {
+  // One query after the other: `db` is often a transaction client (no concurrent queries on it).
+  const currencies = await loadCurrencyContext(db)
+  const lists = (await db.prepare("SELECT name, currency FROM price_lists").all()) as Array<{ name: string; currency: string | null }>
+  const listCurrency = new Map<string, string>()
+  for (const list of lists) if (!listCurrency.has(priceListKey(list.name))) listCurrency.set(priceListKey(list.name), normCurrency(list.currency, currencies.base))
+  return { base: currencies.base, rates: currencies.rates, listCurrency }
+}
+
+/** Contexts per db handle for a few seconds: one load per transaction / burst of writes (an import). */
+const contextCache = new WeakMap<PgDb, { at: number; context: Promise<PriceCurrencyContext> }>()
+
+function cachedPriceCurrencyContext(db: PgDb): Promise<PriceCurrencyContext> {
+  const hit = contextCache.get(db)
+  if (hit && Date.now() - hit.at < 5_000) return hit.context
+  const context = loadPriceCurrencyContext(db)
+  contextCache.set(db, { at: Date.now(), context })
+  context.catch(() => {
+    if (contextCache.get(db)?.context === context) contextCache.delete(db)
+  })
+  return context
+}
+
+/** `value` of `currency` in the base currency; null when the rate is unknown. */
+function toBase(value: number, currency: string, context: PriceCurrencyContext): number | null {
+  if (currency === context.base) return value
+  const rate = context.rates[currency]
+  return rate && Number.isFinite(rate) && rate > 0 ? Math.round(value * rate * 1e6) / 1e6 : null
+}
+
+/**
+ * Derived price_min / price_max: every positive cash / nonCash price of the item. With a currency
+ * context the prices are converted into the base currency first (cash: the entry's currency, else
+ * the list's; non-cash: nonCashCurrency, else the cash currency); prices of a currency without a
+ * known rate are left out. Without a context the raw values are compared (one-currency callers).
+ */
+export function priceBounds(entries: ItemPriceEntry[], context?: PriceCurrencyContext): { priceMin: number; priceMax: number } {
+  const prices: number[] = []
+  for (const entry of entries) {
+    const listCurrency = context?.listCurrency.get(priceListKey(entry.name))
+    const cashCurrency = context ? normCurrency(entry.currency || listCurrency, context.base) : ""
+    const nonCashCurrency = context ? normCurrency(entry.nonCashCurrency || entry.currency || listCurrency, context.base) : ""
+    for (const [value, currency] of [
+      [entry.cash, cashCurrency],
+      [entry.nonCash, nonCashCurrency],
+    ] as const) {
+      if (!(value > 0)) continue
+      const converted = context ? toBase(value, currency, context) : value
+      if (converted !== null && converted > 0) prices.push(converted)
+    }
+  }
   return { priceMin: prices.length ? Math.min(...prices) : 0, priceMax: prices.length ? Math.max(...prices) : 0 }
 }
 
 // --- columns that exist (raw_materials gets price_lists / price_min / price_max lazily from its repo) ---
 
-const WANTED = ["price_lists", "price_min", "price_max", "price_updated_date", "price_list", "cash_price", "non_cash_price"]
+const WANTED = ["price_lists", "price_min", "price_max", "price_updated_date", "deleted", "price_list", "cash_price", "non_cash_price"]
 const columnCache = new Map<string, { columns: Set<string>; at: number }>()
 
 async function itemColumns(db: PgDb, table: string): Promise<Set<string>> {
@@ -155,9 +225,14 @@ async function itemColumns(db: PgDb, table: string): Promise<Set<string>> {
   return columns
 }
 
-function checkPrice(value: number | undefined, field: string): number | undefined {
+/** True for a price that may be stored: a finite number with 0 ≤ x ≤ MAX_PRICE. */
+export function isValidPrice(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= MAX_PRICE
+}
+
+function checkPrice(value: number | undefined): number | undefined {
   if (value === undefined || value === null) return undefined
-  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) throw new RangeError(`Некорректная цена: ${field}`)
+  if (!isValidPrice(value)) throw new RangeError(INVALID_PRICE)
   return Math.round(value * 1e6) / 1e6
 }
 
@@ -165,10 +240,10 @@ function applyChange(entries: ItemPriceEntry[], change: ItemPriceChange): ItemPr
   const key = priceListKey(change.priceList)
   const index = entries.findIndex((entry) => priceListKey(entry.name) === key)
   if (change.remove) return index < 0 ? entries : entries.filter((_, position) => position !== index)
-  const cash = checkPrice(change.cash, "cash")
-  const nonCash = checkPrice(change.nonCash, "nonCash")
-  const min = checkPrice(change.min, "min")
-  const max = checkPrice(change.max, "max")
+  const cash = checkPrice(change.cash)
+  const nonCash = checkPrice(change.nonCash)
+  const min = checkPrice(change.min)
+  const max = checkPrice(change.max)
   const currency = change.currency?.trim() || undefined
   const nonCashCurrency = change.nonCashCurrency?.trim() || undefined
   if (index < 0) {
@@ -187,12 +262,26 @@ function applyChange(entries: ItemPriceEntry[], change: ItemPriceChange): ItemPr
   return entries.map((entry, position) => (position === index ? next : entry))
 }
 
+export type SetItemPricesOptions = {
+  /** Treat a deleted item ("Удалённые") as missing (returns null): price grid, repricing. */
+  live?: boolean
+  /** Preloaded loadPriceCurrencyContext() (callers that write many items in one transaction). */
+  context?: PriceCurrencyContext
+}
+
 /**
  * Upserts price-list entries of one product / raw material and recomputes price_min, price_max and
  * price_updated_date. Runs on `db` (pass the caller's transaction handle). Returns null when the
- * item does not exist. Throws RangeError for a negative / non-finite price.
+ * item does not exist (or is deleted, with `live`). Throws RangeError "Некорректная цена" for a
+ * negative / non-finite / too large price.
  */
-export async function setItemPrices(db: PgDb, kind: ItemPriceKind, id: number, changes: ItemPriceChange[]): Promise<SetItemPricesResult | null> {
+export async function setItemPrices(
+  db: PgDb,
+  kind: ItemPriceKind,
+  id: number,
+  changes: ItemPriceChange[],
+  options: SetItemPricesOptions = {},
+): Promise<SetItemPricesResult | null> {
   const table = TABLES[kind]
   if (!table) throw new Error(`Unknown item kind: ${kind}`)
   const columns = await itemColumns(db, table)
@@ -203,6 +292,7 @@ export async function setItemPrices(db: PgDb, kind: ItemPriceKind, id: number, c
     "name",
     "price_lists",
     columns.has("price_updated_date") ? "price_updated_date" : "NULL AS price_updated_date",
+    columns.has("deleted") ? "deleted" : "0 AS deleted",
     ...(legacy ? ["price_list", "cash_price", columns.has("non_cash_price") ? "non_cash_price" : "NULL AS non_cash_price"] : []),
   ]
   const row = (await db.prepare(`SELECT ${select.join(", ")} FROM ${table} WHERE id = ? FOR UPDATE`).get(id)) as
@@ -211,12 +301,14 @@ export async function setItemPrices(db: PgDb, kind: ItemPriceKind, id: number, c
         name: string
         price_lists: string | null
         price_updated_date: string | null
+        deleted: number | string | null
         price_list?: string | null
         cash_price?: string | null
         non_cash_price?: string | null
       }
     | undefined
   if (!row) return null
+  if (options.live && Number(row.deleted) === 1) return null
 
   // A raw material saved before the multi-list form keeps its only price in price_list / cash_price
   // (the stock catalog reads it while the JSON is empty) — carry it into the JSON on the first write.
@@ -230,7 +322,7 @@ export async function setItemPrices(db: PgDb, kind: ItemPriceKind, id: number, c
     entries = applyChange(entries, change)
   }
 
-  const { priceMin, priceMax } = priceBounds(entries)
+  const { priceMin, priceMax } = priceBounds(entries, options.context ?? (await cachedPriceCurrencyContext(db)))
   const json = JSON.stringify(entries)
   const changed = json !== before
   let priceUpdatedDate = row.price_updated_date ?? ""

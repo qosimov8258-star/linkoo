@@ -27,7 +27,9 @@ import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
 
 import { downloadExcelTable } from "@/lib/excel-export"
 import { mapHeaderColumns, readExcelRows } from "@/lib/excel-import"
+import { formatStatementDate, parseAnyDate, parseAnyDay, todayIso } from "@/lib/finance/dates"
 import { useLanguage } from "@/lib/i18n/language-context"
+import { unitWeightKg } from "@/lib/internal-transfers-types"
 import type { InvoiceSupplyDraft } from "@/lib/invoice-incomings-types"
 import { OrganizationFormModal } from "./organization-form-modal"
 import { SupplierFormModal } from "./supplier-form-modal"
@@ -53,11 +55,17 @@ function formatMoney(value: number, currency = "SUM") {
   return `${(Math.round(value * 1000) / 1000).toLocaleString("ru-RU")} ${currency}`
 }
 
-function formatTimestamp(value: string) {
+/** A stored timestamp (UTC ISO, local text, …) in the page language, Asia/Tashkent time. */
+function formatTimestamp(value: string, language: string) {
   if (!value) return ""
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return value
-  return `${formatDate(date)}, ${date.toTimeString().slice(0, 5)}`
+  const local = parseAnyDate(value)
+  return local ? formatStatementDate(local.slice(0, 16), language).replace(/\s*г\.,/, ",") : value
+}
+
+/** A stored day (YYYY-MM-DD, legacy "19 октября 2026") in the page language. */
+function formatDay(value: string, language: string) {
+  const day = parseAnyDay(value)
+  return day ? formatStatementDate(day, language, false).replace(/\s*г\.$/, "") : value
 }
 
 const statusStyles: Record<Status, string> = {
@@ -75,20 +83,21 @@ const statusDots: Record<Status, string> = {
 type DraftItem = { id: number; product: string; qty: number; cost: number; source?: { name: string; ikpu: string; unit: string } }
 type Tab = "items" | "cost" | "expenses" | "logs"
 
-const monthNames = ["января", "февраля", "марта", "апреля", "мая", "июня", "июля", "августа", "сентября", "октября", "ноября", "декабря"]
-function formatDate(date: Date) {
-  return `${String(date.getDate()).padStart(2, "0")} ${monthNames[date.getMonth()]} ${date.getFullYear()}`
-}
+/** A stored day as the value of an <input type="date"> ("" when it does not parse). */
+const isoDay = (value: string) => parseAnyDay(value) ?? ""
 
-function emptyDraft(supplierOptions: string[] = [], warehouseOptions: string[] = [], organizationOptions: string[] = [], branchOptions: string[] = []) {
+/** A new supply starts with nothing picked: the storekeeper must choose the supplier,
+ * branch, warehouse and organization (the lists are newest-first, so a preselected
+ * first option would be whatever was created last). Dates are ISO (date pickers). */
+function emptyDraft() {
   return {
-    supplier: supplierOptions[0] ?? "",
-    branch: branchOptions[0] ?? "",
-    warehouse: warehouseOptions[0] ?? "",
-    organization: organizationOptions[0] ?? "",
+    supplier: "",
+    branch: "",
+    warehouse: "",
+    organization: "",
     currency: "SUM",
     paymentType: paymentTypes[0] as string,
-    date: formatDate(new Date()),
+    date: todayIso(),
     expectedFactoryExit: "",
     expectedCustomsArrival: "",
     contractNumber: "",
@@ -98,8 +107,12 @@ function emptyDraft(supplierOptions: string[] = [], warehouseOptions: string[] =
   }
 }
 
+type WarehouseOption = { name: string; branch: string; active: boolean }
+
+const sameName = (a: string, b: string) => a.replace(/\s+/g, " ").trim().toLowerCase() === b.replace(/\s+/g, " ").trim().toLowerCase()
+
 export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean }) {
-  const { t } = useLanguage()
+  const { t, language } = useLanguage()
   const [rows, setRows] = useState<Incoming[]>([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState("")
@@ -124,11 +137,13 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
   const [draftItems, setDraftItems] = useState<DraftItem[]>([])
   const [pickerOpen, setPickerOpen] = useState(false)
   const [supplierOptions, setSupplierOptions] = useState<string[]>([])
-  const [warehouseOptions, setWarehouseOptions] = useState<string[]>([])
+  const [warehouseRows, setWarehouseRows] = useState<WarehouseOption[]>([])
   const [organizationOptions, setOrganizationOptions] = useState<string[]>([])
   const [branchOptions, setBranchOptions] = useState<string[]>([])
   const [productOptions, setProductOptions] = useState<string[]>([])
   const [productUnits, setProductUnits] = useState<Record<string, string>>({})
+  /** Weight of one unit, kg (the item's mass, else what a weight unit implies), by item name. */
+  const [productUnitKg, setProductUnitKg] = useState<Record<string, number>>({})
   const [pickerQuery, setPickerQuery] = useState("")
   const [quickAddSupplierOpen, setQuickAddSupplierOpen] = useState(false)
   const [quickAddWarehouseOpen, setQuickAddWarehouseOpen] = useState(false)
@@ -140,6 +155,9 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
   const invoiceHandled = useRef<string | null>(null)
   const importInputRef = useRef<HTMLInputElement>(null)
   const pageSize = 25
+  /** "Кг." of a supply line: the weight typed on the line, else quantity × weight of one unit. */
+  const lineKg = (item: { product: string; qty: number; kg?: number }) =>
+    Number(item.kg) > 0 ? Number(item.kg) : Math.round(item.qty * (productUnitKg[item.product] ?? 0) * 1000) / 1000
 
   useEffect(() => {
     let cancelled = false
@@ -182,8 +200,8 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
         setSupplierOptions(data.map((item) => item.name))
       }
       if (warehousesRes?.ok) {
-        const data = (await warehousesRes.json()) as { name: string }[]
-        setWarehouseOptions(data.map((item) => item.name))
+        const data = (await warehousesRes.json()) as Array<{ name: string; branch?: string; active?: boolean }>
+        setWarehouseRows(data.map((item) => ({ name: item.name, branch: item.branch ?? "", active: item.active !== false })))
       }
       if (organizationsRes?.ok) {
         const data = (await organizationsRes.json()) as { name: string }[]
@@ -194,12 +212,20 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
         setBranchOptions(data.map((item) => item.name))
       }
       // Raw materials are received from suppliers too (production stock).
-      const catalog: { name: string; unit: string }[] = []
+      const catalog: { name: string; unit: string; mass: number }[] = []
+      const massOf = (value: unknown) => Number(String(value ?? "").replace(",", ".")) || 0
       // Soft-deleted products ("Удалённые") are not offered.
-      if (productsRes?.ok) catalog.push(...((await productsRes.json()) as { name: string; unit: string; deleted?: boolean }[]).filter((item) => !item.deleted))
-      if (rawMaterialsRes?.ok) catalog.push(...((await rawMaterialsRes.json()) as { name: string; unit: string }[]))
+      if (productsRes?.ok) {
+        const data = (await productsRes.json()) as { name: string; unit: string; weight?: unknown; deleted?: boolean }[]
+        catalog.push(...data.filter((item) => !item.deleted).map((item) => ({ name: item.name, unit: item.unit, mass: massOf(item.weight) })))
+      }
+      if (rawMaterialsRes?.ok) {
+        const data = (await rawMaterialsRes.json()) as { name: string; unit: string; mass?: unknown }[]
+        catalog.push(...data.map((item) => ({ name: item.name, unit: item.unit, mass: massOf(item.mass) })))
+      }
       setProductOptions(Array.from(new Set(catalog.map((item) => item.name))).sort((a, b) => a.localeCompare(b, "ru")))
       setProductUnits(Object.fromEntries(catalog.map((item) => [item.name, item.unit])))
+      setProductUnitKg(Object.fromEntries(catalog.map((item) => [item.name, unitWeightKg(item.unit, item.mass)])))
       setOptionsLoaded(true)
     }
     void loadOptions()
@@ -207,6 +233,14 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
       cancelled = true
     }
   }, [])
+
+  /** Every warehouse (filters, legacy rows). */
+  const warehouseOptions = useMemo(() => warehouseRows.map((item) => item.name), [warehouseRows])
+  /** Warehouses a new supply may go to: active ones of the chosen branch (all branches when none is chosen). */
+  const draftWarehouseOptions = useMemo(
+    () => warehouseRows.filter((item) => item.active && (!draft.branch || !item.branch || sameName(item.branch, draft.branch))).map((item) => item.name),
+    [warehouseRows, draft.branch],
+  )
 
   // "Создать приход" of an accepted incoming e-invoice: the create dialog prefilled with
   // its supplier, organization, currency, contract / invoice number and date and the lines
@@ -226,7 +260,7 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
         return data as InvoiceSupplyDraft
       })
       .then((invoice) => {
-        const base = emptyDraft(supplierOptions, warehouseOptions, organizationOptions, branchOptions)
+        const base = emptyDraft()
         setDraft({
           ...base,
           supplier: invoice.supplier,
@@ -234,7 +268,7 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
           currency: invoice.currency,
           contractNumber: invoice.contractNumber,
           invoiceNumber: invoice.number,
-          invoiceDate: invoice.date ? formatDate(new Date(`${invoice.date}T00:00:00`)) : "",
+          invoiceDate: invoice.date ? isoDay(invoice.date) : "",
         })
         setDraftItems(invoice.lines.map((line, index) => ({ id: index + 1, product: line.product, qty: line.quantity, cost: line.cost, source: { name: line.name, ikpu: line.ikpu, unit: line.unit } })))
         setEditingId(null)
@@ -242,7 +276,7 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
         setModalOpen(true)
       })
       .catch((reason: unknown) => window.alert(t(reason instanceof Error ? reason.message : String(reason))))
-  }, [invoiceParam, optionsLoaded, supplierOptions, warehouseOptions, organizationOptions, branchOptions, t])
+  }, [invoiceParam, optionsLoaded, t])
 
   const filtered = useMemo(() => {
     return rows.filter((row) => {
@@ -316,7 +350,7 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
   }
 
   function openCreate() {
-    setDraft(emptyDraft(supplierOptions, warehouseOptions, organizationOptions, branchOptions))
+    setDraft(emptyDraft())
     setDraftItems([])
     setEditingId(null)
     setFromInvoice(null)
@@ -331,12 +365,12 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
       organization: row.organization,
       currency: row.currency || "SUM",
       paymentType: row.paymentType,
-      date: row.date,
+      date: isoDay(row.date) || todayIso(),
       expectedFactoryExit: "",
       expectedCustomsArrival: "",
       contractNumber: row.contractNumber,
       invoiceNumber: row.invoiceNumber,
-      invoiceDate: row.invoiceDate,
+      invoiceDate: isoDay(row.invoiceDate),
       comment: row.comment,
     })
     setDraftItems(row.items.map((item) => ({ id: item.id, product: item.product, qty: item.qty, cost: item.cost })))
@@ -346,7 +380,7 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
   }
 
   function addBlankItem() {
-    setDraftItems((current) => [...current, { id: Math.max(0, ...current.map((item) => item.id)) + 1, product: productOptions[0] ?? "", qty: 1, cost: 0 }])
+    setDraftItems((current) => [...current, { id: Math.max(0, ...current.map((item) => item.id)) + 1, product: "", qty: 1, cost: 0 }])
   }
 
   function addFromList(product: string) {
@@ -404,6 +438,22 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
   async function save(event: FormEvent) {
     event.preventDefault()
     if (!draftItems.length) return
+    if (!draft.supplier || !draft.warehouse || !draft.organization) {
+      window.alert(t("Заполните обязательные поля"))
+      return
+    }
+    if (draftItems.some((item) => !item.product.trim())) {
+      window.alert(t("Выберите товар"))
+      return
+    }
+    if (draftItems.some((item) => !(item.qty > 0))) {
+      window.alert(t("Количество должно быть больше 0"))
+      return
+    }
+    if (draftItems.some((item) => !(item.cost >= 0))) {
+      window.alert(t("Цена не может быть отрицательной"))
+      return
+    }
     if (fromInvoice && editingId === null) {
       if (!supplierOptions.includes(draft.supplier)) {
         window.alert(t("Выберите поставщика из справочника"))
@@ -576,7 +626,7 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
                     <td className="px-9 py-4">{row.id}</td>
                     <td className="px-5 py-4 text-[#4f70e7]">{row.supplier}</td>
                     <td className="px-5 py-4">{row.warehouse}</td>
-                    <td className="px-5 py-4">{row.date}</td>
+                    <td className="px-5 py-4">{formatDay(row.date, language)}</td>
                     <td className="px-5 py-4">{t(row.paymentType)}</td>
                     <td className="px-5 py-4">{row.contractNumber}</td>
                     <td className="px-5 py-4">{formatMoney(row.amount, row.currency)}</td>
@@ -690,8 +740,8 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
                               <div className="flex justify-between gap-4"><dt className="text-slate-500">{t("Склад")}:</dt><dd className="font-medium">{row.warehouse}</dd></div>
                               <div className="flex justify-between gap-4"><dt className="text-slate-500">{t("Статус")}:</dt><dd className={`font-medium ${statusStyles[row.status]}`}>{row.status === "принят" ? t("Принят") : row.status === "ожидает" ? t("В ожидании") : t("Отменен")}</dd></div>
                               <div className="flex justify-between gap-4"><dt className="text-slate-500">{t("Принимать на склад")}:</dt><dd className={`font-medium ${row.status === "ожидает" ? "text-emerald-500" : "text-slate-500"}`}>{row.status === "ожидает" ? t("Можно") : row.status === "принят" ? t("Принято") : t("Нельзя")}</dd></div>
-                              <div className="flex justify-between gap-4"><dt className="text-slate-500">{t("Время приемки")}:</dt><dd className="font-medium">{row.acceptedAt ? `${formatTimestamp(row.acceptedAt)}${row.acceptedBy ? ` (${row.acceptedBy})` : ""}` : t("Не начался")}</dd></div>
-                              <div className="flex justify-between gap-4"><dt className="text-slate-500">{t("Дата поставки")}:</dt><dd className="font-medium">{row.date}</dd></div>
+                              <div className="flex justify-between gap-4"><dt className="text-slate-500">{t("Время приемки")}:</dt><dd className="font-medium">{row.acceptedAt ? `${formatTimestamp(row.acceptedAt, language)}${row.acceptedBy ? ` (${row.acceptedBy})` : ""}` : t("Не начался")}</dd></div>
+                              <div className="flex justify-between gap-4"><dt className="text-slate-500">{t("Дата поставки")}:</dt><dd className="font-medium">{formatDay(row.date, language)}</dd></div>
                               <div className="flex justify-between gap-4"><dt className="text-slate-500">{t("Комментарии")}:</dt><dd className="font-medium">{row.comment || t("Не указан")}</dd></div>
                               <div className="flex justify-between gap-4"><dt className="text-slate-500">{t("Счет фактура")}:</dt><dd className="font-medium">{row.invoiceNumber || t("Не указан")}</dd></div>
                             </dl>
@@ -734,7 +784,7 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
                                   <td className="py-2 pr-4">{item.expiry || "—"}</td>
                                   <td className="py-2 pr-4">{item.qty.toLocaleString("ru-RU")} {productUnits[item.product] ?? ""}</td>
                                   <td className="py-2 pr-4">{item.block}</td>
-                                  <td className="py-2 pr-4">{item.kg}</td>
+                                  <td className="py-2 pr-4">{lineKg(item).toLocaleString("ru-RU")}</td>
                                   <td className="py-2 pr-4">{item.netWeight}</td>
                                   <td className="py-2 pr-4">{item.cost.toLocaleString("ru-RU")}</td>
                                   <td className="py-2 pr-4">{item.total.toLocaleString("ru-RU")}</td>
@@ -744,7 +794,7 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
                                 <td className="py-2 pr-4" colSpan={3}>{t("Итого")}:</td>
                                 <td className="py-2 pr-4">{row.items.reduce((sum, item) => sum + item.qty, 0).toLocaleString("ru-RU")}</td>
                                 <td className="py-2 pr-4">0</td>
-                                <td className="py-2 pr-4">0</td>
+                                <td className="py-2 pr-4">{(Math.round(row.items.reduce((sum, item) => sum + lineKg(item), 0) * 1000) / 1000).toLocaleString("ru-RU")}</td>
                                 <td className="py-2 pr-4" />
                                 <td className="py-2 pr-4" />
                                 <td className="py-2 pr-4">{row.items.reduce((sum, item) => sum + item.total, 0).toLocaleString("ru-RU")}</td>
@@ -800,7 +850,7 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
                               <tbody>
                                 {detailExpenses.map((expense) => (
                                   <tr key={expense.id} className="border-t border-slate-100">
-                                    <td className="py-2 pr-4">{expense.date}</td>
+                                    <td className="py-2 pr-4">{formatDay(expense.date, language)}</td>
                                     <td className="py-2 pr-4">{expense.description}</td>
                                     <td className="py-2 pr-4">{t(expense.paymentType)}</td>
                                     <td className="py-2 pr-4">{formatMoney(expense.amount, expense.currency)}</td>
@@ -823,7 +873,7 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
                           <ul className="space-y-2 text-sm text-slate-600">
                             {detailLogs.map((log) => (
                               <li key={log.id} className="flex flex-wrap gap-x-2 border-b border-dashed border-slate-200 pb-2">
-                                <span className="text-slate-400">{formatTimestamp(log.createdAt)}</span>
+                                <span className="text-slate-400">{formatTimestamp(log.createdAt, language)}</span>
                                 <span className="font-medium text-slate-700">{t(LOG_LABELS[log.action] ?? log.action)}</span>
                                 {log.details && <span>— {log.details}</span>}
                                 <span className="text-slate-400">({log.userName})</span>
@@ -886,7 +936,7 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
               {fromInvoice && editingId === null && (
                 <div className="space-y-1 rounded border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-800">
                   <p>
-                    {t("Приход создается из счет-фактуры")} № <b>{fromInvoice.number}</b> {t("от")} {draft.invoiceDate} — {formatMoney(fromInvoice.total, fromInvoice.currency)}
+                    {t("Приход создается из счет-фактуры")} № <b>{fromInvoice.number}</b> {t("от")} {formatDay(draft.invoiceDate, language)} — {formatMoney(fromInvoice.total, fromInvoice.currency)}
                   </p>
                   {!supplierOptions.includes(draft.supplier) && <p className="text-amber-700">{t("Поставщик не найден в справочнике — выберите поставщика или добавьте его.")}</p>}
                   {draftItems.some((item) => !item.product) && <p className="text-amber-700">{t("Строки без товара в каталоге выделены — выберите товар или удалите строку.")}</p>}
@@ -897,7 +947,8 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
                   <div className="flex items-end justify-between gap-3 border-b border-slate-200 pb-2">
                     <label className="block flex-1 font-medium">
                       {t("Поставщик")} *
-                      <select value={draft.supplier} onChange={(event) => setDraft((value) => ({ ...value, supplier: event.target.value }))} className="mt-2 block w-full bg-white outline-none">
+                      <select required value={draft.supplier} onChange={(event) => setDraft((value) => ({ ...value, supplier: event.target.value }))} className="mt-2 block w-full bg-white outline-none">
+                        <option value="">{t("Выберите...")}</option>
                         {draft.supplier && !supplierOptions.includes(draft.supplier) && <option>{draft.supplier}</option>}
                         {supplierOptions.map((item) => <option key={item}>{item}</option>)}
                       </select>
@@ -909,7 +960,18 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
                   {supplierOptions.length === 0 && <p className="text-xs text-amber-600">{t("Нет поставщиков — нажмите «+добавить»")}</p>}
                   <label className="block border-b border-slate-200 pb-2 font-medium">
                     {t("Филиал")} *
-                    <select value={draft.branch} onChange={(event) => setDraft((value) => ({ ...value, branch: event.target.value }))} className="mt-2 block w-full bg-white outline-none">
+                    <select
+                      value={draft.branch}
+                      onChange={(event) => {
+                        const branch = event.target.value
+                        // A warehouse of another branch is no longer offered: pick again.
+                        setDraft((value) => {
+                          const keep = !branch || warehouseRows.some((item) => item.name === value.warehouse && (!item.branch || sameName(item.branch, branch)))
+                          return { ...value, branch, warehouse: keep ? value.warehouse : "" }
+                        })
+                      }}
+                      className="mt-2 block w-full bg-white outline-none"
+                    >
                       <option value="">{t("Не указано")}</option>
                       {draft.branch && !branchOptions.includes(draft.branch) && <option>{draft.branch}</option>}
                       {branchOptions.map((item) => <option key={item}>{item}</option>)}
@@ -918,15 +980,17 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
                   <div className="flex items-end justify-between gap-3 border-b border-slate-200 pb-2">
                     <label className="block flex-1 font-medium">
                       {t("Склад назначения")} *
-                      <select value={draft.warehouse} onChange={(event) => setDraft((value) => ({ ...value, warehouse: event.target.value }))} className="mt-2 block w-full bg-white outline-none">
-                        {warehouseOptions.map((item) => <option key={item}>{item}</option>)}
+                      <select required value={draft.warehouse} onChange={(event) => setDraft((value) => ({ ...value, warehouse: event.target.value }))} className="mt-2 block w-full bg-white outline-none">
+                        <option value="">{t("Выберите...")}</option>
+                        {draft.warehouse && !draftWarehouseOptions.includes(draft.warehouse) && <option>{draft.warehouse}</option>}
+                        {draftWarehouseOptions.map((item) => <option key={item}>{item}</option>)}
                       </select>
                     </label>
                     <button type="button" onClick={() => setQuickAddWarehouseOpen(true)} className="whitespace-nowrap pb-2 text-sm font-semibold text-[#4f70e7] hover:underline">
                       {t("+добавить")}
                     </button>
                   </div>
-                  {warehouseOptions.length === 0 && <p className="text-xs text-amber-600">{t("Нет складов — нажмите «+добавить»")}</p>}
+                  {draftWarehouseOptions.length === 0 && <p className="text-xs text-amber-600">{t("Нет складов — нажмите «+добавить»")}</p>}
                   <label className="block font-medium">
                     {t("Оставить комментарий...")}
                     <textarea value={draft.comment} onChange={(event) => setDraft((value) => ({ ...value, comment: event.target.value }))} rows={2} className="mt-2 block w-full resize-none border-b border-slate-200 outline-none" />
@@ -937,7 +1001,9 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
                   <div className="flex items-end justify-between gap-3 border-b border-slate-200 pb-2">
                     <label className="block flex-1 font-medium">
                       {t("Организация")} *
-                      <select value={draft.organization} onChange={(event) => setDraft((value) => ({ ...value, organization: event.target.value }))} className="mt-2 block w-full bg-white outline-none">
+                      <select required value={draft.organization} onChange={(event) => setDraft((value) => ({ ...value, organization: event.target.value }))} className="mt-2 block w-full bg-white outline-none">
+                        <option value="">{t("Выберите...")}</option>
+                        {draft.organization && !organizationOptions.includes(draft.organization) && <option>{draft.organization}</option>}
                         {organizationOptions.map((item) => <option key={item}>{item}</option>)}
                       </select>
                     </label>
@@ -965,15 +1031,15 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
                 <div className="space-y-4">
                   <label className="block border-b border-slate-200 pb-2 font-medium">
                     {t("Дата поставки")} *
-                    <input value={draft.date} onChange={(event) => setDraft((value) => ({ ...value, date: event.target.value }))} className="mt-2 block w-full outline-none" />
+                    <input required type="date" value={draft.date} onChange={(event) => setDraft((value) => ({ ...value, date: event.target.value }))} className="mt-2 block w-full outline-none" />
                   </label>
                   <label className="block border-b border-slate-200 pb-2 font-medium">
                     {t("Ожидаемый выход с завода")}
-                    <input value={draft.expectedFactoryExit} onChange={(event) => setDraft((value) => ({ ...value, expectedFactoryExit: event.target.value }))} className="mt-2 block w-full outline-none" />
+                    <input type="date" value={draft.expectedFactoryExit} onChange={(event) => setDraft((value) => ({ ...value, expectedFactoryExit: event.target.value }))} className="mt-2 block w-full outline-none" />
                   </label>
                   <label className="block border-b border-slate-200 pb-2 font-medium">
                     {t("Ожидаемое прибытие в таможню")}
-                    <input value={draft.expectedCustomsArrival} onChange={(event) => setDraft((value) => ({ ...value, expectedCustomsArrival: event.target.value }))} className="mt-2 block w-full outline-none" />
+                    <input type="date" value={draft.expectedCustomsArrival} onChange={(event) => setDraft((value) => ({ ...value, expectedCustomsArrival: event.target.value }))} className="mt-2 block w-full outline-none" />
                   </label>
                   <label className="block border-b border-slate-200 pb-2 font-medium">
                     {t("Номер договора")}
@@ -985,7 +1051,7 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
                   </label>
                   <label className="block border-b border-slate-200 pb-2 font-medium">
                     {t("Дата счет фактуры")}
-                    <input value={draft.invoiceDate} onChange={(event) => setDraft((value) => ({ ...value, invoiceDate: event.target.value }))} className="mt-2 block w-full outline-none" />
+                    <input type="date" value={draft.invoiceDate} onChange={(event) => setDraft((value) => ({ ...value, invoiceDate: event.target.value }))} className="mt-2 block w-full outline-none" />
                   </label>
                 </div>
               </div>
@@ -1032,8 +1098,9 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
                       {draftItems.map((item) => (
                         <tr key={item.id} className="border-t border-slate-100">
                           <td className="py-2 pr-4">
-                            <select value={item.product} onChange={(event) => updateDraftItem(item.id, { product: event.target.value })} className={`bg-white outline-none ${item.source && !item.product ? "rounded border border-rose-400" : ""}`}>
-                              {(productOptions.includes(item.product) ? productOptions : [item.product, ...productOptions]).map((product) => (
+                            <select required value={item.product} onChange={(event) => updateDraftItem(item.id, { product: event.target.value })} className={`bg-white outline-none ${!item.product ? "rounded border border-rose-400" : ""}`}>
+                              <option value="">{t("Выберите товар")}</option>
+                              {(!item.product || productOptions.includes(item.product) ? productOptions : [item.product, ...productOptions]).map((product) => (
                                 <option key={product}>{product}</option>
                               ))}
                             </select>
@@ -1046,7 +1113,7 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
                             )}
                           </td>
                           <td className="py-2 pr-4">
-                            <input type="number" min={0} step="any" value={item.qty} onChange={(event) => updateDraftItem(item.id, { qty: Number(event.target.value) })} className="w-20 border-b border-slate-200 outline-none" />
+                            <input type="number" min={0} step="any" value={item.qty} onChange={(event) => updateDraftItem(item.id, { qty: Number(event.target.value) })} className={`w-20 border-b outline-none ${item.qty > 0 ? "border-slate-200" : "border-rose-400"}`} />
                           </td>
                           <td className="py-2 pr-4">
                             <input type="number" min={0} step="any" value={item.cost} onChange={(event) => updateDraftItem(item.id, { cost: Number(event.target.value) })} className="w-28 border-b border-slate-200 outline-none" />
@@ -1124,7 +1191,7 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
         <WarehouseFormModal
           onClose={() => setQuickAddWarehouseOpen(false)}
           onSaved={(created) => {
-            setWarehouseOptions((current) => (current.includes(created.name) ? current : [created.name, ...current]))
+            setWarehouseRows((current) => (current.some((item) => item.name === created.name) ? current : [{ name: created.name, branch: created.branch ?? "", active: created.active !== false }, ...current]))
             setDraft((value) => ({ ...value, warehouse: created.name }))
             setQuickAddWarehouseOpen(false)
           }}

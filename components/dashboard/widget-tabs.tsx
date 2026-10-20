@@ -9,7 +9,7 @@ const tabs = ["ВИДЖЕТЫ", "KPI", "БАЛАНС", "ОХВАТ", "ФИЛИА
 const tabHref: Partial<Record<string, string>> = {
   "ОХВАТ": "/analytics/coverage-analysis",
   "P&L": "/analytics/pnl",
-  "ДОЛГ КЛИЕНТОВ": "/analytics/client-debts",
+  "ДОЛГ КЛИЕНТОВ": "/analytics/order-debts",
   "ГИБКИЙ ДАШБОРД": "/analytics/flexible-dashboard",
   "ФИЛИАЛ": "/analytics/branch-tab",
   "ПРОДАЖА": "/analytics/sales-tab",

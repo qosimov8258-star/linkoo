@@ -1,6 +1,23 @@
 import "server-only"
 
+import { z } from "zod"
+
 import { getDb } from "@/lib/db"
+import { nameKey } from "@/lib/finance/entities"
+import { CashError, findClientByName, isDbId, loadCategories, MAX_DB_ID, MAX_MONEY } from "@/lib/cash/common"
+import { ensureCashSchema } from "@/lib/cash/schema"
+import type { CashOperationInput, CashWriteResult } from "@/lib/cash/types"
+import { createCashOperation, deleteCashOperation, updateCashOperation } from "@/lib/cash/write"
+
+// Legacy /api/cash-management-entries: the old flat shape of a cash entry
+// ({ cashboxId, category, clientName, branch, organization, comment, date,
+// amount ± }). It no longer writes the table itself: every write goes through
+// the cash core (lib/cash/write.ts) — validation of the cashbox, category,
+// client, date and amount, op_type, the overdraft / cashback checks, transfer
+// pairs, loyalty / staff links — and a delete is the core's soft delete
+// (is_deleted, deleted_at / deleted_by), never a physical DELETE. Transfer
+// legs, staff payouts and other typed rows are edited / deleted by the same
+// rules as on the cash page (a transfer leg cannot be edited, 409).
 
 export type CashManagementEntry = {
   id: number
@@ -28,25 +45,6 @@ type Row = {
   amount: number
 }
 
-async function ensureSchema(db: ReturnType<typeof getDb>) {
-  await db.exec(`
-    CREATE TABLE IF NOT EXISTS cash_management_entries (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      cashbox_id INTEGER NOT NULL,
-      description TEXT NOT NULL DEFAULT '',
-      category TEXT NOT NULL DEFAULT '',
-      client_name TEXT NOT NULL DEFAULT '',
-      branch TEXT NOT NULL DEFAULT '',
-      organization TEXT NOT NULL DEFAULT '',
-      comment TEXT NOT NULL DEFAULT '',
-      entry_date TEXT NOT NULL,
-      amount REAL NOT NULL DEFAULT 0,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-    );
-  `)
-}
-
 function rowToEntry(row: Row): CashManagementEntry {
   return {
     id: row.id,
@@ -58,88 +56,95 @@ function rowToEntry(row: Row): CashManagementEntry {
     organization: row.organization,
     comment: row.comment,
     date: row.entry_date,
-    amount: row.amount,
+    amount: Number(row.amount),
   }
 }
 
-export type CashManagementEntryInput = {
-  cashboxId: number
-  description: string
-  category: string
-  clientName: string
-  branch: string
-  organization: string
-  comment: string
-  date: string
-  amount: number
-}
+const id = z.coerce.number().int().positive().max(MAX_DB_ID)
 
-export function parseCashManagementEntryInput(body: unknown): CashManagementEntryInput | null {
-  if (!body || typeof body !== "object") return null
-  const value = body as Record<string, unknown>
-  const cashboxId = typeof value.cashboxId === "number" ? value.cashboxId : Number(value.cashboxId)
-  if (!Number.isFinite(cashboxId)) return null
-  const amount = typeof value.amount === "number" ? value.amount : Number(value.amount)
-  if (!Number.isFinite(amount)) return null
-  const date = typeof value.date === "string" && value.date ? value.date : new Date().toISOString()
+/** Body of POST / PUT (legacy shape; `categoryId` may replace the category name). */
+export const cashManagementEntrySchema = z.object({
+  cashboxId: id,
+  description: z.string().max(500).optional(),
+  category: z.string().trim().max(255).optional(),
+  categoryId: id.optional(),
+  clientName: z.string().trim().max(255).optional(),
+  clientId: id.optional(),
+  branch: z.string().trim().max(255).optional(),
+  organization: z.string().trim().max(255).optional(),
+  comment: z.string().max(2000).optional(),
+  date: z.string().trim().max(40).optional(),
+  /** > 0 = income, < 0 = expense, in the cashbox currency. */
+  amount: z.coerce
+    .number()
+    .finite()
+    .min(-MAX_MONEY, { error: "Слишком большая сумма" })
+    .max(MAX_MONEY, { error: "Слишком большая сумма" })
+    .refine((value) => value !== 0, { error: "Укажите сумму" }),
+})
+export type CashManagementEntryBody = z.infer<typeof cashManagementEntrySchema>
+
+/** Legacy body → the cash core's input (category by id or name, client by id or name). */
+async function toOperationInput(body: CashManagementEntryBody): Promise<CashOperationInput> {
+  const db = getDb()
+  await ensureCashSchema(db)
+  const kind = body.amount >= 0 ? "income" : "expense"
+  let categoryId = body.categoryId
+  if (!categoryId && body.category) {
+    const wanted = nameKey(body.category)
+    categoryId = (await loadCategories(db)).find((category) => category.kind === kind && nameKey(category.name) === wanted)?.id
+    if (!categoryId) throw new CashError("Категория не найдена", 400, kind === "income" ? "incomeCategory" : "expenseCategory")
+  }
+  let clientId = body.clientId
+  if (!clientId && body.clientName) clientId = (await findClientByName(db, body.clientName))?.id
   return {
-    cashboxId,
-    description: typeof value.description === "string" ? value.description : "",
-    category: typeof value.category === "string" ? value.category : "",
-    clientName: typeof value.clientName === "string" ? value.clientName : "",
-    branch: typeof value.branch === "string" ? value.branch : "",
-    organization: typeof value.organization === "string" ? value.organization : "",
-    comment: typeof value.comment === "string" ? value.comment : "",
-    date,
-    amount,
+    kind,
+    date: body.date || undefined,
+    cashboxId: body.cashboxId,
+    branch: body.branch,
+    organization: body.organization,
+    categoryId,
+    amount: Math.abs(body.amount),
+    comment: body.comment,
+    clientId,
   }
 }
 
+/** Live (not deleted) entries, newest first; `cashboxId` filters one cashbox. */
 export async function listCashManagementEntries(cashboxId?: number): Promise<CashManagementEntry[]> {
   const db = getDb()
-  await ensureSchema(db)
-  const rows = cashboxId
-    ? ((await db.prepare("SELECT * FROM cash_management_entries WHERE cashbox_id = ? ORDER BY id DESC").all(cashboxId)) as Row[])
-    : ((await db.prepare("SELECT * FROM cash_management_entries ORDER BY id DESC").all()) as Row[])
+  await ensureCashSchema(db)
+  const rows = isDbId(cashboxId)
+    ? ((await db.prepare("SELECT * FROM cash_management_entries WHERE cashbox_id = @id AND is_deleted = 0 ORDER BY id DESC").all({ id: cashboxId })) as Row[])
+    : ((await db.prepare("SELECT * FROM cash_management_entries WHERE is_deleted = 0 ORDER BY id DESC").all()) as Row[])
   return rows.map(rowToEntry)
 }
 
-export async function getCashManagementEntry(id: number): Promise<CashManagementEntry | null> {
+export async function getCashManagementEntry(entryId: number): Promise<CashManagementEntry | null> {
+  if (!isDbId(entryId)) return null
   const db = getDb()
-  await ensureSchema(db)
-  const row = (await db.prepare("SELECT * FROM cash_management_entries WHERE id = ?").get(id)) as Row | undefined
+  await ensureCashSchema(db)
+  const row = (await db.prepare("SELECT * FROM cash_management_entries WHERE id = @id AND is_deleted = 0").get({ id: entryId })) as Row | undefined
   return row ? rowToEntry(row) : null
 }
 
-export async function createCashManagementEntry(input: CashManagementEntryInput): Promise<CashManagementEntry> {
-  const db = getDb()
-  await ensureSchema(db)
-  const result = (await db
-      .prepare(
-        `INSERT INTO cash_management_entries
-        (cashbox_id, description, category, client_name, branch, organization, comment, entry_date, amount)
-       VALUES (@cashboxId, @description, @category, @clientName, @branch, @organization, @comment, @date, @amount)`,
-      )
-      .run(input))
-  return (await getCashManagementEntry(Number(result.lastInsertRowid)))!
+/** The core's result plus the legacy entry when the money stayed a cash entry. */
+export type LegacyWriteResult = CashWriteResult & { entry: CashManagementEntry | null }
+
+async function withEntry(result: CashWriteResult): Promise<LegacyWriteResult> {
+  return { ...result, entry: result.source === "cash" ? await getCashManagementEntry(result.id) : null }
 }
 
-export async function updateCashManagementEntry(id: number, input: CashManagementEntryInput): Promise<CashManagementEntry | null> {
-  const db = getDb()
-  await ensureSchema(db)
-  if (!(await getCashManagementEntry(id))) return null
-  await db.prepare(
-        `UPDATE cash_management_entries SET
-       cashbox_id = @cashboxId, description = @description, category = @category, client_name = @clientName,
-       branch = @branch, organization = @organization, comment = @comment, entry_date = @date, amount = @amount,
-       updated_at = datetime('now')
-     WHERE id = @id`,
-      ).run({ id, ...input })
-  return (await getCashManagementEntry(id))
+export async function createCashManagementEntry(body: CashManagementEntryBody, user: string): Promise<LegacyWriteResult> {
+  return withEntry(await createCashOperation(await toOperationInput(body), user))
 }
 
-export async function deleteCashManagementEntry(id: number): Promise<boolean> {
-  const db = getDb()
-  await ensureSchema(db)
-  return (await db.prepare("DELETE FROM cash_management_entries WHERE id = ?").run(id)).changes > 0
+export async function updateCashManagementEntry(entryId: number, body: CashManagementEntryBody, user: string): Promise<LegacyWriteResult> {
+  return withEntry(await updateCashOperation(`cash-${entryId}`, await toOperationInput(body), user))
+}
+
+/** Soft delete through the cash core (a transfer leg deletes the whole transfer). */
+export async function deleteCashManagementEntry(entryId: number, user: string): Promise<{ deleted: string[] }> {
+  const result = await deleteCashOperation(`cash-${entryId}`, user)
+  return { deleted: result.deleted }
 }

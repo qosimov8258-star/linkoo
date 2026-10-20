@@ -1,8 +1,7 @@
 import { NextResponse } from "next/server"
 
 import { requireRole } from "@/lib/rbac"
-import { parseJsonBody } from "@/lib/validation"
-import { isDateParam, notFound, positiveIntParam, requireViewer, schemas } from "@/lib/production-api"
+import { guarded, isDateParam, notFound, parseBody, positiveIntParam, requireViewer, schemas } from "@/lib/production-api"
 import { createParty, listParties } from "@/lib/production-batches-repo"
 
 export async function GET(request: Request) {
@@ -36,8 +35,10 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const auth = await requireRole("manager")
   if ("error" in auth) return auth.error
-  const parsed = await parseJsonBody(request, schemas.party)
+  const parsed = await parseBody(request, schemas.party)
   if (parsed.error) return parsed.error
-  const party = await createParty(parsed.data, auth.user.displayName)
-  return party ? NextResponse.json(party, { status: 201 }) : notFound("Этап не найден")
+  return guarded(async () => {
+    const party = await createParty(parsed.data, auth.user.displayName)
+    return party === "stage_not_found" ? notFound("Этап не найден") : NextResponse.json(party, { status: 201 })
+  })
 }

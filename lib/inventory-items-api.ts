@@ -165,13 +165,20 @@ export function parseInventoryQuery(url: string): Parsed<InventoryQuery> {
 // --- bodies ------------------------------------------------------------------------------
 
 const day = z.union([z.literal(""), z.string().regex(ISO_DAY)])
-const optionalId = z.coerce.number().int().positive().max(2_147_483_647).nullable().optional()
+const INVALID_ID = "Неверный идентификатор"
+/** A non-negative integer id: a number or a digits-only string. No coercion: `true` or `[1]`
+ * must not silently become id 1. */
+const idValue = (min: number) =>
+  z
+    .union([z.number(), z.string().trim().regex(/^\d+$/, INVALID_ID).transform(Number)], { error: INVALID_ID })
+    .pipe(z.number().int(INVALID_ID).min(min, INVALID_ID).max(2_147_483_647, INVALID_ID))
+const optionalId = z.preprocess((value) => (value === "" ? null : value), idValue(1).nullable()).optional()
 const text = (max: number) => z.string().trim().max(max)
 
 /** POST /api/inventory-items, PUT /api/inventory-items/[id]. Required fields are checked by the repo (field errors). */
 export const inventoryItemSchema = z.object({
   warehouse: text(300).default(""),
-  productId: z.coerce.number().int().min(0).max(2_147_483_647).default(0),
+  productId: z.preprocess((value) => (value === "" || value === null ? undefined : value), idValue(0).default(0)),
   condition: text(100).default(""),
   responsible: text(300).default(""),
   clientId: optionalId,
@@ -195,11 +202,11 @@ export const inventoryChangeSchema = z.object({
 
 export const inventoryReviewSchema = z.object({ isReviewed: z.boolean() })
 
-export const inventoryBulkDeleteSchema = z.object({ ids: z.array(z.coerce.number().int().positive().max(2_147_483_647)).min(1).max(500) })
+export const inventoryBulkDeleteSchema = z.object({ ids: z.array(idValue(1)).min(1).max(500) })
 
 export const inventoryRequestCreateSchema = z.object({
   type: z.enum(INVENTORY_REQUEST_TYPES),
-  clientId: z.coerce.number().int().min(0).max(2_147_483_647).default(0),
+  clientId: z.preprocess((value) => (value === "" || value === null ? undefined : value), idValue(0).default(0)),
   productId: optionalId,
   itemId: optionalId,
   comment: text(2000).default(""),

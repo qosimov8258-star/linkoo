@@ -30,6 +30,8 @@ export type ClientPaymentInput = {
   amount: number
   comment: string
   paymentDate: string
+  /** Currency of the payment (default: the base currency). */
+  currency?: string
 }
 
 type Row = {
@@ -81,7 +83,7 @@ export async function listClientPayments(clientId?: number): Promise<ClientPayme
 /** Records a client payment (not accepted, no cashbox) as a customer payment. */
 export async function createClientPayment(input: ClientPaymentInput, createdBy: string): Promise<ClientPayment> {
   const created = await createClientCardPayment(
-    { clientId: input.clientId, amount: input.amount, comment: input.comment, paymentDate: input.paymentDate },
+    { clientId: input.clientId, amount: input.amount, currency: input.currency, comment: input.comment, paymentDate: input.paymentDate },
     createdBy,
   )
   const [payment] = (await listClientPayments(input.clientId)).filter((row) => row.source === "customer_payments" && row.id === created.id)

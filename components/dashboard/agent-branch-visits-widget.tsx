@@ -96,7 +96,7 @@ function useOrders() {
   const [orders, setOrders] = useState<OrderLite[]>([])
   useEffect(() => {
     let cancelled = false
-    fetch("/api/orders")
+    fetch("/api/orders?balances=0")
       .then((response) => (response.ok ? response.json() : []))
       .then((data: OrderLite[]) => {
         if (!cancelled && Array.isArray(data)) setOrders(data)

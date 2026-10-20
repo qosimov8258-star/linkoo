@@ -4,14 +4,10 @@ import Image from "next/image"
 import { Filter, Star, X } from "lucide-react"
 import { useMemo, useState } from "react"
 import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
+import { useDirectoryNames } from "@/components/clients/use-directory"
 
-const agents = [
-  "05,08,2025 (1)", "xodim1 1", "Zaynillo Sadullayev", "Salohiddin Agent Tashkent", "Islom Toirjonov",
-  "Maykl Jekson", "Аббос Доставщик", "Admin Ritm", "Bexruz Abdulazizov", "Samandar Abdurahmonov",
-  "Doston Market", "Fozil Agent",
-]
-
-const clientTypes = ["Все типы клиентов", "horeca", "market", "market100", "market101"]
+// Agents and client types come from the factory's own directories; visits
+// have no data source yet, so every counter is 0 and the list stays empty.
 const equipmentStores = ["Все магазины", "С оборудованием", "Без оборудования"]
 
 function inputDate(date: Date) {
@@ -38,12 +34,14 @@ function formatDate(value: string) {
 }
 
 export function ActivityView() {
+  const agents = useDirectoryNames("employees")
+  const clientTypes = ["Все типы клиентов", ...useDirectoryNames("clientTypes")]
   const today = useMemo(() => inputDate(new Date()), [])
   const [from, setFrom] = useState(today)
   const [to, setTo] = useState(today)
   const [draftFrom, setDraftFrom] = useState(monthStart)
   const [draftTo, setDraftTo] = useState(monthEnd)
-  const [clientType, setClientType] = useState(clientTypes[0])
+  const [clientType, setClientType] = useState("Все типы клиентов")
   const [equipmentStore, setEquipmentStore] = useState(equipmentStores[0])
   const [filterOpen, setFilterOpen] = useState(false)
   const [selectedAgent, setSelectedAgent] = useState<string | null>(null)

@@ -7,7 +7,7 @@ import { parseJsonBody } from "@/lib/validation"
 import { createTrendReport, listTrendReports, parseTrendReportInput } from "@/lib/trend-reports-repo"
 
 const trendReportSchema = z.object({
-  name: z.string().trim().min(1),
+  name: z.string().trim().min(1).max(255, "Не более 255 символов"),
   config: z.record(z.string(), z.unknown()).optional(),
 })
 

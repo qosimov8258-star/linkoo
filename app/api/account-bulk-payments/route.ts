@@ -3,16 +3,18 @@ import { NextResponse } from "next/server"
 import { getCurrentUser } from "@/lib/current-user"
 import { requireRole } from "@/lib/rbac"
 import { parseJsonBody } from "@/lib/validation"
+import { cashErrorResponse } from "@/lib/cash/api"
 import { accountBulkPaymentSchema, createAccountBulkPayment, listAccountBulkPayments, missingAccountClientIds } from "@/lib/account-bulk-payments-repo"
-import { todayIso } from "@/lib/finance/dates"
 
-// Legacy log of the old "Групповая оплата" (kept for existing rows, which the
-// finance ledger still counts). The Долги по счетам page posts to
-// /api/balances/group-payment instead — do not post the same payment to both.
+// Legacy log of the old "Групповая оплата" of Долги по счетам. The page posts to
+// /api/balances/group-payment. GET lists the stored legacy rows (not cancelled);
+// POST { clientIds, cashboxId, amount, currency?, paymentDate?, … } goes through
+// the cash core (one customer payment per client, received into the cashbox) →
+// 201 { results, count, total }. DELETE /api/account-bulk-payments/[id] cancels a stored row.
 export async function GET() {
   const user = await getCurrentUser()
   if (!user) return NextResponse.json({ error: "Tizimga kirilmagan" }, { status: 401 })
-  return NextResponse.json((await listAccountBulkPayments()))
+  return NextResponse.json(await listAccountBulkPayments())
 }
 
 export async function POST(request: Request) {
@@ -24,14 +26,10 @@ export async function POST(request: Request) {
 
   // Duplicate ids would count the amount twice for the same client.
   const clientIds = [...new Set(parsed.data.clientIds)]
-  if ((await missingAccountClientIds(clientIds)).length) return NextResponse.json({ error: "Клиент не найден" }, { status: 404 })
-
-  const payment = await createAccountBulkPayment({
-    clientIds,
-    currency: parsed.data.currency || "sum",
-    amount: parsed.data.amount,
-    paymentDate: parsed.data.paymentDate || todayIso(),
-    comment: parsed.data.comment ?? "",
-  })
-  return NextResponse.json(payment, { status: 201 })
+  if ((await missingAccountClientIds(clientIds)).length) return NextResponse.json({ error: "Клиент не найден", field: "client" }, { status: 404 })
+  try {
+    return NextResponse.json(await createAccountBulkPayment({ ...parsed.data, clientIds }, auth.user.displayName), { status: 201 })
+  } catch (error) {
+    return cashErrorResponse(error)
+  }
 }

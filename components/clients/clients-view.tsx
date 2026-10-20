@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useRef, useState, type FormEvent } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react"
 import { useRouter } from "next/navigation"
 import { compareText, RefImportDialog } from "@/components/ref/list-kit"
 import dynamic from "next/dynamic"
@@ -25,6 +25,7 @@ import { useLanguage } from "@/lib/i18n/language-context"
 import { AddOrderDialog } from "@/components/orders/add-order-dialog"
 
 import { clientTabs, type Client } from "./clients-data"
+import { useDirectoryNames } from "./use-directory"
 import { MultiEditDialog, type MultiEditPatch } from "./multi-edit-dialog"
 import { applyClientFilters, ClientsFilterPanel, emptyClientFilters, type ClientFilters } from "./clients-filter-panel"
 
@@ -281,7 +282,7 @@ export function ClientsView() {
         case "Ответственный агент": return c.agent
         case "Ответственный доставщик": return c.deliverer
         case "Ответственный инкассатор": return c.collector
-        case "Баланс": return String(c.balance ?? 0)
+        case "Баланс": return String(Object.values(c.currentBalances ?? {})[0] ?? 0)
         default: return ""
       }
     }
@@ -323,6 +324,7 @@ export function ClientsView() {
   async function applyMultiEdit(patch: MultiEditPatch) {
     setMultiEditOpen(false)
     if (Object.keys(patch).length === 0) return
+    const errors: string[] = []
     const results = await Promise.all(
       selectedClients.map(async (client) => {
         try {
@@ -331,7 +333,9 @@ export function ClientsView() {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ ...client, ...patch }),
           })
-          return response.ok ? ((await response.json()) as Client) : null
+          const body = (await response.json().catch(() => null)) as (Client & { error?: string }) | null
+          if (!response.ok && body?.error) errors.push(`${client.name}: ${t(body.error)}`)
+          return response.ok ? body : null
         } catch {
           return null
         }
@@ -339,7 +343,10 @@ export function ClientsView() {
     )
     const updated = results.filter((client): client is Client => client !== null)
     setClients((current) => current.map((client) => updated.find((item) => item.id === client.id) ?? client))
-    setNotice({ tone: updated.length === selectedClients.length ? "success" : "info", message: `${t("Изменено клиентов")}: ${updated.length}` })
+    setNotice({
+      tone: updated.length === selectedClients.length ? "success" : "info",
+      message: `${t("Изменено клиентов")}: ${updated.length}${errors.length ? `. ${errors.slice(0, 2).join("; ")}` : ""}`,
+    })
   }
 
   function openAddModal() {
@@ -365,7 +372,13 @@ export function ClientsView() {
     if (!window.confirm(`${t("Удалить клиента")} «${client.name}»?`)) return
     try {
       const response = await fetch(`/api/clients/${client.id}`, { method: "DELETE" })
-      if (!response.ok) throw new Error("delete failed")
+      if (!response.ok) {
+        // 409: documents reference the client — say which.
+        const body = (await response.json().catch(() => null)) as { error?: string; usage?: Array<{ label: string; count: number }> } | null
+        const usage = body?.usage?.map((entry) => `${t(entry.label)}: ${entry.count}`).join(", ")
+        setNotice({ tone: "info", message: body?.error ? `${t(body.error)}${usage ? ` (${usage})` : ""}` : t("Не удалось удалить клиента") })
+        return
+      }
       setClients((current) => current.filter((item) => item.id !== client.id))
       setSelected((current) => current.filter((id) => id !== client.id))
       setDetailClient(null)
@@ -420,8 +433,9 @@ export function ClientsView() {
       return
     }
 
-    const parsedBalance = form.balance.trim() === "" ? undefined : Number(form.balance.replace(/\s/g, ""))
-    if (parsedBalance !== undefined && !Number.isFinite(parsedBalance)) {
+    // An emptied opening balance is cleared explicitly (null); undefined would keep it.
+    const parsedBalance = form.balance.trim() === "" ? (modalMode === "edit" ? null : undefined) : Number(form.balance.replace(/\s/g, "").replace(",", "."))
+    if (typeof parsedBalance === "number" && !Number.isFinite(parsedBalance)) {
       setFormError(t("Баланс должен быть числом"))
       return
     }
@@ -462,8 +476,9 @@ export function ClientsView() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(values),
         })
-        if (!response.ok) throw new Error("create failed")
-        const created = (await response.json()) as Client
+        const body = (await response.json().catch(() => null)) as (Client & { error?: string }) | null
+        if (!response.ok || !body) throw new Error(body?.error ? t(body.error) : "")
+        const created = body
         setClients((current) => [created, ...current])
         setSelected([created.id])
         setActiveTab("all")
@@ -475,14 +490,15 @@ export function ClientsView() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(values),
         })
-        if (!response.ok) throw new Error("update failed")
-        const updated = (await response.json()) as Client
+        const body = (await response.json().catch(() => null)) as (Client & { error?: string }) | null
+        if (!response.ok || !body) throw new Error(body?.error ? t(body.error) : "")
+        const updated = body
         setClients((current) => current.map((client) => (client.id === editingId ? updated : client)))
         setNotice({ tone: "success", message: `${t("Клиент")} «${name}» ${t("обновлён")}` })
       }
       setModalMode(null)
-    } catch {
-      setFormError(t("Не удалось сохранить клиента, попробуйте ещё раз"))
+    } catch (caught) {
+      setFormError(caught instanceof Error && caught.message ? caught.message : t("Не удалось сохранить клиента, попробуйте ещё раз"))
     } finally {
       setSaving(false)
     }
@@ -1230,9 +1246,11 @@ function ClientModal({
     [...new Set(allClients.map(pick).filter((value): value is string => Boolean(value) && value !== "Не указано"))].sort((a, b) => a.localeCompare(b, "ru"))
   const channelOptions = distinct((client) => client.salesChannel)
   const realizationOptions = distinct((client) => client.realizationBy)
-  const delivererOptions = distinct((client) => client.deliverer)
-  const collectorOptions = distinct((client) => client.collector)
-  const agentOptions = distinct((client) => client.agent)
+  // People are employees (the API refuses other names).
+  const employeeNames = useDirectoryNames("employees")
+  const delivererOptions = employeeNames
+  const collectorOptions = employeeNames
+  const agentOptions = employeeNames
 
   useEffect(() => {
     let cancelled = false
@@ -1654,30 +1672,38 @@ const WEEK_DAYS = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
 const SHORT_MONTHS = ["Янв.", "Февр.", "Март", "Апр.", "Май", "Июнь", "Июль", "Авг.", "Сент.", "Окт.", "Нояб.", "Дек."]
 const LOG_FILTERS = ["Все", "Заказ", "Возврат", "Финансы", "Клиент"]
 
-type DetailTask = { text: string; at?: string; link?: boolean; done: boolean }
+// The card's figures come from the client ledger (/api/clients/[id]/summary)
+// and its documents (orders, payments, returns); nothing here is invented.
+type ClientSummary = {
+  from: string
+  to: string
+  baseCurrency: string
+  currencies: Array<{ currency: string; begin: number; end: number; orders: number; actualSales: number; returns: number; payments: number }>
+  lastOrder: string | null
+  lastPayment: string | null
+  daysSinceLastOrder: number | null
+}
 
-const DETAIL_TASKS: DetailTask[] = [
-  { text: "Доставили заказ №1594 в 20:3", at: "07 сент. 20:03", done: true },
-  { text: "Оформили заказ №1594", at: "07 сент. 20:03", link: true, done: true },
-  { text: "Внеплановый визит 7 Сентябрь в 20:03", at: "07 сент. 20:03", done: true },
-  { text: "Оформили заказ №1590", at: "17 авг. 13:44", link: true, done: true },
-  { text: "Внеплановый визит 17 Август в 13:44", at: "17 авг. 13:44", done: true },
-  { text: "1 | надо выполнить 4 Август 2026", done: false },
-  { text: "Следует посетить 12 Август 2026 года", done: false },
-  { text: "Следует посетить 11 Август 2026 года", done: false },
-]
+type CardLog = { type: "Заказ" | "Возврат" | "Оплата" | "Клиент"; status: string; by: string; at: string; sortKey: string; sum: string }
 
-const DETAIL_LOGS = [
-  { type: "Оплата", status: "Не установлен", at: "18 июля 2026, 12:38", sum: "12 050 000 SUM" },
-  { type: "Оплата", status: "Удаленный", at: "18 июля 2026, 12:38", sum: "12 050 000 SUM" },
-  { type: "Клиент", status: "Создан", at: "24 мая 2026, 11:32", sum: "0" },
-  { type: "Оплата", status: "Удаленный", at: "18 июля 2026, 12:38", sum: "12 240 000 SUM" },
-  { type: "Оплата", status: "Не установлен", at: "18 июля 2026, 12:36", sum: "12 240 000 SUM" },
-  { type: "Оплата", status: "Удаленный", at: "18 июля 2026, 12:36", sum: "12 050 000 SUM" },
-  { type: "Оплата", status: "Не установлен", at: "18 июля 2026, 12:35", sum: "12 050 000 SUM" },
-  { type: "Оплата", status: "Удаленный", at: "18 июля 2026, 12:35", sum: "12 047 000 SUM" },
-  { type: "Оплата", status: "Не установлен", at: "18 июля 2026, 12:34", sum: "12 047 000 SUM" },
-]
+function moneyLines(values: Array<{ currency: string; value: number }>, base: string) {
+  const lines = values.filter((entry) => entry.value).map((entry) => `${entry.value.toLocaleString("ru-RU", { maximumFractionDigits: 2 })} ${entry.currency}`)
+  return lines.length ? lines.join(", ") : `0 ${base}`
+}
+
+function displayDay(value: string | null | undefined) {
+  if (!value) return ""
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(value)
+  if (!match) return value
+  return `${Number(match[3])} ${SHORT_MONTHS[Number(match[2]) - 1]} ${match[1]}`
+}
+
+function displayMoment(value: string | null | undefined) {
+  if (!value) return ""
+  const date = new Date(/[zZ]$/.test(value) ? value : `${value.replace(" ", "T")}Z`)
+  if (Number.isNaN(date.getTime())) return value
+  return `${formatDetailDate(date)}, ${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`
+}
 
 function formatDetailDate(date: Date) {
   return `${date.getDate()} ${SHORT_MONTHS[date.getMonth()]} ${date.getFullYear()}`
@@ -1701,15 +1727,64 @@ function ClientDetail({
   const [orderOpen, setOrderOpen] = useState(false)
   const [paymentOpen, setPaymentOpen] = useState(false)
   const [paymentAmount, setPaymentAmount] = useState("")
+  const [paymentComment, setPaymentComment] = useState("")
+  const [paymentDate, setPaymentDate] = useState(() => new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10))
+  const [paymentError, setPaymentError] = useState("")
+  const [paymentSaving, setPaymentSaving] = useState(false)
   const [paymentDone, setPaymentDone] = useState(false)
+  const [summary, setSummary] = useState<ClientSummary | null>(null)
+  const [cardLogs, setCardLogs] = useState<CardLog[] | null>(null)
   const primaryPhone = client.phone.split(",")[0]?.trim() ?? ""
   const hasPhone = primaryPhone !== "" && primaryPhone !== "-"
-  const balance = client.balance ?? 0
-  const balanceText = formatBalance(balance)
   const periodEnd = new Date()
   const periodStart = new Date(periodEnd)
   periodStart.setDate(periodStart.getDate() - 30)
   const hasLocation = client.locationLat !== undefined && client.locationLng !== undefined
+  const base = summary?.baseCurrency ?? "SUM"
+  const sumOf = (pick: "orders" | "actualSales" | "returns" | "begin" | "end") => moneyLines((summary?.currencies ?? []).map((entry) => ({ currency: entry.currency, value: entry[pick] })), base)
+  const beginNegative = (summary?.currencies ?? []).some((entry) => entry.begin < 0)
+  const endNegative = (summary?.currencies ?? []).some((entry) => entry.end < 0)
+
+  const loadSummary = useCallback(() => {
+    fetch(`/api/clients/${client.id}/summary`)
+      .then((response) => (response.ok ? (response.json() as Promise<ClientSummary>) : null))
+      .then(setSummary)
+      .catch(() => setSummary(null))
+  }, [client.id])
+
+  useEffect(() => {
+    loadSummary()
+  }, [loadSummary])
+
+  // Logs: the client's own documents (creation, orders, payments, returns).
+  useEffect(() => {
+    let cancelled = false
+    setCardLogs(null)
+    const json = <T,>(url: string) => fetch(url).then((response) => (response.ok ? (response.json() as Promise<T>) : null)).catch(() => null)
+    void Promise.all([
+      json<Array<{ id: number; clientId?: number | null; client: string; status: string; amount: string; createdBy?: string; agent: string; createdAt?: string }>>("/api/orders?balances=0"),
+      json<Array<{ amount: number; currency: string; paymentDate: string; createdAt: string; accepted: boolean }>>(`/api/client-payments?clientId=${client.id}`),
+      json<{ rows: Array<{ id: number; status: string; amount: number; currency: string; createdBy: string; createdAt: string }> }>(`/api/client-returns?clientId=${client.id}`),
+    ]).then(([orders, payments, returns]) => {
+      if (cancelled) return
+      const logs: CardLog[] = []
+      if (client.createdAt) logs.push({ type: "Клиент", status: "Создан", by: client.createdBy || "—", at: displayMoment(client.createdAt), sortKey: client.createdAt, sum: "0" })
+      for (const order of orders ?? []) {
+        if (order.clientId ? order.clientId !== client.id : order.client !== client.name) continue
+        logs.push({ type: "Заказ", status: order.status, by: order.createdBy || order.agent, at: displayMoment(order.createdAt), sortKey: order.createdAt ?? "", sum: order.amount })
+      }
+      for (const payment of payments ?? []) {
+        logs.push({ type: "Оплата", status: payment.accepted ? "Принят" : "Не принят", by: "—", at: displayDay(payment.paymentDate) || displayMoment(payment.createdAt), sortKey: payment.createdAt ?? "", sum: `${payment.amount.toLocaleString("ru-RU")} ${payment.currency}` })
+      }
+      for (const entry of returns?.rows ?? []) {
+        logs.push({ type: "Возврат", status: entry.status === "accepted" ? "Принят" : entry.status === "cancelled" ? "Отменен" : "Ожидает", by: entry.createdBy || "—", at: displayMoment(entry.createdAt), sortKey: entry.createdAt, sum: `${entry.amount.toLocaleString("ru-RU")} ${entry.currency}` })
+      }
+      setCardLogs(logs.sort((a, b) => b.sortKey.localeCompare(a.sortKey)))
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [client.id, client.name, client.createdAt, client.createdBy])
 
   const actionButton = "flex h-[30px] items-center rounded-[5px] pl-3 text-[13px] font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
 
@@ -1765,17 +1840,21 @@ function ClientDetail({
           <div className="p-5">
             <div>
               <DetailMetricRow
-                left={{ label: t("Фактические продажи (30 дней)"), value: "0 SUM" }}
-                right={{ label: t("Прошло дней с последнего заказа"), value: "2477", red: true }}
+                left={{ label: t("Фактические продажи (30 дней)"), value: summary ? sumOf("actualSales") : "…" }}
+                right={{
+                  label: t("Прошло дней с последнего заказа"),
+                  value: summary ? (summary.daysSinceLastOrder === null ? t("Заказов нет") : String(summary.daysSinceLastOrder)) : "…",
+                  red: (summary?.daysSinceLastOrder ?? 0) > 30,
+                }}
                 bordered
               />
               <DetailMetricRow
-                left={{ label: t("Сумма продаж за период (30 дней)"), value: "0 SUM" }}
-                right={{ label: t("Прошло дней с последнего визита"), value: "2477", red: true }}
+                left={{ label: t("Сумма продаж за период (30 дней)"), value: summary ? sumOf("orders") : "…" }}
+                right={{ label: t("Прошло дней с последнего визита"), value: t("Нет данных") }}
                 bordered
               />
               <DetailMetricRow
-                left={{ label: t("Сумма возврата с заказов за период (30 дней)"), value: "0 SUM" }}
+                left={{ label: t("Сумма возврата с заказов за период (30 дней)"), value: summary ? sumOf("returns") : "…" }}
                 right={{ label: t("Комментарий отказа"), value: t("Не указан") }}
               />
             </div>
@@ -1804,7 +1883,7 @@ function ClientDetail({
                 </svg>
                 <span className="pl-2 pr-4">{t("Отказ")}</span>
               </button>
-              <button type="button" onClick={() => setPaymentOpen(true)} className={`${actionButton} bg-[#71ce87]`}>
+              <button type="button" onClick={() => (setPaymentError(""), setPaymentOpen(true))} className={`${actionButton} bg-[#71ce87]`}>
                 <svg viewBox="0 0 24 24" className="mb-1 h-[18px] w-[18px] fill-white">
                   <path d="M20 4H4c-1.11 0-1.99.89-1.99 2L2 18c0 1.11.89 2 2 2h16c1.11 0 2-.89 2-2V6c0-1.11-.89-2-2-2zm0 14H4v-6h16v6zm0-10H4V6h16v2z" />
                 </svg>
@@ -1821,6 +1900,12 @@ function ClientDetail({
                 <form
                   onSubmit={async (event) => {
                     event.preventDefault()
+                    setPaymentError("")
+                    const amount = Number(paymentAmount.replace(/\s/g, "").replace(",", "."))
+                    if (!paymentAmount.trim() || !Number.isFinite(amount) || amount <= 0) return setPaymentError(t("Укажите сумму"))
+                    if (amount > 1e13) return setPaymentError(t("Сумма слишком большая"))
+                    if (!paymentDate) return setPaymentError(t("Укажите дату"))
+                    setPaymentSaving(true)
                     try {
                       const response = await fetch("/api/client-payments", {
                         method: "POST",
@@ -1828,18 +1913,27 @@ function ClientDetail({
                         body: JSON.stringify({
                           clientId: client.id,
                           clientName: client.name,
-                          amount: Number(paymentAmount),
-                          comment: "",
-                          paymentDate: new Date().toISOString().slice(0, 10),
+                          amount,
+                          comment: paymentComment.trim(),
+                          paymentDate,
                         }),
                       })
-                      if (response.ok) {
-                        setPaymentDone(true)
-                        setPaymentOpen(false)
-                        setPaymentAmount("")
-                        window.setTimeout(() => setPaymentDone(false), 2000)
+                      const body = (await response.json().catch(() => null)) as { error?: string } | null
+                      if (!response.ok) {
+                        setPaymentError(body?.error ? t(body.error) : t("Не удалось добавить оплату"))
+                        return
                       }
-                    } catch {}
+                      setPaymentDone(true)
+                      setPaymentOpen(false)
+                      setPaymentAmount("")
+                      setPaymentComment("")
+                      loadSummary()
+                      window.setTimeout(() => setPaymentDone(false), 2500)
+                    } catch {
+                      setPaymentError(t("Не удалось добавить оплату"))
+                    } finally {
+                      setPaymentSaving(false)
+                    }
                   }}
                   className="w-full max-w-sm rounded-md bg-white p-6 shadow-xl"
                 >
@@ -1849,18 +1943,29 @@ function ClientDetail({
                       <X className="h-5 w-5" />
                     </button>
                   </div>
-                  <label className="mb-5 block border-b border-slate-200 pb-2 text-[13px] font-medium text-slate-500">
-                    {t("Сумма")}
+                  <label className="mb-4 block border-b border-slate-200 pb-2 text-[13px] font-medium text-slate-500">
+                    {t("Сумма")} ({base}) *
                     <input
                       autoFocus
                       type="number"
                       min="0"
+                      step="any"
                       value={paymentAmount}
-                      onChange={(event) => setPaymentAmount(event.target.value)}
+                      onChange={(event) => (setPaymentAmount(event.target.value), setPaymentError(""))}
                       className="mt-1 block w-full bg-transparent text-[16px] font-semibold text-slate-900 outline-none"
                     />
                   </label>
-                  <button type="submit" className="w-full rounded-md bg-[#71ce87] py-3 font-semibold text-white">
+                  <label className="mb-4 block border-b border-slate-200 pb-2 text-[13px] font-medium text-slate-500">
+                    {t("Дата оплаты")} *
+                    <input type="date" value={paymentDate} onChange={(event) => setPaymentDate(event.target.value)} className="mt-1 block w-full bg-transparent text-[15px] font-semibold text-slate-900 outline-none" />
+                  </label>
+                  <label className="mb-4 block border-b border-slate-200 pb-2 text-[13px] font-medium text-slate-500">
+                    {t("Комментарий")}
+                    <input value={paymentComment} onChange={(event) => setPaymentComment(event.target.value)} className="mt-1 block w-full bg-transparent text-[15px] font-semibold text-slate-900 outline-none" />
+                  </label>
+                  <p className="mb-4 text-[12px] text-slate-500">{t("Оплата попадет в «Оплаты от клиентов» как непринятая; примите ее в кассу там.")}</p>
+                  {paymentError && <p className="mb-3 text-[13px] font-semibold text-[#e57373]">{paymentError}</p>}
+                  <button type="submit" disabled={paymentSaving} className="w-full rounded-md bg-[#71ce87] py-3 font-semibold text-white disabled:opacity-50">
                     {t("Добавить")}
                   </button>
                 </form>
@@ -1898,8 +2003,8 @@ function ClientDetail({
                   </div>
                 </div>
                 <div className="-mx-2 flex items-center border-b border-dashed border-[#d8d8d8] py-5">
-                  <div className="w-[134px] shrink-0 px-2">Admin Ritm</div>
-                  <div className="w-[178.7px] shrink-0 px-2">{t("Раз в неделю")}</div>
+                  <div className="w-[134px] shrink-0 px-2">{client.agent && client.agent !== "Не указано" ? client.agent : t("Не указано")}</div>
+                  <div className="w-[178.7px] shrink-0 px-2">{client.inRoute ? t("Раз в неделю") : t("Маршрут не установлен")}</div>
                   <div className="flex-1 px-2">
                     <div className="flex w-[207px] flex-wrap">
                       {WEEK_DAYS.map((day) => (
@@ -1920,18 +2025,21 @@ function ClientDetail({
                   </span>
                 </div>
                 <div className="grid grid-cols-2 gap-[15.5px]">
-                  {[t("Баланс на начало периода"), t("Баланс на конец периода")].map((label) => (
-                    <div key={label} className="rounded-[10px] bg-[#f3f3f3] p-[10px]">
+                  {[
+                    { label: t("Баланс на начало периода"), value: summary ? sumOf("begin") : "…", negative: beginNegative },
+                    { label: t("Баланс на конец периода"), value: summary ? sumOf("end") : "…", negative: endNegative },
+                  ].map((card) => (
+                    <div key={card.label} className="rounded-[10px] bg-[#f3f3f3] p-[10px]">
                       <div className="ml-[9px]">
-                        <div className="pb-1 text-[#8c8c8c]">{label}</div>
-                        <span className={`font-semibold ${balance < 0 ? "text-[#e57373]" : "text-[#48a34b]"}`}>{balanceText}</span>
+                        <div className="pb-1 text-[#8c8c8c]">{card.label}</div>
+                        <span className={`font-semibold ${card.negative ? "text-[#e57373]" : "text-[#48a34b]"}`}>{card.value}</span>
                       </div>
                     </div>
                   ))}
                 </div>
                 <div className="mt-[15px]">
                   {t("Последняя дата платежа")} :
-                  <span className="ml-[5px] font-semibold">18 июля 2026</span>
+                  <span className="ml-[5px] font-semibold">{summary ? (summary.lastPayment ? displayDay(summary.lastPayment) : t("Оплат нет")) : "…"}</span>
                 </div>
               </div>
             </div>
@@ -1943,39 +2051,10 @@ function ClientDetail({
             <button type="button" className="mb-5 h-[34px] w-full rounded-[5px] bg-[#4f71dc] text-[13px] font-semibold text-white">
               {t("Создать задачу")}
             </button>
-            <div className="relative pt-[10px]">
-              <span className="absolute bottom-0 left-[8px] top-0 w-[3px] bg-[#22a6c6]" />
-              {DETAIL_TASKS.map((task, index) => (
-                <div key={index} className="relative mb-[10px] pl-[41px]">
-                  <span className="absolute left-0 top-[15px] h-4 w-4 rounded-full bg-[#22a6c6]" />
-                  <div className="relative mr-[10px] rounded-[2px] bg-white px-5 py-[15px] text-[#666] shadow-[0_1px_6px_rgba(0,0,0,0.25)]">
-                    <span className="absolute -left-[9px] top-[13px] h-0 w-0 border-y-[9px] border-r-[9px] border-y-transparent border-r-white" />
-                    <div className="flex justify-between">
-                      <h2 className="mb-[10px] text-base font-bold leading-[16px]">Admin Ritm</h2>
-                      {task.at && <p className="mb-[10px]">{task.at}</p>}
-                    </div>
-                    <div className="flex items-center gap-[10px] font-semibold">
-                      <svg viewBox="0 0 24 24" className={`h-5 w-5 ${task.done ? "fill-[#92ce95]" : "fill-[#f0ad4e]"}`}>
-                        {task.done ? (
-                          <path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-9 14l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z" />
-                        ) : (
-                          <path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z" />
-                        )}
-                      </svg>
-                      <span>
-                        {t(task.text)}
-                        {task.link && (
-                          <>
-                            {" ("}
-                            <a className="cursor-pointer text-[#129fdd]">{t("Просмотреть")}</a>
-                            {")"}
-                          </>
-                        )}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              ))}
+            <div className="flex flex-col items-center py-[30px] text-[#666]">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/robot-empty.png" alt="" className="w-[150px]" />
+              <span className="mt-[20px]">{t("Задач по этому клиенту нет")}</span>
             </div>
           </div>
         )}
@@ -2012,8 +2091,8 @@ function ClientDetail({
                 <DetailListRow label={t("Ответственный агент:")} value={client.agent} />
                 <DetailListRow label={t("Тип заведения:")} value={client.type} />
                 <DetailListRow label={t("Частота посещений:")} value="" />
-                <DetailListRow label={t("Создал:")} value="Admin Ritm" />
-                <DetailListRow label={t("Дата:")} value="24 мая 2026" />
+                <DetailListRow label={t("Создал:")} value={client.createdBy || "—"} />
+                <DetailListRow label={t("Дата:")} value={client.createdAt ? displayMoment(client.createdAt) : "—"} />
                 <DetailListRow label={t("Зона:")} value={client.zone} />
                 <DetailListRow
                   label={t("Локация:")}
@@ -2090,35 +2169,36 @@ function ClientDetail({
                     </button>
                   ))}
                 </div>
-                <DetailPager total={DETAIL_LOGS.length} />
-                <div className="mt-4 grid grid-cols-[89px_134px_89px_134px_1fr] border-b border-dashed border-[#d8d8d8] pb-4 pt-3 font-semibold">
+                <DetailPager total={(cardLogs ?? []).length} />
+                <div className="mt-4 grid grid-cols-[89px_134px_120px_150px_1fr] border-b border-dashed border-[#d8d8d8] pb-4 pt-3 font-semibold">
                   <span>{t("Тип")}</span>
                   <span>{t("Статус")}</span>
                   <span>{t("Кем")}</span>
                   <span>{t("Дата создания")}</span>
                   <span>{t("Сумма")}</span>
                 </div>
-                {DETAIL_LOGS.filter((log) => logFilter === "Все" || (logFilter === "Финансы" ? log.type === "Оплата" : log.type === logFilter)).map(
-                  (log, index) => (
-                    <div
-                      key={index}
-                      className="grid grid-cols-[89px_134px_89px_134px_1fr] items-center border-b border-dashed border-[#d8d8d8] py-4"
-                    >
-                      <span>{t(log.type)}</span>
-                      <span>
-                        {log.status === "Удаленный" ? (
-                          <span className="inline-block w-[118px] rounded-full border border-[#e57373] py-[2px] text-center text-[#e57373]">{t(log.status)}</span>
-                        ) : log.status === "Создан" ? (
-                          <span className="inline-block w-[118px] rounded-full border border-[#48a34b] py-[2px] text-center text-[#48a34b]">{t(log.status)}</span>
-                        ) : (
-                          t(log.status)
-                        )}
-                      </span>
-                      <span>Admin Ritm</span>
-                      <span className="pr-3">{log.at}</span>
-                      <span>{log.sum}</span>
-                    </div>
-                  ),
+                {cardLogs === null ? (
+                  <p className="py-6 text-center text-[#888]">{t("Загрузка...")}</p>
+                ) : (
+                  cardLogs
+                    .filter((log) => logFilter === "Все" || (logFilter === "Финансы" ? log.type === "Оплата" : log.type === logFilter))
+                    .map((log, index) => (
+                      <div key={index} className="grid grid-cols-[89px_134px_120px_150px_1fr] items-center border-b border-dashed border-[#d8d8d8] py-4">
+                        <span>{t(log.type)}</span>
+                        <span>
+                          {log.status === "Создан" ? (
+                            <span className="inline-block w-[118px] rounded-full border border-[#48a34b] py-[2px] text-center text-[#48a34b]">{t(log.status)}</span>
+                          ) : log.status === "Отменен" ? (
+                            <span className="inline-block w-[118px] rounded-full border border-[#e57373] py-[2px] text-center text-[#e57373]">{t(log.status)}</span>
+                          ) : (
+                            t(log.status)
+                          )}
+                        </span>
+                        <span className="truncate pr-2">{log.by}</span>
+                        <span className="pr-3">{log.at}</span>
+                        <span>{log.sum}</span>
+                      </div>
+                    ))
                 )}
               </div>
             )}
@@ -2257,8 +2337,6 @@ function ClientRow({
         {client.inn ? (
           <>
             {t("ИНН")}: <b>{client.inn}</b>
-            <br />
-            PRICE_LIST_ID: <b>12</b>
           </>
         ) : (
           client.info ?? ""

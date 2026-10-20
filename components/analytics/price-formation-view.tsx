@@ -16,6 +16,7 @@ import { ChangeEvent, Fragment, FormEvent, useEffect, useMemo, useRef, useState 
 import { downloadExcelTable } from "@/lib/excel-export"
 import { mapHeaderColumns, readExcelRows } from "@/lib/excel-import"
 import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
+import { formatStatementDate, parseAnyDay } from "@/lib/finance/dates"
 import { useLanguage } from "@/lib/i18n/language-context"
 
 const PRICE_IMPORT_HEADER_ALIASES: Record<string, string> = {
@@ -26,12 +27,22 @@ import type { PriceListEntry, Product } from "./products-data"
 
 const currencies = ["SUM", "USD"]
 
+/** A stored day (YYYY-MM-DD, legacy "19 октября 2026") in the page language. */
+function formatDay(value: string, language: string) {
+  const day = parseAnyDay(value)
+  return day ? formatStatementDate(day, language, false).replace(/\s*г\.$/, "") : value
+}
+
 function formatMoney(value: number, currency = "SUM") {
   return `${(Math.round(value * 1000) / 1000).toLocaleString("ru-RU")} ${currency}`
 }
 
+/** Accepted supplies of the product in the base currency (GET /api/products/[id]/cost). */
 type SupplyHistoryLine = { incomingId: number; date: string; acceptedAt: string; qty: number; unitCost: number; averageCost: number }
-type CostInfo = { initialCost: number; currentCost: number; history: SupplyHistoryLine[] }
+/** currentCost = the one cost of goods (lib/stock/costs.ts), base currency. */
+type CostInfo = { initialCost: number; currentCost: number; history: SupplyHistoryLine[]; baseCurrency?: string }
+/** GET /api/supplier-incomings/product-costs. */
+type ProductCosts = { baseCurrency: string; costs: Record<string, number> }
 
 /** Every price list with this product's price in it (0 when not set). */
 function withAllPriceLists(entries: PriceListEntry[], names: string[]): PriceListEntry[] {
@@ -39,22 +50,10 @@ function withAllPriceLists(entries: PriceListEntry[], names: string[]): PriceLis
   return [...merged, ...entries.filter((entry) => !names.includes(entry.name))]
 }
 
-function priceBounds(entries: PriceListEntry[]) {
-  const values = entries.flatMap((entry) => [entry.cash, entry.nonCash]).filter((value) => value > 0)
-  return { priceMin: values.length ? Math.min(...values) : 0, priceMax: values.length ? Math.max(...values) : 0 }
-}
-
-const todayLabel = () => new Date().toLocaleDateString("ru-RU", { day: "2-digit", month: "short", year: "numeric" }).replace(" г.", "")
-
 type AddStage = "pick" | "currency" | "amount" | null
 
-function toProductInput(product: Product): Omit<Product, "id" | "createdDate"> {
-  const { id: _id, createdDate: _createdDate, ...rest } = product
-  return rest
-}
-
 export function PriceFormationView({ embedded = false }: { embedded?: boolean }) {
-  const { t } = useLanguage()
+  const { t, language } = useLanguage()
   const [rows, setRows] = useState<Product[]>([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState("")
@@ -81,6 +80,7 @@ export function PriceFormationView({ embedded = false }: { embedded?: boolean })
   const [priceListNames, setPriceListNames] = useState<string[]>([])
   const [selectedPriceList, setSelectedPriceList] = useState("")
   const [costInfo, setCostInfo] = useState<CostInfo | null>(null)
+  const [baseCurrency, setBaseCurrency] = useState(currencies[0])
   const [selectedCurrency, setSelectedCurrency] = useState(currencies[0])
   const [importMode, setImportMode] = useState<"manual" | "excel">("manual")
   const [separateTransferPrice, setSeparateTransferPrice] = useState(false)
@@ -93,14 +93,20 @@ export function PriceFormationView({ embedded = false }: { embedded?: boolean })
   useEffect(() => {
     let cancelled = false
     setLoading(true)
-    fetch("/api/products")
-      .then(async (response) => {
+    Promise.all([
+      fetch("/api/products").then(async (response) => {
         if (!response.ok) throw new Error("Не удалось загрузить продукты")
         return (await response.json()) as Product[]
-      })
-      .then((data) => {
+      }),
+      // "Себестоимость" = the one cost of goods (base currency, today); products.cost is only its cache.
+      fetch("/api/supplier-incomings/product-costs")
+        .then((response) => (response.ok ? (response.json() as Promise<ProductCosts>) : null))
+        .catch(() => null),
+    ])
+      .then(([data, live]) => {
         if (cancelled) return
-        setRows(data.filter((product) => !product.deleted))
+        if (live?.baseCurrency) setBaseCurrency(live.baseCurrency)
+        setRows(data.filter((product) => !product.deleted).map((product) => ({ ...product, cost: live?.costs?.[String(product.id)] ?? product.cost })))
         setLoadError("")
       })
       .catch(() => {
@@ -135,7 +141,12 @@ export function PriceFormationView({ embedded = false }: { embedded?: boolean })
     setCostInfo(null)
     fetch(`/api/products/${expandedId}/cost`)
       .then((response) => (response.ok ? response.json() : null))
-      .then((data: CostInfo | null) => !cancelled && setCostInfo(data))
+      .then((data: CostInfo | null) => {
+        if (cancelled) return
+        setCostInfo(data)
+        // Keep the list in step with the detail (both read the cost of goods).
+        if (data) setRows((current) => current.map((row) => (row.id === expandedId && row.cost !== data.currentCost ? { ...row, cost: data.currentCost } : row)))
+      })
       .catch(() => {})
     return () => {
       cancelled = true
@@ -180,15 +191,15 @@ export function PriceFormationView({ embedded = false }: { embedded?: boolean })
     setEditingPrices(false)
   }
 
-  async function patchProduct(id: number, patch: Partial<Product>): Promise<Product | null> {
-    const current = rows.find((row) => row.id === id)
-    if (!current) return null
-    const merged: Product = { ...current, ...patch }
+  /** PUT only the price lists: the catalog keeps every omitted field, and the server
+   * computes priceMin / priceMax (base currency) and priceUpdatedDate. */
+  async function patchProduct(id: number, patch: Pick<Product, "priceLists">): Promise<Product | null> {
+    if (!rows.some((row) => row.id === id)) return null
     try {
       const response = await fetch(`/api/products/${id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(toProductInput(merged)),
+        body: JSON.stringify({ priceLists: patch.priceLists }),
       })
       if (!response.ok) {
         const data = await response.json().catch(() => ({}))
@@ -196,7 +207,8 @@ export function PriceFormationView({ embedded = false }: { embedded?: boolean })
         return null
       }
       const saved = (await response.json()) as Product
-      setRows((curr) => curr.map((row) => (row.id === id ? saved : row)))
+      // The list keeps the cost of goods; the saved product carries only its cached copy.
+      setRows((curr) => curr.map((row) => (row.id === id ? { ...saved, cost: row.cost } : row)))
       return saved
     } catch {
       window.alert(t("Сервер недоступен, попробуйте ещё раз"))
@@ -250,7 +262,7 @@ export function PriceFormationView({ embedded = false }: { embedded?: boolean })
     if (!expanded) return
     // Price lists that were never set and are still empty stay out of the product.
     const priceLists = priceDraft.filter((entry) => entry.cash || entry.nonCash || expanded.priceLists.some((existing) => existing.name === entry.name))
-    await patchProduct(expanded.id, { priceLists, ...priceBounds(priceLists), priceUpdatedDate: todayLabel() })
+    await patchProduct(expanded.id, { priceLists })
     setEditingPrices(false)
   }
 
@@ -329,7 +341,7 @@ export function PriceFormationView({ embedded = false }: { embedded?: boolean })
         const updatedPrices = target.priceLists.some((item) => item.name === selectedPriceList)
           ? target.priceLists.map((item) => (item.name === selectedPriceList ? { ...item, ...entry } : item))
           : [...target.priceLists, { name: selectedPriceList, min: 0, max: 0, ...entry }]
-        await patchProduct(target.id, { priceLists: updatedPrices, ...priceBounds(updatedPrices), priceUpdatedDate: todayLabel() })
+        await patchProduct(target.id, { priceLists: updatedPrices })
       }
       event.target.value = ""
       setAddStage(null)
@@ -348,7 +360,7 @@ export function PriceFormationView({ embedded = false }: { embedded?: boolean })
     const updatedPrices = target.priceLists.some((item) => item.name === selectedPriceList)
       ? target.priceLists.map((item) => (item.name === selectedPriceList ? { ...item, ...entry } : item))
       : [...target.priceLists, { name: selectedPriceList, min: 0, max: 0, ...entry }]
-    await patchProduct(target.id, { priceLists: updatedPrices, ...priceBounds(updatedPrices), priceUpdatedDate: todayLabel() })
+    await patchProduct(target.id, { priceLists: updatedPrices })
     setAddStage(null)
   }
 
@@ -472,7 +484,7 @@ export function PriceFormationView({ embedded = false }: { embedded?: boolean })
                 <tr onClick={() => toggleExpand(row)} className="cursor-pointer border-b border-dashed border-slate-300 hover:bg-slate-50">
                   <td className="px-9 py-4 text-[#4f70e7]">{row.name}</td>
                   <td className="px-5 py-4">{t(row.barcode)}</td>
-                  <td className="px-5 py-4">{formatMoney(row.cost)}</td>
+                  <td className="px-5 py-4">{formatMoney(row.cost, baseCurrency)}</td>
                   <td className="px-5 py-4">{formatMoney(row.priceMin)}</td>
                   <td className="px-5 py-4">{formatMoney(row.priceMax)}</td>
                   <td className="px-5 py-4">{t(row.priceUpdatedDate)}</td>
@@ -504,7 +516,7 @@ export function PriceFormationView({ embedded = false }: { embedded?: boolean })
                               <div className="mb-3 flex items-center justify-between border-b border-slate-200 pb-2">
                                 <span className="text-slate-600">{t("Себестоимость начальная")}:</span>
                                 <span className="flex items-center gap-2 font-medium">
-                                  {formatMoney(costInfo?.initialCost ?? expanded.cost)}
+                                  {formatMoney(costInfo?.initialCost ?? expanded.cost, baseCurrency)}
                                   <button type="button" onClick={startEditDefaultCost} aria-label={t("Изменить себестоимость")} className="text-slate-400 hover:text-[#4f70e7]">
                                     <Pencil className="h-4 w-4" />
                                   </button>
@@ -525,10 +537,10 @@ export function PriceFormationView({ embedded = false }: { embedded?: boolean })
                                 {(costInfo?.history ?? []).map((line, index) => (
                                   <tr key={`${line.incomingId}-${index}`} className="border-t border-slate-100">
                                     <td className="py-2 pr-3">{line.incomingId}</td>
-                                    <td className="py-2 pr-3">{line.date}</td>
+                                    <td className="py-2 pr-3">{formatDay(line.date, language)}</td>
                                     <td className="py-2 pr-3">{line.qty.toLocaleString("ru-RU")} {expanded.unit}</td>
-                                    <td className="py-2 pr-3">{formatMoney(line.unitCost)}</td>
-                                    <td className="py-2 pr-3">{formatMoney(line.averageCost)}</td>
+                                    <td className="py-2 pr-3">{formatMoney(line.unitCost, baseCurrency)}</td>
+                                    <td className="py-2 pr-3">{formatMoney(line.averageCost, baseCurrency)}</td>
                                   </tr>
                                 ))}
                                 {costInfo && !costInfo.history.length && (
@@ -539,7 +551,7 @@ export function PriceFormationView({ embedded = false }: { embedded?: boolean })
 
                             <div className="mt-4 flex justify-between border-t border-slate-200 pt-3 font-semibold">
                               <span>{t("Текущая себестоимость")}:</span>
-                              <span>{formatMoney(costInfo?.currentCost ?? expanded.cost)}</span>
+                              <span>{formatMoney(costInfo?.currentCost ?? expanded.cost, baseCurrency)}</span>
                             </div>
                           </div>
 

@@ -7,7 +7,7 @@ import { parseJsonBody } from "@/lib/validation"
 import { createClientRestriction, listClientRestrictions } from "@/lib/client-restrictions-repo"
 
 const clientRestrictionSchema = z.object({
-  name: z.string().trim().min(1),
+  name: z.string().trim().min(1).max(255, "Не более 255 символов"),
   config: z
     .object({
       type: z.string().optional(),

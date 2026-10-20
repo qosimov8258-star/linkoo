@@ -4,26 +4,66 @@ import { NextResponse } from "next/server"
 import { z } from "zod"
 
 import type { IncomingChange } from "@/lib/supplier-incomings-repo"
+import { MAX_MONEY, optionalAmount, optionalText as text, priceSchema, quantitySchema } from "@/lib/supplier-refs"
 
-export const supplierIncomingSchema = z.object({
-  supplier: z.string().trim().min(1),
-  warehouse: z.string().trim().min(1),
-  branch: z.string().optional(),
-  organization: z.string().optional(),
-  paymentType: z.string().optional(),
-  currency: z.string().optional(),
-  date: z.string().optional(),
-  contractNumber: z.string().optional(),
-  invoiceNumber: z.string().optional(),
-  invoiceDate: z.string().optional(),
-  comment: z.string().optional(),
-  items: z.array(z.record(z.string(), z.unknown())).min(1),
-  /** "Создать приход" from an accepted incoming e-invoice (create only). */
-  invoiceId: z.coerce.number().int().positive().nullable().optional(),
+// Request schemas of /api/supplier-incomings/** ("Приход от поставщиков").
+// Bounds (contract): money |x| ≤ 1e13, quantity 0 < x ≤ 1e9. Every message is a
+// Russian i18n key; the first failing one is the response `error`.
+
+export const incomingItemSchema = z
+  .object({
+    id: z.unknown().optional(),
+    /** Catalog key from a picker ("product:12" / "raw_material:3"), optional. */
+    key: text(200),
+    product: z.string({ error: "Выберите товар" }).trim().min(1, "Выберите товар").max(500, "Не более 500 символов"),
+    expiry: text(100),
+    qty: quantitySchema,
+    block: optionalAmount,
+    kg: optionalAmount,
+    netWeight: optionalAmount,
+    cost: priceSchema,
+    total: z.unknown().optional(),
+  })
+  .refine((item) => item.qty * item.cost <= MAX_MONEY, { message: "Слишком большая сумма строки", path: ["cost"] })
+
+export const supplierIncomingSchema = z
+  .object({
+    supplier: z.string({ error: "Выберите поставщика" }).trim().min(1, "Выберите поставщика").max(255, "Не более 255 символов"),
+    warehouse: z.string({ error: "Выберите склад" }).trim().min(1, "Выберите склад").max(255, "Не более 255 символов"),
+    branch: text(255),
+    organization: text(255),
+    paymentType: z.preprocess((value) => (value === null || value === "" ? undefined : value), z.enum(["Банковский счет", "Наличный"], { error: "Неверный тип оплаты" }).optional()),
+    currency: text(12),
+    /** Any parseable date; stored as YYYY-MM-DD (default today). */
+    date: text(60),
+    contractNumber: text(200),
+    invoiceNumber: text(200),
+    invoiceDate: text(60),
+    comment: text(2000),
+    items: z.array(incomingItemSchema, { error: "Добавьте товары" }).min(1, "Добавьте товары").max(1000, "Не более 1000 строк"),
+    /** "Создать приход" from an accepted incoming e-invoice (create only). */
+    invoiceId: z.coerce.number().int().positive().max(2_147_483_647).nullable().optional(),
+  })
+  .refine((body) => body.items.reduce((sum, item) => sum + item.qty * item.cost, 0) <= MAX_MONEY, { message: "Слишком большая сумма поставки", path: ["items"] })
+
+export type SupplierIncomingBody = z.infer<typeof supplierIncomingSchema>
+
+/** POST /api/supplier-incomings/[id]/expenses — "Добавить расход". */
+export const incomingExpenseSchema = z.object({
+  /** Any parseable date; stored as YYYY-MM-DD (default today). */
+  date: text(60),
+  description: z.string({ error: "Укажите описание расхода" }).trim().min(1, "Укажите описание расхода").max(500, "Не более 500 символов"),
+  amount: z.coerce.number({ error: "Сумма должна быть числом" }).gt(0, "Сумма должна быть больше 0").max(MAX_MONEY, "Слишком большая сумма"),
+  currency: text(12),
+  paymentType: text(100),
 })
+
+export type IncomingExpenseBody = z.infer<typeof incomingExpenseSchema>
 
 export function incomingChangeResponse(result: IncomingChange, lockedMessage: string) {
   if (result === "not_found") return NextResponse.json({ error: "Приемка не найдена" }, { status: 404 })
   if (result === "locked") return NextResponse.json({ error: lockedMessage }, { status: 409 })
   return NextResponse.json(result)
 }
+
+export const incomingNotFound = () => NextResponse.json({ error: "Приемка не найдена" }, { status: 404 })

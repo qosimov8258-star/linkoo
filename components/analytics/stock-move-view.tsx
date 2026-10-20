@@ -80,7 +80,8 @@ function StockMoveContent() {
   const [downloading, setDownloading] = useState(false)
   const [downloadError, setDownloadError] = useState("")
 
-  const allColumns = moveColumns(state.showOthers)
+  // Cost mode adds "Переоценка" (value only), so begin + Σ columns = end.
+  const allColumns = moveColumns(state.showOthers, data?.mode)
   const columns = allColumns.filter((column) => !hidden.includes(column.field))
   const withValue = Boolean(data && data.mode !== "quantity" && !data.needPriceList)
   const filterCount = countActiveFilters({

@@ -148,7 +148,8 @@ export function parseOperationKey(key: string): { source: CashSource; id: number
   const match = /^(cash|customer|supplier|acceptance)-(\d{1,10})$/.exec(String(key ?? "").trim())
   if (!match) return null
   const id = Number(match[2])
-  return id > 0 ? { source: match[1] as CashSource, id } : null
+  // Rows ids are INTEGER (int4): a larger id cannot exist.
+  return id > 0 && id <= 2_147_483_647 ? { source: match[1] as CashSource, id } : null
 }
 
 export type CashPaymentType = "cash" | "bank"

@@ -1,10 +1,14 @@
 import type { Metadata } from "next"
 
 import { SalesTabView } from "@/components/analytics/sales-tab-view"
+import { getServerT } from "@/lib/i18n/server"
 
-export const metadata: Metadata = {
-  title: "Продажа — Linko",
-  description: "Продажи по территории, пользователям и типу продукта.",
+export async function generateMetadata(): Promise<Metadata> {
+  const t = await getServerT()
+  return {
+    title: `${t("Продажа")} — Linko`,
+    description: t("Продажи по территории, пользователям и типу продукта."),
+  }
 }
 
 export default function SalesTabPage() {

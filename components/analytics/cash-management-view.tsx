@@ -24,6 +24,7 @@ import {
   EmptyBlock,
   ErrorBlock,
   LoadingBlock,
+  cashCommentText,
   excelDay,
   excelTime,
   formatCash,
@@ -213,7 +214,7 @@ function CashManagementContent() {
           excelDescription(row, t),
           row.branch,
           row.organization,
-          row.comment,
+          cashCommentText(row.comment, t),
           excelDay(row.date),
           excelTime(row.date),
           excelDay(row.createdAt),
@@ -243,7 +244,7 @@ function CashManagementContent() {
         <div className="flex min-w-0 items-center gap-3">
           <FavoritesButton className="flex items-center gap-3 text-2xl font-bold text-[#4f70e7]" />
           <span className="text-3xl font-light text-[#586174]">|</span>
-          <h1 className="truncate text-xl font-bold text-[#586174] md:text-2xl">{t("Управления кассой")}</h1>
+          <h1 className="truncate text-xl font-bold text-[#586174] md:text-2xl">{t("Управление кассой")}</h1>
         </div>
         {canWrite && (
           <div className="ml-auto flex flex-wrap items-center gap-2">

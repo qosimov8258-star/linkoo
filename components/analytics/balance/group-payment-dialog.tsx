@@ -80,7 +80,8 @@ export function GroupPaymentDialog({
           cashboxId: Number(cashboxId),
           organization,
           branch,
-          incomeCategory: category,
+          incomeCategoryId: category ? Number(category) : null,
+          incomeCategory: categories.find((item) => String(item.id) === category)?.name ?? "",
           deliveryMan,
           isVerified: verified,
           rateType,
@@ -147,7 +148,7 @@ export function GroupPaymentDialog({
               <select value={category} onChange={(event) => setCategory(event.target.value)} className={field}>
                 <option value="">{t("Не указано")}</option>
                 {categories.map((item) => (
-                  <option key={item.id} value={item.name}>
+                  <option key={item.id} value={item.id}>
                     {item.name}
                   </option>
                 ))}

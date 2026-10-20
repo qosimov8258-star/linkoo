@@ -7,8 +7,8 @@ import { parseJsonBody } from "@/lib/validation"
 import { createClientModuleItem, listClientModuleItems } from "@/lib/client-module-items-repo"
 
 const clientModuleItemSchema = z.object({
-  moduleKey: z.string().trim().min(1),
-  name: z.string().trim().min(1),
+  moduleKey: z.string().trim().min(1).max(255, "Не более 255 символов"),
+  name: z.string().trim().min(1).max(255, "Не более 255 символов"),
   category: z.string().trim().optional(),
   detail: z.string().trim().optional(),
   value: z.string().trim().optional(),

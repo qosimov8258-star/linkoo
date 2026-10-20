@@ -1,23 +1,199 @@
 "use client"
 
-import { useMemo, useState } from "react"
-import { Download, Search, SlidersHorizontal } from "lucide-react"
-import { downloadExcelTable } from "@/lib/excel-export"
-import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
+import { useEffect, useMemo, useState } from "react"
 
-const products: { name: string; unit: string; sales: number; returns: number; cost: number; discount: number }[] = []
+import { ReportBand, ReportChipField, ReportEmpty, ReportFilters, ReportHeader, ReportPage, ReportRangeField, ReportSelectField } from "@/components/ref/report-kit"
+import { downloadExcelTable } from "@/lib/excel-export"
+import { currencyLabel } from "@/lib/finance/currency"
+import { monthStartIso, todayIso } from "@/lib/finance/dates"
+import { pnlMetrics, type PnlResult, type PnlTotals } from "@/lib/finance/pnl-types"
+import { useLanguage } from "@/lib/i18n/language-context"
+
+// "Прибыль от товаров" / "Прибыль от агентов": realization, returns, cost of goods
+// and gross profit of one period per product / brand / branch (or agent / branch /
+// zone), from the server P&L (GET /api/balances/pnl): released orders by
+// realization day, accepted client returns, the one cost of goods; every amount is
+// in the base currency.
+
+type GroupKey = keyof PnlResult["groups"]
+type ProfitReportProps = {
+  title: string
+  file: string
+  /** Grouping choices: [label, P&L group]. */
+  groups: ReadonlyArray<readonly [string, GroupKey]>
+  /** The second filter next to "Филиалы". */
+  secondFilter: "brand" | "agent"
+}
+
+const PRODUCT_GROUPS = [
+  ["По продукту", "product"],
+  ["По бренду", "brand"],
+  ["По филиалу", "branch"],
+] as const
+const AGENT_GROUPS = [
+  ["По агенту", "agent"],
+  ["По филиалу", "branch"],
+  ["По зоне", "zone"],
+] as const
+const NAME_HEADER: Record<GroupKey, string> = { product: "Товар", brand: "Бренд", branch: "Филиал", agent: "Агент", zone: "Зона", productType: "Тип продукта" }
+
+const EMPTY: PnlTotals = { realization: 0, returns: 0, cost: 0, returnCost: 0, quantity: 0 }
+const money = (value: number) => new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 2 }).format(value)
+
 export function ProductProfitView() {
+  return <ProfitReportView title="Прибыль от товаров" file="product-profit.xls" groups={PRODUCT_GROUPS} secondFilter="brand" />
+}
+
+export function AgentProfitReportView() {
+  return <ProfitReportView title="Прибыль от агентов" file="agent-profit.xls" groups={AGENT_GROUPS} secondFilter="agent" />
+}
+
+function ProfitReportView({ title, file, groups, secondFilter }: ProfitReportProps) {
+  const { t } = useLanguage()
+  const [from, setFrom] = useState(() => monthStartIso())
+  const [to, setTo] = useState(() => todayIso())
+  const [branch, setBranch] = useState("")
+  const [second, setSecond] = useState("")
+  const [applied, setApplied] = useState(() => ({ from, to, branch, second }))
+  const [group, setGroup] = useState<string>(groups[0][0])
   const [query, setQuery] = useState("")
-  const [realized, setRealized] = useState(true)
-  const [loaded, setLoaded] = useState(false)
-  const [creationMode, setCreationMode] = useState(false)
-  const [filterOpen, setFilterOpen] = useState(false)
-  const [group, setGroup] = useState("По продукту")
+  const [data, setData] = useState<PnlResult | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState("")
+
+  useEffect(() => {
+    // One period: the P&L endpoint compares two, so both are the chosen one.
+    const params = new URLSearchParams({ firstFrom: applied.from, firstTo: applied.to, secondFrom: applied.from, secondTo: applied.to })
+    if (applied.branch) params.append("branch", applied.branch)
+    if (applied.second) params.append(secondFilter, applied.second)
+    const controller = new AbortController()
+    setLoading(true)
+    setError("")
+    fetch(`/api/balances/pnl?${params.toString()}`, { signal: controller.signal, cache: "no-store" })
+      .then(async (response) => {
+        const body = (await response.json().catch(() => null)) as (PnlResult & { error?: string }) | null
+        if (!response.ok || !body) throw new Error(body?.error || "Не удалось загрузить данные")
+        setData(body)
+      })
+      .catch((reason: unknown) => {
+        if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : String(reason))
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoading(false)
+      })
+    return () => controller.abort()
+  }, [applied, secondFilter])
+
+  const groupKey: GroupKey = groups.find(([label]) => label === group)?.[1] ?? groups[0][1]
   const rows = useMemo(() => {
-    const source = loaded ? products : []
-    return source.filter((row) => row.name.toLowerCase().includes(query.toLowerCase()))
-  }, [loaded, query])
-  const sales = rows.reduce((sum, row) => sum + row.sales, 0), returns = rows.reduce((sum, row) => sum + row.returns, 0), actual = sales - returns, profit = actual - rows.reduce((sum, row) => sum + row.cost + row.discount, 0)
-  const exportExcel = () => downloadExcelTable("product-profit.xls", [["Товар", "Ед. измер", "Продажа", "Возврат", "Фактическая продажа", "Прибыль от продаж", "Скидки"], ...rows.map((row) => [row.name, row.unit, row.sales, row.returns, row.sales - row.returns, row.sales - row.returns - row.cost - row.discount, row.discount])])
-  return <main className="min-h-[calc(100vh-4rem)] bg-[#f2f5f8] text-[#17233b]"><header className="border-b px-9 py-4 text-[13px]"><div className="flex items-center gap-3"><FavoritesButton className="flex items-center gap-[5px] text-[18px] font-bold text-[#4f71dc]" /><span className="mx-[11px] inline-block h-[21px] w-[2px] bg-[#5d6474]" /><h1 className="text-2xl font-bold text-slate-600">Прибыль от товаров</h1></div></header><section className="bg-white px-9 py-6"><div className="flex items-center gap-4"><button onClick={() => setFilterOpen((value) => !value)} className="flex items-center gap-2 h-[30px] rounded-[5px] bg-[#4f71dc] px-4 text-[13px] font-semibold text-white"><SlidersHorizontal />Фильтр / 2</button><button onClick={() => setRealized((value) => !value)} className={realized ? "font-medium text-[#71ce87]" : "font-medium text-slate-500"}>{realized ? "Реализовано" : "Все статусы"}</button><button onClick={exportExcel} className="ml-auto flex items-center gap-2 h-[30px] rounded-[5px] bg-[#71ce87] px-4 text-[13px] font-semibold text-white"><Download />Скачать</button></div>{filterOpen && <div className="mt-4 flex gap-4 rounded border bg-slate-50 p-4"><select className="border p-2"><option>Все филиалы</option><option>Ташкент</option></select><select className="border p-2"><option>Все бренды</option><option>PEPSI</option></select><button onClick={() => { setFilterOpen(false); setLoaded(true) }} className="rounded bg-[#4f71dc] px-4 text-white">Применить</button></div>}<div className="mt-5 grid grid-cols-1 gap-3 lg:grid-cols-4">{[["Сумма от продаж", sales], ["Сумма возвратов", returns], ["Фактические продажи", actual], ["Прибыль от продаж", profit]].map(([label, value]) => <div key={String(label)} className="border p-4 text-right"><p className="text-slate-500">{label}</p><strong className="text-xl">{Number(value).toLocaleString("ru-RU")} SUM</strong></div>)}</div><div className="mt-5 flex flex-wrap items-end gap-6"><label className="relative w-[500px] max-w-full"><span className="font-semibold">Поиск</span><input value={query} onChange={(event) => setQuery(event.target.value)} className="mt-1 w-full border-b py-2 pr-8 outline-none" /><Search className="absolute bottom-2 right-1 text-slate-500" /></label><div className="ml-auto"><small className="block">Группировка</small><select value={group} onChange={(event) => setGroup(event.target.value)} className="border-b py-2 outline-none"><option>По продукту</option><option>По бренду</option><option>По филиалу</option></select></div><button onClick={() => setCreationMode((value) => !value)} className={`rounded px-5 py-3 font-semibold ${creationMode ? "bg-[#4f71dc] text-white" : "border bg-white"}`}>ПОКАЗАТЬ ПО ДАТЕ СОЗДАНИЯ</button><button onClick={() => setLoaded(true)} className="inline-flex items-center h-[30px] rounded-[5px] bg-[#4f71dc] px-4 text-[13px] font-semibold text-white">ПРОДАЖА ПО ТОВАРАМ С ПРИБЫЛЬЮ</button></div><p className="mt-8 text-xl text-[#4f71dc]">ⓘ {creationMode ? "Это оперативный отчет для просмотра факта перейдите в другой раздел" : "В этом отчете показываются только реализованные заказы и возвраты"}</p></section><section className="overflow-x-auto bg-white"><table className="min-w-[1300px] w-full border-collapse"><thead className="bg-[#edf2f7]"><tr><th rowSpan={2} className="border p-3">Товар</th><th rowSpan={2} className="border p-3">Ед. измер</th><th colSpan={2} className="border p-3">Продажа</th><th colSpan={2} className="border p-3">Возврат в этом периоде</th><th colSpan={2} className="border p-3">Фактическая продажа</th><th className="border p-3">Прибыль от продаж</th><th colSpan={2} className="border p-3">Скидки</th></tr><tr>{["Кол-во", "Сумма", "Кол-во", "Сумма", "Кол-во", "Сумма", "Сумма", "Кол-во", "Сумма"].map((item, index) => <th key={index} className="border p-3">{item}</th>)}</tr></thead><tbody>{rows.map((row) => <tr key={row.name}><td className="border p-3">{row.name}</td><td className="border p-3">{row.unit}</td><td className="border p-3">{Math.round(row.sales / 10000)}</td><td className="border p-3">{row.sales.toLocaleString("ru-RU")}</td><td className="border p-3">{Math.round(row.returns / 10000)}</td><td className="border p-3">{row.returns.toLocaleString("ru-RU")}</td><td className="border p-3">{Math.round((row.sales-row.returns)/10000)}</td><td className="border p-3">{(row.sales-row.returns).toLocaleString("ru-RU")}</td><td className="border p-3">{(row.sales-row.returns-row.cost-row.discount).toLocaleString("ru-RU")}</td><td className="border p-3">{row.sales ? 1 : 0}</td><td className="border p-3">{row.discount.toLocaleString("ru-RU")}</td></tr>)}</tbody></table></section></main>
+    const needle = query.trim().toLowerCase()
+    return (data?.groups[groupKey] ?? [])
+      .map((row) => ({ name: row.name, totals: row.periods[0] ?? EMPTY }))
+      .filter((row) => row.totals.realization || row.totals.returns || row.totals.cost || row.totals.returnCost)
+      .filter((row) => !needle || row.name.toLowerCase().includes(needle))
+      .sort((a, b) => pnlMetrics(b.totals).profit - pnlMetrics(a.totals).profit)
+  }, [data, groupKey, query])
+  const total = rows.reduce<PnlTotals>(
+    (sum, row) => ({
+      realization: sum.realization + row.totals.realization,
+      returns: sum.returns + row.totals.returns,
+      cost: sum.cost + row.totals.cost,
+      returnCost: sum.returnCost + row.totals.returnCost,
+      quantity: sum.quantity + row.totals.quantity,
+    }),
+    EMPTY,
+  )
+  const totalMetrics = pnlMetrics(total)
+  const base = currencyLabel(data?.baseCurrency ?? "SUM")
+
+  const headers = [t(NAME_HEADER[groupKey]), t("Продажа"), t("Возврат в этом периоде"), t("Фактическая продажа"), t("Себестоимость"), t("Прибыль от продаж"), `${t("Рентабельность ВП")}, %`]
+  const cells = (name: string, totals: PnlTotals) => {
+    const { net, profit, margin } = pnlMetrics(totals)
+    return [name, totals.realization, totals.returns, net, totals.cost - totals.returnCost, profit, margin] as const
+  }
+  const exportExcel = () => downloadExcelTable(file, [headers, ...rows.map((row) => [...cells(row.name, row.totals)]), [...cells(t("Итого"), total)]])
+
+  return (
+    <ReportPage>
+      <ReportHeader title={t(title)} onExcel={rows.length ? exportExcel : undefined} />
+      <ReportBand>
+        <ReportFilters onApply={() => from <= to && setApplied({ from, to, branch, second })} applyDisabled={from > to}>
+          <ReportRangeField label="Период" from={from} to={to} onFrom={setFrom} onTo={setTo} />
+          <ReportSelectField label="Филиалы" value={branch} onChange={setBranch} options={data?.options.branches ?? []} />
+          <ReportSelectField
+            label={secondFilter === "brand" ? "Бренд" : "Агент"}
+            value={second}
+            onChange={setSecond}
+            options={(secondFilter === "brand" ? data?.options.brands : data?.options.agents) ?? []}
+          />
+          <ReportChipField label="Группировка" value={group} options={groups.map(([label]) => label)} onChange={setGroup} compact />
+        </ReportFilters>
+        <div className="mt-[16px] grid grid-cols-1 gap-3 lg:grid-cols-4">
+          {(
+            [
+              ["Сумма от продаж", total.realization],
+              ["Сумма возвратов", total.returns],
+              ["Фактические продажи", totalMetrics.net],
+              ["Прибыль от продаж", totalMetrics.profit],
+            ] as const
+          ).map(([label, value]) => (
+            <div key={label} className="border bg-white p-4 text-right">
+              <p className="text-slate-500">{t(label)}</p>
+              <strong className="text-xl">
+                {money(value)} {base}
+              </strong>
+            </div>
+          ))}
+        </div>
+        <div className="mt-[16px] flex flex-wrap items-end gap-6">
+          <label className="relative w-[500px] max-w-full">
+            <span className="font-semibold">{t("Поиск")}</span>
+            <input value={query} onChange={(event) => setQuery(event.target.value)} className="mt-1 w-full border-b bg-transparent py-2 outline-none" />
+          </label>
+          <p className="ml-auto text-[13px] text-[#4f71dc]">
+            ⓘ {t("В этом отчете показываются только реализованные заказы и возвраты")}
+            {loading ? ` · ${t("Загрузка...")}` : ""}
+            {error ? ` · ${t(error)}` : ""}
+            {data?.missingRates.length ? ` · ${t("Нет курса валюты, суммы не учтены")}: ${data.missingRates.map(currencyLabel).join(", ")}` : ""}
+          </p>
+        </div>
+      </ReportBand>
+
+      <section className="mx-[30px] mb-[30px] mt-[20px] overflow-x-auto bg-white shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
+        {rows.length ? (
+          <table className="w-full min-w-[1000px] border-collapse text-[13px]">
+            <thead className="bg-[#edf2f7]">
+              <tr className="h-[40px]">
+                {headers.map((header, index) => (
+                  <th key={header} className={`px-[10px] font-semibold ${index ? "text-right" : "text-left"}`}>
+                    {header}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row) => (
+                <tr key={row.name} className="h-[38px] border-t border-[#efefef]">
+                  {cells(row.name, row.totals).map((cell, index) => (
+                    <td key={index} className={`px-[10px] ${index ? "text-right" : ""} ${index === 5 ? (Number(cell) < 0 ? "font-semibold text-[#e5484d]" : "font-semibold text-[#3aa76d]") : ""}`}>
+                      {typeof cell === "number" ? money(cell) : cell}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+              <tr className="h-[40px] border-t border-[#d9d9d9] bg-[#edf2f7] font-bold">
+                {cells(t("Итого"), total).map((cell, index) => (
+                  <td key={index} className={`px-[10px] ${index ? "text-right" : ""}`}>
+                    {typeof cell === "number" ? money(cell) : cell}
+                  </td>
+                ))}
+              </tr>
+            </tbody>
+          </table>
+        ) : (
+          <ReportEmpty text={loading ? t("Загрузка...") : t("Нет данных")} />
+        )}
+      </section>
+    </ReportPage>
+  )
 }

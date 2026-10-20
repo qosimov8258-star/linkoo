@@ -3,7 +3,10 @@
 import { useEffect, useMemo, useState } from "react"
 import { RefHeader } from "@/components/ref/list-kit"
 import { ReportCheckboxField, ReportChipField, ReportFilterPanel, ReportPage, ReportRangeField, ReportSearchBar, ReportSegmentTabs, ReportSelectField, ReportSummaryCard, ReportTopRow } from "@/components/ref/report-kit"
+import { useLanguage } from "@/lib/i18n/language-context"
 import type { OrderItemWithOrder } from "@/lib/order-items-repo"
+import { useDirectoryNames } from "@/components/clients/use-directory"
+import { ORDER_STATUSES } from "@/components/orders/orders-data"
 
 type ProductRow = { name: string; unit: string; saleQty: number; saleSum: number; returnQty: number; returnSum: number }
 
@@ -59,16 +62,27 @@ function buildProductRows(items: OrderItemWithOrder[]): ProductRow[] {
   return Array.from(map.values()).sort((a, b) => b.saleSum - a.saleSum)
 }
 
+// Filter choices come from the factory's own directories (never another tenant's names).
+const DIRECTORY_OF = {
+  branch: "branches",
+  brand: "brands",
+  organization: "organizations",
+  productType: "productTypes",
+  client: "clients",
+  agent: "employees",
+  clientType: "clientTypes",
+  warehouse: "warehouses",
+} as const
 const options = {
-  branch: ["777", "878", "Andijon", "AURUM samarqand"],
-  brand: ["Alpen Gold", "Aple", "Apple", "Aqua de lux", "arbuz privet"],
-  organization: ["Linko", "Time3 Distribution"],
-  productType: ["Мыло", "Напитки", "Снеки"],
-  status: ["Завершено", "В процессе", "Отменено"],
-  client: ["Doston market", "Markus Vitinha", "Usman Dembele"],
-  agent: ["Samandar Abdurahmonov", "Хайрулло Доставщик"],
-  clientType: ["horeca", "market", "market100"],
-  warehouse: ["Основной склад", "Склад Andijon"],
+  branch: [] as string[],
+  brand: [] as string[],
+  organization: [] as string[],
+  productType: [] as string[],
+  status: [...ORDER_STATUSES] as string[],
+  client: [] as string[],
+  agent: [] as string[],
+  clientType: [] as string[],
+  warehouse: [] as string[],
 }
 
 type FilterKey = keyof typeof options
@@ -79,6 +93,17 @@ function iso(date: Date) {
 }
 
 export function SalesByProductsView() {
+  const { t } = useLanguage()
+  const directories: Record<keyof typeof DIRECTORY_OF, string[]> = {
+    branch: useDirectoryNames(DIRECTORY_OF.branch),
+    brand: useDirectoryNames(DIRECTORY_OF.brand),
+    organization: useDirectoryNames(DIRECTORY_OF.organization),
+    productType: useDirectoryNames(DIRECTORY_OF.productType),
+    client: useDirectoryNames(DIRECTORY_OF.client),
+    agent: useDirectoryNames(DIRECTORY_OF.agent),
+    clientType: useDirectoryNames(DIRECTORY_OF.clientType),
+    warehouse: useDirectoryNames(DIRECTORY_OF.warehouse),
+  }
   const today = useMemo(() => iso(new Date()), [])
   const start = useMemo(() => {
     const date = new Date()
@@ -132,8 +157,12 @@ export function SalesByProductsView() {
   // the same real figures; the button stays in place but is cosmetic.
   const products = useMemo(() => {
     const dateFiltered = mode === "created" ? items.filter((item) => isWithinRange(item.orderCreated, from, to)) : items
-    return buildProductRows(dateFiltered)
-  }, [items, mode, from, to])
+    // Filters the order lines carry (client, agent, status) apply to the loaded rows.
+    const same = (value: string, wanted: string) => !wanted || value.trim().toLowerCase() === wanted.trim().toLowerCase()
+    return buildProductRows(
+      dateFiltered.filter((item) => same(item.orderClient, filters.client) && same(item.orderAgent, filters.agent) && same(item.orderStatus, filters.status)),
+    )
+  }, [items, mode, from, to, filters.client, filters.agent, filters.status])
 
   const rows = useMemo(() => {
     const term = query.trim().toLowerCase()
@@ -168,22 +197,22 @@ export function SalesByProductsView() {
 
   return (
     <ReportPage>
-      <div className="pl-[30px] pr-[38px]"><RefHeader title="Прибыль от товаров" /></div>
+      <div className="pl-[30px] pr-[38px]"><RefHeader title={t("Продажа по товарам")} /></div>
 
       <section className={fullscreen ? "fixed inset-0 z-[80] overflow-auto bg-white p-5" : "border-b border-[#d9d9d9] bg-white pb-[1px] pt-[21px]"}>
         <div className="px-[30px]">
           <ReportTopRow
             filterLabel="Фильтр / 1"
-            scope={`${formatDate(from)} - ${formatDate(to)} ${filters.organization || "Во всей организации"}`}
+            scope={`${formatDate(from)} - ${formatDate(to)} ${filters.organization || t("Во всей организации")}`}
             onFilter={() => setFilterOpen(true)}
             onDownload={download}
           />
-          {fullscreen && <button type="button" onClick={() => setFullscreen(false)} className="absolute right-5 top-5 rounded border px-3 py-2">Закрыть</button>}
+          {fullscreen && <button type="button" onClick={() => setFullscreen(false)} className="absolute right-5 top-5 rounded border px-3 py-2">{t("Закрыть")}</button>}
 
           <div className="mt-[15px] grid gap-[14px] md:grid-cols-3">
-            <ReportSummaryCard label="Сумма от продаж">{totals.saleSum.toLocaleString("ru-RU")} SUM<small className="text-[12px] font-normal">({totals.saleQty} шт)</small></ReportSummaryCard>
-            <ReportSummaryCard label="Сумма возвратов">{totals.returnSum.toLocaleString("ru-RU")} SUM<small className="text-[12px] font-normal">({totals.returnQty} шт)</small></ReportSummaryCard>
-            <ReportSummaryCard label="Фактические продажи" right>{(totals.saleSum - totals.returnSum).toLocaleString("ru-RU")} SUM<small className="text-[12px] font-normal">({totals.saleQty - totals.returnQty} шт)</small></ReportSummaryCard>
+            <ReportSummaryCard label="Сумма от продаж">{totals.saleSum.toLocaleString("ru-RU")} SUM<small className="text-[12px] font-normal">({totals.saleQty} {t("шт")})</small></ReportSummaryCard>
+            <ReportSummaryCard label="Сумма возвратов">{totals.returnSum.toLocaleString("ru-RU")} SUM<small className="text-[12px] font-normal">({totals.returnQty} {t("шт")})</small></ReportSummaryCard>
+            <ReportSummaryCard label="Фактические продажи" right>{(totals.saleSum - totals.returnSum).toLocaleString("ru-RU")} SUM<small className="text-[12px] font-normal">({totals.saleQty - totals.returnQty} {t("шт")})</small></ReportSummaryCard>
           </div>
 
           <div className="mt-[14px]">
@@ -204,20 +233,20 @@ export function SalesByProductsView() {
           <div className="-mx-[20px] flex items-end justify-between gap-4 py-[10px] pr-[20px]">
             <p className="flex w-[560px] items-center gap-2 text-[16px] font-semibold leading-[21px] text-[#4f71dc]">
               <svg viewBox="0 0 24 24" className="h-5 w-5 shrink-0 fill-none stroke-[#4f71dc] stroke-2" aria-hidden><circle cx="12" cy="12" r="9" /><path d="M12 11v5M12 8v.01" strokeLinecap="round" /></svg>
-              Это оперативний отчет для просмотра факта перейдите в другой раздел
+              {t("Это оперативний отчет для просмотра факта перейдите в другой раздел")}
             </p>
             <div className="flex items-end gap-[20px]">
               <ReportChipField label="Группировка" value={group} options={["По продукту", "По бренду", "По типу продукта"]} onChange={setGroup} compact />
               <div className="flex pb-[2px]">
-                <ModeButton active={reportMode === "created"} onClick={() => setReportMode("created")}>ПОКАЗАТЬ ПО ДАТЕ СОЗДАНИЯ</ModeButton>
-                <ModeButton active={reportMode === "profit"} onClick={() => setReportMode("profit")}>ПРОДАЖА ПО ТОВАРАМ С ПРИБЫЛЬЮ</ModeButton>
+                <ModeButton active={reportMode === "created"} onClick={() => setReportMode("created")}>{t("ПОКАЗАТЬ ПО ДАТЕ СОЗДАНИЯ")}</ModeButton>
+                <ModeButton active={reportMode === "profit"} onClick={() => setReportMode("profit")}>{t("ПРОДАЖА ПО ТОВАРАМ С ПРИБЫЛЬЮ")}</ModeButton>
               </div>
             </div>
           </div>
         </div>
 
         {itemsLoading ? (
-          <p className="px-3 py-16 text-center text-slate-400">Загрузка...</p>
+          <p className="px-3 py-16 text-center text-slate-400">{t("Загрузка...")}</p>
         ) : itemsError ? (
           <p className="px-3 py-16 text-center text-red-600">{itemsError}</p>
         ) : (
@@ -235,7 +264,7 @@ export function SalesByProductsView() {
         >
           <ReportRangeField label={mode === "created" ? "Период создания" : "Период передачи со склада"} from={from} to={to} onFrom={setFrom} onTo={setTo} />
           {(["branch", "brand", "organization", "productType", "status", "client", "agent", "clientType", "warehouse"] as FilterKey[]).map((key) => (
-            <ReportSelectField key={key} label={labels[key]} value={filters[key]} onChange={(value) => setFilter(key, value)} options={options[key]} clearable={false} />
+            <ReportSelectField key={key} label={labels[key]} value={filters[key]} onChange={(value) => setFilter(key, value)} options={key === "status" ? options.status : directories[key as keyof typeof DIRECTORY_OF]} clearable={false} />
           ))}
           <ReportCheckboxField label="Показать бонусные продукты" checked={bonus} onChange={setBonus} />
         </ReportFilterPanel>

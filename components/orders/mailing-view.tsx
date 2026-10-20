@@ -65,8 +65,8 @@ export function MailingView() {
     const mailing: Mailing = {
       id,
       message,
-      createdAt: "06 авг. 2026",
-      createdAtDetail: "06 авг. 2026, 12:00",
+      createdAt: new Date().toLocaleDateString("ru-RU", { day: "2-digit", month: "short", year: "numeric" }),
+      createdAtDetail: new Date().toLocaleString("ru-RU", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }),
       status: "Черновик",
       sent: 0,
       blocked: 0,

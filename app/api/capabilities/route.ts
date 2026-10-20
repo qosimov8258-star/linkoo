@@ -1,28 +1,36 @@
 import { NextResponse } from "next/server"
 import { z } from "zod"
 
+import { nameField, parseBody } from "@/lib/auth-request"
+import { CapabilityError, createCapability, listCapabilities } from "@/lib/capabilities-repo"
 import { requireRole } from "@/lib/rbac"
-import { parseJsonBody } from "@/lib/validation"
-import { createCapability, listCapabilities } from "@/lib/capabilities-repo"
 
-const capabilityNameSchema = z.object({
-  name: z.string().trim().min(1),
+const capabilitySchema = z.object({
+  name: nameField("Укажите наименование", 120),
+  permissionIds: z
+    .array(z.number({ error: "Неизвестное разрешение" }).int({ error: "Неизвестное разрешение" }).positive({ error: "Неизвестное разрешение" }))
+    .max(500)
+    .optional(),
 })
 
 export async function GET() {
   const auth = await requireRole("admin")
   if ("error" in auth) return auth.error
-  return NextResponse.json((await listCapabilities()))
+  return NextResponse.json(await listCapabilities())
 }
 
 export async function POST(request: Request) {
   const auth = await requireRole("admin")
   if ("error" in auth) return auth.error
 
-  const parsed = await parseJsonBody(request, capabilityNameSchema)
+  const parsed = await parseBody(request, capabilitySchema)
   if (parsed.error) return parsed.error
 
-  const capability = (await createCapability(parsed.data.name))
-  if (!capability) return NextResponse.json({ error: "Такая возможность уже существует" }, { status: 409 })
-  return NextResponse.json(capability, { status: 201 })
+  try {
+    const capability = await createCapability(parsed.data.name, parsed.data.permissionIds ?? [])
+    return NextResponse.json(capability, { status: 201 })
+  } catch (error) {
+    if (error instanceof CapabilityError) return NextResponse.json({ error: error.message }, { status: error.status })
+    throw error
+  }
 }

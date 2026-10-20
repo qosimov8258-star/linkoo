@@ -112,8 +112,7 @@ export const PLAN_MOVE_TYPES: Array<{ id: string; label: string; kinds: StockMov
   { id: "supply_return", label: "Возврат с П.", kinds: ["supply_return"] },
   { id: "order", label: "Заказ", kinds: ["order"] },
   { id: "return", label: "Возврат", kinds: ["return"] },
-  // The demo spells it with a Latin "C" ("Cписание"); kept so the label matches.
-  { id: "writeoff", label: "Cписание", kinds: ["writeoff"] },
+  { id: "writeoff", label: "Списание", kinds: ["writeoff"] },
   { id: "transfer", label: "Передача", kinds: ["transfer_in", "transfer_out"] },
   { id: "manufacture_in", label: "Произведено", kinds: ["manufacture_in"] },
   { id: "manufacture_out", label: "Затрачено на производство", kinds: ["manufacture_out"] },

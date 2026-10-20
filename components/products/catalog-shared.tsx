@@ -54,7 +54,16 @@ export function unitParts(item: Pick<CatalogItem, "unit" | "boxUnit" | "boxAmoun
 
 export type MutateResult<T> =
   | { ok: true; data: T }
-  | { ok: false; status: number; error: string; fields?: Record<string, string>; usage?: CatalogUsage[]; errors?: Array<{ row: number; error: string }> }
+  | {
+      ok: false
+      status: number
+      error: string
+      fields?: Record<string, string>
+      usage?: CatalogUsage[]
+      errors?: Array<{ row: number; error: string }>
+      /** 409 of a delete while the item is in stock: quantity per warehouse. */
+      stock?: Array<{ warehouse: string; qty: number }>
+    }
 
 /** JSON write; an error result keeps the server's fields / usage / row errors. */
 export async function catalogMutate<T = unknown>(method: "POST" | "PUT" | "DELETE", url: string, body?: unknown): Promise<MutateResult<T>> {
@@ -73,6 +82,7 @@ export async function catalogMutate<T = unknown>(method: "POST" | "PUT" | "DELET
         fields: json?.fields as Record<string, string> | undefined,
         usage: json?.usage as CatalogUsage[] | undefined,
         errors: json?.errors as Array<{ row: number; error: string }> | undefined,
+        stock: json?.stock as Array<{ warehouse: string; qty: number }> | undefined,
       }
     }
     return { ok: true, data: json as T }

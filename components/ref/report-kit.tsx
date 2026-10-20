@@ -1,7 +1,7 @@
 "use client"
 
 import { useRouter } from "next/navigation"
-import { useRef, useState, type FormEvent, type ReactNode } from "react"
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react"
 
 import { RefButton, RefHeader, RI } from "./list-kit"
 import { useLanguage } from "@/lib/i18n/language-context"
@@ -112,7 +112,7 @@ export function ReportDateField({
   return (
     <label className={`${FIELD} cursor-pointer`} onClick={() => inputRef.current?.showPicker?.()}>
       <span className={FLOAT_LABEL}>{t(label)}</span>
-      <span className="absolute inset-x-0 top-[22px] text-[13px] leading-[18px] text-black">{formatReportDate(value)}</span>
+      <span className="absolute inset-x-0 top-[22px] text-[13px] leading-[18px] text-black">{t(formatReportDate(value))}</span>
       <svg viewBox="0 0 24 24" className="pointer-events-none absolute bottom-[8px] right-0 h-5 w-5 fill-[#c4c4c4]" aria-hidden>
         <path d="M19 4h-1V2h-2v2H8V2H6v2H5c-1.11 0-1.99.9-1.99 2L3 20c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 16H5V9h14v11zM7 11h5v5H7z" />
       </svg>
@@ -306,9 +306,9 @@ export function ReportTopRow({
     <div className="flex h-[34px] items-center pt-0">
       <button type="button" onClick={onFilter} className="flex h-[34px] items-center rounded-[5px] bg-[#4f71dc] pl-[14px] pr-[22px] text-[13px] font-semibold text-white hover:brightness-95">
         <svg viewBox="0 0 24 24" className="mr-[9px] h-[18px] w-[18px] fill-white" aria-hidden><path d={RI.filter} /></svg>
-        {filterLabel}
+        {typeof filterLabel === "string" ? t(filterLabel) : filterLabel}
       </button>
-      <span className="ml-4 text-[13px] font-semibold text-[#4f71dc]">{scope}</span>
+      <span className="ml-4 text-[13px] font-semibold text-[#4f71dc]">{typeof scope === "string" ? t(scope) : scope}</span>
       <button type="button" onClick={onDownload} className="ml-auto flex h-[34px] items-center rounded-[5px] bg-[#71ce87] pl-[14px] pr-[16px] text-[13px] font-semibold text-white hover:brightness-95">
         <svg viewBox="0 0 24 24" className="mr-[9px] h-[18px] w-[18px] fill-white" aria-hidden><path d={RI.chart} /></svg>
         {t("Скачать")}
@@ -318,9 +318,10 @@ export function ReportTopRow({
 }
 
 export function ReportSummaryCard({ label, children, right }: { label: ReactNode; children: ReactNode; right?: boolean }) {
+  const { t } = useLanguage()
   return (
     <div className={`border border-[#e8e8e8] px-[15px] pb-[8px] pt-[10px] ${right ? "text-right" : ""}`}>
-      <p className="text-[13px] leading-4 text-[#555]">{label}</p>
+      <p className="text-[13px] leading-4 text-[#555]">{typeof label === "string" ? t(label) : label}</p>
       <p className="mt-[2px] text-[16px] font-bold leading-[18px] text-black">{children}</p>
     </div>
   )
@@ -369,7 +370,7 @@ export function ReportSearchBar({
             ))}
           </select>
         </label>
-        <span className="mr-[10px]">{rangeLabel}</span>
+        <span className="mr-[10px]">{t(rangeLabel)}</span>
         <button type="button" disabled={!canPrev} onClick={onPrev} aria-label={t("Назад")} className="mr-[10px] disabled:opacity-60">
           <svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#999]"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm3-12.5l-1.4-1.4L8.7 11l4.9 4.9 1.4-1.4L11.5 11z" fillRule="evenodd" /><path d="M13.5 8L9 12l4.5 4z" /></svg>
         </button>
@@ -419,7 +420,7 @@ export function ReportRangeField({
         </svg>
       </span>
       <span className="absolute inset-x-0 top-[22px] text-[13px] leading-[18px] text-black">
-        {formatShortReportDate(from)} - {formatShortReportDate(to)}
+        {t(formatShortReportDate(from))} - {t(formatShortReportDate(to))}
       </span>
       <input type="date" aria-label={t("Дата от")} value={from} max={to} onChange={(event) => event.target.value && onFrom(event.target.value)} className="absolute left-0 top-0 h-full w-1/2 cursor-pointer opacity-0" />
       <input type="date" aria-label={t("Дата до")} value={to} min={from} onChange={(event) => event.target.value && onTo(event.target.value)} className="absolute right-0 top-0 h-full w-1/2 cursor-pointer opacity-0" />
@@ -796,7 +797,7 @@ const WIDGET_HREF: Record<(typeof WIDGET_TABS)[number], string> = {
   "ОХВАТ": "/analytics/coverage-analysis",
   "ФИЛИАЛ": "/analytics/branch-tab",
   "P&L": "/analytics/pnl",
-  "ДОЛГ КЛИЕНТОВ": "/analytics/debts-tab",
+  "ДОЛГ КЛИЕНТОВ": "/analytics/order-debts",
   "ПРОДАЖА": "/analytics/sales-tab",
   "ГИБКИЙ ДАШБОРД": "/analytics/flexible-dashboard",
 }
@@ -813,12 +814,13 @@ export function monthRangeLabel(date = new Date()) {
 /** "Виджеты" title row with the shared tab strip of the dashboard widgets. */
 export function WidgetHeader({ active }: { active: (typeof WIDGET_TABS)[number] }) {
   const router = useRouter()
+  const { t } = useLanguage()
   return (
     <div className="pl-[30px] pr-[30px]">
-      <RefHeader title="Виджеты">
+      <RefHeader title={t("Виджеты")}>
         <nav className="mt-[5px] flex gap-[9px]">
           {WIDGET_TABS.map((tab) => (
-            <button key={tab} type="button" onClick={() => router.push(WIDGET_HREF[tab])} className={`h-[30px] min-w-[51px] rounded-[3px] px-[16px] text-[13px] font-normal shadow-[0_1px_3px_rgba(0,0,0,0.15)] transition-colors ${tab === active ? "bg-[#2bcd53] text-white" : "bg-white text-black hover:bg-[#f2f5f8]"}`}>{tab}</button>
+            <button key={tab} type="button" onClick={() => router.push(WIDGET_HREF[tab])} className={`h-[30px] min-w-[51px] rounded-[3px] px-[16px] text-[13px] font-normal shadow-[0_1px_3px_rgba(0,0,0,0.15)] transition-colors ${tab === active ? "bg-[#2bcd53] text-white" : "bg-white text-black hover:bg-[#f2f5f8]"}`}>{t(tab)}</button>
           ))}
         </nav>
       </RefHeader>
@@ -827,6 +829,27 @@ export function WidgetHeader({ active }: { active: (typeof WIDGET_TABS)[number] 
 }
 
 const PERIODS = ["СЕГОДНЯ", "ВЧЕРА", "ПОСЛ. 7", "МЕСЯЦ", "СВОЯ"]
+
+/** The signed-in user's name (GET /api/auth/me) and this server's address, both filled
+ * after mount — never a placeholder person or another company's server. */
+export function useSignedInLine(): { name: string; origin: string } {
+  const [name, setName] = useState("")
+  const [origin, setOrigin] = useState("")
+  useEffect(() => {
+    let cancelled = false
+    setOrigin(window.location.origin)
+    fetch("/api/auth/me")
+      .then((response) => (response.ok ? response.json() : null))
+      .then((data: { displayName?: string } | null) => {
+        if (!cancelled && data?.displayName) setName(data.displayName)
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [])
+  return { name, origin }
+}
 
 /** White card with the avatar / server line and (optionally) the date range + period buttons. */
 export function WidgetUserCard({
@@ -842,6 +865,8 @@ export function WidgetUserCard({
   showPeriods?: boolean
   children?: ReactNode
 }) {
+  const { t } = useLanguage()
+  const { name, origin } = useSignedInLine()
   const [inner, setInner] = useState("МЕСЯЦ")
   const current = period ?? inner
   return (
@@ -849,14 +874,14 @@ export function WidgetUserCard({
       <span className="mr-[10px] flex h-[30px] w-[30px] items-center justify-center overflow-hidden rounded-full bg-[#5d6474]">
         <svg viewBox="0 0 24 24" className="mt-[6px] h-[30px] w-[30px] fill-[#cfd3dc]" aria-hidden><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z" /></svg>
       </span>
-      <span className="mr-[5px] text-[16px] font-semibold text-[#333]">Admin Ritm</span>
-      <span className="text-[12px] font-semibold text-[#999]">Сервер: (https://time3.linko.uz)</span>
+      <span className="mr-[5px] text-[16px] font-semibold text-[#333]">{name}</span>
+      {origin && <span className="text-[12px] font-semibold text-[#999]">{t("Сервер")}: ({origin})</span>}
       {showPeriods && (
         <>
-          <strong className="ml-auto mr-[15px] text-[12px] font-bold text-[#4f71dc]">{range ?? monthRangeLabel()}</strong>
+          <strong className="ml-auto mr-[15px] text-[12px] font-bold text-[#4f71dc]">{t(range ?? monthRangeLabel())}</strong>
           <div className="mr-[12px] flex overflow-hidden rounded-[3px] shadow-[0_1px_3px_rgba(0,0,0,0.2)]">
             {PERIODS.map((item) => (
-              <button key={item} type="button" onClick={() => (onPeriod ? onPeriod(item) : setInner(item))} className={`h-[30px] px-4 text-[13px] font-medium uppercase transition-colors ${current === item ? "bg-[#4f71dc] text-white" : "bg-white text-black hover:bg-[#f2f5f8]"}`}>{item}</button>
+              <button key={item} type="button" onClick={() => (onPeriod ? onPeriod(item) : setInner(item))} className={`h-[30px] px-4 text-[13px] font-medium uppercase transition-colors ${current === item ? "bg-[#4f71dc] text-white" : "bg-white text-black hover:bg-[#f2f5f8]"}`}>{t(item)}</button>
             ))}
           </div>
         </>

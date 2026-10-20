@@ -358,8 +358,9 @@ function OperationForm({
       isVerified: requestLocked ? true : values.isVerified,
       rateType: values.individualRate ? "custom" : "current",
     }
-    // A paid money request edited later: the amount is optional (0 = the request converted).
-    if (!payMode && !staffMode && !childrenMode) body.amount = amount
+    // A paid money request edited later: no amount — the server pays the request amount
+    // converted into the (possibly changed) cashbox currency; another amount is refused.
+    if (!requestLocked && !staffMode && !childrenMode) body.amount = amount
     if (values.individualRate) {
       if (cashCurrency !== base && parseAmount(values.customRate) > 0) body.customRate = parseAmount(values.customRate)
       if (debtCurrency && debtCurrency !== base && parseAmount(values.debtRate) > 0) body.debtRate = parseAmount(values.debtRate)
@@ -431,13 +432,32 @@ function OperationForm({
         : titleBase
   const wide = staffMode || childrenMode
 
-  const categoryOptions: PickOption[] = categories.map((item) => ({
-    value: String(item.id),
-    label: item.name,
-    hint: applicableOptions(item, kind)
-      .map((key) => t(CATEGORY_OPTIONS[key].title))
-      .join(", "),
-  }))
+  // Sub-categories follow their parent, indented (Elektr energiya under Kommunal xizmatlar).
+  const categoryOptions: PickOption[] = (() => {
+    const ids = new Set(categories.map((item) => item.id))
+    const children = new Map<number, CashCategory[]>()
+    for (const item of categories) {
+      if (item.parentId != null && item.parentId !== item.id && ids.has(item.parentId)) children.set(item.parentId, [...(children.get(item.parentId) ?? []), item])
+    }
+    const out: PickOption[] = []
+    const seen = new Set<number>()
+    const add = (item: CashCategory, depth: number) => {
+      if (seen.has(item.id)) return
+      seen.add(item.id)
+      out.push({
+        value: String(item.id),
+        label: item.name,
+        depth,
+        hint: applicableOptions(item, kind)
+          .map((key) => t(CATEGORY_OPTIONS[key].title))
+          .join(", "),
+      })
+      for (const child of children.get(item.id) ?? []) add(child, depth + 1)
+    }
+    for (const item of categories) if (item.parentId == null || item.parentId === item.id || !ids.has(item.parentId)) add(item, 0)
+    for (const item of categories) add(item, 0)
+    return out
+  })()
 
   return (
     <CashModal
@@ -486,13 +506,16 @@ function OperationForm({
           <FormField
             label={
               <span className="flex items-center justify-between gap-2">
-                {t(kind === "income" ? "Категория прихода" : "Категория расхода")}
+                {/* The required "*" stays on the label's line (FormField would put it under the flex row). */}
+                <span>
+                  {t(kind === "income" ? "Категория прихода" : "Категория расхода")}
+                  {!requestLocked && <span className="text-[#e57373]"> *</span>}
+                </span>
                 <Link href={kind === "income" ? "/analytics/income-categories" : "/analytics/expense-categories"} target="_blank" className="text-[12px] text-[#4f70e7] hover:underline">
                   + {t("добавить")}
                 </Link>
               </span>
             }
-            required={!requestLocked}
             error={errors.categoryId}
           >
             <SearchSelect

@@ -4,6 +4,7 @@ import { FormEvent, useEffect, useMemo, useRef, useState } from "react"
 import { ChevronDown, ChevronLeft, X } from "lucide-react"
 import { RI, RefHeader } from "@/components/ref/list-kit"
 import { ReportEmpty, ReportPage } from "@/components/ref/report-kit"
+import { useLanguage } from "@/lib/i18n/language-context"
 
 function inputDate(date: Date) {
   const year = date.getFullYear()
@@ -30,6 +31,7 @@ function formatDate(value: string) {
 }
 
 export function PhotoReportReviewView() {
+  const { t } = useLanguage()
   const today = useMemo(() => inputDate(new Date()), [])
   const stripRef = useRef<HTMLDivElement>(null)
   const filterRef = useRef<HTMLFormElement>(null)
@@ -107,7 +109,7 @@ export function PhotoReportReviewView() {
   return (
     <ReportPage>
       <header className="relative pl-[30px] pr-[38px]">
-        <RefHeader title="Активность">
+        <RefHeader title={t("Проверка фотоотчетов")}>
           <strong className="mr-[10px] text-[13px] font-bold text-[#4f71dc]">
             {formatDate(range.from)} - {formatDate(range.to)}
           </strong>

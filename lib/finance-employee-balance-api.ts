@@ -30,7 +30,7 @@ export const EMPLOYEE_BALANCE_WRITE_TYPES = ["none_type", "penalty"] as const
 
 /** POST /api/employee-balance-transactions — kind add (+amount) / expense (−amount). */
 export const employeeBalanceTransactionSchema = z.object({
-  employeeId: numeric(REQUIRED).pipe(z.number({ error: REQUIRED }).int(REQUIRED).positive(REQUIRED)),
+  employeeId: numeric(REQUIRED).pipe(z.number({ error: REQUIRED }).int(REQUIRED).positive(REQUIRED).max(2_147_483_647, REQUIRED)),
   kind: z.enum(["add", "expense"], { error: REQUIRED }),
   type: z.enum(EMPLOYEE_BALANCE_WRITE_TYPES, { error: REQUIRED }).default("none_type"),
   /** Any currency code of the currencies table (sum/SUM/usd/…; SUM, USD, EUR when the table is empty). */

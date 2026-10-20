@@ -104,7 +104,7 @@ export function DashboardContent() {
         onWidgetsChange={handleWidgetsChange}
       />
       <StatCards begin={begin} end={end} summary={summary} visible={visibleWidgets} />
-      <UnitStatCards begin={begin} end={end} visible={visibleWidgets} />
+      <UnitStatCards begin={begin} end={end} visible={visibleWidgets} summary={summary} />
 
       <div className="mt-5 grid grid-cols-1 items-start gap-4 xl:grid-cols-3">
         <LeftPanel

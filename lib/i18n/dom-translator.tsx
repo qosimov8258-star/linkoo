@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect } from "react"
+import { useLayoutEffect } from "react"
 
 import { useLanguage } from "./language-context"
 import { isUntranslated, translate } from "./translate"
@@ -63,7 +63,9 @@ function reportMissing(language: LanguageCode, text: string) {
 export function DomTranslator() {
   const { language } = useLanguage()
 
-  useEffect(() => {
+  // A layout effect: the first pass runs right after hydration, before the
+  // browser paints again, so hydrated screens never flash their Russian literals.
+  useLayoutEffect(() => {
     currentLanguage = language
     patchDialogs()
 

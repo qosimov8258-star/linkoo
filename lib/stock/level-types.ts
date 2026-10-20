@@ -88,6 +88,8 @@ export type StockLevelSum = {
   /** В пути (count). */
   given: number
   currency: string
+  /** Unit of the counts when every counted row shares one ("" = mixed units: no unit to show). */
+  unit: string
 }
 
 export type StockLevelList = {

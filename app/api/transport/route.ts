@@ -7,7 +7,7 @@ import { parseJsonBody } from "@/lib/validation"
 import { createTransportVehicle, listTransportVehicles, parseTransportVehicleInput, TRANSPORT_STATUSES } from "@/lib/transport-repo"
 
 const transportVehicleSchema = z.object({
-  name: z.string().trim().min(1),
+  name: z.string().trim().min(1).max(255, "Не более 255 символов"),
   plateNumber: z.string().optional(),
   driver: z.string().optional(),
   branch: z.string().optional(),

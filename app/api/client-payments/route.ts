@@ -1,36 +1,48 @@
 import { NextResponse } from "next/server"
 import { z } from "zod"
 
+import { parseBody } from "@/lib/auth-request"
 import { getCurrentUser } from "@/lib/current-user"
 import { requireRole } from "@/lib/rbac"
-import { parseJsonBody } from "@/lib/validation"
+import { parseIdSegment } from "@/lib/validation"
 import { cashErrorResponse } from "@/lib/cash/api"
 import { createClientPayment, listClientPayments } from "@/lib/client-payments-repo"
 
 // GET  /api/client-payments?clientId → ClientPayment[] (live customer_payments of the client + legacy client_payments rows).
-// POST /api/client-payments { clientId, amount, comment?, paymentDate? } → 201 ClientPayment ("Добавить оплату" of the
-//      client card): a not accepted customer payment without a cashbox (accept it on "Оплаты от клиентов").
+// POST /api/client-payments { clientId, amount, currency?, comment?, paymentDate? } → 201 ClientPayment ("Добавить оплату"
+//      of the client card): a not accepted customer payment without a cashbox (accept it on "Оплаты от клиентов").
 const clientPaymentSchema = z.object({
-  clientId: z.coerce.number().int().positive(),
-  clientName: z.string().trim().optional(),
-  amount: z.coerce.number().finite().positive(),
-  comment: z.string().trim().optional(),
-  paymentDate: z.string().trim().optional(),
+  clientId: z.coerce
+    .number({ error: "Клиент не найден" })
+    .int({ error: "Клиент не найден" })
+    .positive({ error: "Клиент не найден" })
+    .max(2_147_483_647, { error: "Клиент не найден" }),
+  clientName: z.string().trim().max(300).optional(),
+  amount: z.coerce
+    .number({ error: "Укажите сумму" })
+    .finite({ error: "Укажите сумму" })
+    .positive({ error: "Укажите сумму" })
+    .max(1e13, { error: "Слишком большая сумма" }),
+  currency: z.string().trim().max(10).optional(),
+  comment: z.string().trim().max(2000).optional(),
+  paymentDate: z.string().trim().max(40).optional(),
 })
 
 export async function GET(request: Request) {
   const user = await getCurrentUser()
   if (!user) return NextResponse.json({ error: "Tizimga kirilmagan" }, { status: 401 })
   const clientIdParam = new URL(request.url).searchParams.get("clientId")
-  const clientId = clientIdParam ? Number(clientIdParam) : undefined
-  return NextResponse.json(await listClientPayments(Number.isInteger(clientId) ? clientId : undefined))
+  if (clientIdParam === null || clientIdParam.trim() === "") return NextResponse.json(await listClientPayments(undefined))
+  // A client id that is not a positive int4 matches no client (never a 500).
+  const clientId = parseIdSegment(clientIdParam.trim())
+  return NextResponse.json(clientId ? await listClientPayments(clientId) : [])
 }
 
 export async function POST(request: Request) {
   const auth = await requireRole("manager")
   if ("error" in auth) return auth.error
 
-  const parsed = await parseJsonBody(request, clientPaymentSchema)
+  const parsed = await parseBody(request, clientPaymentSchema)
   if (parsed.error) return parsed.error
 
   try {
@@ -39,6 +51,7 @@ export async function POST(request: Request) {
         clientId: parsed.data.clientId,
         clientName: parsed.data.clientName ?? "",
         amount: parsed.data.amount,
+        currency: parsed.data.currency || undefined,
         comment: parsed.data.comment ?? "",
         paymentDate: parsed.data.paymentDate ?? "",
       },

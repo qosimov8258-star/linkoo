@@ -50,13 +50,24 @@ const MONTH = /(?<![А-Яа-яЁё])(январ[ьяю]|феврал[ьяю]|м�
 const normalize = (text) => text.replace(/\d+(?:[ .,]\d+)*/g, "{n}")
 const clean = (text) => text.replace(/\s+/g, " ").trim()
 
+// SQL text is not UI text: a quoted SQL literal list ('Возврат', ('В пути', 'Доставлено'))
+// or a fragment with a quoted literal next to SQL syntax (WHERE / CASE / = '…' / <> / ::).
+const SQL_LITERALS = /^\(?'[^']*'(?:\s*,\s*'[^']*')*\)?$/
+const SQL_SYNTAX = /\b(?:SELECT|FROM|WHERE|JOIN|CASE|WHEN|THEN|ELSE|END|AND|OR|NOT|IN|IS|NULL|COALESCE|CREATE|ALTER|INSERT|UPDATE|DELETE|DEFAULT|DISTINCT|LIMIT|WITH)\b|<>|::|=\s*'/
+const isSql = (text) => SQL_LITERALS.test(text) || (text.includes("'") && SQL_SYNTAX.test(text))
+
+/** A lowercase property name of an object literal: a lookup key (Excel header aliases,
+ * category parameter keys), matched against normalized input, never shown. */
+const isAliasKey = (node) =>
+  node.parent && ts.isPropertyAssignment(node.parent) && node.parent.name === node && node.text === node.text.toLowerCase()
+
 function extract(file) {
   const source = fs.readFileSync(file, "utf8")
   const sf = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true, file.endsWith("x") ? ts.ScriptKind.TSX : ts.ScriptKind.TS)
   const found = new Set()
   const add = (text) => {
     const value = clean(text)
-    if (value && CYR.test(value)) found.add(value)
+    if (value && CYR.test(value) && !isSql(value)) found.add(value)
   }
   const visit = (node) => {
     switch (node.kind) {
@@ -66,7 +77,7 @@ function extract(file) {
       case ts.SyntaxKind.TemplateMiddle:
       case ts.SyntaxKind.TemplateTail:
       case ts.SyntaxKind.JsxText:
-        if (!(node.parent && (ts.isImportDeclaration(node.parent) || ts.isExportDeclaration(node.parent)))) add(node.text ?? "")
+        if (!(node.parent && (ts.isImportDeclaration(node.parent) || ts.isExportDeclaration(node.parent))) && !isAliasKey(node)) add(node.text ?? "")
         break
     }
     ts.forEachChild(node, visit)

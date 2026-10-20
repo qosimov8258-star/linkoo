@@ -14,7 +14,7 @@ export type BucketAmounts = Record<DebtBucket | "total", number>
 
 export type OrderDebtTab = "client" | "order"
 
-/** Order statuses that can carry a debt (everything except "Отменен"). */
+/** Order statuses that can carry a debt (everything except "Отменен" and "Не подтвержден"). */
 export const ORDER_DEBT_STATUSES = ["Есть на складе", "В пути", "Доставлено"] as const
 
 /** Filter / list query (URL and API share these names; arrays = repeated params). */
@@ -238,8 +238,8 @@ export function bucketOf(days: number, config: OrderDebtConfig): DebtBucket {
 export function bucketLabel(bucket: DebtBucket | "total", config: OrderDebtConfig): { key: string; values: Record<string, number> } {
   const { firstDebtPeriod: p1, secondDebtPeriod: p2, thirdDebtPeriod: p3 } = config
   if (bucket === "first") return { key: "Прошло до {days} дней", values: { days: p1 } }
-  if (bucket === "second") return { key: "C {from} дней - До {to}", values: { from: p1, to: p2 } }
-  if (bucket === "third") return { key: "C {from} дней - До {to}", values: { from: p2, to: p3 } }
+  if (bucket === "second") return { key: "С {from} дней - До {to}", values: { from: p1, to: p2 } }
+  if (bucket === "third") return { key: "С {from} дней - До {to}", values: { from: p2, to: p3 } }
   if (bucket === "fourth") return { key: "Больше {days} дней", values: { days: p3 } }
   return { key: "Итого", values: {} }
 }

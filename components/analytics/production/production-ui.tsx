@@ -10,8 +10,13 @@ import { useLanguage } from "@/lib/i18n/language-context"
 
 export type ItemKind = "product" | "raw_material"
 export type CatalogItem = { key: string; kind: ItemKind; id: number; name: string; unit: string; type: string }
-export type StockItem = CatalogItem & { available: number; defects: number; cost: number }
-export type Stage = { id: number; name: string; warehouse: string; responsible: string; createdAt: string }
+/** available = what can be used now; onHand = everything there (brak included);
+ * stockDefects = the brak inside onHand; defects = brak booked by batches here. */
+export type StockItem = CatalogItem & { available: number; onHand: number; stockDefects: number; defects: number; cost: number }
+export type Stage = { id: number; name: string; warehouse: string; responsible: string; responsibleId: number | null; createdAt: string }
+export type PartyStatusTransitions = Record<PartyStatus, PartyStatus[]>
+/** Status changes the server accepts: a cancelled batch is final, a finished one can only be cancelled. */
+export const STATUS_TRANSITIONS: PartyStatusTransitions = { pending: ["pending", "finished", "cancelled"], finished: ["finished", "cancelled"], cancelled: ["cancelled"] }
 export type PartyStatus = "pending" | "finished" | "cancelled"
 
 export const STATUS_LABELS: Record<PartyStatus, string> = { pending: "В процессе", finished: "Завершен", cancelled: "Отменен" }

@@ -25,7 +25,7 @@ const ITEMS_SQL = `
     FROM products p WHERE COALESCE(p.deleted, 0) = 0
   UNION ALL
   SELECT 'raw_material', r.id, r.name, to_jsonb(r)->>'price_lists', to_jsonb(r)->>'price_list', to_jsonb(r)->>'cash_price', to_jsonb(r)->>'non_cash_price'
-    FROM raw_materials r`
+    FROM raw_materials r WHERE COALESCE(to_jsonb(r)->>'deleted', '0') = '0'`
 
 export async function listPriceListEntries(): Promise<PriceListEntry[]> {
   const db = getDb()
@@ -77,12 +77,16 @@ export async function createPriceListEntry(input: PriceListEntryInput): Promise<
       ((await tx.prepare("SELECT 'product' AS kind, id FROM products WHERE fin_key(name) = fin_key(?) AND COALESCE(deleted, 0) = 0 ORDER BY id LIMIT 1").get(input.product)) as
         | { kind: "product"; id: number }
         | undefined) ??
-      ((await tx.prepare("SELECT 'raw_material' AS kind, id FROM raw_materials WHERE fin_key(name) = fin_key(?) ORDER BY id LIMIT 1").get(input.product)) as
+      ((await tx
+        .prepare("SELECT 'raw_material' AS kind, id FROM raw_materials r WHERE fin_key(name) = fin_key(?) AND COALESCE(to_jsonb(r)->>'deleted', '0') = '0' ORDER BY id LIMIT 1")
+        .get(input.product)) as
         | { kind: "raw_material"; id: number }
         | undefined)
     if (!item) return null
     const currency = list.currency || undefined
-    const result = await setItemPrices(tx, item.kind, Number(item.id), [{ priceList: list.name, cash: input.cash, nonCash: input.nonCash, currency, nonCashCurrency: currency }])
+    const result = await setItemPrices(tx, item.kind, Number(item.id), [{ priceList: list.name, cash: input.cash, nonCash: input.nonCash, currency, nonCashCurrency: currency }], {
+      live: true,
+    })
     if (!result) return null
     return { id: Number(item.id), priceList: list.name, product: result.name, cash: input.cash, nonCash: input.nonCash }
   })

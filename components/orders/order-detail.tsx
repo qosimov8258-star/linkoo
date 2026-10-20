@@ -1,11 +1,19 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react"
+import { createPortal } from "react-dom"
 import { ChevronDown, X } from "lucide-react"
 
 import { useLanguage } from "@/lib/i18n/language-context"
 
-import type { Order } from "./orders-data"
+import { EDITABLE_STATUSES, FINAL_STATUSES, ORDER_STATUSES, RELEASED_STATUSES, canChangeStatus, type Order } from "./orders-data"
+
+// The order card (Продажи → Заказы → a row). Every figure comes from the
+// server: the order (warehouse, payment terms, deliverer, invoice details),
+// its lines, its change log (order_logs), what was paid / remains
+// (/api/cash/orders/:id) and the client's operative / actual debt (client
+// ledger). Overlays are portaled to <body> so the sticky page header never
+// covers them.
 
 /* ------------------------------------------------------------------ */
 /* Types & constants                                                   */
@@ -13,6 +21,7 @@ import type { Order } from "./orders-data"
 
 type OrderLineItem = {
   id: number
+  productId: number | null
   productName: string
   unit: string
   quantity: number
@@ -22,20 +31,17 @@ type OrderLineItem = {
   lineTotal: number
 }
 
-type OrderLog = {
-  kind: "Обновленный" | "Создан"
-  status: string
-  by: string
-  at: string
-  sum: string
-  comment?: string
+type OrderLog = { id: number; kind: string; status: string; comment: string; amount: string; createdBy: string; createdAt: string }
+
+type OrderDetail = Order & {
+  clientDebt?: { operative: string; actual: string; operativeNegative: boolean; actualNegative: boolean } | null
 }
 
-type InvoiceDetails = { number: string; date: string; contract: string; active: boolean }
+type OrderDue = { currencies: Array<{ currency: string; total: number; paid: number; remaining: number }> }
 
-type OrderExtras = { invoice?: InvoiceDetails; logs?: OrderLog[] }
+type ProductOption = { id: number; name: string; unit?: string; canSell?: boolean; deleted?: boolean }
 
-export const ORDER_STATUS_OPTIONS = ["Не подтвержден", "В процессе", "Есть на складе", "В пути", "Доставлено", "Отменен"]
+export const ORDER_STATUS_OPTIONS: string[] = [...ORDER_STATUSES]
 
 const STATUS_MENU: { status: string; label: string; icon: string; color: string }[] = [
   { status: "Не подтвержден", label: "Не подтвержденный", icon: "M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z", color: "#757575" },
@@ -93,56 +99,67 @@ function formatRuDate(date: Date) {
   return `${String(date.getDate()).padStart(2, "0")} ${RU_SHORT_MONTHS[date.getMonth()]} ${date.getFullYear()}`
 }
 
-function toInputDate(value: string) {
-  const match = /(\d{1,2})\s+([А-Яа-я]+)\.?\s+(\d{4})/.exec(value)
+function localIso(date: Date) {
+  const offset = date.getTimezoneOffset() * 60000
+  return new Date(date.getTime() - offset).toISOString().slice(0, 10)
+}
+
+/** "2026-10-21", "21 окт. 2026" or "21 октября 2026 г." → "2026-10-21" (today when unreadable). */
+function toInputDate(value: string | undefined) {
+  const text = value ?? ""
+  if (/^\d{4}-\d{2}-\d{2}/.test(text)) return text.slice(0, 10)
+  const match = /(\d{1,2})\s+([А-Яа-я]+)\.?\s+(\d{4})/.exec(text)
   const date = new Date()
   if (match) {
     const month = MONTH_PREFIXES.findIndex((prefix) => match[2].toLowerCase().startsWith(prefix))
     if (month >= 0) date.setFullYear(Number(match[3]), month, Number(match[1]))
   }
-  const offset = date.getTimezoneOffset() * 60000
-  return new Date(date.getTime() - offset).toISOString().slice(0, 10)
+  return localIso(date)
 }
 
-function fromInputDate(value: string) {
-  const date = new Date(`${value}T00:00:00`)
-  return Number.isNaN(date.getTime()) ? value : formatRuDate(date)
+/** "2026-10-21" → "21 окт. 2026"; other texts unchanged. */
+function displayDay(value: string | undefined | null) {
+  const text = value ?? ""
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(text)
+  return match ? `${match[3]} ${RU_SHORT_MONTHS[Number(match[2]) - 1] ?? ""} ${match[1]}` : text
+}
+
+/** UTC "YYYY-MM-DD HH:MM:SS" or ISO → local "21 окт. 2026, 14:05". */
+function displayMoment(value: string | undefined | null) {
+  if (!value) return ""
+  const date = new Date(/[zZ]|[+-]\d{2}:?\d{2}$/.test(value) ? value : `${value.replace(" ", "T")}Z`)
+  if (Number.isNaN(date.getTime())) return value
+  return `${formatRuDate(date)}, ${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`
 }
 
 function formatNumber(value: number) {
   return value.toLocaleString("ru-RU", { maximumFractionDigits: 2 })
 }
 
-function nowStamp() {
-  const date = new Date()
-  const hh = String(date.getHours()).padStart(2, "0")
-  const mm = String(date.getMinutes()).padStart(2, "0")
-  return `${formatRuDate(date)}, ${hh}:${mm}`
-}
+const PAYMENT_TYPE_LABELS: Record<string, string> = { cash: "Наличные", bank: "Перечисление" }
+const DEAL_TYPE_LABELS: Record<string, string> = { standard: "Стандартная", consignment: "Консигнация" }
 
-/* ------------------------------------------------------------------ */
-/* Persisted extras (invoice details + change log)                    */
-/* ------------------------------------------------------------------ */
+type ApiResult<T> = { ok: true; body: T } | { ok: false; error: string }
 
-const EXTRAS_KEY = "linko-order-extras-v1"
-
-function readExtras(orderId: number): OrderExtras {
+async function api<T>(url: string, init?: { method?: string; body?: unknown }): Promise<ApiResult<T>> {
   try {
-    const all = JSON.parse(window.localStorage.getItem(EXTRAS_KEY) ?? "{}") as Record<string, OrderExtras>
-    return all[orderId] ?? {}
+    const response = await fetch(url, {
+      method: init?.method ?? "GET",
+      headers: init?.body !== undefined ? { "Content-Type": "application/json" } : undefined,
+      body: init?.body !== undefined ? JSON.stringify(init.body) : undefined,
+    })
+    const body = (await response.json().catch(() => null)) as (T & { error?: string }) | null
+    if (!response.ok || body === null) return { ok: false, error: body?.error ?? "Не удалось сохранить изменения на сервере" }
+    return { ok: true, body }
   } catch {
-    return {}
+    return { ok: false, error: "Не удалось сохранить изменения на сервере" }
   }
 }
 
-function writeExtras(orderId: number, extras: OrderExtras) {
-  try {
-    const all = JSON.parse(window.localStorage.getItem(EXTRAS_KEY) ?? "{}") as Record<string, OrderExtras>
-    all[orderId] = extras
-    window.localStorage.setItem(EXTRAS_KEY, JSON.stringify(all))
-  } catch {
-    // storage is optional
-  }
+function usePortal() {
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => setMounted(true), [])
+  return (node: ReactNode) => (mounted ? createPortal(node, document.body) : null)
 }
 
 /* ------------------------------------------------------------------ */
@@ -157,12 +174,13 @@ function Mi({ d, className = "h-[18px] w-[18px] fill-white" }: { d: string; clas
   )
 }
 
-function HeaderButton({ icon, label, onClick }: { icon: string; label: string; onClick: () => void }) {
+function HeaderButton({ icon, label, onClick, disabled }: { icon: string; label: string; onClick: () => void; disabled?: boolean }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className="flex h-[30px] items-center rounded-[5px] bg-[#4f71dc] pl-3 text-[13px] font-semibold text-white hover:brightness-95"
+      disabled={disabled}
+      className="flex h-[30px] items-center rounded-[5px] bg-[#4f71dc] pl-3 text-[13px] font-semibold text-white hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-40"
     >
       <Mi d={icon} className="mb-1 h-[18px] w-[18px] fill-white" />
       <span className="pl-2 pr-4">{label}</span>
@@ -170,9 +188,14 @@ function HeaderButton({ icon, label, onClick }: { icon: string; label: string; o
   )
 }
 
-function MenuItem({ icon, color = "#666", label, onClick }: { icon: string; color?: string; label: string; onClick: () => void }) {
+function MenuItem({ icon, color = "#666", label, onClick, disabled }: { icon: string; color?: string; label: string; onClick: () => void; disabled?: boolean }) {
   return (
-    <button type="button" onClick={onClick} className="flex h-12 w-full items-center gap-[10px] pl-[22px] pr-6 text-left text-[13px] text-[#333] hover:bg-[#f5f5f5]">
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className="flex h-12 w-full items-center gap-[10px] pl-[22px] pr-6 text-left text-[13px] text-[#333] hover:bg-[#f5f5f5] disabled:cursor-not-allowed disabled:opacity-40"
+    >
       <svg viewBox="0 0 24 24" className="h-6 w-6 shrink-0" aria-hidden>
         <path d={icon} fill={color} />
       </svg>
@@ -197,6 +220,7 @@ function DialogShell({
   onAction,
   children,
   disabled,
+  error,
 }: {
   title: string
   onClose: () => void
@@ -204,13 +228,15 @@ function DialogShell({
   onAction: () => void
   children: ReactNode
   disabled?: boolean
+  error?: string
 }) {
+  const portal = usePortal()
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => event.key === "Escape" && onClose()
     window.addEventListener("keydown", onKey)
     return () => window.removeEventListener("keydown", onKey)
   }, [onClose])
-  return (
+  return portal(
     <div data-order-overlay className="fixed inset-0 z-[130] flex items-center justify-center bg-black/[0.54] p-4 font-sans text-[13px] text-[#333]">
       <div className="w-[500px] max-w-full bg-white shadow-[0_10px_30px_rgba(0,0,0,0.3)]">
         <div className="flex items-center justify-between border-b border-[#e8e8e8] px-[30px] py-[22px]">
@@ -220,33 +246,37 @@ function DialogShell({
           </button>
         </div>
         <div className="min-h-[120px] px-[30px] py-5">{children}</div>
-        <div className="flex justify-end border-t border-[#e8e8e8] px-[30px] py-[18px]">
+        <div className="flex items-center justify-end gap-4 border-t border-[#e8e8e8] px-[30px] py-[18px]">
+          {error && <span className="mr-auto text-[#e57373]">{error}</span>}
           <button type="button" disabled={disabled} onClick={onAction} className="text-[13px] font-semibold uppercase text-[#0a9ddb] disabled:opacity-40">
             {action}
           </button>
         </div>
       </div>
-    </div>
+    </div>,
   )
 }
 
 function SheetShell({ title, onClose, children, footer }: { title: string; onClose: () => void; children: ReactNode; footer?: ReactNode }) {
+  const portal = usePortal()
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => event.key === "Escape" && onClose()
     window.addEventListener("keydown", onKey)
     return () => window.removeEventListener("keydown", onKey)
   }, [onClose])
-  return (
+  // Portaled to <body>: inside the list's sticky wrapper the page header
+  // (sticky, z-40) painted over the close button.
+  return portal(
     <div data-order-overlay className="fixed inset-0 z-[120] flex flex-col bg-white font-sans text-[13px] text-[#333]">
       <div className="flex h-[59px] shrink-0 items-center justify-between border-b border-[#efefef] px-[30px]">
         <h3 className="text-[13px] font-bold uppercase leading-4">{title}</h3>
-        <button type="button" aria-label="close" onClick={onClose}>
+        <button type="button" aria-label="close" onClick={onClose} className="flex h-10 w-10 items-center justify-center">
           <Mi d={ICONS.close} className="h-6 w-6 fill-[#333]" />
         </button>
       </div>
       <div className="min-h-0 flex-1 overflow-auto">{children}</div>
       {footer && <div className="shrink-0 border-t border-[#efefef]">{footer}</div>}
-    </div>
+    </div>,
   )
 }
 
@@ -274,12 +304,48 @@ function Robot({ text, overlay }: { text: string; overlay?: boolean }) {
   )
 }
 
+function useNames(url: string, pick: (row: Record<string, unknown>) => string) {
+  const [names, setNames] = useState<string[]>([])
+  useEffect(() => {
+    let cancelled = false
+    void api<unknown>(url).then((result) => {
+      if (cancelled || !result.ok) return
+      const rows = Array.isArray(result.body) ? result.body : ((result.body as { results?: unknown[]; rows?: unknown[] }).results ?? (result.body as { rows?: unknown[] }).rows ?? [])
+      setNames([...new Set((rows as Record<string, unknown>[]).map(pick).filter(Boolean))])
+    })
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [url])
+  return names
+}
+
+const employeeName = (row: Record<string, unknown>) => `${String(row.firstName ?? "")} ${String(row.lastName ?? "")}`.trim() || String(row.name ?? "")
+const plainName = (row: Record<string, unknown>) => String(row.name ?? "")
+
+function useSellableProducts() {
+  const [products, setProducts] = useState<ProductOption[] | null>(null)
+  useEffect(() => {
+    let cancelled = false
+    void api<ProductOption[]>("/api/products").then((result) => {
+      if (!cancelled) setProducts(result.ok ? result.body.filter((row) => row.canSell !== false && !row.deleted) : [])
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+  return products
+}
+
 /* ------------------------------------------------------------------ */
 /* The card                                                            */
 /* ------------------------------------------------------------------ */
 
 const TABS = ["Список товаров", "Серии", "Возврат", "Задействованные акции", "Логи"] as const
 type DetailTab = (typeof TABS)[number]
+
+type ReturnRow = { id: number; returnDate: string; status: string; warehouse: string; amount: number; currency: string; itemCount?: number }
 
 export function OrderDetailCard({
   order,
@@ -289,81 +355,87 @@ export function OrderDetailCard({
   onNotify,
 }: {
   order: Order
-  onUpdate: (id: number, patch: Partial<Order>) => void
+  onUpdate: (id: number, patch: Partial<Order>) => Promise<boolean> | void
   refreshOrder: (id: number) => void
   onNavigate: (href: string) => void
   onNotify: (message: string) => void
 }) {
   const { t } = useLanguage()
+  const portal = usePortal()
   const [tab, setTab] = useState<DetailTab>("Список товаров")
   const [menu, setMenu] = useState<null | "status" | "edit" | "discount" | "return">(null)
-  const [dialog, setDialog] = useState<
-    null | "status" | "invoice" | "manualDiscount" | "recalc" | "cancelDiscount" | "fullReturn" | "cancelOrder" | "logDetails"
-  >(null)
+  const [dialog, setDialog] = useState<null | "status" | "invoice" | "manualDiscount" | "recalc" | "cancelDiscount" | "fullReturn" | "cancelOrder" | "logDetails">(null)
   const [sheet, setSheet] = useState<null | "edit" | "quickEdit" | "quickReturn" | "print">(null)
   const [items, setItems] = useState<OrderLineItem[]>([])
   const [itemsLoading, setItemsLoading] = useState(true)
-  const [extras, setExtras] = useState<OrderExtras>({})
+  const [logs, setLogs] = useState<OrderLog[]>([])
+  const [detail, setDetail] = useState<OrderDetail | null>(null)
+  const [due, setDue] = useState<OrderDue | null>(null)
+  const [returns, setReturns] = useState<ReturnRow[]>([])
   const [statusTarget, setStatusTarget] = useState(order.status)
+  const [dialogError, setDialogError] = useState("")
 
   const loadItems = useCallback(() => {
     setItemsLoading(true)
-    return fetch(`/api/orders/${order.id}/items`)
-      .then(async (response) => (response.ok ? ((await response.json()) as OrderLineItem[]) : []))
-      .then(setItems)
+    return api<OrderLineItem[]>(`/api/orders/${order.id}/items`)
+      .then((result) => setItems(result.ok ? result.body : []))
       .finally(() => setItemsLoading(false))
   }, [order.id])
 
+  const loadExtras = useCallback(() => {
+    void api<OrderLog[]>(`/api/orders/${order.id}/logs`).then((result) => setLogs(result.ok ? result.body : []))
+    void api<OrderDetail>(`/api/orders/${order.id}`).then((result) => setDetail(result.ok ? result.body : null))
+    void api<OrderDue>(`/api/cash/orders/${order.id}`).then((result) => setDue(result.ok ? result.body : null))
+    void api<{ rows: ReturnRow[] }>(`/api/client-returns?orderId=${order.id}`).then((result) => setReturns(result.ok ? result.body.rows : []))
+  }, [order.id])
+
   useEffect(() => {
-    loadItems()
-    setExtras(readExtras(order.id))
+    void loadItems()
+    loadExtras()
     setTab("Список товаров")
     setMenu(null)
-  }, [order.id, loadItems])
+  }, [order.id, loadItems, loadExtras])
 
-  const saveExtras = (next: OrderExtras) => {
-    setExtras(next)
-    writeExtras(order.id, next)
+  // The list row changes (status, totals…) → reload what depends on it.
+  useEffect(() => {
+    loadExtras()
+  }, [order.status, order.amount, loadExtras])
+
+  const reloadAll = () => {
+    void loadItems()
+    loadExtras()
+    refreshOrder(order.id)
   }
 
-  const addLog = (entry: Omit<OrderLog, "by" | "at" | "sum">) => {
-    const log: OrderLog = { ...entry, by: "Admin Ritm", at: nowStamp(), sum: order.amount }
-    saveExtras({ ...extras, logs: [log, ...(extras.logs ?? [])] })
+  const patchOrder = async (patch: Partial<Order>, message?: string) => {
+    const ok = await onUpdate(order.id, patch)
+    if (ok !== false) {
+      loadExtras()
+      if (message) onNotify(message)
+    }
+    return ok !== false
   }
 
-  const changeStatus = (status: string) => {
-    if (status === order.status) return
-    onUpdate(order.id, { status })
-    addLog({ kind: "Обновленный", status, comment: `${t("Изменен статус:")} ${t(order.status)} - ${t(status)}` })
-    onNotify(`${t("Статус заказа изменён:")} ${t(status)}`)
-  }
-
-  const logs: OrderLog[] = [
-    ...(extras.logs ?? []),
-    {
-      kind: "Обновленный",
-      status: order.status,
-      by: "Admin Ritm",
-      at: `${formatRuDate(new Date())}, 20:03`,
-      sum: order.amount,
-      comment: `${t("Изменен статус:")} ${t("Не подтвержден")} - ${t(order.status)}`,
-    },
-    { kind: "Создан", status: "Не подтвержден", by: "Admin Ritm", at: `${order.created}`, sum: order.amount },
-  ]
-
-  const invoiceActive = extras.invoice?.active ?? false
-  const statusColor =
-    order.status === "Доставлено" ? "text-[#81c784]" : order.status === "Отменен" ? "text-[#e57373]" : "text-[#f0ad4e]"
-  const operativeDebt = order.negative ? order.balance : "12 047 000 SUM"
+  const status = order.status
+  const editable = !(ORDER_STATUSES as readonly string[]).includes(status) || EDITABLE_STATUSES.includes(status)
+  const final = FINAL_STATUSES.includes(status)
+  const released = RELEASED_STATUSES.includes(status)
+  const currency = order.currency || "SUM"
+  const statusColor = status === "Доставлено" ? "text-[#81c784]" : status === "Отменен" ? "text-[#e57373]" : "text-[#f0ad4e]"
+  const debt = detail?.clientDebt ?? null
+  const deliverer = order.deliveryMan || (order.clientDeliverer && order.clientDeliverer !== "Не указано" ? order.clientDeliverer : "")
+  const dueLine = (pick: "paid" | "remaining") =>
+    due?.currencies.length ? due.currencies.map((entry) => `${formatNumber(entry[pick])} ${entry.currency}`).join(", ") : `0 ${currency}`
 
   const row = (label: string, value: ReactNode, valueClass = "") => (
-    <li className="flex min-h-[25px] items-start justify-between leading-[25px]">
+    <li className="flex min-h-[25px] items-start justify-between gap-3 leading-[25px]">
       <span>{label}</span>
       <span className={`text-right font-semibold ${valueClass}`}>{value}</span>
     </li>
   )
 
   const tabIndex = TABS.indexOf(tab)
+  const allowedTargets = STATUS_MENU.filter((item) => item.status !== status && canChangeStatus(status, item.status))
 
   return (
     <div className="relative bg-white font-sans text-[13px] leading-normal text-[#333] shadow-[0_1px_6px_rgba(0,0,0,0.2),0_1px_4px_rgba(0,0,0,0.2)]">
@@ -374,19 +446,11 @@ export function OrderDetailCard({
           {order.id}
         </h2>
         <div className="flex items-center gap-[18px]">
-          {tab === "Серии" && (
-            <>
-              <svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#666]" aria-hidden>
-                <path d={ICONS.clock} />
-              </svg>
-              <HeaderButton icon={ICONS.edit} label={t("Изменит серии")} onClick={() => onNotify(t("Серии для этого заказа не найдены"))} />
-            </>
-          )}
           <div className="relative">
-            <HeaderButton icon={ICONS.edit} label={t("Изменить статус")} onClick={() => setMenu(menu === "status" ? null : "status")} />
+            <HeaderButton icon={ICONS.edit} label={t("Изменить статус")} disabled={!allowedTargets.length} onClick={() => setMenu(menu === "status" ? null : "status")} />
             {menu === "status" && (
               <Menu onClose={() => setMenu(null)}>
-                {STATUS_MENU.map((item) => (
+                {allowedTargets.map((item) => (
                   <MenuItem
                     key={item.status}
                     icon={item.icon}
@@ -395,6 +459,7 @@ export function OrderDetailCard({
                     onClick={() => {
                       setMenu(null)
                       setStatusTarget(item.status)
+                      setDialogError("")
                       setDialog("status")
                     }}
                   />
@@ -406,35 +471,30 @@ export function OrderDetailCard({
             <HeaderButton icon={ICONS.edit} label={t("Изменить")} onClick={() => setMenu(menu === "edit" ? null : "edit")} />
             {menu === "edit" && (
               <Menu onClose={() => setMenu(null)}>
-                <MenuItem icon={ICONS.edit} label={t("Изменить")} onClick={() => (setMenu(null), setSheet("edit"))} />
-                <MenuItem icon={ICONS.edit} label={t("Быстрая правка")} onClick={() => (setMenu(null), setSheet("quickEdit"))} />
-                <MenuItem icon={ICONS.article} label={t("Изменить детали счет фактуры")} onClick={() => (setMenu(null), setDialog("invoice"))} />
+                <MenuItem icon={ICONS.edit} label={t("Изменить")} disabled={final} onClick={() => (setMenu(null), setSheet("edit"))} />
+                <MenuItem icon={ICONS.edit} label={t("Быстрая правка")} disabled={!editable || !items.length} onClick={() => (setMenu(null), setSheet("quickEdit"))} />
+                <MenuItem icon={ICONS.article} label={t("Изменить детали счет фактуры")} onClick={() => (setMenu(null), setDialogError(""), setDialog("invoice"))} />
               </Menu>
             )}
           </div>
           <div className="relative">
-            <HeaderButton icon={ICONS.discount} label={t("Скидка")} onClick={() => setMenu(menu === "discount" ? null : "discount")} />
+            <HeaderButton icon={ICONS.discount} label={t("Скидка")} disabled={!editable || !items.length} onClick={() => setMenu(menu === "discount" ? null : "discount")} />
             {menu === "discount" && (
               <Menu onClose={() => setMenu(null)}>
-                <MenuItem icon={ICONS.discount} label={t("Скидка")} onClick={() => (setMenu(null), setDialog("manualDiscount"))} />
+                <MenuItem icon={ICONS.discount} label={t("Ручная скидка")} onClick={() => (setMenu(null), setDialogError(""), setDialog("manualDiscount"))} />
                 <MenuItem icon={ICONS.discount} label={t("Частичная скидка")} onClick={() => (setMenu(null), setSheet("quickEdit"))} />
-                <MenuItem icon={ICONS.discount} label={t("Ручная скидка")} onClick={() => (setMenu(null), setDialog("manualDiscount"))} />
                 <MenuItem icon={ICONS.sync} label={t("Пересчитать")} onClick={() => (setMenu(null), setDialog("recalc"))} />
-                <MenuItem icon={ICONS.trash} label={t("Отменить скидки")} onClick={() => (setMenu(null), setDialog("cancelDiscount"))} />
+                <MenuItem icon={ICONS.trash} label={t("Отменить скидки")} onClick={() => (setMenu(null), setDialogError(""), setDialog("cancelDiscount"))} />
               </Menu>
             )}
           </div>
           <div className="relative">
-            <HeaderButton icon={ICONS.undo} label={t("Возврат")} onClick={() => setMenu(menu === "return" ? null : "return")} />
+            <HeaderButton icon={ICONS.undo} label={t("Возврат")} disabled={!released} onClick={() => setMenu(menu === "return" ? null : "return")} />
             {menu === "return" && (
               <Menu onClose={() => setMenu(null)}>
-                <MenuItem icon={ICONS.money} label={t("Полный возврат")} onClick={() => (setMenu(null), setDialog("fullReturn"))} />
+                <MenuItem icon={ICONS.money} label={t("Полный возврат")} onClick={() => (setMenu(null), setDialogError(""), setDialog("fullReturn"))} />
                 <MenuItem icon={ICONS.edit} label={t("Быстрый возврат")} onClick={() => (setMenu(null), setSheet("quickReturn"))} />
-                <MenuItem
-                  icon={ICONS.undo}
-                  label={t("Частичный возврат")}
-                  onClick={() => (setMenu(null), onNavigate(`/analytics/returns?o=${order.id}&openCreateDialog=true`))}
-                />
+                <MenuItem icon={ICONS.undo} label={t("Частичный возврат")} onClick={() => (setMenu(null), onNavigate(`/analytics/returns?o=${order.id}&openCreateDialog=true`))} />
               </Menu>
             )}
           </div>
@@ -443,8 +503,9 @@ export function OrderDetailCard({
             type="button"
             title={t("Отменить")}
             aria-label={t("Отменить")}
-            onClick={() => setDialog("cancelOrder")}
-            className="-ml-2 flex h-12 w-12 items-center justify-center"
+            disabled={!canChangeStatus(status, "Отменен") || status === "Отменен"}
+            onClick={() => (setDialogError(""), setDialog("cancelOrder"))}
+            className="-ml-2 flex h-12 w-12 items-center justify-center disabled:cursor-not-allowed disabled:opacity-40"
           >
             <Mi d={ICONS.trash} className="h-5 w-5 fill-black/30 hover:fill-black/60" />
           </button>
@@ -461,63 +522,55 @@ export function OrderDetailCard({
                 {order.client}
               </button>,
             )}
-            {row(`${t("Транспорт")}:`, t("Не указан"))}
-            {row(`${t("Филиал")}:`, order.zone || "ddr")}
-            {row(`${t("Склад")}:`, "toshkent")}
-            {row(`${t("Договор")}:`, extras.invoice?.contract || t("Не указан"))}
-            {row(`${t("Счет фактура")}:`, invoiceActive ? t("Активный") : t("Не активный"), invoiceActive ? "text-[#81c784]" : "text-[#e57373]")}
-            {row(`${t("Номер счет фактура")}:`, extras.invoice?.number || t("Не указан"))}
-            {row(`${t("Дата счет фактуры")}:`, extras.invoice?.date ? fromInputDate(extras.invoice.date) : t("Не указан"))}
+            {row(`${t("Телефон")}:`, order.clientPhone || t("Не указан"))}
+            {row(`${t("Филиал")}:`, order.clientBranch || t("Не указан"))}
+            {row(`${t("Зона")}:`, order.zone || t("Не указана"))}
+            {row(`${t("Склад")}:`, order.warehouse || t("Не указан"), order.warehouse ? "" : "text-[#e57373]")}
+            {row(`${t("Договор")}:`, order.contract || t("Не указан"))}
+            {row(`${t("Счет фактура")}:`, order.invoiceActive ? t("Активный") : t("Не активный"), order.invoiceActive ? "text-[#81c784]" : "text-[#e57373]")}
+            {row(`${t("Номер счет фактура")}:`, order.invoiceNumber || t("Не указан"))}
+            {row(`${t("Дата счет фактуры")}:`, order.invoiceDate ? displayDay(order.invoiceDate) : t("Не указан"))}
           </ul>
         </div>
         <div className="min-h-[320px] w-1/3 border-r border-[#efefef] p-[15px]">
           <ul>
-            {row(`${t("Прайс-лист")}:`, "donalik")}
-            {row(`${t("Организация")}:`, order.product)}
-            {row(`${t("Дата окончательной оплаты")}:`, order.delivery)}
-            {row(`${t("Тип оплаты")}:`, t("Перечисление"))}
+            {row(`${t("Прайс-лист")}:`, order.priceList || t("Не указан"))}
+            {row(`${t("Организация")}:`, order.organization || t("Не указана"))}
+            {row(`${t("Дата окончательной оплаты")}:`, order.paymentDate ? displayDay(order.paymentDate) : t("Не указана"))}
+            {row(`${t("Тип оплаты")}:`, order.paymentType ? t(PAYMENT_TYPE_LABELS[order.paymentType] ?? order.paymentType) : t("Не указан"))}
             {row(t("Общая стоимость"), order.amount)}
             {order.discount && row(t("Скидка"), order.discount, "text-[#278549]")}
-            {row(`${t("Оплачено")}:`, "0 SUM")}
-            {row(`${t("Остаток")}:`, order.balance, order.negative ? "text-[#e57373]" : "text-[#e57373]")}
-            <li className="flex min-h-[25px] items-center justify-between font-semibold leading-[25px]">
+            {row(`${t("Оплачено")}:`, due ? dueLine("paid") : "…", "text-[#278549]")}
+            {row(`${t("Остаток")}:`, due ? dueLine("remaining") : "…", due?.currencies.some((entry) => entry.remaining > 0) ? "text-[#e57373]" : "text-[#81c784]")}
+            <li className="flex min-h-[25px] items-center justify-between gap-3 font-semibold leading-[25px]">
               <span className="flex items-center gap-[5px]">
                 <Mi d={ICONS.info} className="h-6 w-6 fill-[#4f71dc]" />
                 {t("Оперативный долг клиента")}:
               </span>
-              <span className={order.negative ? "text-[#e57373]" : "text-[#81c784]"}>{operativeDebt}</span>
+              <span className={`text-right ${debt?.operativeNegative ? "text-[#e57373]" : "text-[#81c784]"}`}>{debt ? debt.operative || "0" : "…"}</span>
             </li>
-            <li className="flex min-h-[25px] items-center justify-between font-semibold leading-[25px]">
+            <li className="flex min-h-[25px] items-center justify-between gap-3 font-semibold leading-[25px]">
               <span className="flex items-center gap-[5px]">
                 <Mi d={ICONS.info} className="h-6 w-6 fill-[#4f71dc]" />
                 {t("Фактический долг клиента")}:
               </span>
-              <span className="text-[#81c784]">{order.negative ? order.balance : "12 048 000 SUM"}</span>
+              <span className={`text-right ${debt?.actualNegative ? "text-[#e57373]" : "text-[#81c784]"}`}>{debt ? debt.actual || "0" : "…"}</span>
             </li>
           </ul>
         </div>
         <div className="min-h-[320px] w-1/3 px-[15px] pb-5 pt-[15px]">
           <ul>
-            {row(`${t("Создал")}:`, order.agent)}
-            {row(`${t("Доставщик")}:`, order.agent)}
-            {row(`${t("Экспедитор")}:`, t("Не указано"))}
-            {row(t("Дата создания"), order.created)}
-            {row(`${t("Дата реализации")}:`, order.status === "Доставлено" ? order.delivery : t("Не реализовано"))}
-            {row(`${t("Текущий статус")}:`, t(order.status === "Доставлено" ? "Доставлен" : order.status), statusColor)}
-            {row(`${t("Тип передачи")}:`, t("Доставка"))}
-            {row(`${t("Дата доставки")}:`, order.delivery)}
-            {row(`${t("Тип сделки")}:`, order.status === "Доставлено" ? t("Стандартная") : t("Консигнация"))}
+            {row(`${t("Создал")}:`, order.createdBy || t("Не указано"))}
+            {row(`${t("Агент")}:`, order.agent || t("Не указано"))}
+            {row(`${t("Доставщик")}:`, deliverer || t("Не указано"))}
+            {row(t("Дата создания"), order.createdAt ? displayMoment(order.createdAt) : order.created)}
+            {row(`${t("Дата реализации")}:`, order.shippedAt ? displayMoment(order.shippedAt) : t("Не реализовано"))}
+            {row(`${t("Текущий статус")}:`, t(status === "Доставлено" ? "Доставлен" : status), statusColor)}
+            {row(`${t("Тип передачи")}:`, order.deliveryType ? t(order.deliveryType) : t("Не указано"))}
+            {row(`${t("Дата доставки")}:`, displayDay(order.delivery) || t("Не указана"))}
+            {row(`${t("Тип сделки")}:`, order.dealType ? t(DEAL_TYPE_LABELS[order.dealType] ?? order.dealType) : t("Не указано"))}
+            {order.comment && row(`${t("Комментарий")}:`, order.comment)}
           </ul>
-          <div>
-            <b className="block leading-[25px] text-[#e57373]">{t("У этого клиента остаток, требуется перасчет")}</b>
-            <button
-              type="button"
-              onClick={() => onNavigate("/analytics/client-debts")}
-              className="mt-[5px] flex h-[30px] w-full items-center justify-center rounded-[5px] bg-[#4f71dc] text-[13px] font-semibold text-white hover:brightness-95"
-            >
-              {t("Пересчитать")}
-            </button>
-          </div>
         </div>
       </div>
 
@@ -532,66 +585,86 @@ export function OrderDetailCard({
           <span className="absolute -bottom-[1px] left-0 h-[2px] w-1/5 bg-[#4f71dc] transition-transform duration-300" style={{ transform: `translateX(${tabIndex * 100}%)` }} />
         </div>
 
-        {tab === "Список товаров" && (
-          <ItemsTable
-            orderId={order.id}
-            items={items}
-            loading={itemsLoading}
-            reload={() => {
-              loadItems()
-              refreshOrder(order.id)
-            }}
-          />
-        )}
+        {tab === "Список товаров" && <ItemsTable orderId={order.id} items={items} loading={itemsLoading} editable={editable} currency={currency} reload={reloadAll} onNotify={onNotify} />}
         {tab === "Серии" && <Robot text={t("По вашему запросу ничего не найдено")} />}
-        {tab === "Возврат" && <Robot overlay text={t("В данном заказе нет возвратов")} />}
+        {tab === "Возврат" &&
+          (returns.length ? (
+            <table className="mt-4 w-full text-left">
+              <thead>
+                <tr className="font-semibold">
+                  <th className="py-2">№</th>
+                  <th>{t("Дата возврата")}</th>
+                  <th>{t("Склад")}</th>
+                  <th>{t("Статус")}</th>
+                  <th className="text-right">{t("Сумма возврата")}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {returns.map((entry) => (
+                  <tr key={entry.id} className="border-t border-dotted border-[#d6d6d6]">
+                    <td className="py-2">
+                      <button type="button" onClick={() => onNavigate(`/analytics/returns?r=${entry.id}`)} className="text-[#4f71dc] hover:underline">
+                        {entry.id}
+                      </button>
+                    </td>
+                    <td>{displayDay(entry.returnDate)}</td>
+                    <td>{entry.warehouse}</td>
+                    <td>{t(entry.status === "accepted" ? "Принят" : entry.status === "cancelled" ? "Отменен" : "Ожидает")}</td>
+                    <td className="text-right">
+                      {formatNumber(entry.amount)} {entry.currency}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : (
+            <Robot overlay text={t("В данном заказе нет возвратов")} />
+          ))}
         {tab === "Задействованные акции" && <Robot overlay text={t("Для этого заказа нет акций")} />}
         {tab === "Логи" && (
           <div className="pt-[10px]">
             <div className="flex justify-end">
-              <button
-                type="button"
-                onClick={() => setDialog("logDetails")}
-                className="flex h-[30px] items-center rounded-[5px] bg-[#4f71dc] px-4 text-[13px] font-semibold text-white"
-              >
+              <button type="button" onClick={() => setDialog("logDetails")} className="flex h-[30px] items-center rounded-[5px] bg-[#4f71dc] px-4 text-[13px] font-semibold text-white">
                 {t("Детали изменений заказа")}
               </button>
             </div>
-            <div className="mt-5 space-y-[20px]">
-              {logs.map((log, index) => (
-                <div key={index} className="rounded-[10px] border border-[#e6e6e6] bg-[#fafafa] px-5 py-[18px]">
-                  <div className="flex items-center gap-5">
-                    <span className="flex items-center gap-2">
-                      <b>{t("Заказ")}:</b>
-                      <span className={`rounded-full border px-[10px] py-[2px] ${log.kind === "Создан" ? "border-[#48a34b] text-[#48a34b]" : "border-[#4fa8f0] text-[#4fa8f0]"}`}>
-                        {t(log.kind)}
+            {logs.length === 0 ? (
+              <Robot overlay text={t("Изменений пока нет")} />
+            ) : (
+              <div className="mt-5 space-y-[20px]">
+                {logs.map((log) => (
+                  <div key={log.id} className="rounded-[10px] border border-[#e6e6e6] bg-[#fafafa] px-5 py-[18px]">
+                    <div className="flex flex-wrap items-center gap-5">
+                      <span className="flex items-center gap-2">
+                        <b>{t("Заказ")}:</b>
+                        <span className={`rounded-full border px-[10px] py-[2px] ${log.kind === "Создан" ? "border-[#48a34b] text-[#48a34b]" : "border-[#4fa8f0] text-[#4fa8f0]"}`}>{t(log.kind)}</span>
                       </span>
-                    </span>
-                    <span className="flex items-center gap-2">
-                      <b>{t("Статус")}:</b>
-                      <StatusIcon status={log.status} />
-                      {t(log.status === "Доставлено" ? "Доставлен" : log.status)}
-                    </span>
-                    <span className="ml-auto flex gap-5">
-                      <span>
-                        <b>{t("Кем")}:</b> {log.by}
+                      <span className="flex items-center gap-2">
+                        <b>{t("Статус")}:</b>
+                        <StatusIcon status={log.status} />
+                        {t(log.status === "Доставлено" ? "Доставлен" : log.status)}
                       </span>
-                      <span>
-                        <b>{t("Когда")}:</b> {log.at}
+                      <span className="ml-auto flex flex-wrap gap-5">
+                        <span>
+                          <b>{t("Кем")}:</b> {log.createdBy || "—"}
+                        </span>
+                        <span>
+                          <b>{t("Когда")}:</b> {displayMoment(log.createdAt)}
+                        </span>
+                        <span>
+                          <b>{t("Сумма")}:</b> {log.amount}
+                        </span>
                       </span>
-                      <span>
-                        <b>{t("Сумма")}:</b> {log.sum}
-                      </span>
-                    </span>
+                    </div>
+                    {log.comment && (
+                      <p className="mt-4">
+                        <b>{t("Комментарий")}:</b> {log.comment}
+                      </p>
+                    )}
                   </div>
-                  {log.comment && (
-                    <p className="mt-4">
-                      <b>{t("Комментарий")}:</b> {log.comment}
-                    </p>
-                  )}
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -600,45 +673,36 @@ export function OrderDetailCard({
       {dialog === "status" && (
         <StatusDialog
           orderId={order.id}
+          current={status}
           initial={statusTarget}
+          delivery={order.delivery}
+          error={dialogError}
           onClose={() => setDialog(null)}
-          onApply={(status, deliveryDate) => {
-            setDialog(null)
-            if (deliveryDate) onUpdate(order.id, { status, delivery: fromInputDate(deliveryDate) })
-            else changeStatus(status)
-            if (deliveryDate) addLog({ kind: "Обновленный", status, comment: `${t("Изменен статус:")} ${t(order.status)} - ${t(status)}` })
+          onApply={async (next, deliveryDate) => {
+            const ok = await patchOrder(deliveryDate ? { status: next, delivery: deliveryDate } : { status: next }, `${t("Статус заказа изменён:")} ${t(next)}`)
+            if (ok) setDialog(null)
           }}
         />
       )}
       {dialog === "invoice" && (
         <InvoiceDialog
-          initial={extras.invoice}
+          order={order}
           onClose={() => setDialog(null)}
-          onSave={(invoice) => {
-            saveExtras({ ...extras, invoice })
-            setDialog(null)
-            onNotify(t("Детали счет фактуры сохранены"))
+          onSave={async (invoice) => {
+            if (await patchOrder(invoice, t("Детали счет фактуры сохранены"))) setDialog(null)
           }}
         />
       )}
       {dialog === "manualDiscount" && (
         <ManualDiscountDialog
+          error={dialogError}
           onClose={() => setDialog(null)}
           onApply={async (percent) => {
-            await Promise.all(
-              items.map((item) =>
-                fetch(`/api/orders/${order.id}/items/${item.id}`, {
-                  method: "PUT",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ productName: item.productName, unit: item.unit, quantity: item.quantity, unitPrice: item.unitPrice, discountPercent: percent, currency: item.currency }),
-                }),
-              ),
-            )
-            onUpdate(order.id, { discount: `${percent}%` })
-            addLog({ kind: "Обновленный", status: order.status, comment: `${t("Ручная скидка")}: ${percent}%` })
+            const error = await putDiscounts(order.id, items, percent)
+            if (error) return setDialogError(t(error))
+            await patchOrder({ discount: `${percent}%` })
             setDialog(null)
-            loadItems()
-            refreshOrder(order.id)
+            reloadAll()
           }}
         />
       )}
@@ -649,7 +713,7 @@ export function OrderDetailCard({
           action={t("Да")}
           onAction={() => {
             setDialog(null)
-            refreshOrder(order.id)
+            reloadAll()
             onNotify(t("Скидочные акции пересчитаны"))
           }}
         >
@@ -664,21 +728,13 @@ export function OrderDetailCard({
           title={t("Подтверждение отмены")}
           onClose={() => setDialog(null)}
           action={t("Да")}
+          error={dialogError}
           onAction={async () => {
-            await Promise.all(
-              items.map((item) =>
-                fetch(`/api/orders/${order.id}/items/${item.id}`, {
-                  method: "PUT",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ productName: item.productName, unit: item.unit, quantity: item.quantity, unitPrice: item.unitPrice, discountPercent: 0, currency: item.currency }),
-                }),
-              ),
-            )
-            onUpdate(order.id, { discount: "" })
-            addLog({ kind: "Обновленный", status: order.status, comment: t("Скидки отменены") })
+            const error = await putDiscounts(order.id, items, 0)
+            if (error) return setDialogError(t(error))
+            await patchOrder({ discount: "" })
             setDialog(null)
-            loadItems()
-            refreshOrder(order.id)
+            reloadAll()
           }}
         >
           <p className="pb-5 pt-1">{t("Вы уверены что хотите отменить эти данные?")}</p>
@@ -687,12 +743,18 @@ export function OrderDetailCard({
       )}
       {dialog === "fullReturn" && (
         <FullReturnDialog
-          orderId={order.id}
+          order={order}
+          error={dialogError}
           onClose={() => setDialog(null)}
-          onConfirm={() => {
-            addLog({ kind: "Обновленный", status: order.status, comment: t("Оформлен полный возврат") })
+          onConfirm={async (returnDate) => {
+            const result = await api<{ id: number }>("/api/client-returns", {
+              method: "POST",
+              body: { clientId: order.clientId ?? undefined, client: order.clientId ? undefined : order.client, orderId: order.id, warehouse: order.warehouse || undefined, returnDate, full: true },
+            })
+            if (!result.ok) return setDialogError(t(result.error))
             setDialog(null)
-            onNotify(t("Полный возврат оформлен"))
+            loadExtras()
+            onNotify(`${t("Возврат оформлен")}: №${result.body.id}. ${t("Примите его на склад в разделе «Возвраты»")}`)
           }}
         />
       )}
@@ -701,24 +763,30 @@ export function OrderDetailCard({
           title={t("Подтверждение отмены")}
           onClose={() => setDialog(null)}
           action={t("Да")}
-          onAction={() => {
-            setDialog(null)
-            changeStatus("Отменен")
+          onAction={async () => {
+            if (await patchOrder({ status: "Отменен" }, `${t("Статус заказа изменён:")} ${t("Отменен")}`)) setDialog(null)
           }}
         >
           <p className="pb-5 pt-1">{t("Вы уверены что хотите отменить эти данные?")}</p>
-          <div className="-mx-[30px] bg-[#f1f4f7] px-[30px] py-5 font-semibold">{t("Заказ №")}{order.id}</div>
+          <div className="-mx-[30px] bg-[#f1f4f7] px-[30px] py-5 font-semibold">
+            {t("Заказ №")}
+            {order.id}
+          </div>
         </DialogShell>
       )}
       {dialog === "logDetails" && (
         <DialogShell title={t("Детали изменений заказа")} onClose={() => setDialog(null)} action={t("Закрыть")} onAction={() => setDialog(null)}>
-          <ul className="space-y-2">
-            {logs.map((log, index) => (
-              <li key={index}>
-                <b>{log.at}</b> — {t(log.kind)}: {log.comment ?? t(log.status)}
-              </li>
-            ))}
-          </ul>
+          {logs.length ? (
+            <ul className="space-y-2">
+              {logs.map((log) => (
+                <li key={log.id}>
+                  <b>{displayMoment(log.createdAt)}</b> — {t(log.kind)}: {log.comment || t(log.status)} ({log.createdBy || "—"})
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p>{t("Изменений пока нет")}</p>
+          )}
         </DialogShell>
       )}
 
@@ -727,17 +795,12 @@ export function OrderDetailCard({
         <EditOrderSheet
           order={order}
           items={items}
+          editable={editable}
           onClose={() => setSheet(null)}
-          reloadItems={() => {
-            loadItems()
-            refreshOrder(order.id)
-          }}
+          reloadItems={reloadAll}
           onQuickEdit={() => setSheet("quickEdit")}
-          onSave={(patch) => {
-            onUpdate(order.id, patch)
-            addLog({ kind: "Обновленный", status: order.status, comment: t("Заказ изменён") })
-            setSheet(null)
-            onNotify(t("Заказ обновлён"))
+          onSave={async (patch) => {
+            if (await patchOrder(patch, t("Заказ обновлён"))) setSheet(null)
           }}
         />
       )}
@@ -747,10 +810,8 @@ export function OrderDetailCard({
           items={items}
           onClose={() => setSheet(null)}
           onSaved={() => {
-            addLog({ kind: "Обновленный", status: order.status, comment: t("Быстрая правка") })
             setSheet(null)
-            loadItems()
-            refreshOrder(order.id)
+            reloadAll()
             onNotify(t("Изменения сохранены"))
           }}
         />
@@ -758,18 +819,29 @@ export function OrderDetailCard({
       {sheet === "quickReturn" && (
         <QuickReturnSheet
           order={order}
-          items={items}
           onClose={() => setSheet(null)}
-          onSaved={() => {
-            addLog({ kind: "Обновленный", status: order.status, comment: t("Оформлен быстрый возврат") })
+          onSaved={(id) => {
             setSheet(null)
-            onNotify(t("Возврат оформлен"))
+            loadExtras()
+            onNotify(`${t("Возврат оформлен")}: №${id}. ${t("Примите его на склад в разделе «Возвраты»")}`)
           }}
         />
       )}
-      {sheet === "print" && <PrintSheet order={order} items={items} onClose={() => setSheet(null)} />}
+      {sheet === "print" && portal(<PrintSheet order={order} items={items} debt={debt} onClose={() => setSheet(null)} />)}
     </div>
   )
+}
+
+/** Sets one discount on every line; returns the first server error, if any. */
+async function putDiscounts(orderId: number, items: OrderLineItem[], percent: number): Promise<string | null> {
+  for (const item of items) {
+    const result = await api(`/api/orders/${orderId}/items/${item.id}`, {
+      method: "PUT",
+      body: { productId: item.productId ?? undefined, productName: item.productName, unit: item.unit, quantity: item.quantity, unitPrice: item.unitPrice, discountPercent: percent, currency: item.currency },
+    })
+    if (!result.ok) return result.error
+  }
+  return null
 }
 
 function StatusIcon({ status }: { status: string }) {
@@ -799,12 +871,28 @@ function SortHead({ children }: { children: ReactNode }) {
   )
 }
 
-function ItemsTable({ orderId, items, loading, reload }: { orderId: number; items: OrderLineItem[]; loading: boolean; reload: () => void }) {
+function ItemsTable({
+  orderId,
+  items,
+  loading,
+  editable,
+  currency,
+  reload,
+  onNotify,
+}: {
+  orderId: number
+  items: OrderLineItem[]
+  loading: boolean
+  editable: boolean
+  currency: string
+  reload: () => void
+  onNotify: (message: string) => void
+}) {
   const { t } = useLanguage()
+  const products = useSellableProducts()
   const [addOpen, setAddOpen] = useState(false)
-  const [productName, setProductName] = useState("")
+  const [productId, setProductId] = useState("")
   const [quantity, setQuantity] = useState("1")
-  const [unit, setUnit] = useState("шт.")
   const [unitPrice, setUnitPrice] = useState("")
   const [error, setError] = useState("")
 
@@ -812,15 +900,11 @@ function ItemsTable({ orderId, items, loading, reload }: { orderId: number; item
     setError("")
     const parsedQuantity = Number(quantity)
     const parsedPrice = Number(unitPrice)
-    if (!productName.trim()) return setError(t("Наименование товара обязательно"))
+    if (!productId) return setError(t("Выберите товар"))
     if (!Number.isFinite(parsedQuantity) || parsedQuantity <= 0 || !Number.isFinite(parsedPrice) || parsedPrice < 0) return setError(t("Проверьте количество и цену"))
-    const response = await fetch(`/api/orders/${orderId}/items`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ productName: productName.trim(), unit: unit.trim() || "шт.", quantity: parsedQuantity, unitPrice: parsedPrice }),
-    })
-    if (!response.ok) return setError(t("Не удалось добавить товар"))
-    setProductName("")
+    const result = await api(`/api/orders/${orderId}/items`, { method: "POST", body: { productId: Number(productId), quantity: parsedQuantity, unitPrice: parsedPrice, currency } })
+    if (!result.ok) return setError(t(result.error))
+    setProductId("")
     setQuantity("1")
     setUnitPrice("")
     setAddOpen(false)
@@ -828,8 +912,9 @@ function ItemsTable({ orderId, items, loading, reload }: { orderId: number; item
   }
 
   async function removeItem(itemId: number) {
-    const response = await fetch(`/api/orders/${orderId}/items/${itemId}`, { method: "DELETE" })
-    if (response.ok) reload()
+    const result = await api(`/api/orders/${orderId}/items/${itemId}`, { method: "DELETE" })
+    if (!result.ok) return onNotify(t(result.error))
+    reload()
   }
 
   const totals = items.reduce(
@@ -840,8 +925,7 @@ function ItemsTable({ orderId, items, loading, reload }: { orderId: number; item
     }),
     { quantity: 0, total: 0, discount: 0 },
   )
-  const unitLabel = items[0]?.unit ?? "dona"
-
+  const unitLabel = items[0]?.unit ?? ""
   const cell = "border-b border-r border-[#efefef] px-[17.5px] py-[10px] align-middle"
 
   return (
@@ -852,25 +936,22 @@ function ItemsTable({ orderId, items, loading, reload }: { orderId: number; item
             <th className="w-[50px] bg-[#f0f4f9] px-[17.5px] py-[7.8px] text-left text-[13px] font-semibold text-[#374557]">№</th>
             <SortHead>{t("Товар")}</SortHead>
             <SortHead>{t("Количество")}</SortHead>
-            <SortHead>{t("Блок")}</SortHead>
-            <SortHead>{t("Кг.")}</SortHead>
-            <SortHead>{t("Возврат")}</SortHead>
-            <SortHead>{`${t("Цена")} SUM`}</SortHead>
-            <SortHead>{`${t("Сумма")} SUM`}</SortHead>
-            <SortHead>{`${t("Скидка")} (SUM)`}</SortHead>
+            <SortHead>{`${t("Цена")} ${currency}`}</SortHead>
+            <SortHead>{`${t("Сумма")} ${currency}`}</SortHead>
+            <SortHead>{`${t("Скидка")} (${currency})`}</SortHead>
             <th className="w-10 bg-[#f0f4f9]" />
           </tr>
         </thead>
         <tbody>
           {loading ? (
             <tr>
-              <td colSpan={10} className="p-6 text-center text-[#888]">
+              <td colSpan={7} className="p-6 text-center text-[#888]">
                 {t("Загрузка...")}
               </td>
             </tr>
           ) : items.length === 0 ? (
             <tr>
-              <td colSpan={10} className="p-6 text-center text-[#888]">
+              <td colSpan={7} className="p-6 text-center text-[#888]">
                 {t("Товары не добавлены")}
               </td>
             </tr>
@@ -878,23 +959,19 @@ function ItemsTable({ orderId, items, loading, reload }: { orderId: number; item
             items.map((item, index) => (
               <tr key={item.id}>
                 <td className={cell}>{index + 1}</td>
-                <td className={cell}>
-                  {item.productName}
-                  <span className="block text-[#4f71dc]">{1000 + item.id}</span>
-                </td>
+                <td className={cell}>{item.productName}</td>
                 <td className={cell}>
                   {formatNumber(item.quantity)} {item.unit}
                 </td>
-                <td className={cell}>0</td>
-                <td className={cell}>0</td>
-                <td className={cell}>0 {item.unit}</td>
                 <td className={cell}>{formatNumber(item.unitPrice)}</td>
                 <td className={cell}>{formatNumber(item.lineTotal)}</td>
                 <td className={cell}>{formatNumber(item.quantity * item.unitPrice - item.lineTotal)}</td>
                 <td className="border-b border-r border-[#efefef] text-center">
-                  <button type="button" onClick={() => removeItem(item.id)} aria-label={t("Удалить")} className="text-[#e57373] hover:text-red-700">
-                    <X className="mx-auto h-4 w-4" />
-                  </button>
+                  {editable && (
+                    <button type="button" onClick={() => removeItem(item.id)} aria-label={t("Удалить")} className="text-[#e57373] hover:text-red-700">
+                      <X className="mx-auto h-4 w-4" />
+                    </button>
+                  )}
                 </td>
               </tr>
             ))
@@ -908,9 +985,6 @@ function ItemsTable({ orderId, items, loading, reload }: { orderId: number; item
                 {formatNumber(totals.quantity)} {unitLabel}
               </td>
               <td className="border-b border-r border-[#efefef]" />
-              <td className="border-b border-r border-[#efefef] px-[17.5px]">0</td>
-              <td className="border-b border-r border-[#efefef] px-[17.5px]">0 {unitLabel}</td>
-              <td className="border-b border-r border-[#efefef]" />
               <td className="border-b border-r border-[#efefef] px-[17.5px]">{formatNumber(totals.total)}</td>
               <td className="border-b border-r border-[#efefef] px-[17.5px]">{formatNumber(totals.discount)}</td>
               <td className="border-b border-r border-[#efefef]" />
@@ -920,22 +994,27 @@ function ItemsTable({ orderId, items, loading, reload }: { orderId: number; item
       </table>
 
       <div className="pt-4">
-        {addOpen ? (
+        {!editable ? (
+          <p className="text-[13px] text-[#888]">{t("Товары этого заказа изменить нельзя (заказ отгружен или отменен)")}</p>
+        ) : addOpen ? (
           <div className="flex flex-wrap items-end gap-3">
             <label className="text-xs text-[#888]">
               {t("Товар")}
-              <input value={productName} onChange={(event) => setProductName(event.target.value)} className="mt-1 block w-48 rounded border px-2 py-1.5 text-sm" autoFocus />
+              <select value={productId} onChange={(event) => setProductId(event.target.value)} className="mt-1 block w-64 rounded border px-2 py-1.5 text-sm" autoFocus>
+                <option value="">{products ? t("Выберите товар") : t("Загрузка...")}</option>
+                {(products ?? []).map((product) => (
+                  <option key={product.id} value={product.id}>
+                    {product.name}
+                  </option>
+                ))}
+              </select>
             </label>
             <label className="text-xs text-[#888]">
               {t("Количество")}
               <input type="number" min="0" step="any" value={quantity} onChange={(event) => setQuantity(event.target.value)} className="mt-1 block w-24 rounded border px-2 py-1.5 text-sm" />
             </label>
             <label className="text-xs text-[#888]">
-              {t("Ед. измерения")}
-              <input value={unit} onChange={(event) => setUnit(event.target.value)} className="mt-1 block w-20 rounded border px-2 py-1.5 text-sm" />
-            </label>
-            <label className="text-xs text-[#888]">
-              {t("Цена")}
+              {`${t("Цена")} (${currency})`}
               <input type="number" min="0" step="any" value={unitPrice} onChange={(event) => setUnitPrice(event.target.value)} className="mt-1 block w-28 rounded border px-2 py-1.5 text-sm" />
             </label>
             <button type="button" onClick={addItem} className="rounded bg-[#4f71dc] px-4 py-1.5 text-sm font-semibold text-white">
@@ -962,28 +1041,34 @@ function ItemsTable({ orderId, items, loading, reload }: { orderId: number; item
 
 function StatusDialog({
   orderId,
+  current,
   initial,
+  delivery,
+  error,
   onClose,
   onApply,
 }: {
   orderId: number
+  current: string
   initial: string
+  delivery: string
+  error?: string
   onClose: () => void
   onApply: (status: string, deliveryDate?: string) => void
 }) {
   const { t } = useLanguage()
   const [status, setStatus] = useState(initial)
   const [changeDelivery, setChangeDelivery] = useState(false)
-  const [changeTransfer, setChangeTransfer] = useState(false)
-  const [date, setDate] = useState(toInputDate(""))
+  const [date, setDate] = useState(toInputDate(delivery))
+  const options = ORDER_STATUS_OPTIONS.filter((value) => value === current || canChangeStatus(current, value))
   return (
-    <DialogShell title={t("Изменение")} onClose={onClose} action={t("Изменить")} onAction={() => onApply(status, changeDelivery ? date : undefined)}>
+    <DialogShell title={t("Изменение")} onClose={onClose} action={t("Изменить")} error={error} disabled={status === current && !changeDelivery} onAction={() => onApply(status, changeDelivery ? date : undefined)}>
       <p className="font-semibold">
         {t("Заказ №")} {orderId}
       </p>
       <Field label={t("Статус")}>
         <select value={status} onChange={(event) => setStatus(event.target.value)} className={fieldClass}>
-          {ORDER_STATUS_OPTIONS.map((value) => (
+          {options.map((value) => (
             <option key={value} value={value}>
               {t(value === "Доставлено" ? "Доставлен" : value)}
             </option>
@@ -995,22 +1080,25 @@ function StatusDialog({
         {t("Изменить дата доставки")}
       </label>
       {changeDelivery && <input type="date" value={date} onChange={(event) => setDate(event.target.value)} className={`${fieldClass} mb-2`} />}
-      <label className="mt-5 flex items-center gap-3 font-semibold">
-        <input type="checkbox" checked={changeTransfer} onChange={(event) => setChangeTransfer(event.target.checked)} className="h-4 w-4" />
-        {t("Изменить дату передачи")}
-      </label>
     </DialogShell>
   )
 }
 
-function InvoiceDialog({ initial, onClose, onSave }: { initial?: InvoiceDetails; onClose: () => void; onSave: (value: InvoiceDetails) => void }) {
+function InvoiceDialog({ order, onClose, onSave }: { order: Order; onClose: () => void; onSave: (value: Partial<Order>) => void }) {
   const { t } = useLanguage()
-  const [number, setNumber] = useState(initial?.number ?? "")
-  const [date, setDate] = useState(initial?.date ?? "")
-  const [contract, setContract] = useState(initial?.contract ?? "")
-  const [active, setActive] = useState(initial?.active ?? false)
+  const [number, setNumber] = useState(order.invoiceNumber ?? "")
+  const [date, setDate] = useState(order.invoiceDate ?? "")
+  const [contract, setContract] = useState(order.contract ?? "")
+  const [active, setActive] = useState(order.invoiceActive ?? false)
+  // The client's contracts (Финансы → Договоры).
+  const contracts = useNames("/api/contracts?pageSize=0", (row) => {
+    const clients = (row.clients as Array<{ id: number; name: string }> | undefined) ?? []
+    const mine = clients.some((client) => (order.clientId ? client.id === order.clientId : client.name === order.client))
+    return mine ? `№${String(row.fullNumber ?? row.id)}${row.officialName ? ` ${String(row.officialName)}` : ""}` : ""
+  })
+  const options = contract && !contracts.includes(contract) ? [contract, ...contracts] : contracts
   return (
-    <DialogShell title={t("Изменить детали счет фактуры")} onClose={onClose} action={t("Сохранить")} onAction={() => onSave({ number: number.trim(), date, contract, active })}>
+    <DialogShell title={t("Изменить детали счет фактуры")} onClose={onClose} action={t("Сохранить")} onAction={() => onSave({ invoiceNumber: number.trim(), invoiceDate: date, contract, invoiceActive: active })}>
       <Field label={t("Номер счет фактуры")}>
         <input value={number} onChange={(event) => setNumber(event.target.value)} className={fieldClass} />
       </Field>
@@ -1020,8 +1108,11 @@ function InvoiceDialog({ initial, onClose, onSave }: { initial?: InvoiceDetails;
       <Field label={t("Договор")}>
         <select value={contract} onChange={(event) => setContract(event.target.value)} className={fieldClass}>
           <option value="">{t("Не указан")}</option>
-          <option value="Договор №1">Договор №1</option>
-          <option value="Договор №2">Договор №2</option>
+          {options.map((value) => (
+            <option key={value} value={value}>
+              {value}
+            </option>
+          ))}
         </select>
       </Field>
       <label className="mt-4 flex items-center gap-3 font-semibold">
@@ -1032,11 +1123,11 @@ function InvoiceDialog({ initial, onClose, onSave }: { initial?: InvoiceDetails;
   )
 }
 
-function ManualDiscountDialog({ onClose, onApply }: { onClose: () => void; onApply: (percent: number) => void }) {
+function ManualDiscountDialog({ onClose, onApply, error }: { onClose: () => void; onApply: (percent: number) => void; error?: string }) {
   const { t } = useLanguage()
   const [percent, setPercent] = useState("")
   return (
-    <DialogShell title={t("Ручная скидка")} onClose={onClose} action={t("Применить")} disabled={!percent} onAction={() => onApply(Number(percent))}>
+    <DialogShell title={t("Ручная скидка")} onClose={onClose} action={t("Применить")} error={error} disabled={!percent} onAction={() => onApply(Number(percent))}>
       <Field label={t("Акция")}>
         <select value={percent} onChange={(event) => setPercent(event.target.value)} className={fieldClass}>
           <option value="" />
@@ -1051,17 +1142,16 @@ function ManualDiscountDialog({ onClose, onApply }: { onClose: () => void; onApp
   )
 }
 
-function FullReturnDialog({ orderId, onClose, onConfirm }: { orderId: number; onClose: () => void; onConfirm: () => void }) {
+function FullReturnDialog({ order, onClose, onConfirm, error }: { order: Order; onClose: () => void; onConfirm: (returnDate: string) => void; error?: string }) {
   const { t } = useLanguage()
-  const today = new Date()
-  const [date, setDate] = useState(new Date(today.getTime() - today.getTimezoneOffset() * 60000).toISOString().slice(0, 10))
+  const [date, setDate] = useState(localIso(new Date()))
   return (
-    <DialogShell title={t("Выполнить")} onClose={onClose} action={t("Да")} onAction={onConfirm}>
+    <DialogShell title={t("Выполнить")} onClose={onClose} action={t("Да")} error={error} onAction={() => onConfirm(date)}>
       <p className="pb-5 pt-1">{t("Подтверждение запроса")}</p>
       <div className="-mx-[30px] bg-[#f1f4f7] px-[30px] py-5">
         <p className="font-semibold">{t("Вы действительно хотите сделать полный возврат ?")}</p>
         <p className="font-semibold">
-          {t("Заказ №")} {orderId}
+          {t("Заказ №")} {order.id} — {t("Склад")}: {order.warehouse || t("Не указан")}
         </p>
         <Field label={t("Дата")}>
           <input type="date" value={date} onChange={(event) => setDate(event.target.value)} className={fieldClass} />
@@ -1083,9 +1173,29 @@ function GreenButton({ children, onClick, disabled }: { children: ReactNode; onC
   )
 }
 
+/** Available quantity per stock key ("product:<id>") at a warehouse. */
+function useAvailable(warehouse: string) {
+  const [available, setAvailable] = useState<Map<string, number>>(new Map())
+  useEffect(() => {
+    if (!warehouse) {
+      setAvailable(new Map())
+      return
+    }
+    let cancelled = false
+    void api<{ rows: Array<{ key: string; available: number }> }>(`/api/stock/balances?warehouse=${encodeURIComponent(warehouse)}&pageSize=0`).then((result) => {
+      if (!cancelled) setAvailable(new Map(result.ok ? result.body.rows.map((row) => [row.key, row.available] as [string, number]) : []))
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [warehouse])
+  return available
+}
+
 function EditOrderSheet({
   order,
   items,
+  editable,
   onClose,
   onSave,
   reloadItems,
@@ -1093,147 +1203,156 @@ function EditOrderSheet({
 }: {
   order: Order
   items: OrderLineItem[]
+  editable: boolean
   onClose: () => void
-  onSave: (patch: Partial<Order>) => void
+  onSave: (patch: Partial<Order> & { clientId?: number }) => void
   reloadItems: () => void
   onQuickEdit: () => void
 }) {
   const { t } = useLanguage()
-  const [created, setCreated] = useState(toInputDate(order.created))
-  const [client, setClient] = useState(order.client)
-  const [paymentType, setPaymentType] = useState("Перечисление")
-  const [prize, setPrize] = useState(false)
-  const [currency, setCurrency] = useState("SUM")
-  const [priceList, setPriceList] = useState("donalik")
+  const shipped = RELEASED_STATUSES.includes(order.status)
+  const [clients, setClients] = useState<Array<{ id: number; name: string }>>([])
+  const employees = useNames("/api/employees", employeeName)
+  const warehouses = useNames("/api/warehouses", (row) => (row.active === false ? "" : plainName(row)))
+  const priceLists = useNames("/api/price-lists", plainName)
+  const currencies = useNames("/api/currencies", (row) => String(row.code ?? ""))
+  const [clientId, setClientId] = useState(order.clientId ? String(order.clientId) : "")
+  const [paymentType, setPaymentType] = useState(order.paymentType ?? "")
+  const [currency, setCurrency] = useState(order.currency ?? "")
+  const [priceList, setPriceList] = useState(order.priceList ?? "")
   const [agent, setAgent] = useState(order.agent)
-  const [payUntil, setPayUntil] = useState(toInputDate(order.delivery))
-  const [deal, setDeal] = useState<"standard" | "consignment">("standard")
-  const [warehouse, setWarehouse] = useState("toshkent")
-  const [deliveryType, setDeliveryType] = useState("Доставка")
-  const [deliverer, setDeliverer] = useState(order.agent)
-  const [deliveryDate, setDeliveryDate] = useState(toInputDate(order.delivery))
-  const [confirmed, setConfirmed] = useState(true)
+  const [payUntil, setPayUntil] = useState(order.paymentDate ?? "")
+  const [deal, setDeal] = useState(order.dealType ?? "")
+  const [warehouse, setWarehouse] = useState(order.warehouse ?? "")
+  const [deliveryType, setDeliveryType] = useState(order.deliveryType ?? "")
+  const [deliverer, setDeliverer] = useState(order.deliveryMan ?? "")
+  const [deliveryDate, setDeliveryDate] = useState(/^\d{4}-\d{2}-\d{2}$/.test(order.delivery) ? order.delivery : order.delivery && order.delivery !== "—" ? toInputDate(order.delivery) : "")
+  const [comment, setComment] = useState(order.comment ?? "")
+  const confirmable = ["Не подтвержден", "В процессе", "Есть на складе"].includes(order.status)
+  const [confirmed, setConfirmed] = useState(order.status !== "Не подтвержден")
+  const [error, setError] = useState("")
+  const available = useAvailable(warehouse)
+
+  useEffect(() => {
+    void api<Array<{ id: number; name: string }>>("/api/clients?balances=0").then((result) => setClients(result.ok ? result.body.map((row) => ({ id: row.id, name: row.name })) : []))
+  }, [])
 
   async function removeItem(itemId: number) {
-    const response = await fetch(`/api/orders/${order.id}/items/${itemId}`, { method: "DELETE" })
-    if (response.ok) reloadItems()
+    const result = await api(`/api/orders/${order.id}/items/${itemId}`, { method: "DELETE" })
+    if (!result.ok) return setError(t(result.error))
+    reloadItems()
   }
+
+  function save() {
+    const patch: Partial<Order> & { clientId?: number } = {}
+    if (clientId && Number(clientId) !== order.clientId) patch.clientId = Number(clientId)
+    if (paymentType !== (order.paymentType ?? "")) patch.paymentType = paymentType
+    if (currency && currency !== (order.currency ?? "")) patch.currency = currency
+    if (priceList !== (order.priceList ?? "")) patch.priceList = priceList
+    if (agent && agent !== order.agent) patch.agent = agent
+    if (payUntil !== (order.paymentDate ?? "")) patch.paymentDate = payUntil
+    if (deal !== (order.dealType ?? "")) patch.dealType = deal
+    if (warehouse !== (order.warehouse ?? "")) patch.warehouse = warehouse
+    if (deliveryType !== (order.deliveryType ?? "")) patch.deliveryType = deliveryType
+    if (deliverer !== (order.deliveryMan ?? "")) patch.deliveryMan = deliverer
+    if (deliveryDate && deliveryDate !== order.delivery) patch.delivery = deliveryDate
+    if (comment !== (order.comment ?? "")) patch.comment = comment
+    if (confirmable) {
+      const nextStatus = confirmed ? (order.status === "Не подтвержден" ? "Есть на складе" : order.status) : "Не подтвержден"
+      if (nextStatus !== order.status) patch.status = nextStatus
+    }
+    if (!Object.keys(patch).length) return onClose()
+    onSave(patch)
+  }
+
+  const select = (value: string, onChange: (value: string) => void, options: string[], disabled?: boolean, empty = true) => (
+    <select value={value} disabled={disabled} onChange={(event) => onChange(event.target.value)} className={`${fieldClass} disabled:opacity-60`}>
+      {empty && <option value="">{t("Не указано")}</option>}
+      {(value && !options.includes(value) ? [value, ...options] : options).map((option) => (
+        <option key={option} value={option}>
+          {t(option)}
+        </option>
+      ))}
+    </select>
+  )
 
   return (
     <SheetShell
       title={t("Изменение заказа")}
       onClose={onClose}
       footer={
-        <div className="flex justify-end gap-3 px-[30px] py-3">
-          <GreenButton
-            onClick={() =>
-              onSave({
-                client: client.trim() || order.client,
-                agent: agent.trim() || order.agent,
-                delivery: fromInputDate(deliveryDate),
-                status: confirmed ? (order.status === "Не подтвержден" ? "Есть на складе" : order.status) : "Не подтвержден",
-              })
-            }
-          >
-            {t("Сохранить")}
-          </GreenButton>
+        <div className="flex items-center justify-end gap-3 px-[30px] py-3">
+          {error && <span className="mr-auto text-[#e57373]">{error}</span>}
+          <GreenButton onClick={save}>{t("Сохранить")}</GreenButton>
         </div>
       }
     >
       <div className="flex min-h-full">
         <div className="w-[280px] shrink-0 overflow-auto border-r border-[#efefef] px-[30px] pb-6 pt-[22px]">
-          <div className="mb-[2px] flex items-center justify-between">
-            <b className="text-[13px]">{t("Выбор клиента")}</b>
-            <span className="text-[13px] text-[#4f71dc]">+ {t("добавить")}</span>
-          </div>
-          <Field label={t("Дата создания")} required>
-            <input type="date" value={created} onChange={(event) => setCreated(event.target.value)} className={fieldClass} />
-          </Field>
           <Field label={t("Название клиента")} required>
-            <input value={client} onChange={(event) => setClient(event.target.value)} className={fieldClass} />
+            <select value={clientId} disabled={shipped} onChange={(event) => setClientId(event.target.value)} className={`${fieldClass} disabled:opacity-60`}>
+              {!order.clientId && <option value="">{order.client}</option>}
+              {clients.map((client) => (
+                <option key={client.id} value={client.id}>
+                  {client.name}
+                </option>
+              ))}
+            </select>
           </Field>
           <b className="mb-3 mt-6 block text-[13px]">{t("Оплата")}</b>
-          <label className="mb-4 flex items-center gap-3 font-semibold">
-            <input type="checkbox" checked={prize} onChange={(event) => setPrize(event.target.checked)} className="h-4 w-4" />
-            {t("Призовой заказ за балл")}
-          </label>
           <Field label={t("Тип оплаты")}>
             <select value={paymentType} onChange={(event) => setPaymentType(event.target.value)} className={fieldClass}>
-              {["Перечисление", "Наличные", "Банковский счет", "Терминал"].map((value) => (
-                <option key={value}>{value}</option>
-              ))}
+              <option value="">{t("Не указан")}</option>
+              <option value="cash">{t("Наличные")}</option>
+              <option value="bank">{t("Перечисление")}</option>
             </select>
           </Field>
           <Field label={t("Валюта")} required>
-            <select value={currency} onChange={(event) => setCurrency(event.target.value)} className={fieldClass}>
-              {["SUM", "USD", "EUR"].map((value) => (
-                <option key={value}>{value}</option>
-              ))}
-            </select>
+            {select(currency, setCurrency, currencies, items.length > 0 || shipped, false)}
           </Field>
-          <Field label={t("Прайс лист")} required>
-            <select value={priceList} onChange={(event) => setPriceList(event.target.value)} className={fieldClass}>
-              {["donalik", "optom"].map((value) => (
-                <option key={value}>{value}</option>
-              ))}
-            </select>
-          </Field>
+          <Field label={t("Прайс лист")}>{select(priceList, setPriceList, priceLists)}</Field>
           <Field label={t("Агент")} required>
-            <input value={agent} onChange={(event) => setAgent(event.target.value)} className={fieldClass} />
+            {select(agent, setAgent, employees, false, false)}
           </Field>
-          <Field label={t("Дата окончательной оплаты")} required>
+          <Field label={t("Дата окончательной оплаты")}>
             <input type="date" value={payUntil} onChange={(event) => setPayUntil(event.target.value)} className={fieldClass} />
           </Field>
           <b className="mb-3 mt-6 block text-[13px]">{t("Условия договора")}</b>
           {(["standard", "consignment"] as const).map((value) => (
             <label key={value} className="mb-3 flex items-center gap-3">
               <input type="radio" name="deal" checked={deal === value} onChange={() => setDeal(value)} className="h-4 w-4" />
-              {value === "standard" ? t("Стандартная") : t("Консигнация")}
+              {t(DEAL_TYPE_LABELS[value])}
             </label>
           ))}
           <Field label={t("Склад")} required>
-            <select value={warehouse} onChange={(event) => setWarehouse(event.target.value)} className={fieldClass}>
-              {["toshkent", "Andijon skladi"].map((value) => (
-                <option key={value}>{value}</option>
-              ))}
-            </select>
+            {select(warehouse, setWarehouse, warehouses, shipped)}
           </Field>
           <b className="mb-1 mt-6 block text-[13px]">{t("Условия доставки")}</b>
-          <Field label={t("Тип доставки")} required>
-            <select value={deliveryType} onChange={(event) => setDeliveryType(event.target.value)} className={fieldClass}>
-              {["Доставка", "Самовывоз"].map((value) => (
-                <option key={value}>{value}</option>
-              ))}
-            </select>
-          </Field>
-          <Field label={t("Доставщик")}>
-            <input value={deliverer} onChange={(event) => setDeliverer(event.target.value)} className={fieldClass} />
-          </Field>
+          <Field label={t("Тип доставки")}>{select(deliveryType, setDeliveryType, ["Доставка", "Самовывоз"])}</Field>
+          <Field label={t("Доставщик")}>{select(deliverer, setDeliverer, employees)}</Field>
           <Field label={t("Дата доставки")}>
             <input type="date" value={deliveryDate} onChange={(event) => setDeliveryDate(event.target.value)} className={fieldClass} />
           </Field>
-          <label className="mt-2 flex items-center gap-3 font-semibold">
-            <input type="checkbox" checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} className="h-4 w-4" />
-            {t("Подтвержденный")}
-          </label>
+          <Field label={t("Комментарий")}>
+            <input value={comment} onChange={(event) => setComment(event.target.value)} className={fieldClass} />
+          </Field>
+          {confirmable && (
+            <label className="mt-2 flex items-center gap-3 font-semibold">
+              <input type="checkbox" checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} className="h-4 w-4" />
+              {t("Подтвержденный")}
+            </label>
+          )}
         </div>
         <div className="min-w-0 flex-1 px-[30px] pt-[14px]">
           <div className="border-b-2 border-[#4f71dc] pb-[14px] text-center text-[13px] font-medium">{t("Товары")}</div>
-          <div className="flex items-center justify-between pt-8 text-[13px]">
-            <b>{t("Список товаров")}</b>
-            <span className="flex gap-8 text-[#4f71dc]">
-              <span>{t("добавить из списка")}</span>
-              <span>{t("импортировать с excel")}</span>
-            </span>
-          </div>
           <table className="mt-8 w-full text-left">
             <thead>
               <tr className="font-semibold">
                 <th className="px-[5px] py-2">{t("Наименование")}</th>
                 <th className="py-2">{t("Кол-во")}</th>
                 <th className="py-2">{t("На складе")}</th>
-                <th className="py-2">{t("Цена")}(SUM)</th>
-                <th className="py-2">{t("Всего")}(SUM)</th>
+                <th className="py-2">{`${t("Цена")} (${order.currency || "SUM"})`}</th>
+                <th className="py-2">{`${t("Всего")} (${order.currency || "SUM"})`}</th>
                 <th />
               </tr>
             </thead>
@@ -1247,16 +1366,20 @@ function EditOrderSheet({
                   <td>
                     {formatNumber(item.quantity)} {item.unit}
                   </td>
-                  <td>209 {item.unit}</td>
+                  <td>{item.productId && warehouse ? `${formatNumber(available.get(`product:${item.productId}`) ?? 0)} ${item.unit}` : "—"}</td>
                   <td>{formatNumber(item.unitPrice)}</td>
                   <td>{formatNumber(item.lineTotal)}</td>
                   <td className="whitespace-nowrap text-right">
-                    <button type="button" onClick={onQuickEdit} aria-label={t("Изменить")} className="mr-5">
-                      <Mi d={ICONS.edit} className="h-5 w-5 fill-[#666]" />
-                    </button>
-                    <button type="button" onClick={() => removeItem(item.id)} aria-label={t("Удалить")}>
-                      <Mi d={ICONS.trash} className="h-5 w-5 fill-black/30" />
-                    </button>
+                    {editable && (
+                      <>
+                        <button type="button" onClick={onQuickEdit} aria-label={t("Изменить")} className="mr-5">
+                          <Mi d={ICONS.edit} className="h-5 w-5 fill-[#666]" />
+                        </button>
+                        <button type="button" onClick={() => removeItem(item.id)} aria-label={t("Удалить")}>
+                          <Mi d={ICONS.trash} className="h-5 w-5 fill-black/30" />
+                        </button>
+                      </>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -1278,8 +1401,8 @@ function EditOrderSheet({
 function QuickEditSheet({ order, items, onClose, onSaved }: { order: Order; items: OrderLineItem[]; onClose: () => void; onSaved: () => void }) {
   const { t } = useLanguage()
   const [lines, setLines] = useState(() => items.map((item) => ({ id: item.id, quantity: String(item.quantity), price: String(item.unitPrice), discount: item.discountPercent ? String(item.discountPercent) : "" })))
-  const [confirmed, setConfirmed] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [error, setError] = useState("")
 
   const calc = useMemo(
     () =>
@@ -1299,31 +1422,32 @@ function QuickEditSheet({ order, items, onClose, onSaved }: { order: Order; item
   const update = (index: number, patch: Partial<(typeof lines)[number]>) => setLines((current) => current.map((line, i) => (i === index ? { ...line, ...patch } : line)))
 
   const save = useCallback(async () => {
+    setError("")
+    for (const [index, line] of lines.entries()) {
+      const quantity = Number(line.quantity)
+      const price = Number(line.price)
+      const discount = Number(line.discount || 0)
+      if (!(quantity > 0) || !(price >= 0) || !(discount >= 0 && discount <= 100)) return setError(`${items[index]?.productName}: ${t("Проверьте количество и цену")}`)
+    }
     setSaving(true)
     try {
-      await Promise.all(
-        items.map((item, index) => {
-          const line = lines[index]
-          const quantity = Number(line.quantity)
-          const price = Number(line.price)
-          if (!(quantity > 0) || !(price >= 0)) return Promise.resolve()
-          return fetch(`/api/orders/${order.id}/items/${item.id}`, {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ productName: item.productName, unit: item.unit, quantity, unitPrice: price, discountPercent: Math.min(100, Math.max(0, Number(line.discount) || 0)), currency: item.currency }),
-          })
-        }),
-      )
+      for (const [index, item] of items.entries()) {
+        const line = lines[index]
+        const result = await api(`/api/orders/${order.id}/items/${item.id}`, {
+          method: "PUT",
+          body: { productId: item.productId ?? undefined, productName: item.productName, unit: item.unit, quantity: Number(line.quantity), unitPrice: Number(line.price), discountPercent: Number(line.discount || 0), currency: item.currency },
+        })
+        if (!result.ok) return setError(`${item.productName}: ${t(result.error)}`)
+      }
       onSaved()
     } finally {
       setSaving(false)
     }
-  }, [items, lines, onSaved, order.id])
+  }, [items, lines, onSaved, order.id, t])
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.altKey && event.key === "Enter") void save()
-      if (event.altKey && event.key === "1") setConfirmed((value) => !value)
     }
     window.addEventListener("keydown", onKey)
     return () => window.removeEventListener("keydown", onKey)
@@ -1348,9 +1472,15 @@ function QuickEditSheet({ order, items, onClose, onSaved }: { order: Order; item
               {t("Итого")}: <b className="text-[16px] font-semibold text-[#0a9ddb]">{formatNumber(netTotal)}</b>
             </span>
           </div>
-          <GreenButton onClick={save} disabled={saving}>
-            {t("Сохранить")} (Alt + Enter)
-          </GreenButton>
+          <div className="flex items-center gap-4">
+            {error && <span className="text-[#e57373]">{error}</span>}
+            <button type="button" onClick={onClose} className="h-9 rounded-[3px] border border-[#d9d9d9] px-5 text-[12px] font-semibold uppercase text-[#555]">
+              {t("Отмена")}
+            </button>
+            <GreenButton onClick={save} disabled={saving}>
+              {t("Сохранить")} (Alt + Enter)
+            </GreenButton>
+          </div>
         </div>
       }
     >
@@ -1362,16 +1492,11 @@ function QuickEditSheet({ order, items, onClose, onSaved }: { order: Order; item
           <span>
             {t("Инициатор")}: <b className="ml-12 font-semibold">{order.agent}</b>
           </span>
-          <label className="flex items-center gap-3 font-semibold">
-            <input type="checkbox" checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} className="h-4 w-4" />
-            {t("Подтвердить заказ")} (Alt + 1)
-          </label>
         </div>
         <table className="mt-8 w-full text-left">
           <thead>
             <tr className="font-semibold">
               <th className="py-3">{t("Наименование")}</th>
-              <th>{t("Группа")}</th>
               <th>{t("Изначальный кол-во")}</th>
               <th>{t("Кол-во")}</th>
               <th>{t("Цена")}</th>
@@ -1385,9 +1510,6 @@ function QuickEditSheet({ order, items, onClose, onSaved }: { order: Order; item
             {items.map((item, index) => (
               <tr key={item.id} className="border-y border-dotted border-[#cfd8dc] bg-[#f1f4f7]">
                 <td className="py-[14px]">{item.productName}</td>
-                <td className="w-[100px] pr-6">
-                  <b>0</b>
-                </td>
                 <td>{formatNumber(item.quantity)}</td>
                 <td className="w-[110px] pr-6">
                   <input value={lines[index]?.quantity ?? ""} onChange={(event) => update(index, { quantity: event.target.value })} className={`${inputClass} font-semibold`} />
@@ -1405,23 +1527,55 @@ function QuickEditSheet({ order, items, onClose, onSaved }: { order: Order; item
             ))}
           </tbody>
         </table>
-        <div className="mt-5 bg-[#f1f4f7] px-[10px] py-[10px] text-[#888]">{t("Бонусные товары")}</div>
       </div>
     </SheetShell>
   )
 }
 
-function QuickReturnSheet({ order, items, onClose, onSaved }: { order: Order; items: OrderLineItem[]; onClose: () => void; onSaved: () => void }) {
+type Returnable = { orderItemId: number; productName: string; unit: string; ordered: number; returned: number; available: number; price: number; currency: string }
+
+function QuickReturnSheet({ order, onClose, onSaved }: { order: Order; onClose: () => void; onSaved: (id: number) => void }) {
   const { t } = useLanguage()
-  const [paymentType, setPaymentType] = useState("Банковский счет")
-  const [warehouse, setWarehouse] = useState("")
+  const warehouses = useNames("/api/warehouses", (row) => (row.active === false ? "" : plainName(row)))
+  const [lines, setLines] = useState<Returnable[] | null>(null)
+  const [warehouse, setWarehouse] = useState(order.warehouse ?? "")
   const [comment, setComment] = useState("")
   const [manualPrice, setManualPrice] = useState(false)
   const [qty, setQty] = useState<Record<number, string>>({})
   const [prices, setPrices] = useState<Record<number, string>>({})
   const [error, setError] = useState("")
+  const [saving, setSaving] = useState(false)
 
-  const total = items.reduce((sum, item) => sum + (Number(qty[item.id]) || 0) * (Number(prices[item.id] ?? item.unitPrice) || 0), 0)
+  useEffect(() => {
+    void api<Returnable[]>(`/api/orders/${order.id}/returnable`).then((result) => setLines(result.ok ? result.body : []))
+  }, [order.id])
+
+  const priceOf = (line: Returnable) => (manualPrice && prices[line.orderItemId] !== undefined ? Number(prices[line.orderItemId]) || 0 : line.price)
+  const total = (lines ?? []).reduce((sum, line) => sum + (Number(qty[line.orderItemId]) || 0) * priceOf(line), 0)
+
+  async function save() {
+    setError("")
+    const chosen = (lines ?? []).filter((line) => (Number(qty[line.orderItemId]) || 0) > 0)
+    if (!warehouse) return setError(t("Выберите склад"))
+    if (!chosen.length) return setError(t("Укажите количество возврата"))
+    const over = chosen.find((line) => Number(qty[line.orderItemId]) > line.available)
+    if (over) return setError(`${over.productName}: ${t("Количество возврата больше доступного")}`)
+    setSaving(true)
+    const result = await api<{ id: number }>("/api/client-returns", {
+      method: "POST",
+      body: {
+        clientId: order.clientId ?? undefined,
+        client: order.clientId ? undefined : order.client,
+        orderId: order.id,
+        warehouse,
+        comment: comment.trim() || undefined,
+        items: chosen.map((line) => ({ orderItemId: line.orderItemId, quantity: Number(qty[line.orderItemId]), ...(manualPrice ? { price: priceOf(line) } : {}) })),
+      },
+    })
+    setSaving(false)
+    if (!result.ok) return setError(t(result.error))
+    onSaved(result.body.id)
+  }
 
   return (
     <SheetShell
@@ -1429,15 +1583,11 @@ function QuickReturnSheet({ order, items, onClose, onSaved }: { order: Order; it
       onClose={onClose}
       footer={
         <div className="flex items-center justify-end gap-4 px-[10px] py-[10px]">
+          <span className="mr-auto">
+            {t("Сумма")}: <b>{formatNumber(total)} {order.currency || "SUM"}</b>
+          </span>
           {error && <span className="text-[#e57373]">{error}</span>}
-          <GreenButton
-            onClick={() => {
-              const invalid = items.some((item) => (Number(qty[item.id]) || 0) > item.quantity)
-              if (invalid) return setError(t("Количество возврата больше доступного"))
-              if (total <= 0) return setError(t("Укажите количество возврата"))
-              onSaved()
-            }}
-          >
+          <GreenButton onClick={save} disabled={saving}>
             {t("Сохранить")}
           </GreenButton>
         </div>
@@ -1446,20 +1596,12 @@ function QuickReturnSheet({ order, items, onClose, onSaved }: { order: Order; it
       <div className="px-[30px] pt-[30px]">
         <div className="flex items-end gap-4">
           <div className="w-[290px]">
-            <Field label={t("Тип оплаты")}>
-              <select value={paymentType} onChange={(event) => setPaymentType(event.target.value)} className={fieldClass}>
-                {["Банковский счет", "Наличные", "Перечисление"].map((value) => (
-                  <option key={value}>{value}</option>
-                ))}
-              </select>
-            </Field>
-          </div>
-          <div className="w-[290px]">
-            <Field label={t("Склад")}>
+            <Field label={t("Склад")} required>
               <select value={warehouse} onChange={(event) => setWarehouse(event.target.value)} className={fieldClass}>
                 <option value="" />
-                <option>toshkent</option>
-                <option>Andijon skladi</option>
+                {(warehouse && !warehouses.includes(warehouse) ? [warehouse, ...warehouses] : warehouses).map((name) => (
+                  <option key={name}>{name}</option>
+                ))}
               </select>
             </Field>
           </div>
@@ -1473,50 +1615,92 @@ function QuickReturnSheet({ order, items, onClose, onSaved }: { order: Order; it
             {t("Изменение цены вручную")}
           </label>
         </div>
-        <table className="mt-6 w-full text-left">
-          <thead>
-            <tr className="font-semibold">
-              <th className="py-3">№</th>
-              <th>{t("Наименование")}</th>
-              <th>{t("По заказу")}</th>
-              <th>{t("Доступно")}</th>
-              <th>{t("Кол-во возврата")}</th>
-              <th>{t("Цена")}</th>
-              <th>{t("Сумма")}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {items.map((item) => (
-              <tr key={item.id} className="border-y border-dotted border-[#9ec9e8] bg-[#f1f4f7]">
-                <td className="py-[14px]">{1000 + item.id}</td>
-                <td>{item.productName}</td>
-                <td>{formatNumber(item.quantity)}</td>
-                <td>{formatNumber(item.quantity)}</td>
-                <td className="w-[200px] pr-6">
-                  <input value={qty[item.id] ?? ""} onChange={(event) => setQty((current) => ({ ...current, [item.id]: event.target.value }))} className="w-full border-b-2 border-[#374557] bg-transparent py-1 outline-none" />
-                </td>
-                <td className="w-[200px] pr-6">
-                  <input
-                    disabled={!manualPrice}
-                    value={prices[item.id] ?? String(item.unitPrice)}
-                    onChange={(event) => setPrices((current) => ({ ...current, [item.id]: event.target.value }))}
-                    className="w-full border-b border-dotted border-[#374557] bg-transparent py-1 font-bold outline-none"
-                  />
-                </td>
-                <td>{formatNumber((Number(qty[item.id]) || 0) * (Number(prices[item.id] ?? item.unitPrice) || 0))}</td>
+        {lines === null ? (
+          <p className="py-8 text-center text-[#888]">{t("Загрузка...")}</p>
+        ) : (
+          <table className="mt-6 w-full text-left">
+            <thead>
+              <tr className="font-semibold">
+                <th className="py-3">{t("Наименование")}</th>
+                <th>{t("По заказу")}</th>
+                <th>{t("Уже возвращено")}</th>
+                <th>{t("Доступно")}</th>
+                <th>{t("Кол-во возврата")}</th>
+                <th>{t("Цена")}</th>
+                <th>{t("Сумма")}</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {lines.map((line) => (
+                <tr key={line.orderItemId} className="border-y border-dotted border-[#9ec9e8] bg-[#f1f4f7]">
+                  <td className="py-[14px]">{line.productName}</td>
+                  <td>{formatNumber(line.ordered)}</td>
+                  <td>{formatNumber(line.returned)}</td>
+                  <td>{formatNumber(line.available)}</td>
+                  <td className="w-[200px] pr-6">
+                    <input
+                      type="number"
+                      min="0"
+                      max={line.available}
+                      step="any"
+                      disabled={line.available <= 0}
+                      value={qty[line.orderItemId] ?? ""}
+                      onChange={(event) => setQty((current) => ({ ...current, [line.orderItemId]: event.target.value }))}
+                      className="w-full border-b-2 border-[#374557] bg-transparent py-1 outline-none disabled:opacity-40"
+                    />
+                  </td>
+                  <td className="w-[200px] pr-6">
+                    <input
+                      disabled={!manualPrice}
+                      value={manualPrice ? (prices[line.orderItemId] ?? String(line.price)) : String(line.price)}
+                      onChange={(event) => setPrices((current) => ({ ...current, [line.orderItemId]: event.target.value }))}
+                      className="w-full border-b border-dotted border-[#374557] bg-transparent py-1 font-bold outline-none"
+                    />
+                  </td>
+                  <td>{formatNumber((Number(qty[line.orderItemId]) || 0) * priceOf(line))}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
       </div>
     </SheetShell>
   )
 }
 
-function PrintSheet({ order, items, onClose }: { order: Order; items: OrderLineItem[]; onClose: () => void }) {
+function PrintSheet({ order, items, debt, onClose }: { order: Order; items: OrderLineItem[]; debt: OrderDetail["clientDebt"] | null; onClose: () => void }) {
   const { t } = useLanguage()
+  const organizations = useNames("/api/organizations", plainName)
+  const [agentPhone, setAgentPhone] = useState("")
+  useEffect(() => {
+    void api<Array<Record<string, unknown>>>("/api/employees").then((result) => {
+      if (!result.ok) return
+      const agent = result.body.find((row) => employeeName(row) === order.agent)
+      setAgentPhone(String(agent?.phone ?? ""))
+    })
+  }, [order.agent])
   const total = items.reduce((sum, item) => sum + item.lineTotal, 0)
   const qty = items.reduce((sum, item) => sum + item.quantity, 0)
+  const currency = order.currency || "SUM"
+  // The company on the invoice: the order's organization, else the first organization.
+  const company = order.organization || organizations[0] || ""
+  const counted = order.status !== "Отменен" && order.status !== "Не подтвержден"
+  const endBalance = debt?.operative || `0 ${currency}`
+  // Balance before this order = end balance + this order's total (same currency) when the order counts.
+  const beforeBalance = (() => {
+    if (!counted || !debt) return endBalance
+    const parts = (debt.operative || "").split(/,\s+/).filter(Boolean)
+    let found = false
+    const next = parts.map((part) => {
+      const match = /^(-?[\d\s .,]+)\s+([A-Za-z]+)$/.exec(part.trim())
+      if (!match || match[2] !== currency) return part
+      found = true
+      const value = Number(match[1].replace(/[\s ]/g, "").replace(",", ".")) + total
+      return `${formatNumber(value)} ${currency}`
+    })
+    if (!found) next.push(`${formatNumber(total)} ${currency}`)
+    return next.join(", ")
+  })()
 
   const block = (
     <div className="mb-6">
@@ -1525,10 +1709,9 @@ function PrintSheet({ order, items, onClose }: { order: Order; items: OrderLineI
           <tr className="font-semibold">
             <th className="border border-black px-2 py-[3px]">№</th>
             <th className="border border-black px-2 py-[3px]">{t("Наименование")}</th>
-            <th className="border border-black px-2 py-[3px]">{t("Блок")}</th>
             <th className="border border-black px-2 py-[3px]">{t("Количество")}</th>
-            <th className="border border-black px-2 py-[3px]">{t("Сумма")} (SUM)</th>
-            <th className="border border-black px-2 py-[3px]" />
+            <th className="border border-black px-2 py-[3px]">{`${t("Цена")} (${currency})`}</th>
+            <th className="border border-black px-2 py-[3px]">{`${t("Сумма")} (${currency})`}</th>
           </tr>
         </thead>
         <tbody>
@@ -1536,7 +1719,6 @@ function PrintSheet({ order, items, onClose }: { order: Order; items: OrderLineI
             <tr key={item.id}>
               <td className="border border-black px-2 py-[3px] font-bold">{index + 1}</td>
               <td className="border border-black px-2 py-[3px] font-bold">{item.productName}</td>
-              <td className="border border-black px-2 py-[3px]">-</td>
               <td className="border border-black px-2 py-[3px]">
                 {formatNumber(item.quantity)} {item.unit}
               </td>
@@ -1545,21 +1727,23 @@ function PrintSheet({ order, items, onClose }: { order: Order; items: OrderLineI
             </tr>
           ))}
           <tr className="font-bold">
-            <td colSpan={3} className="border border-black px-2 py-[3px] text-left">
+            <td colSpan={2} className="border border-black px-2 py-[3px] text-left">
               {t("Итого")}:
             </td>
             <td className="border border-black px-2 py-[3px]">{formatNumber(qty)}</td>
             <td className="border border-black px-2 py-[3px]" />
-            <td className="border border-black px-2 py-[3px]">{formatNumber(total)} SUM</td>
+            <td className="border border-black px-2 py-[3px]">
+              {formatNumber(total)} {currency}
+            </td>
           </tr>
         </tbody>
       </table>
       <div className="mt-6 flex justify-between font-bold">
         <span>
-          {t("Баланс на конец")}: {order.balance}
+          {t("Баланс на конец")}: {endBalance}
         </span>
         <span>
-          {t("Организация")}: {order.product}
+          {t("Организация")}: {company || t("Не указана")}
         </span>
       </div>
       <div className="mt-6 flex justify-between">
@@ -1575,12 +1759,12 @@ function PrintSheet({ order, items, onClose }: { order: Order; items: OrderLineI
         <h2 className="text-[18px] font-bold">
           {t("Заказ №")} {order.id}
         </h2>
-        <h2 className="absolute left-1/2 -translate-x-1/2 text-[18px] font-semibold uppercase">HILOL</h2>
+        <h2 className="absolute left-1/2 -translate-x-1/2 text-[18px] font-semibold uppercase">{company}</h2>
         <div className="flex items-start gap-5">
           <span className="text-[11px] font-semibold text-[#666]">
-            {t("Добавлено")}: {order.created}
+            {t("Добавлено")}: {order.createdAt ? displayMoment(order.createdAt) : order.created}
           </span>
-          <button type="button" onClick={onClose} aria-label={t("Закрыть")}>
+          <button type="button" onClick={onClose} aria-label={t("Закрыть")} className="print:hidden">
             <Mi d={ICONS.close} className="h-6 w-6 fill-[#333]" />
           </button>
         </div>
@@ -1591,16 +1775,16 @@ function PrintSheet({ order, items, onClose }: { order: Order; items: OrderLineI
             <b>{t("Агент")}:</b> {order.agent}
           </p>
           <p>
-            <b>{t("Номер телефона агента")}:</b> None
+            <b>{t("Номер телефона агента")}:</b> {agentPhone || t("Не указан")}
           </p>
           <p>
-            <b>{t("Супервайзер")}:</b> +998 50 079 54 23
+            <b>{t("Склад")}:</b> {order.warehouse || t("Не указан")}
           </p>
           <p>
-            <b>{t("Комментарии")}:</b> None
+            <b>{t("Комментарии")}:</b> {order.comment || "—"}
           </p>
           <p>
-            <b>{t("Баланс клиента до")}:</b> {order.balance}
+            <b>{t("Баланс клиента до")}:</b> {beforeBalance}
           </p>
         </div>
         <div>
@@ -1611,7 +1795,7 @@ function PrintSheet({ order, items, onClose }: { order: Order; items: OrderLineI
             <b>{t("Зона")}:</b> {order.zone || "—"}
           </p>
           <p>
-            <b>{t("Телефон")}:</b> +998 90 000 00 00
+            <b>{t("Телефон")}:</b> {order.clientPhone || t("Не указан")}
           </p>
         </div>
       </div>

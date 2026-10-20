@@ -5,7 +5,9 @@ import { BarChart3, ChevronLeft, ChevronRight, FileText, ListChecks, MinusCircle
 
 import { downloadExcelTable } from "@/lib/excel-export"
 import { mapHeaderColumns, readExcelRows } from "@/lib/excel-import"
-import { employeeBranches as branches, employeeOrganizations as organizations, employeePositions as positions, type Employee } from "./employees-data"
+import type { Employee } from "./employees-data"
+import { useDirectoryNames } from "@/components/clients/use-directory"
+import { useLanguage } from "@/lib/i18n/language-context"
 
 const IMPORT_HEADER_ALIASES: Record<string, string> = {
   "имя": "firstName", "first name": "firstName",
@@ -32,14 +34,16 @@ type Draft = {
   organizations: string[]
 }
 
-function emptyDraft(): Draft {
+// Должность and Филиал come from the real directories (/api/job-positions,
+// /api/branches); the server refuses names that are not in them.
+function emptyDraft(positions: string[] = [], branches: string[] = []): Draft {
   return {
     firstName: "",
     lastName: "",
     phone: "",
     integrationCode: "",
-    position: positions[0],
-    branch: branches[0],
+    position: positions[0] ?? "",
+    branch: branches[0] ?? "",
     systemAccess: true,
     showInTracking: true,
     twoStepCheck: false,
@@ -70,6 +74,9 @@ function draftToInput(draft: Draft, active = true) {
 }
 
 export function EmployeesView() {
+  const { t } = useLanguage()
+  // The factory's own organizations (never another tenant's names).
+  const organizationNames = useDirectoryNames("organizations")
   const [employees, setEmployees] = useState<Employee[]>([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState("")
@@ -79,7 +86,9 @@ export function EmployeesView() {
   const [selectMode, setSelectMode] = useState(false)
   const [checkedIds, setCheckedIds] = useState<number[]>([])
   const [editing, setEditing] = useState<Employee | "new" | null>(null)
-  const [draft, setDraft] = useState<Draft>(emptyDraft)
+  const [draft, setDraft] = useState<Draft>(() => emptyDraft())
+  const [positions, setPositions] = useState<string[]>([])
+  const [branches, setBranches] = useState<string[]>([])
   const [saving, setSaving] = useState(false)
   const [importOpen, setImportOpen] = useState(false)
   const [importFile, setImportFile] = useState<File | null>(null)
@@ -101,7 +110,7 @@ export function EmployeesView() {
         setLoadError("")
       })
       .catch(() => {
-        if (!cancelled) setLoadError("Не удалось загрузить сотрудников с сервера")
+        if (!cancelled) setLoadError(t("Не удалось загрузить сотрудников с сервера"))
       })
       .finally(() => {
         if (!cancelled) setLoading(false)
@@ -110,6 +119,28 @@ export function EmployeesView() {
       cancelled = true
     }
   }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    const names = (url: string) =>
+      fetch(url)
+        .then((response) => (response.ok ? (response.json() as Promise<{ name: string }[]>) : []))
+        .then((rows) => rows.map((row) => row.name))
+        .catch(() => [] as string[])
+    void Promise.all([names("/api/job-positions"), names("/api/branches")]).then(([positionNames, branchNames]) => {
+      if (cancelled) return
+      setPositions(positionNames)
+      setBranches(branchNames)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  // A record may still hold a name that is not in the directory (created before
+  // the check); it stays selectable so the record can be saved unchanged.
+  const positionOptions = useMemo(() => (draft.position && !positions.includes(draft.position) ? [draft.position, ...positions] : positions), [positions, draft.position])
+  const branchOptions = useMemo(() => (draft.branch && !branches.includes(draft.branch) ? [draft.branch, ...branches] : branches), [branches, draft.branch])
 
   const filtered = useMemo(
     () =>
@@ -149,7 +180,11 @@ export function EmployeesView() {
           active: merged.active,
         }),
       })
-      if (!response.ok) return
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}))
+        window.alert(data.error || "Не удалось сохранить сотрудника")
+        return
+      }
       const saved = (await response.json()) as Employee
       setEmployees((current) => current.map((item) => (item.id === saved.id ? saved : item)))
     } catch {
@@ -170,7 +205,7 @@ export function EmployeesView() {
   }
 
   function openCreate() {
-    setDraft(emptyDraft())
+    setDraft(emptyDraft(positions, branches))
     setEditing("new")
   }
 
@@ -180,8 +215,8 @@ export function EmployeesView() {
       lastName: employee.lastName,
       phone: employee.phone,
       integrationCode: employee.integrationCode,
-      position: employee.position || positions[0],
-      branch: employee.branch || branches[0],
+      position: employee.position,
+      branch: employee.branch,
       systemAccess: employee.systemAccess,
       showInTracking: employee.showInTracking,
       twoStepCheck: employee.twoStepCheck,
@@ -280,12 +315,12 @@ export function EmployeesView() {
         }
         if (!record.firstName || /^(имя|first name)$/i.test(record.firstName)) continue
         parsed.push({
-          ...emptyDraft(),
+          ...emptyDraft(positions, branches),
           firstName: record.firstName,
           lastName: record.lastName || "",
           phone: record.phone || "",
-          position: record.position || positions[0],
-          branch: record.branch || branches[0],
+          position: record.position || (positions[0] ?? ""),
+          branch: record.branch || (branches[0] ?? ""),
           integrationCode: record.integrationCode || "",
         })
       }
@@ -297,6 +332,7 @@ export function EmployeesView() {
 
       const created: Employee[] = []
       let failed = 0
+      let firstError = ""
       for (const item of parsed) {
         try {
           const response = await fetch("/api/employees", {
@@ -305,13 +341,16 @@ export function EmployeesView() {
             body: JSON.stringify(draftToInput(item)),
           })
           if (response.ok) created.push((await response.json()) as Employee)
-          else failed += 1
+          else {
+            failed += 1
+            if (!firstError) firstError = ((await response.json().catch(() => ({}))) as { error?: string }).error ?? ""
+          }
         } catch {
           failed += 1
         }
       }
       if (created.length) setEmployees((current) => [...created, ...current])
-      if (failed) window.alert(`Импортировано ${created.length} из ${parsed.length}. Не удалось сохранить: ${failed}`)
+      if (failed) window.alert(`Импортировано ${created.length} из ${parsed.length}. Не удалось сохранить: ${failed}${firstError ? ` (${firstError})` : ""}`)
     } finally {
       setImportSaving(false)
       setImportOpen(false)
@@ -323,40 +362,40 @@ export function EmployeesView() {
     <main className="min-w-0 flex-1">
       <div className="flex flex-wrap items-center gap-4 px-5 py-4">
         <button type="button" onClick={openCreate} className="inline-flex items-center gap-2 rounded bg-[#4f71dc] px-5 py-2.5 font-semibold text-white hover:brightness-95">
-          <PlusCircle className="h-4 w-4" /> Добавить пользователя
+          <PlusCircle className="h-4 w-4" /> {t("Добавить пользователя")}
         </button>
         <div className="ml-auto flex items-center gap-3">
           <button type="button" onClick={() => setImportOpen(true)} className="inline-flex items-center gap-2 rounded bg-[#4f71dc] px-5 py-2.5 font-semibold text-white hover:brightness-95">
-            <BarChart3 className="h-4 w-4" /> Импортировать
+            <BarChart3 className="h-4 w-4" /> {t("Импортировать")}
           </button>
           <div className="flex overflow-hidden rounded border border-[#4f71dc]">
             <button type="button" onClick={() => { setTab("active"); setPage(1) }} className={`px-5 py-2.5 text-sm font-bold uppercase ${tab === "active" ? "bg-[#4f71dc] text-white" : "text-[#4f71dc]"}`}>
-              Активный
+              {t("Активный")}
             </button>
             <button type="button" onClick={() => { setTab("deleted"); setPage(1) }} className={`px-5 py-2.5 text-sm font-bold uppercase ${tab === "deleted" ? "bg-[#4f71dc] text-white" : "text-[#4f71dc]"}`}>
-              Удаленные
+              {t("Удаленные")}
             </button>
           </div>
-          <button type="button" onClick={bulkDeactivate} aria-label="Деактивировать выбранных" title={selectMode ? "Деактивировать выбранных" : "Выбрать сотрудников"} className={`rounded-full p-1 ${selectMode ? "text-red-500" : "text-slate-400"} hover:text-red-500`}>
+          <button type="button" onClick={bulkDeactivate} aria-label={t("Деактивировать выбранных")} title={selectMode ? t("Деактивировать выбранных") : t("Выбрать сотрудников")} className={`rounded-full p-1 ${selectMode ? "text-red-500" : "text-slate-400"} hover:text-red-500`}>
             <MinusCircle className="h-6 w-6" />
           </button>
         </div>
       </div>
 
       <div className="flex flex-wrap items-center gap-4 px-5 py-3">
-        <span className="text-[#4f71dc]">Показать фильтр⌄</span>
+        <span className="text-[#4f71dc]">{t("Показать фильтр⌄")}</span>
         <label className="relative w-64">
-          <input value={query} onChange={(event) => { setQuery(event.target.value); setPage(1) }} placeholder="Поиск" className="w-full border-b border-slate-300 py-2 pr-10 outline-none focus:border-[#4f71dc]" />
+          <input value={query} onChange={(event) => { setQuery(event.target.value); setPage(1) }} placeholder={t("Поиск")} className="w-full border-b border-slate-300 py-2 pr-10 outline-none focus:border-[#4f71dc]" />
           <Search className="absolute right-2 top-2 h-5 w-5 text-slate-300" />
         </label>
         <span className="ml-auto text-slate-500">25</span>
         <span className="text-slate-500">
-          {filtered.length ? (safePage - 1) * pageSize + 1 : 0} - {Math.min(safePage * pageSize, filtered.length)} из {filtered.length}
+          {filtered.length ? (safePage - 1) * pageSize + 1 : 0} - {Math.min(safePage * pageSize, filtered.length)} {t("из")} {filtered.length}
         </span>
-        <button type="button" onClick={() => setPage((value) => Math.max(1, value - 1))} disabled={safePage <= 1} aria-label="Назад" className="disabled:opacity-30">
+        <button type="button" onClick={() => setPage((value) => Math.max(1, value - 1))} disabled={safePage <= 1} aria-label={t("Назад")} className="disabled:opacity-30">
           <ChevronLeft className="h-5 w-5 text-slate-400" />
         </button>
-        <button type="button" onClick={() => setPage((value) => Math.min(pageCount, value + 1))} disabled={safePage >= pageCount} aria-label="Вперед" className="disabled:opacity-30">
+        <button type="button" onClick={() => setPage((value) => Math.min(pageCount, value + 1))} disabled={safePage >= pageCount} aria-label={t("Вперед")} className="disabled:opacity-30">
           <ChevronRight className="h-5 w-5 text-slate-400" />
         </button>
         <ListChecks className="h-5 w-5 text-slate-400" />
@@ -370,12 +409,12 @@ export function EmployeesView() {
             <tr>
               {selectMode && <th className="w-10 px-5 py-5" />}
               <th className="px-9 py-5">№</th>
-              <th className="px-5 py-5">Сотрудник</th>
-              <th className="px-5 py-5">Логин</th>
-              <th className="px-5 py-5">Права доступа</th>
-              <th className="px-5 py-5">Телефон</th>
-              <th className="px-5 py-5">Должность</th>
-              <th className="px-5 py-5">Статус</th>
+              <th className="px-5 py-5">{t("Сотрудник")}</th>
+              <th className="px-5 py-5">{t("Логин")}</th>
+              <th className="px-5 py-5">{t("Права доступа")}</th>
+              <th className="px-5 py-5">{t("Телефон")}</th>
+              <th className="px-5 py-5">{t("Должность")}</th>
+              <th className="px-5 py-5">{t("Статус")}</th>
               <th className="w-20" />
             </tr>
           </thead>
@@ -402,14 +441,14 @@ export function EmployeesView() {
                 <td className="px-5 py-4">{employee.phone}</td>
                 <td className="px-5 py-4">{employee.position}</td>
                 <td className="px-5 py-4">
-                  <span className={employee.active ? "" : "text-slate-400"}>{employee.active ? "Активный" : "Удален"}</span>
+                  <span className={employee.active ? "" : "text-slate-400"}>{employee.active ? t("Активный") : t("Удален")}</span>
                 </td>
                 <td className="px-5 py-4">
                   <div className="hidden items-center justify-end gap-3 text-slate-500 group-hover:flex">
-                    <button type="button" onClick={() => openEdit(employee)} aria-label="Изменить">
+                    <button type="button" onClick={() => openEdit(employee)} aria-label={t("Изменить")}>
                       <Pencil className="h-5 w-5" />
                     </button>
-                    <button type="button" onClick={() => remove(employee.id)} aria-label="Удалить">
+                    <button type="button" onClick={() => remove(employee.id)} aria-label={t("Удалить")}>
                       <Trash2 className="h-5 w-5" />
                     </button>
                   </div>
@@ -419,7 +458,7 @@ export function EmployeesView() {
             {!loading && visible.length === 0 && (
               <tr>
                 <td colSpan={selectMode ? 9 : 8} className="px-5 py-10 text-center text-slate-400">
-                  Ничего не найдено
+                  {t("Ничего не найдено")}
                 </td>
               </tr>
             )}
@@ -466,7 +505,8 @@ export function EmployeesView() {
                 <label className="block border-b border-[#d5dae1] pb-[4px] text-[10px] font-semibold">
                   Должность <span className="text-red-500">*</span>
                   <select value={draft.position} onChange={(event) => setDraft((value) => ({ ...value, position: event.target.value }))} className="mt-2 block w-full bg-white outline-none">
-                    {positions.map((item) => (
+                    <option value="">Не указано</option>
+                    {positionOptions.map((item) => (
                       <option key={item}>{item}</option>
                     ))}
                   </select>
@@ -474,7 +514,8 @@ export function EmployeesView() {
                 <label className="block border-b border-[#d5dae1] pb-[4px] text-[10px] font-semibold">
                   Филиалы <span className="text-red-500">*</span>
                   <select value={draft.branch} onChange={(event) => setDraft((value) => ({ ...value, branch: event.target.value }))} className="mt-2 block w-full bg-white outline-none">
-                    {branches.map((item) => (
+                    <option value="">Не указано</option>
+                    {branchOptions.map((item) => (
                       <option key={item}>{item}</option>
                     ))}
                   </select>
@@ -528,10 +569,10 @@ export function EmployeesView() {
               </label>
 
               <p className="mb-3 mt-6 text-sm italic text-slate-500">
-                Организации<span className="text-red-500">*</span>
+                {t("Организации")}<span className="text-red-500">*</span>
               </p>
               <div className="grid max-h-64 gap-x-6 gap-y-2 overflow-y-auto border-t pt-3 sm:grid-cols-3">
-                {organizations.map((org, index) => (
+                {[...new Set([...organizationNames, ...draft.organizations])].map((org, index) => (
                   <label key={`${org}-${index}`} className="flex items-center gap-2 text-sm">
                     <input type="checkbox" checked={draft.organizations.includes(org)} onChange={() => toggleOrganization(org)} />
                     <span className="truncate">{org}</span>

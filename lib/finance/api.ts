@@ -177,25 +177,86 @@ export function parseManagementQuery(url: string): ParsedQuery<ManagementParams>
   return { data: { ...period(parsed.data.from, parsed.data.to), organizations: parsed.data.organization, branches: parsed.data.branch } }
 }
 
+/** Money input bound (contract: |x| ≤ 1e13). */
+export const MAX_MONEY = 1e13
+/** Exchange-rate input bound (contract: 0 < x ≤ 1e9). */
+export const MAX_RATE = 1e9
+/** Largest id Postgres INTEGER columns hold. */
+export const MAX_ID = 2_147_483_647
+
+/** Route param → positive 32-bit id, or null (larger values would overflow the INTEGER columns). */
+export function routeId(value: string): number | null {
+  if (!/^\d{1,10}$/.test(value)) return null
+  const id = Number(value)
+  return id > 0 && id <= MAX_ID ? id : null
+}
+
+const positiveId = z.coerce.number().int().positive().max(MAX_ID)
+
 /** Body of POST /api/balances/group-payment. */
 export const groupPaymentSchema = z.object({
-  date: z.string().trim().optional(),
-  cashboxId: z.coerce.number().int().positive(),
-  organization: z.string().trim().min(1),
-  branch: z.string().trim().optional(),
-  incomeCategory: z.string().trim().optional(),
-  deliveryMan: z.string().trim().optional(),
+  date: z.string().trim().max(40).optional(),
+  cashboxId: positiveId,
+  organization: z.string().trim().min(1).max(200),
+  branch: z.string().trim().max(200).optional(),
+  /** Income category id (income_categories.id); preferred over the name. */
+  incomeCategoryId: positiveId.optional().nullable(),
+  /** Income category name (older callers); resolved to its id. */
+  incomeCategory: z.string().trim().max(200).optional(),
+  deliveryMan: z.string().trim().max(200).optional(),
   isVerified: z.boolean().optional(),
   rateType: z.enum(["current", "custom"]).optional(),
-  customRate: z.coerce.number().positive().optional(),
-  comment: z.string().trim().optional(),
+  customRate: z.coerce.number().positive().max(MAX_RATE).optional(),
+  comment: z.string().trim().max(2000).optional(),
   items: z
     .array(
       z.object({
-        key: z.union([z.string().trim().min(1), z.number().int().positive().transform(String)]),
-        amount: z.coerce.number().finite().positive(),
-        comment: z.string().trim().optional(),
+        key: z.union([z.string().trim().min(1).max(200), z.number().int().positive().max(MAX_ID).transform(String)]),
+        amount: z.coerce.number().finite().positive().max(MAX_MONEY),
+        comment: z.string().trim().max(2000).optional(),
       }),
     )
-    .min(1),
+    .min(1)
+    .max(5000),
 })
+
+// --- sales reports (P&L, ABC) ------------------------------------------------------
+
+const SALES_FILTER_ARRAYS = ["branch", "zone", "agent", "productType", "brand", "product", "organization"]
+const salesFilters = {
+  branch: list,
+  zone: list,
+  agent: list,
+  productType: list,
+  brand: list,
+  product: list,
+  organization: list,
+}
+
+const pnlQuery = z
+  .object({ firstFrom: day, firstTo: day, secondFrom: day, secondTo: day, ...salesFilters })
+  .refine((q) => q.firstFrom <= q.firstTo && q.secondFrom <= q.secondTo, { message: "from > to", path: ["firstFrom"] })
+
+const abcQuery = z
+  .object({ from: day, to: day, groupBy: z.enum(["product", "brand", "branch", "productType"]).default("product"), ...salesFilters })
+  .refine((q) => q.from <= q.to, { message: "from > to", path: ["from"] })
+
+function salesFilterParams(q: z.infer<typeof abcQuery> | z.infer<typeof pnlQuery>) {
+  return { branches: q.branch, zones: q.zone, agents: q.agent, productTypes: q.productType, brands: q.brand, products: q.product, organizations: q.organization }
+}
+
+/** GET /api/balances/pnl?firstFrom&firstTo&secondFrom&secondTo[&branch…&zone…&agent…&productType…&brand…&product…&organization…] */
+export function parsePnlQuery(url: string) {
+  const parsed = pnlQuery.safeParse(queryObject(url, SALES_FILTER_ARRAYS))
+  if (!parsed.success) return { error: invalid(parsed.error) }
+  const q = parsed.data
+  return { data: { periods: [{ from: q.firstFrom, to: q.firstTo }, { from: q.secondFrom, to: q.secondTo }], filters: salesFilterParams(q) } }
+}
+
+/** GET /api/balances/abc?from&to&groupBy[&filters…] */
+export function parseAbcQuery(url: string) {
+  const parsed = abcQuery.safeParse(queryObject(url, SALES_FILTER_ARRAYS))
+  if (!parsed.success) return { error: invalid(parsed.error) }
+  const q = parsed.data
+  return { data: { from: q.from, to: q.to, groupBy: q.groupBy, filters: salesFilterParams(q) } }
+}

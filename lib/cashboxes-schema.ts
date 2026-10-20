@@ -18,7 +18,11 @@ const toNumberOrUndefined = (value: unknown) => {
   return value
 }
 
-const optionalId = z.preprocess(emptyToNull, z.coerce.number().int().positive().max(MAX_INT).nullable()).optional()
+/** A positive int4 id given as a number or a digits-only string (no booleans, arrays or "1e1"). */
+const idSchema = z
+  .union([z.number(), z.string().trim().regex(/^\d+$/, "Неверный идентификатор").transform(Number)], { error: "Неверный идентификатор" })
+  .pipe(z.number().int("Неверный идентификатор").positive("Неверный идентификатор").max(MAX_INT, "Неверный идентификатор"))
+const optionalId = z.preprocess(emptyToNull, idSchema.nullable()).optional()
 
 export const cashboxInputSchema = z
   .object({

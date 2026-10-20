@@ -3,6 +3,7 @@ import "server-only"
 import { NextResponse } from "next/server"
 
 import { getDb, withTransaction, type PgDb } from "@/lib/db"
+import { loadCurrencyContext } from "@/lib/finance/context"
 import { normCurrency } from "@/lib/finance/currency"
 import { priceListKey } from "@/lib/item-prices"
 import { cascadePriceListRename, priceListUsage, type PriceListRenameChange } from "@/lib/price-lists-refs"
@@ -24,6 +25,8 @@ import {
 //   calc_method = method id of PRICE_LIST_CALC_METHODS, method_values = [{methodKey, value}].
 // A rename is carried over in one transaction (lib/price-lists-refs.ts); a delete is refused (409)
 // while anything uses the list. GET /api/price-lists (plain) keeps its array shape for the pickers.
+// The currency must be one of the currencies table (400 "Валюта не найдена"; an edited list keeps
+// its stored currency when the body repeats it).
 
 const NONE = "Не указано"
 const MONTHS = ["янв.", "февр.", "мар.", "апр.", "мая", "июня", "июля", "авг.", "сент.", "окт.", "нояб.", "дек."]
@@ -297,6 +300,21 @@ async function resolveLink(db: PgDb, selfId: number | null, selfName: string, in
   return { linked: target.name, linkedId: target.id }
 }
 
+export const CURRENCY_NOT_FOUND = "Валюта не найдена"
+
+/** Currency of a written list: a code of the currencies table (empty table: SUM / USD / EUR), canonical. */
+async function resolveListCurrency(db: PgDb, wanted: string | undefined, stored: string | null | undefined): Promise<string> {
+  const context = await loadCurrencyContext(db)
+  if (wanted === undefined || !wanted.trim()) {
+    // Omitted: keep the stored currency (an edit) or take the base currency (a new list).
+    return stored ? normCurrency(stored) : context.base
+  }
+  const code = normCurrency(wanted)
+  if (stored && normCurrency(stored) === code) return code
+  if (!context.currencies.some((currency) => currency.code === code)) throw new PriceListError(CURRENCY_NOT_FOUND, 400, { currency: CURRENCY_NOT_FOUND })
+  return code
+}
+
 async function storedFields(db: PgDb, id: number | null, input: PriceListInput, current: Row | null): Promise<Stored> {
   const { linked } = await resolveLink(db, id, input.name, input, current)
   const linkedSet = !isNoLink(linked)
@@ -311,7 +329,7 @@ async function storedFields(db: PgDb, id: number | null, input: PriceListInput, 
   }
   const flag = (value: boolean | undefined, stored: number | null | undefined, fallback: number) =>
     value === undefined ? (stored === null || stored === undefined ? fallback : Number(stored) === 1 ? 1 : 0) : value ? 1 : 0
-  const currency = normCurrency(input.currency ?? current?.currency ?? "SUM")
+  const currency = await resolveListCurrency(db, input.currency, current?.currency)
   return {
     name: input.name.trim(),
     currency,

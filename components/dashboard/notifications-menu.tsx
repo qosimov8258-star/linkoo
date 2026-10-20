@@ -49,7 +49,7 @@ export function NotificationsMenu({ onClose }: NotificationsMenuProps) {
   // Delivered orders become "order delivered" notifications.
   useEffect(() => {
     let cancelled = false
-    fetch("/api/orders")
+    fetch("/api/orders?balances=0")
       .then((response) => (response.ok ? response.json() : []))
       .then((orders: { id: number; client: string; agent: string; delivery: string; status: string }[]) => {
         if (cancelled || !Array.isArray(orders)) return

@@ -3,6 +3,8 @@ import "server-only"
 import { NextResponse } from "next/server"
 import { z } from "zod"
 
+import { MAX_PAGE } from "@/lib/stock/paging"
+import { cleanJsonText, parseIdSegment } from "@/lib/validation"
 import {
   STOCK_INVENTORY_STATUSES,
   type StockInventoryListQuery,
@@ -42,8 +44,8 @@ const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/
 const ORDERINGS: StockInventoryOrdering[] = ["id", "-id", "created_date", "-created_date", "total_price", "-total_price"]
 
 export function parseInventoryId(value: string): number | null {
-  const id = Number(value)
-  return Number.isInteger(id) && id > 0 && id <= 2_147_483_647 ? id : null
+  // Canonical digits only ("0x10" / "1e1" never resolve to another record).
+  return parseIdSegment(value)
 }
 
 function texts(values: string[]): string[] {
@@ -59,10 +61,12 @@ export function parseInventoryListQuery(url: string): Parsed<StockInventoryListQ
   const search = new URL(url).searchParams
   const status = (search.get("status") ?? "").trim()
   if (status && !STOCK_INVENTORY_STATUSES.includes(status as StockInventoryStatus)) return { error: bad("status", STOCK_INVENTORY_STATUSES.join(" | ")) }
-  const page = Number(search.get("page") ?? 1)
+  const rawPage = Number(search.get("page") ?? 1)
   const pageSize = Number(search.get("pageSize") ?? search.get("page_size") ?? 25)
-  if (!Number.isInteger(page) || page < 1) return { error: bad("page", ">= 1") }
+  if (!Number.isInteger(rawPage) || rawPage < 1) return { error: bad("page", ">= 1") }
   if (!Number.isInteger(pageSize) || pageSize < 0 || pageSize > 5000) return { error: bad("pageSize", "0..5000") }
+  // A huge page (1e20) would overflow OFFSET: past MAX_PAGE every page is empty anyway.
+  const page = Math.min(rawPage, MAX_PAGE)
   const fromDate = (search.get("fromDate") ?? search.get("begin_date") ?? "").trim()
   const toDate = (search.get("toDate") ?? search.get("end_date") ?? "").trim()
   if (fromDate && !ISO_DAY.test(fromDate)) return { error: bad("fromDate", "YYYY-MM-DD") }
@@ -100,7 +104,7 @@ const REQUIRED = "Обязательное поле"
 /** Counted amount: number ≥ 0 ("1 000,5" strings accepted). */
 const amountSchema = z.preprocess(
   (value) => (typeof value === "string" ? Number(value.replace(/[\s  ]/g, "").replace(",", ".")) : value),
-  z.number({ error: "Введите число" }).finite("Введите число").min(0, "Количество не может быть отрицательным").max(1e12, "Слишком большое число"),
+  z.number({ error: "Введите число" }).finite("Введите число").min(0, "Количество не может быть отрицательным").max(1e9, "Слишком большое число"),
 )
 
 const lineSchema = z.object({
@@ -156,7 +160,10 @@ export async function parseInventoryBody<T>(request: Request, schema: z.ZodType<
       return { error: NextResponse.json({ error: "So'rov tanasi JSON emas" }, { status: 400 }) }
     }
   }
-  const result = schema.safeParse(json)
+  // Zero-width / bidi characters are dropped from every text; NUL and broken Unicode answer 400.
+  const cleaned = cleanJsonText(json)
+  if (cleaned.issue) return { error: NextResponse.json({ error: cleaned.issue.message, field: cleaned.issue.field || null }, { status: 400 }) }
+  const result = schema.safeParse(cleaned.value)
   if (!result.success) {
     const issue = result.error.issues[0]
     const field = issue?.path.map(String).join(".") ?? ""

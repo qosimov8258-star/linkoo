@@ -74,6 +74,8 @@ CREATE TABLE IF NOT EXISTS client_balance_corrections (
   is_deleted INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS client_balance_corrections_client_idx ON client_balance_corrections (client_id);
+ALTER TABLE client_balance_corrections ADD COLUMN IF NOT EXISTS deleted_at TEXT NOT NULL DEFAULT '';
+ALTER TABLE client_balance_corrections ADD COLUMN IF NOT EXISTS deleted_by TEXT NOT NULL DEFAULT '';
 CREATE TABLE IF NOT EXISTS client_reconciliation_messages (
   id SERIAL PRIMARY KEY,
   client_id INTEGER NOT NULL,
@@ -134,19 +136,20 @@ CREATE TABLE IF NOT EXISTS account_payment_deadlines (
 CREATE INDEX IF NOT EXISTS account_payment_deadlines_key_idx ON account_payment_deadlines (account_key)`
 
 declare global {
-  // v2: + account_* tables (a new name so a running process creates them too).
-  var __linkoStoreReconciliationSchemaV2: Promise<void> | undefined
+  // v2: + account_* tables; v3: + corrections deleted_at / deleted_by (a new
+  // name so a running process applies the change too).
+  var __linkoStoreReconciliationSchemaV3: Promise<void> | undefined
 }
 
 /** Creates the pages' own tables once per process. */
 export async function ensureStoreReconciliationSchema(db: PgDb = getDb()): Promise<void> {
-  if (!globalThis.__linkoStoreReconciliationSchemaV2) {
-    globalThis.__linkoStoreReconciliationSchemaV2 = db.exec(SCHEMA_SQL).catch((error: unknown) => {
-      globalThis.__linkoStoreReconciliationSchemaV2 = undefined
+  if (!globalThis.__linkoStoreReconciliationSchemaV3) {
+    globalThis.__linkoStoreReconciliationSchemaV3 = db.exec(SCHEMA_SQL).catch((error: unknown) => {
+      globalThis.__linkoStoreReconciliationSchemaV3 = undefined
       throw error
     })
   }
-  await globalThis.__linkoStoreReconciliationSchemaV2
+  await globalThis.__linkoStoreReconciliationSchemaV3
 }
 
 /** Per-variant tables of reconciliation requests / debt terms; `key` = the

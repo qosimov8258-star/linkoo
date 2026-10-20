@@ -1,32 +1,29 @@
 import { NextRequest, NextResponse } from "next/server"
-import { z } from "zod"
 
 import { getCurrentUser } from "@/lib/current-user"
 import { requireRole } from "@/lib/rbac"
-import { parseJsonBody } from "@/lib/validation"
 import { addIncomingExpense, listIncomingExpenses } from "@/lib/supplier-incomings-repo"
-import { incomingChangeResponse } from "@/lib/supplier-incomings-api"
-
-const expenseSchema = z.object({
-  date: z.string().trim().min(1),
-  description: z.string().trim().min(1),
-  amount: z.coerce.number().finite().positive(),
-  currency: z.string().trim().default("SUM"),
-  paymentType: z.string().trim().default(""),
-})
+import { incomingChangeResponse, incomingExpenseSchema, incomingNotFound } from "@/lib/supplier-incomings-api"
+import { parseProcurementBody, parseRouteId, procurementWrite } from "@/lib/supplier-refs"
 
 type RouteParams = { params: Promise<{ id: string }> }
 
 export async function GET(_request: NextRequest, { params }: RouteParams) {
   if (!(await getCurrentUser())) return NextResponse.json({ error: "Tizimga kirilmagan" }, { status: 401 })
-  return NextResponse.json(await listIncomingExpenses(Number((await params).id)))
+  const id = parseRouteId((await params).id)
+  const expenses = id ? await listIncomingExpenses(id) : null
+  return expenses ? NextResponse.json(expenses) : incomingNotFound()
 }
 
+/** "Добавить расход": amount 0 < x ≤ 1e13, a configured currency with a rate, a parseable date. */
 export async function POST(request: NextRequest, { params }: RouteParams) {
   const auth = await requireRole("manager")
   if ("error" in auth) return auth.error
-  const parsed = await parseJsonBody(request, expenseSchema)
+  const id = parseRouteId((await params).id)
+  if (!id) return incomingNotFound()
+  const parsed = await parseProcurementBody(request, incomingExpenseSchema)
   if (parsed.error) return parsed.error
-  const result = await addIncomingExpense(Number((await params).id), parsed.data, auth.user.displayName)
-  return incomingChangeResponse(result, "Нельзя добавить расход к отмененной поставке")
+  return procurementWrite(async () =>
+    incomingChangeResponse(await addIncomingExpense(id, parsed.data, auth.user.displayName), "Нельзя добавить расход к отмененной поставке"),
+  )
 }

@@ -100,7 +100,10 @@ export function PositionsView({ embedded = false }: { embedded?: boolean }) {
     try {
       const response = await fetch(`/api/job-positions/${id}`, { method: "DELETE" })
       if (!response.ok) {
-        window.alert("Не удалось удалить должность")
+        // 409 while other records use it: the usage list says where.
+        const data = (await response.json().catch(() => ({}))) as { error?: string; usage?: { label: string; count: number }[] }
+        const usage = data.usage?.map((item) => `${item.label}: ${item.count}`).join(", ")
+        window.alert(`${data.error || "Не удалось удалить должность"}${usage ? ` (${usage})` : ""}`)
         return
       }
       setPositions((list) => list.filter((position) => position.id !== id))

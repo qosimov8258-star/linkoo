@@ -109,7 +109,8 @@ export function BranchesView({ embedded = false }: { embedded?: boolean }) {
           return
         }
         const saved = (await response.json()) as Branch
-        setBranches((list) => list.map((branch) => (branch.id === editing.id ? saved : branch)))
+        // Only one main branch: making this one main unsets the previous one on the server.
+        setBranches((list) => list.map((branch) => (branch.id === editing.id ? saved : saved.isMain ? { ...branch, isMain: false } : branch)))
       } else {
         const response = await fetch("/api/branches", {
           method: "POST",
@@ -122,7 +123,7 @@ export function BranchesView({ embedded = false }: { embedded?: boolean }) {
           return
         }
         const saved = (await response.json()) as Branch
-        setBranches((list) => [saved, ...list])
+        setBranches((list) => [saved, ...list.map((branch) => (saved.isMain ? { ...branch, isMain: false } : branch))])
       }
       setEditing(null)
     } catch {
@@ -134,8 +135,10 @@ export function BranchesView({ embedded = false }: { embedded?: boolean }) {
     try {
       const response = await fetch(`/api/branches/${id}`, { method: "DELETE" })
       if (!response.ok) {
-        const data = await response.json().catch(() => ({}))
-        window.alert(data.error || "Не удалось удалить филиал")
+        // 409 while other records use it: the usage list says where.
+        const data = (await response.json().catch(() => ({}))) as { error?: string; usage?: { label: string; count: number }[] }
+        const usage = data.usage?.map((item) => `${item.label}: ${item.count}`).join(", ")
+        window.alert(`${data.error || "Не удалось удалить филиал"}${usage ? ` (${usage})` : ""}`)
         return
       }
       setBranches((list) => list.filter((branch) => branch.id !== id))

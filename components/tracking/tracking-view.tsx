@@ -14,6 +14,7 @@ import {
 import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
 import { FilterCheck, FilterDate, FilterRange, FilterSelect, RI, RefButton, RefHeader } from "@/components/ref/list-kit"
 import { useLanguage } from "@/lib/i18n/language-context"
+import { useDirectoryNames } from "@/components/clients/use-directory"
 import { AgentsSidebar } from "./agents-sidebar"
 import { TerritoryPanel } from "./territory-panel"
 
@@ -26,24 +27,31 @@ type TrackingViewProps = {
   view?: "agents" | "clients"
 }
 
+// Fixed choices; people, clients, types, zones and branches come from the
+// factory's own directories (see DIRECTORY below).
 const selectOptions: Record<string, string[]> = {
   "Частота посещения": ["Каждый день", "Раз в неделю", "Раз в месяц"],
-  "Маршрут агента": ["Маршрут №1", "Маршрут №2", "Без маршрута"],
-  Клиент: ["Doston market", "Pepsi Market", "Usman Dembele"],
-  "Тип клиента": ["horeca", "market", "market100", "market101"],
+  "Маршрут агента": ["Без маршрута"],
   "Класс клиента": ["A", "B", "C"],
-  Зона: ["Chilonzor", "Yunusobod", "Andijon shaharchasi"],
   "Последнее посещение": ["Сегодня", "Последние 7 дней", "Последние 30 дней"],
-  "Ответственный агент": ["Admin Ritm", "Samandar Abdurahmonov"],
-  "Ответственные доставщики": ["Хайрулло Доставщик", "Аббос Доставщик"],
-  Филиалы: ["Andijon", "Tashkent", "AURUM samarqand"],
   "Тип отказа": ["Нет клиента", "Закрыто", "Отказ от заказа"],
+}
+
+const DIRECTORY: Record<string, "clients" | "clientTypes" | "zones" | "employees" | "branches"> = {
+  Клиент: "clients",
+  "Тип клиента": "clientTypes",
+  Зона: "zones",
+  "Ответственный агент": "employees",
+  "Ответственные доставщики": "employees",
+  Филиалы: "branches",
 }
 
 function SelectLine({ label, value: controlled, onChange }: { label: string; value?: string; onChange?: (value: string) => void }) {
   const { t } = useLanguage()
   const [open, setOpen] = useState(false)
   const [internal, setInternal] = useState("")
+  const directory = useDirectoryNames(DIRECTORY[label] ?? "zones")
+  const options = DIRECTORY[label] ? directory : (selectOptions[label] ?? ["Да", "Нет"])
   const value = controlled ?? internal
   const setValue = (next: string) => (onChange ? onChange(next) : setInternal(next))
 
@@ -59,7 +67,7 @@ function SelectLine({ label, value: controlled, onChange }: { label: string; val
       </button>
       {open && (
         <div className="absolute left-0 right-0 top-full z-[800] max-h-48 overflow-auto bg-white py-1 shadow-xl">
-          {(selectOptions[label] ?? ["Да", "Нет"]).map((option) => (
+          {options.map((option) => (
             <button
               key={option}
               type="button"
@@ -121,7 +129,14 @@ function ClientsFilterModal({ onClose }: { onClose: () => void }) {
   const [draft, setDraft] = useState(empty)
   const [days, setDays] = useState<string[]>([])
   const set = <K extends keyof typeof empty>(key: K) => (value: (typeof empty)[K]) => setDraft((current) => ({ ...current, [key]: value }))
-  const options = (label: string) => selectOptions[label] ?? []
+  const directories = {
+    clients: useDirectoryNames("clients"),
+    clientTypes: useDirectoryNames("clientTypes"),
+    zones: useDirectoryNames("zones"),
+    employees: useDirectoryNames("employees"),
+    branches: useDirectoryNames("branches"),
+  }
+  const options = (label: string) => (DIRECTORY[label] ? directories[DIRECTORY[label]] : (selectOptions[label] ?? []))
 
   return (
     <div className="fixed inset-0 z-[1000] bg-black/60" onMouseDown={onClose}>

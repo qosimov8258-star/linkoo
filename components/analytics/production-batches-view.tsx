@@ -274,7 +274,7 @@ function CreatePartyDialog({ stages, onClose, onCreated }: { stages: Stage[]; on
         </Field>
         {!stages.length && <p className="text-sm text-amber-600">{t("Сначала создайте этап в разделе «Этапы производства».")}</p>}
         <Field label="Дата партии" required>
-          <input required type="date" value={date} onChange={(event) => setDate(event.target.value)} className={inputClass} />
+          <input required type="date" value={date} max={todayIso()} onChange={(event) => setDate(event.target.value)} className={inputClass} />
         </Field>
         <Field label="Комментарий">
           <textarea value={comment} onChange={(event) => setComment(event.target.value)} rows={2} placeholder={t("Комментарий...")} className={inputClass} />

@@ -7,7 +7,7 @@ import { parseJsonBody } from "@/lib/validation"
 import { createSurvey, listSurveys, parseSurveyInput } from "@/lib/surveys-repo"
 
 const surveySchema = z.object({
-  name: z.string().trim().min(1),
+  name: z.string().trim().min(1).max(255, "Не более 255 символов"),
   active: z.boolean().optional(),
   organization: z.string().optional(),
   storeType: z.string().optional(),

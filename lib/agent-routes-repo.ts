@@ -54,20 +54,31 @@ async function ensureSchema(db: ReturnType<typeof getDb>) {
   // Additive columns: per-day field-work summary for an agent's route, covering
   // the plan/route/outside-of-route visit metrics the reporting views need
   // (visits, effective visits, refusals, sales) plus check-in/out and GPS.
-  await db.exec(`ALTER TABLE agent_routes ADD COLUMN IF NOT EXISTS plan_visits REAL NOT NULL DEFAULT 0;`)
-  await db.exec(`ALTER TABLE agent_routes ADD COLUMN IF NOT EXISTS route_visited REAL NOT NULL DEFAULT 0;`)
-  await db.exec(`ALTER TABLE agent_routes ADD COLUMN IF NOT EXISTS route_effective REAL NOT NULL DEFAULT 0;`)
-  await db.exec(`ALTER TABLE agent_routes ADD COLUMN IF NOT EXISTS route_refused REAL NOT NULL DEFAULT 0;`)
-  await db.exec(`ALTER TABLE agent_routes ADD COLUMN IF NOT EXISTS route_sales REAL NOT NULL DEFAULT 0;`)
-  await db.exec(`ALTER TABLE agent_routes ADD COLUMN IF NOT EXISTS outside_visited REAL NOT NULL DEFAULT 0;`)
-  await db.exec(`ALTER TABLE agent_routes ADD COLUMN IF NOT EXISTS outside_effective REAL NOT NULL DEFAULT 0;`)
-  await db.exec(`ALTER TABLE agent_routes ADD COLUMN IF NOT EXISTS outside_refused REAL NOT NULL DEFAULT 0;`)
-  await db.exec(`ALTER TABLE agent_routes ADD COLUMN IF NOT EXISTS outside_sales REAL NOT NULL DEFAULT 0;`)
+  await db.exec(`ALTER TABLE agent_routes ADD COLUMN IF NOT EXISTS plan_visits DOUBLE PRECISION NOT NULL DEFAULT 0;`)
+  await db.exec(`ALTER TABLE agent_routes ADD COLUMN IF NOT EXISTS route_visited DOUBLE PRECISION NOT NULL DEFAULT 0;`)
+  await db.exec(`ALTER TABLE agent_routes ADD COLUMN IF NOT EXISTS route_effective DOUBLE PRECISION NOT NULL DEFAULT 0;`)
+  await db.exec(`ALTER TABLE agent_routes ADD COLUMN IF NOT EXISTS route_refused DOUBLE PRECISION NOT NULL DEFAULT 0;`)
+  await db.exec(`ALTER TABLE agent_routes ADD COLUMN IF NOT EXISTS route_sales DOUBLE PRECISION NOT NULL DEFAULT 0;`)
+  await db.exec(`ALTER TABLE agent_routes ADD COLUMN IF NOT EXISTS outside_visited DOUBLE PRECISION NOT NULL DEFAULT 0;`)
+  await db.exec(`ALTER TABLE agent_routes ADD COLUMN IF NOT EXISTS outside_effective DOUBLE PRECISION NOT NULL DEFAULT 0;`)
+  await db.exec(`ALTER TABLE agent_routes ADD COLUMN IF NOT EXISTS outside_refused DOUBLE PRECISION NOT NULL DEFAULT 0;`)
+  await db.exec(`ALTER TABLE agent_routes ADD COLUMN IF NOT EXISTS outside_sales DOUBLE PRECISION NOT NULL DEFAULT 0;`)
   await db.exec(`ALTER TABLE agent_routes ADD COLUMN IF NOT EXISTS check_in TEXT NOT NULL DEFAULT '';`)
   await db.exec(`ALTER TABLE agent_routes ADD COLUMN IF NOT EXISTS check_out TEXT NOT NULL DEFAULT '';`)
-  await db.exec(`ALTER TABLE agent_routes ADD COLUMN IF NOT EXISTS gps_lat REAL;`)
-  await db.exec(`ALTER TABLE agent_routes ADD COLUMN IF NOT EXISTS gps_lng REAL;`)
+  await db.exec(`ALTER TABLE agent_routes ADD COLUMN IF NOT EXISTS gps_lat DOUBLE PRECISION;`)
+  await db.exec(`ALTER TABLE agent_routes ADD COLUMN IF NOT EXISTS gps_lng DOUBLE PRECISION;`)
   await db.exec(`ALTER TABLE agent_routes ADD COLUMN IF NOT EXISTS photo_url TEXT NOT NULL DEFAULT '';`)
+  await db.exec(`
+    -- Money precision (contract 3): an older database created these columns as REAL (float4).
+    DO $$
+    DECLARE c text;
+    BEGIN
+      FOR c IN SELECT column_name FROM information_schema.columns
+                WHERE table_schema = current_schema() AND table_name = 'agent_routes' AND data_type = 'real' LOOP
+        EXECUTE format('ALTER TABLE agent_routes ALTER COLUMN %I TYPE double precision USING (%I::text)::double precision', c, c);
+      END LOOP;
+    END $$;
+  `)
 }
 
 const SELECT_COLUMNS = `

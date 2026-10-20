@@ -10,9 +10,10 @@ type RouteParams = { params: Promise<{ id: string }> }
 
 const NOT_FOUND = { error: "Прайс-лист не найден" }
 
+/** Route param → positive int4 id (non-numeric / too large → null → 404, never a 500). */
 function parseId(value: string): number | null {
   const id = Number(value)
-  return Number.isInteger(id) && id > 0 ? id : null
+  return /^\d+$/.test(value.trim()) && Number.isInteger(id) && id > 0 && id <= 2_147_483_647 ? id : null
 }
 
 // GET /api/price-lists/[id] — demo GET sales/price_list/:id/; ?usage=1 adds where it is used.

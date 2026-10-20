@@ -6,8 +6,8 @@ import type { StockMoveKind } from "@/lib/stock/types"
 // labels of the movement kinds and source documents. Used by the API
 // (lib/stock-movement-report.ts) and the page (components/analytics/stock-move-*).
 
-/** begin, the 13 ledger kinds, the two "Прочие" totals and end. */
-export type MoveField = "begin" | StockMoveKind | "other_in" | "other_out" | "end"
+/** begin, the 13 ledger kinds, the two "Прочие" totals, the revaluation (cost mode) and end. */
+export type MoveField = "begin" | StockMoveKind | "other_in" | "other_out" | "revaluation" | "end"
 
 export const MOVE_FIELDS: MoveField[] = [
   "begin",
@@ -26,6 +26,7 @@ export const MOVE_FIELDS: MoveField[] = [
   "none_out",
   "other_in",
   "other_out",
+  "revaluation",
   "end",
 ]
 
@@ -52,6 +53,8 @@ export type MoveColumn = {
   label: string
   /** Outflow: shown as a positive number (the demo multiplies by −1). */
   out?: boolean
+  /** Value only (no quantity): "Переоценка". */
+  valueOnly?: boolean
 }
 
 const BEGIN: MoveColumn = { field: "begin", label: "Остаток на начало периода" }
@@ -89,8 +92,14 @@ export const MOVE_COLUMNS_OTHERS: MoveColumn[] = [
   END,
 ]
 
-export function moveColumns(showOthers: boolean): MoveColumn[] {
-  return showOthers ? MOVE_COLUMNS_OTHERS : MOVE_COLUMNS_NORMAL
+/** Cost mode only: the change of value of the stock on hand when its moving-average
+ * cost changes (a receipt at another cost, a manual cost entry). With it
+ * begin + Σ columns = end in value, per warehouse as well as per item. */
+export const MOVE_REVALUATION_COLUMN: MoveColumn = { field: "revaluation", label: "Переоценка", valueOnly: true }
+
+export function moveColumns(showOthers: boolean, mode?: MoveMode): MoveColumn[] {
+  const columns = showOthers ? MOVE_COLUMNS_OTHERS : MOVE_COLUMNS_NORMAL
+  return mode === "cost" ? [...columns.slice(0, -1), MOVE_REVALUATION_COLUMN, columns[columns.length - 1]] : columns
 }
 
 /** Value as the table shows it (outflows positive). */

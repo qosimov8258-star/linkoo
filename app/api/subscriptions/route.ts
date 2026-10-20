@@ -13,7 +13,7 @@ import {
 } from "@/lib/subscriptions-repo"
 
 const subscriptionSchema = z.object({
-  planName: z.string().trim().min(1),
+  planName: z.string().trim().min(1).max(255, "Не более 255 символов"),
   price: z.coerce.number().finite().optional(),
   billingPeriod: z.enum(SUBSCRIPTION_PERIODS).optional(),
   status: z.enum(SUBSCRIPTION_STATUSES).optional(),

@@ -484,9 +484,9 @@ export function SupplierBalanceView() {
             setMessage({ text: "Успешно удалено", tone: "success" })
             refresh()
           }}
-          onFailed={() => {
+          onFailed={(error) => {
             update({ transId: null })
-            setMessage({ text: "Удаление невозможно из-за связи с другими данными", tone: "error" })
+            setMessage({ text: error && !error.startsWith("HTTP ") ? error : "Удаление невозможно из-за связи с другими данными", tone: "error" })
           }}
         />
       )}

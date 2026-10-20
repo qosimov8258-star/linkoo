@@ -2,11 +2,11 @@ import { NextResponse } from "next/server"
 import { z } from "zod"
 
 import { requireRole } from "@/lib/rbac"
-import { parseJsonBody } from "@/lib/validation"
+import { invalidIdResponse, parseIdSegment, parseJsonBody } from "@/lib/validation"
 import { deleteRefusalType, parseRefusalTypeInput, updateRefusalType } from "@/lib/refusal-types-repo"
 
 const refusalTypeSchema = z.object({
-  name: z.string().trim().min(1),
+  name: z.string().trim().min(1).max(255, "Не более 255 символов"),
   resolution: z.string().trim().optional(),
 })
 
@@ -16,7 +16,8 @@ export async function PUT(request: Request, { params }: RouteParams) {
   const auth = await requireRole("manager")
   if ("error" in auth) return auth.error
 
-  const id = Number((await params).id)
+  const id = parseIdSegment((await params).id)
+  if (id === null) return invalidIdResponse()
   const parsed = await parseJsonBody(request, refusalTypeSchema)
   if (parsed.error) return parsed.error
 
@@ -32,7 +33,8 @@ export async function DELETE(_request: Request, { params }: RouteParams) {
   const auth = await requireRole("manager")
   if ("error" in auth) return auth.error
 
-  const id = Number((await params).id)
+  const id = parseIdSegment((await params).id)
+  if (id === null) return invalidIdResponse()
   const ok = (await deleteRefusalType(id))
   if (!ok) return NextResponse.json({ error: "Запись не найдена" }, { status: 404 })
   return NextResponse.json({ ok: true })

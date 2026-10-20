@@ -7,7 +7,7 @@ import { parseJsonBody } from "@/lib/validation"
 import { createDebtLimitClient, listDebtLimitClients, type DebtLimitClientInput } from "@/lib/debt-limits-repo"
 
 const debtLimitClientSchema = z.object({
-  name: z.string().trim().min(1),
+  name: z.string().trim().min(1).max(255, "Не более 255 символов"),
   phone: z.string().trim().optional(),
   type: z.string().trim().optional(),
   zoneLabel: z.string().trim().optional(),

@@ -1,7 +1,13 @@
 {
  "files": [
-  "*-data.ts",
-  "*-repo.ts",
+  "components/analytics/duplicate-data.ts",
+  "components/orders/marketing-data.ts",
+  "components/analytics/cash-balance-data.ts",
+  "components/analytics/customer-payments-data.ts",
+  "components/analytics/employees-data.ts",
+  "components/analytics/suppliers-data.ts",
+  "components/analytics/supplier-categories-data.ts",
+  "components/analytics/currencies-data.ts",
   "lib/db.ts"
  ],
  "strings": [
@@ -79,6 +85,14 @@
   "на",
   "тест",
   "№;Наименование;Адрес;Дата добавления",
-  "Узбекча"
+  "Узбекча",
+  "ЕВРО",
+  "йцукенгш",
+  "пароль123",
+  "РУБ",
+  "СУМ",
+  "СЎМ",
+  "ТестоваяОрганизация",
+  "Яндекс Лавка"
  ]
 }

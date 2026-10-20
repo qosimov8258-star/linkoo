@@ -1,9 +1,14 @@
 import "server-only"
 
+import { CashError } from "@/lib/cash/common"
+import { updateMoneyRequest } from "@/lib/cash/money-requests"
+import { appendLog, requestStatus } from "@/lib/cash/request-links"
 import { getDb, withTransaction, type PgDb } from "@/lib/db"
+import { resolveCurrencyCode } from "@/lib/finance/context"
 import { normCurrency } from "@/lib/finance/currency"
 import { nowLocalIso, parseAnyDate } from "@/lib/finance/dates"
 import { ensureLedgerExtensions } from "@/lib/finance/schema"
+import { tableColumns } from "@/lib/supplier-refs"
 
 // Manual supplier balance ledger of "Баланс поставщиков" (demo
 // provider_transactions type 6 "Нет типа" + money requests):
@@ -12,7 +17,9 @@ import { ensureLedgerExtensions } from "@/lib/finance/schema"
 // - kind 'fund_request' → "Запрос средств" (pending money request, never part
 //   of the balance; status 'pending' | 'approved' | 'given' | 'cancelled' ('' = legacy
 //   pending, legacy 'rejected' ≈ cancelled). The lifecycle (approve / cancel / pay)
-//   is owned by the cash core: lib/cash/money-requests.ts.
+//   is owned by the cash core: lib/cash/money-requests.ts. A given (paid) or
+//   cancelled request is final here too: it cannot be edited, re-opened or
+//   deleted, nor can a request that a live supplier payment still pays.
 // amount is always stored positive (sign comes from kind); `date` is the local
 // business date-time "YYYY-MM-DDTHH:mm"; currency is a canonical code (SUM,
 // USD, EUR, …). The balance itself is computed by lib/finance (ledger).
@@ -76,7 +83,7 @@ export type SupplierBalanceResult =
   | { transaction: SupplierBalanceTransaction; error?: undefined }
   | {
       transaction?: undefined
-      error: "not_found" | "supplier_not_found" | "invalid"
+      error: "not_found" | "supplier_not_found" | "invalid" | "currency_not_found" | "locked"
     }
 
 type Row = {
@@ -206,6 +213,8 @@ export async function createSupplierBalanceTransaction(input: SupplierBalanceCre
   await ensureSchema(getDb())
   const date = localDateTime(input.date)
   if (!date || !(input.amount > 0)) return { error: "invalid" }
+  const currency = await resolveCurrencyCode(getDb(), input.currency)
+  if (!currency) return { error: "currency_not_found" }
   return withTransaction(async (db) => {
     // Share-lock the supplier row so it cannot be deleted between the check and the insert.
     if (!(await db.prepare("SELECT id FROM suppliers WHERE id = ? FOR SHARE").get(input.supplierId))) return { error: "supplier_not_found" }
@@ -218,7 +227,7 @@ export async function createSupplierBalanceTransaction(input: SupplierBalanceCre
       .run({
         supplierId: input.supplierId,
         kind: input.kind,
-        currency: normCurrency(input.currency),
+        currency,
         amount: Math.abs(input.amount),
         date,
         comment: input.comment?.trim() ?? "",
@@ -236,12 +245,24 @@ export async function createSupplierBalanceTransaction(input: SupplierBalanceCre
 
 /** Edit of a manual entry ("Изменение баланса поставщика"): the signed amount
  * picks the kind (+ → add, − → expense). Fund requests keep their kind and may
- * change amount, currency, comment and status. */
-export async function updateSupplierBalanceTransaction(id: number, input: SupplierBalanceUpdateInput): Promise<SupplierBalanceResult> {
+ * change amount, currency and comment here; a status change goes through
+ * setFundRequestStatus (the cash core: approval log, "Запрос уже закрыт"). */
+export async function updateSupplierBalanceTransaction(id: number, input: SupplierBalanceUpdateInput, userName = ""): Promise<SupplierBalanceResult> {
+  const result = await updateEntry(id, input)
+  if (!result.transaction || result.transaction.kind !== "fund_request" || !input.status) return result
+  if (requestStatus(input.status) === requestStatus(result.transaction.status)) return result
+  return setFundRequestStatus(id, input.status, userName)
+}
+
+async function updateEntry(id: number, input: SupplierBalanceUpdateInput): Promise<SupplierBalanceResult> {
   await ensureSchema(getDb())
+  const currency = await resolveCurrencyCode(getDb(), input.currency)
+  if (!currency) return { error: "currency_not_found" }
   return withTransaction(async (db) => {
     const current = await getSupplierBalanceTransaction(id, db, true)
     if (!current) return { error: "not_found" }
+    // Paid / cancelled requests are final (the cash core owns their lifecycle).
+    if (current.kind === "fund_request" && (await requestClosed(db, current))) return { error: "locked" }
     // An empty / missing date keeps the stored one (never silently becomes "now").
     const date = input.date?.trim() ? localDateTime(input.date) : current.date
     if (!date || !input.amount) return { error: "invalid" }
@@ -252,41 +273,91 @@ export async function updateSupplierBalanceTransaction(id: number, input: Suppli
       .prepare(
         `UPDATE supplier_balance_transactions
        SET kind = @kind, currency = @currency, amount = @amount, date = @date, comment = @comment, payment_type = @paymentType,
-           organization = @organization, branch = @branch, status = @status, updated_at = datetime('now')
+           organization = @organization, branch = @branch,
+           status = CASE WHEN kind = 'fund_request' THEN status ELSE '' END, updated_at = datetime('now')
        WHERE id = @id`,
       )
       .run({
         id,
         kind,
-        currency: normCurrency(input.currency),
+        currency,
         amount: Math.abs(input.amount),
         date,
         comment: input.comment?.trim() ?? current.comment,
         paymentType: isRequest ? "" : (input.paymentType ?? current.paymentType),
         organization: isRequest ? "" : (input.organization?.trim() ?? current.organization),
         branch: isRequest ? "" : (input.branch?.trim() ?? current.branch),
-        status: isRequest ? (input.status ?? current.status ?? "pending") : "",
       })
     const transaction = await getSupplierBalanceTransaction(id, db)
     return transaction ? { transaction } : { error: "not_found" }
   })
 }
 
-/** Approve / reject (or reopen) a money request. */
-export async function setFundRequestStatus(id: number, status: FundRequestStatus): Promise<SupplierBalanceResult> {
+/** A live (not deleted) supplier payment still pays the request. */
+async function hasLivePayment(db: PgDb, id: number): Promise<boolean> {
+  // The link columns come from the cash core schema (lazy): no column, no link.
+  const columns = (await tableColumns(db, ["supplier_payments"])).get("supplier_payments")
+  if (!columns?.has("money_request_id")) return false
+  const alive = columns.has("is_deleted") ? " AND COALESCE(is_deleted, 0) = 0" : ""
+  return Boolean(await db.prepare(`SELECT 1 AS hit FROM supplier_payments WHERE money_request_id = @id${alive} LIMIT 1`).get({ id }))
+}
+
+/** Given (paid) / cancelled, or still paid by a live payment: no more changes. */
+async function requestClosed(db: PgDb, transaction: SupplierBalanceTransaction): Promise<boolean> {
+  const status = requestStatus(transaction.status)
+  return status === "given" || status === "cancelled" || (await hasLivePayment(db, transaction.id))
+}
+
+/** Approve / reject (or put back to pending) a money request. Approve and reject go
+ * through the cash core (lib/cash/money-requests updateMoneyRequest: log, approver,
+ * "Запрос уже закрыт"); a given / cancelled / paid request is refused ("locked"). */
+export async function setFundRequestStatus(id: number, status: FundRequestStatus, userName = ""): Promise<SupplierBalanceResult> {
+  await ensureSchema(getDb())
   const current = await getSupplierBalanceTransaction(id)
   if (!current) return { error: "not_found" }
-  const { changes } = await getDb()
-    .prepare("UPDATE supplier_balance_transactions SET status = @status, updated_at = datetime('now') WHERE id = @id AND kind = 'fund_request'")
-    .run({ id, status })
-  if (!changes) return { error: "invalid" }
+  if (current.kind !== "fund_request") return { error: "invalid" }
+  if (await requestClosed(getDb(), current)) return { error: "locked" }
+  if (status === "approved" || status === "rejected" || status === "cancelled") {
+    try {
+      await updateMoneyRequest(id, { status: status === "approved" ? "approved" : "cancelled" }, userName)
+    } catch (error) {
+      if (error instanceof CashError) return { error: error.status === 404 ? "not_found" : error.status === 409 ? "locked" : "invalid" }
+      throw error
+    }
+  } else if (status === "pending") {
+    const result = await withTransaction(async (db) => {
+      const locked = await getSupplierBalanceTransaction(id, db, true)
+      if (!locked) return "not_found" as const
+      if (await requestClosed(db, locked)) return "locked" as const
+      const row = (await db.prepare("SELECT log FROM supplier_balance_transactions WHERE id = ?").get(id)) as { log: string | null } | undefined
+      await db
+        .prepare("UPDATE supplier_balance_transactions SET status = 'pending', log = @log, updated_at = datetime('now') WHERE id = @id")
+        .run({ id, log: appendLog(row?.log, { status: "pending", comment: "", user: userName }) })
+      return "ok" as const
+    })
+    if (result !== "ok") return { error: result }
+  } else {
+    // "given" only by a supplier payment (cash core).
+    return { error: "invalid" }
+  }
   const transaction = await getSupplierBalanceTransaction(id)
   return transaction ? { transaction } : { error: "not_found" }
 }
 
-export async function deleteSupplierBalanceTransaction(id: number): Promise<boolean> {
-  if (!Number.isInteger(id) || id <= 0) return false
+/** Manual entries can always be deleted; a money request only while pending or
+ * cancelled and not paid by a live payment ("locked" otherwise). */
+export async function deleteSupplierBalanceTransaction(id: number): Promise<"ok" | "not_found" | "locked"> {
+  if (!Number.isInteger(id) || id <= 0) return "not_found"
   const db = getDb()
   await ensureSchema(db)
-  return (await db.prepare("DELETE FROM supplier_balance_transactions WHERE id = ?").run(id)).changes > 0
+  return withTransaction(async (tx) => {
+    const current = await getSupplierBalanceTransaction(id, tx, true)
+    if (!current) return "not_found"
+    if (current.kind === "fund_request") {
+      const status = requestStatus(current.status)
+      if ((status !== "pending" && status !== "cancelled") || (await hasLivePayment(tx, id))) return "locked"
+    }
+    await tx.prepare("DELETE FROM supplier_balance_transactions WHERE id = ?").run(id)
+    return "ok"
+  })
 }

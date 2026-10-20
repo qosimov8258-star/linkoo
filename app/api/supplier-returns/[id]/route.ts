@@ -2,65 +2,64 @@ import { NextRequest, NextResponse } from "next/server"
 import { z } from "zod"
 
 import { requireRole } from "@/lib/rbac"
-import { parseJsonBody } from "@/lib/validation"
-import { changeSupplierReturnStatus, deleteSupplierReturn, parseSupplierReturnInput, updateSupplierReturn } from "@/lib/supplier-returns-repo"
-
-const supplierReturnSchema = z.object({
-  fromWhom: z.string().trim().min(1),
-  warehouse: z.string().trim().min(1),
-  organization: z.string().optional(),
-  branch: z.string().optional(),
-  currency: z.string().optional(),
-  priceList: z.string().optional(),
-  paymentType: z.string().optional(),
-  date: z.string().optional(),
-  comment: z.string().optional(),
-  items: z.array(z.record(z.string(), z.unknown())).min(1),
-})
+import {
+  changeSupplierReturnStatus,
+  deleteSupplierReturn,
+  parseSupplierReturnInput,
+  supplierReturnSchema,
+  updateSupplierReturn,
+} from "@/lib/supplier-returns-repo"
+import { parseProcurementBody, parseRouteId, procurementWrite } from "@/lib/supplier-refs"
 
 type RouteParams = { params: Promise<{ id: string }> }
+
+const notFound = () => NextResponse.json({ error: "Возврат не найден" }, { status: 404 })
 
 export async function PUT(request: NextRequest, { params }: RouteParams) {
   const auth = await requireRole("manager")
   if ("error" in auth) return auth.error
 
-  const id = Number((await params).id)
-  const parsed = await parseJsonBody(request, supplierReturnSchema)
+  const id = parseRouteId((await params).id)
+  if (!id) return notFound()
+  const parsed = await parseProcurementBody(request, supplierReturnSchema)
   if (parsed.error) return parsed.error
 
-  const input = parseSupplierReturnInput(parsed.data)
-  if (!input) return NextResponse.json({ error: "Поставщик, склад и товары обязательны" }, { status: 400 })
-
-  const supplierReturn = await updateSupplierReturn(id, input)
-  if (supplierReturn === "not_found") return NextResponse.json({ error: "Возврат не найден" }, { status: 404 })
-  if (supplierReturn === "locked") return NextResponse.json({ error: "Изменять можно только возврат в процессе" }, { status: 409 })
-  return NextResponse.json(supplierReturn)
+  return procurementWrite(async () => {
+    const supplierReturn = await updateSupplierReturn(id, parseSupplierReturnInput(parsed.data))
+    if (supplierReturn === "not_found") return notFound()
+    if (supplierReturn === "locked") return NextResponse.json({ error: "Изменять можно только возврат в процессе" }, { status: 409 })
+    return NextResponse.json(supplierReturn)
+  })
 }
 
-const statusSchema = z.object({ action: z.enum(["give", "cancel"]) })
+const statusSchema = z.object({ action: z.enum(["give", "cancel"], { error: "Неизвестное действие" }) })
 
-/** "Передать" / "Отменить". */
+/** "Передать" (409 while the warehouse does not hold the goods) / "Отменить". */
 export async function PATCH(request: NextRequest, { params }: RouteParams) {
   const auth = await requireRole("manager")
   if ("error" in auth) return auth.error
 
-  const id = Number((await params).id)
-  const parsed = await parseJsonBody(request, statusSchema)
+  const id = parseRouteId((await params).id)
+  if (!id) return notFound()
+  const parsed = await parseProcurementBody(request, statusSchema)
   if (parsed.error) return parsed.error
 
-  const result = await changeSupplierReturnStatus(id, parsed.data.action, auth.user.displayName)
-  if (result === "not_found") return NextResponse.json({ error: "Возврат не найден" }, { status: 404 })
-  if (result === "locked") return NextResponse.json({ error: "Действие недоступно для текущего статуса возврата" }, { status: 409 })
-  return NextResponse.json(result)
+  return procurementWrite(async () => {
+    const result = await changeSupplierReturnStatus(id, parsed.data.action, auth.user.displayName)
+    if (result === "not_found") return notFound()
+    if (result === "locked") return NextResponse.json({ error: "Действие недоступно для текущего статуса возврата" }, { status: 409 })
+    return NextResponse.json(result)
+  })
 }
 
 export async function DELETE(_request: NextRequest, { params }: RouteParams) {
   const auth = await requireRole("manager")
   if ("error" in auth) return auth.error
 
-  const id = Number((await params).id)
+  const id = parseRouteId((await params).id)
+  if (!id) return notFound()
   const result = await deleteSupplierReturn(id)
-  if (result === "not_found") return NextResponse.json({ error: "Возврат не найден" }, { status: 404 })
+  if (result === "not_found") return notFound()
   if (result === "locked") return NextResponse.json({ error: "Переданный возврат удалить нельзя — сначала отмените его" }, { status: 409 })
   return NextResponse.json({ ok: true })
 }

@@ -163,6 +163,22 @@ async function vansellAgents(db: PgDb, s: FinanceSchema): Promise<EntityRecord[]
     .map(employeeRecord)
 }
 
+/** True when the employee is a van-sell agent: a "Вансел…" position or the
+ * cashier of a van-sell cashbox (the rule of the Баланс вансел list, without
+ * its "already has van-sell rows" fallback). Manual van-sell movements may
+ * only be written for such an employee (404 "Вансел не найден" otherwise). */
+export async function isVansellAgent(db: PgDb, employeeId: number): Promise<boolean> {
+  const row = (await db.prepare("SELECT id, first_name, last_name, position FROM employees WHERE id = @id").get({ id: employeeId })) as
+    | { id: number; first_name: string; last_name: string; position: string | null }
+    | undefined
+  if (!row) return false
+  if (VANSELL_POSITION.test(row.position ?? "")) return true
+  const cashier = (await db
+    .prepare("SELECT 1 AS ok FROM cashboxes WHERE vansell = 1 AND lower(btrim(regexp_replace(cashier, '\\s+', ' ', 'g'))) = @name LIMIT 1")
+    .get({ name: nameKey(fullName(row.first_name, row.last_name)) })) as { ok: number } | undefined
+  return Boolean(cashier)
+}
+
 /** Same pattern as the "Доставщик" options of Баланс клиентов (lib/finance-client-balance.ts). */
 const DELIVERY_POSITION = /достав|курьер|экспедит|водит|deliver|eltuv|yetkaz|haydov/i
 

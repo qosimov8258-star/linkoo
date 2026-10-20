@@ -95,8 +95,10 @@ export function CurrenciesView({ embedded = false }: { embedded?: boolean }) {
     try {
       const response = await fetch(`/api/currencies/${id}`, { method: "DELETE" })
       if (!response.ok) {
-        const data = await response.json().catch(() => ({}))
-        window.alert(data.error || "Не удалось удалить валюту")
+        // 409 while other records use it: the usage list says where.
+        const data = (await response.json().catch(() => ({}))) as { error?: string; usage?: { label: string; count: number }[] }
+        const usage = data.usage?.map((item) => `${item.label}: ${item.count}`).join(", ")
+        window.alert(`${data.error || "Не удалось удалить валюту"}${usage ? ` (${usage})` : ""}`)
         return
       }
       setCurrencies((current) => current.filter((currency) => currency.id !== id))

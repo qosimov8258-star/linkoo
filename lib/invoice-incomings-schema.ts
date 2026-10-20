@@ -7,7 +7,7 @@ import { withTransaction } from "@/lib/db"
 // The historical `invoice_incomings` table keeps its columns and rows; the e-invoice
 // header is added next to them (existing rows are never rewritten here):
 //   document_number = № счет-фактуры, date = дата (YYYY-MM-DD), supplier = поставщик
-//   as on the document, note = комментарий, amount = итого с НДС (legacy REAL copy),
+//   as on the document, note = комментарий, amount = итого с НДС (legacy copy, DOUBLE PRECISION since V2),
 //   status = pending | accepted | rejected (legacy "Получен" / "Проведён" / "Отклонён"
 //   are read as the same three statuses).
 // New columns: contract number / date, supplier_id (our suppliers) + supplier_inn,
@@ -17,7 +17,8 @@ import { withTransaction } from "@/lib/db"
 // The supplier incoming created from an invoice stores supplier_incomings.invoice_id
 // (column owned by lib/supplier-incomings-repo.ts).
 
-const SCHEMA_VERSION = 1
+// V2: amount DOUBLE PRECISION (was REAL / float4).
+const SCHEMA_VERSION = 2
 
 declare global {
   var __linkoInvoiceIncomingsSchema: { version: number; ready: Promise<void> } | undefined
@@ -33,7 +34,7 @@ async function installSchema(): Promise<void> {
         document_number TEXT NOT NULL DEFAULT '',
         supplier TEXT NOT NULL DEFAULT '',
         date TEXT NOT NULL DEFAULT '',
-        amount REAL NOT NULL DEFAULT 0,
+        amount DOUBLE PRECISION NOT NULL DEFAULT 0,
         branch TEXT NOT NULL DEFAULT '',
         status TEXT NOT NULL DEFAULT 'Получен',
         note TEXT NOT NULL DEFAULT '',
@@ -75,6 +76,19 @@ async function installSchema(): Promise<void> {
         raw_material_id INTEGER
       );
       CREATE INDEX IF NOT EXISTS invoice_incoming_items_invoice_idx ON invoice_incoming_items (invoice_id);
+
+      -- Money columns of existing databases: REAL (float4) → DOUBLE PRECISION; the legacy
+      -- amount copy is refreshed from the precise total where there is one.
+      DO $$
+      BEGIN
+        IF EXISTS (SELECT 1 FROM information_schema.columns
+                   WHERE table_schema = current_schema() AND table_name = 'invoice_incomings'
+                     AND column_name = 'amount' AND data_type = 'real') THEN
+          ALTER TABLE invoice_incomings ALTER COLUMN amount TYPE double precision;
+          UPDATE invoice_incomings SET amount = total_amount
+           WHERE total_amount IS NOT NULL AND abs(amount - total_amount) <= greatest(1, abs(total_amount) * 1e-6);
+        END IF;
+      END $$;
     `)
   })
 }

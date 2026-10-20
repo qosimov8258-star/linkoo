@@ -16,7 +16,8 @@ import type { BalanceListResult, ManagementBalanceResult, ManagementBranch, Mana
 //   client  < 0 → asset "Задолженность клиентов",   > 0 → passive "Авансы, полученные от покупателей"
 //   supplier > 0 → asset "Предоплаты поставщикам",  < 0 → passive "Долги поставщикам"
 //   employee < 0 → asset "Авансы, выданные по оплате труда", > 0 → passive "Задолженность по оплате труда"
-//   branch  < 0 → asset "Задолженность филиалов",   > 0 → passive "Авансы полученные от филиалов"
+//   branch  > 0 → asset "Задолженность филиалов",   < 0 → passive "Авансы полученные от филиалов"
+//            (branch ledger sign: + = the branch is owed — it sent goods / money —, − = it owes)
 // Each line is attributed to the entity's own branch (cashboxes.branch,
 // clients.branch, suppliers.branch, employees.branch, warehouses.branch, the
 // branch itself); "" goes to the virtual card "Без филиала" (id null).
@@ -107,7 +108,7 @@ export async function getManagementBalance(params: ManagementParams, db: PgDb = 
   splitBySign(clients, spec("passives", "Авансы, полученные от покупателей"), spec("assets", "Задолженность клиентов"), (info) => info.branch)
   splitBySign(suppliers, spec("assets", "Предоплаты поставщикам"), spec("passives", "Долги поставщикам"), (info) => info.branch)
   splitBySign(employees, spec("passives", "Задолженность по оплате труда"), spec("assets", "Авансы, выданные по оплате труда"), (info) => info.branch)
-  splitBySign(branchRows, spec("passives", "Авансы полученные от филиалов"), spec("assets", "Задолженность филиалов"), (info) => info.branch)
+  splitBySign(branchRows, spec("assets", "Задолженность филиалов"), spec("passives", "Авансы полученные от филиалов"), (info) => info.branch)
 
   // Customer cashback (loyalty card balances > 0), converted to base.
   if (s.has("loyalty_card_transactions")) {

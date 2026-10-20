@@ -2,8 +2,9 @@ import "server-only"
 
 import { getDb, type PgDb } from "@/lib/db"
 import { normCurrency, roundMoney } from "@/lib/finance/currency"
+import { isIsoDay } from "@/lib/finance/dates"
 import { nameKey } from "@/lib/finance/entities"
-import { currencyContext, num, numOrNull, pickRate } from "@/lib/cash/common"
+import { currencyContext, isDbId, MAX_PAGE, MAX_PAGE_SIZE, num, numOrNull, pageOf, pickRate } from "@/lib/cash/common"
 import { ensureCashSchema } from "@/lib/cash/schema"
 import type {
   SupplierPaymentItem,
@@ -131,7 +132,7 @@ function orderBy(ordering: string | undefined): string {
 }
 
 function ids(values: number[] | undefined): number[] {
-  return [...new Set((values ?? []).map(Number).filter((value) => Number.isInteger(value) && value > 0))]
+  return [...new Set((values ?? []).map(Number).filter(isDbId))]
 }
 
 function names(values: string[] | undefined): string[] {
@@ -210,8 +211,7 @@ export async function listSupplierPaymentsPage(query: SupplierPaymentsQuery, db:
   await ensureCashSchema(db)
   const cc = await currencyContext(db)
   const base = cc.base
-  const pageSize = query.pageSize === 0 ? 0 : Math.min(MAX_ROWS, Math.max(1, Math.floor(query.pageSize ?? 25)))
-  const page = Math.max(1, Math.floor(query.page ?? 1))
+  const { page, pageSize } = pageOf(query.page, query.pageSize, 25, MAX_ROWS)
   const search = nameKey(query.search)
   const params = {
     base,
@@ -382,10 +382,11 @@ export async function listSupplyPayments(supplyId: number, db: PgDb = getDb()): 
  * supplier* (ids, repeated or "1-2-3") currency search ordering page pageSize. */
 export function parseSupplierPaymentsQuery(url: string): { data: SupplierPaymentsQuery; error?: undefined } | { data?: undefined; error: { field: string; hint: string } } {
   const search = new URL(url).searchParams
+  // A real calendar day (isIsoDay round-trips it: 2026-02-31 is refused, not rolled over to March).
   const day = (name: string) => {
     const value = search.get(name)?.trim() ?? ""
     if (!value) return { ok: true as const, value: undefined }
-    return /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(Date.parse(`${value}T00:00:00Z`)) ? { ok: true as const, value } : { ok: false as const }
+    return isIsoDay(value) ? { ok: true as const, value } : { ok: false as const }
   }
   const from = day("from")
   if (!from.ok) return { error: { field: "from", hint: "YYYY-MM-DD" } }
@@ -396,6 +397,8 @@ export function parseSupplierPaymentsQuery(url: string): { data: SupplierPayment
     const value = Number(search.get(name))
     return search.get(name) && Number.isFinite(value) ? Math.floor(value) : undefined
   }
+  const page = int("page")
+  const pageSize = int("pageSize")
   return {
     data: {
       from: from.value,
@@ -405,12 +408,12 @@ export function parseSupplierPaymentsQuery(url: string): { data: SupplierPayment
       supplierIds: texts("supplier")
         .flatMap((value) => value.split(/[,-]/))
         .map((value) => Number(value.trim()))
-        .filter((value) => Number.isInteger(value) && value > 0),
+        .filter(isDbId),
       currency: search.get("currency")?.trim() || undefined,
       search: search.get("search")?.trim() || undefined,
       ordering: search.get("ordering")?.trim() || undefined,
-      page: int("page"),
-      pageSize: int("pageSize"),
+      page: page === undefined ? undefined : Math.min(MAX_PAGE, Math.max(1, page)),
+      pageSize: pageSize === undefined || pageSize < 0 ? undefined : Math.min(MAX_PAGE_SIZE, pageSize),
     },
   }
 }

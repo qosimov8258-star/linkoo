@@ -201,28 +201,43 @@ class ImportFailed extends Error {
   }
 }
 
-/** The item a row of "Обновить с excel" points at (ID → Артикул → Штрих-код → Наименование). */
+/**
+ * The item a row of "Обновить с excel" points at (ID → Артикул → Штрих-код → Наименование). Live
+ * items win over deleted ones; a code shared by two items of the same group is a row error
+ * instead of silently taking the first one.
+ */
 async function findTarget(tx: PgDb, kind: CatalogKind, id: number | null, patch: CatalogPatch): Promise<number | null> {
   const table = CATALOG_TABLE[kind]
   if (id) return (await tx.prepare(`SELECT id FROM ${table} WHERE id = @id`).get({ id })) ? id : null
-  const one = async (sql: string, params: Record<string, unknown>) => {
-    const rows = (await tx.prepare(`${sql} ORDER BY COALESCE(deleted, 0), id LIMIT 2`).all(params)) as Array<{ id: number }>
-    return rows.length ? Number(rows[0].id) : null
+  const one = async (sql: string, params: Record<string, unknown>, ambiguous: string) => {
+    const rows = (await tx.prepare(`SELECT id, COALESCE(deleted, 0) AS deleted FROM (${sql}) m ORDER BY COALESCE(deleted, 0), id LIMIT 3`).all(params)) as Array<{
+      id: number
+      deleted: number
+    }>
+    if (!rows.length) return null
+    const group = rows.filter((row) => Number(row.deleted) === Number(rows[0].deleted))
+    if (group.length > 1) throw new CatalogError(ambiguous)
+    return Number(rows[0].id)
   }
   if (patch.article) {
-    const found = await one(`SELECT id FROM ${table} WHERE lower(btrim(article)) = lower(btrim(@article))`, { article: patch.article })
+    const found = await one(`SELECT id, deleted FROM ${table} WHERE lower(btrim(article)) = lower(btrim(@article))`, { article: patch.article }, AMBIGUOUS_ARTICLE)
     if (found) return found
   }
   for (const code of patch.barcodes ?? []) {
     const found = await one(
-      `SELECT id FROM ${table} WHERE @code = ANY(SELECT btrim(x) FROM unnest(string_to_array(replace(replace(barcode, ';', ','), chr(10), ','), ',')) AS x)`,
+      `SELECT id, deleted FROM ${table} WHERE @code = ANY(SELECT btrim(x) FROM unnest(string_to_array(replace(replace(barcode, ';', ','), chr(10), ','), ',')) AS x)`,
       { code },
+      AMBIGUOUS_BARCODE,
     )
     if (found) return found
   }
-  if (patch.name) return one(`SELECT id FROM ${table} WHERE fin_key(name) = fin_key(@name)`, { name: patch.name })
+  if (patch.name) return one(`SELECT id, deleted FROM ${table} WHERE fin_key(name) = fin_key(@name)`, { name: patch.name }, AMBIGUOUS_NAME)
   return null
 }
+
+const AMBIGUOUS_ARTICLE = "Артикул есть у нескольких товаров, укажите ID"
+const AMBIGUOUS_BARCODE = "Штрих-код есть у нескольких товаров, укажите ID"
+const AMBIGUOUS_NAME = "Наименование есть у нескольких товаров, укажите ID"
 
 function mergePrices(current: CatalogPrice[], changes: Map<string, { name: string; cash?: number; nonCash?: number }>): CatalogPrice[] {
   const next = current.map((entry) => ({ ...entry }))

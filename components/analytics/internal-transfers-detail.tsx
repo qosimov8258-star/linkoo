@@ -127,7 +127,7 @@ export function TransferDetailPanel({
             <Printer className="h-5 w-5" />
           </button>
           {canEdit && (
-            <button type="button" disabled={!editable} onClick={() => onEdit(data)} title={editable ? t("Изменить") : t("Изменять можно только передачу в статусе «ожидает» или «потвержден»")} className={`${actionButton} bg-[rgb(79,113,220)]`}>
+            <button type="button" disabled={!editable} onClick={() => onEdit(data)} title={editable ? t("Изменить") : t("Изменять можно только передачу в статусе «ожидает» или «подтвержден»")} className={`${actionButton} bg-[rgb(79,113,220)]`}>
               <Pencil className="h-4 w-4" /> {t("Изменить")}
             </button>
           )}
@@ -206,7 +206,7 @@ export function TransferDetailPanel({
                     <th className="py-3 pr-3 text-right">{t("Вес")}</th>
                     <th className="py-3 pr-3">{t("Серия")}</th>
                     <th className="py-3 pr-3 text-right">{t("Цена")}</th>
-                    <th className="py-3 text-right">{t("Cумма")}</th>
+                    <th className="py-3 text-right">{t("Сумма")}</th>
                   </tr>
                 </thead>
                 <tbody>

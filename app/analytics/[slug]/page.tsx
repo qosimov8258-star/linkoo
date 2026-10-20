@@ -89,6 +89,7 @@ import { ExpenseCategoriesView } from "@/components/analytics/expense-categories
 import { AccountDebtsView } from "@/components/analytics/account-debts-view"
 import { ManagementBalanceView } from "@/components/analytics/management-balance-view"
 import { CashManagementView } from "@/components/analytics/cash-management-view"
+import { InvoiceIncomingsView } from "@/components/analytics/invoice-incomings-view"
 import { PriceAnalysisView } from "@/components/analytics/price-analysis-view"
 import { TransportView } from "@/components/analytics/transport-view"
 import { SubscriptionsView } from "@/components/analytics/subscriptions-view"
@@ -131,8 +132,8 @@ export default async function AnalyticsPage({ params }: PageProps) {
   if (resource) {
     const resourceDestinations: Record<string, string> = {
       sales: "/analytics/visits-by-day",
-      "warehouse-logistics": "/analytics/system-distribution",
-      "finance-cash": "/analytics/kpi-performance",
+      "warehouse-logistics": "/analytics/stock-level",
+      "finance-cash": "/analytics/cash-management",
       production: "/analytics/production-batches",
       general: "/analytics/visits-by-day",
     }
@@ -494,7 +495,7 @@ export default async function AnalyticsPage({ params }: PageProps) {
   }
 
   if (report.slug === "invoice-incomings") {
-    return <CashManagementView />
+    return <InvoiceIncomingsView />
   }
 
   if (report.slug === "transport") {

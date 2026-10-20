@@ -2,15 +2,21 @@ import "server-only"
 
 import { getDb, type PgDb } from "@/lib/db"
 import { todayIso } from "@/lib/finance/dates"
+import { getWarehouseItemCosts } from "@/lib/stock/costs"
 import { getStockBalances, getStockCatalog, getStockPending } from "@/lib/stock/ledger"
 import type { StockCatalogItem } from "@/lib/stock/types"
-import type { StockPickRow, StockShortage } from "@/lib/internal-transfers-types"
+import { unitWeightKg, type StockPickRow, type StockShortage } from "@/lib/internal-transfers-types"
 
 // "Available in the warehouse" for the transfer and write-off documents, from
-// the stock core only (getStockBalances / getStockPending / getStockCatalog):
-// Доступно = on hand − defects − reserved, as the demo's pickers show it. A
-// document dated in the past must fit both on that day and today, so the
-// available quantity is the smaller of the two balances.
+// the stock core (getStockBalances / getStockPending / getStockCatalog):
+// Доступно = on hand − defects − reserved, as the demo's pickers show it; Брак
+// (defective units) can only leave through lines flagged "defect", up to the
+// defects on hand. A document must fit on its own day, today AND after every
+// movement already booked for a later day (a give or write-off dated ahead
+// must not let the same goods be spent twice), so the available quantity is
+// the smallest of those balances. Costs are the cost of goods
+// (lib/stock/costs.ts) at the document's day (the warehouse's own when it is
+// its own cost scope).
 
 /** JS twin of fin_key(): lower-cased, trimmed, inner whitespace collapsed. */
 export function textKey(value: string | null | undefined): string {
@@ -33,7 +39,19 @@ export async function lockWarehouseStock(tx: PgDb, warehouses: string[]): Promis
   for (const key of keys) await tx.prepare("SELECT pg_advisory_xact_lock(hashtext(@k)) AS ok").get({ k: `linko-stock:${key}` })
 }
 
-export type ItemStock = { qty: number; defects: number; reserved: number; available: number; cost: number }
+export type ItemStock = {
+  qty: number
+  defects: number
+  reserved: number
+  /** Good units that may leave: min over the moments of (on hand − defects) − reserved. */
+  available: number
+  /** Defective units that may leave (lines flagged "defect"). */
+  defectsAvailable: number
+  cost: number
+}
+
+/** A day after every booked movement (the balance "in the end"). */
+const FINAL_DAY = "9999-12-31"
 
 async function balancesOn(warehouse: string, date: string, db: PgDb) {
   const wanted = textKey(warehouse)
@@ -51,33 +69,36 @@ async function balancesOn(warehouse: string, date: string, db: PgDb) {
   return map
 }
 
-/** Stock of every item of one warehouse at the end of `day` (default today). */
+/** Stock of every item of one warehouse on `day` (default today): what is on hand today,
+ * and what may leave on that day (see the header). */
 export async function warehouseStock(warehouse: string, day?: string, db: PgDb = getDb()): Promise<Map<string, ItemStock>> {
   const today = todayIso()
-  const moment = day && day > today ? day : today
-  const [latest, onDay, pending] = await Promise.all([
-    balancesOn(warehouse, moment, db),
-    day && day < today ? balancesOn(warehouse, day, db) : Promise.resolve(null),
+  const docDay = day && day < today ? day : today
+  const [latest, onDay, final, pending, costs] = await Promise.all([
+    balancesOn(warehouse, today, db),
+    docDay < today ? balancesOn(warehouse, docDay, db) : Promise.resolve(null),
+    balancesOn(warehouse, FINAL_DAY, db),
     getStockPending({ warehouses: [warehouse] }, db),
+    getWarehouseItemCosts({ date: docDay }, db),
   ])
   const reserved = new Map<string, number>()
   const wanted = textKey(warehouse)
   for (const row of pending) if (textKey(row.warehouse) === wanted) reserved.set(row.key, (reserved.get(row.key) ?? 0) + row.reserved)
   const result = new Map<string, ItemStock>()
-  const keys = new Set([...latest.keys(), ...(onDay?.keys() ?? []), ...reserved.keys()])
+  const keys = new Set([...latest.keys(), ...(onDay?.keys() ?? []), ...final.keys(), ...reserved.keys()])
   for (const key of keys) {
     const now = latest.get(key)
-    const then = onDay ? onDay.get(key) : now
-    const qtyNow = (now?.qty ?? 0) - (now?.defects ?? 0)
-    const qtyThen = (then?.qty ?? 0) - (then?.defects ?? 0)
-    const free = Math.min(qtyNow, qtyThen)
+    const moments = [now, onDay ? onDay.get(key) : now, final.get(key)]
+    const good = Math.min(...moments.map((balance) => (balance?.qty ?? 0) - (balance?.defects ?? 0)))
+    const defects = Math.min(...moments.map((balance) => balance?.defects ?? 0))
     const r = reserved.get(key) ?? 0
     result.set(key, {
       qty: round6(now?.qty ?? 0),
       defects: round6(now?.defects ?? 0),
       reserved: round6(r),
-      available: round6(free - r),
-      cost: round6(now?.cost ?? then?.cost ?? 0),
+      available: round6(good - r),
+      defectsAvailable: round6(Math.max(0, defects)),
+      cost: round6(costs.costOf(key, warehouse) ?? now?.cost ?? 0),
     })
   }
   return result
@@ -117,27 +138,76 @@ export function resolveLine(index: CatalogIndex, line: LineRef): { key: string; 
   return { key: line.key && line.key.startsWith("name:") ? line.key : `name:${textKey(name)}`, item: undefined, name }
 }
 
-/** Lines whose total quantity exceeds what the warehouse has available. */
+/** Lines whose total quantity exceeds what the warehouse has available (good units;
+ * lines flagged `defect` against the defective units). */
 export function findShortages(
-  lines: Array<{ product: string; quantity: number; unit?: string }>,
+  lines: Array<{ product: string; quantity: number; unit?: string; defect?: boolean }>,
   index: CatalogIndex,
   stock: Map<string, ItemStock>,
 ): StockShortage[] {
-  const need = new Map<string, { product: string; unit: string; required: number }>()
+  const need = new Map<string, { key: string; defect: boolean; product: string; unit: string; required: number }>()
   for (const line of lines) {
     if (!(line.quantity > 0)) continue
     // Key as the ledger will book it (by name), so the check matches the movement.
     const key = ledgerKey(index, line.product)
-    const current = need.get(key)
+    const defect = Boolean(line.defect)
+    const id = `${key}\u0000${defect ? 1 : 0}`
+    const current = need.get(id)
     if (current) current.required += line.quantity
-    else need.set(key, { product: line.product, unit: line.unit || index.byKey.get(key)?.unit || "", required: line.quantity })
+    else need.set(id, { key, defect, product: line.product, unit: line.unit || index.byKey.get(key)?.unit || "", required: line.quantity })
   }
   const shortages: StockShortage[] = []
-  for (const [key, entry] of need) {
-    const available = stock.get(key)?.available ?? 0
-    if (entry.required > available + 1e-9) shortages.push({ key, product: entry.product, unit: entry.unit, required: round6(entry.required), available: round6(Math.max(0, available)) })
+  for (const entry of need.values()) {
+    const item = stock.get(entry.key)
+    const available = (entry.defect ? item?.defectsAvailable : item?.available) ?? 0
+    if (entry.required > available + 1e-9) {
+      shortages.push({
+        key: entry.key,
+        product: entry.defect ? `${entry.product} (брак)` : entry.product,
+        unit: entry.unit,
+        required: round6(entry.required),
+        available: round6(Math.max(0, available)),
+        ...(entry.defect ? { defect: true } : {}),
+      })
+    }
   }
   return shortages
+}
+
+// ---------------------------------------------------------------------------
+// Warehouses and inventories the documents depend on
+// ---------------------------------------------------------------------------
+
+export type WarehouseRef = { name: string; active: boolean }
+
+/** The warehouses-table row of a name (fin_key match; the registry's spelling), or null. */
+export async function findWarehouse(db: PgDb, name: string): Promise<WarehouseRef | null> {
+  const wanted = textKey(name)
+  if (!wanted) return null
+  const row = (await db
+    .prepare("SELECT name, COALESCE(active, 1) AS active FROM warehouses WHERE fin_key(name) = fin_key(@name) ORDER BY COALESCE(active, 1) DESC, id LIMIT 1")
+    .get({ name })) as { name: string; active: number | boolean | null } | undefined
+  return row ? { name: String(row.name).trim(), active: row.active === null || Boolean(Number(row.active)) } : null
+}
+
+/** Whether a confirmed inventory of `warehouse` counted the stock after `moment` (local
+ * "YYYY-MM-DDTHH:mm:ss" of a movement on `day`): one dated after that day, or an
+ * end-of-day one of that day confirmed at or after the moment. Undoing the movement
+ * would then make the stock differ from the count. */
+export async function countedByInventory(db: PgDb, warehouse: string, day: string, moment: string): Promise<boolean> {
+  const exists = (await db.prepare("SELECT to_regclass('stock_inventories') IS NOT NULL AS ok").get()) as { ok: boolean } | undefined
+  if (!exists?.ok || !day) return false
+  const row = (await db
+    .prepare(
+      `SELECT 1 AS ok FROM stock_inventories
+       WHERE status = 'confirmed' AND fin_key(warehouse) = fin_key(@warehouse)
+         AND (fin_ts(inv_date)::date > @day::date
+              OR (fin_ts(inv_date)::date = @day::date AND COALESCE(for_day_end, 0) = 1
+                  AND COALESCE(fin_ts(NULLIF(btrim(confirmed_at), ''), true), fin_ts(created_at, true)) >= COALESCE(fin_ts(@moment), @day::timestamp)))
+       LIMIT 1`,
+    )
+    .get({ warehouse, day, moment: moment || day })) as { ok: number } | undefined
+  return Boolean(row)
 }
 
 const qtyText = (value: number, unit: string) => `${new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 3 }).format(value).replace(/ /g, " ")}${unit ? ` ${unit}` : ""}`
@@ -166,13 +236,14 @@ export async function stockPickRows(warehouse: string, options: { priceList?: st
       type: item?.type ?? "",
       brand: item?.brand ?? "",
       unit: item?.unit ?? "",
-      weight: item?.weight ?? 0,
+      weight: unitWeightKg(item?.unit ?? "", item?.weight ?? 0),
       boxSize: item?.boxSize ?? 0,
       qty: s?.qty ?? 0,
       defects: s?.defects ?? 0,
+      defectsAvailable: s?.defectsAvailable ?? 0,
       reserved: s?.reserved ?? 0,
       available: s?.available ?? 0,
-      cost: round6(s?.cost || item?.fallbackCost || 0),
+      cost: round6(s?.cost ?? item?.fallbackCost ?? 0),
       price: priceList && item ? (item.prices[priceList] ?? 0) : 0,
     })
   }

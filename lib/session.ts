@@ -17,17 +17,29 @@ function getSecretKey(): Uint8Array {
   return new TextEncoder().encode(secret)
 }
 
-export type SessionClaims = { userId: number; role: Role; sessionId?: string }
+/**
+ * `permissions` is set only for a user restricted by an access right
+ * (users.access_right_id): the permission codes it grants at sign-in time. The
+ * edge middleware uses it as a fast first gate; route handlers re-check the
+ * current grants in Postgres (lib/rbac.ts), so a stale claim never widens access
+ * on routes that use requireRole.
+ */
+export type SessionClaims = { userId: number; role: Role; sessionId?: string; permissions?: string[] }
 
 export async function signSession(claims: SessionClaims, ttlMs: number = SESSION_TTL_MS): Promise<string> {
-  return new SignJWT({ uid: claims.userId, role: claims.role, sid: claims.sessionId })
+  return new SignJWT({
+    uid: claims.userId,
+    role: claims.role,
+    sid: claims.sessionId,
+    ...(claims.permissions ? { perms: claims.permissions } : {}),
+  })
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()
     .setExpirationTime(Math.floor((Date.now() + ttlMs) / 1000))
     .sign(getSecretKey())
 }
 
-export type VerifiedSession = { userId: number; role: Role; sessionId?: string }
+export type VerifiedSession = { userId: number; role: Role; sessionId?: string; permissions?: string[] }
 
 export async function verifySession(token: string | undefined | null): Promise<VerifiedSession | null> {
   if (!token) return null
@@ -35,7 +47,8 @@ export async function verifySession(token: string | undefined | null): Promise<V
     const { payload } = await jwtVerify(token, getSecretKey())
     if (typeof payload.uid !== "number") return null
     const role = payload.role === "admin" || payload.role === "manager" || payload.role === "viewer" ? payload.role : "viewer"
-    return { userId: payload.uid, role, sessionId: typeof payload.sid === "string" ? payload.sid : undefined }
+    const permissions = Array.isArray(payload.perms) ? payload.perms.filter((item): item is string => typeof item === "string") : undefined
+    return { userId: payload.uid, role, sessionId: typeof payload.sid === "string" ? payload.sid : undefined, permissions }
   } catch {
     return null
   }

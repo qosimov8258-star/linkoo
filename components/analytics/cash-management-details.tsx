@@ -4,7 +4,7 @@ import Link from "next/link"
 import type { ReactNode } from "react"
 
 import { useCashOperation } from "@/components/analytics/cash/use-cash"
-import { CashModal, EmptyBlock, ErrorBlock, LoadingBlock, formatCash, formatCashDate } from "@/components/analytics/cash-management-shared"
+import { CashModal, EmptyBlock, ErrorBlock, LoadingBlock, cashCommentText, formatCash, formatCashDate } from "@/components/analytics/cash-management-shared"
 import { CATEGORY_OPTIONS, type CashOperation, type CategoryOptionKey } from "@/lib/cash/types"
 import { formatDotDate } from "@/lib/finance/dates"
 import { useLanguage } from "@/lib/i18n/language-context"
@@ -202,7 +202,7 @@ export function OperationDetails({
       </Item>,
     )
   if (operation.contract) parts.push(<Item key="contract" label="Контракт">{operation.contract}</Item>)
-  if (operation.comment) parts.push(<Item key="comment" label="Комментарий">{operation.comment}</Item>)
+  if (operation.comment) parts.push(<Item key="comment" label="Комментарий">{cashCommentText(operation.comment, t)}</Item>)
   if (operation.client && !clientInDescription)
     parts.push(
       <Item key="client" label="Клиент">

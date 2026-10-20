@@ -2,6 +2,7 @@ import "server-only"
 
 import { getDb, type PgDb } from "@/lib/db"
 import { ensureFinanceSchema } from "@/lib/finance/schema"
+import { loadPriceCurrencyContext, parseItemPrices, priceBounds } from "@/lib/item-prices"
 import type { CatalogKind } from "@/lib/products-types"
 
 // Lazy, idempotent schema of the catalog pages (Продукты / Сырье).
@@ -51,9 +52,52 @@ const RAW_COLUMNS = [
   "vat TEXT NOT NULL DEFAULT 'Без НДС'",
   "sale_points TEXT NOT NULL DEFAULT '0'",
   "price_lists TEXT NOT NULL DEFAULT '[]'",
-  "price_min REAL NOT NULL DEFAULT 0",
-  "price_max REAL NOT NULL DEFAULT 0",
+  "price_min DOUBLE PRECISION NOT NULL DEFAULT 0",
+  "price_max DOUBLE PRECISION NOT NULL DEFAULT 0",
 ]
+
+/** Money columns an older database may still have as REAL (float4: ~7 digits, overflow above 3.4e38). */
+const DOUBLE_COLUMNS: Array<[table: string, column: string]> = [
+  ["products", "price_min"],
+  ["products", "price_max"],
+  ["products", "cost"],
+  ["raw_materials", "price_min"],
+  ["raw_materials", "price_max"],
+]
+
+/** Guarded REAL → DOUBLE PRECISION (idempotent; via the shortest exact text, so 158.37 stays 158.37). */
+function doubleColumnsSql(): string {
+  return DOUBLE_COLUMNS.map(
+    ([table, column]) => `
+    DO $$ BEGIN
+      IF EXISTS (SELECT 1 FROM information_schema.columns
+                 WHERE table_schema = current_schema() AND table_name = '${table}' AND column_name = '${column}' AND data_type = 'real') THEN
+        ALTER TABLE ${table} ALTER COLUMN ${column} TYPE double precision USING (${column}::text)::double precision;
+      END IF;
+    END $$;`,
+  ).join("\n")
+}
+
+/**
+ * price_min / price_max of rows written before they were kept in the base currency (a USD list next
+ * to a SUM list gave "0.87 – 11 500"): recomputed once per process start, only rows that differ.
+ */
+async function refreshPriceBounds(db: PgDb): Promise<void> {
+  const context = await loadPriceCurrencyContext(db)
+  for (const table of ["products", "raw_materials"] as const) {
+    const rows = (await db.prepare(`SELECT id, price_lists, price_min, price_max FROM ${table} WHERE COALESCE(price_lists, '') NOT IN ('', '[]')`).all()) as Array<{
+      id: number
+      price_lists: string | null
+      price_min: number | string | null
+      price_max: number | string | null
+    }>
+    for (const row of rows) {
+      const { priceMin, priceMax } = priceBounds(parseItemPrices(row.price_lists), context)
+      if (Number(row.price_min) === priceMin && Number(row.price_max) === priceMax) continue
+      await db.prepare(`UPDATE ${table} SET price_min = @priceMin, price_max = @priceMax WHERE id = @id`).run({ id: row.id, priceMin, priceMax })
+    }
+  }
+}
 
 async function createSchema(db: PgDb): Promise<void> {
   await ensureFinanceSchema(db)
@@ -82,6 +126,13 @@ async function createSchema(db: PgDb): Promise<void> {
     );
     CREATE INDEX IF NOT EXISTS product_limits_item_idx ON product_limits (item_kind, item_id);
   `)
+  await db.exec(doubleColumnsSql())
+  try {
+    await refreshPriceBounds(db)
+  } catch (error) {
+    // Derived display values only: never block the catalog over them.
+    console.warn("[catalog] could not refresh price_min / price_max:", (error as Error).message)
+  }
 }
 
 /** Ensures the catalog columns / tables (once per process) and returns the db. */

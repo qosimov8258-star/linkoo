@@ -14,8 +14,9 @@ import type { WarehouseUsage } from "@/components/analytics/warehouses-data"
 //     (they follow the row on a rename; they only block a delete).
 // Known today (see KNOWN_REFERENCES): supplier_incomings.warehouse, supplier_returns.warehouse,
 // write_offs.warehouse, internal_transfers.from_warehouse / to_warehouse, production_stages,
-// production_movements, production_inventories, stock_inventories, orders (added lazily by the
-// stock core), inventory_items and net_cost_entries (lazy) — all `.warehouse` — plus the
+// production_movements, production_inventories, production_parties, stock_inventories, orders
+// (added lazily by the stock core), client_returns, inventory_items and net_cost_entries
+// (lazy) — all `.warehouse` — plus the
 // history tables internal_transfer_logs.from_warehouse / to_warehouse and
 // inventory_item_logs.warehouse. History (`*_log` / `*_logs`) tables follow a rename but do
 // not block a delete: they only describe documents, which are checked themselves.
@@ -34,8 +35,10 @@ export const KNOWN_REFERENCES: ReadonlyArray<{ table: string; column: string }> 
   { table: "production_stages", column: "warehouse" },
   { table: "production_movements", column: "warehouse" },
   { table: "production_inventories", column: "warehouse" },
+  { table: "production_parties", column: "warehouse" },
   { table: "stock_inventories", column: "warehouse" },
   { table: "orders", column: "warehouse" },
+  { table: "client_returns", column: "warehouse" },
   { table: "inventory_items", column: "warehouse" },
   { table: "net_cost_entries", column: "warehouse" },
   { table: "internal_transfer_logs", column: "from_warehouse" },
@@ -52,8 +55,10 @@ const TABLE_LABELS: Record<string, string> = {
   production_stages: "Этапы производства",
   production_movements: "Производство",
   production_inventories: "Инвентаризация производства",
+  production_parties: "Партии",
   stock_inventories: "Инвентаризация",
   orders: "Заказы",
+  client_returns: "Возвраты",
   inventory_items: "Работа с инвентарем",
   net_cost_entries: "Себестоимость",
 }

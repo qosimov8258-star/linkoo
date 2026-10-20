@@ -4,18 +4,11 @@ import { useEffect, useMemo, useState } from "react"
 import { downloadExcelTable } from "@/lib/excel-export"
 import { DashboardDialog } from "./dashboard-dialog"
 import { ReportBand, ReportDateField, ReportEmpty, ReportFilters, ReportHeader, ReportPage, ReportSelectField } from "@/components/ref/report-kit"
+import { useDirectoryNames } from "@/components/clients/use-directory"
 
-const branches = ["777", "878", "agent", "Andijon", "AURUM samarqand", "baby still", "Buxoro"]
-const contractors = [
-  "Markus Vitinha",
-  "Usman Dembele",
-  "Ashraf Hakimi",
-  "Doston market",
-  "3333333333333333333333333333",
-  "Наталья Лина",
-]
-const creators = ["05,08,2025 (1)", "Otaw Original3 Mardonov", "shohrux Avazhonov", "xodim1 1", "Suxrob Akramxodjaev", "Zaynillo Sadullayev"]
-const surveys = ["distr", "oprosnik taski", "so'rovnoma 1", "наблюдатель", "narxlar royxat", "obforfhbihf1"]
+// Filter lists come from the factory's own directories (branches, clients,
+// employees). Surveys have no directory yet, so that list is empty.
+const surveys: string[] = []
 const productGroups = ["Наши продукты", "Продукты конкурентов"]
 
 function inputDate(date: Date) {
@@ -40,7 +33,6 @@ export function StoreTimeView({ storeCheckMode = false, productCheckMode = false
   const [from, setFrom] = useState(storeCheckMode || productCheckMode ? monthStart : today)
   const [to, setTo] = useState(storeCheckMode || productCheckMode ? monthEnd : today)
   const [agent, setAgent] = useState("")
-  const [agentNames, setAgentNames] = useState<string[]>([])
   const [branch, setBranch] = useState("")
   const [contractor, setContractor] = useState("")
   const [planned, setPlanned] = useState("")
@@ -69,17 +61,21 @@ export function StoreTimeView({ storeCheckMode = false, productCheckMode = false
     }
   }, [overlayOpen])
 
-  // No table tracks actual store dwell time, so the agent filter is wired to
-  // real employees but the result panel below still reports "not found".
+  // No table tracks actual store dwell time: the filters list real
+  // employees / branches / clients, and the result panel reports "not found".
+  const agentNames = useDirectoryNames("employees")
+  const creators = agentNames
+  const contractors = useDirectoryNames("clients")
+  const [branches, setBranches] = useState<string[]>([])
   useEffect(() => {
     let cancelled = false
-    fetch("/api/employees")
+    fetch("/api/branches")
       .then((response) => (response.ok ? (response.json() as Promise<{ name: string }[]>) : Promise.reject()))
       .then((data) => {
-        if (!cancelled) setAgentNames(data.map((employee) => employee.name).filter(Boolean).sort((a, b) => a.localeCompare(b, "ru")))
+        if (!cancelled) setBranches(data.map((branch) => branch.name).filter(Boolean).sort((a, b) => a.localeCompare(b, "ru")))
       })
       .catch(() => {
-        if (!cancelled) setAgentNames([])
+        if (!cancelled) setBranches([])
       })
     return () => {
       cancelled = true
