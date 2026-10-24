@@ -1,121 +1,320 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
-import { RefHeader } from "@/components/ref/list-kit"
-import { ReportPage, ReportRangeField, ReportSelectField, WidgetHeader } from "@/components/ref/report-kit"
-import type { OrderItemWithOrder } from "@/lib/order-items-repo"
 
-const tabs = ["ВИДЖЕТЫ", "KPI", "БАЛАНС", "ОХВАТ", "ФИЛИАЛ", "P&L", "ДОЛГ КЛИЕНТОВ", "ПРОДАЖА", "ГИБКИЙ ДАШБОРД"] as const
-const tabHref: Partial<Record<(typeof tabs)[number], string>> = {
-  "ВИДЖЕТЫ": "/",
-  "ОХВАТ": "/analytics/coverage-analysis",
-  "P&L": "/analytics/pnl",
-  "ДОЛГ КЛИЕНТОВ": "/analytics/client-debts",
-  "ГИБКИЙ ДАШБОРД": "/analytics/flexible-dashboard",
-  "ФИЛИАЛ": "/analytics/branch-tab",
-  "ПРОДАЖА": "/analytics/sales-tab",
-  "KPI": "/analytics/kpi-performance",
-  "БАЛАНС": "/analytics/balance-tab",
-}
+import { DateRangePicker } from "@/components/dashboard/date-range-picker"
+import { ReportEmpty, ReportPage, WidgetHeader, formatShortReportDate } from "@/components/ref/report-kit"
+import { useLanguage } from "@/lib/i18n/language-context"
+import type { PnlExpense, PnlFigures, PnlOptions, PnlRow, PnlStats } from "@/lib/pnl-stats-repo"
 
-const metricTabs = ["РЕАЛИЗАЦИЯ", "ВОЗВРАТЫ", "ЧИСТАЯ РЕАЛИЗАЦИЯ", "ВАЛОВАЯ ПРИБЫЛЬ", "РЕНТАБЕЛЬНОСТЬ ВП"] as const
+// "P&L" tab of the dashboard widgets: two periods side by side. Metric tabs choose the figure shown in the
+// breakdown tables; "Убывающие" / "Возрастающие" keep only rows whose figure fell / rose between the periods.
+
+const metricTabs: { label: string; pick: (figures: PnlFigures) => number }[] = [
+  { label: "РЕАЛИЗАЦИЯ", pick: (figures) => figures.sales },
+  { label: "ВОЗВРАТЫ", pick: (figures) => figures.returns },
+  { label: "ЧИСТАЯ РЕАЛИЗАЦИЯ", pick: (figures) => figures.factSales },
+  { label: "ВАЛОВАЯ ПРИБЫЛЬ", pick: (figures) => figures.profit },
+  { label: "РЕНТАБЕЛЬНОСТЬ ВП", pick: (figures) => figures.rentability },
+]
 const sortModes = ["УБЫВАЮЩИЕ", "ВОЗРАСТАЮЩИЕ", "ВСЕ"] as const
-type Metric = (typeof metricTabs)[number]
+type SortMode = (typeof sortModes)[number]
 
-const number = (value: number) => new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 2 }).format(value)
+const pad = (value: number) => String(value).padStart(2, "0")
+const toIso = (date: Date) => `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
 
-function pad(value: number) {
-  return String(value).padStart(2, "0")
-}
-function toIso(date: Date) {
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
-}
-
-// Same tolerant parsing as the other order reports: ISO date or "06 сент. 14:23" (no year).
-function orderDate(value: string): string | null {
-  const iso = value.match(/^(\d{4})-(\d{2})-(\d{2})/)
-  if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`
-  const ru = value.match(/(\d{1,2})\s+([а-яё]+)\.?/i)
-  if (!ru) return null
-  const names = ["янв", "февр", "мар", "апр", "мая", "июня", "июля", "авг", "сент", "окт", "нояб", "дек"]
-  const month = names.indexOf(ru[2].toLowerCase())
-  if (month < 0) return null
-  const year = value.match(/(\d{4})/)
-  return toIso(new Date(year ? Number(year[1]) : new Date().getFullYear(), month, Number(ru[1])))
+// the reference opens on "the same days of last month" against "this month so far"
+function defaultPeriods(today = new Date()) {
+  const year = today.getFullYear()
+  const month = today.getMonth()
+  const lastOfPrevious = new Date(year, month, 0).getDate()
+  return {
+    firstBegin: toIso(new Date(year, month - 1, 1)),
+    firstEnd: toIso(new Date(year, month - 1, Math.min(today.getDate(), lastOfPrevious))),
+    secondBegin: toIso(new Date(year, month, 1)),
+    secondEnd: toIso(today),
+  }
 }
 
-type Totals = { realization: number; returns: number; cost: number; returnCost: number }
-const emptyTotals = (): Totals => ({ realization: 0, returns: 0, cost: 0, returnCost: 0 })
-const metricValue = (totals: Totals, metric: Metric) => {
-  const net = totals.realization - totals.returns
-  const profit = net - (totals.cost - totals.returnCost)
-  if (metric === "РЕАЛИЗАЦИЯ") return totals.realization
-  if (metric === "ВОЗВРАТЫ") return totals.returns
-  if (metric === "ЧИСТАЯ РЕАЛИЗАЦИЯ") return net
-  if (metric === "ВАЛОВАЯ ПРИБЫЛЬ") return profit
-  return net ? Math.round((profit / net) * 1000) / 10 : 0
+const format = (value: number) => {
+  const rounded = Math.round(value) || 0
+  const text = new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 0 }).format(Math.abs(rounded))
+  return rounded < 0 ? `-${text}` : text
 }
 
-function DiffCell({ first, second, plain }: { first: number; second: number; plain?: boolean }) {
-  const diff = second - first
-  const percent = first ? Math.round((diff / Math.abs(first)) * 100) : 0
-  const tone = plain || diff === 0 ? "" : diff < 0 ? "bg-[#e57373] text-white" : "bg-[#8fcf8f] text-white"
+const CARD = "bg-white pb-[20px] shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]"
+const CELL = "border-b border-r border-[#efefef] px-[17.5px] py-[7.8px] text-[13px] leading-[19.5px] text-[#333]"
+const HEAD = "whitespace-nowrap bg-[#f0f4f9] px-[17.5px] py-[7.8px] text-left text-[13px] font-semibold leading-[19.5px] text-[#374557]"
+
+type Line = { key: string; name: string; first: number; second: number; raw?: boolean; bold?: boolean; indent?: number; link?: boolean; toggle?: { open: boolean; onToggle: () => void } }
+type SortKey = "first" | "second" | "diff"
+
+function SortArrows({ active, dir, onSort }: { active: boolean; dir: "asc" | "desc"; onSort: (dir: "asc" | "desc") => void }) {
   return (
-    <div className={`flex h-full items-center justify-between px-[6px] font-semibold ${tone}`}>
-      <span>{percent} %</span>
-      <span>{number(diff)}</span>
+    <span className="relative ml-[5px] inline-block h-[15px] w-[15px] align-middle">
+      <button type="button" aria-label="asc" onClick={() => onSort("asc")} className="absolute left-0 top-0">
+        <svg viewBox="0 0 24 24" className={`h-[15px] w-[15px] ${active && dir === "asc" ? "fill-[#333]" : "fill-[#888]"}`}><path d="M7 14l5-5 5 5z" /></svg>
+      </button>
+      <button type="button" aria-label="desc" onClick={() => onSort("desc")} className="absolute left-0 top-[5px]">
+        <svg viewBox="0 0 24 24" className={`h-[15px] w-[15px] ${active && dir === "desc" ? "fill-[#333]" : "fill-[#888]"}`}><path d="M7 10l5 5 5-5z" /></svg>
+      </button>
+    </span>
+  )
+}
+
+function DiffCell({ first, second, wide = false }: { first: number; second: number; wide?: boolean }) {
+  const diff = second - first
+  const sign = Math.round(diff)
+  const percent = first ? Math.round((diff / first) * 100) : 0
+  const tone = sign === 0 ? "" : sign < 0 ? "bg-[#e57373] text-white" : "bg-[#8acb8d] text-white"
+  return (
+    <td className={`border-b border-r border-[#efefef] p-[5px] text-[13px] font-semibold leading-[19.5px] ${tone || "text-[#333]"}`}>
+      <div className={`flex items-center justify-between ${wide ? "min-w-[189px]" : ""}`}>
+        <span>{percent} %</span>
+        <span>{format(diff)}</span>
+      </div>
+    </td>
+  )
+}
+
+function CompareTable({ title, lines, sortable = false, total = false, widths, className = "" }: { title: string; lines: Line[]; sortable?: boolean; total?: boolean; widths?: string[]; className?: string }) {
+  const { t } = useLanguage()
+  const router = useRouter()
+  const [sort, setSort] = useState<{ key: SortKey; dir: "asc" | "desc" } | null>(null)
+  const rows = useMemo(() => {
+    if (!sort) return lines
+    const value = (line: Line) => (sort.key === "first" ? line.first : sort.key === "second" ? line.second : line.second - line.first)
+    return [...lines].sort((a, b) => (sort.dir === "asc" ? value(a) - value(b) : value(b) - value(a)))
+  }, [lines, sort])
+  const firstTotal = lines.reduce((sum, line) => sum + line.first, 0)
+  const secondTotal = lines.reduce((sum, line) => sum + line.second, 0)
+  const head = (key: SortKey, label: string) => (
+    <th className={HEAD}>
+      {t(label)}
+      {sortable && <SortArrows active={sort?.key === key} dir={sort?.dir ?? "asc"} onSort={(dir) => setSort({ key, dir })} />}
+    </th>
+  )
+  return (
+    <div className={`${CARD} ${className}`}>
+      <div className="pb-[10px]">
+        <table className={`w-full border-separate border-spacing-0 ${widths ? "table-fixed" : ""}`}>
+          {widths && (
+            <colgroup>
+              {widths.map((width) => (
+                <col key={width} style={{ width }} />
+              ))}
+            </colgroup>
+          )}
+          <thead>
+            <tr>
+              <th className={HEAD}>{t(title)}</th>
+              {head("first", "Первый период")}
+              {head("second", "Второй период")}
+              {head("diff", "Разница")}
+            </tr>
+          </thead>
+          {rows.length > 0 && (
+            <tbody>
+              {rows.map((line) => {
+                const weight = line.bold ? "font-semibold" : ""
+                return (
+                  <tr key={line.key}>
+                    <td className={`${CELL} ${weight}`} style={line.indent ? { paddingLeft: 17.5 + line.indent } : undefined}>
+                      {line.toggle ? (
+                        <div className="flex items-center justify-between">
+                          <span>{t(line.name)}</span>
+                          <button type="button" aria-label={t(line.name)} onClick={line.toggle.onToggle}>
+                            <svg viewBox="0 0 24 24" className={`h-6 w-6 fill-[#333] transition-transform ${line.toggle.open ? "rotate-180" : ""}`}><path d="M7.41 7.84L12 12.42l4.59-4.58L18 9.25l-6 6-6-6z" /></svg>
+                          </button>
+                        </div>
+                      ) : line.link ? (
+                        <button type="button" onClick={() => router.push("/clients/territory")} className="text-[13px] leading-[18px] text-[#129fdd]">{line.name}</button>
+                      ) : line.raw ? (
+                        line.name
+                      ) : (
+                        t(line.name)
+                      )}
+                    </td>
+                    <td className={`${CELL} ${weight}`}>{format(line.first)}</td>
+                    <td className={`${CELL} ${weight}`}>{format(line.second)}</td>
+                    <DiffCell first={line.first} second={line.second} wide={!widths} />
+                  </tr>
+                )
+              })}
+              {total && (
+                <tr>
+                  <td className={`${CELL} font-semibold`}>{t("Итого")}</td>
+                  <td className={`${CELL} font-semibold`}>{format(firstTotal)}</td>
+                  <td className={`${CELL} font-semibold`}>{format(secondTotal)}</td>
+                  <DiffCell first={firstTotal} second={secondTotal} wide={!widths} />
+                </tr>
+              )}
+            </tbody>
+          )}
+        </table>
+        {rows.length === 0 && <ReportEmpty text={t("Нет данных")} className="pb-[10px] pt-[20px]" />}
+      </div>
     </div>
   )
 }
 
-function CompareTable({ title, rows, className = "" }: { title: string; rows: { name: string; first: number; second: number }[]; className?: string }) {
-  const firstTotal = rows.reduce((sum, row) => sum + row.first, 0)
-  const secondTotal = rows.reduce((sum, row) => sum + row.second, 0)
+const CARET = <path d="M7 10l5 5 5-5z" />
+
+/** Date range of the reference filter: label, value and a small calendar icon; the value opens the range picker. */
+function RangeField({ label, begin, end, onChange }: { label: string; begin: string; end: string; onChange: (begin: string, end: string) => void }) {
+  const { t } = useLanguage()
+  const [open, setOpen] = useState(false)
   return (
-    <div className={`min-h-[140px] bg-white pb-[10px] shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)] ${className}`}>
-      <div className="grid h-[36px] grid-cols-[1.3fr_1fr_1fr_1.3fr] items-center bg-[#f2f5f8] px-[6px] text-[13px] font-semibold">
-        <span>{title}</span><span>Первый период ⇅</span><span>Второй период ⇅</span><span>Разница ⇅</span>
-      </div>
-      {rows.map((row) => (
-        <div key={row.name} className="grid h-[36px] grid-cols-[1.3fr_1fr_1fr_1.3fr] items-center border-t border-[#ececec] text-[13px]">
-          <span className="px-[6px]">{row.name}</span><span className="border-l border-[#ececec] px-[6px]">{number(row.first)}</span><span className="border-l border-[#ececec] px-[6px]">{number(row.second)}</span><DiffCell first={row.first} second={row.second} />
-        </div>
-      ))}
-      {rows.length > 0 && (
-        <div className="grid h-[36px] grid-cols-[1.3fr_1fr_1fr_1.3fr] items-center border-t border-[#ececec] text-[13px] font-bold">
-          <span className="px-[6px]">Итого</span><span className="border-l border-[#ececec] px-[6px]">{number(firstTotal)}</span><span className="border-l border-[#ececec] px-[6px]">{number(secondTotal)}</span><DiffCell first={firstTotal} second={secondTotal} />
-        </div>
+    <div className="relative h-[52px] cursor-pointer border-b border-[#e0e0e0]" onClick={() => !open && setOpen(true)}>
+      <span className="absolute left-0 top-[7px] text-[10px] font-semibold leading-3 text-black">{t(label)}</span>
+      <svg viewBox="0 0 24 24" className="pointer-events-none absolute left-[242px] top-[7px] h-[15px] w-[15px] fill-[#ccc]" aria-hidden>
+        <path d="M19 4h-1V2h-2v2H8V2H6v2H5c-1.11 0-1.99.9-1.99 2L3 20c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 16H5V9h14v11zM7 11h5v5H7z" />
+      </svg>
+      <span className="absolute inset-x-0 top-[29px] text-[13px] leading-[18px] text-black">
+        {formatShortReportDate(begin)} - {formatShortReportDate(end)}
+      </span>
+      {open && (
+        <DateRangePicker
+          begin={begin}
+          end={end}
+          positionClassName="left-0 top-[calc(100%+13px)]"
+          onClose={() => setOpen(false)}
+          onApply={(from, to) => {
+            onChange(from, to)
+            setOpen(false)
+          }}
+        />
       )}
     </div>
   )
 }
 
-export function PnLView() {
-  const router = useRouter()
-  const today = useMemo(() => new Date(), [])
-  const [firstFrom, setFirstFrom] = useState(() => toIso(new Date(today.getFullYear(), today.getMonth() - 1, 1)))
-  const [firstTo, setFirstTo] = useState(() => toIso(new Date(today.getFullYear(), today.getMonth() - 1, Math.min(today.getDate(), 28))))
-  const [secondFrom, setSecondFrom] = useState(() => toIso(new Date(today.getFullYear(), today.getMonth(), 1)))
-  const [secondTo, setSecondTo] = useState(() => toIso(today))
-  const [applied, setApplied] = useState({ firstFrom, firstTo, secondFrom, secondTo })
+/** Searchable multi-select of the reference filter: chips for the picked values, a list that narrows while typing. */
+function SelectField({ label, values, options, loading, onChange }: { label: string; values: string[]; options: string[]; loading: boolean; onChange: (values: string[]) => void }) {
+  const { t } = useLanguage()
+  const [open, setOpen] = useState(false)
+  const [query, setQuery] = useState("")
+  const input = useRef<HTMLInputElement>(null)
+  const rest = options.filter((option) => !values.includes(option) && option.toLowerCase().includes(query.trim().toLowerCase()))
+  const floating = open || values.length > 0
+  const close = () => {
+    setOpen(false)
+    setQuery("")
+  }
+  useEffect(() => {
+    if (!open) return
+    input.current?.focus()
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setOpen(false)
+        setQuery("")
+      }
+    }
+    document.addEventListener("keydown", onKey)
+    return () => document.removeEventListener("keydown", onKey)
+  }, [open])
+  return (
+    <div className="relative h-[52px] cursor-text border-b border-[#e0e0e0]" onClick={() => setOpen(true)}>
+      {floating ? (
+        <span className="absolute left-0 top-[7px] text-[10px] font-semibold leading-3 text-black">{t(label)}</span>
+      ) : (
+        <span className="absolute inset-x-0 top-[28px] text-[13px] font-semibold leading-[18px] text-black">{t(label)}</span>
+      )}
+      <div className={`absolute left-0 right-[44px] top-[23px] flex items-center gap-[5px] overflow-hidden text-[13px] leading-5 ${floating ? "" : "invisible"}`}>
+        {values.map((value) => (
+          <span key={value} className="flex h-5 shrink-0 items-stretch overflow-hidden font-semibold text-white">
+            <button
+              type="button"
+              aria-label="remove"
+              onClick={(event) => {
+                event.stopPropagation()
+                onChange(values.filter((item) => item !== value))
+              }}
+              className="border-r border-white/30 bg-[#5c6df3] px-[5px] text-[12px]"
+            >
+              ×
+            </button>
+            <span className="bg-[#5c6df3] px-[5px]">{value}</span>
+          </span>
+        ))}
+        <input
+          ref={input}
+          value={query}
+          onChange={(event) => {
+            setQuery(event.target.value)
+            setOpen(true)
+          }}
+          className="h-5 min-w-[20px] flex-1 bg-transparent text-[13px] text-black outline-none"
+          aria-label={t(label)}
+        />
+      </div>
+      {values.length > 0 && (
+        <button
+          type="button"
+          aria-label="clear"
+          onClick={(event) => {
+            event.stopPropagation()
+            onChange([])
+          }}
+          className="absolute bottom-[8px] right-[22px] z-10 text-[18px] leading-none text-[#999]"
+        >
+          ×
+        </button>
+      )}
+      <svg viewBox="0 0 24 24" className="pointer-events-none absolute bottom-[6px] right-0 h-6 w-6 fill-[#999]" aria-hidden>
+        {open ? <path d="M7 14l5-5 5 5z" /> : CARET}
+      </svg>
+      {open && (
+        <>
+          <button type="button" aria-label={t("Закрыть")} className="fixed inset-0 z-30 cursor-default" onClick={(event) => { event.stopPropagation(); close() }} />
+          <div className="absolute inset-x-0 top-full z-40 max-h-[200px] overflow-y-auto bg-white shadow-[0_1px_6px_rgba(0,0,0,0.2),0_1px_4px_rgba(0,0,0,0.2)]">
+            {rest.length === 0 ? (
+              <div className="h-8 px-[10px] text-[13px] font-semibold leading-8 text-[#999]">{loading ? t("Загрузка...") : t("Не найдено")}</div>
+            ) : (
+              rest.map((option) => (
+                <button
+                  key={option}
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    onChange([...values, option])
+                    close()
+                  }}
+                  className="block h-9 w-full truncate px-[10px] text-left text-[13px] font-semibold leading-9 text-[#333] hover:bg-[#f2f5f8]"
+                >
+                  {option}
+                </button>
+              ))
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
 
-  const [branch, setBranch] = useState("")
-  const [zone, setZone] = useState("")
-  const [supervisor, setSupervisor] = useState("")
-  const [agent, setAgent] = useState("")
-  const [productType, setProductType] = useState("")
-  const [product, setProduct] = useState("")
-  const [metric, setMetric] = useState<Metric>("РЕАЛИЗАЦИЯ")
-  const [sortMode, setSortMode] = useState<(typeof sortModes)[number]>("ВСЕ")
-  const [items, setItems] = useState<OrderItemWithOrder[]>([])
+type Filters = { branches: string[]; zones: string[]; supervisors: string[]; agents: string[]; productTypes: string[]; products: string[] }
+const noFilters: Filters = { branches: [], zones: [], supervisors: [], agents: [], productTypes: [], products: [] }
+
+export function PnLView() {
+  const { t } = useLanguage()
+  const periods = useMemo(() => defaultPeriods(), [])
+  const [draft, setDraft] = useState(periods)
+  const [draftFilters, setDraftFilters] = useState<Filters>(noFilters)
+  const [applied, setApplied] = useState({ periods, filters: noFilters })
+  const [metric, setMetric] = useState(0)
+  const [mode, setMode] = useState<SortMode>("ВСЕ")
+  const [stats, setStats] = useState<PnlStats | null>(null)
+  const [options, setOptions] = useState<PnlOptions | null>(null)
+  const [expanded, setExpanded] = useState(false)
 
   useEffect(() => {
     let cancelled = false
-    fetch("/api/order-items")
-      .then((response) => (response.ok ? (response.json() as Promise<OrderItemWithOrder[]>) : []))
+    fetch("/api/pnl-stats?options=1")
+      .then((response) => (response.ok ? (response.json() as Promise<PnlOptions>) : null))
       .then((data) => {
-        if (!cancelled) setItems(data)
+        if (!cancelled && data) setOptions(data)
       })
       .catch(() => {})
     return () => {
@@ -123,75 +322,70 @@ export function PnLView() {
     }
   }, [])
 
-  const agents = useMemo(() => Array.from(new Set(items.map((item) => item.orderAgent).filter(Boolean))), [items])
-  const zones = useMemo(() => Array.from(new Set(items.map((item) => item.orderZone).filter(Boolean))), [items])
-  const products = useMemo(() => Array.from(new Set(items.map((item) => item.productName).filter(Boolean))), [items])
-
-  // Aggregates real order lines for both periods, grouped by one dimension.
-  const group = (keyOf: (item: OrderItemWithOrder) => string) => {
-    const map = new Map<string, { first: Totals; second: Totals }>()
-    for (const item of items) {
-      if (agent && item.orderAgent !== agent) continue
-      if (zone && item.orderZone !== zone) continue
-      if (product && item.productName !== product) continue
-      const date = orderDate(item.orderCreated)
-      if (!date) continue
-      const slot = date >= applied.firstFrom && date <= applied.firstTo ? "first" : date >= applied.secondFrom && date <= applied.secondTo ? "second" : null
-      if (!slot) continue
-      const key = keyOf(item) || "Не указано"
-      const entry = map.get(key) ?? { first: emptyTotals(), second: emptyTotals() }
-      const totals = entry[slot]
-      if (item.orderType === "Возврат") {
-        totals.returns += item.lineTotal
-        totals.returnCost += item.lineCost
-      } else {
-        totals.realization += item.lineTotal
-        totals.cost += item.lineCost
-      }
-      map.set(key, entry)
+  useEffect(() => {
+    let cancelled = false
+    const { periods: range, filters } = applied
+    const params = new URLSearchParams({ first_begin: range.firstBegin, first_end: range.firstEnd, second_begin: range.secondBegin, second_end: range.secondEnd })
+    for (const key of ["branches", "zones", "agents", "productTypes", "products"] as const) {
+      if (filters[key].length > 0) params.set(key, filters[key].join("|"))
     }
-    const rows = Array.from(map.entries()).map(([name, entry]) => ({ name, first: metricValue(entry.first, metric), second: metricValue(entry.second, metric) }))
-    if (sortMode === "ВСЕ") return rows
-    return rows.sort((a, b) => (sortMode === "УБЫВАЮЩИЕ" ? b.second - a.second : a.second - b.second))
+    fetch(`/api/pnl-stats?${params}`)
+      .then((response) => (response.ok ? (response.json() as Promise<PnlStats>) : null))
+      .then((data) => {
+        if (!cancelled && data) setStats(data)
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [applied])
+
+  const keep = (first: number, second: number) => {
+    const diff = Math.round(second - first)
+    return mode === "ВСЕ" || (mode === "УБЫВАЮЩИЕ" ? diff < 0 : diff > 0)
   }
+  const pick = metricTabs[metric].pick
+  const groupLines = (rows: PnlRow[] | undefined, link = false): Line[] =>
+    (rows ?? [])
+      .map((row) => ({ key: row.name, name: row.name, first: pick(row.first), second: pick(row.second), raw: true, link }))
+      .filter((line) => keep(line.first, line.second))
 
-  const byAgent = group((item) => item.orderAgent)
-  const byZone = group((item) => item.orderZone)
-  const byProduct = group((item) => item.productName)
+  const summary = stats?.summary
+  const pair = (value: { first: number; second: number } | undefined, key: string, name: string, bold = false): Line => ({
+    key,
+    name,
+    first: value?.first ?? 0,
+    second: value?.second ?? 0,
+    bold,
+  })
+  const topLines: Line[] = [
+    pair(summary?.sales, "sales", "Реализовано"),
+    pair(summary?.salesNetCost, "cost", "Себестоимость реализованной продукции"),
+    pair(summary?.returns, "returns", "Возвраты"),
+    pair(summary?.returnsNetCost, "returnsCost", "Себестоимость возвратов"),
+    pair(summary?.salesProfit, "profit", "Валовая прибыль"),
+    pair(summary?.salesProfitRentability, "rentability", "Рентабельность ВП"),
+  ].filter((line) => keep(line.first, line.second))
+  const expenseLines = (rows: PnlExpense[]): Line[] =>
+    rows.flatMap((row) => [
+      { key: `e${row.id}`, name: row.name, first: row.first, second: row.second, raw: true, indent: 10 },
+      ...row.children.map((child) => ({ key: `e${row.id}-${child.id}`, name: child.name, first: child.first, second: child.second, raw: true, indent: 25 })),
+    ])
+  const leftLines: Line[] = [
+    ...topLines,
+    pair(summary?.otherIncome, "other", "Прочие приходы"),
+    { ...pair(summary?.indirectExpenses, "indirect", "Косвенние расходы периода", true), toggle: { open: expanded, onToggle: () => setExpanded((current) => !current) } },
+    ...(expanded ? expenseLines(stats?.indirectExpenses ?? []) : []),
+    pair(summary?.salary, "salary", "Зарплата сотрудников"),
+    pair(summary?.writeoffs, "writeoffs", "Списанные товары"),
+    pair(summary?.inventoryPrice, "inventory", "Инвентаризация"),
+    pair(summary?.netProfit, "net", "Чистая прибыль"),
+    pair(summary?.netProfitRentability, "netRentability", "Рентабельность чистой прибыли в %"),
+  ]
 
-  const lines = useMemo(() => {
-    const sum = (slot: "first" | "second", pick: (totals: Totals) => number) => {
-      const total = emptyTotals()
-      for (const item of items) {
-        if (agent && item.orderAgent !== agent) continue
-        if (zone && item.orderZone !== zone) continue
-        if (product && item.productName !== product) continue
-        const date = orderDate(item.orderCreated)
-        if (!date) continue
-        const range = slot === "first" ? [applied.firstFrom, applied.firstTo] : [applied.secondFrom, applied.secondTo]
-        if (date < range[0] || date > range[1]) continue
-        if (item.orderType === "Возврат") {
-          total.returns += item.lineTotal
-          total.returnCost += item.lineCost
-        } else {
-          total.realization += item.lineTotal
-          total.cost += item.lineCost
-        }
-      }
-      return pick(total)
-    }
-    const row = (name: string, pick: (totals: Totals) => number) => ({ name, first: sum("first", pick), second: sum("second", pick) })
-    return [
-      row("Реализовано", (t) => t.realization),
-      row("Себестоимость реализованной продукции", (t) => t.cost),
-      row("Возвраты", (t) => t.returns),
-      row("Себестоимость возвратов", (t) => t.returnCost),
-      row("Валовая прибыль", (t) => t.realization - t.returns - (t.cost - t.returnCost)),
-      row("Рентабельность ВП", (t) => metricValue(t, "РЕНТАБЕЛЬНОСТЬ ВП")),
-    ]
-  }, [items, applied, agent, zone, product])
-
-  const card = "bg-white shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]"
+  const tabButton = "h-7 rounded-[5px] px-4 text-[13px] font-normal uppercase"
+  const on = "text-white shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]"
+  const off = "bg-white text-black shadow-[inset_0_0_2px_rgba(0,0,0,0.12)] hover:bg-slate-50"
 
   return (
     <ReportPage>
@@ -200,57 +394,53 @@ export function PnLView() {
       <form
         onSubmit={(event) => {
           event.preventDefault()
-          setApplied({ firstFrom, firstTo, secondFrom, secondTo })
+          setApplied({ periods: draft, filters: draftFilters })
         }}
-        className={`mx-7 px-[20px] pb-[22px] pt-[10px] ${card}`}
+        className="mx-[30px] bg-white px-[20px] pb-[10px] pt-[10px] shadow-[0_3px_10px_rgba(0,0,0,0.16),0_3px_10px_rgba(0,0,0,0.23)]"
       >
-        <h2 className="text-[14px] leading-[18px] text-[#666]">Фильтр</h2>
-        <div className="mt-[4px] grid gap-x-[10px] gap-y-[13px] md:grid-cols-2 xl:grid-cols-4">
-          <ReportRangeField label="Первый период" from={firstFrom} to={firstTo} onFrom={setFirstFrom} onTo={setFirstTo} />
-          <ReportRangeField label="Второй период" from={secondFrom} to={secondTo} onFrom={setSecondFrom} onTo={setSecondTo} />
-          <ReportSelectField label="Филиалы" value={branch} onChange={setBranch} options={["Самарканд", "Бухоро", "Ташкент", "Наманган", "Фарғона"]} clearable={false} />
-          <ReportSelectField label="Зона" value={zone} onChange={setZone} options={zones} clearable={false} />
-          <ReportSelectField label="Супервайзер" value={supervisor} onChange={setSupervisor} options={[]} clearable={false} />
-          <ReportSelectField label="Агент" value={agent} onChange={setAgent} options={agents} clearable={false} />
-          <ReportSelectField label="Тип товара" value={productType} onChange={setProductType} options={[]} clearable={false} />
-          <ReportSelectField label="Товар" value={product} onChange={setProduct} options={products} clearable={false} />
+        <h2 className="text-[15px] font-normal leading-[18.8px] text-[#5d6474]">{t("Фильтр")}</h2>
+        <div className="mt-[7px] grid grid-cols-4 gap-x-[10.67px] gap-y-[15px]">
+          <RangeField label="Первый период" begin={draft.firstBegin} end={draft.firstEnd} onChange={(from, to) => setDraft((current) => ({ ...current, firstBegin: from, firstEnd: to }))} />
+          <RangeField label="Второй период" begin={draft.secondBegin} end={draft.secondEnd} onChange={(from, to) => setDraft((current) => ({ ...current, secondBegin: from, secondEnd: to }))} />
+          <SelectField label="Филиалы" values={draftFilters.branches} options={options?.branches ?? []} loading={!options} onChange={(branches) => setDraftFilters((current) => ({ ...current, branches }))} />
+          <SelectField label="Зона" values={draftFilters.zones} options={options?.zones ?? []} loading={!options} onChange={(zones) => setDraftFilters((current) => ({ ...current, zones }))} />
+          <SelectField label="Супервайзер" values={draftFilters.supervisors} options={[]} loading={false} onChange={(supervisors) => setDraftFilters((current) => ({ ...current, supervisors }))} />
+          <SelectField label="Агент" values={draftFilters.agents} options={options?.agents ?? []} loading={!options} onChange={(agents) => setDraftFilters((current) => ({ ...current, agents }))} />
+          <SelectField label="Тип товара" values={draftFilters.productTypes} options={options?.productTypes ?? []} loading={!options} onChange={(productTypes) => setDraftFilters((current) => ({ ...current, productTypes }))} />
+          <SelectField label="Товар" values={draftFilters.products} options={options?.products ?? []} loading={!options} onChange={(products) => setDraftFilters((current) => ({ ...current, products }))} />
         </div>
-        <button type="submit" className="mt-[12px] h-9 rounded-[3px] bg-[#5d6474] px-[16px] text-[13px] font-semibold uppercase text-white shadow-[0_2px_5px_rgba(0,0,0,0.25)] hover:brightness-110">Применить</button>
+        <button type="submit" className="mt-[23px] block h-9 w-[113px] rounded-[3px] bg-[#5d6474] text-[13px] font-normal uppercase text-white shadow-[0_2px_5px_rgba(0,0,0,0.25)] hover:brightness-110">
+          {t("Применить")}
+        </button>
       </form>
 
-      <section className="mx-7 mt-[20px] flex flex-wrap items-center">
+      <section className="mx-[30px] mt-[22px] flex items-center">
         <div className="flex">
           {metricTabs.map((tab, index) => (
-            <button key={tab} onClick={() => setMetric(tab)} className={`h-[30px] border px-[16px] text-[13px] font-medium transition-colors ${index === 0 ? "rounded-l-[3px]" : ""} ${index === metricTabs.length - 1 ? "rounded-r-[3px]" : ""} ${metric === tab ? "border-[#4f71dc] bg-[#4f71dc] text-white" : "border-[#e8e8e8] bg-white text-black hover:bg-[#f2f5f8]"}`}>{tab}</button>
+            <button key={tab.label} type="button" onClick={() => setMetric(index)} className={`${tabButton} ${metric === index ? `bg-[#4f71dc] ${on}` : off}`}>
+              {t(tab.label)}
+            </button>
           ))}
         </div>
-        <div className="ml-auto flex">
-          {sortModes.map((mode, index) => (
-            <button key={mode} onClick={() => setSortMode(mode)} className={`h-[30px] border px-[16px] text-[13px] font-medium transition-colors ${index === 0 ? "rounded-l-[3px]" : ""} ${index === sortModes.length - 1 ? "rounded-r-[3px]" : ""} ${sortMode === mode ? "border-[#2bcd53] bg-[#2bcd53] text-white" : "border-[#e8e8e8] bg-white text-black hover:bg-[#f2f5f8]"}`}>{mode}</button>
+        <div className="ml-auto mr-[7.1px] flex">
+          {sortModes.map((item) => (
+            <button key={item} type="button" onClick={() => setMode(item)} className={`${tabButton} ${item === "ВСЕ" ? "ml-[7.1px]" : ""} ${mode === item ? `bg-[#2bcd53] ${on}` : off}`}>
+              {t(item)}
+            </button>
           ))}
         </div>
       </section>
 
-      <section className="mx-7 mt-[20px] grid gap-[17px] pb-8 lg:grid-cols-2">
+      <section className="mx-[30px] mt-[22px] grid grid-cols-2 items-start gap-x-[16px] pb-8">
         <div className="space-y-[30px]">
-          <CompareTable title="Филиал" rows={[]} />
-          <div className={`pb-[6px] ${card}`}>
-            <div className="grid h-[36px] grid-cols-[1.6fr_1fr_1fr_1.3fr] items-center bg-[#f2f5f8] px-[6px] text-[13px] font-semibold"><span>Наименование</span><span>Первый период</span><span>Второй период</span><span>Разница</span></div>
-            {lines.map((line, index) => (
-              <div key={line.name} className="grid min-h-[36px] grid-cols-[1.6fr_1fr_1fr_1.3fr] items-center border-t border-[#ececec] text-[13px]">
-                <span className="px-[6px] py-[6px]">{line.name}</span>
-                <span className="border-l border-[#ececec] px-[6px]">{number(line.first)}</span>
-                <span className="border-l border-[#ececec] px-[6px]">{number(line.second)}</span>
-                <DiffCell first={line.first} second={line.second} plain={index === 2 || index === 3} />
-              </div>
-            ))}
-          </div>
+          <CompareTable title="Филиал" lines={groupLines(stats?.branches)} sortable total />
+          <CompareTable title="Наименование" lines={leftLines} widths={["33.3%", "19.56%", "18.96%", "28.18%"]} />
         </div>
         <div className="space-y-[30px]">
-          <CompareTable title="Агент" rows={byAgent} />
-          <CompareTable title="Тип продукта" rows={[]} />
-          <CompareTable title="Бренд" rows={byProduct.slice(0, 0)} />
-          <CompareTable title="Зона" rows={byZone} />
+          <CompareTable title="Агент" lines={groupLines(stats?.agents)} sortable />
+          <CompareTable title="Тип продукта" lines={groupLines(stats?.productTypes)} sortable />
+          <CompareTable title="Бренд" lines={groupLines(stats?.brands)} sortable />
+          <CompareTable title="Зона" lines={groupLines(stats?.zones, true)} sortable />
         </div>
       </section>
     </ReportPage>

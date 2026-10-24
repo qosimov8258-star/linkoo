@@ -3,7 +3,8 @@
 import { useMemo, useState, type ReactNode } from "react"
 
 import { cashMutate, useCashJson } from "@/components/analytics/cash/use-cash"
-import { PaymentModal } from "@/components/analytics/customer-payments-dialogs"
+import { MaterialBody, MaterialCheckbox, MaterialDate, MaterialDialog, MaterialFooter, MaterialInput } from "@/components/analytics/cash-material"
+import { RefSearchSelect } from "@/components/analytics/ref-search-select"
 import { convertMoney, rateOf, type RateMap } from "@/lib/cash/rates"
 import type { CustomerPaymentOptions, ExpectedOrderDetail } from "@/lib/cash/customer-payments-types"
 import type { CashWriteResult, CategoryOptionKey } from "@/lib/cash/types"
@@ -22,17 +23,6 @@ import { useLanguage } from "@/lib/i18n/language-context"
 // order remainder goes down).
 
 type Category = { id: number; name: string; kind: string; options: CategoryOptionKey[] }
-
-const fieldClass = "h-10 w-full rounded-md border border-[#dbe0e8] bg-white px-3 text-[#17233b] disabled:bg-[#f2f5f8]"
-
-function Label({ text, children }: { text: ReactNode; children: ReactNode }) {
-  return (
-    <label className="flex flex-col gap-1">
-      <span className="text-sm text-[#586174]">{text}</span>
-      {children}
-    </label>
-  )
-}
 
 const positiveOrNull = (value: string) => {
   const parsed = Number(value.replace(/\s/g, "").replace(",", "."))
@@ -53,7 +43,7 @@ export function ExpectedPaymentPayDialog({
   onClose: () => void
   onDone: (result: CashWriteResult) => void
 }) {
-  const { t } = useLanguage()
+  const { t, language } = useLanguage()
   const detail = useCashJson<ExpectedOrderDetail>(`/api/cash/customer-payments/expected/${orderId}`)
   const categories = useCashJson<{ categories: Category[] }>("/api/cash/categories?kind=income")
   const order = detail.data
@@ -85,7 +75,7 @@ export function ExpectedPaymentPayDialog({
   // amount = what is still owed on this order currency.
   const dateValue = date ?? (order?.createdAt ? order.createdAt.slice(0, 16) : "")
   const categoryValue = categoryId ?? (orderCategories[0] ? String(orderCategories[0].id) : "")
-  const amountValue = amount ?? (part ? String(part.remaining) : "")
+  const amountValue = amount ?? (part ? formatMoney(part.remaining, 3) : "")
 
   const cashbox = options?.cashboxes.find((item) => String(item.id) === cashboxId) ?? null
   const cashCurrency = cashbox?.currency ?? orderCurrency
@@ -141,120 +131,94 @@ export function ExpectedPaymentPayDialog({
   }
 
   const header = (
-    <div className="grid grid-cols-1 gap-3 bg-[#f2f5f8] px-5 py-4 text-[14px] text-[#17233b] sm:grid-cols-2">
-      <div className="flex flex-col gap-1">
+    <div className="flex justify-between gap-4 bg-[#f1f5f8] px-[30px] py-[16px] text-[13px] leading-5 text-black">
+      <div className="flex flex-col">
         <span>
-          {t("Заказ")} <strong>№{orderId}</strong>
+          {t("Заказ")} <strong className="font-semibold">№{orderId}</strong>
         </span>
         <span>
-          {t("Клиент:")} <strong>{order?.client.name ?? "…"}</strong>
+          {t("Клиент:")} <strong className="font-semibold">{order?.client.name ?? "…"}</strong>
         </span>
         <span>
-          {t("Организация:")} <strong>{order?.organization || t("Не указано")}</strong>
+          {t("Организация:")} <strong className="font-semibold">{order?.organization || t("Не указано")}</strong>
         </span>
       </div>
-      <div className="flex flex-col gap-1">
+      <div className="flex flex-col text-right">
         <span>
-          {t("Тип оплаты:")} <strong>{t(order?.paymentType === "bank" ? "Перечислением" : "Наличными")}</strong>
+          {t("Тип оплаты:")} <strong className="font-semibold">{t(order?.paymentType === "bank" ? "Перечислением" : "Наличными")}</strong>
         </span>
         <span>
-          {t("Сумма заказа:")} <strong>{part ? `${formatMoney(part.total, 3)} ${currencyLabel(part.currency)}` : "…"}</strong>
+          {t("Сумма заказа:")} <strong className="font-semibold">{part ? `${formatMoney(part.total, 3)} ${currencyLabel(part.currency)}` : "…"}</strong>
         </span>
         <span>
-          {t("Остаток:")} <strong>{part ? `${formatMoney(part.remaining, 3)} ${currencyLabel(part.currency)}` : "…"}</strong>
+          {t("Остаток:")} <strong className="font-semibold">{part ? `${formatMoney(part.remaining, 3)} ${currencyLabel(part.currency)}` : "…"}</strong>
         </span>
       </div>
     </div>
   )
 
+  const pick = (items: Array<{ value: string; label: string }>, value: string) => items.filter((item) => item.value === value)
+  const branchItems = (options?.branches ?? []).map((item) => ({ value: item, label: item }))
+  const cashboxItems = (options?.cashboxes ?? []).map((item) => ({ value: String(item.id), label: `${item.name} (${currencyLabel(item.currency)})` }))
+  const categoryItems = orderCategories.map((category) => ({ value: String(category.id), label: category.name }))
+  const contractItems = contracts.map((contract) => ({ value: String(contract.id), label: `№ ${contract.fullNumber}${contract.hint ? ` · ${contract.hint}` : ""}` }))
+  const staffItems = (options?.employees ?? []).map((employee) => ({ value: String(employee.id), label: employee.name }))
+  const selectProps = { dense: true, searchable: false, rowHeight: 32 } as const
+  const dayPart = dateValue.slice(0, 10)
+  const dayText = dayPart
+    ? `${new Date(`${dayPart}T00:00:00`).toLocaleDateString(language === "uz" ? "uz-UZ" : language === "en" ? "en-US" : "ru-RU", { day: "numeric", month: "long", year: "numeric" })}`
+    : ""
+
   return (
-    <PaymentModal title="Приход" onClose={onClose} width={520}>
+    <MaterialDialog
+      title={t("Приход")}
+      onClose={onClose}
+      width={500}
+      top={80}
+      onSubmit={() => void submit()}
+      footer={<MaterialFooter label={busy ? t("Сохранение...") : t("Сохранить")} busy={busy} disabled={detail.loading} error={error ? t(error) : undefined} />}
+    >
       {header}
       {detail.error ? (
-        <p className="px-5 py-6 text-[#e57373]">{t(detail.error)}</p>
+        <p className="px-[30px] py-6 text-[#f44336]">{t(detail.error)}</p>
       ) : (
-        <form
-          className="flex flex-col gap-4 px-5 py-5"
-          onSubmit={(event) => {
-            event.preventDefault()
-            void submit()
-          }}
-        >
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <Label text={t("Дата создания")}>
-              <input type="datetime-local" value={dateValue} onChange={(event) => setDate(event.target.value)} className={fieldClass} required />
-            </Label>
-            <Label text={t("Филиал")}>
-              <select value={branch} onChange={(event) => setBranch(event.target.value)} className={fieldClass}>
-                <option value="">{t("Не указано")}</option>
-                {(options?.branches ?? []).map((item) => (
-                  <option key={item} value={item}>
-                    {item}
-                  </option>
-                ))}
-              </select>
-            </Label>
-            <Label text={t("Касса")}>
-              <select value={cashboxId} onChange={(event) => changeCashbox(event.target.value)} className={fieldClass} required>
-                <option value="">{t("Выберите кассу")}</option>
-                {(options?.cashboxes ?? []).map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.name} ({currencyLabel(item.currency)})
-                  </option>
-                ))}
-              </select>
-            </Label>
-            <Label text={t("Категория прихода")}>
-              <select value={categoryValue} onChange={(event) => setCategoryId(event.target.value)} className={fieldClass}>
-                {!orderCategories.length && <option value="">{t("Не указано")}</option>}
-                {orderCategories.map((category) => (
-                  <option key={category.id} value={category.id}>
-                    {category.name}
-                  </option>
-                ))}
-              </select>
-            </Label>
-            {order?.paymentType === "bank" && (
-              <Label text={t("Контракт")}>
-                <select value={contractId} onChange={(event) => setContractId(event.target.value)} className={fieldClass}>
-                  <option value="">{t("Не указано")}</option>
-                  {contracts.map((contract) => (
-                    <option key={contract.id} value={contract.id}>
-                      {`№ ${contract.fullNumber}`}
-                      {contract.hint ? ` · ${contract.hint}` : ""}
-                    </option>
-                  ))}
-                </select>
-              </Label>
-            )}
-            <Label text={t("Сумма")}>
-              <span className="flex items-center gap-2">
-                <input inputMode="decimal" value={amountValue} onChange={(event) => setAmount(event.target.value)} className={fieldClass} required />
-                <span className="shrink-0 font-semibold text-[#586174]">{currencyLabel(cashCurrency)}</span>
-              </span>
-              {foreign && cash && cashRate ? (
-                <span className="text-[12px] text-[#586174]">
-                  {t("В основной валюте")}: {formatMoney(cash * cashRate)} {currencyLabel(base)}
-                </span>
-              ) : null}
-            </Label>
-            <Label text={t("Ответственный персонал")}>
-              <select value={responsibleId} onChange={(event) => setResponsibleId(event.target.value)} className={fieldClass}>
-                <option value="">{t("Не указано")}</option>
-                {(options?.employees ?? []).map((employee) => (
-                  <option key={employee.id} value={employee.id}>
-                    {employee.name}
-                  </option>
-                ))}
-              </select>
-            </Label>
+        <MaterialBody className="pb-[30px] pt-[23px]">
+          <MaterialDate
+            compact
+            label={t("Дата создания")}
+            value={dayPart}
+            display={dayText}
+            onChange={(value) => setDate(`${value}T${dateValue.slice(11) || "00:00"}`)}
+          />
+          <RefSearchSelect className="mt-[13px]" {...selectProps} label={t("Филиал")} items={branchItems} selected={pick(branchItems, branch)} onChange={(next) => setBranch(next[0]?.value ?? "")} />
+          <RefSearchSelect {...selectProps} label={t("Касса")} items={cashboxItems} selected={pick(cashboxItems, cashboxId)} onChange={(next) => changeCashbox(next[0]?.value ?? "")} />
+          <RefSearchSelect
+            {...selectProps}
+            label={t("Категория прихода")}
+            items={categoryItems}
+            selected={pick(categoryItems, categoryValue)}
+            onChange={(next) => setCategoryId(next[0]?.value ?? "")}
+          />
+          {order?.paymentType === "bank" && (
+            <RefSearchSelect {...selectProps} label={t("Контракт")} items={contractItems} selected={pick(contractItems, contractId)} onChange={(next) => setContractId(next[0]?.value ?? "")} />
+          )}
+          <MaterialInput className="mt-[2px] w-[calc(100%-5px)]" label={t("Сумма")} value={amountValue} inputMode="decimal" onChange={setAmount} />
+          {foreign && cash && cashRate ? (
+            <div className="mt-1 text-[12px] text-black">
+              {t("В основной валюте")}: {formatMoney(cash * cashRate)} {currencyLabel(base)}
+            </div>
+          ) : null}
+          <RefSearchSelect className="mt-[13px]" {...selectProps} label={t("Ответственный персонал")} items={staffItems} selected={pick(staffItems, responsibleId)} onChange={(next) => setResponsibleId(next[0]?.value ?? "")} />
+          <MaterialInput className="mt-[20px]" placeholderLabel label={t("Комментарий...")} value={comment} onChange={setComment} />
+          <div className="mt-[22px] pl-[2px]">
+            <MaterialCheckbox checked={verified} onChange={setVerified} label={t("Подтвержденный приход (Я получил деньги)")} />
           </div>
 
           {showRates && (
-            <div className="flex flex-col gap-3 rounded-md bg-[#f2f5f8] px-3 py-3">
-              <div className="flex flex-wrap gap-4 text-[14px] text-[#17233b]">
+            <div className="mt-4 flex flex-col gap-2 text-[13px]">
+              <div className="flex flex-wrap gap-4">
                 {(["current", "custom"] as const).map((mode) => (
-                  <label key={mode} className="flex items-center gap-2">
+                  <label key={mode} className="flex cursor-pointer items-center gap-2">
                     <input
                       type="radio"
                       name="payRateType"
@@ -264,60 +228,38 @@ export function ExpectedPaymentPayDialog({
                         if (mode === "custom" && !customRate && currentRate) setCustomRate(String(currentRate))
                         if (mode === "custom" && !debtRate && currentDebtRate) setDebtRate(String(currentDebtRate))
                       }}
-                      className="h-4 w-4 accent-[#4f70e7]"
+                      className="h-4 w-4 accent-[#5d6474]"
                     />
                     {t(mode === "current" ? "Текущий курс" : "Индивидуальный")}
                   </label>
                 ))}
               </div>
               {foreign && (
-                <Label text={`${t("Курс")} ${currencyLabel(cashCurrency)} (${currencyLabel(base)})`}>
-                  <input
-                    inputMode="decimal"
-                    value={custom ? customRate : currentRate ? String(currentRate) : ""}
-                    disabled={!custom}
-                    onChange={(event) => setCustomRate(event.target.value)}
-                    className={fieldClass}
-                  />
-                </Label>
+                <MaterialInput
+                  label={`${t("Курс")} ${currencyLabel(cashCurrency)} (${currencyLabel(base)})`}
+                  value={custom ? customRate : currentRate ? String(currentRate) : ""}
+                  inputMode="decimal"
+                  onChange={(value) => custom && setCustomRate(value)}
+                />
               )}
               {debtForeign && (
-                <Label text={`${t("Курс")} ${currencyLabel(orderCurrency)} (${currencyLabel(base)})`}>
-                  <input
-                    inputMode="decimal"
-                    value={custom ? debtRate : currentDebtRate ? String(currentDebtRate) : ""}
-                    disabled={!custom}
-                    onChange={(event) => setDebtRate(event.target.value)}
-                    className={fieldClass}
-                  />
-                </Label>
+                <MaterialInput
+                  label={`${t("Курс")} ${currencyLabel(orderCurrency)} (${currencyLabel(base)})`}
+                  value={custom ? debtRate : currentDebtRate ? String(currentDebtRate) : ""}
+                  inputMode="decimal"
+                  onChange={(value) => custom && setDebtRate(value)}
+                />
               )}
             </div>
           )}
-          {converted !== null && (
-            <p className="text-[14px] text-[#17233b]">
-              {t("После конвертации")}: <strong>{`${formatMoney(converted, 3)} ${currencyLabel(orderCurrency)}`}</strong>
+          {(converted !== null || cash) && (
+            <p className="mt-[18px] text-[13px] leading-4 text-[#333]">
+              {t("После конвертации")}: <strong className="ml-1 font-semibold text-black">{`${formatMoney(converted ?? cash ?? 0, 3)} ${currencyLabel(orderCurrency)}`}</strong>
             </p>
           )}
-          {cash && cashbox && cashCurrency !== orderCurrency && converted === null && <p className="text-[13px] text-[#d64545]">{t("Курс валюты не задан")}</p>}
-
-          <textarea
-            value={comment}
-            onChange={(event) => setComment(event.target.value)}
-            placeholder={t("Комментарий...")}
-            rows={2}
-            className="w-full rounded-md border border-[#dbe0e8] px-3 py-2 text-[#17233b]"
-          />
-          <label className="flex items-center gap-2 text-[14px] text-[#17233b]">
-            <input type="checkbox" checked={verified} onChange={(event) => setVerified(event.target.checked)} className="h-4 w-4 accent-[#4f70e7]" />
-            {t("Подтвержденный приход (Я получил деньги)")}
-          </label>
-          {error && <p className="rounded-md bg-[#fdecec] px-3 py-2 text-sm text-[#d64545]">{t(error)}</p>}
-          <button type="submit" disabled={busy || detail.loading} className="h-10 w-full rounded-md bg-[#4f70e7] font-semibold text-white disabled:opacity-50">
-            {busy ? t("Сохранение...") : t("Сохранить")}
-          </button>
-        </form>
+          {cash && cashbox && cashCurrency !== orderCurrency && converted === null && <p className="mt-3 text-[12px] text-[#f44336]">{t("Курс валюты не задан")}</p>}
+        </MaterialBody>
       )}
-    </PaymentModal>
+    </MaterialDialog>
   )
 }

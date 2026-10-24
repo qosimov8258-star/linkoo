@@ -1,16 +1,14 @@
 "use client"
 
-import { ChevronLeft, ChevronRight, FileText, Pencil, Plus, Search, Trash2, X } from "lucide-react"
-import { ChangeEvent, Fragment, FormEvent, useEffect, useMemo, useRef, useState } from "react"
+import dynamic from "next/dynamic"
+import { useCallback, useEffect, useMemo, useState } from "react"
 
-import { downloadExcelTable } from "@/lib/excel-export"
-import { mapHeaderColumns, readExcelRows } from "@/lib/excel-import"
+import { RefButton } from "@/components/ref/list-kit"
+import { useLanguage } from "@/lib/i18n/language-context"
 
-const IMPORT_HEADER_ALIASES: Record<string, string> = {
-  "наименование": "name", "название": "name", "name": "name",
-  "прайс лист": "priceList", "price list": "priceList",
-  "валюта": "currency", "currency": "currency",
-}
+import { CheckBox, ConfirmDelete, EmptyState, ErrorAlert, LineField, LineSelect, ListToolbar, Modal, SaveLink, grayHead, listRow } from "./catalog-ui"
+
+const LocationPicker = dynamic(() => import("@/components/clients/location-picker").then((module) => module.LocationPicker), { ssr: false })
 
 type Branch = {
   id: number
@@ -19,379 +17,276 @@ type Branch = {
   debtTracking: boolean
   isMain: boolean
   priceList: string
-  currency: "SUM" | "USD" | "Euro"
+  currency: string
+  locationLat: number | null
+  locationLng: number | null
 }
 
-const seedBranches: Branch[] = []
+type BranchPlan = { id: number; weight: string; amount: string; price: string }
 
-export const branchNames = seedBranches.map((branch) => branch.name)
+type Draft = { name: string; priceList: string; currency: string; debtTracking: boolean; isMain: boolean; lat: number | null; lng: number | null }
 
-export function BranchesView({ embedded = false }: { embedded?: boolean }) {
-  const [branches, setBranches] = useState(seedBranches)
+const emptyDraft: Draft = { name: "", priceList: "", currency: "", debtTracking: false, isMain: false, lat: null, lng: null }
+
+const PLAN_ICON = "M3 18h12v-2H3v2zM3 6v2h18V6H3zm0 7h18v-2H3v2z"
+const PIN_ICON = "M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zM7 9c0-2.76 2.24-5 5-5s5 2.24 5 5c0 2.88-2.88 7.19-5 9.88C9.88 16.19 7 11.88 7 9zm2.5 0a2.5 2.5 0 105 0 2.5 2.5 0 10-5 0z"
+const GRID = "grid-cols-[109px_507px_202px_203px_1fr]"
+
+export function BranchesView() {
+  const { t } = useLanguage()
+  const [branches, setBranches] = useState<Branch[]>([])
   const [query, setQuery] = useState("")
   const [page, setPage] = useState(1)
-  const [selectedId, setSelectedId] = useState<number | null>(null)
-  const [editing, setEditing] = useState<Branch | null>(null)
-  // Price lists come from "Прайс-листы" (active ones); "" = not set.
+  const [pageSize, setPageSize] = useState(25)
+  const [openId, setOpenId] = useState<number | null>(null)
+  const [plans, setPlans] = useState<BranchPlan[]>([])
+  const [editing, setEditing] = useState<Branch | { id: 0 } | null>(null)
+  const [draft, setDraft] = useState<Draft>(emptyDraft)
+  const [mapOpen, setMapOpen] = useState(false)
+  const [planOpen, setPlanOpen] = useState(false)
+  const [planDraft, setPlanDraft] = useState({ weight: "", amount: "", price: "" })
+  const [deleting, setDeleting] = useState<Branch | null>(null)
+  const [alertMessage, setAlertMessage] = useState("")
+  const [saving, setSaving] = useState(false)
   const [priceLists, setPriceLists] = useState<string[]>([])
-  const [draft, setDraft] = useState({ name: "", priceList: "", currency: "SUM" as Branch["currency"], debtTracking: true, isMain: false })
-  const [importOpen, setImportOpen] = useState(false)
-  const [importFile, setImportFile] = useState<File | null>(null)
-  const [importSaving, setImportSaving] = useState(false)
-  const importInputRef = useRef<HTMLInputElement>(null)
-  const [loadError, setLoadError] = useState("")
-  const pageSize = 25
+  const [currencies, setCurrencies] = useState<string[]>([])
 
-  useEffect(() => {
-    let cancelled = false
-    fetch("/api/price-lists")
-      .then(async (response) => (response.ok ? ((await response.json()) as { name: string }[]) : []))
-      .then((data) => {
-        if (!cancelled) setPriceLists(data.map((item) => item.name).filter(Boolean))
-      })
-      .catch(() => undefined)
-    return () => {
-      cancelled = true
-    }
-  }, [])
-
-  useEffect(() => {
-    let cancelled = false
+  const load = useCallback(() => {
     fetch("/api/branches")
-      .then(async (response) => {
-        if (!response.ok) throw new Error("Не удалось загрузить филиалы")
-        return (await response.json()) as Branch[]
-      })
-      .then((data) => {
-        if (!cancelled) {
-          setBranches(data)
-          setLoadError("")
-        }
-      })
-      .catch(() => {
-        if (!cancelled) setLoadError("Не удалось загрузить филиалы с сервера")
-      })
-    return () => {
-      cancelled = true
-    }
+      .then((response) => (response.ok ? (response.json() as Promise<Branch[]>) : []))
+      .then(setBranches)
+      .catch(() => setBranches([]))
   }, [])
 
-  const filtered = useMemo(() => branches.filter((branch) => branch.name.toLowerCase().includes(query.toLowerCase())), [branches, query])
+  useEffect(load, [load])
+
+  useEffect(() => {
+    fetch("/api/price-lists")
+      .then((response) => (response.ok ? (response.json() as Promise<{ name: string; isActive?: boolean }[]>) : []))
+      .then((data) => setPriceLists(data.filter((item) => item.isActive !== false).map((item) => item.name).filter(Boolean)))
+      .catch(() => undefined)
+    fetch("/api/currencies")
+      .then((response) => (response.ok ? (response.json() as Promise<{ code: string }[]>) : []))
+      .then((data) => setCurrencies(data.map((item) => item.code).filter(Boolean)))
+      .catch(() => undefined)
+  }, [])
+
+  useEffect(() => {
+    if (openId === null) return
+    fetch(`/api/branches/${openId}/plans`)
+      .then((response) => (response.ok ? (response.json() as Promise<BranchPlan[]>) : []))
+      .then(setPlans)
+      .catch(() => setPlans([]))
+  }, [openId])
+
+  const filtered = useMemo(() => {
+    const needle = query.trim().toLowerCase()
+    return needle ? branches.filter((branch) => branch.name.toLowerCase().includes(needle)) : branches
+  }, [branches, query])
   const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize))
   const safePage = Math.min(page, pageCount)
-  const visible = filtered.slice((safePage - 1) * pageSize, safePage * pageSize)
-  const selected = selectedId !== null ? branches.find((branch) => branch.id === selectedId) ?? null : null
+  const start = (safePage - 1) * pageSize
+  const visible = filtered.slice(start, start + pageSize)
 
-  function openCreate() {
-    setDraft({ name: "", priceList: priceLists[0] ?? "", currency: "SUM", debtTracking: true, isMain: false })
-    setEditing({ id: 0, name: "", date: "", debtTracking: true, isMain: false, priceList: priceLists[0] ?? "", currency: "SUM" })
+  function openForm(branch?: Branch) {
+    setEditing(branch ?? { id: 0 })
+    setDraft(
+      branch
+        ? { name: branch.name, priceList: branch.priceList, currency: branch.currency, debtTracking: branch.debtTracking, isMain: branch.isMain, lat: branch.locationLat, lng: branch.locationLng }
+        : emptyDraft,
+    )
   }
 
-  function openEdit(branch: Branch) {
-    setDraft({ name: branch.name, priceList: branch.priceList, currency: branch.currency, debtTracking: branch.debtTracking, isMain: branch.isMain })
-    setEditing(branch)
-  }
-
-  async function save(event: FormEvent) {
-    event.preventDefault()
-    if (!draft.name.trim()) return
-    const payload = { ...draft, name: draft.name.trim() }
-    try {
-      if (editing?.id) {
-        const response = await fetch(`/api/branches/${editing.id}`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        })
-        if (!response.ok) {
-          const data = await response.json().catch(() => ({}))
-          window.alert(data.error || "Не удалось сохранить филиал")
-          return
-        }
-        const saved = (await response.json()) as Branch
-        setBranches((list) => list.map((branch) => (branch.id === editing.id ? saved : branch)))
-      } else {
-        const response = await fetch("/api/branches", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        })
-        if (!response.ok) {
-          const data = await response.json().catch(() => ({}))
-          window.alert(data.error || "Не удалось создать филиал")
-          return
-        }
-        const saved = (await response.json()) as Branch
-        setBranches((list) => [saved, ...list])
-      }
-      setEditing(null)
-    } catch {
-      window.alert("Сервер недоступен, попробуйте ещё раз")
+  async function save() {
+    if (!editing || saving) return
+    if (!draft.name.trim()) {
+      setAlertMessage(`name: ${t("Это поле обязательно к заполнению")}`)
+      return
     }
-  }
-
-  async function remove(id: number) {
+    setSaving(true)
     try {
-      const response = await fetch(`/api/branches/${id}`, { method: "DELETE" })
+      const response = await fetch(editing.id ? `/api/branches/${editing.id}` : "/api/branches", {
+        method: editing.id ? "PUT" : "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: draft.name.trim(),
+          priceList: draft.priceList,
+          currency: draft.currency,
+          debtTracking: draft.debtTracking,
+          isMain: draft.isMain,
+          locationLat: draft.lat,
+          locationLng: draft.lng,
+        }),
+      })
       if (!response.ok) {
-        const data = await response.json().catch(() => ({}))
-        window.alert(data.error || "Не удалось удалить филиал")
+        const data = (await response.json().catch(() => ({}))) as { error?: string }
+        setAlertMessage(t(data.error || "Не удалось сохранить филиал"))
         return
       }
-      setBranches((list) => list.filter((branch) => branch.id !== id))
-      setSelectedId((current) => (current === id ? null : current))
+      const saved = (await response.json()) as Branch
+      setEditing(null)
+      load()
+      if (editing.id) setOpenId(saved.id)
     } catch {
-      window.alert("Сервер недоступен, попробуйте ещё раз")
-    }
-  }
-
-  function downloadTemplate() {
-    downloadExcelTable("branches-template", [["Наименование", "Прайс лист", "Валюта"]])
-  }
-
-  function pickImportFile(event: ChangeEvent<HTMLInputElement>) {
-    setImportFile(event.target.files?.[0] ?? null)
-  }
-
-  async function saveImport() {
-    if (!importFile) return
-    setImportSaving(true)
-    try {
-      const rows = await readExcelRows(importFile)
-      if (!rows.length) {
-        window.alert("Не удалось найти данные для импорта в выбранном файле")
-        return
-      }
-      const fieldByIndex = mapHeaderColumns(rows[0], IMPORT_HEADER_ALIASES)
-      const hasHeader = Array.from(fieldByIndex.values()).includes("name")
-      const dataRows = hasHeader ? rows.slice(1) : rows
-
-      const parsed: { name: string; priceList: string; currency: Branch["currency"] }[] = []
-      for (const row of dataRows) {
-        const record: Record<string, string> = {}
-        if (hasHeader) {
-          row.forEach((cell, index) => {
-            const field = fieldByIndex.get(index)
-            if (field) record[field] = cell
-          })
-        } else {
-          record.name = row[0] ?? ""
-          record.priceList = row[1] ?? ""
-          record.currency = row[2] ?? ""
-        }
-        if (!record.name || /^(наименование|название|name)$/i.test(record.name)) continue
-        const currency = (["SUM", "USD", "Euro"] as const).find((item) => item.toLowerCase() === record.currency?.toLowerCase()) ?? "SUM"
-        parsed.push({
-          name: record.name,
-          priceList: priceLists.find((item) => item.toLowerCase() === record.priceList?.trim().toLowerCase()) ?? "",
-          currency,
-        })
-      }
-
-      if (!parsed.length) {
-        window.alert("Не удалось найти данные для импорта в выбранном файле")
-        return
-      }
-
-      const created: Branch[] = []
-      let failed = 0
-      for (const item of parsed) {
-        try {
-          const response = await fetch("/api/branches", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ name: item.name, priceList: item.priceList, currency: item.currency, debtTracking: true, isMain: false }),
-          })
-          if (response.ok) created.push((await response.json()) as Branch)
-          else failed += 1
-        } catch {
-          failed += 1
-        }
-      }
-      if (created.length) setBranches((list) => [...created, ...list])
-      if (failed) window.alert(`Импортировано ${created.length} из ${parsed.length}. Не удалось сохранить: ${failed}`)
+      setAlertMessage(t("Сервер недоступен, попробуйте ещё раз"))
     } finally {
-      setImportSaving(false)
-      setImportOpen(false)
-      setImportFile(null)
+      setSaving(false)
     }
   }
+
+  async function remove() {
+    if (!deleting) return
+    try {
+      const response = await fetch(`/api/branches/${deleting.id}`, { method: "DELETE" })
+      if (!response.ok) {
+        const data = (await response.json().catch(() => ({}))) as { error?: string }
+        setAlertMessage(t(data.error || "Не удалось удалить филиал"))
+        return
+      }
+      setDeleting(null)
+      setOpenId(null)
+      load()
+    } catch {
+      setAlertMessage(t("Сервер недоступен, попробуйте ещё раз"))
+    }
+  }
+
+  async function savePlan() {
+    if (openId === null) return
+    try {
+      const response = await fetch(`/api/branches/${openId}/plans`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(planDraft),
+      })
+      if (!response.ok) {
+        const data = (await response.json().catch(() => ({}))) as { error?: string }
+        setAlertMessage(t(data.error || "Не удалось сохранить план"))
+        return
+      }
+      const saved = (await response.json()) as BranchPlan
+      setPlans((list) => [...list, saved])
+      setPlanOpen(false)
+    } catch {
+      setAlertMessage(t("Сервер недоступен, попробуйте ещё раз"))
+    }
+  }
+
+  const flag = (on: boolean, yes: string, no: string) => <b className={on ? "text-[#6ccd8b]" : "text-[#f07e7e]"}>{on ? yes : no}</b>
 
   return (
-    <main className={embedded ? "min-w-0 flex-1" : "min-h-[calc(100vh-4rem)] bg-[#f1f4f8] px-9 py-5"}>
-      <div className={embedded ? "" : "overflow-hidden rounded bg-white shadow"}>
-        {loadError && <p className="px-5 pt-4 text-sm text-red-500">{loadError}</p>}
-        <div className="flex flex-wrap items-center gap-4 px-5 py-4">
-          <button type="button" onClick={openCreate} className="text-[17px] text-[#4f70e7] hover:underline">
-            + Добавить филиал
-          </button>
-          <button type="button" onClick={() => setImportOpen(true)} className="inline-flex items-center gap-2 rounded bg-[#4f70e7] px-5 py-2.5 font-semibold text-white hover:brightness-95">
-            <FileText className="h-4 w-4" /> Импорт с Excel
-          </button>
-          <label className="relative ml-4 w-72">
-            <input value={query} onChange={(event) => { setQuery(event.target.value); setPage(1) }} placeholder="Поиск" className="w-full border-b border-slate-300 py-2 pr-10 outline-none focus:border-[#4f70e7]" />
-            <Search className="absolute right-2 top-2 h-5 w-5 text-slate-300" />
-          </label>
-          <span className="ml-auto text-slate-500">25</span>
-          <span className="text-slate-500">
-            {filtered.length ? (safePage - 1) * pageSize + 1 : 0} - {Math.min(safePage * pageSize, filtered.length)} из {filtered.length}
-          </span>
-          <button type="button" onClick={() => setPage((value) => Math.max(1, value - 1))} disabled={safePage <= 1} aria-label="Назад" className="disabled:opacity-30">
-            <ChevronLeft className="h-5 w-5 text-slate-400" />
-          </button>
-          <button type="button" onClick={() => setPage((value) => Math.min(pageCount, value + 1))} disabled={safePage >= pageCount} aria-label="Вперед" className="disabled:opacity-30">
-            <ChevronRight className="h-5 w-5 text-slate-400" />
-          </button>
-        </div>
-
-        <table className="w-full text-left">
-          <thead className="bg-[#626b7e] text-white">
-            <tr>
-              <th className="px-9 py-5">№</th>
-              <th className="px-5 py-5">Наименование</th>
-              <th className="px-5 py-5">Дата</th>
-              <th className="px-5 py-5">Учет долга</th>
-              <th className="px-5 py-5">Основной филиал</th>
-            </tr>
-          </thead>
-          <tbody>
-            {visible.map((branch) => (
-              <Fragment key={branch.id}>
-                <tr className="cursor-pointer border-b border-dashed border-slate-300 hover:bg-slate-50" onClick={() => setSelectedId((current) => (current === branch.id ? null : branch.id))}>
-                  <td className="px-9 py-4">{branch.id}</td>
-                  <td className="px-5 py-4 text-[#4f70e7]">{branch.name}</td>
-                  <td className="px-5 py-4">{branch.date}</td>
-                  <td className={`px-5 py-4 ${branch.debtTracking ? "text-[#6ccd8b]" : "text-red-400"}`}>{branch.debtTracking ? "Включен" : "Отключен"}</td>
-                  <td className={`px-5 py-4 ${branch.isMain ? "text-[#6ccd8b]" : "text-red-400"}`}>{branch.isMain ? "Да" : "Нет"}</td>
-                </tr>
-                {selected?.id === branch.id && (
-                  <tr>
-                    <td colSpan={5} className="border-b border-slate-200 bg-white p-0">
-                      <div className="p-8">
-                        <div className="mb-6 flex items-center justify-between">
-                          <h2 className="text-2xl font-semibold text-slate-800">{branch.name}</h2>
-                          <div className="flex items-center gap-4">
-                            <button type="button" className="inline-flex items-center gap-2 rounded bg-[#4f70e7] px-5 py-2.5 font-semibold text-white hover:brightness-95">
-                              <Plus className="h-4 w-4" /> Добавить план
-                            </button>
-                            <button type="button" onClick={() => openEdit(branch)} aria-label="Изменить" className="text-slate-500 hover:text-[#4f70e7]">
-                              <Pencil className="h-5 w-5" />
-                            </button>
-                            <button type="button" onClick={() => remove(branch.id)} aria-label="Удалить" className="text-slate-500 hover:text-red-500">
-                              <Trash2 className="h-5 w-5" />
-                            </button>
-                          </div>
-                        </div>
-                        <div className="space-y-2 text-[15px]">
-                          <p>
-                            Дата создания: <b className="ml-2">{branch.date}</b>
-                          </p>
-                          <p>
-                            Прайс лист: <b className="ml-2">{branch.priceList}</b>
-                          </p>
-                          <p>
-                            Валюта: <b className="ml-2">{branch.currency === "SUM" ? "SUM" : branch.currency}</b>
-                          </p>
-                          <p>
-                            Основной филиал: <b className={`ml-2 ${branch.isMain ? "text-[#6ccd8b]" : "text-red-400"}`}>{branch.isMain ? "Включено" : "Выключено"}</b>
-                          </p>
-                          <p>
-                            Учет долга: <b className={`ml-2 ${branch.debtTracking ? "text-[#6ccd8b]" : "text-red-400"}`}>{branch.debtTracking ? "Включено" : "Выключено"}</b>
-                          </p>
-                        </div>
-                      </div>
-                    </td>
-                  </tr>
-                )}
-              </Fragment>
-            ))}
-            {visible.length === 0 && (
-              <tr>
-                <td colSpan={5} className="px-5 py-10 text-center text-slate-400">
-                  Ничего не найдено
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+    <div className="min-h-[calc(100vh-50px)] min-w-0 flex-1 bg-white text-[13px] text-[#333]">
+      <ListToolbar
+        slim
+        addLabel={t("Добавить филиал")}
+        onAdd={() => openForm()}
+        query={query}
+        onQuery={(value) => { setQuery(value); setPage(1) }}
+        addPad={6}
+        searchPos={{ left: 335, top: 9 }}
+        pageSize={pageSize}
+        onPageSize={(size) => { setPageSize(size); setPage(1) }}
+        from={filtered.length ? start + 1 : 0}
+        to={Math.min(start + pageSize, filtered.length)}
+        total={filtered.length}
+        onPrev={safePage > 1 ? () => setPage(safePage - 1) : undefined}
+        onNext={safePage < pageCount ? () => setPage(safePage + 1) : undefined}
+      />
+      <div className={`${grayHead} ${GRID}`}>
+        <span>№</span><span>{t("Наименование")}</span><span>{t("Дата")}</span><span>{t("Учет долга")}</span><span>{t("Основной филиал")}</span>
       </div>
+      {visible.map((branch, index) =>
+        openId === branch.id ? (
+          <div key={branch.id} className="my-[20px] shadow-[0_2px_10px_rgba(0,0,0,0.22)]">
+            <div className="flex h-[60px] items-center justify-between border-b border-[#efefef] pl-[15px] pr-[20px]">
+              <h3 onClick={() => setOpenId(null)} className="cursor-pointer text-[18px] font-normal">{branch.name}</h3>
+              <div className="flex items-center gap-[12px]">
+                <RefButton icon={PLAN_ICON} label={t("Добавить план")} onClick={() => { setPlanDraft({ weight: "", amount: "", price: "" }); setPlanOpen(true) }} />
+                <button type="button" onClick={() => openForm(branch)} aria-label={t("Изменить")} className="text-[#555] hover:text-black"><svg viewBox="0 0 24 24" className="h-5 w-5 fill-current"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a.996.996 0 000-1.41l-2.34-2.34a.996.996 0 00-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z" /></svg></button>
+                <button type="button" onClick={() => setDeleting(branch)} aria-label={t("Удалить")} className="text-[#555] hover:text-black"><svg viewBox="0 0 24 24" className="h-5 w-5 fill-current"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z" /></svg></button>
+              </div>
+            </div>
+            <div className="flex min-h-[166px]">
+              <dl className="w-[441px] shrink-0 border-r border-[#efefef] pl-[15px] pr-[30px] py-[20px] leading-[25px]">
+                {[
+                  [t("Дата создания:"), <b key="d">{branch.date}</b>],
+                  ...(branch.priceList ? [[t("Прайс лист:"), <b key="p">{branch.priceList}</b>]] : []),
+                  ...(branch.currency ? [[t("Валюта:"), <b key="c">{branch.currency}</b>]] : []),
+                  [t("Основной филиал:"), flag(branch.isMain, t("Включено"), t("Выключено"))],
+                  [t("Учет долга:"), flag(branch.debtTracking, t("Включено"), t("Выключено"))],
+                ].map(([label, value], row) => (
+                  <div key={row} className="flex justify-between"><dt>{label}</dt><dd>{value}</dd></div>
+                ))}
+              </dl>
+              <div className="min-w-0 flex-1 px-[15px] py-[15px]">
+                {plans.map((plan) => (
+                  <div key={plan.id} className="flex gap-[40px] leading-[25px]">
+                    <span>{t("Вес")}: <b>{plan.weight}</b></span><span>{t("Количество")}: <b>{plan.amount}</b></span><span>{t("Цена")}: <b>{plan.price}</b></span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div key={branch.id} onClick={() => setOpenId(branch.id)} className={`${listRow} ${GRID} cursor-pointer`}>
+            <span>{start + index + 1}</span>
+            <span>{branch.name}</span>
+            <span>{branch.date}</span>
+            <span className={branch.debtTracking ? "text-[#6ccd8b]" : "text-[#f07e7e]"}>{branch.debtTracking ? t("Включен") : t("Отключен")}</span>
+            <span className={branch.isMain ? "text-[#6ccd8b]" : "text-[#f07e7e]"}>{branch.isMain ? t("Да") : t("Нет")}</span>
+          </div>
+        ),
+      )}
+      {visible.length === 0 && <EmptyState />}
 
       {editing && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 p-4">
-          <form onSubmit={save} className="w-full max-w-md rounded-lg bg-white p-6 shadow-xl">
-            <div className="mb-5 flex justify-between">
-              <h2 className="text-xl font-bold">{editing.id ? "Изменить филиал" : "Добавить филиал"}</h2>
-              <button type="button" onClick={() => setEditing(null)} aria-label="Закрыть">
-                <X />
-              </button>
-            </div>
-            <label className="mb-2 block font-medium">Наименование</label>
-            <input autoFocus value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} className="mb-4 w-full rounded border border-slate-300 px-3 py-2.5" />
-            <label className="mb-2 block font-medium">Прайс лист</label>
-            <select value={draft.priceList} onChange={(event) => setDraft({ ...draft, priceList: event.target.value })} className="mb-4 w-full rounded border border-slate-300 px-3 py-2.5">
-              <option value="">Не указано</option>
-              {[...priceLists, ...(draft.priceList && !priceLists.includes(draft.priceList) ? [draft.priceList] : [])].map((item) => (
-                <option key={item}>{item}</option>
-              ))}
-            </select>
-            <label className="mb-2 block font-medium">Валюта</label>
-            <select value={draft.currency} onChange={(event) => setDraft({ ...draft, currency: event.target.value as Branch["currency"] })} className="mb-4 w-full rounded border border-slate-300 px-3 py-2.5">
-              <option value="SUM">SUM</option>
-              <option value="USD">USD</option>
-              <option value="Euro">Euro</option>
-            </select>
-            <label className="mb-2 flex items-center gap-2">
-              <input type="checkbox" checked={draft.debtTracking} onChange={(event) => setDraft({ ...draft, debtTracking: event.target.checked })} />
-              Учет долга
-            </label>
-            <label className="mb-4 flex items-center gap-2">
-              <input type="checkbox" checked={draft.isMain} onChange={(event) => setDraft({ ...draft, isMain: event.target.checked })} />
-              Основной филиал
-            </label>
-            <div className="mt-6 flex justify-end gap-3">
-              <button type="button" onClick={() => setEditing(null)} className="rounded border px-4 py-2">
-                Отмена
-              </button>
-              <button type="submit" className="inline-flex items-center gap-2 rounded bg-[#5474e6] px-4 py-2 font-semibold text-white">
-                <Plus className="h-4 w-4" />
-                Сохранить
-              </button>
-            </div>
-          </form>
-        </div>
+        <Modal
+          title={editing.id ? t("Изменить филиал") : t("Добавить филиал")}
+          onClose={() => setEditing(null)}
+          width={450}
+          bodyClassName="px-[30px] pt-[43px] pb-[34px]"
+          footer={<SaveLink disabled={saving} onClick={() => void save()}>{t("Сохранить")}</SaveLink>}
+        >
+          <div className="space-y-[26px]">
+            <LineField label={t("Название филиала")} required value={draft.name} onChange={(name) => setDraft({ ...draft, name })} />
+            <LineSelect label={t("Прайс лист")} value={draft.priceList} options={priceLists} onChange={(priceList) => setDraft({ ...draft, priceList })} onClear={editing.id ? () => setDraft({ ...draft, priceList: "" }) : undefined} />
+            <LineSelect label={t("Валюта")} value={draft.currency} options={currencies} onChange={(currency) => setDraft({ ...draft, currency })} onClear={editing.id ? () => setDraft({ ...draft, currency: "" }) : undefined} />
+          </div>
+          <div className="mt-[20px] space-y-[22px]">
+            <CheckBox checked={draft.debtTracking} onChange={(debtTracking) => setDraft({ ...draft, debtTracking })} label={t("Учет долга")} />
+            <CheckBox checked={draft.isMain} onChange={(isMain) => setDraft({ ...draft, isMain })} label={t("Основной филиал")} />
+          </div>
+          <div className="mt-[20px] flex items-center justify-between text-[13px]">
+            <button type="button" onClick={() => setMapOpen(true)} className="flex items-center gap-[4px] text-[#129fdd] hover:underline">
+              <svg viewBox="0 0 24 24" className="h-5 w-5 fill-[#9aa3b5]"><path d={PIN_ICON} /></svg>
+              {editing.id ? (draft.lat !== null && draft.lng !== null ? <span className="text-[#333] no-underline">{draft.lat} {draft.lng}</span> : null) : t("отметить местоположение на карте")}
+            </button>
+            {editing.id ? <button type="button" onClick={() => setMapOpen(true)} className="mr-[-6px] text-[#129fdd] hover:underline">{t("Изменить")}</button> : null}
+          </div>
+        </Modal>
       )}
 
-      {importOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
-          <div className="w-full max-w-md rounded bg-white">
-            <header className="flex items-center justify-between border-b p-6">
-              <b className="uppercase">Импорт с Excel</b>
-              <button type="button" onClick={() => { setImportOpen(false); setImportFile(null) }} aria-label="Закрыть">
-                <X className="h-5 w-5" />
-              </button>
-            </header>
-            <div className="p-8">
-              <button type="button" onClick={downloadTemplate} className="mb-4 font-semibold text-[#4f70e7] hover:underline">
-                1. Скачать шаблон
-              </button>
-              <input ref={importInputRef} type="file" accept=".csv,.xls,.xlsx" onChange={pickImportFile} className="hidden" />
-              <button
-                type="button"
-                onClick={() => importInputRef.current?.click()}
-                className="flex w-full flex-col items-center justify-center gap-3 rounded border-2 border-dashed border-slate-300 py-10 text-slate-500 hover:border-[#4f70e7] hover:text-[#4f70e7]"
-              >
-                <FileText className="h-8 w-8" />
-                {importFile ? importFile.name : "Добавьте файл Excel или нажмите для выбора"}
-              </button>
-            </div>
-            <footer className="flex justify-end border-t p-5">
-              <button type="button" disabled={!importFile || importSaving} onClick={saveImport} className="rounded bg-[#6ccd8b] px-5 py-3 font-semibold text-white hover:brightness-95 disabled:opacity-40">
-                {importSaving ? "Импорт..." : "Сохранить"}
-              </button>
-            </footer>
-          </div>
-        </div>
+      {mapOpen && (
+        <LocationPicker
+          initialLat={draft.lat ?? undefined}
+          initialLng={draft.lng ?? undefined}
+          onCancel={() => setMapOpen(false)}
+          onConfirm={(lat, lng) => { setDraft((current) => ({ ...current, lat, lng })); setMapOpen(false) }}
+        />
       )}
-    </main>
+
+      {planOpen && (
+        <Modal title={t("Добавить план")} onClose={() => setPlanOpen(false)} width={450} bodyClassName="min-h-[300px] px-[30px] pt-[43px]" footer={<SaveLink onClick={() => void savePlan()}>{t("Сохранить")}</SaveLink>}>
+          <div className="space-y-[32px]">
+            <LineField label={t("Вес")} value={planDraft.weight} onChange={(weight) => setPlanDraft({ ...planDraft, weight })} />
+            <LineField label={t("Количество")} value={planDraft.amount} onChange={(amount) => setPlanDraft({ ...planDraft, amount })} />
+            <LineField label={t("Цена")} value={planDraft.price} onChange={(price) => setPlanDraft({ ...planDraft, price })} />
+          </div>
+        </Modal>
+      )}
+
+      {deleting && <ConfirmDelete name={deleting.name} onConfirm={() => void remove()} onClose={() => setDeleting(null)} />}
+      {alertMessage && <ErrorAlert message={alertMessage} onClose={() => setAlertMessage("")} />}
+    </div>
   )
 }

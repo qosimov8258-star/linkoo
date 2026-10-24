@@ -1,11 +1,11 @@
 "use client"
 
-import Image from "next/image"
 import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react"
-import { ChevronLeft, ChevronRight, Copy, ListChecks, Pencil, PlusCircle, RefreshCw, Search, Trash2, X } from "lucide-react"
+import { Copy, ListChecks, Pencil, PlusCircle, RefreshCw, Trash2, X } from "lucide-react"
 
-import { RefHeader, RefPage } from "@/components/ref/list-kit"
+import { RefCard, RefHeader, RefPage, RefTable, RefToolbar } from "@/components/ref/list-kit"
 import { readExcelRows } from "@/lib/excel-import"
+import { notify } from "@/lib/notify"
 
 type PlanEntry = { employee: string; survey: string }
 
@@ -97,12 +97,12 @@ export function SurveyPlanView() {
         body: JSON.stringify({ period, entries }),
       })
       if (!response.ok) {
-        window.alert("Не удалось сохранить план")
+        notify("Не удалось сохранить план")
         return false
       }
       return true
     } catch {
-      window.alert("Сервер недоступен, попробуйте ещё раз")
+      notify("Сервер недоступен, попробуйте ещё раз")
       return false
     }
   }
@@ -118,6 +118,10 @@ export function SurveyPlanView() {
     })
     return Array.from(map.entries())
   }, [rows, grouped])
+  const tableRows = useMemo(
+    () => (grouped ? (grouping ?? []).map(([survey, names]) => ({ key: survey, employee: names.join(", "), survey })) : rows.map((row, index) => ({ key: `${row.employee}-${index}`, employee: row.employee, survey: row.survey }))),
+    [grouped, grouping, rows],
+  )
 
   function openEdit() {
     setDraft(plans[key] ?? [])
@@ -176,107 +180,99 @@ export function SurveyPlanView() {
         </button>
       </RefHeader>
 
-      <section className="overflow-hidden rounded bg-white shadow">
-        <div className="flex flex-wrap items-end gap-[15px] px-[10px] py-[8px] text-[13px]">
-          <label className="text-[10px] font-bold text-black">
-            Месяц
-            <div className="mt-1 flex items-center gap-2 border-b border-slate-300 pb-1 pr-1">
-              <select value={month} onChange={(event) => setMonth(event.target.value)} className="bg-white text-[13px] text-black outline-none">
-                {months.map((item) => (
-                  <option key={item}>{item}</option>
-                ))}
-              </select>
-              <button type="button" aria-label="Очистить месяц" onClick={() => setMonth(currentMonthName())} className="text-slate-400 hover:text-slate-600">
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-          </label>
-          <label className="text-[10px] font-bold text-black">
-            Год
-            <select value={year} onChange={(event) => setYear(event.target.value)} className="mt-1 block border-b border-slate-300 bg-white pb-1 text-[13px] font-normal text-black outline-none">
-              {years.map((item) => (
-                <option key={item}>{item}</option>
-              ))}
-            </select>
-          </label>
-          <label className="relative ml-[18px] w-[248px]">
-            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Поиск" className="w-full border-b border-[#e0e0e0] py-1 pr-10 text-[13px] outline-none focus:border-[#5d6474]" />
-            <Search className="absolute right-2 top-3 h-5 w-5 text-slate-300" />
-          </label>
-          <div className="ml-auto flex flex-wrap items-center gap-4">
-            <span className="text-slate-500">25</span>
-            <span className="text-slate-500">
-              1 - {rows.length} из {rows.length}
-            </span>
-            <ChevronLeft className="h-5 w-5 text-slate-300" />
-            <ChevronRight className="h-5 w-5 text-slate-300" />
-            <button type="button" onClick={() => setGrouped((value) => !value)} aria-pressed={grouped} aria-label="Группировать по опросу" className={`rounded p-2 ${grouped ? "bg-[#4f71dc] text-white" : "text-slate-500 hover:bg-slate-100"}`}>
-              <ListChecks className="h-5 w-5" />
-            </button>
-            <button type="button" onClick={openEdit} className="inline-flex items-center gap-2 rounded bg-[#4f71dc] px-5 py-2.5 font-semibold text-white hover:brightness-95">
-              <Pencil className="h-4 w-4" />
-              Изменить планы
-            </button>
-            <div className="relative">
-              <button type="button" onClick={() => setCopyOpen((value) => !value)} aria-label="Скопировать план" className="rounded border border-slate-300 p-2.5 text-slate-500 hover:bg-slate-100">
-                <Copy className="h-5 w-5" />
-              </button>
-              {copyOpen && (
-                <div className="absolute right-0 top-full z-20 mt-2 w-72 rounded border border-slate-200 bg-white p-4 shadow-xl">
-                  <p className="mb-3 text-sm font-semibold text-slate-700">Скопировать план в период</p>
-                  <div className="flex gap-2">
-                    <select value={copyMonth} onChange={(event) => setCopyMonth(event.target.value)} className="flex-1 border-b border-slate-300 bg-white py-1.5 text-sm outline-none">
-                      {months.map((item) => (
-                        <option key={item}>{item}</option>
-                      ))}
-                    </select>
-                    <select value={copyYear} onChange={(event) => setCopyYear(event.target.value)} className="border-b border-slate-300 bg-white py-1.5 text-sm outline-none">
-                      {years.map((item) => (
-                        <option key={item}>{item}</option>
-                      ))}
-                    </select>
-                  </div>
-                  <button type="button" onClick={copyPlan} className="mt-4 w-full rounded bg-[#71ce87] py-2 text-sm font-semibold text-white hover:brightness-95">
-                    {copyDone ? "Скопировано ✓" : "Скопировать"}
+      <RefCard>
+        <RefToolbar
+          hideFilter
+          leftSlot={
+            <div className="flex items-end gap-[8px] pl-[5px] pt-[10px] text-[13px]">
+              <label className="w-[192px] text-[10px] font-bold text-black">
+                Месяц
+                <div className="mt-[2px] flex items-center justify-between border-b border-[#d5dae1] pb-[2px] pr-[2px]">
+                  <select value={month} onChange={(event) => setMonth(event.target.value)} className="w-[150px] appearance-none bg-white text-[13px] font-semibold text-black outline-none">
+                    {months.map((item) => (
+                      <option key={item}>{item}</option>
+                    ))}
+                  </select>
+                  <button type="button" aria-label="Очистить месяц" onClick={() => setMonth(currentMonthName())} className="text-slate-400 hover:text-slate-600">
+                    <X className="h-4 w-4" />
                   </button>
+                  <span className="ml-[6px] border-x-[5px] border-t-[5px] border-x-transparent border-t-[#888]" aria-hidden />
                 </div>
-              )}
+              </label>
+              <label className="text-[10px] font-bold text-black">
+                Год
+                <select value={year} onChange={(event) => setYear(event.target.value)} className="mt-[2px] block w-[70px] appearance-none bg-white text-[13px] font-semibold text-black outline-none">
+                  {years.map((item) => (
+                    <option key={item}>{item}</option>
+                  ))}
+                </select>
+              </label>
             </div>
-          </div>
-        </div>
-
-        <table className="w-full text-left">
-          <thead className="bg-[#5d6474] text-white">
-            <tr>
-              <th className="px-9 py-5">Сотрудник</th>
-              <th className="px-5 py-5">Опрос</th>
-            </tr>
-          </thead>
-          <tbody>
-            {!grouped &&
-              rows.map((row, index) => (
-                <tr key={`${row.employee}-${index}`} className="border-b border-dashed border-slate-300 hover:bg-slate-50">
-                  <td className="px-9 py-4">{row.employee}</td>
-                  <td className="px-5 py-4 text-[#4f71dc]">{row.survey}</td>
-                </tr>
-              ))}
-            {grouped &&
-              grouping?.map(([survey, names]) => (
-                <tr key={survey} className="border-b border-dashed border-slate-300 hover:bg-slate-50">
-                  <td className="px-9 py-4">{names.join(", ")}</td>
-                  <td className="px-5 py-4 text-[#4f71dc]">{survey}</td>
-                </tr>
-              ))}
-          </tbody>
-        </table>
-
-        {rows.length === 0 && (
-          <div className="flex min-h-[340px] flex-col items-center justify-center gap-4 py-10">
-            <Image src="/robot-empty.png" alt="Робот-помощник" width={190} height={190} priority className="h-36 w-36 object-contain" />
-            <p className="text-lg text-slate-400">По вашему запросу ничего не найдено</p>
-          </div>
-        )}
-      </section>
+          }
+          query={query}
+          onQuery={setQuery}
+          pageSize={25}
+          onPageSize={() => {}}
+          from={rows.length ? 1 : 0}
+          to={rows.length}
+          total={rows.length}
+          page={1}
+          pageCount={1}
+          onPage={() => {}}
+          icons={
+            <button type="button" onClick={() => setGrouped((value) => !value)} aria-pressed={grouped} aria-label="Группировать по опросу" className={`flex h-[30px] w-[30px] items-center justify-center rounded ${grouped ? "bg-[#4f71dc] text-white" : "text-[#5d6474]"}`}>
+              <ListChecks className="h-6 w-6" />
+            </button>
+          }
+          extra={
+            <>
+              <button type="button" onClick={openEdit} className="inline-flex h-[30px] items-center gap-2 rounded-[5px] bg-[#4f71dc] px-[18px] text-[13px] font-semibold text-white hover:brightness-95">
+                <Pencil className="h-4 w-4" />
+                Изменить планы
+              </button>
+              <div className="relative mr-[12px]">
+                <button type="button" onClick={() => setCopyOpen((value) => !value)} aria-label="Скопировать план" className="flex h-[30px] w-[30px] items-center justify-center text-[#5d6474]">
+                  <Copy className="h-6 w-6" />
+                </button>
+                {copyOpen && (
+                  <div className="absolute right-0 top-full z-20 mt-2 w-72 rounded border border-slate-200 bg-white p-4 shadow-xl">
+                    <p className="mb-3 text-sm font-semibold text-slate-700">Скопировать план в период</p>
+                    <div className="flex gap-2">
+                      <select value={copyMonth} onChange={(event) => setCopyMonth(event.target.value)} className="flex-1 border-b border-slate-300 bg-white py-1.5 text-sm outline-none">
+                        {months.map((item) => (
+                          <option key={item}>{item}</option>
+                        ))}
+                      </select>
+                      <select value={copyYear} onChange={(event) => setCopyYear(event.target.value)} className="border-b border-slate-300 bg-white py-1.5 text-sm outline-none">
+                        {years.map((item) => (
+                          <option key={item}>{item}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <button type="button" onClick={copyPlan} className="mt-4 w-full rounded bg-[#71ce87] py-2 text-sm font-semibold text-white hover:brightness-95">
+                      {copyDone ? "Скопировано ✓" : "Скопировать"}
+                    </button>
+                  </div>
+                )}
+              </div>
+            </>
+          }
+        />
+        <RefTable
+          cols="700px minmax(0,1fr)"
+          heads={["Сотрудник", "Опрос"]}
+          rows={tableRows}
+          rowKey={(row) => row.key}
+          empty={
+            <div className="-my-16 flex h-[276px] flex-col items-center bg-white pt-[58px] text-[13px] text-[#666]">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/robot-empty.png" alt="" className="w-[164px]" />
+              <span className="mt-[2px]">По вашему запросу ничего не найдено</span>
+            </div>
+          }
+          render={(row) => [row.employee, <span key="s" className="text-[#4f71dc]">{row.survey}</span>]}
+        />
+      </RefCard>
 
       {editing && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">

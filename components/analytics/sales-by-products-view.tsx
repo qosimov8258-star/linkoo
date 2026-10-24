@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react"
 import { RefHeader } from "@/components/ref/list-kit"
-import { ReportCheckboxField, ReportChipField, ReportFilterPanel, ReportPage, ReportRangeField, ReportSearchBar, ReportSegmentTabs, ReportSelectField, ReportSummaryCard, ReportTopRow } from "@/components/ref/report-kit"
+import { ReportCheckboxField, ReportFilterPanel, ReportPage, ReportRangeField, ReportSearchBar, ReportSegmentTabs, ReportSelectField, ReportSummaryCard, ReportTopRow } from "@/components/ref/report-kit"
 import type { OrderItemWithOrder } from "@/lib/order-items-repo"
 
 type ProductRow = { name: string; unit: string; saleQty: number; saleSum: number; returnQty: number; returnSum: number }
@@ -181,12 +181,12 @@ export function SalesByProductsView() {
           {fullscreen && <button type="button" onClick={() => setFullscreen(false)} className="absolute right-5 top-5 rounded border px-3 py-2">Закрыть</button>}
 
           <div className="mt-[15px] grid gap-[14px] md:grid-cols-3">
-            <ReportSummaryCard label="Сумма от продаж">{totals.saleSum.toLocaleString("ru-RU")} SUM<small className="text-[12px] font-normal">({totals.saleQty} шт)</small></ReportSummaryCard>
-            <ReportSummaryCard label="Сумма возвратов">{totals.returnSum.toLocaleString("ru-RU")} SUM<small className="text-[12px] font-normal">({totals.returnQty} шт)</small></ReportSummaryCard>
-            <ReportSummaryCard label="Фактические продажи" right>{(totals.saleSum - totals.returnSum).toLocaleString("ru-RU")} SUM<small className="text-[12px] font-normal">({totals.saleQty - totals.returnQty} шт)</small></ReportSummaryCard>
+            <ReportSummaryCard label="Сумма от продаж">{totals.saleSum.toLocaleString("ru-RU")} SUM<small className="ml-px text-[13px] font-medium">({totals.saleQty} шт)</small></ReportSummaryCard>
+            <ReportSummaryCard label="Сумма возвратов">{totals.returnSum.toLocaleString("ru-RU")} SUM<small className="ml-px text-[13px] font-medium">({totals.returnQty} шт)</small></ReportSummaryCard>
+            <ReportSummaryCard label="Фактические продажи" right>{(totals.saleSum - totals.returnSum).toLocaleString("ru-RU")} SUM<small className="ml-px text-[13px] font-medium">({totals.saleQty - totals.returnQty} шт)</small></ReportSummaryCard>
           </div>
 
-          <div className="mt-[14px]">
+          <div className="mt-[5px]">
             <ReportSearchBar
               value={query}
               onChange={setQuery}
@@ -202,12 +202,12 @@ export function SalesByProductsView() {
           </div>
 
           <div className="-mx-[20px] flex items-end justify-between gap-4 py-[10px] pr-[20px]">
-            <p className="flex w-[560px] items-center gap-2 text-[16px] font-semibold leading-[21px] text-[#4f71dc]">
+            <p className="flex w-[660px] items-center gap-2 text-[16px] font-semibold leading-[21px] text-[#4f71dc]">
               <svg viewBox="0 0 24 24" className="h-5 w-5 shrink-0 fill-none stroke-[#4f71dc] stroke-2" aria-hidden><circle cx="12" cy="12" r="9" /><path d="M12 11v5M12 8v.01" strokeLinecap="round" /></svg>
-              Это оперативний отчет для просмотра факта перейдите в другой раздел
+              Это оперативний отчеть для просмотра факта перейдите в другой раздел
             </p>
             <div className="flex items-end gap-[20px]">
-              <ReportChipField label="Группировка" value={group} options={["По продукту", "По бренду", "По типу продукта"]} onChange={setGroup} compact />
+              <div className="w-[200px]"><ReportSelectField label="Группировка" value={group} options={["По продукту", "По бренду", "По типу продукта"]} onChange={(value) => setGroup(value || "По продукту")} /></div>
               <div className="flex pb-[2px]">
                 <ModeButton active={reportMode === "created"} onClick={() => setReportMode("created")}>ПОКАЗАТЬ ПО ДАТЕ СОЗДАНИЯ</ModeButton>
                 <ModeButton active={reportMode === "profit"} onClick={() => setReportMode("profit")}>ПРОДАЖА ПО ТОВАРАМ С ПРИБЫЛЬЮ</ModeButton>
@@ -251,11 +251,11 @@ function ProductTable({ rows, bonus }: { rows: ProductRow[]; bonus: boolean }) {
       <table className="w-full min-w-[1500px] table-fixed border-collapse text-[13px]">
         <colgroup><col className="w-[300px]" /><col className="w-[100px]" />{Array.from({ length: 10 }, (_, c) => <col key={c} />)}</colgroup>
         <thead className="shadow-[0_3px_6px_rgba(0,0,0,0.12)]">
-          <tr className="h-[30px]">
-            <th colSpan={2} className="bg-white" />
+          <tr className="h-[29px] bg-[#f0f4f9]">
+            <th colSpan={2} className="bg-[#f0f4f9]" />
             <Group title="Продажа" /><Group title="Возврат в этом периоде" /><Group title="Фактическая продажа" /><Group title="Скидки" /><Group title="Бонус" />
           </tr>
-          <tr className="h-[32px] bg-white">
+          <tr className="h-[30px] bg-[#f0f4f9]">
             {heads.map((item, i) => <th key={`${item}-${i}`} className="border-l border-[#ececec] px-2 text-center font-semibold">{item}</th>)}
           </tr>
         </thead>
@@ -276,8 +276,8 @@ function ProductTable({ rows, bonus }: { rows: ProductRow[]; bonus: boolean }) {
     </div>
   )
 }
-function Group({ title }: { title: string }) { return <th colSpan={2} className="border-l border-[#ececec] bg-white px-3 text-center font-semibold">{title}</th> }
-function ModeButton({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) { return <button type="button" onClick={onClick} className={`h-8 px-4 text-[13px] font-medium uppercase ${active ? "bg-[#4f71dc] text-white" : "border border-[#e0e0e0] bg-white text-black"}`}>{children}</button> }
+function Group({ title }: { title: string }) { return <th colSpan={2} className="border-l border-[#ececec] bg-[#f0f4f9] px-3 text-center font-semibold">{title}</th> }
+function ModeButton({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) { return <button type="button" onClick={onClick} className={`h-8 px-4 text-[13px] font-normal uppercase ${active ? "bg-[#4f71dc] text-white" : "border border-[#e0e0e0] bg-white text-black"}`}>{children}</button> }
 function formatDate(value: string) { const [year, month, day] = value.split("-"); return `${day}.${month}.${year}` }
 
 const labels: Record<FilterKey, string> = { branch: "Филиалы", brand: "Бренд", organization: "Организация", productType: "Тип товара", status: "Статус", client: "Клиент", agent: "Агент", clientType: "Тип клиента", warehouse: "Склад" }

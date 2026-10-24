@@ -3,6 +3,7 @@ import "server-only"
 import type { PgDb } from "@/lib/db"
 import { parseItemPrices } from "@/lib/item-prices"
 import { CATALOG_TABLE, KIND_COLUMNS, catalogDb } from "@/lib/products-schema"
+import { shortRuDate } from "@/lib/ref-date"
 import {
   EMPTY_CATALOG_FILTERS,
   catalogKey,
@@ -116,7 +117,7 @@ export function rowToItem(kind: CatalogKind, row: CatalogRow): CatalogItem {
     priceLists: parsePrices(row),
     priceMin: num(row.price_min),
     priceMax: num(row.price_max),
-    priceUpdatedDate: cleanText(row.price_updated_date),
+    priceUpdatedDate: shortRuDate(cleanText(row.price_updated_date)),
     cost: num(row.cost),
     deleted: int(row.deleted),
     deletedAt: text(row.deleted_at),
@@ -127,16 +128,68 @@ export function rowToItem(kind: CatalogKind, row: CatalogRow): CatalogItem {
   }
 }
 
-/** SELECT of the item rows with their image info (alias t). */
-function itemSelect(kind: CatalogKind): string {
+/** Which optional demo sources exist (see itemSelect). */
+type CatalogSources = { priceEntries: boolean; costRows: boolean; referencePrices: boolean }
+
+let nameIndexes: Promise<void> | null = null
+
+/** The price / cost fallbacks match by fin_key(name) once per product: without these indexes a full export (pageSize 0) scans both tables per row (~50 s). */
+function ensureNameIndexes(db: PgDb, sources: CatalogSources): Promise<void> {
+  nameIndexes ??= (async () => {
+    if (sources.priceEntries) await db.prepare("CREATE INDEX IF NOT EXISTS price_list_entries_fin_key_idx ON price_list_entries (fin_key(product))").run()
+    if (sources.costRows) await db.prepare("CREATE INDEX IF NOT EXISTS cost_of_goods_rows_fin_key_idx ON cost_of_goods_rows (fin_key(name))").run()
+  })().catch(() => {
+    nameIndexes = null
+  })
+  return nameIndexes
+}
+
+async function catalogSources(db: PgDb): Promise<CatalogSources> {
+  const sources = {
+    priceEntries: await tableExists(db, "price_list_entries"),
+    costRows: await tableExists(db, "cost_of_goods_rows"),
+    referencePrices: await tableExists(db, "product_reference_prices"),
+  }
+  await ensureNameIndexes(db, sources)
+  return sources
+}
+
+/**
+ * SELECT of the item rows with their image info (alias t). An item without saved prices / cost falls back to the
+ * price-list entries ("Анализ цен", matched by name) and the latest cost-of-goods row; the later duplicate column
+ * names replace the table columns in the row object.
+ */
+function itemSelect(kind: CatalogKind, sources: CatalogSources = { priceEntries: false, costRows: false, referencePrices: false }): string {
+  const entries = `(SELECT jsonb_agg(jsonb_build_object('name', e.price_list, 'cash', e.cash, 'nonCash', e.non_cash, 'min', 0, 'max', 0, 'currency', 'SUM', 'nonCashCurrency', 'SUM') ORDER BY e.id)
+       FROM price_list_entries e WHERE fin_key(e.product) = fin_key(t.name))`
+  // Raw materials have no price / cost columns, so the fallbacks apply to products only.
+  const fallback = sources.priceEntries && kind === "product"
+    ? `,
+    COALESCE(NULLIF(t.price_lists, '[]'), ${entries}::text, '[]') AS price_lists,
+    COALESCE(NULLIF(t.price_min, 0), (SELECT MIN(LEAST(NULLIF(e.cash, 0), NULLIF(e.non_cash, 0))) FROM price_list_entries e WHERE fin_key(e.product) = fin_key(t.name)), 0) AS price_min,
+    COALESCE(NULLIF(t.price_max, 0), (SELECT MAX(GREATEST(e.cash, e.non_cash)) FROM price_list_entries e WHERE fin_key(e.product) = fin_key(t.name)), 0) AS price_max`
+    : ""
+  const cost = sources.costRows && kind === "product"
+    ? `,
+    COALESCE(NULLIF(t.cost, 0), (SELECT g.avg_cost FROM cost_of_goods_rows g WHERE fin_key(g.name) = fin_key(t.name) AND g.avg_cost > 0 ORDER BY g.row_date DESC, g.id DESC LIMIT 1), 0) AS cost`
+    : ""
+  // The reference's own net cost / min / max price / update date (product_reference_prices, additive) win when a product has them.
+  const ref = (column: string) => `(SELECT r.${column} FROM product_reference_prices r WHERE r.product_id = t.id)`
+  const referenced = sources.referencePrices && kind === "product"
+    ? `,
+    COALESCE(${ref("net_cost")}, ${sources.costRows ? `COALESCE(NULLIF(t.cost, 0), (SELECT g.avg_cost FROM cost_of_goods_rows g WHERE fin_key(g.name) = fin_key(t.name) AND g.avg_cost > 0 ORDER BY g.row_date DESC, g.id DESC LIMIT 1), 0)` : "t.cost"}) AS cost,
+    COALESCE(${ref("min_price")}, ${sources.priceEntries ? `COALESCE(NULLIF(t.price_min, 0), (SELECT MIN(LEAST(NULLIF(e.cash, 0), NULLIF(e.non_cash, 0))) FROM price_list_entries e WHERE fin_key(e.product) = fin_key(t.name)), 0)` : "t.price_min"}) AS price_min,
+    COALESCE(${ref("max_price")}, ${sources.priceEntries ? `COALESCE(NULLIF(t.price_max, 0), (SELECT MAX(GREATEST(e.cash, e.non_cash)) FROM price_list_entries e WHERE fin_key(e.product) = fin_key(t.name)), 0)` : "t.price_max"}) AS price_max,
+    COALESCE(${ref("price_updated")}, t.price_updated_date) AS price_updated_date`
+    : ""
   return `SELECT t.*,
     (SELECT i.id FROM product_images i WHERE i.item_kind = '${kind}' AND i.item_id = t.id ORDER BY i.is_primary DESC, i.id LIMIT 1) AS primary_image_id,
-    (SELECT COUNT(*) FROM product_images i WHERE i.item_kind = '${kind}' AND i.item_id = t.id) AS image_count
+    (SELECT COUNT(*) FROM product_images i WHERE i.item_kind = '${kind}' AND i.item_id = t.id) AS image_count${fallback}${cost}${referenced}
     FROM ${CATALOG_TABLE[kind]} t`
 }
 
 export async function readCatalogRow(db: PgDb, kind: CatalogKind, id: number, lock = false): Promise<CatalogRow | null> {
-  const sql = lock ? `SELECT * FROM ${CATALOG_TABLE[kind]} WHERE id = @id FOR UPDATE` : `${itemSelect(kind)} WHERE t.id = @id`
+  const sql = lock ? `SELECT * FROM ${CATALOG_TABLE[kind]} WHERE id = @id FOR UPDATE` : `${itemSelect(kind, await catalogSources(db))} WHERE t.id = @id`
   return ((await db.prepare(sql).get({ id })) as CatalogRow | undefined) ?? null
 }
 
@@ -181,6 +234,10 @@ function listWhere(kind: CatalogKind, query: CatalogListQuery, params: Record<st
   const where: string[] = []
   const f = query.filters
   where.push(query.tab === "4" ? "COALESCE(t.deleted, 0) = 1" : "COALESCE(t.deleted, 0) = 0")
+  // Products that are raw materials (product_kind_overrides) belong to the "Сырье" list only.
+  if (kind === "product") where.push("NOT EXISTS (SELECT 1 FROM product_kind_overrides o WHERE o.product_id = t.id)")
+  // Inventory has its own tab: "Все" is sellable + off-sale products only (reference: 757 = 624 + 133, inventory 18 apart).
+  if (query.tab !== "2" && query.tab !== "4") where.push(`COALESCE(t.${columns.isInventory}, 0) = 0`)
   if (query.tab === "1") where.push("t.can_sell = 1")
   if (query.tab === "2") where.push(`t.${columns.isInventory} = 1`)
   if (query.tab === "3") where.push(`t.can_sell = 0 AND COALESCE(t.${columns.isInventory}, 0) = 0`)
@@ -249,7 +306,7 @@ export async function listCatalog(kind: CatalogKind, query: CatalogListQuery): P
     params.offset = (Math.max(1, query.page) - 1) * query.pageSize
     paging = "LIMIT @limit OFFSET @offset"
   }
-  const rows = (await db.prepare(`${itemSelect(kind)} WHERE ${where} ORDER BY ${order} ${paging}`).all(...args())) as CatalogRow[]
+  const rows = (await db.prepare(`${itemSelect(kind, await catalogSources(db))} WHERE ${where} ORDER BY ${order} ${paging}`).all(...args())) as CatalogRow[]
   return { results: rows.map((row) => rowToItem(kind, row)), count }
 }
 

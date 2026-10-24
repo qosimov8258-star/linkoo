@@ -33,6 +33,9 @@ export function BalanceSummaryCards({
   currencies,
   digits = 2,
   loading = false,
+  hideCurrency = false,
+  marginClass = "mx-[30px]",
+  plain = false,
 }: {
   boxes: SummaryBox[]
   /** BalanceListResult.totals or StatementResult.summary. */
@@ -41,26 +44,34 @@ export function BalanceSummaryCards({
   currencies: string[]
   digits?: number
   loading?: boolean
+  /** The reference shows bare numbers (no currency names) on some pages, e.g. supplier balance. */
+  hideCurrency?: boolean
+  /** Horizontal margin of the cards box (30px on most pages, 10px on "Баланс филиалов"). */
+  marginClass?: string
+  /** Reference "Сверка" look: grey 13px title, 14px values on a 30px pitch, no bold. */
+  plain?: boolean
 }) {
   const { t } = useLanguage()
   const columns = { 1: "lg:grid-cols-1", 2: "lg:grid-cols-2", 3: "lg:grid-cols-3", 4: "lg:grid-cols-4", 5: "lg:grid-cols-5" }[Math.min(5, boxes.length) as 1 | 2 | 3 | 4 | 5]
+  // Reference order of the lines: Euro, SUM, USD (alphabetical by label).
+  const lines = [...currencies].sort((a, b) => currencyLabel(a).localeCompare(currencyLabel(b)))
   return (
-    <section className={`grid grid-cols-1 gap-6 px-6 pb-6 sm:grid-cols-2 md:px-9 ${columns} ${loading ? "opacity-60" : ""}`}>
+    <section className={`${marginClass} my-[10px] grid grid-cols-1 border border-[#efefef] bg-white sm:grid-cols-2 ${columns} ${loading ? "opacity-60" : ""}`}>
       {boxes.map((box, boxIndex) => (
-        <div key={boxIndex} className={`flex flex-col gap-4 ${box.align === "right" ? "lg:items-end lg:text-right" : ""}`}>
+        <div key={boxIndex} className={`flex flex-col ${plain ? "gap-[10px] px-[16px] py-[10px]" : "gap-[10px] px-[15px] py-[10px]"} border-[#efefef] lg:border-r lg:last:border-r-0 ${box.align === "right" ? "lg:items-end lg:text-right" : ""}`}>
           {box.metrics.map((metric) => {
             const content = (
               <>
-                <p className="flex items-center gap-1 text-[#586174]">
+                <p className={`flex items-center gap-1 text-[13px] leading-[18px] ${plain ? "mb-[4px] font-normal text-[#666]" : "font-medium text-[#333]"}`}>
                   {t(metric.label)}
                   {metric.hint}
                 </p>
-                {currencies.map((code) => {
+                {lines.map((code) => {
                   const balance = totals[code]
                   const value = balance ? (metric.value ? metric.value(balance) : (balance[metric.field] ?? 0)) : 0
                   return (
-                    <p key={code} className="font-semibold text-[#17233b]">
-                      <span style={{ color: balanceColor(value, "card") }}>{formatMoney(value, digits)}</span> {currencyLabel(code)}
+                    <p key={code} className={plain ? "text-[14px] font-normal leading-[30px]" : "text-[16px] font-semibold leading-[20px] text-[#333]"} style={{ color: balanceColor(value, "card") }}>
+                      {formatMoney(value, digits)}{hideCurrency ? "" : ` ${currencyLabel(code)}`}
                     </p>
                   )
                 })}

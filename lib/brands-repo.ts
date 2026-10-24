@@ -109,12 +109,13 @@ export async function getBrandImage(id: number): Promise<string | null> {
 /** Write input; `undefined` = keep the stored value (PUT) / the default (POST). */
 export type BrandInput = { name: string; organization?: string; image?: string | null }
 
-async function validate(tx: PgDb, id: number | null, name: string, organization: string): Promise<void> {
+/** `legacyEmpty`: the stored brand has no organization (demo data) and keeps none, so editing it stays possible. */
+async function validate(tx: PgDb, id: number | null, name: string, organization: string, legacyEmpty = false): Promise<void> {
   const duplicate = await tx
     .prepare("SELECT id FROM brands WHERE fin_key(name) = fin_key(@name) AND (@exceptId::int IS NULL OR id <> @exceptId::int) LIMIT 1")
     .get({ name, exceptId: id })
   if (duplicate) throw fieldError("name", DUPLICATE)
-  if (!organization && (await organizationRequired(tx))) throw fieldError("organization", REQUIRED)
+  if (!organization && !legacyEmpty && (await organizationRequired(tx))) throw fieldError("organization", REQUIRED)
 }
 
 /** Demo POST main/brand/ {name, division, image}. */
@@ -143,7 +144,7 @@ export async function updateBrand(id: number, input: BrandInput): Promise<BrandU
     if (!current) return null
     const name = input.name.trim()
     const organization = input.organization === undefined ? cleanText(current.organization) : input.organization.trim()
-    await validate(tx, id, name, organization)
+    await validate(tx, id, name, organization, !cleanText(current.organization))
     let renamed: DictionaryRenameChange[] = []
     if (current.name !== name) {
       await lockCatalog(tx)

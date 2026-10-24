@@ -8,6 +8,8 @@ import { deleteClientType, updateClientType } from "@/lib/client-types-repo"
 const clientTypeSchema = z.object({
   name: z.string().trim().min(1),
   supplier: z.string().trim().optional(),
+  parentId: z.number().int().nullable().optional(),
+  innRequired: z.boolean().optional(),
 })
 
 type RouteParams = { params: Promise<{ id: string }> }
@@ -23,6 +25,8 @@ export async function PUT(request: Request, { params }: RouteParams) {
   const clientType = await updateClientType(id, {
     name: parsed.data.name,
     supplier: parsed.data.supplier || "Не указано",
+    parentId: parsed.data.parentId ?? null,
+    innRequired: parsed.data.innRequired ?? false,
   })
   if (!clientType) return NextResponse.json({ error: "Тип клиента не найден" }, { status: 404 })
   return NextResponse.json(clientType)

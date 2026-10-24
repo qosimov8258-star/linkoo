@@ -1,7 +1,6 @@
 "use client"
 
 import { useState, type ReactNode } from "react"
-import { Pencil, Trash2, X } from "lucide-react"
 
 import { useCashJson } from "@/components/analytics/cash/use-cash"
 import { CashModal, ErrorBlock, LoadingBlock } from "@/components/analytics/cash-management-shared"
@@ -66,16 +65,14 @@ function DocumentsTable({ rows, showCost = true }: { rows: NetCostDocument[]; sh
 
 export function NetCostDetailPanel({
   id,
-  canEdit,
   onClose,
-  onEdit,
-  onDelete,
 }: {
   id: number
-  canEdit: boolean
+  /** Kept for the callers; the reference card has no edit / delete icons. */
+  canEdit?: boolean
   onClose: () => void
-  onEdit: (detail: NetCostDetail) => void
-  onDelete: (detail: NetCostDetail) => void
+  onEdit?: (detail: NetCostDetail) => void
+  onDelete?: (detail: NetCostDetail) => void
 }) {
   const { t, language } = useLanguage()
   const { data, error, loading, reload } = useCashJson<NetCostDetail>(`${NET_COST_API}/${id}`)
@@ -94,21 +91,6 @@ export function NetCostDetailPanel({
           </span>
           <span className="block truncate text-[13px] text-[#666]">{data.itemName}</span>
         </button>
-        <div className="flex items-center gap-1">
-          {canEdit && data.isManual && (
-            <>
-              <button type="button" onClick={() => onEdit(data)} title={t("Изменить")} aria-label={t("Изменить")} className="flex h-10 w-10 items-center justify-center rounded-full text-[#666] hover:bg-[#f2f5f8]">
-                <Pencil className="h-5 w-5" />
-              </button>
-              <button type="button" onClick={() => onDelete(data)} title={t("Удалить")} aria-label={t("Удалить")} className="flex h-10 w-10 items-center justify-center rounded-full text-[#666] hover:bg-[#f2f5f8]">
-                <Trash2 className="h-5 w-5" />
-              </button>
-            </>
-          )}
-          <button type="button" onClick={onClose} title={t("Закрыть")} aria-label={t("Закрыть")} className="flex h-10 w-10 items-center justify-center rounded-full text-[#666] hover:bg-[#f2f5f8]">
-            <X className="h-5 w-5" />
-          </button>
-        </div>
       </div>
 
       <div className="grid gap-6 px-5 py-5 text-[14px] md:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,1fr)] md:px-8">
@@ -121,7 +103,7 @@ export function NetCostDetailPanel({
           ) : (
             <li className="font-semibold leading-[25px] text-[#17233b]">{t("Произвольная себестоимость")}</li>
           )}
-          <Item label={t("Склад")}>{data.stock || t("Общий")}</Item>
+          <Item label={t("Склад")}>{data.stock || t("Не указано")}</Item>
           {data.warehouse && data.warehouse !== data.stock && <Item label={t("Склад документа")}>{data.warehouse}</Item>}
           <Item label={t("Дата")}>{recordDate(data.date, language)}</Item>
           {!data.isManual && <Item label={t("Количество")}>{formatMoney(data.qty, 3)}</Item>}
@@ -147,20 +129,22 @@ export function NetCostDetailPanel({
           <p className="font-bold text-[#17233b]">{t("Характеристика")}:</p>
           <ul className="mt-1">
             <Item label={t("Рассчитанный баланс")}>{formatMoney(data.balance, 3)}</Item>
-            <Item label={t("Сумма переоценки")}>{data.revaluation === null ? t("Не указано") : fmtCost(data.revaluation)}</Item>
-            <Item label={t("Общая сумма переоценки")}>{data.totalRevaluation === null ? t("Не указано") : fmtSum(data.totalRevaluation)}</Item>
+            <Item label={t("Сумма переоценки")}>{data.revaluation === null ? "0" : fmtCost(data.revaluation)}</Item>
+            <Item label={t("Общая сумма переоценки")}>{data.totalRevaluation === null ? "0" : fmtSum(data.totalRevaluation)}</Item>
             <Item label={t("Последнее время проверки")}>{data.lastCheckTime ? docDate(data.lastCheckTime, language, true) : "—"}</Item>
           </ul>
         </div>
       </div>
 
-      <div className="border-t border-[#efefef] px-5 py-4 md:px-8">
-        <p className="mb-2 text-[13px] font-semibold text-[#8a90a2]">
-          {t("Документы")} ({data.documents.length})
-          {data.nextDate ? ` · ${t("до")} ${docDate(data.nextDate, language)}` : ""}
-        </p>
-        {data.documents.length ? <DocumentsTable rows={data.documents} /> : <p className="py-3 text-[13px] text-[#9aa3b6]">{t("Нет документов")}</p>}
-      </div>
+      {data.documents.length > 0 && (
+        <div className="border-t border-[#efefef] px-5 py-4 md:px-8">
+          <p className="mb-2 text-[13px] font-semibold text-[#8a90a2]">
+            {t("Документы")} ({data.documents.length})
+            {data.nextDate ? ` · ${t("до")} ${docDate(data.nextDate, language)}` : ""}
+          </p>
+          <DocumentsTable rows={data.documents} />
+        </div>
+      )}
 
       {factOpen && (
         <CashModal title={t("Причины отрицательного баланса")} onClose={() => setFactOpen(false)} size="lg">

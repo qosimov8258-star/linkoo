@@ -4,12 +4,14 @@ import Link from "next/link"
 import { useEffect, useMemo, useState } from "react"
 import { Plus, Search, Trash2 } from "lucide-react"
 
+import { MaterialCheckbox } from "@/components/analytics/cash-material"
 import { cashMutate, useCashJson, useCashOperation } from "@/components/analytics/cash/use-cash"
 import {
   CashModal,
   ErrorBlock,
   FormField,
   LoadingBlock,
+  MaterialDateTime,
   PrimaryButton,
   SearchSelect,
   formatCash,
@@ -460,9 +462,7 @@ function OperationForm({
     >
       <div className={wide ? "grid grid-cols-1 gap-6 lg:grid-cols-2" : ""}>
         <div className="flex flex-col gap-3">
-          <FormField label={t("Дата создания")} required error={errors.date}>
-            <input type="datetime-local" value={values.date} onChange={(event) => set("date", event.target.value)} className={inputClass} />
-          </FormField>
+          <MaterialDateTime label={t("Дата создания")} value={values.date} onChange={(value) => set("date", value)} error={errors.date} />
           <FormField label={t("Филиал")}>
             <SearchSelect value={values.branch} onChange={(value) => set("branch", value)} options={branches.map((item) => ({ value: item.name, label: item.name }))} placeholder={t("Филиал")} />
           </FormField>
@@ -483,18 +483,7 @@ function OperationForm({
             <SearchSelect value={values.organization} onChange={(value) => set("organization", value)} options={organizations.map((item) => ({ value: item.name, label: item.name }))} placeholder={t("Организация")} />
           </FormField>
 
-          <FormField
-            label={
-              <span className="flex items-center justify-between gap-2">
-                {t(kind === "income" ? "Категория прихода" : "Категория расхода")}
-                <Link href={kind === "income" ? "/analytics/income-categories" : "/analytics/expense-categories"} target="_blank" className="text-[12px] text-[#4f70e7] hover:underline">
-                  + {t("добавить")}
-                </Link>
-              </span>
-            }
-            required={!requestLocked}
-            error={errors.categoryId}
-          >
+          <FormField label={t(kind === "income" ? "Категория прихода" : "Категория расхода")} required={!requestLocked} error={errors.categoryId}>
             <SearchSelect
               value={values.categoryId}
               invalid={Boolean(errors.categoryId)}
@@ -512,6 +501,14 @@ function OperationForm({
               loading={categoriesState.loading}
             />
           </FormField>
+          {kind === "expense" && (
+            <div className="-mt-[3px] flex items-center justify-between text-[13px] font-semibold text-black">
+              <span>{t("Выбор категории расходов")}</span>
+              <Link href="/analytics/expense-categories" target="_blank" className="font-normal text-[#4f70e7] hover:underline">
+                + {t("добавить")}
+              </Link>
+            </div>
+          )}
 
           {showClient && (
             <FormField label={t(has("client_contract") && !has("client") ? "Название клиента" : "Клиент")} required={CATEGORY_OPTIONS[first ?? "client"]?.requires === "client"} error={errors.clientId}>
@@ -601,7 +598,7 @@ function OperationForm({
           )}
 
           {!staffMode && (
-            <FormField label={`${t("Сумма")}${cashCurrency ? ` (${currencyLabel(cashCurrency)})` : ""}`} required={!requestLocked} error={errors.amount}>
+            <FormField label={`${t("Сумма")}${cashCurrency ? ` (${currencyLabel(cashCurrency)})` : ""}`} required={!requestLocked} error={errors.amount} className={`!min-h-[60px] ${kind === "expense" ? "-mt-[13px]" : "-mt-[9px]"}`}>
               {requestLocked && payMode && state.request ? (
                 <input value={formatCash(state.request.amount, state.request.currency)} disabled className={inputClass} />
               ) : (
@@ -655,13 +652,12 @@ function OperationForm({
           )}
 
           <FormField label={t("Комментарий...")} error={errors.comment}>
-            <textarea rows={2} value={values.comment} onChange={(event) => set("comment", event.target.value)} className={`${inputClass} h-auto py-2`} />
+            <input value={values.comment} onChange={(event) => set("comment", event.target.value)} className={inputClass} />
           </FormField>
 
-          <label className="flex items-center gap-2 text-[14px] text-[#17233b]">
-            <input type="checkbox" checked={values.isVerified} disabled={requestLocked} onChange={(event) => set("isVerified", event.target.checked)} className="h-4 w-4 accent-[#4f70e7]" />
-            {t(kind === "income" ? "Подтвержденный приход (Я получил деньги)" : "Подтвержденный расход (Снял деньги с кассы)")}
-          </label>
+          <div className="mt-[7px]">
+            <MaterialCheckbox checked={values.isVerified} disabled={requestLocked} onChange={(next) => set("isVerified", next)} label={t(kind === "income" ? "Подтвержденный приход (Я получил деньги)" : "Подтвержденный расход (Снял деньги с кассы)")} />
+          </div>
 
           {cashCurrency && (
             <RateBlock

@@ -18,7 +18,7 @@ import { CASH_DOC_SEQUENCE, ensureFinanceSchema, ensureLedgerExtensions, type Fi
 //   amount columns REAL → double precision (REAL keeps ~7 significant digits)
 // Everything is idempotent (IF NOT EXISTS / CREATE OR REPLACE / guarded DO blocks).
 
-const CASH_SCHEMA_VERSION = 1
+const CASH_SCHEMA_VERSION = 3
 
 const DDL = `
 CREATE SEQUENCE IF NOT EXISTS ${CASH_DOC_SEQUENCE};
@@ -116,6 +116,45 @@ CREATE TABLE IF NOT EXISTS cash_entry_children (
 );
 CREATE INDEX IF NOT EXISTS cash_entry_children_entry_idx ON cash_entry_children (entry_id);
 
+-- Archived reference operations of the cash management list (read-only; the ledger never reads this table:
+-- cashbox balances come from the real tables). cash_list_cutoff = the highest id per source at import time:
+-- rows of the real tables above it are new operations and appear in the list next to the reference rows.
+CREATE TABLE IF NOT EXISTS cash_reference_rows (
+  id INTEGER PRIMARY KEY,
+  op INTEGER NOT NULL,
+  ts TIMESTAMP,
+  cts TIMESTAMP,
+  cby TEXT NOT NULL DEFAULT '',
+  cashbox_id INTEGER NOT NULL,
+  pt TEXT NOT NULL DEFAULT 'cash',
+  amount DOUBLE PRECISION NOT NULL DEFAULT 0,
+  base_amount DOUBLE PRECISION,
+  rate DOUBLE PRECISION,
+  client_id INTEGER,
+  client_name TEXT NOT NULL DEFAULT '',
+  supplier_id INTEGER,
+  supplier_name TEXT NOT NULL DEFAULT '',
+  category_id INTEGER,
+  category_kind TEXT NOT NULL DEFAULT '',
+  category_name TEXT NOT NULL DEFAULT '',
+  branch TEXT NOT NULL DEFAULT '',
+  organization TEXT NOT NULL DEFAULT '',
+  comment TEXT NOT NULL DEFAULT '',
+  employee_id INTEGER,
+  employee_name TEXT NOT NULL DEFAULT '',
+  order_id INTEGER,
+  supply_id INTEGER,
+  supply_expense_id INTEGER,
+  money_request_id INTEGER,
+  contract TEXT NOT NULL DEFAULT '',
+  verified INTEGER NOT NULL DEFAULT 1,
+  extra TEXT NOT NULL DEFAULT '{}'
+);
+CREATE TABLE IF NOT EXISTS cash_list_cutoff (
+  src TEXT PRIMARY KEY,
+  max_id INTEGER NOT NULL DEFAULT 0
+);
+
 ALTER TABLE income_categories ADD COLUMN IF NOT EXISTS options TEXT;
 ALTER TABLE expense_categories ADD COLUMN IF NOT EXISTS options TEXT;
 
@@ -209,6 +248,21 @@ async function install(): Promise<void> {
   // Extension columns of a cash_management_entries table created just now.
   await ensureLedgerExtensions(db)
   await db.exec(INDEXES)
+  await syncDocSequence(db)
+}
+
+/** Documents imported with explicit numbers (backfills) leave the shared sequence behind; a new payment would then get a
+ * number below every existing one and sink to the end of the "№ desc" lists. Moves the sequence up to the highest number. */
+async function syncDocSequence(db: PgDb): Promise<void> {
+  const row = (await db
+    .prepare(
+      `SELECT GREATEST(COALESCE((SELECT MAX(doc_no) FROM cash_management_entries), 0), COALESCE((SELECT MAX(doc_no) FROM customer_payments), 0),
+              COALESCE((SELECT MAX(doc_no) FROM supplier_payments), 0), COALESCE((SELECT MAX(doc_no) FROM cash_transfers), 0)) AS top_doc,
+              (SELECT CASE WHEN is_called THEN last_value ELSE 0 END FROM ${CASH_DOC_SEQUENCE}) AS current_doc`,
+    )
+    .get()) as { top_doc: string | number; current_doc: string | number } | undefined
+  const top = Number(row?.top_doc ?? 0)
+  if (top > Number(row?.current_doc ?? 0)) await db.exec(`SELECT setval('${CASH_DOC_SEQUENCE}', ${Math.trunc(top)})`)
 }
 
 /** Creates/updates the cash core schema once per process (version-keyed) and

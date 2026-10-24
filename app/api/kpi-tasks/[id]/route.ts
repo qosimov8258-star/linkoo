@@ -15,6 +15,9 @@ const kpiTaskFullSchema = z.object({
   clientType: z.string().trim().optional(),
   comment: z.string().optional(),
   active: z.boolean().optional(),
+  detail: z.record(z.string(), z.unknown()).nullable().optional(),
+  startDate: z.string().nullable().optional(),
+  tillDate: z.string().nullable().optional(),
 })
 const kpiTaskPutSchema = z.union([kpiTaskActiveOnlySchema, kpiTaskFullSchema])
 
@@ -40,6 +43,9 @@ export async function PUT(request: Request, { params }: RouteParams) {
     clientType: parsed.data.clientType || "Для всех",
     comment: parsed.data.comment ?? "",
     active: parsed.data.active ?? true,
+    detail: parsed.data.detail,
+    startDate: parsed.data.startDate,
+    tillDate: parsed.data.tillDate,
   }))
   if (!task) return NextResponse.json({ error: "KPI задача не найдена" }, { status: 404 })
   return NextResponse.json(task)

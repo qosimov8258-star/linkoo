@@ -11,9 +11,14 @@ import { useLanguage } from "@/lib/i18n/language-context"
 export function ExpandedViewButton({ expanded, onToggle }: { expanded: boolean; onToggle: () => void }) {
   const { t } = useLanguage()
   return (
-    <button type="button" onClick={onToggle} className="flex items-center gap-2 whitespace-nowrap text-[#4f70e7]">
+    <button
+      type="button"
+      onClick={onToggle}
+      title={expanded ? t("Обычный вид") : t("Расширенный вид")}
+      aria-label={expanded ? t("Обычный вид") : t("Расширенный вид")}
+      className="flex h-8 w-8 items-center justify-center text-[#333]"
+    >
       {expanded ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
-      {expanded ? t("Обычный вид") : t("Расширенный вид")}
     </button>
   )
 }

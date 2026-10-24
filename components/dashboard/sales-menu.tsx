@@ -16,7 +16,7 @@ const columns = [
   {
     title: "Заказ",
     items: [
-      ["Заказы", "/analytics/sales"],
+      ["Заказы", "/analytics/sales?pageSize=25&showCheckboxes=true&status=0-1-5"],
       ["Возвраты", "/analytics/returns"],
       ["Отказы", "/analytics/refusals"],
       ["Фотоотчеты", "/analytics/photo-reports"],
@@ -39,8 +39,8 @@ const columns = [
       ["Эффективность оборудования", "/analytics/equipment-efficiency"],
       ["Страницы телеграм бота", "/analytics/telegram-pages"],
       ["Тип отказа", "/analytics/refusal-types"],
-      ["Интеграция", "/settings/integrations"],
-      ["Смена", "/analytics/shifts"],
+      ["Интеграция", "/analytics/draft-orders"],
+      ["Смена", "/analytics/cash-shifts"],
     ],
   },
 ] as const
@@ -48,7 +48,7 @@ const columns = [
 // Used by top-nav.tsx to decide when the "Продажи" tab should be
 // highlighted — most of these pages live under the shared /analytics/[slug]
 // route, which "Аналитика" would otherwise claim first.
-export const salesHrefs: string[] = columns.flatMap((column) => column.items.map(([, href]) => href))
+export const salesHrefs: string[] = columns.flatMap((column) => column.items.map(([, href]) => href.split("?")[0]))
 
 export function SalesMenu({ onSelect, onMouseEnter, onMouseLeave }: Props) {
   const { t } = useLanguage()

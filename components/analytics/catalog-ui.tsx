@@ -1,13 +1,13 @@
 "use client"
 
-import { ChevronDown, ChevronLeft, ChevronRight, X } from "lucide-react"
+import { ChevronDown, X } from "lucide-react"
 import { ReactNode, useEffect, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 
 import { useLanguage } from "@/lib/i18n/language-context"
 
 /** Shared pieces of the reference's settings/catalog pages (link + pager header, dotted table, 700px dialog). */
-export function CatalogHeader({ addLabel, onAdd, from, to, total, onPrev, onNext, extra }: { addLabel: string; onAdd: () => void; from: number; to: number; total: number; onPrev?: () => void; onNext?: () => void; extra?: ReactNode }) {
+export function CatalogHeader({ addLabel, onAdd, from, to, total, onPrev, onNext, extra, tight }: { addLabel: string; onAdd: () => void; from: number; to: number; total: number; onPrev?: () => void; onNext?: () => void; extra?: ReactNode; /** Pager hugs the right edge with a 10 px gap before the arrows (client attribute pages). */ tight?: boolean }) {
   const { t } = useLanguage()
   return (
     <div className="flex h-[65px] items-center justify-between border-b border-[#eef0f4] pt-[14px]">
@@ -15,9 +15,9 @@ export function CatalogHeader({ addLabel, onAdd, from, to, total, onPrev, onNext
         <button type="button" onClick={onAdd} className="pl-[15px] text-[13px] text-[#4f71dc] hover:underline">+ {addLabel}</button>
         {extra}
       </div>
-      <div className="flex items-center pr-[3px] text-[13px]">
+      <div className={`flex items-center text-[13px] ${tight ? "" : "pr-[3px]"}`}>
         <span>{from} - {to} {t("из")} {total}</span>
-        <button type="button" onClick={onPrev} disabled={!onPrev} aria-label={t("Назад")} className="ml-[22px] flex h-6 w-6 items-center justify-center">
+        <button type="button" onClick={onPrev} disabled={!onPrev} aria-label={t("Назад")} className={`${tight ? "ml-[10px]" : "ml-[22px]"} flex h-6 w-6 items-center justify-center`}>
           <svg viewBox="0 0 24 24" className={`h-6 w-6 ${onPrev ? "fill-black/55" : "fill-black/30"}`}><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm1-12l-5 4 5 4V8z" /></svg>
         </button>
         <button type="button" onClick={onNext} disabled={!onNext} aria-label={t("Вперед")} className="ml-[5px] flex h-6 w-6 items-center justify-center">
@@ -30,7 +30,7 @@ export function CatalogHeader({ addLabel, onAdd, from, to, total, onPrev, onNext
 
 export const dottedRow = "border-b-2 border-dotted border-[#d9e0e5]"
 
-export function Modal({ title, onClose, footer, children }: { title: string; onClose: () => void; footer: ReactNode; children: ReactNode }) {
+export function Modal({ title, onClose, footer, children, width = 500, bodyClassName = "px-[30px] pb-[24px] pt-[24px]", titleClassName = "text-[13px]", headerClassName = "pl-[30px]", anchorTop = false, scrollAll = false }: { title: string; onClose: () => void; footer: ReactNode; children: ReactNode; width?: number; bodyClassName?: string; titleClassName?: string; headerClassName?: string; anchorTop?: boolean | number; scrollAll?: boolean }) {
   const { t } = useLanguage()
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
@@ -40,13 +40,18 @@ export function Modal({ title, onClose, footer, children }: { title: string; onC
     return () => window.removeEventListener("keydown", onKey)
   }, [onClose])
   return createPortal(
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50">
-      <div className="w-[500px] max-w-full bg-white text-[13px] text-[#333] shadow-xl">
-        <header className="flex h-[60px] items-center justify-between border-b border-[#e8ebf0] pl-[30px] pr-[28px]">
-          <h3 className="text-[13px] font-bold uppercase">{title}</h3>
-          <button type="button" onClick={onClose} aria-label={t("Закрыть")} className="text-slate-500 hover:text-slate-800"><X className="h-6 w-6" /></button>
+    // Reference rule (old Material-UI Dialog, measured on 25 dialogs from 267 px to 1905 px): the dialog is centered by its
+    // height at open time and never closer than 80 px to the top (tall ones: y = 80 and the page scrolls). So the default is
+    // centered; `anchorTop` is only for the few dialogs that were measured while taller than they end up (Категории
+    // приходов/расходов y=64, Права доступа y=50, Тип отказа y=263.5, Настройка EXCEL y=80).
+    <div className={`fixed inset-0 z-[100] flex justify-center bg-black/50 ${anchorTop ? "items-start overflow-y-auto" : "items-center"}`} style={anchorTop ? { paddingTop: typeof anchorTop === "number" ? anchorTop : 64 } : undefined}>
+      {/* scrollAll: like the reference's long dialogs (Настройка EXCEL): the whole card scrolls (max 100vh − 128px), the title stays, the footer sits at the end of the content */}
+      <div style={{ width }} className={`max-w-full bg-white text-[13px] text-black shadow-xl ${scrollAll ? "max-h-[calc(100vh-128px)] overflow-y-auto" : ""}`}>
+        <header className={`flex h-[60px] items-center justify-between border-b border-[#e8ebf0] ${headerClassName} pr-[15px] ${scrollAll ? "sticky top-0 z-[1] bg-white" : ""}`}>
+          <h3 className={`${titleClassName} font-bold uppercase text-[#333]`}>{title}</h3>
+          <button type="button" onClick={onClose} aria-label={t("Закрыть")} className="flex h-12 w-12 items-center justify-center text-[#333] hover:opacity-70"><X className="h-6 w-6" strokeWidth={1.6} /></button>
         </header>
-        <div className="px-[30px] pb-[24px] pt-[24px]">{children}</div>
+        <div className={bodyClassName}>{children}</div>
         <footer className="flex h-[57px] items-center justify-end border-t border-[#e8ebf0] pr-[10px]">{footer}</footer>
       </div>
     </div>,
@@ -56,7 +61,7 @@ export function Modal({ title, onClose, footer, children }: { title: string; onC
 
 export function SaveButton({ disabled, onClick, children }: { disabled?: boolean; onClick?: () => void; children: ReactNode }) {
   return (
-    <button type={onClick ? "button" : "submit"} onClick={onClick} disabled={disabled} className="h-9 min-w-[111px] rounded-[3px] bg-[#71ce87] px-[16px] text-[12px] font-bold uppercase text-white hover:brightness-95 disabled:bg-[#ade3b9]">
+    <button type={onClick ? "button" : "submit"} onClick={onClick} disabled={disabled} className="h-9 min-w-[111px] rounded-[3px] bg-[#71ce87] px-[16px] text-[13px] font-semibold uppercase text-white hover:brightness-95 disabled:bg-[#ade3b9]">
       {children}
     </button>
   )
@@ -64,7 +69,7 @@ export function SaveButton({ disabled, onClick, children }: { disabled?: boolean
 
 export function SaveLink({ disabled, onClick, children }: { disabled?: boolean; onClick?: () => void; children: ReactNode }) {
   return (
-    <button type={onClick ? "button" : "submit"} onClick={onClick} disabled={disabled} className="h-9 px-[16px] text-[12px] font-bold uppercase text-[#1ea1f2] hover:opacity-80 disabled:opacity-40">
+    <button type={onClick ? "button" : "submit"} onClick={onClick} disabled={disabled} className="h-9 px-[16px] text-[13px] font-semibold uppercase text-[#129fdd] hover:opacity-80 disabled:opacity-40">
       {children}
     </button>
   )
@@ -88,10 +93,10 @@ export function LineField({ label, value, onChange, required, autoFocus }: { lab
   const floating = focused || value !== ""
   return (
     <div className="relative h-[40px] border-b border-[#d5dae1]">
-      <span className={`pointer-events-none absolute left-0 transition-all ${floating ? "top-0 text-[10px] font-semibold leading-3" : "top-[18px] text-[13px] font-bold leading-4"}`}>
-        {label}{required && <span className="text-red-500"> *</span>}
+      <span className={`pointer-events-none absolute left-0 transition-all ${floating ? "top-0 text-[10px] font-semibold leading-3" : "top-[18px] text-[13px] font-semibold leading-4"}`}>
+        {label}{required && <span className="font-semibold text-[#e57373]"> *</span>}
       </span>
-      <input value={value} autoFocus={autoFocus} onChange={(event) => onChange(event.target.value)} onFocus={() => setFocused(true)} onBlur={() => setFocused(false)} className="absolute inset-x-0 bottom-0 h-[26px] bg-transparent text-[13px] outline-none" />
+      <input value={value} autoFocus={autoFocus} onChange={(event) => onChange(event.target.value)} onFocus={() => setFocused(true)} onBlur={() => setFocused(false)} className="absolute inset-x-0 bottom-0 h-[26px] bg-transparent text-[13px] font-semibold outline-none" />
     </div>
   )
 }
@@ -110,10 +115,10 @@ export function LineSelect({ label, value, onChange, options, onClear, required,
   return (
     <div ref={rootRef} className="relative">
       <button type="button" onClick={() => setOpen((current) => !current)} className={`relative block w-full border-b border-[#d5dae1] text-left ${tall ? "h-[56px]" : "h-[40px]"}`}>
-        <span className={`absolute left-0 ${value ? "top-0 text-[10px] font-semibold leading-3" : "top-[18px] text-[13px] font-bold leading-4"}`}>
-          {label}{required && <span className="text-red-500"> *</span>}
+        <span className={`absolute left-0 ${value ? "top-0 text-[10px] font-semibold leading-3" : `${tall ? "top-[33px]" : "top-[18px]"} text-[13px] font-semibold leading-4`}`}>
+          {label}{required && <span className="font-semibold text-[#e57373]"> *</span>}
         </span>
-        {value && <span className={`absolute inset-x-0 truncate pr-12 text-[13px] ${tall ? "bottom-[10px]" : "bottom-[6px]"}`}>{value}</span>}
+        {value && <span className={`absolute inset-x-0 truncate pr-12 text-[13px] font-semibold ${tall ? "bottom-[10px]" : "bottom-[6px]"}`}>{value}</span>}
         <span className={`absolute right-0 flex items-center gap-[10px] text-slate-500 ${tall ? "bottom-[12px]" : "bottom-[8px]"}`}>
           {value && onClear && <span role="button" aria-label="clear" onClick={(event) => { event.stopPropagation(); onClear() }}><X className="h-3.5 w-3.5" /></span>}
           <ChevronDown className="h-4 w-4 fill-current" />
@@ -165,6 +170,10 @@ export function ListToolbar({
   hideAdd,
   compact,
   slim,
+  onPageSize,
+  pageSizes = [10, 25, 50, 100, 200, 500, 1000, 2000],
+  searchPos,
+  addPad,
 }: {
   addLabel: string
   onAdd: () => void
@@ -182,34 +191,62 @@ export function ListToolbar({
   onPrev?: () => void
   onNext?: () => void
   extra?: ReactNode
+  /** Makes the "25 ▾" page-size indicator a menu (10 … 2000, like the reference). */
+  onPageSize?: (size: number) => void
+  pageSizes?: number[]
+  /** Overrides the search box position (px from the toolbar's left / top). */
+  searchPos?: { left: number; top: number }
+  /** Top padding of the add link in px (default 4 for `slim`, else 8). */
+  addPad?: number
 }) {
   const { t } = useLanguage()
+  const [sizeOpen, setSizeOpen] = useState(false)
+  const sizeRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!sizeOpen) return
+    function onDown(event: MouseEvent) {
+      if (!sizeRef.current?.contains(event.target as Node)) setSizeOpen(false)
+    }
+    document.addEventListener("mousedown", onDown)
+    return () => document.removeEventListener("mousedown", onDown)
+  }, [sizeOpen])
   return (
-    <div className={`relative flex items-center whitespace-nowrap pr-[7px] text-[13px] text-[#333] ${slim ? "h-[50px]" : compact ? "h-[51px]" : "h-[60px]"}`}>
+    <div className={`relative flex items-center whitespace-nowrap pr-[5px] text-[13px] text-[#333] ${slim ? "h-[50px]" : compact ? "h-[51px]" : "h-[60px]"}`}>
       {!hideAdd && (
-        <button type="button" onClick={onAdd} className={`flex items-center gap-[6px] pl-[20px] text-[13px] text-[#4f71dc] hover:underline ${slim ? "pt-[4px]" : "pt-[8px]"}`}>
+        <button type="button" onClick={onAdd} style={addPad !== undefined ? { paddingTop: addPad } : undefined} className={`flex items-center gap-[6px] pl-[20px] text-[13px] text-[#4f71dc] hover:underline ${addPad !== undefined ? "" : slim ? "pt-[4px]" : "pt-[8px]"}`}>
           <span className={bigPlus ? "text-[26px] font-light leading-none" : ""}>+</span>
           {addLabel}
         </button>
       )}
       {extra}
       {onQuery && (
-        <label className="absolute left-[360px] top-[15px] w-[300px]">
+        <label style={{ left: searchPos?.left ?? 360, top: searchPos?.top ?? 15 }} className="absolute w-[300px]">
           <input value={query ?? ""} onChange={(event) => onQuery(event.target.value)} placeholder={t("Поиск")} className="h-[30px] w-full border-b border-[#dfe3ea] bg-transparent pr-8 text-[13px] outline-none placeholder:text-[#b9c0cc] focus:border-[#4c6dd4]" />
           <svg viewBox="0 0 24 24" className="absolute right-2 top-1.5 h-[18px] w-[18px] fill-[#c4cad4]"><path d="M15.5 14h-.79l-.28-.27A6.47 6.47 0 0016 9.5 6.5 6.5 0 109.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z" /></svg>
         </label>
       )}
       <div className="ml-auto flex items-center pt-[4px]">
         {pageSize !== undefined && (
-          <span className="flex items-center gap-1">
-            {pageSize}<ChevronDown className="h-3.5 w-3.5 text-slate-300" />
-          </span>
+          <div ref={sizeRef} className="relative">
+            <button type="button" onClick={() => onPageSize && setSizeOpen((open) => !open)} className={`flex items-center gap-1 ${onPageSize ? "" : "cursor-default"}`}>
+              {pageSize}<ChevronDown className="h-3.5 w-3.5 text-slate-300" />
+            </button>
+            {sizeOpen && onPageSize && (
+              <ul className="absolute left-[1px] top-[-15px] z-30 w-[96px] rounded-[2px] bg-white py-[4px] shadow-[0_2px_10px_rgba(0,0,0,0.25)]">
+                {pageSizes.map((size) => (
+                  <li key={size}>
+                    <button type="button" onClick={() => { onPageSize(size); setSizeOpen(false) }} className={`block h-[32px] w-full pl-[28px] text-left ${size === pageSize ? "bg-[#e3effd]" : "hover:bg-[#f5f6f8]"}`}>{size}</button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
         )}
         {total !== undefined && <span className="ml-[34px]">{from} - {to} {t("из")} {total}</span>}
         {total !== undefined && (
           <>
-            <button type="button" onClick={onPrev} disabled={!onPrev} aria-label={t("Назад")} className="ml-[12px] flex h-5 w-5 items-center justify-center rounded-full border border-slate-300 text-slate-400"><ChevronLeft className="h-4 w-4" /></button>
-            <button type="button" onClick={onNext} disabled={!onNext} aria-label={t("Вперед")} className="ml-[9px] flex h-5 w-5 items-center justify-center rounded-full border border-slate-700 text-slate-700 disabled:border-slate-300 disabled:text-slate-400"><ChevronRight className="h-4 w-4" /></button>
+            <button type="button" onClick={onPrev} disabled={!onPrev} aria-label={t("Назад")} className="ml-[10px] flex h-6 w-6 items-center justify-center"><svg viewBox="0 0 24 24" className={`h-6 w-6 ${onPrev ? "fill-black/55" : "fill-black/30"}`}><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm1-12l-5 4 5 4V8z" /></svg></button>
+            <button type="button" onClick={onNext} disabled={!onNext} aria-label={t("Вперед")} className="ml-[5px] flex h-6 w-6 items-center justify-center"><svg viewBox="0 0 24 24" className={`h-6 w-6 ${onNext ? "fill-black/55" : "fill-black/30"}`}><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zM11 8v8l5-4-5-4z" /></svg></button>
           </>
         )}
       </div>
@@ -217,16 +254,16 @@ export function ListToolbar({
   )
 }
 
-export const grayHead = "grid h-[50px] items-center bg-[#5d6474] pl-[30px] font-bold text-white"
-export const listRow = "group relative grid min-h-[50px] items-center border-b-2 border-dotted border-[#d9e0e5] pl-[30px] hover:bg-[#f8f9fb]"
+export const grayHead = "grid h-[50px] items-center bg-[#5d6474] pl-[30px] font-semibold text-white"
+export const listRow = "group relative grid min-h-[50px] items-center border-b-2 border-dotted border-[#d9e0e5] pl-[30px] hover:bg-[#f2f5f8]"
 
 /** Pencil + trash that appear on row hover, like the reference. */
 export function HoverActions({ onEdit, onDelete, offset = 34 }: { onEdit: () => void; onDelete?: () => void; offset?: number }) {
   const { t } = useLanguage()
   return (
-    <span style={{ right: offset }} className="absolute top-1/2 hidden -translate-y-1/2 items-center gap-[10px] text-[#bdbdbd] group-hover:flex">
-      <button type="button" onClick={(event) => { event.stopPropagation(); onEdit() }} aria-label={t("Изменить")} className="hover:text-[#757575]"><svg viewBox="0 0 24 24" className="h-5 w-5 fill-current"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a.996.996 0 000-1.41l-2.34-2.34a.996.996 0 00-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z" /></svg></button>
-      {onDelete && <button type="button" onClick={(event) => { event.stopPropagation(); onDelete() }} aria-label={t("Удалить")} className="hover:text-[#757575]"><svg viewBox="0 0 24 24" className="h-5 w-5 fill-current"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z" /></svg></button>}
+    <span style={{ right: offset }} className="absolute top-1/2 hidden -translate-y-1/2 items-center gap-[10px] text-[#666] group-hover:flex">
+      <button type="button" onClick={(event) => { event.stopPropagation(); onEdit() }} aria-label={t("Изменить")} className="hover:text-[#333]"><svg viewBox="0 0 24 24" className="h-5 w-5 fill-current"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a.996.996 0 000-1.41l-2.34-2.34a.996.996 0 00-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z" /></svg></button>
+      {onDelete && <button type="button" onClick={(event) => { event.stopPropagation(); onDelete() }} aria-label={t("Удалить")} className="hover:text-[#333]"><svg viewBox="0 0 24 24" className="h-5 w-5 fill-current"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z" /></svg></button>}
     </span>
   )
 }
@@ -269,5 +306,30 @@ export function ImportDialog({ file, onFile, onTemplate, onSave, saving, onClose
       </div>
     </div>,
     document.body,
+  )
+}
+
+/** The reference's modal alert for failed saves ("name: Это поле обязательно к заполнению" + OK). */
+export function ErrorAlert({ message, onClose }: { message: string; onClose: () => void }) {
+  return createPortal(
+    <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/50">
+      <div className="flex h-[300px] w-[400px] max-w-full flex-col items-center bg-white px-[15px] pt-[24px] text-center text-[#333] shadow-xl">
+        <span className="flex h-[48px] w-[48px] items-center justify-center rounded-full border-[3px] border-[#4f71dc] text-[30px] font-bold leading-none text-[#4f71dc]">!</span>
+        <p className="mt-[13px] self-stretch whitespace-pre-line px-[5px] text-left text-[15px] font-semibold">{message}</p>
+        <button type="button" autoFocus onClick={onClose} className="mb-[20px] mt-auto h-[40px] w-full rounded-[2px] bg-[#4f71dc] text-[13px] font-bold uppercase text-white hover:brightness-95">OK</button>
+      </div>
+    </div>,
+    document.body,
+  )
+}
+
+/** "Подтверждение удаления" dialog shared by the catalog lists. */
+export function ConfirmDelete({ name, busy, onConfirm, onClose }: { name: string; busy?: boolean; onConfirm: () => void; onClose: () => void }) {
+  const { t } = useLanguage()
+  return (
+    <Modal title={t("Подтверждение удаления")} onClose={onClose} bodyClassName="min-h-[210px] px-[30px] pt-[20px]" footer={<SaveLink disabled={busy} onClick={onConfirm}>{t("Удалить")}</SaveLink>}>
+      <p className="pb-[20px]">{t("Вы уверены что хотите удалить эти данные?")}</p>
+      {name && <div className="-mx-[30px] bg-[#f1f5f8] px-[30px] py-[20px] font-semibold">{name}</div>}
+    </Modal>
   )
 }

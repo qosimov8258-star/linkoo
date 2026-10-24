@@ -1,15 +1,15 @@
 "use client"
 
-import { ArrowDown, ArrowUp, FileText, Pencil, Plus, Search, Trash2 } from "lucide-react"
+import { ArrowDown, ArrowUp } from "lucide-react"
 import { useSearchParams } from "next/navigation"
-import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from "react"
+import { useCallback, useEffect, useState, type ReactNode } from "react"
 
-import { BalancePagination } from "@/components/analytics/balance/pagination"
+import { AddLink, EmptyRows, RowActions, SettingsToolbar, kitHead, kitRow } from "@/components/analytics/settings-list-kit"
 import type { CategoryErrorBody } from "@/lib/categories-schema"
 import type { CategoryKind } from "@/lib/category-options"
 import { formatStatementDate } from "@/lib/finance/dates"
 import { useLanguage } from "@/lib/i18n/language-context"
-import { CategoryDeleteDialog, CategoryImportDialog, CategorySnackbar, type CategoryNotice } from "./categories-dialogs"
+import { CategoryDeleteDialog, CategorySnackbar, type CategoryNotice } from "./categories-dialogs"
 import { categoriesApi, CategoryFormModal } from "./category-form-modal"
 
 // Grid shared by "Категории приходов" and "Категории расходов" (demo GridList of
@@ -26,10 +26,12 @@ export type CategoryColumn<T> = {
   key: string
   /** Russian i18n key of the header. */
   title: string
-  /** Width class of the column (table-fixed). */
+  /** Share of the 12-part reference grid, e.g. "3fr" (the rest of the 12 parts stays empty). */
   width: string
   /** Ascending ordering key of a sortable header. */
   ordering?: string
+  /** The reference header text of these columns sits 8px to the right of the row text. */
+  indent?: boolean
   className?: string
   render: (row: T) => ReactNode
 }
@@ -150,21 +152,19 @@ export function CategoriesGrid<T extends CategoryRow>({
   kind,
   columns,
   addLabel,
-  minWidth,
 }: {
   kind: CategoryKind
   columns: CategoryColumn<T>[]
   /** "добавить категорию приходов" / "добавить категорию расходов". */
   addLabel: string
-  /** Min table width class (horizontal scroll on narrow screens). */
-  minWidth: string
+  /** Kept for the pages' call sites; the kit grid does not scroll horizontally. */
+  minWidth?: string
 }) {
   const { t } = useLanguage()
   const searchParams = useSearchParams()
   const [state, setState] = useState<ViewState>(() => stateFromParams(searchParams, columns.flatMap((column) => (column.ordering ? [column.ordering] : []))))
   const [dialog, setDialog] = useState<DialogState>(() => dialogFromParams(searchParams))
   const [searchDraft, setSearchDraft] = useState(state.search)
-  const [importOpen, setImportOpen] = useState(false)
   const [notice, setNotice] = useState<CategoryNotice | null>(null)
   const canEdit = useCanEdit()
   const { data, loading, error, reload } = useCategoryList<T>(listUrl(categoriesApi(kind), state))
@@ -193,120 +193,76 @@ export function CategoriesGrid<T extends CategoryRow>({
     if (state.page > lastPage) update({ page: lastPage })
   }, [data, loading, state.page, state.pageSize, update])
 
-  function submitSearch(event: FormEvent) {
-    event.preventDefault()
-    update({ search: searchDraft.trim(), page: 1 })
-  }
-
   const rows = data?.results ?? []
-  const colSpan = columns.length + 1
+  // Reference grid: 12 xs columns starting 30px inside the sidebar; the page gives each column its `fr` share, the rest is empty.
+  const shares = columns.map((column) => Number.parseFloat(column.width) || 1)
+  const template = `${shares.map((share) => `${share}fr`).join(" ")} ${Math.max(0, 12 - shares.reduce((sum, share) => sum + share, 0))}fr`
+  const from = data && data.count > 0 ? (state.page - 1) * state.pageSize + 1 : 0
+  const to = data ? Math.min(data.count, from + rows.length - (rows.length ? 1 : 0)) : 0
+  const lastPage = Math.max(1, Math.ceil((data?.count ?? 0) / state.pageSize))
 
   return (
-    <section className="min-w-0 flex-1 px-4 py-5 sm:px-9">
-      <div className="mb-4 flex flex-wrap items-center gap-x-6 gap-y-3">
-        {canEdit && (
-          <button type="button" onClick={() => setDialog({ kind: "create" })} className="inline-flex items-center gap-1 text-[16px] text-[#4f70e7] hover:underline">
-            <Plus className="h-4 w-4" /> {t(addLabel)}
-          </button>
-        )}
-        {canEdit && (
-          <button type="button" onClick={() => setImportOpen(true)} className="inline-flex items-center gap-1 text-[16px] text-[#4f70e7] hover:underline">
-            <FileText className="h-4 w-4" /> {t("Импорт с Excel")}
-          </button>
-        )}
-        <form onSubmit={submitSearch} className="relative mx-auto w-full max-w-[300px]">
-          <input
-            value={searchDraft}
-            onChange={(event) => setSearchDraft(event.target.value)}
-            placeholder={t("Поиск")}
-            className="w-full border-b border-slate-300 py-2 pr-10 outline-none focus:border-[#4f70e7]"
-          />
-          <button type="submit" aria-label={t("Поиск")} className="absolute right-1 top-1.5 text-slate-300 hover:text-[#4f70e7]">
-            <Search className="h-5 w-5" />
-          </button>
-        </form>
-        <BalancePagination
-          page={state.page}
-          pageSize={state.pageSize}
-          count={data?.count ?? 0}
-          onChange={(next) => update({ page: next.page, pageSize: next.pageSize })}
-        />
-      </div>
+    <section className="min-w-0 flex-1 bg-white text-[13px] text-[#333]">
+      <SettingsToolbar
+        left={canEdit ? <AddLink onClick={() => setDialog({ kind: "create" })}>{t(addLabel)}</AddLink> : undefined}
+        query={searchDraft}
+        onQuery={setSearchDraft}
+        pager={{
+          pageSize: state.pageSize,
+          onPageSize: (size) => update({ pageSize: size, page: 1 }),
+          from,
+          to,
+          total: data?.count ?? 0,
+          onPrev: state.page > 1 ? () => update({ page: state.page - 1 }) : undefined,
+          onNext: state.page < lastPage ? () => update({ page: state.page + 1 }) : undefined,
+        }}
+      />
 
-      <div className="overflow-x-auto">
-        <table className={`w-full table-fixed text-left ${minWidth}`}>
-          <thead className="bg-[#626b7e] text-white">
-            <tr>
-              {columns.map((column, index) => (
-                <th key={column.key} className={`${column.width} py-4 font-semibold ${index === 0 ? "px-9" : "px-5"}`}>
-                  {column.ordering ? (
-                    <button
-                      type="button"
-                      onClick={() => update({ ordering: nextOrdering(state.ordering, column.ordering!), page: 1 })}
-                      className="inline-flex items-center gap-2 text-left font-semibold"
-                    >
-                      {t(column.title)}
-                      {state.ordering === column.ordering && <ArrowUp className="h-4 w-4 shrink-0" />}
-                      {state.ordering === `-${column.ordering}` && <ArrowDown className="h-4 w-4 shrink-0" />}
-                    </button>
-                  ) : (
-                    t(column.title)
-                  )}
-                </th>
-              ))}
-              <th className="w-[96px]" />
-            </tr>
-          </thead>
-          <tbody className={loading && data ? "opacity-60" : undefined}>
-            {loading && !data ? (
-              <tr>
-                <td colSpan={colSpan} className="px-9 py-10 text-center text-slate-400">
-                  {t("Загрузка...")}
-                </td>
-              </tr>
-            ) : error ? (
-              <tr>
-                <td colSpan={colSpan} className="px-9 py-10 text-center text-red-600">
-                  {t(error)}
-                </td>
-              </tr>
-            ) : rows.length === 0 ? (
-              <tr>
-                <td colSpan={colSpan} className="px-9 py-10 text-center text-slate-400">
-                  {t("По вашему запросу ничего не найдено")}
-                </td>
-              </tr>
+      <div className={`${kitHead} px-[30px]`} style={{ gridTemplateColumns: template }}>
+        {columns.map((column) => (
+          <span key={column.key} className={`pr-4 ${column.indent ? "pl-[8px]" : ""}`}>
+            {column.ordering ? (
+              <button
+                type="button"
+                onClick={() => update({ ordering: nextOrdering(state.ordering, column.ordering!), page: 1 })}
+                className="inline-flex items-center gap-[10px] text-left font-semibold"
+              >
+                {t(column.title)}
+                {state.ordering === column.ordering && <ArrowUp className="h-[14px] w-[14px] shrink-0" />}
+                {state.ordering === `-${column.ordering}` && <ArrowDown className="h-[14px] w-[14px] shrink-0" />}
+              </button>
             ) : (
-              rows.map((row) => (
-                <tr key={row.id} className="group border-b border-dashed border-slate-300 hover:bg-slate-50">
-                  {columns.map((column, index) => (
-                    <td key={column.key} className={`h-[50px] py-2 align-middle ${index === 0 ? "px-9" : "px-5"} ${column.className ?? ""}`}>
-                      {column.render(row)}
-                    </td>
-                  ))}
-                  <td className="px-5 py-2">
-                    {canEdit && (
-                      <div className="flex items-center justify-end gap-3 text-slate-500 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
-                        <button type="button" onClick={() => setDialog({ kind: "update", id: row.id })} title={t("Изменить")} aria-label={t("Изменить")} className="hover:text-[#4f70e7]">
-                          <Pencil className="h-5 w-5" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setDialog({ kind: "delete", id: row.id, name: row.name })}
-                          title={t("Удалить")}
-                          aria-label={t("Удалить")}
-                          className="hover:text-rose-600"
-                        >
-                          <Trash2 className="h-5 w-5" />
-                        </button>
-                      </div>
-                    )}
-                  </td>
-                </tr>
-              ))
+              t(column.title)
             )}
-          </tbody>
-        </table>
+          </span>
+        ))}
+        <span />
+      </div>
+      <div className={loading && data ? "opacity-60" : undefined}>
+        {loading && !data ? (
+          <div className="px-[30px] py-10 text-center text-slate-400">{t("Загрузка...")}</div>
+        ) : error ? (
+          <div className="px-[30px] py-10 text-center text-red-600">{t(error)}</div>
+        ) : rows.length === 0 ? (
+          <EmptyRows />
+        ) : (
+          rows.map((row) => (
+            <div key={row.id} className={`${kitRow} px-[30px]`} style={{ gridTemplateColumns: template }}>
+              {columns.map((column) => (
+                <span key={column.key} className={`min-w-0 pr-4 ${column.className ?? ""}`}>
+                  {column.render(row)}
+                </span>
+              ))}
+              <span />
+              {canEdit && (
+                <RowActions
+                  onEdit={() => setDialog({ kind: "update", id: row.id })}
+                  onDelete={() => setDialog({ kind: "delete", id: row.id, name: row.name })}
+                />
+              )}
+            </div>
+          ))
+        )}
       </div>
 
       {(dialog?.kind === "create" || dialog?.kind === "update") && (
@@ -336,19 +292,6 @@ export function CategoriesGrid<T extends CategoryRow>({
             reload()
           }}
           onFailed={(message) => setNotice({ text: message, tone: "error" })}
-        />
-      )}
-
-      {importOpen && (
-        <CategoryImportDialog
-          kind={kind}
-          onClose={() => setImportOpen(false)}
-          onImported={(result) => {
-            setImportOpen(false)
-            setNotice(result)
-            update({ page: 1 })
-            reload()
-          }}
         />
       )}
 

@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
+
+import { createAccountForClient } from "@/lib/financial-accounts-repo"
 import { z } from "zod"
 
 import { getCurrentUser } from "@/lib/current-user"
@@ -8,9 +10,9 @@ import { createClient, listClients } from "@/lib/clients-repo"
 
 const clientSchema = z.object({
   name: z.string().trim().min(1),
-  phone: z.string().trim().min(1),
+  phone: z.string().trim().optional().default(""),
   type: z.string().trim().min(1),
-  zone: z.string().trim().min(1),
+  zone: z.string().trim().optional().default(""),
   inn: z.string().trim().optional(),
   zoneAgent: z.string().trim().optional(),
   agent: z.string().trim().optional(),
@@ -76,5 +78,6 @@ export async function POST(request: NextRequest) {
     unlimitedDebt: parsed.data.unlimitedDebt,
     attributes: parsed.data.attributes,
   })
+  await createAccountForClient({ id: client.id, name: client.name, address: client.address, agent: client.agent, type: client.type })
   return NextResponse.json(client, { status: 201 })
 }

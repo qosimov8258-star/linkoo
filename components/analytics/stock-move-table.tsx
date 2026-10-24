@@ -57,14 +57,14 @@ export function StockMoveTable({
   const clickableCells = groupBy === "product"
   return (
     <div className={`overflow-x-auto ${loading ? "opacity-60" : ""}`}>
-      <table className="w-full border-collapse text-[14px]">
-        <thead className="sticky top-0 z-[1] bg-[#4f71dc] text-white">
+      <table className="w-full border-collapse text-[13px] text-[#333]">
+        <thead className="sticky top-0 z-[1] bg-[#f0f4f9] text-[#374557]">
           <tr>
-            <th rowSpan={2} className="sticky left-0 z-[2] min-w-[260px] border border-[#6d8ae3] bg-[#4f71dc] px-4 py-2 text-left font-semibold">
+            <th rowSpan={2} className="sticky left-0 z-[2] min-w-[260px] border border-[#e3e9f0] bg-[#f0f4f9] px-4 py-2 text-left font-semibold">
               {sortHeader("name", t(MOVE_GROUP_TITLES[groupBy]))}
             </th>
             {columns.map((column) => (
-              <th key={column.field} colSpan={sub} className="border border-[#6d8ae3] px-3 py-2 text-center font-semibold">
+              <th key={column.field} colSpan={sub} className="border border-[#e3e9f0] px-3 py-2 text-center font-semibold">
                 {t(column.label)}
               </th>
             ))}
@@ -131,8 +131,8 @@ function ColumnSubHeaders({ field, withValue, sortHeader }: { field: MoveField; 
   const { t } = useLanguage()
   return (
     <>
-      <th className="border border-[#6d8ae3] px-3 py-1.5 text-left text-[13px] font-medium">{sortHeader(field, t("Кол-во"))}</th>
-      {withValue && <th className="border border-[#6d8ae3] px-3 py-1.5 text-left text-[13px] font-medium">{sortHeader(`${field}.value`, t("Стоимость"))}</th>}
+      <th className="border border-[#e3e9f0] px-3 py-1.5 text-left text-[13px] font-medium">{sortHeader(field, t("Кол-во"))}</th>
+      {withValue && <th className="border border-[#e3e9f0] px-3 py-1.5 text-left text-[13px] font-medium">{sortHeader(`${field}.value`, t("Стоимость"))}</th>}
     </>
   )
 }

@@ -1,25 +1,23 @@
 "use client"
 
-import { useState, type ReactNode } from "react"
+import { useState } from "react"
 
-import { CashModal, FormField, PrimaryButton, inputClass } from "@/components/analytics/cash-management-shared"
 import {
   BarcodesEditor,
   BoxSizesEditor,
-  ComboInput,
-  LabelWithHint,
-  NumberInput,
   PricesEditor,
   emptyPrice,
   type BoxSizeDraft,
   type PriceDraft,
 } from "@/components/products/catalog-form-parts"
-import { KIND_TEXT, Switch, catalogMutate, errorText } from "@/components/products/catalog-shared"
+import { CheckField, CreateLink, FormColumn, FormShell, InfoHint, SaveButton, SelectField, TextField, Toggle } from "@/components/products/catalog-form-ui"
+import { KIND_TEXT, catalogMutate, errorText } from "@/components/products/catalog-shared"
 import { useLanguage } from "@/lib/i18n/language-context"
-import { CATALOG_API, VAT_OPTIONS, leadingNumber, type CatalogDetail, type CatalogKind, type CatalogOptions } from "@/lib/products-types"
+import { CATALOG_API, leadingNumber, type CatalogDetail, type CatalogKind, type CatalogOptions } from "@/lib/products-types"
 
-// Demo ProductCreateDialog (module 1624; raw = the same with isRaw): "Добавить продукт" /
-// "Изменить продукт". Left: Наименование*, Мера*, "Указать группу" (Группа, Кол-во в
+// Demo ProductCreateDialog (module 1624; raw = the same with isRaw): the full-screen
+// "Добавить продукт" / "Изменить продукт" form (material-ui fields, three 500px columns, sticky
+// "Сохранить изменение"). Left: Наименование*, Мера*, "Указать группу" (Группа, Кол-во в
 // группе), "ДОП. параметры", Тип продукта → Подкатегория, Поставщик, Бренд, Организация,
 // Порядковый номер, Минимальный остаток, Цвет, Описание. Middle: Полное наименование,
 // Штрих-коды, Артикул, Код для интеграции, Масса - кг, Вес нетто, Объем, Икпу, Код ед.изм.
@@ -52,7 +50,7 @@ type Draft = {
   volume: string
   ikpu: string
   invoiceUnitCode: string
-  vat: string
+  vatPercent: string
   canSell: boolean
   isMml: boolean
   perfectStore: boolean
@@ -75,6 +73,8 @@ type Draft = {
 
 const str = (value: number | null) => (value === null || value === 0 ? "" : String(value).replace(".", ","))
 const parseNum = (value: string) => leadingNumber(value)
+/** "12%" → "12" (the reference edits the VAT as a plain number; "Без НДС" is empty). */
+const vatNumber = (vat: string) => vat.match(/\d+(?:[.,]\d+)?/)?.[0] ?? ""
 /** A stored price keeps "0" so saving the form does not drop the entry. */
 const priceStr = (value: number) => String(value).replace(".", ",")
 
@@ -106,7 +106,7 @@ function draftOf(item: CatalogDetail | null, options: CatalogOptions | null): Dr
       volume: "",
       ikpu: "",
       invoiceUnitCode: "",
-      vat: VAT_OPTIONS[0],
+      vatPercent: "",
       canSell: true,
       isMml: false,
       perfectStore: false,
@@ -124,12 +124,13 @@ function draftOf(item: CatalogDetail | null, options: CatalogOptions | null): Dr
       salePriceCurrency: currency,
       salePoints: "",
       boxSizes: [],
-      prices: [emptyPrice(options?.priceLists[0]?.name ?? "", options?.priceLists[0]?.currency || currency)],
+      prices: [emptyPrice("", "")],
     }
   }
   return {
     ...item,
     barcodes: item.barcodes.length ? item.barcodes : [""],
+    vatPercent: vatNumber(item.vat),
     showGroup: Boolean(item.boxUnit || item.boxAmount),
     showAdditionals: item.boxSizes.length > 0,
     boxAmount: str(item.boxAmount),
@@ -155,11 +156,11 @@ function draftOf(item: CatalogDetail | null, options: CatalogOptions | null): Dr
           min: str(entry.min),
           max: str(entry.max),
         }))
-      : [emptyPrice(options?.priceLists[0]?.name ?? "", options?.priceLists[0]?.currency || currency)],
+      : [emptyPrice("", "")],
   }
 }
 
-function bodyOf(draft: Draft) {
+function bodyOf(draft: Draft, baseCurrency: string) {
   const days = (value: string) => (value.trim() ? Math.trunc(parseNum(value)) : null)
   return {
     name: draft.name.trim(),
@@ -184,7 +185,7 @@ function bodyOf(draft: Draft) {
     volume: parseNum(draft.volume),
     ikpu: draft.ikpu,
     invoiceUnitCode: draft.invoiceUnitCode,
-    vat: draft.vat,
+    vat: draft.vatPercent.trim() ? `${draft.vatPercent.trim()}%` : "Без НДС",
     canSell: draft.canSell,
     isMml: draft.isMml,
     perfectStore: draft.perfectStore,
@@ -211,13 +212,16 @@ function bodyOf(draft: Draft) {
         name: entry.name,
         cash: parseNum(entry.cash),
         nonCash: entry.nonCash.trim() ? parseNum(entry.nonCash) : parseNum(entry.cash),
-        currency: entry.currency,
-        nonCashCurrency: entry.nonCashCurrency,
+        currency: entry.currency || baseCurrency,
+        nonCashCurrency: entry.nonCashCurrency || entry.currency || baseCurrency,
         min: entry.minMax ? parseNum(entry.min) : 0,
         max: entry.minMax ? parseNum(entry.max) : 0,
       })),
   }
 }
+
+const MERA_HINT =
+  "Вы можете указать группировки. Например, если вы продаете напиток Кола 1,5 л, укажите ед.ницу измерения штука. А в группе добавьте блок и там укажите 6 штук.(Это означает, что в одном блоке будет находиться 6 штук товара). Продажную цену установите только для 1 штуке"
 
 export function CatalogFormDialog({
   kind,
@@ -240,18 +244,27 @@ export function CatalogFormDialog({
   const set = (patch: Partial<Draft>) => setDraft((current) => ({ ...current, ...patch }))
   const children = options?.types.find((type) => type.name === draft.type)?.children ?? []
   const units = options?.units ?? []
+  const marking = (key: "ikpu") => (draft.markedProduct && !draft[key].trim() ? "Это поле обязательно для работы маркировки" : undefined)
+  const err = (key: string) => {
+    const message = errors[key] || (key === "ikpu" ? marking("ikpu") : undefined)
+    return message ? t(message) : undefined
+  }
 
   const save = async () => {
     const local: Record<string, string> = {}
-    if (!draft.name.trim()) local.name = "Обязательное поле"
-    if (!draft.unit.trim()) local.unit = "Обязательное поле"
-    const body = bodyOf(draft)
+    if (!draft.name.trim()) local.name = "Это поле обязательно к заполнению"
+    if (!draft.unit.trim()) local.unit = "Это поле обязательно к заполнению"
+    if (!draft.type.trim()) local.type = "Это поле обязательно к заполнению"
+    const body = bodyOf(draft, options?.baseCurrency ?? "SUM")
     if (draft.markedProduct) {
       if (!body.barcodes.length) local.barcodes = "Это поле обязательно для работы маркировки"
       if (!draft.ikpu.trim()) local.ikpu = "Это поле обязательно для работы маркировки"
     }
     setErrors(local)
-    if (Object.keys(local).length) return
+    if (Object.keys(local).length) {
+      document.querySelector("[data-form-scroll]")?.scrollTo({ top: 0 })
+      return
+    }
     setBusy(true)
     setError("")
     const result = item ? await catalogMutate<{ id: number }>("PUT", `${CATALOG_API[kind]}/${item.id}`, body) : await catalogMutate<{ id: number }>("POST", CATALOG_API[kind], body)
@@ -264,189 +277,166 @@ export function CatalogFormDialog({
     onSaved(item ? item.id : result.data.id, !item)
   }
 
-  const field = (label: ReactNode, node: ReactNode, key?: string, required?: boolean) => (
-    <FormField label={label} required={required} error={key && errors[key] ? t(errors[key]) : undefined}>
-      {node}
-    </FormField>
+  const text = (key: "name" | "fullName" | "article" | "code" | "orderNumber" | "ikpu" | "invoiceUnitCode", label: string, extra?: { required?: boolean; type?: "text" | "number"; className?: string }) => (
+    <TextField label={t(label)} value={draft[key]} onChange={(value) => set({ [key]: value })} error={err(key)} required={extra?.required} type={extra?.type} className={extra?.className} errorShift={key !== "name" && key !== "fullName"} />
   )
-  const textInput = (key: "name" | "fullName" | "article" | "code" | "orderNumber" | "ikpu" | "invoiceUnitCode") => (
-    <input value={draft[key]} onChange={(event) => set({ [key]: event.target.value })} className={`${inputClass} ${errors[key] ? "border-[#e57373]" : ""}`} />
+  const amount = (key: "boxAmount" | "minStock" | "weight" | "netWeight" | "volume" | "expirationDays" | "notifyExpireDays" | "saleMinPrice" | "saleMaxPrice" | "salePoints", label: string, className?: string) => (
+    <TextField label={t(label)} numeric value={draft[key]} onChange={(value) => set({ [key]: value })} error={err(key)} className={className} />
   )
-  const numberInput = (
-    key: "boxAmount" | "minStock" | "weight" | "netWeight" | "volume" | "expirationDays" | "notifyExpireDays" | "saleMinPrice" | "saleMaxPrice" | "salePoints",
-  ) => <NumberInput value={draft[key]} onChange={(value) => set({ [key]: value })} invalid={Boolean(errors[key])} />
-  const combo = (key: "unit" | "boxUnit" | "type" | "subcategory" | "supplier" | "brand" | "organization" | "color", list: string[]) => (
-    <ComboInput
-      id={`catalog-${key}`}
+  const select = (key: "unit" | "boxUnit" | "type" | "subcategory" | "supplier" | "brand" | "organization" | "color", label: string, list: string[], className = "", isRequired = false) => (
+    <SelectField
+      label={t(label)}
       value={draft[key]}
-      onChange={(value) => set({ [key]: value, ...(key === "type" ? { subcategory: "" } : {}) })}
       options={list}
-      invalid={Boolean(errors[key])}
+      onChange={(value) => set({ [key]: value, ...(key === "type" ? { subcategory: "" } : {}) })}
+      error={err(key)}
+      required={isRequired}
+      loading={!options}
+      className={className}
     />
   )
+  const create = (href: string, label: string) => <CreateLink href={`${href}?openCreateDialog=true`} label={t(label)} />
 
   return (
-    <CashModal
-      title={t(item ? KIND_TEXT[kind].editTitle : KIND_TEXT[kind].addTitle)}
-      onClose={onClose}
-      size="full"
-      footer={
-        <>
-          {error && <span className="mr-auto text-[13px] text-[#e57373]">{error}</span>}
-          <PrimaryButton tone="blue" busy={busy} onClick={() => void save()}>
-            {t("Сохранить изменение")}
-          </PrimaryButton>
-        </>
-      }
-    >
-      <div className="grid gap-6 lg:grid-cols-3">
-        <div className="flex flex-col gap-3">
-          {field(t("Наименование"), textInput("name"), "name", true)}
-          {field(
-            <LabelWithHint
-              label={t("Мера")}
-              hint="Вы можете указать группировки. Например, если вы продаете напиток Кола 1,5 л, укажите ед.ницу измерения штука. А в группе добавьте блок и там укажите 6 штук.(Это означает, что в одном блоке будет находиться 6 штук товара). Продажную цену установите только для 1 штуке"
-            />,
-            combo("unit", units),
-            "unit",
-            true,
-          )}
-          <div className="flex flex-wrap gap-x-5 gap-y-1 text-[14px]">
-            <label className="flex items-center gap-2">
-              <input type="checkbox" checked={draft.showGroup} onChange={(event) => set({ showGroup: event.target.checked })} className="h-4 w-4 accent-[rgb(79,113,220)]" />
-              {t("Указать группу")}
-            </label>
-            <label className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                checked={draft.showAdditionals}
-                onChange={(event) => set({ showAdditionals: event.target.checked })}
-                className="h-4 w-4 accent-[rgb(79,113,220)]"
-              />
-              {t("ДОП. параметры")}
-            </label>
+    <>
+      <FormShell
+        title={t(item ? KIND_TEXT[kind].editTitle : KIND_TEXT[kind].addTitle)}
+        onClose={onClose}
+        footer={
+          <>
+            {error && <span className="mr-4 text-[13px] text-[#f44336]">{error}</span>}
+            <SaveButton busy={busy} onClick={() => void save()}>
+              {t("Сохранить изменение")}
+            </SaveButton>
+          </>
+        }
+      >
+        <FormColumn>
+          <div className="pt-[11px]">{text("name", "Наименование", { required: true })}</div>
+          <div className="mt-8 flex items-start">
+            {select("unit", "Мера", units, "w-[368px]", true)}
+            <span className="ml-[5px] mt-[-1px]">{create("/analytics/units-of-measure", "Добавить меру")}</span>
+            <span className="ml-[18px] mt-[-1px]">
+              <InfoHint text={MERA_HINT} />
+            </span>
+          </div>
+          <div className="mt-[18px]">
+            <CheckField label={t("Указать группу")} checked={draft.showGroup} onChange={(showGroup) => set({ showGroup })} />
+          </div>
+          <div className="mt-[10px]">
+            <CheckField label={t("ДОП. параметры")} checked={draft.showAdditionals} onChange={(showAdditionals) => set({ showAdditionals })} />
           </div>
           {draft.showGroup && (
-            <div className="grid grid-cols-2 gap-2">
-              {field(t("Группа"), combo("boxUnit", units))}
-              {field(t("Кол-во в группе"), numberInput("boxAmount"))}
-            </div>
+            <>
+              <div className="mt-7">{select("boxUnit", "Группа", units)}</div>
+              <div className="-mt-[1px]">{amount("boxAmount", "Кол-во в группе")}</div>
+            </>
           )}
-          {field(
-            t("Тип продукта"),
-            combo(
+          <div className={`flex items-start ${draft.showGroup ? "mt-[31px]" : "mt-8"}`}>
+            {select(
               "type",
+              "Тип продукта",
               (options?.types ?? []).map((type) => type.name),
-            ),
-          )}
-          {draft.type && field(t("Подкатегория"), combo("subcategory", children))}
-          <div className="grid grid-cols-2 gap-2">
-            {field(t("Поставщик"), combo("supplier", options?.suppliers ?? []))}
-            {field(t("Бренд"), combo("brand", options?.brands ?? []))}
+              "w-[410px]",
+            )}
+            <span className="ml-[5px] mt-[-1px]">{create("/analytics/product-types", "Добавить тип продукта")}</span>
           </div>
-          {field(t("Организация"), combo("organization", options?.organizations ?? []))}
-          {field(
-            <LabelWithHint label={t("Порядковый номер")} hint="По этому порядку агентам будет высвечиваться продукты для продажи заказа установить порядок от 1 - 9999" />,
-            textInput("orderNumber"),
-          )}
-          {field(
-            <LabelWithHint
-              label={t("Минимальный остаток")}
-              hint="Сюда можете написать минимальный остаток если ваши складах уменьшильца кол-во товара от минимального остатка система автоматический будет оптравлять уведомления"
-            />,
-            numberInput("minStock"),
-          )}
-          {field(t("Цвет"), combo("color", options?.colors ?? []))}
-          {field(
-            t("Описание"),
-            <textarea value={draft.description} onChange={(event) => set({ description: event.target.value })} rows={3} className={`${inputClass} h-auto py-2`} />,
-          )}
-        </div>
+          {draft.type && children.length > 0 && <div className="mt-[31px]">{select("subcategory", "Подкатегория", children)}</div>}
+          <div className="mt-[31px] flex items-start">
+            {select("supplier", "Поставщик", options?.suppliers ?? [], "w-[203px]")}
+            {select("brand", "Бренд", options?.brands ?? [], "ml-[5px] w-[202px]")}
+            <span className="ml-[5px] mt-[-1px]">{create("/analytics/brands", "Добавить бренд")}</span>
+          </div>
+          <div className="mt-[31px]">{select("organization", "Организация", options?.organizations ?? [])}</div>
+          <div className="flex items-start">
+            {text("orderNumber", "Порядковый номер", { className: "w-[410px]" })}
+            <span className="ml-[5px] mt-6">
+              <InfoHint text="По этому порядку агентам будет высвечиваться продукты для продажи заказа установить порядок от 1 - 9999" />
+            </span>
+          </div>
+          <div className="flex items-start">
+            {amount("minStock", "Минимальный остаток", "w-[410px]")}
+            <span className="ml-[5px] mt-6">
+              <InfoHint text="Сюда можете написать минимальный остаток если ваши складах уменьшильца кол-во товара от минимального остатка система автоматический будет оптравлять уведомления" />
+            </span>
+          </div>
+          <div className="mt-[31px]">{select("color", "Цвет", options?.colors ?? [])}</div>
+          <div className="mt-[17px] pb-5">
+            <TextField label={t("Описание")} multiline value={draft.description} onChange={(description) => set({ description })} />
+          </div>
+        </FormColumn>
 
-        <div className="flex flex-col gap-3">
-          {field(t("Полное наименование"), textInput("fullName"))}
-          <BarcodesEditor value={draft.barcodes} onChange={(barcodes) => set({ barcodes })} error={errors.barcodes} />
-          {field(t("Артикул"), textInput("article"))}
-          {field(t("Код для интеграции"), textInput("code"))}
-          <div className="grid grid-cols-3 gap-2">
-            {field(`${t("Масса")} - ${t("кг")}`, numberInput("weight"))}
-            {field(t("Вес нетто"), numberInput("netWeight"))}
-            {field(t("Объем"), numberInput("volume"))}
-          </div>
-          {field(t("Икпу"), textInput("ikpu"), "ikpu")}
-          <div className="grid grid-cols-2 gap-2">
-            {field(t("Код ед.изм. в фактуре"), textInput("invoiceUnitCode"))}
-            {field(
-              t("НДС"),
-              <select value={draft.vat} onChange={(event) => set({ vat: event.target.value })} className={inputClass}>
-                {[...new Set([draft.vat, ...VAT_OPTIONS])].map((vat) => (
-                  <option key={vat} value={vat}>
-                    {t(vat)}
-                  </option>
-                ))}
-              </select>,
-            )}
-          </div>
-          <div className="flex flex-col gap-1 border-t border-[#eef1f5] pt-2">
-            <Switch
-              checked={draft.isMml}
-              onChange={(isMml) => set({ isMml })}
-              title={
-                <LabelWithHint label={t("ММЛ продукт")} hint="Если включите этот идентификатор агентам при оформлении заказа система будет рекомендовать этот продукт агентам" />
-              }
-            />
-            {kind === "product" && <Switch checked={draft.perfectStore} onChange={(perfectStore) => set({ perfectStore })} title={t("Perfect Store продукт")} />}
-            <Switch
-              checked={draft.isInventory}
-              onChange={(isInventory) => set({ isInventory })}
-              title={
-                <LabelWithHint
-                  label={t("Показывать этот товар в качестве тип инвентаря")}
-                  hint="Если включите этот параметр при создании инвентаря этот продукт будет высвечиваться в качестве типа инвентаря"
-                />
-              }
-            />
-            <Switch
-              checked={draft.sellOnlyBox}
-              onChange={(sellOnlyBox) => set({ sellOnlyBox })}
-              title={<LabelWithHint label={t("Продать только в группе")} hint="Если вы хотите, чтобы ваши агенты продавали только в блоках, вы можете включить этот параметр." />}
-            />
-            <Switch checked={draft.showInBot} onChange={(showInBot) => set({ showInBot })} title={t("Показывать в боте")} subTitle={t("Показывать в телеграм боте")} />
-            <Switch checked={draft.trackExpiry} onChange={(trackExpiry) => set({ trackExpiry })} title={t("Учитывать срок годности")} />
-            {draft.trackExpiry && (
-              <div className="flex flex-col gap-2 pl-3">
-                <Switch checked={draft.trackSeries} onChange={(trackSeries) => set({ trackSeries })} title={t("Учитывать серии")} />
-                {field(t("Дата окончания срока годности (дней)"), numberInput("expirationDays"))}
-                {field(t("Предупредить, если больше дней"), numberInput("notifyExpireDays"))}
-              </div>
-            )}
-            <Switch checked={draft.markedProduct} onChange={(markedProduct) => set({ markedProduct })} title={t("Маркировочный товар")} />
-          </div>
+        <FormColumn className="pb-[395px]">
+          <div className="pt-[11px]">{text("fullName", "Полное наименование")}</div>
+          <BarcodesEditor
+            value={draft.barcodes}
+            onChange={(barcodes) => set({ barcodes })}
+            error={errors.barcodes || (draft.markedProduct && !draft.barcodes.some((code) => code.trim()) ? "Это поле обязательно для работы маркировки" : undefined)}
+          />
+          {text("article", "Артикул")}
+          {text("code", "Код для интеграции")}
+          {amount("weight", `${t("Масса")} - ${t("кг")}`)}
+          {amount("netWeight", "Вес нетто")}
+          {amount("volume", "Объем")}
+          {text("ikpu", "Икпу")}
+          {text("invoiceUnitCode", "Код ед.изм. в фактуре", { type: "number" })}
+          <TextField label={t("НДС")} type="number" value={draft.vatPercent} onChange={(vatPercent) => set({ vatPercent })} />
+          <Toggle
+            className="mt-[9px]"
+            checked={draft.isMml}
+            onChange={(isMml) => set({ isMml })}
+            title={t("ММЛ продукт")}
+            hint="Если включите этот идентификатор агентам при оформлении заказа система будет рекомендовать этот продукт агентам"
+          />
+          {kind === "product" && <Toggle className="mt-[15px]" checked={draft.perfectStore} onChange={(perfectStore) => set({ perfectStore })} title={t("Perfect Store продукт")} />}
+          <Toggle
+            className="mt-[15px]"
+            checked={draft.isInventory}
+            onChange={(isInventory) => set({ isInventory })}
+            title={t("Показывать этот товар в качестве тип инвентаря")}
+            hint="Если включите этот параметр при создании инвентаря этот продукт будет высвечиваться в качестве типа инвентаря"
+          />
+          <Toggle
+            className="mt-[15px]"
+            checked={draft.sellOnlyBox}
+            onChange={(sellOnlyBox) => set({ sellOnlyBox })}
+            title={t("Продать только в группе")}
+            hint="Если вы хотите, чтобы ваши агенты продавали только в блоках, вы можете включить этот параметр."
+          />
+          <Toggle className="mt-[15px]" checked={draft.showInBot} onChange={(showInBot) => set({ showInBot })} title={t("Показывать в боте")} subTitle={t("Показывать в телеграм боте")} />
+          <Toggle className="mt-[15px]" checked={draft.trackExpiry} onChange={(trackExpiry) => set({ trackExpiry })} title={t("Учитывать срок годности")} />
+          {draft.trackExpiry && <Toggle className="mt-[15px]" checked={draft.trackSeries} onChange={(trackSeries) => set({ trackSeries })} title={t("Учитывать серии")} />}
+          <Toggle className="mt-[15px]" checked={draft.markedProduct} onChange={(markedProduct) => set({ markedProduct })} title={t("Маркировочный товар")} />
           {draft.showAdditionals && <BoxSizesEditor value={draft.boxSizes} onChange={(boxSizes) => set({ boxSizes })} units={units} />}
-          <Switch checked={draft.limitPrice} onChange={(limitPrice) => set({ limitPrice })} title={t("Установить минимальную и максимальную цену для продажи")} />
+          <Toggle
+            className={draft.showAdditionals ? "mt-[70px]" : "mt-[15px]"}
+            checked={draft.limitPrice}
+            onChange={(limitPrice) => set({ limitPrice })}
+            title={t("Установить минимальную и максимальную цену для продажи")}
+          />
           {draft.limitPrice && (
-            <div className="grid grid-cols-[1fr_1fr_100px] gap-2">
-              {field(t("Минимальная цена продажи"), numberInput("saleMinPrice"))}
-              {field(t("Максимальная цена продажи"), numberInput("saleMaxPrice"), "saleMaxPrice")}
-              {field(
-                t("Валюта"),
-                <select value={draft.salePriceCurrency} onChange={(event) => set({ salePriceCurrency: event.target.value })} className={inputClass}>
-                  {[...new Set([draft.salePriceCurrency, ...(options?.currencies ?? [])].filter(Boolean))].map((code) => (
-                    <option key={code} value={code}>
-                      {code}
-                    </option>
-                  ))}
-                </select>,
-              )}
-            </div>
+            <>
+              <div className="mt-[5px]">{amount("saleMinPrice", "Минимальная цена продажи")}</div>
+              {amount("saleMaxPrice", "Максимальная цена продажи")}
+              <SelectField
+                label={t("Валюта")}
+                value={draft.salePriceCurrency}
+                options={[...new Set([draft.salePriceCurrency, ...(options?.currencies ?? [])].filter(Boolean))]}
+                onChange={(salePriceCurrency) => set({ salePriceCurrency })}
+                className="mt-8"
+              />
+            </>
           )}
-        </div>
+        </FormColumn>
 
-        <div className="flex flex-col gap-3">
-          <div className="rounded-md bg-[#f2f5f8] px-3 py-2">
-            <Switch checked={draft.canSell} onChange={(canSell) => set({ canSell })} title={t("Можно продавать")} subTitle={t("Агенты могут продать этот товар")} />
-          </div>
-          <p className="font-semibold text-[#17233b]">{t("Продажная цена")}</p>
+        <FormColumn last>
+          <Toggle
+            className="mt-10"
+            checked={draft.canSell}
+            onChange={(canSell) => set({ canSell })}
+            title={t("Можно продавать")}
+            subTitle={t("Агенты могут продать этот товар")}
+          />
           <PricesEditor
             value={draft.prices}
             onChange={(prices) => set({ prices })}
@@ -454,15 +444,15 @@ export function CatalogFormDialog({
             currencies={options?.currencies ?? ["SUM"]}
             error={errors.priceLists}
           />
-          {field(
-            <LabelWithHint
-              label={t("Можно продать за кол-во балов")}
-              hint="Здесь укажите кол-во балов который можно купить этот товар. Например, если ви устанавливаете 10 балов, это означает, что клиент может купить 1 единицу этого товара за 10 балов. Баловые акции могут создать через маркетинговые акции."
-            />,
-            numberInput("salePoints"),
-          )}
-        </div>
-      </div>
-    </CashModal>
+          <div className="flex items-start">
+            {amount("salePoints", "Можно продать за кол-во балов", "w-[411px]")}
+            <span className="ml-2 mt-[23px]">
+              <InfoHint text="Здесь укажите кол-во балов который можно купить этот товар. Например, если ви устанавливаете 10 балов, это означает, что клиент может купить 1 единицу этого товара за 10 балов. Баловые акции могут создать через маркетинговые акции." />
+            </span>
+          </div>
+          <div className="pb-5" />
+        </FormColumn>
+      </FormShell>
+    </>
   )
 }

@@ -68,10 +68,18 @@ const KEY_OF = (alias: string, name: string) => `COALESCE(${alias}.item_key, 'na
 const EMPTY = `SELECT NULL::text AS day, NULL::text AS warehouse, NULL::text AS item_key, NULL::double precision AS qty, NULL::double precision AS value,
   NULL::text AS kind, NULL::text AS doc_type, NULL::integer AS doc_id, NULL::integer AS is_defect WHERE false`
 
+/** A stored 'product:<id>' key of a product that is really a raw material (product_kind_overrides) points at its raw_materials twin. */
+function remapRaw(t: StockTables, key: string): string {
+  if (!t.has("product_kind_overrides")) return key
+  return `COALESCE((SELECT 'raw_material:' || ko.raw_material_id FROM product_kind_overrides ko WHERE ko.raw_material_id IS NOT NULL AND 'product:' || ko.product_id = (${key}) LIMIT 1), (${key}))`
+}
+
 function namesCte(t: StockTables): string {
   const parts: string[] = []
   if (t.has("products")) {
-    const alive = t.col("products", "deleted") ? "WHERE COALESCE(deleted, 0) = 0" : ""
+    // Products that are really raw materials (product_kind_overrides) stay out, so the raw_materials twin takes the movements.
+    const conditions = [t.col("products", "deleted") ? "COALESCE(deleted, 0) = 0" : "", t.has("product_kind_overrides") ? "id NOT IN (SELECT product_id FROM product_kind_overrides)" : ""].filter(Boolean)
+    const alive = conditions.length ? `WHERE ${conditions.join(" AND ")}` : ""
     parts.push(`SELECT fin_key(name) AS k, 'product:' || id AS item_key, 0 AS pri, id FROM products ${alive}`)
   }
   if (t.has("raw_materials")) {
@@ -190,6 +198,19 @@ export function buildMovementsSql(t: StockTables): string {
     lines.push(lineRow("x.in_day", "x.to_warehouse", "x.raw", "x.qty", "0", "transfer_in", "internal_transfers", "x.id", "FROM stk_tr x WHERE x.status = 'принят'"))
   }
 
+  // Возврат (client returns): returns made in this app and accepted onto the warehouse bring their lines back (ids above
+  // the reference's 222 — the imported reference returns are already part of the opening balances).
+  if (t.has("ref_records")) {
+    ctes.push(`stk_cret_doc AS MATERIALIZED (
+      SELECT r.id::bigint::integer AS id, (${jsonDoc("r.data")} ->> 'warehouse') AS warehouse,
+             ${dayOf("fin_ts(r.updated_at, true)")} AS day, (${jsonDoc("d.data")} -> 'items') AS js
+      FROM ref_records r JOIN ref_records d ON d.kind = 'return-detail' AND d.id = r.id AND d.deleted = 0
+      WHERE r.kind = 'return' AND r.deleted = 0 AND (CASE WHEN r.id ~ '^[0-9]+$' THEN r.id::bigint END) > 222
+        AND (${jsonDoc("r.data")} ->> 'accepted') = 'true'
+    )`)
+    lines.push(lineRow("d.day", "d.warehouse", "l.j ->> 'name'", jsonNum("l.j", "amount"), "0", "return", "ref_records", "d.id", `FROM stk_cret_doc d CROSS JOIN LATERAL ${jsonElements("d.js")} AS l(j)`))
+  }
+
   if (lines.length) {
     ctes.push(`stk_lines AS MATERIALIZED (${lines.join("\nUNION ALL\n")})`)
     // One fin_key() per distinct spelling; empty names are dropped.
@@ -208,7 +229,7 @@ export function buildMovementsSql(t: StockTables): string {
     const parties = t.has("production_parties")
     const exact = t.col("production_movements", "item_kind") && t.col("production_movements", "item_id")
     const isExact = "m.item_kind IN ('product', 'raw_material') AND m.item_id IS NOT NULL"
-    const key = exact ? `CASE WHEN ${isExact} THEN m.item_kind || ':' || m.item_id ELSE ${KEY_OF("n", "m.item_name")} END` : KEY_OF("n", "m.item_name")
+    const key = remapRaw(t, exact ? `CASE WHEN ${isExact} THEN m.item_kind || ':' || m.item_id ELSE ${KEY_OF("n", "m.item_name")} END` : KEY_OF("n", "m.item_name"))
     // The name join only runs for rows without an exact item reference.
     const join = exact ? `LEFT JOIN stk_names n ON n.k = (CASE WHEN ${isExact} THEN NULL ELSE fin_key(m.item_name) END)` : KEY_JOIN("n", "m.item_name")
     const amount = "COALESCE(m.amount, 0)"
@@ -241,7 +262,7 @@ export function buildMovementsSql(t: StockTables): string {
       row(
         dayOf("fin_ts(si.inv_date)", "fin_ts(si.created_at, true)"),
         "si.warehouse",
-        "ii.item_key",
+        remapRaw(t, "ii.item_key"),
         "ii.diff",
         "ii.diff * COALESCE(ii.cost, 0)",
         "CASE WHEN ii.diff >= 0 THEN 'inventory_in' ELSE 'inventory_out' END",
@@ -257,15 +278,15 @@ export function buildMovementsSql(t: StockTables): string {
   // Выдано по заказу: client orders that name their warehouse and left it
   // ("В пути" / "Доставлено"). The orders module has no warehouse yet, so
   // this is empty until it does ("Есть на складе" = reserved, see pending).
-  if (t.has("orders") && t.has("order_items") && t.col("orders", "warehouse")) {
+  if (t.has("orders") && t.has("order_items") && orderWarehouse(t)) {
     const created = t.col("orders", "created") ? "fin_ts(o.created)" : "NULL::timestamp"
     const delivery = t.col("orders", "delivery") ? "fin_ts(o.delivery)" : "NULL::timestamp"
     const name = t.col("order_items", "product_name") ? "oi.product_name" : "''"
-    const key = t.col("order_items", "product_id") ? `CASE WHEN oi.product_id IS NOT NULL THEN 'product:' || oi.product_id ELSE ${KEY_OF("n", name)} END` : KEY_OF("n", name)
+    const key = KEY_OF("n", name)
     parts.push(
       row(
         dayOf(delivery, created, "fin_ts(o.created_at, true)"),
-        "o.warehouse",
+        orderWarehouse(t) as string,
         key,
         "-COALESCE(oi.quantity, 0)",
         `-COALESCE(oi.quantity, 0) * ${t.col("order_items", "cost_price") ? "COALESCE(oi.cost_price, 0)" : "0"}`,
@@ -274,12 +295,15 @@ export function buildMovementsSql(t: StockTables): string {
         "o.id",
         "0",
         `FROM orders o JOIN order_items oi ON oi.order_id = o.id ${KEY_JOIN("n", name)}
-         WHERE btrim(o.warehouse) <> '' AND o.status IN ('В пути', 'Доставлено')`,
+         WHERE ${orderWarehouse(t)} IS NOT NULL AND o.status IN ('В пути', 'Доставлено')`,
       ),
     )
   }
 
-  // Возврат (client returns): no table yet — the kind stays, always empty.
+  // Starting quantities (undated: always counted); no value, so the average cost never sees them.
+  if (t.has("stock_opening_balances")) {
+    parts.push(row("'1970-01-01'", "b.warehouse", "b.item_key", "b.qty", "0", "'opening'", "'stock_opening_balances'", "b.id", "0", "FROM stock_opening_balances b"))
+  }
 
   return `WITH ${ctes.join(",\n")}\n${parts.length ? parts.join("\nUNION ALL\n") : EMPTY}`
 }
@@ -289,12 +313,12 @@ export function buildMovementsSql(t: StockTables): string {
  * warehouse, item_key, reserved, transit. No parameters. */
 export function buildPendingSql(t: StockTables): string {
   const parts: string[] = []
-  if (t.has("orders") && t.has("order_items") && t.col("orders", "warehouse")) {
+  if (t.has("orders") && t.has("order_items") && orderWarehouse(t)) {
     const name = t.col("order_items", "product_name") ? "oi.product_name" : "''"
-    const key = t.col("order_items", "product_id") ? `CASE WHEN oi.product_id IS NOT NULL THEN 'product:' || oi.product_id ELSE ${KEY_OF("n", name)} END` : KEY_OF("n", name)
-    parts.push(`SELECT o.warehouse::text AS warehouse, (${key})::text AS item_key, COALESCE(oi.quantity, 0)::double precision AS reserved, 0::double precision AS transit
+    const key = KEY_OF("n", name)
+    parts.push(`SELECT (${orderWarehouse(t)})::text AS warehouse, (${key})::text AS item_key, COALESCE(oi.quantity, 0)::double precision AS reserved, 0::double precision AS transit
       FROM orders o JOIN order_items oi ON oi.order_id = o.id ${KEY_JOIN("n", name)}
-      WHERE btrim(o.warehouse) <> '' AND o.status = 'Есть на складе'`)
+      WHERE ${orderWarehouse(t)} IS NOT NULL AND o.status = 'Есть на складе'`)
   }
   if (t.has("internal_transfers")) {
     parts.push(`SELECT tr.to_warehouse::text, (${KEY_OF("n", "l.j ->> 'product'")})::text, 0::double precision, ${jsonNum("l.j", "quantity")}
@@ -306,4 +330,10 @@ export function buildPendingSql(t: StockTables): string {
     ? parts.join("\nUNION ALL\n")
     : "SELECT NULL::text AS warehouse, NULL::text AS item_key, NULL::double precision AS reserved, NULL::double precision AS transit WHERE false"
   return `WITH ${namesCte(t)}\n${body}`
+}
+
+/** SQL expression of the warehouse an order was shipped from: orders.warehouse, else the stock name the order carries (orders.stock_name); null when neither column exists. */
+function orderWarehouse(t: StockTables): string | null {
+  const columns = ["warehouse", "stock_name"].filter((column) => t.col("orders", column)).map((column) => `NULLIF(btrim(o.${column}), '')`)
+  return columns.length ? `COALESCE(${columns.join(", ")})` : null
 }

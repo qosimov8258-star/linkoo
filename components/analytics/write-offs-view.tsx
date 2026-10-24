@@ -2,27 +2,23 @@
 
 import { Fragment, useCallback, useEffect, useState, type ReactNode } from "react"
 import { useSearchParams } from "next/navigation"
-import { ArrowDown, ArrowUp, ArrowUpDown, FileSpreadsheet, RefreshCw, Search } from "lucide-react"
+import { ArrowDown, ArrowUp } from "lucide-react"
 
-import { BalancePagination } from "@/components/analytics/balance/pagination"
 import { buildCashQuery, useCashJson, type CashQuery } from "@/components/analytics/cash/use-cash"
 import { CashSnackbar, FormField, MultiPick, SearchSelect, useCanWrite, type SnackbarMessage } from "@/components/analytics/cash-management-shared"
 import { FilterPopup, FilterToggle, PeriodField, orderedPeriod } from "@/components/analytics/internal-transfers-filter"
 import { docDate } from "@/components/analytics/internal-transfers-shared"
 import { WriteOffDetailPanel, WriteOffStatusLabel } from "@/components/analytics/write-offs-detail"
 import { WriteOffFormDialog } from "@/components/analytics/write-offs-form"
-import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
-import { downloadExcelTable } from "@/lib/excel-export"
+import { RefCard, RefHeader, RefPage, RefToolbar } from "@/components/ref/list-kit"
 import { useLanguage } from "@/lib/i18n/language-context"
-import { WRITE_OFF_STATUSES, type WriteOff, type WriteOffListResult, type WriteOffOptions, type WriteOffStatus } from "@/lib/write-offs-types"
+import { WRITE_OFF_STATUSES, type WriteOffListResult, type WriteOffOptions, type WriteOffStatus } from "@/lib/write-offs-types"
 
 // "Списание" (demo #/write-off, chunk c142: list 5197, filter 4461). Header
 // button "Списание товара"; toolbar "Показать фильтр" (Период создания, Склад,
 // Создатель, Статус), search, page size + "1 - 25 из N", Excel; columns № |
 // Создал | Склад | Дата создания | Статус; a row opens its detail in place.
 // Data: /api/write-offs/**; the URL keeps the state.
-
-const PAGE_SIZES = [10, 25, 50, 100, 200, 500] as const
 
 type Filters = { warehouses: string[]; creators: string[]; status: WriteOffStatus | ""; fromDate: string; toDate: string }
 const EMPTY: Filters = { warehouses: [], creators: [], status: "", fromDate: "", toDate: "" }
@@ -59,7 +55,7 @@ function listQuery(state: ViewState, pageSize = state.pageSize): CashQuery {
 function SortIcon({ ordering, sortKey }: { ordering: string; sortKey: string }) {
   if (ordering === sortKey) return <ArrowUp className="h-3.5 w-3.5" />
   if (ordering === `-${sortKey}`) return <ArrowDown className="h-3.5 w-3.5" />
-  return <ArrowUpDown className="h-3.5 w-3.5 opacity-40" />
+  return null
 }
 
 function WriteOffFilter({ filters, options, onClose, onApply }: { filters: Filters; options: WriteOffOptions | null; onClose: () => void; onApply: (filters: Filters) => void }) {
@@ -131,76 +127,60 @@ export function WriteOffsView() {
   const f = state.filters
   const filterCount = [f.warehouses.length > 0, f.creators.length > 0, Boolean(f.status), Boolean(f.fromDate || f.toDate)].filter(Boolean).length
 
-  const downloadExcel = async () => {
-    try {
-      const response = await fetch(`/api/write-offs?${buildCashQuery(listQuery(state, 0))}`, { cache: "no-store" })
-      const body = (await response.json().catch(() => null)) as (WriteOffListResult & { error?: string }) | null
-      if (!response.ok || !body) throw new Error(body?.error || `HTTP ${response.status}`)
-      downloadExcelTable(t("Списание"), [
-        ["№", t("Создал"), t("Склад"), t("Дата создания"), t("Статус"), t("Сумма"), t("Комментарий")],
-        ...body.results.map((row: WriteOff) => [row.id, row.creator, row.warehouse, docDate(row.date, language, true), t(row.status), Math.round(row.total * 100) / 100, row.comment]),
-      ])
-    } catch (reason) {
-      notify(reason instanceof Error ? t(reason.message) : t("Сервер недоступен, попробуйте ещё раз"), true)
-    }
-  }
-
-  const th = "whitespace-nowrap px-3 py-3 text-left font-semibold"
-  const td = "px-3 py-3 align-middle"
+  const th = "whitespace-nowrap px-2 py-0 text-left font-semibold"
+  const td = "px-2 py-0 align-middle leading-[16.25px]"
+  const pageCount = Math.max(1, Math.ceil((data?.count ?? 0) / Math.max(1, state.pageSize)))
+  const from = data?.count ? (state.page - 1) * state.pageSize + 1 : 0
+  const to = Math.min(state.page * state.pageSize, data?.count ?? 0)
   return (
-    <main className="min-h-screen bg-[#f1f4f8] text-[#17233b]">
-      <header className="flex min-h-[76px] flex-wrap items-center justify-between gap-4 border-b border-[#d8dee7] bg-[#f2f5f8] px-4 py-3 md:px-9">
-        <div className="flex min-w-0 items-center gap-3">
-          <FavoritesButton className="flex items-center gap-3 text-2xl font-bold text-[#4f70e7]" />
-          <span className="text-3xl font-light text-[#586174]">|</span>
-          <h1 className="truncate text-xl font-bold text-[#586174] md:text-2xl">{t("Списание")}</h1>
-        </div>
+    <RefPage>
+      <RefHeader title={t("Списание")}>
         {canEdit && (
-          <button type="button" onClick={() => setFormOpen(true)} className="h-[34px] rounded-sm bg-white px-4 text-[14px] font-semibold uppercase text-[#e57373] shadow-sm hover:bg-[#fff5f5]">
+          <button type="button" onClick={() => setFormOpen(true)} className="text-[13px] font-semibold text-[#e57373] hover:brightness-90">
             {t("Списание товара")}
           </button>
         )}
-      </header>
+      </RefHeader>
 
-      <section className="mx-4 mb-10 mt-4 rounded-sm bg-white shadow-sm md:mx-6">
-        <div className="flex flex-wrap items-center gap-x-5 gap-y-3 border-b border-[#e1e5eb] px-4 py-3 md:px-6">
-          <div className="relative">
-            <FilterToggle
-              count={filterCount}
-              open={filterOpen}
-              onOpen={() => setFilterOpen(true)}
-              onClose={() => setFilterOpen(false)}
-              onClear={() => {
-                setFilterOpen(false)
-                update({ filters: { ...EMPTY }, page: 1, detailId: null })
-              }}
-            />
-            {filterOpen && (
-              <WriteOffFilter
-                filters={state.filters}
-                options={options.data}
+      <RefCard>
+        <RefToolbar
+          linkFilter="flush"
+          leftSlot={
+            <div className="relative">
+              <FilterToggle
+                count={filterCount}
+                open={filterOpen}
+                onOpen={() => setFilterOpen(true)}
                 onClose={() => setFilterOpen(false)}
-                onApply={(filters) => {
+                onClear={() => {
                   setFilterOpen(false)
-                  update({ filters, page: 1, detailId: null })
+                  update({ filters: { ...EMPTY }, page: 1, detailId: null })
                 }}
               />
-            )}
-          </div>
-          <label className="relative min-w-[180px] flex-1 border-b border-[#dbe0e8] pb-1.5 md:max-w-[340px]">
-            <input value={searchDraft} onChange={(event) => setSearchDraft(event.target.value)} placeholder={t("Поиск")} aria-label={t("Поиск")} className="w-full bg-transparent pr-7 text-[15px] outline-none placeholder:text-[#9aa3b6]" />
-            <Search className="pointer-events-none absolute right-0 top-0.5 h-5 w-5 text-[#9aa3b6]" />
-          </label>
-          <div className="ml-auto flex flex-wrap items-center gap-3">
-            <BalancePagination page={state.page} pageSize={state.pageSize} count={data?.count ?? 0} sizes={PAGE_SIZES} onChange={({ page, pageSize }) => update({ page, pageSize, detailId: null })} />
-            <button type="button" onClick={list.reload} title={t("Обновить список")} aria-label={t("Обновить список")} className="flex h-9 w-9 items-center justify-center rounded-full text-[#666] hover:bg-[#f2f5f8]">
-              <RefreshCw className={`h-5 w-5 ${list.loading ? "animate-spin" : ""}`} />
-            </button>
-            <button type="button" onClick={() => void downloadExcel()} disabled={!data} title={t("Скачать Excel")} aria-label={t("Скачать Excel")} className="flex h-9 w-9 items-center justify-center rounded-full text-[#666] hover:bg-[#f2f5f8] disabled:opacity-40">
-              <FileSpreadsheet className="h-5 w-5" />
-            </button>
-          </div>
-        </div>
+              {filterOpen && (
+                <WriteOffFilter
+                  filters={state.filters}
+                  options={options.data}
+                  onClose={() => setFilterOpen(false)}
+                  onApply={(filters) => {
+                    setFilterOpen(false)
+                    update({ filters, page: 1, detailId: null })
+                  }}
+                />
+              )}
+            </div>
+          }
+          query={searchDraft}
+          onQuery={setSearchDraft}
+          pageSize={state.pageSize}
+          onPageSize={(pageSize) => update({ pageSize, page: 1, detailId: null })}
+          from={from}
+          to={to}
+          total={data?.count ?? 0}
+          page={state.page}
+          pageCount={pageCount}
+          onPage={(page) => update({ page, detailId: null })}
+        />
 
         {list.error && (
           <div className="flex flex-wrap items-center gap-3 px-6 py-3 text-[#e57373]">
@@ -213,15 +193,16 @@ export function WriteOffsView() {
           </div>
         )}
 
-        <div className={`overflow-x-auto ${list.loading ? "opacity-60" : ""}`}>
-          <table className="w-full min-w-[760px] border-collapse text-[14px]">
+        <div className={`overflow-x-auto xl:overflow-visible ${list.loading ? "opacity-60" : ""}`}>
+          <table className="w-full min-w-[760px] table-fixed border-collapse text-[13px]">
             <thead>
-              <tr className="border-b border-[#e1e5eb]">
-                <th className={`${th} w-[10%] pl-6`}>{sortHeader("id", "№")}</th>
-                <th className={`${th} w-[34%]`}>{t("Создал")}</th>
-                <th className={`${th} w-[20%]`}>{t("Склад")}</th>
-                <th className={`${th} w-[20%]`}>{sortHeader("created_date", t("Дата создания"))}</th>
-                <th className={`${th} pr-6`}>{t("Статус")}</th>
+              <tr className="h-[50px] bg-[#5d6474] text-white">
+                {/* widths: lib/ref-table-columns.ts (TableFitter) */}
+                <th className={`${th} pl-[30px]`}>{sortHeader("id", "№")}</th>
+                <th className={th}>{t("Создал")}</th>
+                <th className={th}>{t("Склад")}</th>
+                <th className={th}>{sortHeader("created_date", t("Дата создания"))}</th>
+                <th className={`${th} pr-[38px]`}>{t("Статус")}</th>
               </tr>
             </thead>
             <tbody>
@@ -229,19 +210,23 @@ export function WriteOffsView() {
                 const open = state.detailId === row.id
                 return (
                   <Fragment key={row.id}>
-                    <tr onClick={() => update({ detailId: open ? null : row.id })} className={`cursor-pointer border-b border-[#efefef] ${open ? "bg-[#eef2ff]" : "hover:bg-[#f2f5f8]"}`}>
-                      <td className={`${td} pl-6 font-semibold`}>{row.id}</td>
-                      <td className={td}>{row.creator || t("Не указано")}</td>
-                      <td className={td}>{row.warehouse}</td>
-                      <td className={`${td} whitespace-nowrap`}>{docDate(row.date, language)}</td>
-                      <td className={`${td} pr-6`}>
-                        <WriteOffStatusLabel status={row.status} />
-                      </td>
-                    </tr>
-                    {open && (
+                    {open ? (
                       <tr>
-                        <td colSpan={5} className="bg-[#f2f5f8] px-2 py-3 md:px-4">
-                          <WriteOffDetailPanel key={`${row.id}-${detailVersion}`} id={row.id} canEdit={canEdit} onClose={() => update({ detailId: null })} onChanged={list.reload} notify={notify} />
+                        {/* like the reference the card takes the row's place, 20 px apart from its neighbours and 15 px wider than the list */}
+                        <td colSpan={5} className="p-0">
+                          <div className="-mx-[15px] mb-[19px] mt-[21px]">
+                            <WriteOffDetailPanel key={`${row.id}-${detailVersion}`} id={row.id} canEdit={canEdit} onClose={() => update({ detailId: null })} onChanged={list.reload} notify={notify} />
+                          </div>
+                        </td>
+                      </tr>
+                    ) : (
+                      <tr onClick={() => update({ detailId: row.id })} className="h-[50px] cursor-pointer border-b-2 border-dotted border-[#d9e0e5] hover:bg-[#f2f5f8]">
+                        <td className={`${td} pl-[38px]`}>{row.id}</td>
+                        <td className={td}>{row.creator || t("Не указано")}</td>
+                        <td className={td}>{row.warehouse}</td>
+                        <td className={`${td} whitespace-nowrap`}>{docDate(row.date, language)}</td>
+                        <td className={`${td} pr-[38px]`}>
+                          <WriteOffStatusLabel status={row.status} />
                         </td>
                       </tr>
                     )}
@@ -258,7 +243,7 @@ export function WriteOffsView() {
             </tbody>
           </table>
         </div>
-      </section>
+      </RefCard>
 
       {formOpen && (
         <WriteOffFormDialog
@@ -275,6 +260,6 @@ export function WriteOffsView() {
         />
       )}
       <CashSnackbar message={message} onClose={closeSnackbar} />
-    </main>
+    </RefPage>
   )
 }

@@ -9,6 +9,8 @@ export type SalaryPlan = {
   bonus: number
   kpi: number
   credited: boolean
+  /** Month the plan belongs to, "YYYY-MM" (the month it was created). */
+  period: string
 }
 
 type Row = {
@@ -18,6 +20,7 @@ type Row = {
   bonus: number
   kpi: number
   credited: number
+  created_at?: string
 }
 
 async function ensureSchema(db: ReturnType<typeof getDb>) {
@@ -43,6 +46,7 @@ function rowToPlan(row: Row): SalaryPlan {
     bonus: row.bonus,
     kpi: row.kpi,
     credited: Boolean(row.credited),
+    period: String(row.created_at ?? "").slice(0, 7),
   }
 }
 
@@ -52,6 +56,8 @@ export type SalaryPlanInput = {
   bonus: number
   kpi: number
   credited: boolean
+  /** "YYYY-MM": the month the plan is added for (stored as the created_at month). */
+  period?: string
 }
 
 export function parseSalaryPlanInput(body: unknown): SalaryPlanInput | null {
@@ -64,7 +70,8 @@ export function parseSalaryPlanInput(body: unknown): SalaryPlanInput | null {
   const bonus = Number.isFinite(Number(value.bonus)) ? Number(value.bonus) : 0
   const kpi = Number.isFinite(Number(value.kpi)) ? Number(value.kpi) : 0
   const credited = Boolean(value.credited)
-  return { employee, salary, bonus, kpi, credited }
+  const period = typeof value.period === "string" && /^\d{4}-\d{2}$/.test(value.period) ? value.period : undefined
+  return { employee, salary, bonus, kpi, credited, period }
 }
 
 export async function listSalaryPlans(): Promise<SalaryPlan[]> {
@@ -85,8 +92,8 @@ export async function createSalaryPlan(input: SalaryPlanInput): Promise<SalaryPl
   await ensureSchema(db)
   const result = (await db
       .prepare(
-        `INSERT INTO salary_plans (employee, salary, bonus, kpi, credited)
-       VALUES (@employee, @salary, @bonus, @kpi, @credited)`,
+        `INSERT INTO salary_plans (employee, salary, bonus, kpi, credited, created_at)
+       VALUES (@employee, @salary, @bonus, @kpi, @credited, COALESCE(@createdAt, datetime('now')))`,
       )
       .run({
         employee: input.employee,
@@ -94,6 +101,7 @@ export async function createSalaryPlan(input: SalaryPlanInput): Promise<SalaryPl
         bonus: input.bonus,
         kpi: input.kpi,
         credited: input.credited ? 1 : 0,
+        createdAt: input.period ? `${input.period}-01 09:00:00` : null,
       }))
   return (await getSalaryPlan(Number(result.lastInsertRowid)))!
 }

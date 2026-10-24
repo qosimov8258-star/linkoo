@@ -275,7 +275,10 @@ export function EmployeeBalanceView() {
   }
 
   const nameCell = (row: BalanceRow) => (
-    <div className="flex items-center gap-2">
+    <div className="flex items-center justify-between gap-2">
+      <button type="button" onClick={() => update({ detail: row.key })} className="text-left text-[#333] hover:underline">
+        {row.name || t("Не указано")}
+      </button>
       {canEdit && row.id !== null && (
         <button
           type="button"
@@ -285,30 +288,27 @@ export function EmployeeBalanceView() {
             const rect = event.currentTarget.getBoundingClientRect()
             setMenu((current) => (current?.employeeId === row.id ? null : { employeeId: row.id!, top: rect.bottom + 4, left: rect.left }))
           }}
-          className="shrink-0 rounded-full p-0.5 text-[#586174] hover:bg-[#f2f5f8] hover:text-[#17233b]"
+          className="shrink-0 rounded-full p-0.5 text-[#333] hover:bg-[#f2f5f8]"
         >
           <MoreVertical className="h-5 w-5" />
         </button>
       )}
-      <button type="button" onClick={() => update({ detail: row.key })} className="text-left font-medium text-[#129fdd] hover:underline">
-        {row.name || t("Не указано")}
-      </button>
     </div>
   )
 
   return (
-    <main className="min-h-screen bg-[#f1f4f8] text-[#17233b]">
-      <header className="flex min-h-[76px] items-center border-b border-[#d8dee7] bg-[#f2f5f8] px-6 md:px-9">
-        <div className="flex items-center gap-3">
-          <FavoritesButton className="flex items-center gap-3 text-2xl font-bold text-[#4f70e7]" />
-          <span className="text-3xl font-light text-[#586174]">|</span>
-          <span className="text-2xl font-bold text-[#586174]">{t("Баланс сотрудников")}</span>
+    <main className="ref-white min-h-screen bg-white text-[#333]">
+      <header className="flex min-h-[60px] items-center px-[28px]">
+        <div className="flex items-center">
+          <FavoritesButton className="flex items-center gap-[5px] text-[18px] font-bold text-[#4f71dc]" />
+          <span className="mx-[11px] h-[21px] w-[2px] bg-[#5d6474]" />
+          <span className="text-[18px] font-bold text-[#5d6474]">{t("Баланс сотрудников")}</span>
         </div>
       </header>
 
-      <div className="border-b border-[#e1e5eb] bg-white pt-6">
+      <div className="pt-[10px]">
         {data ? (
-          <BalanceSummaryCards boxes={BOXES} totals={data.totals} currencies={visible} digits={DIGITS} loading={list.loading} />
+          <BalanceSummaryCards marginClass="mx-[10px]" boxes={BOXES} totals={data.totals} currencies={visible} digits={DIGITS} loading={list.loading} />
         ) : (
           <div className="flex h-[150px] items-center justify-center gap-3 pb-6">
             {list.error ? (
@@ -326,7 +326,7 @@ export function EmployeeBalanceView() {
       </div>
 
       <ExpandedOverlay expanded={expanded}>
-        <section className="flex flex-wrap items-center gap-x-5 gap-y-3 border-b border-[#e1e5eb] bg-white px-6 py-3 md:px-9">
+        <section className="flex flex-wrap items-center gap-x-5 gap-y-3 border-t border-[#efefef] px-[10px] py-[10px]">
           <BalanceFilterChip
             count={filterCount}
             onOpen={() => {
@@ -371,6 +371,7 @@ export function EmployeeBalanceView() {
 
         <section className="bg-white pb-10">
           <BalanceTable
+          fixedWidth={100}
             rows={rows}
             groups={GROUPS}
             currencies={visible}

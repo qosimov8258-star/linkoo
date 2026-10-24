@@ -12,10 +12,11 @@ import { BALANCE_PAGE_SIZES, BalancePagination } from "@/components/analytics/ba
 import { BalanceSummaryCards, type SummaryBox } from "@/components/analytics/balance/summary-cards"
 import { buildBalanceQuery, useBalanceList, useLookup } from "@/components/analytics/balance/use-balance"
 import { BranchDetailDialog, BranchTransactionDialog, type BranchOption } from "@/components/analytics/branch-balance-dialogs"
+import { withRecordedBalances, type BranchRow, type ManualEntry } from "@/components/analytics/branch-tab-view"
 import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
 import { downloadExcelTable } from "@/lib/excel-export"
 import { isIsoDay, monthEndIso, monthStartIso } from "@/lib/finance/dates"
-import { MOVEMENT_LABELS, type BalanceListResult, type BalanceRow } from "@/lib/finance/types"
+import { MOVEMENT_LABELS, type BalanceListResult, type BalanceRow, type CurrencyBalance } from "@/lib/finance/types"
 import { useLanguage } from "@/lib/i18n/language-context"
 
 // "Баланс филиалов" (demo #/branch-balance, a clone of the van-sell balance):
@@ -38,24 +39,23 @@ const GROUPS = [
 const SUMMARY_BOXES: SummaryBox[] = [
   {
     metrics: [
+      { label: "Баланс на начало периода", field: "begin_balance" },
+      { label: "Принятие оплаты", field: "payments" },
+    ],
+  },
+  {
+    metrics: [
       { label: "Передача на склад", field: "stock_transfer_minus" },
       { label: "Возврат передачи", field: "stock_transfer_plus" },
     ],
   },
-  { metrics: [{ label: "Принятие оплаты", field: "payments" }] },
   {
     metrics: [
       { label: "Прочие приходы", field: "none_type_plus" },
       { label: "Прочие расходы", field: "none_type_minus" },
     ],
   },
-  {
-    align: "right",
-    metrics: [
-      { label: "Баланс на начало периода", field: "begin_balance" },
-      { label: "Баланс на конец периода", field: "end_balance" },
-    ],
-  },
+  { align: "right", metrics: [{ label: "Баланс на конец периода", field: "end_balance" }] },
 ]
 
 /**
@@ -153,18 +153,49 @@ export function BranchBalanceView() {
   const [exportError, setExportError] = useState("")
 
   const branchOptions = useLookup<BranchOption>("/api/branches")
+  // Like the reference, the list holds only the branches that have manual balance entries, in the order of their first entry;
+  // their opening / closing balances come from those entries (same rule as the dashboard tab ФИЛИАЛ).
+  const [entries, setEntries] = useState<ManualEntry[] | null>(null)
+  useEffect(() => {
+    fetch("/api/branch-balance-transactions")
+      .then((response) => (response.ok ? (response.json() as Promise<ManualEntry[]>) : []))
+      .then(setEntries)
+      .catch(() => setEntries([]))
+  }, [])
+  const entryOrder = useMemo(() => {
+    if (!entries) return null
+    const first = new Map<number, number>()
+    for (const entry of entries) if (!first.has(entry.branchId) || entry.id < first.get(entry.branchId)!) first.set(entry.branchId, entry.id)
+    return [...first.entries()].sort((a, b) => a[1] - b[1]).map(([branchId]) => String(branchId))
+  }, [entries])
   const query = useMemo(
-    () => ({ from: period.from, to: period.to, search, key: branchIds, ordering, page: paging.page, pageSize: paging.pageSize, totalsIgnoreSearch: true }),
-    [period, search, branchIds, ordering, paging],
+    () => ({ from: period.from, to: period.to, search, key: branchIds.length ? branchIds : (entryOrder ?? ["0"]), ordering, page: 1, pageSize: 1000, totalsIgnoreSearch: true }),
+    [period, search, branchIds, entryOrder, ordering],
   )
   const { data, loading, error, reload } = useBalanceList("branch", query)
-  const rows = data?.rows ?? []
+  const processed = useMemo(() => {
+    const all = data?.rows ?? []
+    const listed = ordering.length || branchIds.length || !entryOrder ? all : entryOrder.map((key) => all.find((row) => row.key === key)).filter((row): row is (typeof all)[number] => !!row)
+    return entries ? listed.map((row) => withRecordedBalances(row as unknown as BranchRow, entries, period.from, period.to) as unknown as (typeof all)[number]) : listed
+  }, [data, entries, entryOrder, ordering, branchIds, period])
+  const count = processed.length
+  const rows = processed.slice((paging.page - 1) * paging.pageSize, paging.page * paging.pageSize)
+  const totals = useMemo(() => {
+    const sums = {} as Record<string, CurrencyBalance>
+    for (const row of processed) {
+      for (const [code, figures] of Object.entries(row.currencies)) {
+        const target = (sums[code] ??= { begin_balance: 0, end_balance: 0 })
+        for (const [field, value] of Object.entries(figures)) if (typeof value === "number") target[field] = (target[field] ?? 0) + value
+      }
+    }
+    return sums
+  }, [processed])
   const currencies = useMemo(() => (data ? shownCurrencies(data) : ["SUM"]), [data])
   const filterCount = countActiveFilters({ toDate: periodApplied ? period.to : "", branch: branchIds })
 
   // A page past the end (rows removed, deep link) falls back to the last page.
-  const lastPage = data ? Math.max(1, Math.ceil(data.count / Math.max(1, data.pageSize))) : 1
-  if (data && !loading && data.page === paging.page && data.pageSize === paging.pageSize && paging.page > lastPage) {
+  const lastPage = Math.max(1, Math.ceil(count / Math.max(1, paging.pageSize)))
+  if (data && !loading && paging.page > lastPage) {
     setPaging({ page: lastPage, pageSize: paging.pageSize })
   }
 
@@ -244,12 +275,12 @@ export function BranchBalanceView() {
   const toggleDraftBranch = (id: string) => setDraftBranchIds((current) => (current.includes(id) ? current.filter((item) => item !== id) : [...current, id]))
 
   return (
-    <main className="min-h-screen bg-white text-[#17233b]">
-      <header className="flex min-h-[76px] items-center border-b border-[#d8dee7] bg-[#f2f5f8] px-6 md:px-9">
-        <div className="flex items-center gap-3">
-          <FavoritesButton className="flex items-center gap-3 text-2xl font-bold text-[#4f70e7]" />
-          <span className="text-3xl font-light text-[#586174]">|</span>
-          <span className="text-2xl font-bold text-[#586174]">{t("Баланс филиалов")}</span>
+    <main className="ref-white min-h-screen bg-white text-[#333]">
+      <header className="flex min-h-[60px] items-center px-[28px]">
+        <div className="flex items-center">
+          <FavoritesButton className="flex items-center gap-[5px] text-[18px] font-bold text-[#4f71dc]" />
+          <span className="mx-[11px] h-[21px] w-[2px] bg-[#5d6474]" />
+          <span className="text-[18px] font-bold text-[#5d6474]">{t("Баланс филиалов")}</span>
         </div>
       </header>
 
@@ -265,40 +296,33 @@ export function BranchBalanceView() {
       )}
 
       <div className="pt-6">
-        <BalanceSummaryCards boxes={SUMMARY_BOXES} totals={data?.totals ?? {}} currencies={currencies} loading={loading} />
+        <BalanceSummaryCards marginClass="mx-[10px]" boxes={SUMMARY_BOXES} totals={totals} currencies={currencies} digits={3} loading={loading} />
       </div>
 
       <ExpandedOverlay expanded={expanded}>
-        <section className="flex flex-wrap items-center gap-5 border-t border-[#e1e5eb] bg-white px-6 py-3 md:px-9">
+        <section className="flex flex-wrap items-center gap-5 border-t border-[#efefef] px-[10px] py-[10px]">
           <BalanceFilterChip count={filterCount} onOpen={openFilter} onClear={clearFilter} />
 
-          <label className="relative min-w-[220px] flex-1 border-b border-[#dbe0e8] pb-1.5">
+          <label className="relative mx-auto w-[180px] border-b border-[#dbe0e8] pb-1.5">
             <input
               value={searchInput}
               onChange={(event) => setSearchInput(event.target.value)}
               placeholder={t("Поиск")}
-              className="w-full bg-transparent pr-7 text-[15px] outline-none placeholder:text-[#9aa3b6]"
+              className="w-full bg-transparent pr-7 text-[13px] outline-none placeholder:text-[#9aa3b6]"
             />
             <Search className="pointer-events-none absolute right-0 top-0.5 h-5 w-5 text-[#9aa3b6]" />
           </label>
 
-          <button
-            type="button"
-            onClick={() => void exportExcel()}
-            disabled={exporting || !data}
-            className="flex h-10 items-center gap-2 rounded px-4 font-semibold text-white disabled:opacity-50"
-            style={{ background: "#71ce87" }}
-          >
-            <FileSpreadsheet className="h-[18px] w-[18px]" /> {exporting ? t("Загрузка...") : t("Скачать Excel")}
-          </button>
 
-          <BalancePagination page={paging.page} pageSize={paging.pageSize} count={data?.count ?? 0} onChange={setPaging} />
+          <BalancePagination page={paging.page} pageSize={paging.pageSize} count={count} onChange={setPaging} />
           <ExpandedViewButton expanded={expanded} onToggle={() => setExpanded((value) => !value)} />
           {exportError && <span className="basis-full text-sm text-[#e57373]">{exportError}</span>}
         </section>
 
         <section className="bg-white pb-10">
           <BalanceTable
+          fixedWidth={100}
+            digits={3}
             rows={rows}
             groups={GROUPS}
             currencies={currencies}

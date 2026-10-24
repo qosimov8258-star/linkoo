@@ -1,11 +1,10 @@
 "use client"
 
-import { ArrowDown, ArrowUp, DollarSign, Pencil, Plus, Search, Trash2 } from "lucide-react"
-import Link from "next/link"
-import { useSearchParams } from "next/navigation"
-import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from "react"
+import { ArrowDown, ArrowUp } from "lucide-react"
+import { useRouter, useSearchParams } from "next/navigation"
+import { useCallback, useEffect, useState } from "react"
 
-import { BalancePagination } from "@/components/analytics/balance/pagination"
+import { EmptyRows, ROW_ICONS, RowActions, RowIcon, SettingsToolbar, kitHead, kitRow } from "@/components/analytics/settings-list-kit"
 import { useCashJson } from "@/components/analytics/cash/use-cash"
 import { CashSnackbar, useCanWrite, type SnackbarMessage } from "@/components/analytics/cash-management-shared"
 import { CatalogPageLayout } from "@/components/dashboard/catalog-sidebar"
@@ -19,15 +18,18 @@ import { SetPriceDialog } from "./price-lists-set-price"
 // "Прайс-листы" (demo #/price-list-setting, chunk c94: grid 4914, form 4410; API sales/price_list/).
 // Settings side menu + toolbar "Добавить прайс-лист" | search | paginator | "Добавить цену" (the
 // set-price grid, c9 module 4389); columns Id | Наименование | Валюта | Дата создания | Связанный
-// прайс лист | Метод расчета (+ Порядок, Активный, По умолчанию для заказа); hover actions
+// прайс лист | Метод расчета; hover actions
 // "Установить цену" (→ Переоценка create dialog with this list and currency, as in the demo),
 // "Изменить", "Удалить". State in the URL: ?search, ?page, ?pageSize, ?ordering,
 // ?openCreateDialog=true, ?priceList=<id>&openUpdateDialog | openDeleteDialog, ?openSetPrice=true.
 
+// Reference grid: 12 xs columns inside the 30px gutters (Id 1 | 2 | 2 | 2 | 2 | 2).
+const COLUMNS = "1fr 2fr 2fr 2fr 2fr 2fr 1fr"
+
 type ViewState = { search: string; ordering: string; page: number; pageSize: number }
 type DialogState = { kind: "create" } | { kind: "update"; id: number } | { kind: "delete"; id: number; name: string } | { kind: "setPrice" } | null
 
-const SORTABLE = new Set(["id", "name", "currency", "created_date", "position"])
+const SORTABLE = new Set(["id", "name", "currency", "created_date"])
 
 function positiveInt(value: string | null, fallback: number): number {
   const parsed = Number(value)
@@ -86,6 +88,7 @@ export function PriceListsView({ embedded = false }: { embedded?: boolean }) {
 function PriceListsGrid() {
   const { t, language } = useLanguage()
   const searchParams = useSearchParams()
+  const router = useRouter()
   const canEdit = useCanWrite()
   const [state, setState] = useState<ViewState>(() => stateFromParams(searchParams))
   const [dialog, setDialog] = useState<DialogState>(() => dialogFromParams(searchParams))
@@ -127,110 +130,98 @@ function PriceListsGrid() {
       .catch(() => {})
   }, [searchParams])
 
-  function submitSearch(event: FormEvent) {
-    event.preventDefault()
-    update({ search: searchDraft.trim(), page: 1 })
-  }
-
   const notSet = t("Не указано")
-  const created = (row: PriceList) => (row.createdAt ? formatStatementDate(row.createdAt, language, false).replace(/\s*г\.$/, "") : row.createdDate)
+  const created = (row: PriceList) => (row.createdAt && language !== "ru" ? formatStatementDate(row.createdAt, language, false).replace(/\s*г\.$/, "") : row.createdDate)
   const sortHeader = (field: string, label: string) => (
     <button
       type="button"
       onClick={() => update({ ordering: state.ordering === field ? `-${field}` : state.ordering === `-${field}` ? "" : field, page: 1 })}
-      className="inline-flex items-center gap-1 font-semibold"
+      className="inline-flex items-center gap-[10px] font-semibold"
     >
       {t(label)}
-      {state.ordering === field ? <ArrowUp className="h-4 w-4" /> : state.ordering === `-${field}` ? <ArrowDown className="h-4 w-4" /> : null}
+      {state.ordering === field ? <ArrowUp className="h-[14px] w-[14px]" /> : state.ordering === `-${field}` ? <ArrowDown className="h-[14px] w-[14px]" /> : null}
     </button>
   )
-  const th = "px-3 py-4 text-left font-semibold"
-  const td = "px-3 py-4"
+  const total = data?.count ?? 0
+  const from = total > 0 ? (state.page - 1) * state.pageSize + 1 : 0
+  const to = Math.min(total, state.page * state.pageSize)
+  const lastPage = Math.max(1, Math.ceil(total / state.pageSize))
+  const buttonClass = "inline-flex h-[30px] items-center gap-[8px] rounded-[5px] pl-[11px] text-[13px] font-semibold text-white hover:brightness-95"
 
   return (
-    <section className="min-w-0 flex-1 px-6 pb-6 pt-4 lg:px-9">
-      <div className="mb-4 flex flex-wrap items-center gap-x-6 gap-y-3">
-        {canEdit && (
-          <button type="button" onClick={() => setDialog({ kind: "create" })} className="inline-flex h-[30px] items-center gap-1.5 rounded-sm bg-[#4f71dc] px-3 text-[14px] font-semibold text-white hover:brightness-95">
-            <Plus className="h-4 w-4" /> {t("Добавить прайс-лист")}
-          </button>
-        )}
-        <form onSubmit={submitSearch} className="relative mx-auto w-full max-w-[300px]">
-          <input value={searchDraft} onChange={(event) => setSearchDraft(event.target.value)} placeholder={t("Поиск")} className="w-full border-b border-slate-300 py-2 pr-10 outline-none focus:border-[#4f70e7]" />
-          <button type="submit" aria-label={t("Поиск")} className="absolute right-1 top-1.5 text-slate-300 hover:text-[#4f70e7]">
-            <Search className="h-5 w-5" />
-          </button>
-        </form>
-        <BalancePagination page={state.page} pageSize={state.pageSize} count={data?.count ?? 0} onChange={(next) => update({ page: next.page, pageSize: next.pageSize })} />
-        {canEdit && (
-          <button type="button" onClick={() => setDialog({ kind: "setPrice" })} className="inline-flex h-[30px] items-center gap-1.5 rounded-sm bg-[#71ce87] px-3 text-[14px] font-semibold text-white hover:brightness-95">
-            <DollarSign className="h-4 w-4" /> {t("Добавить цену")}
-          </button>
-        )}
+    <section className="min-w-0 flex-1 bg-white pb-6 text-[13px] text-[#333]">
+      <SettingsToolbar
+        searchClassName="left-[335px] top-[20px]"
+        left={
+          canEdit ? (
+            <button type="button" onClick={() => setDialog({ kind: "create" })} className={`ml-[5px] bg-[#4f71dc] pr-[15px] ${buttonClass}`}>
+              <svg viewBox="0 0 24 24" className="h-[20px] w-[20px] fill-white"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm5 11h-4v4h-2v-4H7v-2h4V7h2v4h4v2z" /></svg>
+              {t("Добавить прайс-лист")}
+            </button>
+          ) : undefined
+        }
+        query={searchDraft}
+        onQuery={setSearchDraft}
+        pager={{
+          pageSize: state.pageSize,
+          onPageSize: (size) => update({ pageSize: size, page: 1 }),
+          from,
+          to,
+          total,
+          onPrev: state.page > 1 ? () => update({ page: state.page - 1 }) : undefined,
+          onNext: state.page < lastPage ? () => update({ page: state.page + 1 }) : undefined,
+        }}
+        right={
+          canEdit ? (
+            <button type="button" onClick={() => setDialog({ kind: "setPrice" })} className={`ml-[19px] mr-[9px] bg-[#71ce87] pr-[15px] ${buttonClass}`}>
+              <svg viewBox="0 0 24 24" className="h-[20px] w-[20px] fill-white"><path d={ROW_ICONS.dollar} /></svg>
+              {t("Добавить цену")}
+            </button>
+          ) : undefined
+        }
+      />
+
+      {list.error && <p className="px-[30px] py-3 text-[#e57373]">{t("Не удалось загрузить данные")}: {t(list.error)}</p>}
+
+      <div className={`${kitHead} px-[30px]`} style={{ gridTemplateColumns: COLUMNS }}>
+        <span>{sortHeader("id", "Id")}</span>
+        <span>{sortHeader("name", "Наименование")}</span>
+        <span>{sortHeader("currency", "Валюта")}</span>
+        <span>{sortHeader("created_date", "Дата создания")}</span>
+        <span>{t("Связанный прайс лист")}</span>
+        <span>{t("Метод расчета")}</span>
+        <span />
       </div>
-
-      {list.error && <p className="py-3 text-[#e57373]">{t("Не удалось загрузить данные")}: {t(list.error)}</p>}
-
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[1080px] text-[14px]">
-          <thead className="bg-[#626b7e] text-white">
-            <tr>
-              <th className={`${th} w-[70px] pl-6`}>{sortHeader("id", "Id")}</th>
-              <th className={th}>{sortHeader("name", "Наименование")}</th>
-              <th className={th}>{sortHeader("currency", "Валюта")}</th>
-              <th className={th}>{sortHeader("created_date", "Дата создания")}</th>
-              <th className={th}>{t("Связанный прайс лист")}</th>
-              <th className={th}>{t("Метод расчета")}</th>
-              <th className={`${th} text-center`}>{sortHeader("position", "Порядок")}</th>
-              <th className={`${th} text-center`}>{t("Активный")}</th>
-              <th className={`${th} text-center`}>{t("По умолчанию для заказа")}</th>
-              <th className="w-28" />
-            </tr>
-          </thead>
-          <tbody className={list.loading && data ? "opacity-60" : undefined}>
-            {!rows.length ? (
-              <MessageRow>{list.loading ? t("Загрузка...") : list.error ? "" : t("По вашему запросу ничего не найдено")}</MessageRow>
-            ) : (
-              rows.map((row) => (
-                <tr key={row.id} className="group border-b border-dashed border-slate-300 hover:bg-slate-50">
-                  <td className={`${td} pl-6`}>{row.id}</td>
-                  <td className={`${td} max-w-[260px] truncate font-medium`} title={row.name}>
-                    {row.name}
-                  </td>
-                  <td className={td}>{row.currency ? currencyLabel(row.currency) : notSet}</td>
-                  <td className={`${td} whitespace-nowrap`}>{created(row)}</td>
-                  <td className={td}>{row.connectedPriceList?.name ?? (row.linkedList !== "Не указано" ? row.linkedList : notSet)}</td>
-                  <td className={td}>{t(row.calcMethod)}</td>
-                  <td className={`${td} text-center`}>{row.position}</td>
-                  <td className={`${td} text-center`}>
-                    <Dot on={row.isActive} title={row.isActive ? t("Да") : t("Нет")} />
-                  </td>
-                  <td className={`${td} text-center`}>{row.isDefaultForOrder ? <Dot on title={t("Да")} /> : <span className="text-slate-300">—</span>}</td>
-                  <td className={td}>
-                    {canEdit && (
-                      <div className="flex items-center justify-end gap-3 text-[#666] opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
-                        <Link
-                          href={`/analytics/repricing?openCreateDialog=true&priceListId=${row.id}&currency=${encodeURIComponent(row.currency)}`}
-                          title={t("Установить цену")}
-                          aria-label={t("Установить цену")}
-                          className="hover:text-[#4f70e7]"
-                        >
-                          <DollarSign className="h-5 w-5" />
-                        </Link>
-                        <button type="button" onClick={() => setDialog({ kind: "update", id: row.id })} title={t("Изменить")} aria-label={t("Изменить")} className="hover:text-[#4f70e7]">
-                          <Pencil className="h-5 w-5" />
-                        </button>
-                        <button type="button" onClick={() => setDialog({ kind: "delete", id: row.id, name: row.name })} title={t("Удалить")} aria-label={t("Удалить")} className="hover:text-rose-600">
-                          <Trash2 className="h-5 w-5" />
-                        </button>
-                      </div>
-                    )}
-                  </td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
+      <div className={list.loading && data ? "opacity-60" : undefined}>
+        {!rows.length ? (
+          list.loading ? <div className="px-[30px] py-10 text-center text-slate-400">{t("Загрузка...")}</div> : list.error ? null : <EmptyRows />
+        ) : (
+          rows.map((row) => (
+            <div key={row.id} className={`${kitRow} px-[30px]`} style={{ gridTemplateColumns: COLUMNS }}>
+              <span className="pr-4">{row.id}</span>
+              <span className="min-w-0 break-words pr-4">{row.name}</span>
+              <span className="pr-4">{row.currency ? currencyLabel(row.currency) : notSet}</span>
+              <span className="whitespace-nowrap pr-4">{created(row)}</span>
+              <span className="min-w-0 break-words pr-4">{row.connectedPriceList?.name ?? (row.linkedList !== "Не указано" ? row.linkedList : notSet)}</span>
+              <span className="pr-4">{t(row.calcMethod)}</span>
+              <span />
+              {canEdit && (
+                <RowActions
+                  right={36}
+                  extra={
+                    <RowIcon
+                      path={ROW_ICONS.dollar}
+                      label={t("Установить цену")}
+                      onClick={() => router.push(`/analytics/repricing?openCreateDialog=true&priceListId=${row.id}&currency=${encodeURIComponent(row.currency)}`)}
+                    />
+                  }
+                  onEdit={() => setDialog({ kind: "update", id: row.id })}
+                  onDelete={() => setDialog({ kind: "delete", id: row.id, name: row.name })}
+                />
+              )}
+            </div>
+          ))
+        )}
       </div>
 
       {(dialog?.kind === "create" || dialog?.kind === "update") && (
@@ -269,19 +260,5 @@ function PriceListsGrid() {
       )}
       <CashSnackbar message={message} onClose={closeSnackbar} />
     </section>
-  )
-}
-
-function Dot({ on, title }: { on: boolean; title: string }) {
-  return <span className="inline-block h-3.5 w-3.5 rounded-full align-middle" style={{ background: on ? "rgb(129, 199, 132)" : "#f44336" }} title={title} />
-}
-
-function MessageRow({ children }: { children: ReactNode }) {
-  return (
-    <tr>
-      <td colSpan={10} className="px-9 py-10 text-center text-slate-400">
-        {children}
-      </td>
-    </tr>
   )
 }

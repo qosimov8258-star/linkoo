@@ -54,9 +54,12 @@ export function parseTaskInput(body: unknown): TaskInput | null {
   }
 }
 
-export async function listTasks(): Promise<Task[]> {
+/** `includeDemo`: the client panel also shows the demo planned-visit tasks; the Tasks page lists only what the reference has. */
+export async function listTasks(options: { includeDemo?: boolean } = {}): Promise<Task[]> {
   const db = getDb()
-  const rows = (await db.prepare("SELECT * FROM tasks ORDER BY id DESC").all()) as Row[]
+  const hasRegistry = ((await db.prepare("SELECT to_regclass('demo_seed_rows') AS t").get()) as { t: string | null }).t
+  const hide = !options.includeDemo && hasRegistry ? " WHERE NOT EXISTS (SELECT 1 FROM demo_seed_rows d WHERE d.table_name = 'tasks' AND d.row_id = tasks.id::text)" : ""
+  const rows = (await db.prepare(`SELECT * FROM tasks${hide} ORDER BY id DESC`).all()) as Row[]
   return rows.map(rowToTask)
 }
 

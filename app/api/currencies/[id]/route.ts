@@ -4,22 +4,15 @@ import { z } from "zod"
 import { getCurrentUser } from "@/lib/current-user"
 import { requireRole } from "@/lib/rbac"
 import { parseJsonBody } from "@/lib/validation"
-import { deleteCurrency, getCurrency, updateCurrency, type CurrencyInput } from "@/lib/currencies-repo"
+import { deleteCurrency, getCurrency, updateCurrency } from "@/lib/currencies-repo"
+import { setCurrencyRate } from "@/lib/currency-rates-repo"
 
 type RouteParams = { params: Promise<{ id: string }> }
 
-const currencySchema = z.object({
-  name: z.string().trim().min(1),
-  code: z.string().trim().min(1),
-  rate: z.coerce.number().catch(0),
-  isBase: z.boolean().optional(),
+const currencyUpdateSchema = z.object({
+  name: z.string({ error: "Обязательное поле" }).trim().min(1, "Обязательное поле").max(255),
+  rate: z.preprocess((value) => (value === "" || value === undefined ? undefined : typeof value === "string" ? Number(value.replace(/\s/g, "").replace(",", ".")) : value), z.number().positive("Введите число больше 0").max(1_000_000_000).optional()),
 })
-
-function toCurrencyInput(data: z.infer<typeof currencySchema>): CurrencyInput {
-  const isBase = data.isBase === true
-  const rate = isBase ? 1 : Math.max(0, data.rate)
-  return { name: data.name, code: data.code.toUpperCase(), rate, isBase }
-}
 
 export async function GET(_request: NextRequest, { params }: RouteParams) {
   const user = await getCurrentUser()
@@ -36,14 +29,16 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
   if ("error" in auth) return auth.error
 
   const id = Number((await params).id)
-  const parsed = await parseJsonBody(request, currencySchema)
+  const parsed = await parseJsonBody(request, currencyUpdateSchema)
   if (parsed.error) return parsed.error
 
-  const input = toCurrencyInput(parsed.data)
+  const existing = await getCurrency(id)
+  if (!existing) return NextResponse.json({ error: "Валюта не найдена" }, { status: 404 })
 
-  const result = (await updateCurrency(id, input))
-  if (!result.ok) return NextResponse.json({ error: "Валюта не найдена" }, { status: 404 })
-  return NextResponse.json(result.currency)
+  // "Изменить валюту": the name, and a new history row when the rate changed.
+  await updateCurrency(id, { name: parsed.data.name, code: existing.code, rate: existing.rate, isBase: existing.isBase })
+  if (!existing.isBase && parsed.data.rate !== undefined && parsed.data.rate !== existing.rate) await setCurrencyRate(id, parsed.data.rate)
+  return NextResponse.json(await getCurrency(id))
 }
 
 export async function DELETE(_request: NextRequest, { params }: RouteParams) {

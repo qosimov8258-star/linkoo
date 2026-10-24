@@ -17,6 +17,7 @@ import {
   type LucideIcon,
 } from "lucide-react"
 
+import { analyticsReports } from "@/lib/analytics-catalog"
 import { useLanguage } from "@/lib/i18n/language-context"
 
 import { AccountDropdown } from "./account-dropdown"
@@ -117,6 +118,39 @@ const navItems: NavItem[] = [
   },
 ]
 
+const analyticsTabPaths = ["/analytics/pnl", "/analytics/flexible-dashboard", "/analytics/order-debts", "/analytics/client-debts", "/analytics/quick-report"]
+
+/**
+ * Top-nav section a page belongs to — the reference shows it as a tooltip on the page title.
+ * Settings pages (gear menu) belong to no section and get none.
+ */
+export function navSectionLabel(pathname: string): string | null {
+  const specific = [...navItems].reverse().find((item) => item.label !== "Аналитика" && item.matches(pathname))
+  if (specific) return specific.label
+  const isAnalytics =
+    pathname === "/" ||
+    pathname.endsWith("-tab") ||
+    analyticsTabPaths.some((base) => pathname === base || pathname.startsWith(`${base}/`)) ||
+    analyticsReports.some((report) => report.href.split("?")[0] === pathname)
+  return isAnalytics ? "Аналитика" : null
+}
+
+/** Branch picked in the account menu: `linko-branch` (id, read by the API) + `linko-branch-name` (label of the menu button). */
+function writeBranchCookies(id: number | undefined, name: string) {
+  const maxAge = id ? 60 * 60 * 24 * 365 : 0
+  document.cookie = `linko-branch=${id ?? ""}; path=/; max-age=${maxAge}; samesite=lax`
+  document.cookie = `linko-branch-name=${id ? encodeURIComponent(name) : ""}; path=/; max-age=${maxAge}; samesite=lax`
+}
+
+function readBranchName(): string {
+  const match = document.cookie.match(/(?:^|;\s*)linko-branch-name=([^;]*)/)
+  try {
+    return match ? decodeURIComponent(match[1]) : ""
+  } catch {
+    return ""
+  }
+}
+
 export function TopNav() {
   const pathname = usePathname()
   const router = useRouter()
@@ -125,6 +159,10 @@ export function TopNav() {
   const [accountOpen, setAccountOpen] = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
   const [branch, setBranch] = useState("Все филиалы")
+  useEffect(() => {
+    const saved = readBranchName()
+    if (saved) setBranch(saved)
+  }, [])
   const [brandMenuOpen, setBrandMenuOpen] = useState(false)
   const [workspace, setWorkspace] = useState<string>("distribution" satisfies WorkspaceId)
   const [customServers, setCustomServers] = useState<CustomServer[]>([])
@@ -308,7 +346,7 @@ export function TopNav() {
           )}
         </div>
 
-        <nav ref={navRef} className="ml-[91px] min-[1500px]:ml-[calc(50vw-708px)] max-[1500px]:ml-[80px] hidden h-full min-w-0 shrink-0 items-stretch border-l border-white/[0.12] lg:flex">
+        <nav ref={navRef} className="ml-[91px] min-[1500px]:ml-[calc(50vw-708px)] max-[1499px]:ml-[max(20px,calc(50vw-595px))] hidden h-full min-w-0 shrink-0 items-stretch border-l border-white/[0.12] lg:flex">
           {navItems.map(({ label }) => {
             const isOpen = openMenu === label
 
@@ -420,12 +458,17 @@ export function TopNav() {
           {accountOpen && (
             <AccountDropdown
               selected={branch}
-              onSelect={(selectedBranch) => {
+              onSelect={(selectedBranch, branchId) => {
+                // Like the reference: every API call is scoped to the branch (cookie read by the server) and the dashboard reopens.
                 setBranch(selectedBranch)
                 setAccountOpen(false)
+                writeBranchCookies(branchId, selectedBranch)
+                router.push("/")
+                router.refresh()
               }}
               onSignOut={() => {
                 setBranch("Все филиалы")
+                writeBranchCookies(undefined, "Все филиалы")
                 setAccountOpen(false)
                 fetch("/api/auth/logout", { method: "POST" }).finally(() => {
                   router.push("/login")

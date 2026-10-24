@@ -9,11 +9,11 @@ const tabs = ["ВИДЖЕТЫ", "KPI", "БАЛАНС", "ОХВАТ", "ФИЛИА
 const tabHref: Partial<Record<string, string>> = {
   "ОХВАТ": "/analytics/coverage-analysis",
   "P&L": "/analytics/pnl",
-  "ДОЛГ КЛИЕНТОВ": "/analytics/client-debts",
+  "ДОЛГ КЛИЕНТОВ": "/analytics/order-debts?toggle=order&pageSize=25",
   "ГИБКИЙ ДАШБОРД": "/analytics/flexible-dashboard",
   "ФИЛИАЛ": "/analytics/branch-tab",
   "ПРОДАЖА": "/analytics/sales-tab",
-  "KPI": "/analytics/kpi-performance",
+  "KPI": "/analytics/kpi-tab",
   "БАЛАНС": "/analytics/balance-tab",
 }
 
@@ -30,7 +30,7 @@ export function WidgetTabs() {
         {t("Виджеты")}
       </h1>
 
-      <div className="flex items-center">
+      <div className="mt-[6px] flex items-center">
         {tabs.map((tab) => (
           <button
             key={tab}
@@ -40,7 +40,7 @@ export function WidgetTabs() {
               if (href) router.push(href)
               else setActiveTab(tab)
             }}
-            className={`h-8 min-w-[70px] whitespace-nowrap rounded-[5px] px-4 text-[13px] font-normal uppercase ${
+            className={`h-8 min-w-[70px] whitespace-nowrap rounded-[5px] px-4 pt-[1px] text-[13px] font-normal uppercase ${
               tab === activeTab
                 ? "bg-[#2bcd53] text-white shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]"
                 : "bg-white text-black shadow-[inset_0_0_2px_rgba(0,0,0,0.12)] hover:bg-slate-50"

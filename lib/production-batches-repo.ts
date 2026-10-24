@@ -147,6 +147,8 @@ export type PartyFilters = {
   dateTo?: string
   finishedFrom?: string
   finishedTo?: string
+  createdFrom?: string
+  createdTo?: string
 }
 
 export async function listParties(filters: PartyFilters = {}): Promise<ProductionParty[]> {
@@ -169,14 +171,23 @@ export async function listParties(filters: PartyFilters = {}): Promise<Productio
     where.push("p.date <= ?")
     params.push(filters.dateTo)
   }
-  // ISO instants of the viewer's local day bounds, so "finished on the 8th"
-  // means the 8th in their time zone, not in UTC.
+  // ISO instants of the viewer's local day bounds, so "created on the 8th" means the 8th in their
+  // time zone, not in UTC. Like the reference, the "finished" range only narrows finished batches:
+  // batches still in progress stay in the list. Stored times mix "Z" and "+05:00" offsets, so compare instants.
+  if (filters.createdFrom) {
+    where.push("NULLIF(p.created_at, '')::timestamptz >= ?::timestamptz")
+    params.push(filters.createdFrom)
+  }
+  if (filters.createdTo) {
+    where.push("NULLIF(p.created_at, '')::timestamptz <= ?::timestamptz")
+    params.push(filters.createdTo)
+  }
   if (filters.finishedFrom) {
-    where.push("p.finished_at <> '' AND p.finished_at >= ?")
+    where.push("(p.finished_at = '' OR p.finished_at::timestamptz >= ?::timestamptz)")
     params.push(filters.finishedFrom)
   }
   if (filters.finishedTo) {
-    where.push("p.finished_at <> '' AND p.finished_at <= ?")
+    where.push("(p.finished_at = '' OR p.finished_at::timestamptz <= ?::timestamptz)")
     params.push(filters.finishedTo)
   }
   for (const [key, direction] of [[filters.madeKey, "made"], [filters.rawKey, "raw"]] as const) {
@@ -216,7 +227,7 @@ export async function getPartyDetail(id: number): Promise<PartyDetail | null> {
   const party = await getParty(id)
   if (!party) return null
   const db = await getProductionDb()
-  const movements = ((await db.prepare(`${MOVEMENT_SELECT} WHERE m.party_id = ? ORDER BY m.id DESC`).all(id)) as MovementRow[]).map(toMovement)
+  const movements = ((await db.prepare(`${MOVEMENT_SELECT} WHERE m.party_id = ? ORDER BY m.id`).all(id)) as MovementRow[]).map(toMovement)
   const made = movements.filter((row) => row.direction === "made" && !row.isDefect)
   const raw = movements.filter((row) => row.direction === "raw" && !row.isDefect)
   return {
@@ -262,6 +273,20 @@ export async function updateParty(id: number, input: { stageId: number; status: 
     return "ok" as const
   })
   return result === "ok" ? (await getParty(id))! : result
+}
+
+/** A finished batch already moved stock (its movements are part of the warehouse balances), so only batches
+ * still in progress or cancelled can be deleted; their movements go with them. */
+export async function deleteParty(id: number): Promise<"ok" | "not_found" | "finished"> {
+  await getProductionDb()
+  return withTransaction(async (db) => {
+    const current = await lockParty(db, id)
+    if (!current) return "not_found" as const
+    if (current.status === "finished") return "finished" as const
+    await db.prepare("DELETE FROM production_movements WHERE party_id = ?").run(id)
+    await db.prepare("DELETE FROM production_parties WHERE id = ?").run(id)
+    return "ok" as const
+  })
 }
 
 /** Spreads the batch's raw-material cost over everything it produced. */

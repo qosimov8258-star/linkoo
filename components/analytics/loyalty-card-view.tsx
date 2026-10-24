@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react"
 import { useSearchParams } from "next/navigation"
-import { MinusCircle, PlusCircle, Search } from "lucide-react"
+import { CircleMinus, CirclePlus, Search } from "lucide-react"
 
 import { ExpandedOverlay, ExpandedViewButton } from "@/components/analytics/balance/expanded-view"
 import { BalanceFilterChip } from "@/components/analytics/balance/filter-bar"
@@ -180,17 +180,18 @@ export function LoyaltyCardView() {
 
   const head = "border border-[#efefef] px-5 py-2.5 text-left font-semibold"
   return (
-    <main className="min-h-screen bg-white text-[#17233b]">
-      <header className="flex min-h-[76px] flex-wrap items-center gap-4 border-b border-[#d8dee7] bg-[#f2f5f8] px-6 md:px-9">
-        <div className="flex items-center gap-3">
-          <FavoritesButton className="flex items-center gap-3 text-2xl font-bold text-[#4f70e7]" />
-          <span className="text-3xl font-light text-[#586174]">|</span>
-          <span className="text-2xl font-bold text-[#586174]">{t("Накопительная карта")}</span>
+    <main className="min-h-screen bg-white text-[#333]">
+      <header className="flex min-h-[60px] flex-wrap items-center gap-4 px-[28px]">
+        <div className="flex items-center">
+          <FavoritesButton className="flex items-center gap-[5px] text-[18px] font-bold text-[#4f71dc]" />
+          <span className="mx-[11px] h-[21px] w-[2px] bg-[#5d6474]" />
+          <span className="text-[18px] font-bold text-[#5d6474]">{t("Накопительная карта")}</span>
         </div>
       </header>
 
+      <div className="mx-[28px] mt-[15px] bg-white shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
       <ExpandedOverlay expanded={expanded}>
-        <section className="relative flex min-h-[55px] flex-wrap items-center gap-3 border-t border-[#efefef] px-6 py-2 md:px-9">
+        <section className="relative flex min-h-[55px] flex-wrap items-center gap-3 border-t border-[#efefef] px-[30px] py-2">
           <div className="relative">
             <BalanceFilterChip
               count={filterCount}
@@ -258,7 +259,7 @@ export function LoyaltyCardView() {
             </thead>
             <tbody>
               {rows.map((row, index) => {
-                const background = index % 2 ? "#ffffff" : "#F4F8FB"
+                const background = index % 2 ? "#F4F8FB" : "#ffffff"
                 return (
                   <tr key={row.id} style={{ background }} className="group h-10 cursor-pointer hover:!bg-[#e9f8ff] hover:font-semibold">
                     <td
@@ -269,9 +270,9 @@ export function LoyaltyCardView() {
                       <div className="relative flex min-h-[30px] w-[268px] items-center">
                         <span className={`truncate hover:text-[rgb(79,113,220)] ${row.exists ? "" : "italic text-[#999]"}`}>{clientName(row)}</span>
                         {canEdit && row.exists && (
-                          <div className="absolute inset-y-0 right-0 flex items-center gap-0.5 bg-gradient-to-r from-transparent to-[#F4F8FB] pl-6 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
-                            {actionButton("Списать", <MinusCircle className="h-[22px] w-[22px] text-[#ff584b]" />, () => setDialog({ kind: "expense", row }))}
-                            {actionButton("Добавить", <PlusCircle className="h-[22px] w-[22px] text-[#8dc572]" />, () => setDialog({ kind: "add", row }))}
+                          <div className="absolute inset-y-0 right-0 flex items-center gap-0.5 pl-6">
+                            {actionButton("Списать", <CircleMinus className="h-6 w-6 fill-[#ff584b] text-white" />, () => setDialog({ kind: "expense", row }))}
+                            {actionButton("Добавить", <CirclePlus className="h-6 w-6 fill-[#8dc572] text-white" />, () => setDialog({ kind: "add", row }))}
                           </div>
                         )}
                       </div>
@@ -298,6 +299,7 @@ export function LoyaltyCardView() {
           </table>
         </div>
       </ExpandedOverlay>
+      </div>
 
       {state.client && (
         <LoyaltyInfoDialog

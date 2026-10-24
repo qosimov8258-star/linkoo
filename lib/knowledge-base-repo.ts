@@ -8,9 +8,12 @@ export type KnowledgeBaseArticle = {
   text: string
   active: boolean
   roles: string[]
+  fileName: string | null
 }
 
-type Row = { id: number; name: string; text: string; active: number; roles: string }
+type Row = { id: number; name: string; text: string; active: number; roles: string; file_name: string }
+
+export const KNOWLEDGE_BASE_FILE_MAX_BYTES = 10 * 1024 * 1024
 
 async function ensureSchema(db: ReturnType<typeof getDb>) {
   await db.exec(`
@@ -23,6 +26,8 @@ async function ensureSchema(db: ReturnType<typeof getDb>) {
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
+    ALTER TABLE knowledge_base_articles ADD COLUMN IF NOT EXISTS file_name TEXT NOT NULL DEFAULT '';
+    ALTER TABLE knowledge_base_articles ADD COLUMN IF NOT EXISTS file_data BYTEA;
   `)
 }
 
@@ -36,7 +41,7 @@ function parseRoles(raw: string): string[] {
 }
 
 function rowToArticle(row: Row): KnowledgeBaseArticle {
-  return { id: row.id, name: row.name, text: row.text, active: !!row.active, roles: parseRoles(row.roles) }
+  return { id: row.id, name: row.name, text: row.text, active: !!row.active, roles: parseRoles(row.roles), fileName: row.file_name || null }
 }
 
 export type KnowledgeBaseArticleInput = { name: string; text: string; active: boolean; roles: string[] }
@@ -44,13 +49,13 @@ export type KnowledgeBaseArticleInput = { name: string; text: string; active: bo
 export async function listKnowledgeBaseArticles(): Promise<KnowledgeBaseArticle[]> {
   const db = getDb()
   await ensureSchema(db)
-  return ((await db.prepare("SELECT * FROM knowledge_base_articles ORDER BY id DESC").all()) as Row[]).map(rowToArticle)
+  return ((await db.prepare("SELECT id, name, text, active, roles, file_name FROM knowledge_base_articles ORDER BY id DESC").all()) as Row[]).map(rowToArticle)
 }
 
 export async function getKnowledgeBaseArticle(id: number): Promise<KnowledgeBaseArticle | null> {
   const db = getDb()
   await ensureSchema(db)
-  const row = (await db.prepare("SELECT * FROM knowledge_base_articles WHERE id = ?").get(id)) as Row | undefined
+  const row = (await db.prepare("SELECT id, name, text, active, roles, file_name FROM knowledge_base_articles WHERE id = ?").get(id)) as Row | undefined
   return row ? rowToArticle(row) : null
 }
 
@@ -77,4 +82,17 @@ export async function deleteKnowledgeBaseArticle(id: number): Promise<boolean> {
   const db = getDb()
   await ensureSchema(db)
   return (await db.prepare("DELETE FROM knowledge_base_articles WHERE id = ?").run(id)).changes > 0
+}
+
+export async function setKnowledgeBaseFile(id: number, fileName: string, data: Buffer): Promise<boolean> {
+  const db = getDb()
+  await ensureSchema(db)
+  return (await db.prepare("UPDATE knowledge_base_articles SET file_name = @fileName, file_data = @data, updated_at = datetime('now') WHERE id = @id").run({ id, fileName, data })).changes > 0
+}
+
+export async function getKnowledgeBaseFile(id: number): Promise<{ fileName: string; data: Buffer } | null> {
+  const db = getDb()
+  await ensureSchema(db)
+  const row = (await db.prepare("SELECT file_name, file_data FROM knowledge_base_articles WHERE id = ?").get(id)) as { file_name: string; file_data: Buffer | null } | undefined
+  return row?.file_data ? { fileName: row.file_name, data: row.file_data } : null
 }

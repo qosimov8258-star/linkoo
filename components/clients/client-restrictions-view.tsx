@@ -1,11 +1,13 @@
 "use client"
 
+import { askDelete } from "@/lib/ask-confirm"
 import { useEffect, useMemo, useRef, useState } from "react"
 
 import { RefCard, RefHeader, RefPage, RefTable, RefToolbar, usePaging } from "@/components/ref/list-kit"
 import { downloadExcelTable } from "@/lib/excel-export"
 import { mapHeaderColumns, readExcelRows } from "@/lib/excel-import"
 import { useLanguage } from "@/lib/i18n/language-context"
+import { notify } from "@/lib/notify"
 
 type Config = {
   type?: string
@@ -36,12 +38,26 @@ async function loadNames(url: string | undefined): Promise<string[]> {
 
 const DOWNLOAD = "M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"
 
-export function ClientRestrictionsView() {
+const BASE_PATH = "/clients/client-restrictions"
+
+export function ClientRestrictionsView({ initialOpenId }: { initialOpenId?: number }) {
   const { t } = useLanguage()
   const [items, setItems] = useState<Restriction[]>([])
   const [query, setQuery] = useState("")
   const [form, setForm] = useState<Restriction | "new" | null>(null)
-  const [openId, setOpenId] = useState<number | null>(null)
+  const [openId, setOpenId] = useState<number | null>(initialOpenId ?? null)
+
+  // Same URL scheme as the reference: …/<id> for an opened restriction, ?openCreateDialog=true for the create dialog.
+  const urlReady = useRef(false)
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("openCreateDialog") === "true") setForm("new")
+    urlReady.current = true
+  }, [])
+  useEffect(() => {
+    if (!urlReady.current || !window.location.pathname.startsWith(BASE_PATH)) return
+    const next = `${BASE_PATH}${openId ? `/${openId}` : ""}${form === "new" ? "?openCreateDialog=true" : ""}`
+    if (next !== `${window.location.pathname}${window.location.search}`) window.history.replaceState(window.history.state, "", next)
+  }, [openId, form])
 
   useEffect(() => {
     let cancelled = false
@@ -73,13 +89,13 @@ export function ClientRestrictionsView() {
       setForm(null)
       return true
     } catch {
-      window.alert(t("Сервер недоступен, попробуйте ещё раз"))
+      notify(t("Сервер недоступен, попробуйте ещё раз"))
       return false
     }
   }
 
   async function remove(item: Restriction) {
-    if (!window.confirm(`${t("Удалить")} «${item.name}»?`)) return
+    if (!(await askDelete(item.name))) return
     const response = await fetch(`/api/client-restrictions/${item.id}`, { method: "DELETE" })
     if (response.ok) {
       setItems((current) => current.filter((row) => row.id !== item.id))
@@ -113,7 +129,7 @@ export function ClientRestrictionsView() {
           onPage={paging.setPage}
         />
         <RefTable
-          cols="minmax(0,1fr) minmax(0,3fr)"
+          cols="minmax(0,700fr) minmax(0,692fr)"
           heads={["№", t("Наименование")]}
           rows={pageRows}
           rowKey={(row) => row.id}
@@ -123,7 +139,7 @@ export function ClientRestrictionsView() {
             openId === row.id ? <RestrictionDetail item={row} onEdit={() => setForm(row)} onDelete={() => void remove(row)} /> : null
           }
           empty={t("По вашему запросу ничего не найдено")}
-          render={(row) => [row.id, row.name]}
+          render={(row) => [<span key="n" className="pl-2">{row.id}</span>, row.name]}
         />
       </RefCard>
       {form && <RestrictionForm initial={form === "new" ? null : form} onSave={save} onClose={() => setForm(null)} />}
@@ -133,8 +149,8 @@ export function ClientRestrictionsView() {
 
 function Chip({ label, value }: { label: string; value: string }) {
   return (
-    <span className="rounded-[3px] bg-[#f2f5f8] px-[10px] py-[5px] text-[12px] text-[#777]">
-      {label}: <b className="font-semibold text-[#333]">{value}</b>
+    <span className="flex h-[29px] items-center rounded-[4px] bg-[#f4f6f8] px-[11px] text-[12px] font-medium leading-4 text-[#8a94a0]">
+      {label}:&nbsp;<b className="font-semibold text-[#2c3138]">{value}</b>
     </span>
   )
 }
@@ -146,59 +162,61 @@ function RestrictionDetail({ item, onEdit, onDelete }: { item: Restriction; onEd
   const goods = config.items ?? []
   const total = goods.reduce((sum, good) => sum + good.qty, 0)
   return (
-    <div className="-mx-[15px] my-[20px] bg-white shadow-[0_3px_10px_rgba(0,0,0,0.16),0_3px_10px_rgba(0,0,0,0.23)]">
-      <div className="flex items-start justify-between px-[32px] pb-[24px] pt-[24px]">
+    <div className="-mx-[15px] bg-[#f2f5f8] py-[20px]">
+    <div className="rounded-[10px] bg-white shadow-[0_3px_10px_rgba(0,0,0,0.16),0_3px_10px_rgba(0,0,0,0.23)]">
+      <div className="flex items-start justify-between border-b border-[#eef1f4] px-[32px] pb-[26px] pt-[26px]">
         <div>
-          <h3 className="text-[18px] font-medium text-[#333]">{item.name}</h3>
-          <div className="mt-[12px] flex gap-[10px]">
+          <h3 className="text-[18px] font-semibold leading-[23px] text-[#333]">{item.name}</h3>
+          <div className="mt-[11px] flex gap-[9px]">
             <Chip label={t("Тип")} value={t(config.type ?? "Клиент")} />
             <Chip label={t("Ограничение по")} value={t(config.by ?? "Продукт")} />
-            <Chip label={t("Мин. количество")} value={config.minQty ? t("Да") : t("Нет")} />
+            {config.minQty && <Chip label={t("Мин. количество")} value={t("Да")} />}
           </div>
         </div>
-        <div className="flex items-center gap-[22px] pt-[4px]">
+        <div className="flex items-center gap-[28px] pr-[12px] pt-[12px]">
           <button type="button" onClick={onEdit} aria-label={t("Изменить")}>
-            <svg viewBox="0 0 24 24" className="h-5 w-5 fill-[#555]"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a.996.996 0 000-1.41l-2.34-2.34a.996.996 0 00-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z" /></svg>
+            <svg viewBox="0 0 24 24" className="h-5 w-5 fill-[#666]"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a.996.996 0 000-1.41l-2.34-2.34a.996.996 0 00-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z" /></svg>
           </button>
           <button type="button" onClick={onDelete} aria-label={t("Удалить")}>
-            <svg viewBox="0 0 24 24" className="h-5 w-5 fill-[#555]"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z" /></svg>
+            <svg viewBox="0 0 24 24" className="h-5 w-5 fill-[#666]"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z" /></svg>
           </button>
         </div>
       </div>
-      <div className="grid grid-cols-[400px_1fr] border-t border-[#efefef]">
-        <div className="min-h-[170px] bg-[#f7f9fb] px-[20px] py-[24px]">
-          <div className="flex items-center gap-2 text-[12px] font-semibold uppercase text-[#777]">
+      <div className="grid grid-cols-[400px_1fr]">
+        <div className="min-h-[171px] rounded-bl-[10px] bg-[#fbfcfd] px-[20px] pb-[12px] pt-[22px]">
+          <div className="flex h-5 items-center gap-2 text-[12px] font-semibold uppercase leading-[15px] tracking-[0.7px] text-[#8a94a0]">
             {t(SUBJECT_TITLES[config.type ?? "Клиент"] ?? "Клиенты")}
-            <span className="rounded-full bg-[#e8ebf0] px-2 py-[1px] text-[11px]">{clients.length}</span>
+            <span className="flex h-5 items-center rounded-[10px] bg-[#eef1f4] px-[7px] text-[12px] tracking-normal text-[#6b7480]">{clients.length}</span>
           </div>
           {clients.length === 0 ? (
-            <p className="mt-[28px] text-center text-[#999]">{t("Ничего не найдено")}</p>
+            <p className="mt-[52px] text-center text-[14px] text-[#9aa4b0]">{t("Ничего не найдено")}</p>
           ) : (
-            <ul className="mt-3 space-y-1">{clients.map((name) => <li key={name}>{name}</li>)}</ul>
+            <ul className="mt-3 space-y-1 text-[13px] text-[#333]">{clients.map((name) => <li key={name}>{name}</li>)}</ul>
           )}
         </div>
-        <div className="px-[32px] py-[24px]">
-          <h4 className="text-[17px] font-medium text-[#333]">{t("Список товаров")}</h4>
-          <div className="mt-[16px] overflow-hidden rounded-[3px] border border-[#efefef]">
-            <div className="flex h-[40px] items-center bg-[#f7f9fb] px-[18px] text-[11px] font-semibold uppercase text-[#777]">
-              <span className="w-[44px] font-normal">№</span>
-              <span className="flex-1">{t("Товар")}</span>
+        <div className="px-[32px] pb-[12px] pt-[22px]">
+          <h4 className="text-[18px] font-semibold leading-[23px] text-[#333]">{t("Список товаров")}</h4>
+          <div className="mt-[15px] overflow-hidden rounded-[10px] border border-[#eef1f4]">
+            <div className="flex h-[40px] items-center border-b border-[#eef1f4] bg-[#f8fafb] px-[18px] text-[12px] font-semibold uppercase tracking-[0.55px] text-[#8a94a0]">
+              <span className="w-[44px] text-[#a9b2bd]">№</span>
+              <span className="flex-1 text-[#2c3138]">{t("Товар")}</span>
               <span>{t("Количество")}</span>
             </div>
             {goods.map((good, index) => (
-              <div key={`${good.name}-${index}`} className="flex h-[40px] items-center border-t border-[#efefef] px-[18px]">
+              <div key={`${good.name}-${index}`} className="flex h-[40px] items-center border-b border-[#eef1f4] px-[18px] text-[13px] text-[#333]">
                 <span className="w-[44px]">{index + 1}</span>
                 <span className="flex-1">{good.name}</span>
                 <span>{good.qty}</span>
               </div>
             ))}
-            <div className="flex h-[46px] items-center border-t border-[#efefef] bg-[#f7f9fb] px-[18px] font-semibold">
-              <span className="flex-1">{t("Итого")}</span>
-              <span className="text-[15px] font-medium">{total}</span>
+            <div className="flex h-[46px] items-center bg-[#f4f6f8] px-[18px] py-2 font-semibold text-[#333]">
+              <span className="flex-1 text-[14px]">{t("Итого")}</span>
+              <span className="text-[16px]">{total}</span>
             </div>
           </div>
         </div>
       </div>
+    </div>
     </div>
   )
 }
@@ -327,7 +345,7 @@ function RestrictionForm({ initial, onSave, onClose }: { initial: Restriction | 
               <Radio key={subject} label={t(subject)} checked={type === subject} onChange={() => { setType(subject); setClients([]); setSubjectPick("") }} />
             ))}
           </div>
-          <p className="mb-[4px] mt-[10px] text-[13px]">{t("Ограничения по")}:</p>
+          <p className="mb-[8.4px] mt-[8.3px] text-[13px] font-semibold">{t("Ограничения по")}:</p>
           <div className="pl-[2px]">
             {BY.map((item) => (
               <Radio key={item} label={t(item)} checked={by === item} onChange={() => { setBy(item); setGoodPick("") }} />
@@ -335,17 +353,17 @@ function RestrictionForm({ initial, onSave, onClose }: { initial: Restriction | 
           </div>
         </div>
         <div className="flex min-h-0 flex-col border-r border-[#efefef] px-[24px] pb-[16px] pt-[16px]">
-          <h3 className="text-[15px] font-semibold">{t(heading)}</h3>
-          <span className="mt-[8px] text-[12px] text-[#777]">{t("Наименование")}</span>
+          <h3 className="text-[14px] font-semibold leading-[22px]">{t(heading)}</h3>
+          <span className="mt-[9px] text-[12px] text-[#7a8288]">{t("Наименование")}</span>
           <div className="mt-[4px] flex gap-[10px]">
             <PickSelect className="flex-1" placeholder={t("Выберите из списка")} options={subjectOptions} value={subjectPick} onChange={setSubjectPick} />
             <PlusButton disabled={!subjectPick} onClick={() => { setClients((current) => (current.includes(subjectPick) ? current : [...current, subjectPick])); setSubjectPick("") }} />
           </div>
-          <div className="mt-[18px] flex items-center justify-between">
-            <b>{t("Выбранные клиенты")}:</b>
-            <span className="text-[12px] text-[#777]">{t("Всего")}: {clients.length}</span>
+          <div className="mt-[16.3px] flex items-center justify-between">
+            <b className="font-semibold">{t("Выбранные клиенты")}:</b>
+            <span className="text-[12px] text-[#7a8288]">{t("Всего")}: {clients.length}</span>
           </div>
-          <div className="mt-[6px] flex h-[30px] items-center text-[11px] font-semibold uppercase text-[#8c94a4]"><span className="w-[46px] font-normal">№</span>{t("Наименование")}</div>
+          <div className="mt-[6px] flex h-[30px] items-center text-[11px] font-semibold uppercase tracking-[0.4px] text-[#9aa1a6]"><span className="ml-[10px] w-[36px]">№</span>{t("Наименование")}</div>
           <div className="min-h-0 flex-1 overflow-y-auto border border-[#e8e8e8]">
             {clients.length === 0 ? (
               <div className="flex h-full items-center justify-center text-[#999]">{t("Список пуст. Выберите из списка или загрузите Excel")}</div>
@@ -362,38 +380,38 @@ function RestrictionForm({ initial, onSave, onClose }: { initial: Restriction | 
         </div>
         <div className="flex min-h-0 flex-col px-[24px] pb-[16px] pt-[16px]">
           <div className="flex items-center justify-between">
-            <h3 className="mt-[4px] text-[17px] font-semibold">{t("Список товаров")}</h3>
+            <h3 className="mt-[2.3px] text-[16px] font-bold">{t("Список товаров")}</h3>
             <div className="flex items-center gap-[12px]">
-              <button type="button" onClick={() => downloadExcelTable("restriction-items-template", [[t("Наименование"), t("Кол-во")]])} className="flex items-center gap-1 text-[12px] font-semibold uppercase text-[#71ce87]">
+              <button type="button" onClick={() => downloadExcelTable("restriction-items-template", [[t("Наименование"), t("Кол-во")]])} className="mt-[2.8px] flex items-center gap-1 text-[12px] font-semibold uppercase text-[#71ce87]">
                 <svg viewBox="0 0 24 24" className="h-[18px] w-[18px] fill-none stroke-[#71ce87]" strokeWidth="2"><path d={DOWNLOAD} className="hidden" /><path d="M12 4v10m0 0l-4-4m4 4l4-4M5 19h14" /></svg>
                 {t("Шаблон")}
               </button>
               <input ref={fileRef} type="file" accept=".csv,.xls,.xlsx" className="hidden" onChange={(event) => { void importExcel(event.target.files?.[0]); event.target.value = "" }} />
-              <button type="button" onClick={() => fileRef.current?.click()} className="flex h-[30px] items-center gap-1 rounded-[3px] bg-[#71ce87] px-[14px] text-[12px] font-bold uppercase text-white hover:brightness-95">
+              <button type="button" onClick={() => fileRef.current?.click()} className="mt-[2.8px] flex h-[30px] items-center gap-1 rounded-[3px] bg-[#71ce87] px-[14px] text-[12px] font-semibold uppercase text-white hover:brightness-95">
                 <svg viewBox="0 0 24 24" className="h-[18px] w-[18px] fill-none stroke-white" strokeWidth="2"><path d="M12 15V5m0 0l-4 4m4-4l4 4M5 19h14" /></svg>
                 {t("Загрузить с Excel")}
               </button>
             </div>
           </div>
-          <div className="mt-[10px] flex items-end gap-[10px]">
+          <div className="mt-[13px] flex items-end gap-[10px]">
             <div className="flex-1">
-              <span className="text-[12px] text-[#777]">{t("Наименование")}</span>
-              <PickSelect className="mt-[4px]" placeholder={t("Выберите из списка")} options={goodsOptions} value={goodPick} onChange={setGoodPick} />
+              <span className="text-[12px] text-[#7a8288]">{t("Наименование")}</span>
+              <PickSelect className="mt-[2.2px]" placeholder={t("Выберите из списка")} options={goodsOptions} value={goodPick} onChange={setGoodPick} />
             </div>
             <div className="w-[130px]">
-              <span className="text-[12px] text-[#777]">{t("Кол-во")}</span>
+              <span className="relative top-[1.8px] text-[12px] text-[#7a8288]">{t("Кол-во")}</span>
               <input value={qty} onChange={(event) => setQty(event.target.value.replace(/[^\d.]/g, ""))} className="mt-[2px] block h-[46px] w-full rounded-[3px] border border-[#ddd] px-[12px] outline-none" />
             </div>
             <PlusButton disabled={!goodPick} onClick={() => { setItems((current) => [...current, { name: goodPick, qty: Number(qty) || 0 }]); setGoodPick(""); setQty("0") }} />
           </div>
-          <div className="mt-[14px] flex items-center justify-between">
-            <b>{t("Добавленные товары")}:</b>
-            <span className="text-[12px] text-[#777]">{t("Всего")}: {items.length}</span>
+          <div className="mt-[14.3px] flex items-center justify-between">
+            <b className="font-semibold">{t("Добавленные товары")}:</b>
+            <span className="text-[12px] text-[#7a8288]">{t("Всего")}: {items.length}</span>
           </div>
-          <div className="mt-[10px] flex h-[30px] items-center text-[11px] font-semibold uppercase text-[#8c94a4]">
-            <span className="w-[36px] font-normal">№</span>
+          <div className="mt-[5.3px] flex h-[30px] items-center text-[11.5px] font-bold uppercase tracking-[0.4px] text-[#98a2ac]">
+            <span className="ml-[10px] w-[36px]">№</span>
             <span className="flex-1">{t("Наименование")}</span>
-            <span className="w-[120px]">{t("Кол-во")}</span>
+            <span className="w-[164px]">{t("Кол-во")}</span>
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto border border-[#e8e8e8]">
             {items.length === 0 ? (
@@ -403,7 +421,7 @@ function RestrictionForm({ initial, onSave, onClose }: { initial: Restriction | 
                 <div key={`${item.name}-${index}`} className="flex h-[40px] items-center border-b border-[#f1f1f1] px-[12px]">
                   <span className="w-[36px]">{index + 1}</span>
                   <span className="flex-1">{item.name}</span>
-                  <span className="w-[100px]">{item.qty}</span>
+                  <span className="w-[144px]">{item.qty}</span>
                   <button type="button" onClick={() => setItems((current) => current.filter((_, i) => i !== index))} aria-label={t("Удалить")} className="text-[#e57373]">×</button>
                 </div>
               ))
@@ -412,7 +430,7 @@ function RestrictionForm({ initial, onSave, onClose }: { initial: Restriction | 
         </div>
       </div>
       <footer className="flex h-[58px] shrink-0 items-center justify-end border-t border-[#efefef] pr-[26px]">
-        <button type="button" onClick={() => void submit()} className="text-[13px] font-semibold uppercase text-[#0a9ddb]">{t("Сохранить")}</button>
+        <button type="button" onClick={() => void submit()} className="text-[13px] font-semibold uppercase text-[#129fdd]">{t("Сохранить")}</button>
       </footer>
     </div>
   )

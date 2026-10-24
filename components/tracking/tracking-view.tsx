@@ -1,15 +1,11 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import dynamic from "next/dynamic"
 import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
-  MapPinned,
-  Route,
-  Trash2,
-  X,
 } from "lucide-react"
 import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
 import { FilterCheck, FilterDate, FilterRange, FilterSelect, RI, RefButton, RefHeader } from "@/components/ref/list-kit"
@@ -22,25 +18,43 @@ const TrackingMap = dynamic(() => import("./tracking-map").then((m) => m.Trackin
   loading: () => <div className="h-full w-full animate-pulse bg-slate-200" />,
 })
 
+/** Opening viewport of the territory map, matched to the reference's Tashkent framing. */
+const TERRITORY_VIEW = { center: [41.3243, 69.2316] as [number, number], zoom: 13.05 }
+
 type TrackingViewProps = {
   view?: "agents" | "clients"
 }
 
+/** Fixed option lists; every list that depends on data comes from /api/tracking-filter-options. */
 const selectOptions: Record<string, string[]> = {
   "Частота посещения": ["Каждый день", "Раз в неделю", "Раз в месяц"],
-  "Маршрут агента": ["Маршрут №1", "Маршрут №2", "Без маршрута"],
-  Клиент: ["Doston market", "Pepsi Market", "Usman Dembele"],
-  "Тип клиента": ["horeca", "market", "market100", "market101"],
   "Класс клиента": ["A", "B", "C"],
-  Зона: ["Chilonzor", "Yunusobod", "Andijon shaharchasi"],
   "Последнее посещение": ["Сегодня", "Последние 7 дней", "Последние 30 дней"],
-  "Ответственный агент": ["Admin Ritm", "Samandar Abdurahmonov"],
-  "Ответственные доставщики": ["Хайрулло Доставщик", "Аббос Доставщик"],
-  Филиалы: ["Andijon", "Tashkent", "AURUM samarqand"],
-  "Тип отказа": ["Нет клиента", "Закрыто", "Отказ от заказа"],
 }
 
-function SelectLine({ label, value: controlled, onChange }: { label: string; value?: string; onChange?: (value: string) => void }) {
+type LoadedOptions = {
+  clients: string[]
+  clientTypes: string[]
+  zones: string[]
+  agents: string[]
+  deliverers: string[]
+  branches: string[]
+  refusalTypes: string[]
+  agentRoutes: string[]
+}
+
+const LOADED_KEY: Record<string, keyof LoadedOptions> = {
+  Клиент: "clients",
+  "Тип клиента": "clientTypes",
+  Зона: "zones",
+  "Ответственный агент": "agents",
+  "Ответственные доставщики": "deliverers",
+  Филиалы: "branches",
+  "Тип отказа": "refusalTypes",
+  "Маршрут агента": "agentRoutes",
+}
+
+function SelectLine({ label, value: controlled, onChange, options = [] }: { label: string; value?: string; onChange?: (value: string) => void; options?: string[] }) {
   const { t } = useLanguage()
   const [open, setOpen] = useState(false)
   const [internal, setInternal] = useState("")
@@ -52,14 +66,14 @@ function SelectLine({ label, value: controlled, onChange }: { label: string; val
       <button
         type="button"
         onClick={() => setOpen((current) => !current)}
-        className="relative flex h-[36px] w-full items-center border-b border-[#e8e8e8] text-left text-[13px] font-semibold text-black"
+        className="relative flex h-[41px] w-full items-center border-b border-[#e8e8e8] pt-[3px] text-left text-[13px] font-semibold text-black"
       >
         <span>{t(value) || t(label)}</span>
-        <svg viewBox="0 0 10 7" className="absolute right-[14px] top-[14px] h-[7px] w-[10px] fill-[#888]"><path d="M0 0l5 5.5L10 0z" /></svg>
+        <svg viewBox="0 0 10 7" className="absolute right-[3px] top-[19px] h-[7px] w-[10px] fill-[#888]"><path d="M0 0l5 5.5L10 0z" /></svg>
       </button>
       {open && (
         <div className="absolute left-0 right-0 top-full z-[800] max-h-48 overflow-auto bg-white py-1 shadow-xl">
-          {(selectOptions[label] ?? ["Да", "Нет"]).map((option) => (
+          {options.map((option) => (
             <button
               key={option}
               type="button"
@@ -121,7 +135,18 @@ function ClientsFilterModal({ onClose }: { onClose: () => void }) {
   const [draft, setDraft] = useState(empty)
   const [days, setDays] = useState<string[]>([])
   const set = <K extends keyof typeof empty>(key: K) => (value: (typeof empty)[K]) => setDraft((current) => ({ ...current, [key]: value }))
-  const options = (label: string) => selectOptions[label] ?? []
+  const [loaded, setLoaded] = useState<Partial<LoadedOptions>>({})
+  useEffect(() => {
+    let cancelled = false
+    fetch("/api/tracking-filter-options")
+      .then((response) => (response.ok ? response.json() : {}))
+      .then((next: Partial<LoadedOptions>) => !cancelled && setLoaded(next))
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [])
+  const options = (label: string) => (LOADED_KEY[label] ? loaded[LOADED_KEY[label]] ?? [] : selectOptions[label] ?? [])
 
   return (
     <div className="fixed inset-0 z-[1000] bg-black/60" onMouseDown={onClose}>
@@ -133,7 +158,7 @@ function ClientsFilterModal({ onClose }: { onClose: () => void }) {
         className="fixed left-1/2 top-4 flex max-h-[calc(100vh-32px)] w-[768px] max-w-full -translate-x-1/2 flex-col bg-white shadow-[0_10px_30px_rgba(0,0,0,0.3)]"
       >
         <header className="flex h-[60px] shrink-0 items-center justify-between border-b border-[#efefef] pl-[30px] pr-[22px]">
-          <h2 className="text-[15px] font-medium uppercase text-[#333]">{t("Показать на карте")}</h2>
+          <h2 className="text-[15px] font-bold uppercase text-[#333]">{t("Показать на карте")}</h2>
           <button type="button" onClick={onClose} aria-label={t("Закрыть")}>
             <svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#333]"><path d={RI.close} /></svg>
           </button>
@@ -149,27 +174,24 @@ function ClientsFilterModal({ onClose }: { onClose: () => void }) {
             />
             <div className="-mt-[3px]">
               <FilterRange caption={t("Прошло дней с последнего заказа")} from={draft.lastOrderFrom} to={draft.lastOrderTo} onFrom={set("lastOrderFrom")} onTo={set("lastOrderTo")} />
-              <div className="h-[3px]" />
               <FilterRange caption={t("Прошло дней с последней оплаты")} from={draft.lastPaymentFrom} to={draft.lastPaymentTo} onFrom={set("lastPaymentFrom")} onTo={set("lastPaymentTo")} />
-              <div className="h-[3px]" />
               <FilterRange caption={t("Прошло дней с последнего отказа")} from={draft.lastRefusalFrom} to={draft.lastRefusalTo} onFrom={set("lastRefusalFrom")} onTo={set("lastRefusalTo")} />
-              <div className="h-[3px]" />
               <FilterRange caption={t("Прошло дней с последнего визита")} from={draft.lastVisitFrom} to={draft.lastVisitTo} onFrom={set("lastVisitFrom")} onTo={set("lastVisitTo")} />
             </div>
-            <div className="-mt-[5px]">
+            <div className="mt-[4px]">
               <FilterSelect label={t("Ответственный агент")} value={draft.agent} onChange={set("agent")} options={options("Ответственный агент")} className="mb-0" />
               <FilterSelect label={t("Ответственные доставщики")} value={draft.deliverer} onChange={set("deliverer")} options={options("Ответственные доставщики")} />
               <FilterSelect label={t("Филиалы")} value={draft.branch} onChange={set("branch")} options={options("Филиалы")} />
               <FilterSelect label={t("Тип отказа")} value={draft.refusalType} onChange={set("refusalType")} options={options("Тип отказа")} />
             </div>
-            <div className="space-y-[6px]">
-              <FilterCheck label={t("Маршрут не установлен")} checked={draft.noRoute} onChange={set("noRoute")} />
-              <FilterCheck label={t("Показать оборудование")} checked={draft.equipment} onChange={set("equipment")} />
+            <div className="space-y-[10px] pt-[3px]">
+              <FilterCheck label={t("Маршрут не установлен")} checked={draft.noRoute} onChange={set("noRoute")} compact />
+              <FilterCheck label={t("Показать оборудование")} checked={draft.equipment} onChange={set("equipment")} compact />
             </div>
           </div>
           <div className="pb-5 pl-[26px] pr-[24px]">
-            <div className="pt-[18px]">
-              <div className="text-[13px] font-medium text-[#333]">{t("Показывать по маршруту (дни)")}</div>
+            <div className="pt-[20px]">
+              <div className="text-[13px] font-semibold leading-[16.3px] text-[#333]">{t("Показывать по маршруту (дни)")}</div>
               <div className="mt-[10px] flex gap-[18px]">
                 {["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"].map((day) => (
                   <button
@@ -192,10 +214,10 @@ function ClientsFilterModal({ onClose }: { onClose: () => void }) {
               <FilterSelect label={t("Зона")} value={draft.zone} onChange={set("zone")} options={options("Зона")} />
               <FilterSelect label={t("Последнее посещение")} value={draft.lastVisit} onChange={set("lastVisit")} options={options("Последнее посещение")} />
             </div>
-            <div className="space-y-[6px]">
-              <FilterCheck label={t("Зона не определена")} checked={draft.zoneUndefined} onChange={set("zoneUndefined")} />
-              <FilterCheck label={t("Неограниченный долг")} checked={draft.unlimitedDebt} onChange={set("unlimitedDebt")} />
-              <FilterCheck label={t("Неправильно присвоенные зоны(зона агента не совпадает с зоной клиента)")} checked={draft.wrongZones} onChange={set("wrongZones")} />
+            <div className="space-y-[10px] pt-[3px]">
+              <FilterCheck label={t("Зона не определена")} checked={draft.zoneUndefined} onChange={set("zoneUndefined")} compact />
+              <FilterCheck label={t("Неограниченный долг")} checked={draft.unlimitedDebt} onChange={set("unlimitedDebt")} compact />
+              <FilterCheck label={t("Неправильно присвоенные зоны(зона агента не совпадает с зоной клиента)")} checked={draft.wrongZones} onChange={set("wrongZones")} compact />
             </div>
           </div>
         </div>
@@ -206,11 +228,11 @@ function ClientsFilterModal({ onClose }: { onClose: () => void }) {
               setDraft(empty)
               setDays([])
             }}
-            className="h-9 rounded-[3px] bg-[#fa6e65] px-[16px] text-[13px] font-bold uppercase tracking-wide text-white hover:brightness-95"
+            className="h-9 rounded-[3px] bg-[#fa6e65] px-[16px] text-[13px] font-semibold uppercase text-white hover:brightness-95"
           >
             {t("Очистить")}
           </button>
-          <button type="button" onClick={onClose} className="h-9 rounded-[3px] bg-[#71ce87] px-[16px] text-[13px] font-bold uppercase tracking-wide text-white hover:brightness-95">
+          <button type="button" onClick={onClose} className="h-9 rounded-[3px] bg-[#71ce87] px-[16px] text-[13px] font-semibold uppercase text-white hover:brightness-95">
             {t("Применить")}
           </button>
         </footer>
@@ -230,8 +252,15 @@ function VideoLessonDialog({ onClose }: { onClose: () => void }) {
             <svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#333]"><path d={RI.close} /></svg>
           </button>
         </header>
-        <div className="px-[30px] py-[40px]">
-          <div className="h-[250px] w-full bg-black" />
+        <div className="px-[30px] pb-[23px] pt-[40px]">
+          <iframe
+            title={t("Видео урок")}
+            src="https://www.youtube.com/embed/rHuQyHAFfzo?si=0XlvOwwjO7z4SSrx"
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+            allowFullScreen
+            referrerPolicy="strict-origin-when-cross-origin"
+            className="block h-[250px] w-full border-0 bg-black"
+          />
         </div>
         <footer className="flex h-[57px] items-center justify-end border-t border-[#efefef] pr-[26px]">
           <button type="button" onClick={onClose} className="font-semibold uppercase text-[#0a9ddb]">{t("Закрыть")}</button>
@@ -241,42 +270,84 @@ function VideoLessonDialog({ onClose }: { onClose: () => void }) {
   )
 }
 
-function ZoneModal({ onClose }: { onClose: () => void }) {
+const ZONE_ICONS = {
+  draw: "M23 8c0 1.1-.9 2-2 2-.18 0-.35-.02-.51-.07l-3.56 3.55c.05.16.07.34.07.52 0 1.1-.9 2-2 2s-2-.9-2-2c0-.18.02-.36.07-.52l-2.55-2.55c-.16.05-.34.07-.52.07s-.36-.02-.52-.07l-4.55 4.56c.05.16.07.33.07.51 0 1.1-.9 2-2 2s-2-.9-2-2 .9-2 2-2c.18 0 .35.02.51.07l4.56-4.55C8.02 9.36 8 9.18 8 9c0-1.1.9-2 2-2s2 .9 2 2c0 .18-.02.36-.07.52l2.55 2.55c.16-.05.34-.07.52-.07s.36.02.52.07l3.55-3.56C19.02 8.35 19 8.18 19 8c0-1.1.9-2 2-2s2 .9 2 2z",
+  select: "M9 11.24V7.5C9 6.12 10.12 5 11.5 5S14 6.12 14 7.5v3.74c1.21-.81 2-2.18 2-3.74C16 5.01 13.99 3 11.5 3S7 5.01 7 7.5c0 1.56.79 2.93 2 3.74zm9.84 4.63l-4.54-2.26c-.17-.07-.35-.11-.54-.11H13v-6c0-.83-.67-1.5-1.5-1.5S10 6.67 10 7.5v10.74l-3.43-.72c-.08-.01-.15-.03-.24-.03-.31 0-.59.13-.79.33l-.79.8 4.94 4.94c.27.27.65.44 1.06.44h6.79c.75 0 1.33-.55 1.44-1.28l.75-5.27c.01-.07.02-.14.02-.2 0-.62-.38-1.16-.91-1.38z",
+}
+
+type ExtraZoneRow = { id: number; title: string; parent: string; branch: string; ring: [number, number][] }
+type ZoneDraft = { ring: [number, number][]; drawing: boolean }
+
+/** `editing`: an existing zone's name is open (nothing is saved for it yet); otherwise a new zone is drawn and saved to zone_extra. */
+function ZoneModal({ onClose, initialName = "", editing = false, draft, onDraft, onSaved }: { onClose: () => void; initialName?: string; editing?: boolean; draft: ZoneDraft; onDraft: (draft: ZoneDraft) => void; onSaved: () => void }) {
   const { t } = useLanguage()
-  const [mode, setMode] = useState<"draw" | "select">("select")
-  const [name, setName] = useState("")
+  const mode = draft.drawing ? "draw" : "select"
+  const setMode = (next: "draw" | "select") => onDraft({ ...draft, drawing: next === "draw" })
+  const [name, setName] = useState(initialName)
+  const [error, setError] = useState("")
+  const [saving, setSaving] = useState(false)
   const [branch, setBranch] = useState("")
   const [parent, setParent] = useState("")
+  const [branchNames, setBranchNames] = useState<string[]>([])
+  const [zoneNames, setZoneNames] = useState<string[]>([])
+  useEffect(() => {
+    let cancelled = false
+    fetch("/api/branches?sort=created")
+      .then((response) => (response.ok ? response.json() : []))
+      .then((rows: { name?: string }[]) => !cancelled && setBranchNames(rows.map((row) => row.name ?? "").filter(Boolean)))
+      .catch(() => {})
+    fetch("/api/tracking-filter-options")
+      .then((response) => (response.ok ? response.json() : {}))
+      .then((next: Partial<LoadedOptions>) => !cancelled && setZoneNames(next.zones ?? []))
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [])
   const [reassign, setReassign] = useState(false)
   const [video, setVideo] = useState(false)
+  const save = async () => {
+    if (editing) return onClose()
+    if (!name.trim()) return setError(t("Обязательное поле"))
+    if (draft.ring.length < 3) return setError(t("Нарисуйте зону на карте"))
+    setSaving(true)
+    setError("")
+    try {
+      const response = await fetch("/api/zone-extra", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: name.trim(), parent, branch, updateMarketBorder: reassign, polygon: draft.ring }),
+      })
+      if (!response.ok) {
+        const body = (await response.json().catch(() => null)) as { error?: string } | null
+        return setError(t(body?.error ?? "Не удалось сохранить"))
+      }
+      onSaved()
+    } finally {
+      setSaving(false)
+    }
+  }
   return (
-    <div className="absolute left-1/2 top-0 z-[700] w-[550px] -translate-x-1/2 bg-white pb-[10px] text-[13px] shadow-[0_3px_10px_rgba(0,0,0,0.16),0_3px_10px_rgba(0,0,0,0.23)]">
-      <div className="flex items-center px-[30px] pt-[12px]">
-        <label className="relative block h-[48px] w-[270px] border-b border-[#e0e0e0]">
-          <span className={`pointer-events-none absolute left-0 font-semibold ${name ? "top-[3px] text-[10px]" : "top-[26px] text-[13px]"}`}>{t("Наименование зоны")}</span>
-          <input value={name} onChange={(event) => setName(event.target.value)} className="absolute inset-x-0 bottom-0 h-[26px] bg-transparent font-semibold outline-none" />
-        </label>
-        <div className="ml-[22px] flex items-center gap-[10px]">
-          <button type="button" onClick={() => setMode("draw")} aria-label={t("Рисовать")} className={`flex h-[48px] w-[48px] items-center justify-center ${mode === "draw" ? "bg-[#f0f0f0]" : ""}`}><Route className="h-6 w-6 text-[#333]" strokeWidth={1.5} /></button>
-          <button type="button" onClick={() => setMode("select")} aria-label={t("Выбрать")} className={`flex h-[48px] w-[48px] items-center justify-center ${mode === "select" ? "bg-[#f0f0f0]" : ""}`}><MapPinned className="h-6 w-6 text-[#333]" strokeWidth={1.5} /></button>
-          <button type="button" aria-label={t("Очистить зону")} onClick={() => { setName(""); setMode("select") }} className="flex h-[48px] w-[48px] items-center justify-center"><Trash2 className="h-6 w-6 text-[#333]" strokeWidth={1.5} /></button>
-        </div>
-        <button type="button" onClick={onClose} aria-label={t("Закрыть")} className="ml-auto flex h-[48px] w-[48px] items-center justify-center"><X className="h-6 w-6 text-[#555]" /></button>
+    <div className="absolute left-1/2 top-0 z-[700] h-[287px] w-[550px] -translate-x-1/2 bg-white text-[13px] shadow-[0_3px_10px_rgba(0,0,0,0.16),0_3px_10px_rgba(0,0,0,0.23)]">
+      <label className="absolute left-[30px] top-[17px] block h-[45px] w-[270px]">
+        <span className={`pointer-events-none absolute left-0 font-semibold text-black ${name ? "top-[2px] text-[10px]" : "top-[13px] text-[13px]"}`}>{t("Наименование зоны")}</span>
+        <input value={name} onChange={(event) => setName(event.target.value)} className="absolute inset-x-0 top-0 h-[45px] border-0 bg-transparent pt-[13px] text-[13px] font-semibold text-black outline-none" />
+        <span className="pointer-events-none absolute inset-x-0 bottom-[8px] h-px bg-[#e0e0e0]" />
+      </label>
+      <div className="absolute left-[310px] top-[12px] flex">
+        <button type="button" onClick={() => setMode("draw")} aria-label={t("Рисовать")} className={`flex h-[48px] w-[48px] items-center justify-center ${mode === "draw" ? "bg-[#f0f0f0]" : "bg-white"}`}><svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#666]"><path d={ZONE_ICONS.draw} /></svg></button>
+        <button type="button" onClick={() => setMode("select")} aria-label={t("Выбрать")} className={`flex h-[48px] w-[48px] items-center justify-center ${mode === "select" ? "bg-[#f0f0f0]" : "bg-white"}`}><svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#666]"><path d={ZONE_ICONS.select} /></svg></button>
+        <button type="button" aria-label={t("Очистить зону")} onClick={() => { setName(""); onDraft({ ring: [], drawing: false }) }} className="flex h-[48px] w-[48px] items-center justify-center"><svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#666]"><path d={RI.trash} /></svg></button>
       </div>
-      <div className="px-[30px]">
-        <div className="mt-[10px] w-[270px]"><SelectLine label="Филиал" value={branch} onChange={setBranch} /></div>
-        <div className="mt-[6px] flex items-end gap-[20px]">
-          <div className="w-[270px]"><SelectLine label="Родительская зона" value={parent} onChange={setParent} /></div>
-          <button type="button" onClick={() => setVideo(true)} className="pb-[10px] text-[13px] font-medium text-[#1b8fd6]">{t("Видеоурок по созданию зоны")}</button>
-        </div>
-        <label className="mt-[14px] flex cursor-pointer items-center gap-[8px] text-[13px] font-semibold">
-          <input type="checkbox" checked={reassign} onChange={(event) => setReassign(event.target.checked)} className="h-[18px] w-[18px] accent-[#536fe1]" />
-          {t("Переназначить зоны клиентов")}
-        </label>
-        <div className="mt-[22px] text-right">
-          <button type="button" onClick={onClose} className="font-semibold uppercase text-[#0a9ddb]">{t("Сохранить")}</button>
-        </div>
+      <button type="button" onClick={onClose} aria-label={t("Закрыть")} className="absolute right-[10px] top-[10px] flex h-[48px] w-[48px] items-center justify-center"><svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#666]"><path d={RI.close} /></svg></button>
+      <div className="absolute left-[30px] top-[85px] w-[270px]"><SelectLine label="Филиал" value={branch} onChange={setBranch} options={branchNames} /></div>
+      <div className="absolute left-[30px] top-[147px] w-[270px]"><SelectLine label="Родительская зона" value={parent} onChange={setParent} options={zoneNames} /></div>
+      <button type="button" onClick={() => setVideo(true)} className="absolute left-[320px] top-[164px] text-[13px] text-[#129fdd]">{t("Видеоурок по созданию зоны")}</button>
+      <div className="absolute left-[30px] top-[201px]">
+        <FilterCheck label={t("Переназначить зоны клиентов")} checked={reassign} onChange={setReassign} compact />
       </div>
+      {error && <p className="absolute bottom-[19px] left-[30px] text-[13px] text-[#f44336]">{error}</p>}
+      <button type="button" disabled={saving} onClick={() => void save()} className="absolute bottom-[7px] right-[10px] h-9 w-[110.8px] text-[13px] font-semibold uppercase text-[#129fdd] disabled:opacity-50">{t("Сохранить")}</button>
       {video && <VideoLessonDialog onClose={() => setVideo(false)} />}
     </div>
   )
@@ -295,6 +366,24 @@ export function TrackingView({ view = "agents" }: TrackingViewProps) {
   const [searchOpen, setSearchOpen] = useState(true)
   const [search, setSearch] = useState("")
   const [legendOpen, setLegendOpen] = useState(false)
+  const [editZone, setEditZone] = useState<string | null>(null)
+  const [draft, setDraft] = useState<ZoneDraft>({ ring: [], drawing: false })
+  const [extraZones, setExtraZones] = useState<ExtraZoneRow[]>([])
+  const loadExtraZones = useCallback(() => {
+    fetch("/api/zone-extra")
+      .then((response) => (response.ok ? response.json() : []))
+      .then((rows: ExtraZoneRow[]) => Array.isArray(rows) && setExtraZones(rows))
+      .catch(() => {})
+  }, [])
+  useEffect(() => {
+    if (view === "clients") loadExtraZones()
+  }, [view, loadExtraZones])
+  const closeZone = () => {
+    setZoneOpen(false)
+    setEditZone(null)
+    setDraft({ ring: [], drawing: false })
+  }
+  const [mapOptions, setMapOptions] = useState<string[]>([])
 
   useEffect(() => {
     if (view !== "clients") return
@@ -313,7 +402,7 @@ export function TrackingView({ view = "agents" }: TrackingViewProps) {
   if (view === "clients") {
     return (
       <main className="flex h-[calc(100vh-50px)] flex-col overflow-hidden bg-[#f2f5f8]">
-        <div className="bg-[#f2f5f8] pl-[30px] pr-[38px]">
+        <div className="bg-[#f2f5f8] px-[28px]">
           <RefHeader title={t("Территория")}>
             <RefButton icon={RI.filter} label={t("Показать клиентов")} onClick={() => setFilterOpen(true)} />
             <RefButton icon={RI.trend} label={t("Установить маршрут")} onClick={() => setVideoOpen(true)} />
@@ -322,10 +411,20 @@ export function TrackingView({ view = "agents" }: TrackingViewProps) {
           </RefHeader>
         </div>
         <div className="relative min-h-0 flex-1">
-          <TrackingMap showAgents={false} showClients={showClients} showZones={showZones} />
-          <div className="absolute right-[14px] top-[18px] z-[500] flex h-[48px] w-[264px] items-center bg-white shadow-[0_2px_6px_rgba(0,0,0,0.2)]">
+          <TrackingMap
+            showAgents={false}
+            showClients={showClients}
+            showZones={showZones}
+            zoomControl={false}
+            initialView={TERRITORY_VIEW}
+            extraZones={extraZones.map((zone) => ({ id: zone.id, title: zone.title, ring: zone.ring }))}
+            drawing={zoneOpen && !editZone && draft.drawing}
+            draftRing={zoneOpen && !editZone ? draft.ring : []}
+            onAddPoint={(point) => setDraft((current) => ({ ...current, ring: [...current.ring, point] }))}
+          />
+          <div className={`absolute top-[18px] z-[500] flex h-[48px] w-[252px] items-center bg-white shadow-[0_2px_6px_rgba(0,0,0,0.2)] ${managePanel ? "right-[482px]" : "right-[11px]"}`}>
             {searchOpen && (
-              <label className="flex h-full flex-1 items-center px-[22px]">
+              <label className="flex h-full flex-1 items-center px-[21px]">
                 <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={t("Поиск")} className="w-full text-[15px] outline-none placeholder:text-[#999]" />
               </label>
             )}
@@ -333,16 +432,29 @@ export function TrackingView({ view = "agents" }: TrackingViewProps) {
               {searchOpen ? <ChevronLeft className="h-4 w-4 fill-current" /> : <ChevronRight className="h-4 w-4" />}
             </button>
           </div>
-          <div className="absolute bottom-0 right-0 z-[500] w-[230px] bg-white shadow-[0_2px_8px_rgba(0,0,0,0.25)]">
+          <div className={`absolute bottom-0 z-[500] w-[230px] bg-white shadow-[0_2px_8px_rgba(0,0,0,0.25)] ${managePanel ? "right-[470px]" : "right-0"}`}>
             <button type="button" onClick={() => setFilterOpen(true)} className="flex h-[30px] w-full items-center gap-[10px] bg-[#4f71dc] px-[14px] text-[13px] font-semibold text-white"><svg viewBox="0 0 24 24" className="h-[18px] w-[18px] fill-white" aria-hidden><path d={RI.filter} /></svg>{t("Показать клиентов")}</button>
-            <div className="space-y-[8px] px-[14px] pb-[8px] pt-[10px]">
-              <CheckLine label="Скрыть ориентиры" />
-              <CheckLine label="Режим спутника" />
-              <CheckLine label="Выбор клиентов" />
+            <div className="space-y-[4px] px-[14px] pb-[10px] pt-[10px]">
+              {(["Скрыть ориентиры", "Режим спутника", "Выбор клиентов"] as const).map((label) => (
+                <FilterCheck key={label} label={t(label)} checked={mapOptions.includes(label)} onChange={(on) => setMapOptions((current) => (on ? [...current, label] : current.filter((item) => item !== label)))} compact />
+              ))}
             </div>
           </div>
-          {zoneOpen && <ZoneModal onClose={() => setZoneOpen(false)} />}
-          {managePanel && <TerritoryPanel onClose={() => setManagePanel(false)} />}
+          {zoneOpen && (
+            <ZoneModal
+              key={editZone ?? ""}
+              initialName={editZone ?? ""}
+              editing={editZone !== null}
+              draft={draft}
+              onDraft={setDraft}
+              onClose={closeZone}
+              onSaved={() => {
+                closeZone()
+                loadExtraZones()
+              }}
+            />
+          )}
+          {managePanel && <TerritoryPanel extraZones={extraZones} onClose={() => setManagePanel(false)} onEdit={(name) => { setEditZone(name); setZoneOpen(true) }} />}
         </div>
         {filterOpen && <ClientsFilterModal onClose={() => setFilterOpen(false)} />}
         {videoOpen && <VideoLessonDialog onClose={() => setVideoOpen(false)} />}
@@ -390,7 +502,12 @@ export function TrackingView({ view = "agents" }: TrackingViewProps) {
           <ChevronRight className={`h-6 w-6 ${sidebarOpen ? "" : "rotate-180"}`} />
         </button>
       </div>
-      {sidebarOpen && <AgentsSidebar />}
+      {sidebarOpen && (
+        <>
+          <div className="w-[334px] shrink-0" aria-hidden />
+          <AgentsSidebar />
+        </>
+      )}
     </div>
   )
 }

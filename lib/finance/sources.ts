@@ -115,6 +115,14 @@ function verified(ctx: SourceContext, alias: string, table: string): string {
   return ctx.s.col(table, "is_verified") ? `COALESCE(${alias}.is_verified, 1) = 1` : "true"
 }
 
+/** Rows seeded as demo data (registry demo_seed_rows) feed the stock and the cash pages but never the supplier
+ * debt: the reference's supplier balances are built from its real documents only. */
+function notDemoRow(ctx: SourceContext, alias: string, table: string): string {
+  return ctx.s.has("demo_seed_rows")
+    ? `NOT EXISTS (SELECT 1 FROM demo_seed_rows dsr WHERE dsr.table_name = '${table}' AND dsr.row_id = ${alias}.id::text)`
+    : "true"
+}
+
 const CME = "cash_management_entries"
 
 /** Cash operation type of a cash entry (NULL = legacy row, typed by category/sign). */
@@ -542,7 +550,8 @@ function supplierSources(ctx: SourceContext): string[] {
         cby: col(ctx, "i", "supplier_incomings", "accepted_by", "i.initiator"),
         href: "'/analytics/supplier-incomings'",
       },
-      `FROM supplier_incomings i ${join("i.supplier")} WHERE i.status = 'принят' AND fin_key(i.supplier) <> ''`,
+      `FROM supplier_incomings i ${join("i.supplier")} WHERE i.status = 'принят' AND fin_key(i.supplier) <> ''
+         AND fin_key(i.supplier) <> fin_key('Инвенторизация') AND ${notDemoRow(ctx, "i", "supplier_incomings")}`,
     ),
   )
   out.push(
@@ -601,7 +610,8 @@ function supplierSources(ctx: SourceContext): string[] {
         href: "'/analytics/supplier-payments'",
       },
       `FROM supplier_payments sp ${join("sp.supplier")}
-       WHERE (fin_key(sp.supplier) <> '' OR ${spSupplier} IS NOT NULL) AND ${alive(ctx, "sp", SP)} AND ${verified(ctx, "sp", SP)}`,
+       WHERE (fin_key(sp.supplier) <> '' OR ${spSupplier} IS NOT NULL) AND ${alive(ctx, "sp", SP)} AND ${verified(ctx, "sp", SP)}
+         AND ${notDemoRow(ctx, "sp", SP)}`,
     ),
   )
   if (ctx.s.has("supplier_balance_transactions")) {
@@ -662,7 +672,7 @@ function vansellSources(ctx: SourceContext): string[] {
           cby: col(ctx, "v", t, "created_by", "''"),
           editable: "true",
         },
-        `FROM ${t} v`,
+        `FROM ${t} v WHERE ${alive(ctx, "v", t)}`,
       ),
     )
   }

@@ -11,10 +11,12 @@ import { useLanguage } from "@/lib/i18n/language-context"
 
 export function CategoryOptionChips({ options }: { options: readonly CategoryOptionKey[] }) {
   const { t } = useLanguage()
-  if (!options.length) return null
+  // "Поставка" implies the provider pick in the cash core, but the demo lists one chip.
+  const shown = options.includes("supply") ? options.filter((key) => key !== "provider") : options
+  if (!shown.length) return null
   return (
     <div className="flex flex-wrap items-center">
-      {options.map((key) => {
+      {shown.map((key) => {
         const item = categoryOptionItem(key)
         return (
           <span key={key} className="group/chip relative my-[5px] mr-[10px] inline-flex">
@@ -51,17 +53,17 @@ export function CategoryOptionsPicker({
   const { t } = useLanguage()
   return (
     <fieldset>
-      <legend className="text-[14px] font-semibold text-[#333]">{t("Дополнительные параметры")}</legend>
+      <legend className="text-[13px] font-semibold text-black">{t("Дополнительные параметры")}</legend>
       <div role="radiogroup" className="flex flex-wrap pt-1">
         {categoryOptionItems(kind).map((item) => (
-          <label key={item.key} title={t(item.description)} className="mr-4 mt-2.5 inline-flex cursor-pointer items-center gap-2 whitespace-nowrap text-[14px] text-[#333]">
+          <label key={item.key} title={t(item.description)} className="mr-4 mt-2.5 inline-flex cursor-pointer items-center gap-[6px] text-[13px] font-semibold text-black">
             <input
               type="radio"
               name={`${kind}-category-option`}
               value={item.key}
               checked={value === item.key}
               onChange={() => onChange(item.key)}
-              className="h-[18px] w-[18px] accent-[#4f70e7]"
+              className="h-[20px] w-[20px] accent-[#757575]"
             />
             {t(item.title)}
           </label>

@@ -27,37 +27,38 @@ export function SelectField({ label, options, value, onChange, placeholder = "В
   }, [open])
 
   return (
-    <div ref={ref} className="relative">
-      <label className="block text-[10px] font-bold leading-3 text-black">{label}</label>
+    <div ref={ref} className="relative h-[54px]">
+      <label className="absolute left-0 top-[5px] block text-[9.75px] font-semibold leading-[12.2px] text-black">{label}</label>
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className="mt-[10px] flex h-[26px] w-full items-center justify-between border-b border-[#e0e0e0] text-left outline-none focus:border-[#5d6474]"
+        className="absolute left-0 right-0 top-[18px] h-[36px] border-b border-[#e8e8e8] text-left outline-none focus:border-[#5d6474]"
       >
-        <span className={`text-[13px] font-semibold ${value ? "text-[#333]" : "text-black/30"}`}>{t(value) || t(placeholder)}</span>
-        <span className="flex items-center">
-          {value && (
-            <span
-              role="button"
-              tabIndex={0}
-              aria-label={t("Очистить")}
-              onClick={(e) => {
-                e.stopPropagation()
-                onChange("")
-              }}
-              className="text-[16px] leading-none text-[#999] hover:text-[#666]"
-            >
-              ×
-            </span>
-          )}
-          <svg viewBox="0 0 24 24" className={`h-6 w-6 fill-black/30 transition-transform ${open ? "rotate-180" : ""}`} aria-hidden>
-            <path d="M7 10l5 5 5-5z" />
-          </svg>
+        <span className={`absolute left-0 top-[13px] text-[13px] font-semibold leading-[18px] ${value ? "text-[#333]" : "text-black/30"}`}>
+          {t(value) || t(placeholder)}
         </span>
+        {value && (
+          <span
+            role="button"
+            tabIndex={0}
+            aria-label={t("Очистить")}
+            onClick={(e) => {
+              e.stopPropagation()
+              onChange("")
+            }}
+            className="absolute right-[25px] top-0 h-[35px] w-[17px] pt-[14px] text-center text-[18px] font-normal leading-[18px] text-[#999] hover:text-[#666]"
+          >
+            ×
+          </span>
+        )}
+        <span
+          aria-hidden
+          className={`absolute right-[10px] top-[21.4px] h-[7px] w-[10px] border-x-[5px] border-b-[2px] border-t-[5px] border-x-transparent border-b-transparent border-t-[#999] ${open ? "origin-[50%_35%] rotate-180" : ""}`}
+        />
       </button>
 
       {open && (
-        <ul className="absolute left-0 right-0 top-full z-30 mt-1 max-h-56 overflow-y-auto rounded-[2px] bg-white py-1 shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
+        <ul className="absolute left-0 right-0 top-[53px] z-30 max-h-[200px] overflow-y-auto rounded-b-[4px] bg-white shadow-[0_3px_10px_rgba(0,0,0,0.16),0_3px_10px_rgba(0,0,0,0.23)]">
           {options.map((option) => (
             <li key={option}>
               <button
@@ -66,7 +67,7 @@ export function SelectField({ label, options, value, onChange, placeholder = "В
                   onChange(option)
                   setOpen(false)
                 }}
-                className={`w-full px-4 py-2 text-left text-[13px] hover:bg-[#f2f5f8] ${option === value ? "bg-[#f2f5f8] font-semibold" : ""}`}
+                className={`block w-full px-[10px] py-[8px] text-left text-[13px] font-semibold leading-[16.25px] hover:bg-[#e6f2ff] hover:text-[#333] ${option === value ? "bg-[#e6f2ff] text-[#333]" : "text-[#666]"}`}
               >
                 {t(option)}
               </button>

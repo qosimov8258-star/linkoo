@@ -49,7 +49,7 @@ type TxRow = {
 }
 
 declare global {
-  var __linkoVansellSchema: Promise<void> | undefined
+  var __linkoVansellSchema2: Promise<void> | undefined
 }
 
 async function createSchema(db: PgDb) {
@@ -86,13 +86,13 @@ async function createSchema(db: PgDb) {
 }
 
 function ensureSchema(db: PgDb = getDb()): Promise<void> {
-  if (!globalThis.__linkoVansellSchema) {
-    globalThis.__linkoVansellSchema = createSchema(db).catch((error) => {
-      globalThis.__linkoVansellSchema = undefined
+  if (!globalThis.__linkoVansellSchema2) {
+    globalThis.__linkoVansellSchema2 = createSchema(db).catch((error) => {
+      globalThis.__linkoVansellSchema2 = undefined
       throw error
     })
   }
-  return globalThis.__linkoVansellSchema
+  return globalThis.__linkoVansellSchema2
 }
 
 const SELECT_TX = `
@@ -138,16 +138,27 @@ export async function listVansellTransactions(filter: { employeeId?: number } = 
   await ensureSchema(db)
   const rows = (
     filter.employeeId
-      ? await db.prepare(`${SELECT_TX} WHERE v.employee_id = ? ORDER BY v.id DESC`).all(filter.employeeId)
-      : await db.prepare(`${SELECT_TX} ORDER BY v.id DESC`).all()
+      ? await db.prepare(`${SELECT_TX} WHERE v.employee_id = ? AND COALESCE(v.is_deleted, 0) = 0 ORDER BY v.id DESC`).all(filter.employeeId)
+      : await db.prepare(`${SELECT_TX} WHERE COALESCE(v.is_deleted, 0) = 0 ORDER BY v.id DESC`).all()
   ) as TxRow[]
   return rows.map(toTransaction)
 }
 
 export async function getVansellTransaction(id: number, db: PgDb = getDb()): Promise<VansellTransaction | null> {
   await ensureSchema(db)
-  const row = (await db.prepare(`${SELECT_TX} WHERE v.id = ?`).get(id)) as TxRow | undefined
+  const row = (await db.prepare(`${SELECT_TX} WHERE v.id = ? AND COALESCE(v.is_deleted, 0) = 0`).get(id)) as TxRow | undefined
   return row ? toTransaction(row) : null
+}
+
+/** Soft delete of a manual ('none_type') movement: it stays in the table but no longer counts anywhere. */
+export async function deleteVansellTransaction(id: number): Promise<"ok" | "not_found" | "not_editable"> {
+  const db = getDb()
+  await ensureSchema(db)
+  const current = await getVansellTransaction(id, db)
+  if (!current) return "not_found"
+  if (current.type !== "none_type") return "not_editable"
+  await db.prepare("UPDATE vansell_transactions SET is_deleted = 1, updated_at = datetime('now') WHERE id = ? AND type = 'none_type'").run(id)
+  return "ok"
 }
 
 export type VansellWriteError = "employee_not_found" | "currency_not_found" | "not_found" | "not_editable"

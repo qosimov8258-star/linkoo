@@ -34,9 +34,9 @@ export function StatCards({
   return (
     <div className="mt-5 grid grid-cols-1 items-start gap-4 sm:grid-cols-2 xl:grid-cols-4">
       {cards.map((card) => (
-        <div key={card.key} className={`${CARD_CLASS} p-5 ${card.compact ? "min-h-[118px]" : "min-h-[92px]"}`}>
-          <p className="text-[13px]">{card.title}</p>
-          <p className={`font-bold ${card.compact ? "text-[16px] leading-5" : "mt-2 text-[16px] leading-5"}`}>{card.value}</p>
+        <div key={card.key} className={`${CARD_CLASS} px-5 pb-5 pt-[17px] ${card.compact ? "min-h-[118.5px]" : "min-h-[92px]"}`}>
+          <p className="text-[13px] leading-[18px]">{card.title}</p>
+          <p className="-mt-[0.7px] text-[19.5px] font-bold leading-[26.2px]">{card.value}</p>
         </div>
       ))}
     </div>

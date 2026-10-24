@@ -150,8 +150,8 @@ export function BranchKpiBulkDialog({
   if (!next) {
     const filtered = active.filter((item) => item.name.toLowerCase().includes(kpiSearch.trim().toLowerCase()))
     return (
-      <KpiDialogFrame title={title} width="max(40%, 420px)" onClose={onClose} footer={<KpiDialogAction label={t("Далее")} onClick={goNext} disabled={!indicators} />}>
-        <div className="space-y-4 px-[30px] py-5 text-[13px] text-[#333]">
+      <KpiDialogFrame title={title} width={600} onClose={onClose} footer={<KpiDialogAction label={t("Далее")} onClick={goNext} disabled={!indicators} />}>
+        <div className="min-h-[214px] space-y-4 px-[32px] pt-[27px] text-[13px] text-[#333]">
           {loadError && <p className="text-[#e57373]">{t(loadError)}</p>}
           {!indicators && !loadError && <p className="text-[#999]">{t("Загрузка...")}</p>}
           {indicators && !active.length && (
@@ -164,10 +164,10 @@ export function BranchKpiBulkDialog({
           )}
           {indicators && active.length > 0 && (
             <>
-              <div className="flex flex-wrap items-center justify-between gap-4">
+              <div className="flex items-center">
                 {(["allKpi", "selectedKpi"] as const).map((value) => (
-                  <label key={value} className="flex cursor-pointer items-center gap-2">
-                    <input type="radio" name="kpi-type" checked={kpiType === value} onChange={() => setKpiType(value)} className="h-4 w-4 accent-[#4f71dc]" />
+                  <label key={value} className="flex w-[270px] cursor-pointer items-center gap-[18px]">
+                    <input type="radio" name="kpi-type" checked={kpiType === value} onChange={() => setKpiType(value)} className="h-5 w-5 accent-[#757575]" />
                     {t(value === "allKpi" ? "Все активные KPI" : "Выбранные KPI")}
                   </label>
                 ))}
@@ -212,28 +212,28 @@ export function BranchKpiBulkDialog({
       onClose={() => setNext(false)}
       title={
         <>
-          <button type="button" onClick={() => setNext(false)} aria-label={t("Назад")} className="-ml-3 flex h-[38px] w-[38px] items-center justify-center text-[#666]">
-            <ArrowLeft className="h-5 w-5" />
+          <button type="button" onClick={() => setNext(false)} aria-label={t("Назад")} className="ml-[4px] mr-[10px] flex h-[38px] w-[38px] items-center justify-center text-[#666]">
+            <ArrowLeft className="h-6 w-6" />
           </button>
           <span className="truncate">{title}</span>
         </>
       }
       titleActions={<KpiDialogAction label={saving ? t("Сохранение...") : t("Сохранить")} onClick={() => void save()} disabled={saving || !values} />}
     >
-      <div className="flex shrink-0 flex-wrap items-end gap-6 border-b border-[#efefef] px-[30px] py-3">
+      <div className="flex shrink-0 flex-wrap items-end gap-6 px-[15px] py-3">
         <KpiMonthYearFilter month={month} year={year} onChange={onPeriodChange} />
         {error && <span className="pb-1 text-[13px] text-[#e57373]">{error}</span>}
       </div>
-      <div className="min-h-0 flex-1 overflow-auto px-[30px] pb-10 text-[13px] text-[#333]">
+      <div className="min-h-0 flex-1 overflow-auto px-[10px] pb-10 text-[13px] text-[#333]">
         {!values ? (
           <div className="py-16 text-center text-[#999]">{branches.length ? t("Загрузка...") : t("Выберите хотя бы один сотрудник !")}</div>
         ) : (
           <table className="w-full min-w-[600px] border-collapse">
             <thead>
               <tr className="h-[50px] border-b border-[#f2f5f8] text-left font-semibold">
-                <th className="sticky left-0 w-[220px] min-w-[180px] bg-white pl-2.5 pr-3 font-semibold">{t("Филиал")}</th>
+                <th className="sticky left-0 w-[248px] min-w-[248px] bg-white pr-3 font-semibold">{t("Филиал")}</th>
                 {kpis.map((item) => (
-                  <th key={item.id} className="min-w-[150px] px-3 font-semibold" title={t(item.planType)}>
+                  <th key={item.id} className="min-w-[250px] pr-[16px] font-semibold" title={t(item.planType)}>
                     <span className="line-clamp-2">{item.name}</span>
                   </th>
                 ))}
@@ -242,16 +242,16 @@ export function BranchKpiBulkDialog({
             <tbody>
               {branches.map((row) => (
                 <tr key={row.id} className="h-[50px] border-b border-[#f2f5f8] hover:bg-[#f2f5f8]">
-                  <td className="sticky left-0 bg-inherit pl-2.5 pr-3 font-semibold">{row.name}</td>
+                  <td className="sticky left-0 bg-inherit pr-3 font-semibold">{row.name}</td>
                   {kpis.map((item) => (
-                    <td key={item.id} className="px-3">
+                    <td key={item.id} className="pr-[16px]">
                       <input
                         value={values[row.id]?.[item.id] ?? ""}
                         onChange={(event) => setCell(row.id, item.id, event.target.value)}
                         placeholder={t("Количество")}
                         aria-label={`${row.name} · ${item.name}`}
                         inputMode="decimal"
-                        className="h-9 w-full border-b border-[#e0e0e0] bg-transparent text-[13px] outline-none focus:border-[#4f71dc]"
+                        className="h-9 w-full border-b border-[#e0e0e0] bg-transparent text-[13px] font-semibold outline-none placeholder:font-semibold placeholder:text-black focus:border-[#4f71dc]"
                       />
                     </td>
                   ))}
@@ -320,38 +320,36 @@ export function BranchKpiDuplicateDialog({
       footer={<KpiDialogAction label={saving ? t("Сохранение...") : t("Сохранить")} onClick={() => void save()} disabled={saving} />}
     >
       <form
-        className="min-h-[200px] space-y-5 px-[30px] py-5 text-[13px]"
+        className="min-h-[243px] px-[30px] pt-[4px] text-[13px]"
         onSubmit={(event) => {
           event.preventDefault()
           void save()
         }}
       >
-        <label className="block text-[12px] text-[#999]">
-          {t("Месяц")}
-          <select
-            value={toMonth}
-            onChange={(event) => setToMonth(Number(event.target.value))}
-            className="mt-1 block h-9 w-full border-b border-[#e0e0e0] bg-transparent text-[13px] text-[#333] outline-none focus:border-[#4f71dc]"
-          >
+        <label className="relative block h-[50px] border-b border-[#e0e0e0] focus-within:border-[#4f71dc]">
+          <span className="absolute left-0 top-[2px] text-[10px] font-bold leading-3 text-black">{t("Месяц")}</span>
+          <span className="absolute left-0 top-[26px] text-[13px] font-semibold leading-4 text-[#333]">{t(BRANCH_KPI_MONTHS[toMonth - 1] ?? "")}</span>
+          <select value={toMonth} onChange={(event) => setToMonth(Number(event.target.value))} aria-label={t("Месяц")} className="absolute inset-0 h-full w-full cursor-pointer opacity-0">
             {BRANCH_KPI_MONTHS.map((name, index) => (
               <option key={name} value={index + 1}>
                 {t(name)}
               </option>
             ))}
           </select>
+          <svg viewBox="0 0 10 7" className="pointer-events-none absolute right-[8px] top-[33px] h-[7px] w-[10px] fill-[#888]"><path d="M0 0l5 5.5L10 0z" /></svg>
         </label>
-        <label className="block text-[12px] text-[#999]">
-          {t("Год")}
+        <label className="relative mt-[27px] block h-[50px] border-b border-[#e0e0e0] focus-within:border-[#4f71dc]">
+          <span className="absolute left-0 top-[2px] text-[10px] font-bold leading-3 text-black">{t("Год")}</span>
           <input
             value={toYear}
             inputMode="numeric"
             maxLength={4}
             onChange={(event) => setToYear(event.target.value.replace(/\D/g, ""))}
-            className="mt-1 block h-9 w-full border-b border-[#e0e0e0] bg-transparent text-[13px] text-[#333] outline-none focus:border-[#4f71dc]"
+            className="absolute inset-x-0 bottom-0 h-[30px] bg-transparent text-[13px] font-semibold text-[#333] outline-none"
           />
         </label>
-        <p className="text-[12px] text-[#999]">{selected.length ? `${t("Выбрано")}: ${selected.length}` : t("Все филиалы")}</p>
-        {error && <p className="text-[#e57373]">{error}</p>}
+        {selected.length > 0 && <p className="mt-3 text-[12px] text-[#999]">{`${t("Выбрано")}: ${selected.length}`}</p>}
+        {error && <p className="mt-3 text-[#e57373]">{error}</p>}
       </form>
     </KpiDialogFrame>
   )

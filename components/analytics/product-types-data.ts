@@ -51,5 +51,5 @@ export type ProductTypePayload = {
 export const PRODUCT_TYPE_ORDERINGS = ["name", "division", "created_date"] as const
 export type ProductTypeOrderingField = (typeof PRODUCT_TYPE_ORDERINGS)[number]
 
-/** The demo shows every type on one page; the grid still pages top-level types. */
-export const PRODUCT_TYPE_PAGE_SIZE = 100
+/** The demo lists every type on one page. */
+export const PRODUCT_TYPE_PAGE_SIZE = 2000

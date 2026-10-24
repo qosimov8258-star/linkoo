@@ -7,6 +7,7 @@ import { currencyContext, loadCategories, num, numOrNull, type CategoryInfo } fr
 import { ensureCashSchema } from "@/lib/cash/schema"
 import {
   CASH_OP_LABELS,
+  normalizeOptions,
   operationKey,
   parseOperationKey,
   type CashListResult,
@@ -54,6 +55,11 @@ export type CashListQuery = {
   search?: string
   /** Only unverified, not deleted operations (clock dialog). */
   unverified?: boolean
+  /** The cash page lists: archived reference rows + operations created after the import (cash_list_cutoff), verified only
+   * (unverified ones only in the clock dialog). Reports and the ledger never set it. */
+  listMode?: boolean
+  /** listMode only: also unverified operations (the reference's totals count them; the list does not). */
+  withUnverified?: boolean
   sources?: CashSource[]
   /** id | date | amount, "-" prefix = descending. Default "-id" (newest № first). */
   ordering?: string
@@ -106,7 +112,7 @@ ops AS (
     e.employee_id, e.employee_name, e.transfer_id, NULL::int AS order_id, e.supply_id, e.supply_expense_id, NULL::int AS money_request_id,
     ''::text AS contract, e.amortization_from, e.amortization_to,
     (e.is_verified <> 0) AS verified, (e.is_deleted <> 0) AS deleted, ${ISO("fin_ts(NULLIF(e.verified_at, ''))")} AS verified_at,
-    ${ISO("fin_ts(NULLIF(e.deleted_at, ''))")} AS deleted_at, NULL::int AS agent_cashbox_id, 0::int AS payment_count
+    ${ISO("fin_ts(NULLIF(e.deleted_at, ''))")} AS deleted_at, NULL::int AS agent_cashbox_id, 0::int AS payment_count, NULL::text AS ref_extra
   FROM cash_management_entries e JOIN cbx cb ON cb.id = e.cashbox_id
   LEFT JOIN ck ON e.client_id IS NULL AND e.client_name <> '' AND ck.k = fin_key(e.client_name)
   UNION ALL
@@ -124,7 +130,7 @@ ops AS (
     fin_place(p.branch), fin_place(p.organization), CASE WHEN p.comment = 'Не указано' THEN '' ELSE p.comment END, '',
     p.delivery_man_id, p.delivery_man, NULL::int, p.order_id, NULL::int, NULL::int, NULL::int, p.contract, '', '',
     (p.accepted = 1), (p.is_deleted <> 0), CASE WHEN p.accepted = 1 THEN ${ISO("fin_ts(p.accepted_at)")} ELSE '' END,
-    ${ISO("fin_ts(NULLIF(p.deleted_at, ''))")}, p.agent_cashbox_id, 0
+    ${ISO("fin_ts(NULLIF(p.deleted_at, ''))")}, p.agent_cashbox_id, 0, NULL::text
   FROM customer_payments p LEFT JOIN cbk ON cbk.k = fin_key(p.kassa) JOIN cbx cb ON cb.id = COALESCE(p.cashbox_id, cbk.id)
   LEFT JOIN ck ON p.client_id IS NULL AND ck.k = fin_key(p.client)
   WHERE p.accept_id IS NULL
@@ -137,7 +143,7 @@ ops AS (
     NULL::int, '', NULL::int, '', NULL::int, '', '',
     fin_place(a.branch), fin_place(a.organization), a.comment, '',
     a.agent_id, a.agent, NULL::int, NULL::int, NULL::int, NULL::int, NULL::int, '', '', '',
-    true, (a.is_deleted <> 0), '', ${ISO("fin_ts(NULLIF(a.deleted_at, ''))")}, a.agent_cashbox_id, COALESCE(x.n, 0)
+    true, (a.is_deleted <> 0), '', ${ISO("fin_ts(NULLIF(a.deleted_at, ''))")}, a.agent_cashbox_id, COALESCE(x.n, 0), NULL::text
   FROM cash_acceptances a JOIN cbx cb ON cb.id = a.cashbox_id
   LEFT JOIN LATERAL (
     SELECT SUM(${CASH_SIDE("p")}) AS amount,
@@ -157,12 +163,23 @@ ops AS (
     CASE WHEN sp.expense_category_id IS NOT NULL THEN 'expense' WHEN sp.income_category_id IS NOT NULL THEN 'income' ELSE '' END, sp.category,
     fin_place(sp.branch), fin_place(sp.organization), CASE WHEN sp.comment = 'Не указано' THEN '' ELSE sp.comment END, '',
     NULL::int, '', NULL::int, NULL::int, sp.supply_id, NULL::int, sp.money_request_id, '', '', '',
-    (sp.is_verified <> 0), (sp.is_deleted <> 0), ${ISO("fin_ts(NULLIF(sp.verified_at, ''))")}, ${ISO("fin_ts(NULLIF(sp.deleted_at, ''))")}, NULL::int, 0
+    (sp.is_verified <> 0), (sp.is_deleted <> 0), ${ISO("fin_ts(NULLIF(sp.verified_at, ''))")}, ${ISO("fin_ts(NULLIF(sp.deleted_at, ''))")}, NULL::int, 0, NULL::text
   FROM supplier_payments sp LEFT JOIN cbk ON cbk.k = fin_key(sp.kassa) JOIN cbx cb ON cb.id = COALESCE(sp.cashbox_id, cbk.id)
   LEFT JOIN sk ON sp.supplier_id IS NULL AND sk.k = fin_key(sp.supplier)
+  UNION ALL
+  SELECT 'reference', r.id, r.id::bigint, r.op, r.ts, r.cts, r.cby,
+    cb.id, cb.name, cb.cur, r.pt, cb.branch,
+    r.amount, r.base_amount, r.rate, NULL::float8, ''::text,
+    r.client_id, r.client_name, r.supplier_id, r.supplier_name,
+    r.category_id, r.category_kind, r.category_name,
+    r.branch, r.organization, r.comment, '',
+    r.employee_id, r.employee_name, NULL::int, r.order_id, r.supply_id, r.supply_expense_id, r.money_request_id, r.contract, NULL::text, NULL::text,
+    (r.verified <> 0), false, '', '', NULL::int, 0, r.extra
+  FROM cash_reference_rows r JOIN cbx cb ON cb.id = r.cashbox_id
 ),
 ops2 AS (
-  SELECT o.*, COALESCE(ec.direct, en.direct, 0) <> 0 AS internal, COALESCE(ec.exclude_from_pnl, en.exclude_from_pnl, 0) <> 0 AS no_pnl
+  SELECT o.*, CASE WHEN o.src = 'reference' THEN COALESCE(o.ref_extra::jsonb ->> 'internal', 'false') = 'true' ELSE COALESCE(ec.direct, en.direct, 0) <> 0 END AS internal,
+         CASE WHEN o.src = 'reference' THEN false ELSE COALESCE(ec.exclude_from_pnl, en.exclude_from_pnl, 0) <> 0 END AS no_pnl
   FROM ops o
   LEFT JOIN expense_categories ec ON o.category_kind = 'expense' AND ec.id = o.category_id
   LEFT JOIN ecn en ON o.category_kind = '' AND o.amount < 0 AND en.k = fin_key(o.category_name)
@@ -171,6 +188,8 @@ f AS (
   SELECT o.* FROM ops2 o
   WHERE (@withDeleted::boolean OR NOT o.deleted)
     AND (NOT @unverified::boolean OR (NOT o.verified AND NOT o.deleted))
+    AND (CASE WHEN @listMode::boolean THEN (o.src = 'reference' OR o.id > COALESCE((SELECT t.max_id FROM cash_list_cutoff t WHERE t.src = o.src), 0)) ELSE o.src <> 'reference' END)
+    AND (NOT @listMode::boolean OR @unverified::boolean OR @withUnverified::boolean OR o.verified)
     AND (@onlyId::int IS NULL OR (o.src = @onlySrc::text AND o.id = @onlyId::int))
     AND (cardinality(@sources::text[]) = 0 OR o.src = ANY(@sources::text[]))
     AND (cardinality(@cashboxes::int[]) = 0 OR o.cashbox_id = ANY(@cashboxes::int[]))
@@ -220,6 +239,8 @@ export function buildParams(query: CashListQuery, base: string, categories: Cate
     base,
     withDeleted: Boolean(query.withDeleted),
     unverified: Boolean(query.unverified),
+    listMode: Boolean(query.listMode),
+    withUnverified: Boolean(query.withUnverified),
     onlyId: null,
     onlySrc: "",
     sources: query.sources ?? [],
@@ -292,10 +313,12 @@ type OpRow = {
   payment_count: number
   has_children: boolean
   has_staff: boolean
+  ref_extra: string | null
 }
 
 const PAGE_SELECT = `SELECT o.*, ${ISO("o.ts")} AS ts_s, ${ISO("o.cts")} AS cts_s,
-  (o.src = 'cash' AND EXISTS (SELECT 1 FROM cash_entry_children c WHERE c.entry_id = o.id)) AS has_children,
+  ((o.src = 'cash' AND EXISTS (SELECT 1 FROM cash_entry_children c WHERE c.entry_id = o.id))
+   OR (o.src = 'reference' AND COALESCE(o.ref_extra::jsonb -> 'children', '[]'::jsonb) <> '[]'::jsonb)) AS has_children,
   (o.src = 'cash' AND EXISTS (SELECT 1 FROM cash_entry_staff s WHERE s.entry_id = o.id)) AS has_staff
 FROM f o`
 
@@ -317,13 +340,27 @@ function legacyOtherCashbox(description: string | null): string {
   return match ? match[1] : ""
 }
 
+type RefExtra = { options?: unknown; children?: Array<{ name: string; amount: number }>; internal?: boolean; transferId?: number | null; other?: string; accFrom?: string; accTo?: string }
+
+function parseExtra(text: string | null): RefExtra {
+  try {
+    return text ? (JSON.parse(text) as RefExtra) : {}
+  } catch {
+    return {}
+  }
+}
+
 function toOperation(row: OpRow, base: string, categories: Map<string, CategoryInfo>, transfers: Map<number, { from: string; to: string; accFrom: string; accTo: string }>): CashOperation {
   const type = row.op as CashOpType
   const source = row.src
   const isTransfer = type === 1 || type === 2
-  const category = row.category_id ? categories.get(`${row.category_kind}:${row.category_id}`) : undefined
+  const ref = source === "reference" ? parseExtra(row.ref_extra) : null
+  // Archived reference rows carry their own category name/options (the ids are the reference's).
+  const category = !ref && row.category_id ? categories.get(`${row.category_kind}:${row.category_id}`) : undefined
   const transfer = isTransfer
-    ? row.transfer_id && transfers.has(row.transfer_id)
+    ? ref
+      ? { id: ref.transferId ?? null, otherCashbox: ref.other ?? "", accumulatedFrom: ref.accFrom ?? "", accumulatedTo: ref.accTo ?? "" }
+      : row.transfer_id && transfers.has(row.transfer_id)
       ? {
           id: row.transfer_id,
           otherCashbox: type === 1 ? transfers.get(row.transfer_id)!.to : transfers.get(row.transfer_id)!.from,
@@ -332,7 +369,9 @@ function toOperation(row: OpRow, base: string, categories: Map<string, CategoryI
         }
       : { id: null, otherCashbox: legacyOtherCashbox(row.description), accumulatedFrom: "", accumulatedTo: "" }
     : null
-  const amount = roundMoney(num(row.amount))
+  // Archived reference rows keep the reference's full precision (the page prints up to 3 decimals).
+  const digits = ref ? 6 : 2
+  const amount = roundMoney(num(row.amount), digits)
   const deleted = Boolean(row.deleted)
   return {
     key: operationKey(source, row.id),
@@ -347,7 +386,7 @@ function toOperation(row: OpRow, base: string, categories: Map<string, CategoryI
     cashbox: { id: row.cashbox_id, name: row.cashbox_name, type: row.pt, currency: row.cur, branch: row.cb_branch ?? "" },
     amount,
     currency: row.cur,
-    baseAmount: row.base_amount === null ? null : roundMoney(num(row.base_amount)),
+    baseAmount: row.base_amount === null ? null : roundMoney(num(row.base_amount), digits),
     baseCurrency: base,
     rate: numOrNull(row.rate),
     debtAmount: row.debt_amount === null || (row.debt_cur === row.cur && Math.abs(num(row.debt_amount) - Math.abs(amount)) < 0.005) ? null : roundMoney(num(row.debt_amount)),
@@ -356,7 +395,7 @@ function toOperation(row: OpRow, base: string, categories: Map<string, CategoryI
     supplier: row.supplier_id || row.supplier_name ? { id: row.supplier_id, name: row.supplier_name ?? "" } : null,
     category:
       row.category_name || category
-        ? { id: category?.id ?? row.category_id ?? null, name: category?.name ?? row.category_name ?? "", kind: row.category_kind, options: category?.options ?? [] }
+        ? { id: category?.id ?? row.category_id ?? null, name: category?.name ?? row.category_name ?? "", kind: row.category_kind, options: ref ? normalizeOptions(ref.options) : (category?.options ?? []) }
         : null,
     branch: row.branch ?? "",
     organization: row.organization ?? "",
@@ -393,7 +432,7 @@ export async function listCashOperations(query: CashListQuery, db: PgDb = getDb(
   await ensureCashSchema(db)
   const cc = await currencyContext(db)
   const { list, map } = await categoryMap(db)
-  const params = buildParams(query, cc.base, list)
+  const params = buildParams({ ...query, listMode: true }, cc.base, list)
   const pageSize = query.pageSize === 0 ? 0 : Math.min(Math.max(1, Math.floor(query.pageSize ?? 25)), 5000)
   const page = Math.max(1, Math.floor(query.page ?? 1))
   const countRow = (await db.prepare(`${OPS_CTE} SELECT count(*)::int AS n FROM f`).get(params)) as { n: number }
@@ -407,7 +446,7 @@ export async function listCashOperations(query: CashListQuery, db: PgDb = getDb(
 export async function countUnverifiedOperations(db: PgDb = getDb()): Promise<number> {
   await ensureCashSchema(db)
   const cc = await currencyContext(db)
-  const row = (await db.prepare(`${OPS_CTE} SELECT count(*)::int AS n FROM f`).get(buildParams({ unverified: true }, cc.base, []))) as { n: number }
+  const row = (await db.prepare(`${OPS_CTE} SELECT count(*)::int AS n FROM f`).get(buildParams({ unverified: true, listMode: true }, cc.base, []))) as { n: number }
   return num(row.n)
 }
 
@@ -421,9 +460,9 @@ export async function cashOperationTotals(query: CashListQuery, db: PgDb = getDb
     .prepare(
       `${OPS_CTE}
        SELECT o.cur, o.pt, COALESCE(SUM(o.amount) FILTER (WHERE o.amount > 0), 0) AS income, COALESCE(SUM(o.amount) FILTER (WHERE o.amount < 0), 0) AS outcome
-       FROM f o WHERE NOT o.deleted AND o.verified GROUP BY o.cur, o.pt`,
+       FROM f o WHERE NOT o.deleted GROUP BY o.cur, o.pt`,
     )
-    .all(buildParams({ ...query, unverified: false }, cc.base, list))) as Array<{ cur: string; pt: CashPaymentType; income: number; outcome: number }>
+    .all(buildParams({ ...query, unverified: false, listMode: true, withUnverified: true }, cc.base, list))) as Array<{ cur: string; pt: CashPaymentType; income: number; outcome: number }>
   const byCurrency = new Map<string, CashTotalsRow>()
   for (const row of rows) {
     let total = byCurrency.get(row.cur)
@@ -458,7 +497,7 @@ export async function getCashOperation(key: string, db: PgDb = getDb()): Promise
   await ensureCashSchema(db)
   const cc = await currencyContext(db)
   const { map } = await categoryMap(db)
-  const params = { ...buildParams({ withDeleted: true }, cc.base, []), onlyId: parsed.id, onlySrc: parsed.source }
+  const params = { ...buildParams({ withDeleted: true, listMode: parsed.source === "reference", withUnverified: parsed.source === "reference" }, cc.base, []), onlyId: parsed.id, onlySrc: parsed.source }
   const rows = (await db.prepare(`${OPS_CTE} ${PAGE_SELECT}`).all(params)) as OpRow[]
   if (!rows.length) return null
   const transfers = await transferInfo(db, rows)
@@ -475,6 +514,12 @@ export type OperationDetails = {
 /** Popups of a cash entry; empty for other sources. */
 export async function getOperationDetails(key: string, db: PgDb = getDb()): Promise<OperationDetails> {
   const parsed = parseOperationKey(key)
+  if (parsed?.source === "reference") {
+    await ensureCashSchema(db)
+    const row = (await db.prepare("SELECT extra FROM cash_reference_rows WHERE id = @id").get({ id: parsed.id })) as { extra: string } | undefined
+    const children = parseExtra(row?.extra ?? null).children ?? []
+    return { children: children.map((item) => ({ name: item.name, amount: roundMoney(num(item.amount)) })), staff: [] }
+  }
   if (!parsed || parsed.source !== "cash") return { children: [], staff: [] }
   await ensureCashSchema(db)
   const children = (await db.prepare("SELECT name, amount FROM cash_entry_children WHERE entry_id = @id ORDER BY position, id").all({ id: parsed.id })) as Array<{

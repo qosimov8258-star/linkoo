@@ -4,6 +4,7 @@ import { z } from "zod"
 import { verifyPassword } from "@/lib/auth"
 import { getDb } from "@/lib/db"
 import { REMEMBER_TTL_MS, SESSION_COOKIE, SESSION_TTL_MS, signSession, type Role } from "@/lib/session"
+import { recordAuthLog } from "@/lib/auth-logs-repo"
 import { recordSession } from "@/lib/user-sessions-repo"
 import { parseJsonBody } from "@/lib/validation"
 
@@ -40,6 +41,7 @@ export async function POST(request: NextRequest) {
   const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || request.headers.get("x-real-ip") || ""
   const userAgent = request.headers.get("user-agent") || ""
   await recordSession({ id: sid, userId: user.id, ip, userAgent })
+  await recordAuthLog({ sessionId: sid, username: user.username, ip, userAgent }).catch(() => {})
 
   const response = NextResponse.json({ id: user.id, username: user.username, displayName: user.display_name, role })
   response.cookies.set(SESSION_COOKIE, token, {

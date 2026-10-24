@@ -1,7 +1,7 @@
 "use client"
 
 import { Fragment, useEffect, useRef, useState, type ReactNode } from "react"
-import { ArrowDown, ArrowUp, ArrowUpDown, ChevronDown, ChevronRight, Settings2 } from "lucide-react"
+import { ArrowDown, ArrowUp, Settings2 } from "lucide-react"
 
 import { formatQty, qtyWithUnit } from "@/components/analytics/stock-level-state"
 import { currencyLabel, formatMoney } from "@/lib/finance/currency"
@@ -73,7 +73,7 @@ export function StockColumnSettings({ mode, hidden, onChange }: { mode: StockLev
 function SortIcon({ ordering, sortKey }: { ordering: string; sortKey: string }) {
   if ((ordering || "name") === sortKey) return <ArrowUp className="h-3.5 w-3.5" />
   if (ordering === `-${sortKey}`) return <ArrowDown className="h-3.5 w-3.5" />
-  return <ArrowUpDown className="h-3.5 w-3.5 opacity-40" />
+  return null
 }
 
 type Line = Pick<StockLevelStock, "total" | "reserved" | "transit" | "defects" | "available" | "value">
@@ -145,16 +145,16 @@ export function StockLevelTable({
 
   return (
     <div className="overflow-x-auto">
-      <table className="w-full min-w-[1000px] border-collapse text-[14px]">
-        <thead className="bg-[#edf1f6] text-[#263653]">
+      <table className="w-full min-w-[1000px] border-collapse text-[13px] text-[#333]">
+        <thead className="bg-[#f5f7fa] text-[#333] shadow-[0_2px_4px_rgba(0,0,0,0.08)]">
           <tr>
-            <th className="border border-[#dfe4ea] px-3 py-3 text-left font-semibold">
+            <th className="border border-[#e4e8ed] px-3 py-[14px] text-center font-semibold">
               <button type="button" onClick={() => onSort("name")} className="flex items-center gap-1">
-                {t("Товар")} <SortIcon ordering={ordering} sortKey="name" />
+                {t("Продукт")} <SortIcon ordering={ordering} sortKey="name" />
               </button>
             </th>
             {columns.map((column) => (
-              <th key={column.id} className={`border border-[#dfe4ea] px-3 py-3 font-semibold ${column.align === "right" ? "text-right" : "text-left"}`}>
+              <th key={column.id} className="border border-[#e4e8ed] px-3 py-[14px] text-center font-semibold">
                 {column.sortKey ? (
                   <button type="button" onClick={() => onSort(column.sortKey!)} className={`inline-flex items-center gap-1 ${column.align === "right" ? "flex-row-reverse" : ""}`}>
                     {t(column.label)} <SortIcon ordering={ordering} sortKey={column.sortKey} />
@@ -171,8 +171,8 @@ export function StockLevelTable({
             const open = expanded.has(row.key)
             return (
               <Fragment key={row.key}>
-                <tr className={index % 2 ? "bg-[#f0f5fa]" : "bg-white"}>
-                  <td className="border border-[#e1e5e9] px-3 py-2.5">
+                <tr className={index % 2 ? "bg-[#f2f5f8]" : "bg-white"}>
+                  <td className="h-[40px] border-x border-[#e8ecf0] px-3 py-0">
                     <div className="flex items-center gap-2">
                       <button
                         type="button"
@@ -181,7 +181,7 @@ export function StockLevelTable({
                         aria-label={t(open ? "Свернуть" : "Развернуть")}
                         className="text-[#586174] disabled:opacity-30"
                       >
-                        {open ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                        <svg viewBox="0 0 24 24" className="h-[14px] w-[14px] fill-[#333]"><path d={open ? "M7 10l5 5 5-5z" : "M10 17l5-5-5-5z"} /></svg>
                       </button>
                       <button type="button" onClick={() => onOpenItem(row)} className="text-left hover:text-[#4f71dc]">
                         {row.name}
@@ -189,7 +189,7 @@ export function StockLevelTable({
                     </div>
                   </td>
                   {columns.map((column) => (
-                    <td key={column.id} className={`whitespace-nowrap border border-[#e1e5e9] px-3 py-2.5 ${column.align === "right" ? "text-right" : ""}`}>
+                    <td key={column.id} className={`h-[40px] whitespace-nowrap border-x border-[#e8ecf0] px-3 py-0 ${column.align === "right" ? "text-right" : ""}`}>
                       {cell(row, row, column.id, false)}
                     </td>
                   ))}

@@ -10,6 +10,11 @@ export type KpiTask = {
   comment: string
   active: boolean
   system?: boolean
+  /** Validity period read from the reference (kpi_task_dates); a KPI past its till date is shown as inactive. */
+  startDate?: string | null
+  tillDate?: string | null
+  /** The reference's detail of the KPI (reward levels, currency, date types, linked brands/products …; kpi_task_details). */
+  detail?: Record<string, unknown> | null
 }
 
 type Row = {
@@ -20,9 +25,14 @@ type Row = {
   comment: string
   active: number
   system_flag: number
+  start_date?: string | null
+  till_date?: string | null
+  detail?: string | null
 }
 
 async function ensureSchema(db: ReturnType<typeof getDb>) {
+  await db.exec(`CREATE TABLE IF NOT EXISTS kpi_task_dates (task_id INTEGER PRIMARY KEY, start_date TEXT, till_date TEXT)`)
+  await db.exec(`CREATE TABLE IF NOT EXISTS kpi_task_details (task_id INTEGER PRIMARY KEY, detail TEXT NOT NULL)`)
   await db.exec(`
     CREATE TABLE IF NOT EXISTS kpi_tasks (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -47,6 +57,9 @@ function rowToTask(row: Row): KpiTask {
     comment: row.comment,
     active: row.active === 1,
     system: row.system_flag === 1,
+    startDate: row.start_date ?? null,
+    tillDate: row.till_date ?? null,
+    detail: row.detail ? (JSON.parse(row.detail) as Record<string, unknown>) : null,
   }
 }
 
@@ -56,18 +69,35 @@ export type KpiTaskInput = {
   clientType: string
   comment: string
   active: boolean
+  /** Reward levels, currency, date types and links (kpi_task_details) and the validity period (kpi_task_dates). */
+  detail?: Record<string, unknown> | null
+  startDate?: string | null
+  tillDate?: string | null
+}
+
+async function saveKpiExtras(db: ReturnType<typeof getDb>, id: number, input: KpiTaskInput) {
+  if (input.detail !== undefined && input.detail !== null) {
+    await db
+      .prepare("INSERT INTO kpi_task_details (task_id, detail) VALUES (@id, @detail) ON CONFLICT (task_id) DO UPDATE SET detail = EXCLUDED.detail RETURNING task_id")
+      .run({ id, detail: JSON.stringify(input.detail) })
+  }
+  if (input.startDate !== undefined || input.tillDate !== undefined) {
+    await db
+      .prepare("INSERT INTO kpi_task_dates (task_id, start_date, till_date) VALUES (@id, @start, @till) ON CONFLICT (task_id) DO UPDATE SET start_date = EXCLUDED.start_date, till_date = EXCLUDED.till_date RETURNING task_id")
+      .run({ id, start: input.startDate ?? null, till: input.tillDate ?? null })
+  }
 }
 
 export async function listKpiTasks(): Promise<KpiTask[]> {
   const db = getDb()
   await ensureSchema(db)
-  return ((await db.prepare("SELECT * FROM kpi_tasks ORDER BY id ASC").all()) as Row[]).map(rowToTask)
+  return ((await db.prepare("SELECT k.*, d.start_date, d.till_date, x.detail FROM kpi_tasks k LEFT JOIN kpi_task_dates d ON d.task_id = k.id LEFT JOIN kpi_task_details x ON x.task_id = k.id ORDER BY k.id ASC").all()) as Row[]).map(rowToTask)
 }
 
 export async function getKpiTask(id: number): Promise<KpiTask | null> {
   const db = getDb()
   await ensureSchema(db)
-  const row = (await db.prepare("SELECT * FROM kpi_tasks WHERE id = ?").get(id)) as Row | undefined
+  const row = (await db.prepare("SELECT k.*, d.start_date, d.till_date, x.detail FROM kpi_tasks k LEFT JOIN kpi_task_dates d ON d.task_id = k.id LEFT JOIN kpi_task_details x ON x.task_id = k.id WHERE k.id = ?").get(id)) as Row | undefined
   return row ? rowToTask(row) : null
 }
 
@@ -86,6 +116,7 @@ export async function createKpiTask(input: KpiTaskInput): Promise<KpiTask> {
         comment: input.comment,
         active: input.active ? 1 : 0,
       }))
+  await saveKpiExtras(db, Number(result.lastInsertRowid), input)
   return (await getKpiTask(Number(result.lastInsertRowid)))!
 }
 
@@ -105,6 +136,7 @@ export async function updateKpiTask(id: number, input: KpiTaskInput): Promise<Kp
         comment: input.comment,
         active: input.active ? 1 : 0,
       })
+  await saveKpiExtras(db, id, input)
   return (await getKpiTask(id))
 }
 
@@ -119,5 +151,10 @@ export async function setKpiTaskActive(id: number, active: boolean): Promise<Kpi
 export async function deleteKpiTask(id: number): Promise<boolean> {
   const db = getDb()
   await ensureSchema(db)
-  return (await db.prepare("DELETE FROM kpi_tasks WHERE id = ?").run(id)).changes > 0
+  const removed = (await db.prepare("DELETE FROM kpi_tasks WHERE id = ?").run(id)).changes > 0
+  if (removed) {
+    await db.prepare("DELETE FROM kpi_task_details WHERE task_id = ?").run(id)
+    await db.prepare("DELETE FROM kpi_task_dates WHERE task_id = ?").run(id)
+  }
+  return removed
 }

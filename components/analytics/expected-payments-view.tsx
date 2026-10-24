@@ -19,7 +19,7 @@ import {
 } from "@/components/analytics/expected-payments-filters"
 import { ExpectedPaymentPayDialog } from "@/components/analytics/expected-payments-pay-dialog"
 import { formatRuDate } from "@/components/analytics/customer-payments-filters"
-import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
+import { RI, RefCard, RefHeader, RefIconButton, RefPage, RefTable, RefToolbar } from "@/components/ref/list-kit"
 import { downloadExcelTable } from "@/lib/excel-export"
 import type { CustomerPaymentOptions, ExpectedOrderRow, ExpectedOrdersResult, ExpectedOrderTotal } from "@/lib/cash/customer-payments-types"
 import { currencyLabel, formatMoney } from "@/lib/finance/currency"
@@ -193,165 +193,118 @@ export function ExpectedPaymentsView() {
   const filterCount = countExpectedFilters(state.filters)
   const columnCount = COLUMNS.length + (state.showCheckboxes ? 1 : 0)
 
+  const cols = "123.3px 230.7px 230.7px 115.3px 231px 230px 231px"
+  const heads = [
+    ...(state.showCheckboxes ? [<input key="all" type="checkbox" checked={allOnPage} onChange={toggleAll} aria-label={t("Выбрать все")} className="h-4 w-4 accent-[#4f71dc]" />] : []),
+    ...COLUMNS.map((column) => {
+      const label = (
+        <span className={column.align === "right" ? `block text-right ${column.id === "total_balance" ? "-mr-[30px]" : "-mr-[22px]"}` : undefined}>
+          {t(column.label)}
+          {state.ordering === column.id ? <span className="ml-1 text-[10px]">▲</span> : state.ordering === `-${column.id}` ? <span className="ml-1 text-[10px]">▼</span> : null}
+        </span>
+      )
+      return column.sortable ? (
+        <button key={column.id} type="button" onClick={() => sort(column.id)} className="block w-full text-left font-semibold hover:opacity-80">
+          {label}
+        </button>
+      ) : (
+        <span key={column.id}>{label}</span>
+      )
+    }),
+  ]
+  const pageCount = Math.max(1, Math.ceil((list.data?.count ?? 0) / state.pageSize))
+
   return (
-    <main className="min-h-screen bg-white text-[#17233b]">
-      <header className="flex min-h-[76px] flex-wrap items-center justify-between gap-4 border-b border-[#d8dee7] bg-[#f2f5f8] px-4 py-3 md:px-9">
-        <div className="flex min-w-0 items-center gap-3">
-          <FavoritesButton className="flex items-center gap-3 text-2xl font-bold text-[#4f70e7]" />
-          <span className="text-3xl font-light text-[#586174]">|</span>
-          <h1 className="truncate text-xl font-bold text-[#586174] md:text-2xl">{t("Ожидаемые оплаты")}</h1>
+    <RefPage>
+      <RefHeader title={t("Ожидаемые оплаты")} />
+      {hasSelection && (
+        <div className="mb-2 bg-[#09890f] px-[5px] py-[5px] text-[13px] font-semibold leading-4 text-white">
+          {t("Выбрано")}: {selectedRows.length} · {cards.map((card) => `${formatMoney(card.total, 3)} ${currencyLabel(card.currency)}`).join(" , ")}
         </div>
-        <TotalsCards totals={cards} selected={hasSelection} loading={list.loading && !hasSelection} />
-      </header>
-
-      <section className="flex flex-wrap items-center gap-3 border-b border-[#e1e5eb] bg-white px-4 py-3 md:px-9">
-        <BalanceFilterChip
-          count={filterCount}
-          onOpen={() => setFilterOpen(true)}
-          onClear={() => {
-            setSearchDraft("")
-            update({ filters: emptyExpectedFilters(), search: "", page: 1 })
-          }}
+      )}
+      <RefCard>
+        <RefToolbar
+          linkFilter="flush"
+          filterOpen={filterOpen}
+          onToggleFilter={() => setFilterOpen((value) => !value)}
+          filterPanel={
+            <ExpectedPaymentsFilterDialog
+              filters={state.filters}
+              options={optionsState.data}
+              onClose={() => setFilterOpen(false)}
+              onApply={(filters) => {
+                setFilterOpen(false)
+                update({ filters, page: 1 })
+              }}
+            />
+          }
+          query={searchDraft}
+          onQuery={setSearchDraft}
+          pageSize={state.pageSize}
+          onPageSize={(size) => update({ page: 1, pageSize: size })}
+          from={list.data?.count ? (state.page - 1) * state.pageSize + 1 : 0}
+          to={Math.min(state.page * state.pageSize, list.data?.count ?? 0)}
+          total={list.data?.count ?? 0}
+          page={state.page}
+          pageCount={pageCount}
+          onPage={(page) => update({ page })}
+          icons={
+            <>
+              <RefIconButton
+                path={RI.checklist}
+                label={t(state.showCheckboxes ? "Спрятать флажки" : "Выбрать из списка")}
+                onClick={() => {
+                  setSelected({})
+                  update({ showCheckboxes: !state.showCheckboxes })
+                }}
+                color="#5d6474"
+                active={state.showCheckboxes}
+              />
+              <RefIconButton path={RI.download} label={t("Скачать")} onClick={() => rows.length && exportPage()} color="#333" />
+            </>
+          }
         />
-        <label className="relative min-w-[160px] flex-1 border-b border-[#dbe0e8] pb-1.5 md:max-w-[320px]">
-          <input
-            value={searchDraft}
-            onChange={(event) => setSearchDraft(event.target.value)}
-            placeholder={t("Поиск")}
-            aria-label={t("Поиск")}
-            className="w-full bg-transparent pr-7 text-[15px] outline-none placeholder:text-[#9aa3b6]"
-          />
-          <Search className="pointer-events-none absolute right-0 top-0.5 h-5 w-5 text-[#9aa3b6]" />
-        </label>
-        <div className="ml-auto flex flex-wrap items-center gap-2">
-          {hasSelection && (
-            <span className="font-semibold text-[#17233b]">
-              {t("Выбрано")}: {selectedRows.length}
+
+        {list.error && (
+          <div className="flex flex-wrap items-center gap-3 bg-white px-5 py-3 text-[#e57373]">
+            <span>
+              {t("Не удалось загрузить данные")}: {t(list.error)}
             </span>
-          )}
-          <BalancePagination page={state.page} pageSize={state.pageSize} count={list.data?.count ?? 0} onChange={({ page, pageSize }) => update({ page, pageSize })} />
-          <button
-            type="button"
-            title={t(state.showCheckboxes ? "Спрятать флажки" : "Выбрать из списка")}
-            aria-label={t(state.showCheckboxes ? "Спрятать флажки" : "Выбрать из списка")}
-            onClick={() => {
-              setSelected({})
-              update({ showCheckboxes: !state.showCheckboxes })
-            }}
-            className="p-1 text-[#586174] hover:text-[#4f70e7]"
-          >
-            {state.showCheckboxes ? <CheckSquare className="h-5 w-5" /> : <Square className="h-5 w-5" />}
-          </button>
-          <button type="button" title={t("Скачать")} aria-label={t("Скачать")} disabled={!rows.length} onClick={exportPage} className="p-1 text-[#586174] hover:text-[#4f70e7] disabled:opacity-40">
-            <Download className="h-5 w-5" />
-          </button>
-          <button type="button" title={t("Обновить список")} aria-label={t("Обновить список")} onClick={list.reload} className="p-1 text-[#586174] hover:text-[#4f70e7]">
-            <RefreshCw className={`h-5 w-5 ${list.loading ? "animate-spin" : ""}`} />
-          </button>
-        </div>
-      </section>
+            <button type="button" onClick={list.reload} className="font-semibold text-[#4f70e7] hover:underline">
+              {t("Повторить")}
+            </button>
+          </div>
+        )}
 
-      {list.error && (
-        <div className="flex flex-wrap items-center gap-3 px-4 py-3 text-[#e57373] md:px-9">
-          <span>
-            {t("Не удалось загрузить данные")}: {t(list.error)}
-          </span>
-          <button type="button" onClick={list.reload} className="font-semibold text-[#4f70e7] hover:underline">
-            {t("Повторить")}
-          </button>
-        </div>
-      )}
-
-      <section className={`overflow-x-auto pb-10 ${list.loading ? "opacity-60" : ""}`}>
-        <table className="w-full min-w-[900px] border-collapse text-[14px]">
-          <thead>
-            <tr className="bg-[#edf2f7] text-[#253653]">
-              {state.showCheckboxes && (
-                <th className="w-10 border-b border-[#e1e5eb] px-2 py-3">
-                  <input type="checkbox" checked={allOnPage} onChange={toggleAll} aria-label={t("Выбрать все")} className="h-4 w-4 accent-[#4f70e7]" />
-                </th>
-              )}
-              {COLUMNS.map((column) => (
-                <th key={column.id} className={`border-b border-[#e1e5eb] px-3 py-3 font-semibold whitespace-nowrap ${column.align === "right" ? "text-right" : "text-left"}`}>
-                  {column.sortable ? (
-                    <button type="button" onClick={() => sort(column.id)} className="inline-flex items-center gap-1">
-                      {t(column.label)}
-                      {sortIcon(column.id)}
-                    </button>
-                  ) : (
-                    t(column.label)
-                  )}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((row, index) => {
-              const background = selected[row.key] ? "#eaf0fd" : index % 2 ? "#F4F8FB" : "#ffffff"
-              return (
-                <tr
-                  key={row.key}
-                  onClick={() => setPaying(row)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter") setPaying(row)
-                  }}
-                  tabIndex={0}
-                  className="cursor-pointer border-b border-dashed border-[#e1e5eb] hover:bg-[#eef3fb]"
-                  style={{ background }}
-                >
-                  {state.showCheckboxes && (
-                    <td className="px-2 py-3 text-center" onClick={(event) => event.stopPropagation()}>
-                      <input type="checkbox" checked={Boolean(selected[row.key])} onChange={() => toggleRow(row)} aria-label={`№ ${row.orderId}`} className="h-4 w-4 accent-[#4f70e7]" />
-                    </td>
-                  )}
-                  <td className="px-3 py-3">{row.orderId}</td>
-                  <td className="px-3 py-3">
-                    <div>{row.client.name}</div>
-                    {row.zone && <div className="text-[13px] text-[#4f70e7]">{row.zone}</div>}
-                  </td>
-                  <td className="whitespace-nowrap px-3 py-3">{created(row.createdAt)}</td>
-                  <td className="whitespace-nowrap px-3 py-3">{due(row.paymentDate)}</td>
-                  <td className="px-3 py-3">{row.organization}</td>
-                  <td className="px-3 py-3 text-right">
-                    <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
-                      {formatMoney(row.total, 3)} {currencyLabel(row.currency)}
-                      {row.paymentType === "bank" ? (
-                        <span title={t("банковский счет")} className="inline-flex">
-                          <CreditCard className="h-4 w-4 text-[#8e5ad8]" />
-                        </span>
-                      ) : (
-                        <span title={t("наличный")} className="inline-flex">
-                          <Banknote className="h-4 w-4 text-[#4f70e7]" />
-                        </span>
-                      )}
-                    </span>
-                  </td>
-                  <td className="whitespace-nowrap px-3 py-3 text-right font-semibold">{formatMoney(row.remaining, 3)}</td>
-                </tr>
-              )
-            })}
-            {!rows.length && (
-              <tr>
-                <td colSpan={columnCount} className="px-4 py-16 text-center text-[#9aa3b6]">
-                  {list.loading ? t("Загрузка...") : list.error ? "" : t("По вашему запросу ничего не найдено")}
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </section>
-
-      {filterOpen && (
-        <ExpectedPaymentsFilterDialog
-          filters={state.filters}
-          options={optionsState.data}
-          onClose={() => setFilterOpen(false)}
-          onApply={(filters) => {
-            setFilterOpen(false)
-            update({ filters, page: 1 })
-          }}
+        <RefTable
+          cols={`${state.showCheckboxes ? "40px " : ""}${cols}`}
+          heads={heads}
+          headPad={30}
+          rows={rows}
+          rowKey={(row) => row.key}
+          onRowClick={(row) => setPaying(row)}
+          rowClass={(row) => (selected[row.key] ? "!bg-[#eaf0fd]" : "")}
+          empty={list.loading ? t("Загрузка...") : list.error ? "" : t("По вашему запросу ничего не найдено")}
+          render={(row) => [
+            ...(state.showCheckboxes ? [<span key="check" onClick={(event) => event.stopPropagation()}><input type="checkbox" checked={Boolean(selected[row.key])} onChange={() => toggleRow(row)} aria-label={`№ ${row.orderId}`} className="h-4 w-4 accent-[#4f71dc]" /></span>] : []),
+            row.orderId,
+            <div key="client">
+              <div>{row.client.name}</div>
+              {row.zone && <div className="text-[#4f71dc]">{row.zone}</div>}
+            </div>,
+            created(row.createdAt),
+            due(row.paymentDate),
+            row.organization,
+            <div key="total" className="flex items-center justify-end gap-[6px] whitespace-nowrap text-right">
+              {formatMoney(row.total, 3)} {currencyLabel(row.currency)}
+              <svg viewBox="0 0 24 24" className="h-4 w-4 fill-[#4f71dc]" aria-label={row.paymentType === "bank" ? t("банковский счет") : t("наличный")}>
+                <path d={row.paymentType === "bank" ? RI.card : "M3 5v14h18V5H3zm16 12H5V7h14v10zM12 8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"} />
+              </svg>
+            </div>,
+            <div key="remaining" className="-mr-2 text-right">{formatMoney(row.remaining, 3)}</div>,
+          ]}
         />
-      )}
+      </RefCard>
 
       {paying && (
         <ExpectedPaymentPayDialog
@@ -377,6 +330,6 @@ export function ExpectedPaymentsView() {
           {notice.text}
         </div>
       )}
-    </main>
+    </RefPage>
   )
 }

@@ -59,7 +59,7 @@ export function WidgetsPanel({
             return (
               <label key={widget.key} className="my-[15px] flex cursor-pointer items-center first:mt-0">
                 <input type="checkbox" checked={checked} onChange={() => toggle(widget.key)} className="sr-only" />
-                <svg viewBox="0 0 24 24" className="mr-4 h-5 w-5 shrink-0 fill-[#666]" aria-hidden>
+                <svg viewBox="0 0 24 24" className="mr-[6px] h-5 w-5 shrink-0 fill-[#666]" aria-hidden>
                   <path
                     d={
                       checked
@@ -68,13 +68,13 @@ export function WidgetsPanel({
                     }
                   />
                 </svg>
-                <span className="text-[13px] font-semibold text-black">{t(widget.label)}</span>
+                <span className="text-[13px] font-semibold leading-5 text-black">{t(widget.label)}</span>
               </label>
             )
           })}
         </div>
-        <div className="flex justify-end border-t border-[#efefef] px-[30px] py-[18px]">
-          <button type="submit" className="text-[13px] font-semibold uppercase text-[#0a9ddb]">
+        <div className="flex justify-end border-t border-[#efefef] p-[10px]">
+          <button type="submit" className="h-9 px-4 text-[13px] font-semibold uppercase leading-[18px] text-[#129fdd]">
             {t("Сохранить")}
           </button>
         </div>

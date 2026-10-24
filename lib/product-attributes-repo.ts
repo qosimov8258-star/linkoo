@@ -68,7 +68,9 @@ export async function createProductAttribute(input: ProductAttributeInput): Prom
 export async function updateProductAttribute(id: number, input: ProductAttributeInput): Promise<ProductAttribute | null> {
   const db = getDb()
   await ensureSchema(db)
-  if (!(await getProductAttribute(id))) return null
+  const previous = await getProductAttribute(id)
+  if (!previous) return null
+  if (previous.name !== input.name) await db.prepare("UPDATE product_attribute_values SET attribute = ? WHERE attribute = ?").run(input.name, previous.name).catch(() => undefined)
   await db
     .prepare("UPDATE product_attributes SET name = @name, field_type = @fieldType, all_types = @allTypes, types_json = @types, updated_at = datetime('now') WHERE id = @id")
     .run({ id, name: input.name, fieldType: input.fieldType, allTypes: input.allTypes ? 1 : 0, types: JSON.stringify(input.types) })
@@ -78,5 +80,8 @@ export async function updateProductAttribute(id: number, input: ProductAttribute
 export async function deleteProductAttribute(id: number): Promise<boolean> {
   const db = getDb()
   await ensureSchema(db)
+  const attribute = await getProductAttribute(id)
+  if (!attribute) return false
+  await db.prepare("DELETE FROM product_attribute_values WHERE attribute = ?").run(attribute.name).catch(() => undefined)
   return (await db.prepare("DELETE FROM product_attributes WHERE id = ?").run(id)).changes > 0
 }

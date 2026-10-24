@@ -1,7 +1,7 @@
 "use client"
 
 import { useRouter } from "next/navigation"
-import { useRef, useState, type FormEvent, type ReactNode } from "react"
+import { useState, type FormEvent, type ReactNode } from "react"
 
 import { RefButton, RefHeader, RI } from "./list-kit"
 import { useLanguage } from "@/lib/i18n/language-context"
@@ -94,6 +94,108 @@ export function ReportFilters({
   )
 }
 
+const WEEKDAYS_RU = ["пн", "вт", "ср", "чт", "пт", "сб", "вс"]
+const WEEKDAYS_SHORT_RU = ["вс", "пн", "вт", "ср", "чт", "пт", "сб"]
+const MONTHS_SHORT_RU = ["янв.", "февр.", "март", "апр.", "май", "июнь", "июль", "авг.", "сент.", "окт.", "нояб.", "дек."]
+const MONTHS_GEN_RU = MONTHS_RU
+
+function isoOf(year: number, month: number, day: number) {
+  return `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`
+}
+
+/** Material-style calendar popover matching the reference app's date picker. */
+export function ReportCalendar({
+  value,
+  min,
+  max,
+  onCancel,
+  onPick,
+}: {
+  value: string
+  min?: string
+  max?: string
+  onCancel: () => void
+  onPick: (value: string) => void
+}) {
+  const { t } = useLanguage()
+  const [selected, setSelected] = useState(value)
+  const [year, month] = (value || selected).split("-").map(Number)
+  const [view, setView] = useState({ year, month: month - 1 })
+
+  const [selYear, selMonth, selDay] = selected.split("-").map(Number)
+  const weekday = new Date(selYear, selMonth - 1, selDay).getDay()
+  const firstOffset = (new Date(view.year, view.month, 1).getDay() + 6) % 7
+  const daysInMonth = new Date(view.year, view.month + 1, 0).getDate()
+  const cells: (number | null)[] = [...Array(firstOffset).fill(null), ...Array.from({ length: daysInMonth }, (_, index) => index + 1)]
+
+  function shift(delta: number) {
+    setView((current) => {
+      const date = new Date(current.year, current.month + delta, 1)
+      return { year: date.getFullYear(), month: date.getMonth() }
+    })
+  }
+
+  return (
+    <>
+      <button type="button" aria-label={t("Закрыть")} className="fixed inset-0 z-40 cursor-default" onClick={onCancel} />
+      <div className="absolute left-0 top-[calc(100%+12px)] z-50 w-[310px] overflow-hidden rounded-[2px] bg-white shadow-[0_2px_10px_rgba(0,0,0,0.2),0_6px_30px_rgba(0,0,0,0.16)]" onClick={(event) => event.stopPropagation()}>
+        <div className="bg-[#5470d6] px-[20px] pb-[18px] pt-[16px] text-white">
+          <div className="text-[16px] leading-[22px] opacity-70">{selYear}</div>
+          <div className="mt-[2px] text-[34px] leading-[44px]">
+            {WEEKDAYS_SHORT_RU[weekday]}, {selDay} {MONTHS_SHORT_RU[selMonth - 1]}
+          </div>
+        </div>
+        <div className="px-[10px] pb-[4px] pt-[16px]">
+          <div className="flex items-center justify-between px-[8px]">
+            <button type="button" aria-label="prev" onClick={() => shift(-1)} className="flex h-8 w-8 items-center justify-center text-[#333] hover:bg-black/5">
+              <svg viewBox="0 0 24 24" className="h-6 w-6 fill-current"><path d="M15.41 7.41 14 6l-6 6 6 6 1.41-1.41L10.83 12z" /></svg>
+            </button>
+            <span className="text-[14px] text-[#333]">
+              {MONTHS_GEN_RU[view.month]} {view.year} г.
+            </span>
+            <button type="button" aria-label="next" onClick={() => shift(1)} className="flex h-8 w-8 items-center justify-center text-[#333] hover:bg-black/5">
+              <svg viewBox="0 0 24 24" className="h-6 w-6 fill-current"><path d="M10 6 8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z" /></svg>
+            </button>
+          </div>
+          <div className="mt-[10px] grid grid-cols-7 text-center text-[12px] text-[#9e9e9e]">
+            {WEEKDAYS_RU.map((name) => (
+              <span key={name} className="h-[30px] leading-[30px]">{name}</span>
+            ))}
+          </div>
+          <div className="grid h-[216px] grid-cols-7 content-start text-center text-[13px] text-[#333]">
+            {cells.map((day, index) => {
+              if (day === null) return <span key={`blank-${index}`} className="h-9" />
+              const iso = isoOf(view.year, view.month, day)
+              const disabled = (min !== undefined && iso < min) || (max !== undefined && iso > max)
+              const active = iso === selected
+              return (
+                <span key={iso} className="flex h-9 items-center justify-center">
+                  <button
+                    type="button"
+                    disabled={disabled}
+                    onClick={() => setSelected(iso)}
+                    className={`h-[30px] w-[30px] rounded-full text-[13px] leading-[30px] ${active ? "bg-[#5470d6] text-white" : "hover:bg-black/5"} ${disabled ? "cursor-not-allowed opacity-30" : ""}`}
+                  >
+                    {day}
+                  </button>
+                </span>
+              )
+            })}
+          </div>
+        </div>
+        <div className="flex justify-end gap-[8px] px-[12px] pb-[12px] pt-[4px] text-[13px] uppercase text-[#333]">
+          <button type="button" onClick={onCancel} className="px-[12px] py-[8px] hover:bg-black/5">
+            {t("Отмена")}
+          </button>
+          <button type="button" onClick={() => onPick(selected)} className="px-[12px] py-[8px] font-semibold hover:bg-black/5">
+            OK
+          </button>
+        </div>
+      </div>
+    </>
+  )
+}
+
 export function ReportDateField({
   label,
   value,
@@ -108,25 +210,27 @@ export function ReportDateField({
   max?: string
 }) {
   const { t } = useLanguage()
-  const inputRef = useRef<HTMLInputElement>(null)
+  const [open, setOpen] = useState(false)
   return (
-    <label className={`${FIELD} cursor-pointer`} onClick={() => inputRef.current?.showPicker?.()}>
+    <div className={`${FIELD} cursor-pointer`} onClick={() => setOpen(true)}>
       <span className={FLOAT_LABEL}>{t(label)}</span>
       <span className="absolute inset-x-0 top-[22px] text-[13px] leading-[18px] text-black">{formatReportDate(value)}</span>
       <svg viewBox="0 0 24 24" className="pointer-events-none absolute bottom-[8px] right-0 h-5 w-5 fill-[#c4c4c4]" aria-hidden>
         <path d="M19 4h-1V2h-2v2H8V2H6v2H5c-1.11 0-1.99.9-1.99 2L3 20c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 16H5V9h14v11zM7 11h5v5H7z" />
       </svg>
-      <input
-        ref={inputRef}
-        type="date"
-        value={value}
-        min={min}
-        max={max}
-        onChange={(event) => event.target.value && onChange(event.target.value)}
-        className="absolute inset-0 h-full w-full opacity-0"
-        aria-label={t(label)}
-      />
-    </label>
+      {open && (
+        <ReportCalendar
+          value={value}
+          min={min}
+          max={max}
+          onCancel={() => setOpen(false)}
+          onPick={(picked) => {
+            onChange(picked)
+            setOpen(false)
+          }}
+        />
+      )}
+    </div>
   )
 }
 
@@ -159,7 +263,7 @@ export function ReportSelectField({
       </span>
       <select value={value} onChange={(event) => onChange(event.target.value)} className="absolute inset-0 h-full w-full cursor-pointer appearance-none opacity-0" aria-label={t(label)}>
         <option value="" />
-        {options.map((option) => (
+        {Array.from(new Set(options)).map((option) => (
           <option key={option} value={option}>
             {t(option)}
           </option>
@@ -205,7 +309,7 @@ export function ReportChipField({
       </svg>
       {options && onChange && (
         <select value={value} onChange={(event) => onChange(event.target.value)} className="absolute inset-0 h-full w-full cursor-pointer appearance-none opacity-0" aria-label={t(label)}>
-          {options.map((option) => (
+          {Array.from(new Set(options)).map((option) => (
             <option key={option} value={option}>
               {t(option)}
             </option>
@@ -278,13 +382,86 @@ export function ReportMultiChipField({
   )
 }
 
+/**
+ * Single-choice dropdown with the reference app's option panel: a white list
+ * under the field (one option per row, scrollable) instead of the native
+ * browser select, so long data-driven lists (positions, branches...) read well.
+ */
+export function ReportListSelectField({
+  label,
+  value,
+  onChange,
+  options,
+}: {
+  label: string
+  value: string
+  onChange: (value: string) => void
+  options: string[]
+}) {
+  const { t } = useLanguage()
+  const [open, setOpen] = useState(false)
+  const hasValue = value !== ""
+  return (
+    <div className={FIELD}>
+      <button
+        type="button"
+        aria-label={t(label)}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        onClick={() => setOpen((current) => !current)}
+        onKeyDown={(event) => event.key === "Escape" && setOpen(false)}
+        className="absolute inset-0 h-full w-full cursor-pointer"
+      />
+      {hasValue && <span className={FLOAT_LABEL}>{t(label)}</span>}
+      <span className={`pointer-events-none absolute inset-x-0 truncate pr-12 text-[13px] leading-[18px] text-black ${hasValue ? "top-[26px]" : "top-[28px] font-semibold"}`}>
+        {hasValue ? value : t(label)}
+      </span>
+      {hasValue && (
+        <button type="button" aria-label="clear" onClick={() => onChange("")} className="absolute bottom-[8px] right-[22px] z-10 flex h-5 w-5 items-center justify-center text-[18px] leading-none text-[#999]">
+          ×
+        </button>
+      )}
+      <svg viewBox="0 0 24 24" className={`pointer-events-none absolute bottom-[6px] right-0 h-6 w-6 fill-[#999] transition-transform ${open ? "rotate-180" : ""}`} aria-hidden>
+        {CARET}
+      </svg>
+      {open && (
+        <>
+          <button type="button" aria-label={t("Закрыть")} className="fixed inset-0 z-30 cursor-default" onClick={() => setOpen(false)} />
+          <div role="listbox" className="absolute inset-x-0 top-full z-40 max-h-[296px] overflow-y-auto bg-white py-1 shadow-[0_1px_6px_rgba(0,0,0,0.2),0_1px_4px_rgba(0,0,0,0.2)]">
+            {options.length === 0 ? (
+              <div className="h-10 px-[14px] text-[13px] leading-10 text-[#999]">{t("Ничего не найдено")}</div>
+            ) : (
+              Array.from(new Set(options)).map((option) => (
+                <button
+                  key={option}
+                  type="button"
+                  role="option"
+                  aria-selected={option === value}
+                  onClick={() => {
+                    onChange(option)
+                    setOpen(false)
+                  }}
+                  className={`block h-10 w-full truncate px-[14px] text-left text-[13px] font-semibold hover:bg-[#f2f5f8] ${option === value ? "bg-[#eef1fd] text-[#5470d6]" : ""}`}
+                >
+                  {option}
+                </button>
+              ))
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
 export function ReportEmpty({ text, className = "pb-[44px] pt-[65px]" }: { text?: ReactNode; className?: string }) {
   const { t } = useLanguage()
   return (
     <div className={`flex flex-col items-center ${className}`}>
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img src="/robot-empty.png" alt="" className="w-[157px]" />
-      <span className="mt-[14px] text-[13px] text-[#8c8c8c]">{text ?? t("По вашему запросу ничего не найдено...")}</span>
+      {/* The reference keeps the default message in a 300px box, left-aligned under the centred robot. */}
+      <span className={`mt-[14px] text-[13px] text-[#999] ${text === undefined ? "w-[300px] text-left" : ""}`}>{text ?? t("По вашему запросу ничего не найдено...")}</span>
     </div>
   )
 }
@@ -321,7 +498,7 @@ export function ReportSummaryCard({ label, children, right }: { label: ReactNode
   return (
     <div className={`border border-[#e8e8e8] px-[15px] pb-[8px] pt-[10px] ${right ? "text-right" : ""}`}>
       <p className="text-[13px] leading-4 text-[#555]">{label}</p>
-      <p className="mt-[2px] text-[16px] font-bold leading-[18px] text-black">{children}</p>
+      <p className="text-[16px] font-semibold leading-[20px] text-black">{children}</p>
     </div>
   )
 }
@@ -617,7 +794,7 @@ export function ReportGridTable({
   loading,
   emptyText = "Нет данных",
   align = "left",
-  headClass = "bg-white",
+  headClass = "bg-[#f0f4f9]",
   headTextClass = "",
 }: {
   heads: ReactNode[]
@@ -638,13 +815,13 @@ export function ReportGridTable({
         {colWidths && <colgroup>{colWidths.map((width, index) => <col key={index} style={width ? { width } : undefined} />)}</colgroup>}
         <thead className="shadow-[0_3px_6px_rgba(0,0,0,0.12)]">
           {groups && (
-            <tr className="h-[30px] bg-white">
+            <tr className="h-[29px] bg-[#f0f4f9]">
               {groups.map((group, index) => (
                 <th key={index} colSpan={group.span} className={`px-2 text-center font-semibold ${index ? "border-l border-[#ececec]" : ""}`}>{group.title}</th>
               ))}
             </tr>
           )}
-          <tr className={`h-[40px] ${headClass}`}>
+          <tr className={`h-[30px] ${headClass}`}>
             {heads.map((head, index) => (
               <th key={index} className={`px-2 text-center font-semibold leading-4 ${headTextClass} ${index ? "border-l border-[#ececec]" : ""}`}>{head}</th>
             ))}
@@ -667,7 +844,7 @@ export function ReportGridTable({
         </tbody>
       </table>
       {rows.length === 0 && (
-        <span className={`absolute left-1/2 -translate-x-1/2 bg-white px-[20px] pb-[16px] pt-[2px] text-[13px] text-[#777] ${groups ? "top-[84px]" : "top-[54px]"}`}>{loading ? t("Загрузка...") : emptyText}</span>
+        <span className={`absolute left-1/2 -translate-x-1/2 bg-white px-[20px] pb-[16px] pt-[2px] text-[13px] text-[#777] ${groups ? "top-[73px]" : "top-[44px]"}`}>{loading ? t("Загрузка...") : emptyText}</span>
       )}
     </div>
   )
@@ -791,7 +968,7 @@ export function ReportBalanceToolbar({
 const WIDGET_TABS = ["ВИДЖЕТЫ", "KPI", "БАЛАНС", "ОХВАТ", "ФИЛИАЛ", "P&L", "ДОЛГ КЛИЕНТОВ", "ПРОДАЖА", "ГИБКИЙ ДАШБОРД"] as const
 const WIDGET_HREF: Record<(typeof WIDGET_TABS)[number], string> = {
   "ВИДЖЕТЫ": "/",
-  "KPI": "/analytics/kpi-performance",
+  "KPI": "/analytics/kpi-tab",
   "БАЛАНС": "/analytics/balance-tab",
   "ОХВАТ": "/analytics/coverage-analysis",
   "ФИЛИАЛ": "/analytics/branch-tab",
@@ -814,11 +991,11 @@ export function monthRangeLabel(date = new Date()) {
 export function WidgetHeader({ active }: { active: (typeof WIDGET_TABS)[number] }) {
   const router = useRouter()
   return (
-    <div className="pl-[30px] pr-[30px]">
+    <div className="-mt-px pl-[30px] pr-[30px]">
       <RefHeader title="Виджеты">
-        <nav className="mt-[5px] flex gap-[9px]">
+        <nav className="mt-[6px] flex">
           {WIDGET_TABS.map((tab) => (
-            <button key={tab} type="button" onClick={() => router.push(WIDGET_HREF[tab])} className={`h-[30px] min-w-[51px] rounded-[3px] px-[16px] text-[13px] font-normal shadow-[0_1px_3px_rgba(0,0,0,0.15)] transition-colors ${tab === active ? "bg-[#2bcd53] text-white" : "bg-white text-black hover:bg-[#f2f5f8]"}`}>{tab}</button>
+            <button key={tab} type="button" onClick={() => router.push(WIDGET_HREF[tab])} className={`h-8 min-w-[70px] whitespace-nowrap rounded-[5px] px-4 pt-[1px] text-[13px] font-normal uppercase ${tab === active ? "bg-[#2bcd53] text-white shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]" : "bg-white text-black shadow-[inset_0_0_2px_rgba(0,0,0,0.12)] hover:bg-slate-50"}`}>{tab}</button>
           ))}
         </nav>
       </RefHeader>
@@ -831,12 +1008,15 @@ const PERIODS = ["СЕГОДНЯ", "ВЧЕРА", "ПОСЛ. 7", "МЕСЯЦ", "�
 /** White card with the avatar / server line and (optionally) the date range + period buttons. */
 export function WidgetUserCard({
   range,
+  rangeSlot,
   period,
   onPeriod,
   showPeriods = true,
   children,
 }: {
   range?: string
+  /** replaces the static range label (e.g. a button that opens a date picker) */
+  rangeSlot?: ReactNode
   period?: string
   onPeriod?: (value: string) => void
   showPeriods?: boolean
@@ -845,18 +1025,16 @@ export function WidgetUserCard({
   const [inner, setInner] = useState("МЕСЯЦ")
   const current = period ?? inner
   return (
-    <section className="mx-[30px] flex h-[76px] items-center bg-white pl-[30px] pr-[38px] shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
-      <span className="mr-[10px] flex h-[30px] w-[30px] items-center justify-center overflow-hidden rounded-full bg-[#5d6474]">
-        <svg viewBox="0 0 24 24" className="mt-[6px] h-[30px] w-[30px] fill-[#cfd3dc]" aria-hidden><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z" /></svg>
-      </span>
+    <section className={`mx-[30px] flex ${showPeriods ? "h-[75px]" : "h-[50px]"} items-center rounded-[2px] bg-white px-[30px] shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]`}>
+      <span className="mr-[10px] h-[30px] w-[30px] shrink-0 rounded-full bg-[url('/default-avatar.png')] bg-cover bg-center" aria-hidden />
       <span className="mr-[5px] text-[16px] font-semibold text-[#333]">Admin Ritm</span>
-      <span className="text-[12px] font-semibold text-[#999]">Сервер: (https://time3.linko.uz)</span>
+      <span className="text-[12px] font-semibold leading-[15px] text-[#999]">Сервер: (https://time3.linko.uz)</span>
       {showPeriods && (
         <>
-          <strong className="ml-auto mr-[15px] text-[12px] font-bold text-[#4f71dc]">{range ?? monthRangeLabel()}</strong>
-          <div className="mr-[12px] flex overflow-hidden rounded-[3px] shadow-[0_1px_3px_rgba(0,0,0,0.2)]">
+          {rangeSlot ?? <strong className="ml-auto mr-[15px] text-[13px] font-bold capitalize text-[#4f71dc]">{range ?? monthRangeLabel()}</strong>}
+          <div className="flex">
             {PERIODS.map((item) => (
-              <button key={item} type="button" onClick={() => (onPeriod ? onPeriod(item) : setInner(item))} className={`h-[30px] px-4 text-[13px] font-medium uppercase transition-colors ${current === item ? "bg-[#4f71dc] text-white" : "bg-white text-black hover:bg-[#f2f5f8]"}`}>{item}</button>
+              <button key={item} type="button" onClick={() => (onPeriod ? onPeriod(item) : setInner(item))} className={`h-8 min-w-[70px] rounded-[5px] px-4 pt-[1px] text-[13px] font-normal uppercase ${current === item ? "bg-[#4f71dc] text-white shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]" : "bg-white text-black shadow-[inset_0_0_2px_rgba(0,0,0,0.12)] hover:bg-slate-50"}`}>{item}</button>
             ))}
           </div>
         </>

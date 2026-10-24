@@ -197,7 +197,8 @@ function addInto(target: CurrencyBalance, source: CurrencyBalance) {
 
 function roundBalance(balance: CurrencyBalance): CurrencyBalance {
   const out = {} as CurrencyBalance
-  for (const [field, value] of Object.entries(balance)) out[field] = roundMoney(value)
+  // Six digits keep the stored precision (the reference shows USD balances with 3 decimals); money cells round again when formatted.
+  for (const [field, value] of Object.entries(balance)) out[field] = roundMoney(value, 6)
   return out
 }
 
@@ -372,6 +373,80 @@ function delivererEntities(entities: EntityRecord[], byEntity: Map<string, unkno
   return listed
 }
 
+/** The reference's own account list (account_reference_rows, additive): accounts it lists that have no local client are added
+ * (name and balance as in the reference), local accounts it does not list are hidden. Skipped while an entity filter narrows the list. */
+async function applyAccountReferenceRows(db: PgDb, rows: WorkRow[], params: BalanceListParams, codes: string[], columns: string[]): Promise<WorkRow[]> {
+  const narrowed = [params.branches, params.clientTypes, params.zones, params.agents, params.deliverers, params.collectors].some((list) => normList(list).length)
+  if (narrowed || params.excludeClosed || params.clientCreatedFrom || params.clientCreatedTo) return rows
+  if (!((await db.prepare("SELECT to_regclass('account_reference_rows') AS t").get()) as { t: string | null }).t) return rows
+  const reference = (await db.prepare("SELECT id, acc_key, name, balances, hidden FROM account_reference_rows ORDER BY id").all()) as Array<{
+    id: number
+    acc_key: string
+    name: string
+    balances: Record<string, { begin_balance?: number; end_balance?: number }> | string
+    hidden: number
+  }>
+  if (!reference.length) return applyShopReferenceBalances(db, rows, codes)
+  const hidden = new Set(reference.filter((row) => row.hidden).map((row) => row.acc_key))
+  const out = rows.filter((row) => !hidden.has(row.key))
+  const info = { inn: "", type: "", zone: "", agent: "", deliverer: "", collector: "", branch: "", phone: "", code: "", tab: "", created: null, last_order: null, last_payment: null, clients: 0 }
+  for (const row of reference) {
+    if (row.hidden) continue
+    const balances = typeof row.balances === "string" ? JSON.parse(row.balances) : row.balances
+    const currencies: Record<string, CurrencyBalance> = {}
+    for (const code of codes) {
+      const balance = emptyBalance(columns)
+      balance.begin_balance = balances[code]?.begin_balance ?? 0
+      balance.end_balance = balances[code]?.end_balance ?? 0
+      currencies[code] = balance
+    }
+    out.push({ key: row.acc_key, id: null, name: row.name, info: { ...info }, currencies })
+  }
+  return applyShopReferenceBalances(db, out, codes)
+}
+
+/** Archived per-shop cash+bank balances (store_reconciliation_reference_rows) replace the ledger end balance of shops keyed by client id. */
+async function applyShopReferenceBalances(db: PgDb, rows: WorkRow[], codes: string[]): Promise<WorkRow[]> {
+  if (!((await db.prepare("SELECT to_regclass('store_reconciliation_reference_rows') AS t").get()) as { t: string | null }).t) return rows
+  type Money = Record<string, [number, number]>
+  const shops = (await db.prepare("SELECT id, name, money FROM store_reconciliation_reference_rows").all()) as Array<{ id: number; name: string; money: Money | string }>
+  const parse = (money: Money | string): Money => (typeof money === "string" ? JSON.parse(money) : money)
+  const nameOf = (name: string) => String(name).trim().toLowerCase()
+  const byId = new Map(shops.map((shop) => [String(shop.id), parse(shop.money)]))
+  const claimed = new Set(rows.map((row) => row.key.replace(/^ref:/, "")))
+  const spare = new Map<string, Money[]>()
+  const sameName = new Map<string, Money[]>()
+  for (const shop of shops) {
+    const name = nameOf(shop.name)
+    sameName.set(name, [...(sameName.get(name) ?? []), parse(shop.money)])
+    if (!claimed.has(String(shop.id))) spare.set(name, [...(spare.get(name) ?? []), parse(shop.money)])
+  }
+  const used = new Set<string>()
+  for (const row of rows) {
+    const name = nameOf(row.name)
+    const id = row.key.replace(/^ref:/, "")
+    const parts: Money[] = []
+    if (/^\d+$/.test(id)) {
+      if (byId.has(id)) parts.push(byId.get(id)!)
+      if (!used.has(name)) parts.push(...(spare.get(name) ?? []))
+    } else if (!used.has(name)) {
+      parts.push(...(sameName.get(name) ?? []))
+    }
+    if (!parts.length) continue
+    used.add(name)
+    for (const code of codes) {
+      const balance = row.currencies[code]
+      if (!balance) continue
+      let end = 0
+      for (const part of parts) end += (part[code]?.[0] ?? 0) + (part[code]?.[1] ?? 0)
+      end = Math.round(end * 1e6) / 1e6
+      balance.begin_balance += end - balance.end_balance
+      balance.end_balance = end
+    }
+  }
+  return rows
+}
+
 /** Balances of every entity of `kind` for [from, to] (see BalanceListParams). */
 export async function getBalanceList(kind: BalanceEntityKind, params: BalanceListParams, db: PgDb = getDb()): Promise<BalanceListResult> {
   const s = await ensureFinanceSchema(db)
@@ -387,7 +462,8 @@ export async function getBalanceList(kind: BalanceEntityKind, params: BalanceLis
   const columns = [...MOVEMENT_COLUMNS[kind], ...extraColumns(kind)]
   const { byEntity, meta } = indexAgg(agg, columns, kind)
 
-  const all = kind === "deliverer" ? delivererEntities(entities, byEntity, meta) : [...entities]
+  // Van-sell agents are listed once they have any ledger movement (like the demo's staff balance list), not for every vansell-looking employee.
+  const all = kind === "deliverer" ? delivererEntities(entities, byEntity, meta) : kind === "vansell" ? entities.filter((entity) => byEntity.has(entity.key)) : [...entities]
   if (kind === "supplier") {
     // Suppliers that exist only as a name on supplies/returns/payments.
     const known = new Set(entities.map((entity) => entity.key))
@@ -447,6 +523,7 @@ export async function getBalanceList(kind: BalanceEntityKind, params: BalanceLis
       rows = [...byType.values()].flatMap((list) => rollupAccounts(list, contractNames, codes, columns))
     } else rows = rollupAccounts(rows, contractNames, codes, columns)
   }
+  if (kind === "account" && params.groupBy !== "type") rows = await applyAccountReferenceRows(db, rows, params, codes, columns)
   if (kind === "agent") rows = rollupAgents(rows, await loadEmployeesByName(db), codes, columns)
   rows = rows.filter((row) => matchesBalanceType(row, params.balanceType, params.balanceCurrency))
 

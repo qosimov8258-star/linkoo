@@ -8,9 +8,11 @@ import { deleteBranch, updateBranch } from "@/lib/branches-repo"
 const branchSchema = z.object({
   name: z.string().trim().min(1),
   priceList: z.string().optional(),
-  currency: z.enum(["SUM", "USD", "Euro"]).optional(),
+  currency: z.string().trim().optional(),
   debtTracking: z.boolean().optional(),
   isMain: z.boolean().optional(),
+  locationLat: z.number().finite().nullable().optional(),
+  locationLng: z.number().finite().nullable().optional(),
 })
 
 type RouteParams = { params: Promise<{ id: string }> }
@@ -26,9 +28,11 @@ export async function PUT(request: Request, { params }: RouteParams) {
   const branch = await updateBranch(id, {
     name: parsed.data.name,
     priceList: parsed.data.priceList ?? "",
-    currency: parsed.data.currency ?? "SUM",
+    currency: parsed.data.currency ?? "",
     debtTracking: parsed.data.debtTracking ?? true,
     isMain: parsed.data.isMain ?? false,
+    locationLat: parsed.data.locationLat ?? null,
+    locationLng: parsed.data.locationLng ?? null,
   })
   if (!branch) return NextResponse.json({ error: "Филиал не найден" }, { status: 404 })
   return NextResponse.json(branch)

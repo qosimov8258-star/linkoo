@@ -1,5 +1,10 @@
+import { CatalogPageLayout } from "@/components/dashboard/catalog-sidebar"
 import { IntegrationsView } from "@/components/settings/integrations-view"
 
 export default function SettingsIntegrationsPage() {
-  return <IntegrationsView />
+  return (
+    <CatalogPageLayout>
+      <IntegrationsView />
+    </CatalogPageLayout>
+  )
 }

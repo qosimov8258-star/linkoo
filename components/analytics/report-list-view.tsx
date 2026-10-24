@@ -34,7 +34,7 @@ export function ReportListView() {
   return (
     <ReportPage>
       <div className="pl-[30px] pr-[38px]"><RefHeader title={t("Отчеты")} /></div>
-      <div className="grid gap-[17px] px-[30px] pb-8 lg:grid-cols-[311px_1fr]">
+      <div className="grid gap-[17px] px-[28px] pb-8 lg:grid-cols-[348px_1fr]">
         <aside className="self-start rounded-[8px] bg-white px-[10px] pb-[20px] pt-[10px] shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
           <h2 className="mb-[12px] text-[13px] font-bold">{t("Категория")}</h2>
           <div className="pl-[15px]">{categories.map((item) => box(item, selected, setSelected))}</div>

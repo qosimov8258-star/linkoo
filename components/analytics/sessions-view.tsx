@@ -1,186 +1,197 @@
 "use client"
 
-import { LogOut, MonitorSmartphone, ShieldCheck } from "lucide-react"
-import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 
-type UserSession = {
-  id: string
-  ip: string
-  userAgent: string
+import { EmptyRows, SettingsToolbar, kitHead, kitRow } from "@/components/analytics/settings-list-kit"
+import { FilterChip, FilterLink, StaffTabs } from "@/components/staff/staff-kit"
+import { FilterDate, FilterSelect, RefFilterPanel } from "@/components/ref/list-kit"
+import { useLanguage } from "@/lib/i18n/language-context"
+import { refDateTime } from "@/lib/ref-date"
+import { notify } from "@/lib/notify"
+import { RefTip } from "@/components/ref/ref-tip"
+
+// "Сессия" (demo #/session/, Settings → Персонал; API main/auth_log/?show_tab=active|not_active): tabs Активные /
+// Не активные, filter (Пользователь, Дата входа, Дата последнего запроса), grid № | Дата входа | Пользователь (name + IP)
+// | [Дата последнего запроса] | Статус with "Завершить" / "Восстановить" and an ⓘ that shows the browser string.
+
+type AuthLog = {
+  id: number
+  ip: string | null
+  browser: string
+  device: string | null
   createdAt: string
-  lastSeenAt: string
-  isCurrent: boolean
+  lastResponseAt: string | null
+  isActive: boolean
+  user: { id: number; name: string }
 }
+type Employee = { id: number; name: string; active: boolean }
+type Filters = { userId: number | null; createdFrom: string; createdTo: string; lastFrom: string; lastTo: string }
 
-function describeDevice(userAgent: string): string {
-  if (!userAgent) return "Noma'lum qurilma"
-  const ua = userAgent.toLowerCase()
-  const os = ua.includes("windows")
-    ? "Windows"
-    : ua.includes("mac os") || ua.includes("macintosh")
-      ? "macOS"
-      : ua.includes("android")
-        ? "Android"
-        : ua.includes("iphone") || ua.includes("ipad")
-          ? "iOS"
-          : ua.includes("linux")
-            ? "Linux"
-            : "Noma'lum OS"
-  const browser = ua.includes("edg/")
-    ? "Edge"
-    : ua.includes("chrome/")
-      ? "Chrome"
-      : ua.includes("firefox/")
-        ? "Firefox"
-        : ua.includes("safari/")
-          ? "Safari"
-          : "Noma'lum brauzer"
-  return `${os} · ${browser}`
-}
+const NO_FILTERS: Filters = { userId: null, createdFrom: "", createdTo: "", lastFrom: "", lastTo: "" }
+const COLS_ACTIVE = "139px 304px 405px 203px 1fr"
+const COLS_INACTIVE = "139px 203px 303px 203px 203px 1fr"
 
-function formatDate(value: string) {
-  if (!value) return "—"
-  const date = new Date(value.includes("T") ? value : `${value.replace(" ", "T")}Z`)
-  if (Number.isNaN(date.getTime())) return value
-  return date.toLocaleString("ru-RU", { dateStyle: "medium", timeStyle: "short" })
+function InfoIcon({ text }: { text: string }) {
+  return (
+    <RefTip text={text} side="left" gap={12}>
+      <span className="flex h-6 w-6 items-center justify-center">
+        <svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#4f71dc]"><path d="M11 17h2v-6h-2v6zm1-15C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zM11 9h2V7h-2v2z" /></svg>
+      </span>
+    </RefTip>
+  )
 }
 
 export function SessionsView({ embedded = false }: { embedded?: boolean }) {
-  const [sessions, setSessions] = useState<UserSession[]>([])
-  const [loading, setLoading] = useState(true)
-  const [busyId, setBusyId] = useState<string | null>(null)
+  const { t } = useLanguage()
+  const [tab, setTab] = useState<"active" | "not_active">("active")
+  const [query, setQuery] = useState("")
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(25)
+  const [filters, setFilters] = useState<Filters>(NO_FILTERS)
+  const [draft, setDraft] = useState<Filters>(NO_FILTERS)
+  const [filterOpen, setFilterOpen] = useState(false)
+  const [data, setData] = useState<{ count: number; results: AuthLog[] } | null>(null)
+  const [employees, setEmployees] = useState<Employee[]>([])
+  const [busyId, setBusyId] = useState<number | null>(null)
 
-  function load() {
-    setLoading(true)
-    fetch("/api/user-sessions")
-      .then(async (response) => {
-        if (!response.ok) throw new Error("Не удалось загрузить сессии")
-        return (await response.json()) as UserSession[]
+  useEffect(() => {
+    void fetch("/api/employees", { cache: "no-store" })
+      .then((response) => (response.ok ? response.json() : []))
+      .then((list: Employee[]) => setEmployees(list.filter((employee) => employee.active)))
+      .catch(() => setEmployees([]))
+  }, [])
+
+  const load = useCallback(async () => {
+    const params = new URLSearchParams({ tab, page: String(page), pageSize: String(pageSize) })
+    if (query.trim()) params.set("search", query.trim())
+    if (filters.userId) params.set("user", String(filters.userId))
+    if (filters.createdFrom) params.set("createdFrom", filters.createdFrom)
+    if (filters.createdTo) params.set("createdTo", filters.createdTo)
+    if (filters.lastFrom) params.set("lastFrom", filters.lastFrom)
+    if (filters.lastTo) params.set("lastTo", filters.lastTo)
+    try {
+      const response = await fetch(`/api/auth-logs?${params}`, { cache: "no-store" })
+      if (!response.ok) throw new Error("load")
+      setData((await response.json()) as { count: number; results: AuthLog[] })
+    } catch {
+      setData({ count: 0, results: [] })
+    }
+  }, [tab, page, pageSize, query, filters])
+  useEffect(() => { void load() }, [load])
+
+  async function toggle(log: AuthLog) {
+    setBusyId(log.id)
+    try {
+      const response = await fetch(`/api/auth-logs/${log.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ active: !log.isActive }),
       })
-      .then(setSessions)
-      .catch(() => window.alert("Не удалось загрузить активные сессии"))
-      .finally(() => setLoading(false))
-  }
-
-  useEffect(load, [])
-
-  async function revoke(id: string) {
-    setBusyId(id)
-    try {
-      const response = await fetch(`/api/user-sessions/${id}`, { method: "DELETE" })
       if (!response.ok) {
-        const data = await response.json().catch(() => ({}))
-        window.alert(data.error || "Не удалось завершить сессию")
+        const body = (await response.json().catch(() => ({}))) as { error?: string }
+        notify(t(body.error || "Не удалось изменить сессию"))
         return
       }
-      if (id === sessions.find((s) => s.id === id)?.id && sessions.find((s) => s.id === id)?.isCurrent) {
-        window.location.href = "/login"
-        return
-      }
-      setSessions((list) => list.filter((session) => session.id !== id))
+      await load()
+    } catch {
+      notify(t("Сервер недоступен, попробуйте ещё раз"))
     } finally {
       setBusyId(null)
     }
   }
 
-  async function revokeOthers() {
-    setBusyId("others")
-    try {
-      const response = await fetch("/api/user-sessions/revoke-others", { method: "POST" })
-      if (!response.ok) {
-        window.alert("Не удалось завершить остальные сессии")
-        return
-      }
-      setSessions((list) => list.filter((session) => session.isCurrent))
-    } finally {
-      setBusyId(null)
-    }
+  const userNames = useMemo(() => employees.map((employee) => employee.name), [employees])
+  const total = data?.count ?? 0
+  const pageCount = Math.max(1, Math.ceil(total / pageSize))
+  const from = total ? (page - 1) * pageSize + 1 : 0
+  const to = Math.min(page * pageSize, total)
+  const filterCount = [filters.userId, filters.createdFrom, filters.lastFrom].filter(Boolean).length
+  const active = tab === "active"
+  const cols = active ? COLS_ACTIVE : COLS_INACTIVE
+
+  function applyFilters() {
+    setFilters(draft)
+    setPage(1)
+    setFilterOpen(false)
+  }
+  function selectTab(label: string) {
+    setTab(label === "Активные" ? "active" : "not_active")
+    setPage(1)
   }
 
-  return (
-    <main className={embedded ? "min-w-0 flex-1" : "min-h-[calc(100vh-4rem)] bg-[#f2f5f8] px-7 pb-7"}>
-      {!embedded && (
-        <header className="flex h-[60px] flex-wrap items-center justify-between gap-3">
-          <h1 className="flex items-center text-[18px] font-bold text-[#5d6474]">
-            <FavoritesButton className="flex items-center gap-[5px] text-[18px] font-bold text-[#4f71dc]" />
-            <span className="mx-[11px] inline-block h-[21px] w-[2px] bg-[#5d6474]" /> Сессия
-          </h1>
-        </header>
-      )}
-
-      <section className="overflow-hidden rounded bg-white shadow">
-        <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-200 px-5 py-4">
-          <p className="text-sm text-slate-500">Активные входы в аккаунт на разных устройствах и браузерах.</p>
-          <button
-            type="button"
-            onClick={revokeOthers}
-            disabled={busyId === "others" || sessions.length <= 1}
-            className="inline-flex items-center gap-2 rounded border border-red-200 px-4 py-2 text-sm font-semibold text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            <LogOut className="h-4 w-4" />
-            Завершить остальные сессии
-          </button>
+  const body = (
+    <section className="min-w-0 flex-1 bg-white text-[13px] text-[#333]">
+      <StaffTabs labels={["Активные", "Не активные"]} value={active ? "Активные" : "Не активные"} onChange={selectTab} height={50} />
+      <div className="relative">
+        <SettingsToolbar
+          left={
+            filterCount > 0
+              ? <FilterChip count={filterCount} onEdit={() => { setDraft(filters); setFilterOpen(true) }} onClear={() => { setFilters(NO_FILTERS); setDraft(NO_FILTERS); setPage(1) }} />
+              : <FilterLink onClick={() => { setDraft(filters); setFilterOpen((open) => !open) }} />
+          }
+          className="h-[50px]"
+          searchClassName="left-[335px] top-[10px]"
+          query={query}
+          onQuery={(value) => { setQuery(value); setPage(1) }}
+          pager={{
+            pageSize,
+            onPageSize: (size) => { setPageSize(size); setPage(1) },
+            from,
+            to,
+            total,
+            onPrev: page > 1 ? () => setPage(page - 1) : undefined,
+            onNext: page < pageCount ? () => setPage(page + 1) : undefined,
+          }}
+        />
+        {filterOpen && (
+          <div className="absolute left-0 top-0 z-30">
+            <RefFilterPanel narrow className="!w-[300px]" onClose={() => setFilterOpen(false)} onApply={applyFilters}>
+              <FilterSelect
+                label={t("Пользователь")}
+                value={employees.find((employee) => employee.id === draft.userId)?.name ?? ""}
+                options={userNames}
+                onChange={(name) => setDraft((current) => ({ ...current, userId: employees.find((employee) => employee.name === name)?.id ?? null }))}
+              />
+              <FilterDate className="-mt-[8px]" label={t("Дата входа")} begin={draft.createdFrom} end={draft.createdTo} onChange={(createdFrom, createdTo) => setDraft((current) => ({ ...current, createdFrom, createdTo }))} />
+              <FilterDate className="-mt-[10px]" label={t("Дата последнего запроса")} begin={draft.lastFrom} end={draft.lastTo} onChange={(lastFrom, lastTo) => setDraft((current) => ({ ...current, lastFrom, lastTo }))} />
+              <div className="h-[7px]" />
+            </RefFilterPanel>
+          </div>
+        )}
+      </div>
+      <div className={kitHead} style={{ gridTemplateColumns: cols }}>
+        <span className="pl-[30px]">№</span>
+        <span>{t("Дата входа")}</span>
+        <span>{t("Пользователь")}</span>
+        {!active && <span className="pr-[70px] leading-[18px]">{t("Дата последнего запроса")}</span>}
+        <span>{t("Статус")}</span>
+        <span />
+      </div>
+      {data?.results.map((log) => (
+        <div key={log.id} className={kitRow} style={{ gridTemplateColumns: cols }}>
+          <span className="pl-[30px]">{log.id}</span>
+          <span>{refDateTime(log.createdAt)}</span>
+          <span className="py-[7px] leading-[16px]">
+            {log.user.name}
+            {log.ip && <><br /><span className="text-[#4f71dc]">{log.ip}</span></>}
+          </span>
+          {!active && <span>{log.lastResponseAt ? refDateTime(log.lastResponseAt) : t("Не указано")}</span>}
+          <span>{active ? t("Активный") : t("Не активный")}</span>
+          <span className="flex items-center gap-[14px]">
+            <button
+              type="button"
+              disabled={busyId === log.id}
+              onClick={() => void toggle(log)}
+              className={`h-[30px] rounded-[3px] text-[13px] font-semibold text-white hover:brightness-95 disabled:opacity-60 ${active ? "bg-[#71ce87] px-[14px]" : "bg-[#4f71dc] px-[16px]"}`}
+            >
+              {active ? t("Завершить") : t("Восстановить")}
+            </button>
+            <InfoIcon text={log.browser} />
+          </span>
         </div>
-
-        <table className="w-full text-left">
-          <thead className="bg-[#5d6474] text-white">
-            <tr>
-              <th className="px-9 py-4 text-[13px]">Устройство</th>
-              <th className="px-5 py-4 text-[13px]">IP-адрес</th>
-              <th className="px-5 py-4 text-[13px]">Начало</th>
-              <th className="px-5 py-4 text-[13px]">Последняя активность</th>
-              <th className="w-40" />
-            </tr>
-          </thead>
-          <tbody>
-            {sessions.map((session) => (
-              <tr key={session.id} className="border-b border-dashed border-slate-300 hover:bg-slate-50">
-                <td className="px-9 py-4">
-                  <div className="flex items-center gap-2 text-slate-700">
-                    <MonitorSmartphone className="h-5 w-5 text-slate-400" />
-                    {describeDevice(session.userAgent)}
-                    {session.isCurrent && (
-                      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-semibold text-emerald-600">
-                        <ShieldCheck className="h-3.5 w-3.5" />
-                        Это устройство
-                      </span>
-                    )}
-                  </div>
-                </td>
-                <td className="px-5 py-4 text-slate-600">{session.ip || "—"}</td>
-                <td className="px-5 py-4 text-slate-600">{formatDate(session.createdAt)}</td>
-                <td className="px-5 py-4 text-slate-600">{formatDate(session.lastSeenAt)}</td>
-                <td className="px-5 py-4 text-right">
-                  <button
-                    type="button"
-                    onClick={() => revoke(session.id)}
-                    disabled={busyId === session.id}
-                    className="inline-flex items-center gap-1.5 text-sm font-semibold text-red-600 hover:underline disabled:opacity-40"
-                  >
-                    <LogOut className="h-4 w-4" />
-                    {session.isCurrent ? "Выйти" : "Завершить"}
-                  </button>
-                </td>
-              </tr>
-            ))}
-            {!loading && sessions.length === 0 && (
-              <tr>
-                <td colSpan={5} className="px-5 py-10 text-center text-slate-400">
-                  Активных сессий не найдено
-                </td>
-              </tr>
-            )}
-            {loading && (
-              <tr>
-                <td colSpan={5} className="px-5 py-10 text-center text-slate-400">
-                  Загрузка...
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </section>
-    </main>
+      ))}
+      {data && data.results.length === 0 && <EmptyRows />}
+    </section>
   )
+  return embedded ? body : <main className="min-h-[calc(100vh-4rem)] bg-white">{body}</main>
 }

@@ -387,6 +387,35 @@ export async function getCatalogUsage(kind: CatalogKind, id: number): Promise<Ca
   return catalogUsage(db, { kind, id, name: item.name, deleted: item.deleted })
 }
 
+/**
+ * "Переместить в раздел (Сырье/Продукт)": products and raw materials are two tables here (one flag in
+ * the reference), so the item is copied (same columns, a new id) into the other table together with its
+ * images and limits, and the original goes away: for good when nothing references it, else to "Удалённые".
+ */
+async function moveCatalogItem(tx: PgDb, from: CatalogKind, id: number, to: CatalogKind, userName: string): Promise<boolean> {
+  const row = await readCatalogRow(tx, from, id, true)
+  if (!row) return false
+  const item = rowToItem(from, row)
+  if (item.deleted) throw new CatalogError("Удалённый элемент нельзя переместить", 409)
+  // Names are unique across both sections; the item itself (still live until the copy is made) does not count.
+  await assertNameAvailable(tx, from, id, item.name)
+  const columnsOf = async (table: string) =>
+    ((await tx.prepare("SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = @table").all({ table })) as Array<{ column_name: string }>).map((entry) => entry.column_name)
+  const target = new Set(await columnsOf(CATALOG_TABLE[to]))
+  const columns = (await columnsOf(CATALOG_TABLE[from])).filter((column) => column !== "id" && target.has(column))
+  const source = (await tx.prepare(`SELECT * FROM ${CATALOG_TABLE[from]} WHERE id = @id`).get({ id })) as Record<string, unknown>
+  const values = Object.fromEntries(columns.map((column) => [`c_${column}`, source[column] ?? null]))
+  const inserted = await tx.prepare(`INSERT INTO ${CATALOG_TABLE[to]} (${columns.join(", ")}) VALUES (${columns.map((column) => `@c_${column}`).join(", ")})`).run(values)
+  const newId = Number(inserted.lastInsertRowid)
+  await tx.prepare("UPDATE product_images SET item_kind = @to, item_id = @newId WHERE item_kind = @from AND item_id = @id").run({ to, from, newId, id })
+  await tx.prepare("UPDATE product_limits SET item_kind = @to, item_id = @newId WHERE item_kind = @from AND item_id = @id").run({ to, from, newId, id })
+  await lockStockWrites(tx)
+  const usage = await catalogUsage(tx, { kind: from, id, name: item.name, deleted: item.deleted })
+  if (usage.length) return setDeleted(tx, from, id, true, userName)
+  const result = await tx.prepare(`DELETE FROM ${CATALOG_TABLE[from]} WHERE id = @id`).run({ id })
+  return result.changes > 0
+}
+
 /** "Изменить выбранные продукты": the same change on every selected item (one transaction). */
 export async function bulkUpdateCatalog(kind: CatalogKind, ids: number[], changes: CatalogBulkChanges, userName: string): Promise<number> {
   await catalogDb()
@@ -404,6 +433,7 @@ export async function bulkUpdateCatalog(kind: CatalogKind, ids: number[], change
         if (!result) continue
       }
       if (changes.deleted !== undefined && !(await setDeleted(tx, kind, id, changes.deleted, userName))) continue
+      if (changes.moveTo !== undefined && changes.moveTo !== kind && !(await moveCatalogItem(tx, kind, id, changes.moveTo, userName))) continue
       count += 1
     }
     return count

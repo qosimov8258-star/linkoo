@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server"
 import { z } from "zod"
 
+import { getDb } from "@/lib/db"
+import { ensureEmployeesSchema } from "@/lib/employees-schema"
 import { requireRole } from "@/lib/rbac"
 import { parseJsonBody } from "@/lib/validation"
 import { deleteAccessRight, updateAccessRight } from "@/lib/access-rights-repo"
@@ -30,6 +32,9 @@ export async function DELETE(_request: Request, { params }: RouteParams) {
   if ("error" in auth) return auth.error
 
   const id = Number((await params).id)
+  await ensureEmployeesSchema()
+  const used = (await getDb().prepare("SELECT count(*)::int AS n FROM employees WHERE access_right_id = ?").get(id)) as { n: number }
+  if (used.n > 0) return NextResponse.json({ error: "Эти права доступа назначены сотрудникам, удаление невозможно" }, { status: 409 })
   const ok = (await deleteAccessRight(id))
   if (!ok) return NextResponse.json({ error: "Права доступа не найдены" }, { status: 404 })
   return NextResponse.json({ ok: true })

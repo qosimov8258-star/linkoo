@@ -1,3 +1,4 @@
+import { selectedBranchName } from "@/lib/selected-branch"
 import "server-only"
 
 import { getDb, withTransaction, type PgDb } from "@/lib/db"
@@ -115,7 +116,8 @@ function rowToIncoming(row: Row): Incoming {
     supplier: row.supplier,
     warehouse: row.warehouse,
     date: row.date,
-    paymentType: row.payment_type as Incoming["paymentType"],
+    // Older demo rows say "Наличные"; the reference prints "Наличный" (uz "Naqd") for every cash delivery.
+    paymentType: (/^нал/i.test(row.payment_type) ? "Наличный" : row.payment_type) as Incoming["paymentType"],
     contractNumber: row.contract_number,
     amount: row.amount,
     status: row.status as Incoming["status"],
@@ -230,7 +232,11 @@ function withPaid(incoming: Incoming, paid: Map<number, number>): Incoming {
 
 export async function listIncomings(): Promise<Incoming[]> {
   const db = await incomingsDb()
-  const rows = ((await db.prepare(`${SELECT} ORDER BY i.id DESC`).all()) as Row[]).map(rowToIncoming)
+  const branch = await selectedBranchName()
+  // Demo receipts that exist only to keep the stock consistent are not part of the list (reference shows the real ones).
+  const hasRegistry = ((await db.prepare("SELECT to_regclass('demo_seed_rows') AS t").get()) as { t: string | null }).t
+  const hideDemo = hasRegistry ? ` AND NOT EXISTS (SELECT 1 FROM demo_seed_rows d WHERE d.table_name = 'supplier_incomings' AND d.row_id = i.id::text)` : ""
+  const rows = ((await db.prepare(`${SELECT} WHERE (?::text = '' OR i.branch = ?)${hideDemo} ORDER BY i.id DESC`).all(branch, branch)) as Row[]).map(rowToIncoming)
   const paid = await paidBySupply(null, db)
   return rows.map((row) => withPaid(row, paid))
 }
@@ -355,14 +361,15 @@ const TRANSITIONS: Record<StatusAction, { from: Incoming["status"]; to: Incoming
 
 /** "Принять на склад" / "Отменить приемку" / "Отменить". Accepting puts the
  * goods on the warehouse and into the products' net cost. */
-export async function changeIncomingStatus(id: number, action: StatusAction, userName: string): Promise<IncomingChange> {
+export async function changeIncomingStatus(id: number, action: StatusAction, userName: string, acceptDate?: string): Promise<IncomingChange> {
   await incomingsDb()
   const transition = TRANSITIONS[action]
   return withTransaction(async (tx) => {
     const current = await lockIncoming(tx, id)
     if (!current) return "not_found"
     if (current.status !== transition.from) return "locked"
-    const acceptedAt = action === "accept" ? new Date().toISOString() : ""
+    // The reference's "ПРИЕМКА ТОВАРА" dialog picks the acceptance day; the time of day is the current one.
+    const acceptedAt = action === "accept" ? (acceptDate && /^\d{4}-\d{2}-\d{2}$/.test(acceptDate) ? `${acceptDate}T${new Date().toISOString().slice(11)}` : new Date().toISOString()) : ""
     const acceptedBy = action === "accept" ? userName : ""
     await tx
       .prepare("UPDATE supplier_incomings SET status = ?, accepted_at = ?, accepted_by = ?, updated_at = datetime('now') WHERE id = ?")
@@ -467,6 +474,30 @@ export async function productSupplyHistory(productName: string, db?: PgDb): Prom
   return history
 }
 
+/** Running average cost per product (lower-cased name) over every accepted supply: the reference's "Себестоимость". */
+export async function supplyAverageCosts(): Promise<Record<string, number>> {
+  const db = await incomingsDb()
+  const rows = (await db.prepare(`${SELECT} WHERE i.status = 'принят' ORDER BY i.accepted_at, i.id`).all()) as Row[]
+  const totals = new Map<string, { qty: number; value: number }>()
+  for (const row of rows) {
+    for (const line of supplyCostLines(rowToIncoming(row))) {
+      if (!(line.qty > 0)) continue
+      const key = line.product.trim().toLocaleLowerCase("ru")
+      const current = totals.get(key) ?? { qty: 0, value: 0 }
+      current.qty += line.qty
+      current.value += line.qty * line.unitCost
+      totals.set(key, current)
+    }
+  }
+  // A product that has the reference's own net cost (product_reference_prices) never falls back to the supply average.
+  const hasReference = ((await db.prepare("SELECT to_regclass('product_reference_prices') AS t").get()) as { t: string | null }).t
+  if (hasReference) {
+    const referenced = (await db.prepare("SELECT lower(btrim(p.name)) AS k FROM products p JOIN product_reference_prices r ON r.product_id = p.id").all()) as { k: string }[]
+    for (const { k } of referenced) totals.delete(k)
+  }
+  return Object.fromEntries([...totals].map(([key, total]) => [key, Math.round((total.value / total.qty) * 1e6) / 1e6]))
+}
+
 /** Net cost of a product = average cost of its accepted supplies; with no
  * accepted supply it falls back to the product's initial (default) cost. */
 export async function recalcProductCosts(db: PgDb, productNames: string[]) {
@@ -537,7 +568,33 @@ export async function repriceFromIncoming(incomingId: number, input: RepriceInpu
 // Формирование цен: a product's net cost
 // ---------------------------------------------------------------------------
 
-export type ProductCostInfo = { initialCost: number; currentCost: number; history: SupplyHistoryLine[] }
+/** One supply line of the product detail ("Поставки"): accepted ones carry the running average cost. */
+export type ProductSupplyLine = { incomingId: number; date: string; qty: number; onStock: number; unitCost: number; averageCost: number | null; accepted: boolean }
+
+export type ProductCostInfo = { initialCost: number; currentCost: number; history: SupplyHistoryLine[]; lines: ProductSupplyLine[] }
+
+/** Every supply (accepted or waiting) that carries the product, newest first, like the reference panel. */
+async function productSupplyLines(productName: string, db: PgDb, history: SupplyHistoryLine[]): Promise<ProductSupplyLine[]> {
+  const rows = (await db
+    .prepare(`${SELECT} WHERE i.status IN ('принят', 'ожидает') AND i.items LIKE ? ORDER BY i.id`)
+    .all(`%${JSON.stringify(productName).slice(1, -1)}%`)) as Row[]
+  const key = productName.trim().toLocaleLowerCase("ru")
+  const onHand = (await availableByKey(db)).get(key) ?? 0
+  const lines: ProductSupplyLine[] = []
+  for (const row of rows) {
+    const incoming = rowToIncoming(row)
+    for (const line of supplyCostLines(incoming)) {
+      if (line.product.trim().toLocaleLowerCase("ru") !== key || !(line.qty > 0)) continue
+      const accepted = incoming.status === "принят"
+      const average = accepted ? history.find((item) => item.incomingId === incoming.id)?.averageCost ?? null : null
+      lines.push({ incomingId: incoming.id, date: accepted ? incoming.date : "", qty: line.qty, onStock: 0, unitCost: accepted ? line.unitCost : 0, averageCost: average, accepted })
+    }
+  }
+  // The stock on hand sits on the latest accepted supply (FIFO remainder), earlier batches are used up.
+  const lastAccepted = [...lines].reverse().find((line) => line.accepted)
+  if (lastAccepted) lastAccepted.onStock = onHand
+  return lines.reverse()
+}
 
 export async function getProductCostInfo(productId: number): Promise<ProductCostInfo | null> {
   const db = await incomingsDb()
@@ -546,7 +603,9 @@ export async function getProductCostInfo(productId: number): Promise<ProductCost
     | undefined
   if (!product) return null
   const history = await productSupplyHistory(product.name, db)
-  return { initialCost: product.initial_cost ?? product.cost, currentCost: product.cost, history }
+  const lines = await productSupplyLines(product.name, db, history)
+  const initialCost = product.initial_cost ?? product.cost
+  return { initialCost, currentCost: history.length ? Math.round(history[history.length - 1].averageCost * 1e6) / 1e6 : initialCost, history, lines }
 }
 
 /** "Себестоимость по умолчанию": the cost used until the first accepted

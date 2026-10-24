@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 
 import { cashErrorResponse } from "@/lib/cash/api"
-import { cashbackRequestDecisionSchema, decideCashbackRequest, getCashbackRequestDetail } from "@/lib/cashback-withdrawal-requests-repo"
+import { cashbackRequestDecisionSchema, decideCashbackRequest, deleteCashbackRequest, getCashbackRequestDetail } from "@/lib/cashback-withdrawal-requests-repo"
 import { getCurrentUser } from "@/lib/current-user"
 import { requireRole } from "@/lib/rbac"
 import { parseJsonBody } from "@/lib/validation"
@@ -40,6 +40,19 @@ export async function PUT(request: Request, { params }: RouteParams) {
 
   try {
     return NextResponse.json(await decideCashbackRequest(id, parsed.data, auth.user.displayName || auth.user.username))
+  } catch (error) {
+    return cashErrorResponse(error)
+  }
+}
+
+// DELETE /api/cashback-withdrawal-requests/[id] — soft delete of a request that was not paid out.
+export async function DELETE(_request: Request, { params }: RouteParams) {
+  const auth = await requireRole("manager")
+  if ("error" in auth) return auth.error
+  const id = requestId((await params).id)
+  if (!id) return NextResponse.json({ error: "Запрос не найден" }, { status: 404 })
+  try {
+    return NextResponse.json(await deleteCashbackRequest(id))
   } catch (error) {
     return cashErrorResponse(error)
   }

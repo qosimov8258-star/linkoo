@@ -105,8 +105,11 @@ export function PriceListFormDialog({ priceListId, onClose, onSaved }: { priceLi
   }
 
   const check = (label: string, checked: boolean, onChange: (value: boolean) => void) => (
-    <label className="flex items-center gap-3 text-[14px] text-[#17233b]">
-      <input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} className="h-4 w-4 accent-[#4f71dc]" />
+    <label className="-mt-[3px] flex cursor-pointer items-center gap-[6px] text-[13px] font-semibold text-black">
+      <input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} className="sr-only" />
+      <svg viewBox="0 0 24 24" className="h-5 w-5 shrink-0 fill-[#555]" aria-hidden>
+        <path d={checked ? "M19 3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.11 0 2-.9 2-2V5c0-1.1-.89-2-2-2zm-9 14l-5-5 1.41-1.42L10 14.17l7.59-7.59L19 8l-9 9z" : "M19 5v14H5V5h14m0-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2z"} />
+      </svg>
       {label}
     </label>
   )
@@ -115,7 +118,9 @@ export function PriceListFormDialog({ priceListId, onClose, onSaved }: { priceLi
     <CashModal
       title={priceListId ? t("Изменить прайс-лист") : t("Добавить прайс-лист")}
       onClose={onClose}
+      top={64}
       size="md"
+      closeInset={15}
       footer={
         <>
           {error && <span className="mr-auto text-[13px] text-[#e57373]">{error}</span>}
@@ -129,27 +134,25 @@ export function PriceListFormDialog({ priceListId, onClose, onSaved }: { priceLi
         <p className="py-10 text-center text-[#586174]">{detail.error ? t(detail.error) : t("Загрузка...")}</p>
       ) : (
         <form
-          className="flex flex-col gap-4"
+          className="flex flex-col gap-4 pb-[22px]"
           onSubmit={(event) => {
             event.preventDefault()
             void submit()
           }}
         >
-          <FormField label={t("Наименование")} required error={errors.name}>
-            <input value={draft.name} maxLength={200} autoFocus onChange={(event) => set({ name: event.target.value })} className={inputClass} />
+          <FormField label={t("Наименование")} required showRequired semibold className="mr-[22px]" error={errors.name}>
+            <input value={draft.name} maxLength={200} onChange={(event) => set({ name: event.target.value })} className={inputClass} />
           </FormField>
-          <FormField label={t("Валюта")} required error={errors.currency}>
+          <FormField label={t("Валюта")} required showRequired semibold error={errors.currency}>
             <SearchSelect value={draft.currency} options={currencyOptions} invalid={Boolean(errors.currency)} allowClear={false} onChange={(currency) => set({ currency })} />
           </FormField>
-          <FormField label={t("Порядок")} error={errors.position}>
+          <FormField label={t("Порядок")} semibold className="-mt-[12px]" error={errors.position}>
             <input value={draft.position} inputMode="numeric" onChange={(event) => set({ position: event.target.value.replace(/[^\d-]/g, "") })} className={inputClass} />
           </FormField>
-          {check(t("Активный"), draft.isActive, (isActive) => set({ isActive }))}
-          {check(t("По умолчанию для заказа"), draft.isDefaultForOrder, (isDefaultForOrder) => set({ isDefaultForOrder }))}
           {check(t("Связать прайс-лист"), draft.isConnected, (isConnected) => set({ isConnected }))}
           {draft.isConnected && (
             <div className="flex flex-col gap-4 border-l-2 border-[#4f71dc]/30 pl-4">
-              <FormField label={t("Прайс лист")} required error={errors.connectedPriceList}>
+              <FormField label={t("Прайс лист")} error={errors.connectedPriceList}>
                 <SearchSelect value={draft.connectedId} options={listOptions} loading={lists.loading} invalid={Boolean(errors.connectedPriceList)} onChange={(connectedId) => set({ connectedId })} />
               </FormField>
               <FormField label={t("Метод расчета")} error={errors.calcMethod}>

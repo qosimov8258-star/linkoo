@@ -608,15 +608,15 @@ function ordersSql(where: string): string {
            COALESCE(NULLIF(fin_place(o.zone), ''), fin_place(COALESCE(c.zone, '')), '') AS zone,
            fin_place(COALESCE(c.branch, '')) AS branch, fin_place(o.agent) AS agent,
            COALESCE(NULLIF(fin_place(o.delivery_man), ''), fin_place(COALESCE(c.deliverer, '')), '') AS delivery_man,
-           o.status, fin_ts(o.created_at, true) AS created_ts, fin_ts(o.delivery) AS delivery_ts,
+           o.status, fin_ts(o.created_at) AS created_ts, fin_ts(o.delivery) AS delivery_ts,
            fin_ts(NULLIF(o.payment_date, '')) AS payment_ts, fin_place(o.organization) AS organization,
-           COALESCE(NULLIF(fin_pt(o.payment_type), ''), 'cash') AS payment_type
+           COALESCE(NULLIF(fin_pt(o.payment_type), ''), 'cash') AS payment_type, o.order_balance
     FROM orders o LEFT JOIN ck ON ck.k = fin_key(o.client) LEFT JOIN clients c ON c.id = ck.id
   )
   SELECT id, client, client_id, zone, branch, agent, delivery_man, status,
          COALESCE(to_char(created_ts, 'YYYY-MM-DD"T"HH24:MI:SS'), '') AS created,
          COALESCE(to_char(delivery_ts, 'YYYY-MM-DD'), '') AS delivery_day,
-         COALESCE(to_char(payment_ts, 'YYYY-MM-DD'), '') AS payment_day, organization, payment_type
+         COALESCE(to_char(payment_ts, 'YYYY-MM-DD'), '') AS payment_day, organization, payment_type, order_balance
   FROM base WHERE ${where}`
 }
 
@@ -634,6 +634,8 @@ type OrderBaseRow = {
   payment_day: string
   organization: string
   payment_type: string
+  /** The demo's own balance (set for orders backfilled from the demo, null for orders created here). */
+  order_balance: number | null
 }
 
 const ORDERS_WHERE = `fin_key(status) <> 'отменен'
@@ -689,15 +691,24 @@ export async function listExpectedOrders(query: ExpectedOrdersQuery): Promise<Ex
   const dues = new Map((orders.length ? await orderDues(db, orders.map((order) => order.id), cc) : []).map((due) => [due.id, due]))
   const rows: ExpectedOrderRow[] = []
   for (const order of orders) {
-    for (const part of dues.get(order.id)?.currencies ?? []) {
-      if (part.remaining <= 0.005) continue
+    const demoBalance = order.order_balance === null ? null : Number(order.order_balance)
+    // The demo's own balance (it also nets the returns) decides for orders backfilled from the demo:
+    // settled → not an expected payment, otherwise the remainder is that balance.
+    if (demoBalance !== null && demoBalance <= 0) continue
+    let parts = dues.get(order.id)?.currencies ?? []
+    if (demoBalance !== null) {
+      const main = [...parts].sort((a, b) => b.total - a.total)[0]
+      parts = main ? [{ ...main, remaining: roundMoney(demoBalance) }] : []
+    }
+    for (const part of parts) {
+      if (demoBalance === null && part.remaining <= 0.005) continue
       rows.push({
         key: `${order.id}-${part.currency}`,
         orderId: order.id,
         client: { id: order.client_id, name: order.client ?? "" },
         zone: order.zone ?? "",
         createdAt: order.created,
-        paymentDate: order.payment_day,
+        paymentDate: order.payment_day || order.delivery_day,
         organization: order.organization ?? "",
         branch: order.branch ?? "",
         agent: order.agent ?? "",

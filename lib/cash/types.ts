@@ -25,6 +25,8 @@ export const CASH_OP = {
   INCOME_FROM_AGENT: 8,
   SUPPLY_EXPENSE: 9,
   OUTCOME_FOR_SUPPLY: 10,
+  /** Supplier income from the reference (shown without "Описание"); never created locally. */
+  SUPPLIER_INCOME: 11,
   CLIENT_CONTRACT_OUT: 22,
 } as const
 
@@ -44,7 +46,8 @@ export const CASH_OP_LABELS: Record<CashOpType, string> = {
   8: "Приемка наличных с агента",
   9: "Доп. расход на поставку",
   10: "Расход на поставку",
-  22: "Выдача денег для кэшбека",
+  11: "",
+  22: "Выдача денег для Кэшбека",
 }
 
 /** Category option keys (demo main/options; the demo's misspelled
@@ -135,7 +138,8 @@ export function optionsOfParameter(parameter: string | null | undefined): Catego
   return PARAMETER_OPTIONS[key] ?? normalizeOptions([key])
 }
 
-export type CashSource = "cash" | "customer" | "supplier" | "acceptance"
+/** "reference" = archived reference operations (cash_reference_rows, list-only, read-only). */
+export type CashSource = "cash" | "customer" | "supplier" | "acceptance" | "reference"
 
 /** Operation key "<source>-<id>" (URL-safe): cash-12, customer-5, supplier-3, acceptance-2. */
 export type CashOperationKey = `${CashSource}-${number}`
@@ -145,7 +149,7 @@ export function operationKey(source: CashSource, id: number): CashOperationKey {
 }
 
 export function parseOperationKey(key: string): { source: CashSource; id: number } | null {
-  const match = /^(cash|customer|supplier|acceptance)-(\d{1,10})$/.exec(String(key ?? "").trim())
+  const match = /^(cash|customer|supplier|acceptance|reference)-(\d{1,10})$/.exec(String(key ?? "").trim())
   if (!match) return null
   const id = Number(match[2])
   return id > 0 ? { source: match[1] as CashSource, id } : null
@@ -416,6 +420,8 @@ export const MONEY_REQUEST_STATUS_LABELS: Record<MoneyRequestStatus, string> = {
 export type MoneyRequestLog = { status: MoneyRequestStatus | "created" | "edited"; comment: string; user: string; at: string; amount?: number; currency?: string }
 
 export type MoneyRequest = {
+  /** Ordinal among all fund requests (the "№" column of the reference). */
+  number?: number
   id: number
   supplier: CashRef
   amount: number

@@ -1,52 +1,88 @@
 "use client"
 
 import Image from "next/image"
-import { Filter, Star, X } from "lucide-react"
-import { useMemo, useState } from "react"
-import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
+import { useEffect, useMemo, useState } from "react"
 
-const agents = [
-  "05,08,2025 (1)", "xodim1 1", "Zaynillo Sadullayev", "Salohiddin Agent Tashkent", "Islom Toirjonov",
-  "Maykl Jekson", "Аббос Доставщик", "Admin Ritm", "Bexruz Abdulazizov", "Samandar Abdurahmonov",
-  "Doston Market", "Fozil Agent",
-]
+import { FilterDate, FilterSelect, RI, RefButton, RefFilterPanel, RefHeader, RefPage } from "@/components/ref/list-kit"
+import { useLanguage } from "@/lib/i18n/language-context"
+import { refDate } from "@/lib/ref-date"
 
-const clientTypes = ["Все типы клиентов", "horeca", "market", "market100", "market101"]
-const equipmentStores = ["Все магазины", "С оборудованием", "Без оборудования"]
+type AgentCell = { name: string; done: number; sales: number }
+type EmployeeRow = { id?: number; name?: string; firstName?: string; lastName?: string; first_name?: string; last_name?: string; active?: boolean }
 
-function inputDate(date: Date) {
-  const year = date.getFullYear()
-  const month = String(date.getMonth() + 1).padStart(2, "0")
-  const day = String(date.getDate()).padStart(2, "0")
-  return `${year}-${month}-${day}`
-}
+const equipmentStores = ["С оборудованием", "Без оборудования"]
 
-function monthStart() {
+const isoDay = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`
+const monthStart = () => {
   const today = new Date()
-  return inputDate(new Date(today.getFullYear(), today.getMonth(), 1))
+  return isoDay(new Date(today.getFullYear(), today.getMonth(), 1))
 }
-
-function monthEnd() {
+const monthEnd = () => {
   const today = new Date()
-  return inputDate(new Date(today.getFullYear(), today.getMonth() + 1, 0))
+  return isoDay(new Date(today.getFullYear(), today.getMonth() + 1, 0))
 }
-
-function formatDate(value: string) {
-  const [year, month, day] = value.split("-")
-  const months = ["", "янв.", "февр.", "мар.", "апр.", "мая", "июня", "июля", "авг.", "сент.", "окт.", "нояб.", "дек."]
-  return `${day} ${months[Number(month)]} ${year}`
+// "23 Окт. 2026": the reference capitalises the month of the period caption.
+const caption = (value: string) => {
+  const text = refDate(value)
+  return text.replace(/^(\d+ )(.)/, (_all, day: string, first: string) => `${day}${first.toUpperCase()}`)
 }
 
 export function ActivityView() {
-  const today = useMemo(() => inputDate(new Date()), [])
+  const { t } = useLanguage()
+  const today = useMemo(() => isoDay(new Date()), [])
   const [from, setFrom] = useState(today)
   const [to, setTo] = useState(today)
   const [draftFrom, setDraftFrom] = useState(monthStart)
   const [draftTo, setDraftTo] = useState(monthEnd)
-  const [clientType, setClientType] = useState(clientTypes[0])
-  const [equipmentStore, setEquipmentStore] = useState(equipmentStores[0])
+  const [clientType, setClientType] = useState("")
+  const [clientTypes, setClientTypes] = useState<string[]>([])
+  const [equipmentStore, setEquipmentStore] = useState("")
   const [filterOpen, setFilterOpen] = useState(false)
   const [selectedAgent, setSelectedAgent] = useState<string | null>(null)
+  const [cells, setCells] = useState<AgentCell[]>([])
+
+  // The strip lists the reference's agent plan (its active members, in the reference's order) with the done visits and the
+  // sales of the chosen period.
+  useEffect(() => {
+    let cancelled = false
+    const json = async <T,>(url: string): Promise<T> => {
+      const response = await fetch(url)
+      return (response.ok ? await response.json() : []) as T
+    }
+    Promise.all([
+      json<EmployeeRow[]>("/api/employees"),
+      json<Array<{ employeeId: number; active: boolean; position?: number }>>("/api/agent-plan-members").catch(() => []),
+      json<{ agents?: Array<{ name: string; visited: number; sales: number }> }>(`/api/agent-visits?view=stats&begin=${from}&end=${to}`).catch(() => ({ agents: [] })),
+    ])
+      .then(([employees, members, stats]) => {
+        if (cancelled || !Array.isArray(employees)) return
+        const plan = Array.isArray(members) && members.length ? new Map(members.filter((member) => member.active).map((member) => [member.employeeId, member.position ?? -1])) : null
+        const byName = new Map((stats.agents ?? []).map((row) => [row.name, row]))
+        setCells(
+          employees
+            .filter((row) => (plan ? plan.has(Number(row.id)) : row.active !== false))
+            .map((row, index) => ({
+              name: [row.firstName ?? row.first_name, row.lastName ?? row.last_name].filter(Boolean).join(" ") || row.name || "",
+              order: plan && (plan.get(Number(row.id)) ?? -1) >= 0 ? (plan.get(Number(row.id)) as number) : 1000 + index,
+            }))
+            .filter((row) => row.name)
+            .sort((a, b) => a.order - b.order)
+            .map((row) => ({ name: row.name, done: byName.get(row.name)?.visited ?? 0, sales: byName.get(row.name)?.sales ?? 0 })),
+        )
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [from, to])
+
+  useEffect(() => {
+    if (!filterOpen || clientTypes.length) return
+    fetch("/api/client-types")
+      .then((response) => (response.ok ? response.json() : []))
+      .then((data: Array<{ name?: string }>) => setClientTypes([...new Set(data.map((item) => item.name ?? "").filter(Boolean))]))
+      .catch(() => {})
+  }, [filterOpen, clientTypes.length])
 
   function applyFilters() {
     setFrom(draftFrom)
@@ -54,99 +90,58 @@ export function ActivityView() {
     setFilterOpen(false)
   }
 
+  const total = cells.reduce((sum, cell) => sum + cell.done, 0)
+
   return (
-    <main className="min-h-[calc(100vh-4rem)] bg-slate-100">
-      <header className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-300 px-5 py-4 sm:px-10">
-        <div className="flex items-center gap-3 text-xl font-bold sm:text-2xl">
-          <FavoritesButton className="flex items-center gap-2 text-[#5470e8]" />
-          <span className="text-slate-500">|</span>
-          <h1 className="text-slate-600">Активность</h1>
-        </div>
-        <div className="flex flex-wrap items-center gap-4">
-          <strong className="text-[#5470e8]">
-            {formatDate(from)} - {formatDate(to)}
-          </strong>
-          <button type="button" onClick={() => setFilterOpen(true)} className="inline-flex items-center gap-2 rounded-md bg-[#5470e8] px-5 py-2.5 font-semibold text-white hover:brightness-95">
-            <Filter className="h-5 w-5" />
-            Показать фильтр
-          </button>
-        </div>
-      </header>
+    <RefPage>
+      <div className="relative">
+        <RefHeader title={t("Активность")}>
+          <div className="mr-[8px] flex items-center">
+            <strong className="mr-[15px] text-[13px] font-bold text-[#4f71dc]">
+              {caption(from)} - {caption(to)}
+            </strong>
+            <RefButton exact icon={RI.filter} label={t("Показать фильтр")} onClick={() => setFilterOpen((open) => !open)} />
+          </div>
+        </RefHeader>
+        {filterOpen && (
+          <div className="absolute right-[37px] top-[70px] z-30" style={{ width: 300 }}>
+            <RefFilterPanel narrow className="!w-[300px]" onClose={() => setFilterOpen(false)} onApply={applyFilters} applyClassName="mt-[22px]">
+              <FilterDate label={t("Дата")} words begin={draftFrom} end={draftTo} onChange={(begin, end) => { setDraftFrom(begin); setDraftTo(end) }} />
+              <FilterSelect label={t("Тип клиента")} value={clientType} onChange={setClientType} options={clientTypes} />
+              <FilterSelect label={t("Магазин с оборудованием")} value={equipmentStore} onChange={setEquipmentStore} options={equipmentStores.map((item) => t(item))} />
+            </RefFilterPanel>
+          </div>
+        )}
+      </div>
 
-      <section className="overflow-x-auto border-b border-slate-300 bg-white px-5 py-4 sm:px-10">
-        <div className="flex gap-3">
+      <div className="-mx-7 flex h-[66px] overflow-x-auto bg-white text-[13px] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        <button type="button" onClick={() => setSelectedAgent(null)} className="flex w-[94px] shrink-0 items-center pl-[16px] text-left">
+          <span className="flex h-[35px] w-[35px] shrink-0 items-center justify-center rounded-full bg-[#9aa6b3]">
+            <svg viewBox="0 0 24 24" className="h-6 w-6 fill-white"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z" /></svg>
+          </span>
+          <span className="ml-[5px] block">
+            <span className="block h-[18px] font-semibold leading-[18px] text-[#333]">{t("Все")}</span>
+            <span className="block h-[18px] leading-[18px] text-[#666]">{total}</span>
+          </span>
+        </button>
+        {cells.map((cell, cellIndex) => (
           <button
+            key={`${cell.name}-${cellIndex}`}
             type="button"
-            onClick={() => setSelectedAgent(null)}
-            className={`flex w-32 shrink-0 flex-col items-center justify-center gap-1 rounded-md border py-3 ${selectedAgent === null ? "border-[#5470e8] bg-[#eef1fd]" : "border-slate-200"}`}
+            onClick={() => setSelectedAgent(cell.name)}
+            className={`shrink-0 whitespace-nowrap border-l border-[#efefef] pl-[15px] pr-[15px] pt-[6px] text-center ${selectedAgent === cell.name ? "bg-[#f7f9fc]" : ""}`}
           >
-            <span className="flex h-10 w-10 items-center justify-center rounded-full bg-slate-300 text-white">
-              <Star className="h-5 w-5" />
-            </span>
-            <span className="font-semibold text-slate-700">Все</span>
-            <span className="text-slate-500">0</span>
+            <span className="block h-[18px] font-semibold leading-[18px] text-[#333]">{cell.name}</span>
+            <span className="block h-[18px] bg-[#4f71dc] leading-[18px] text-white">{cell.done}</span>
+            <span className="block h-[18px] leading-[18px] text-[#666]">{cell.sales.toLocaleString("ru-RU")} SUM</span>
           </button>
-          {agents.map((agent) => (
-            <button
-              key={agent}
-              type="button"
-              onClick={() => setSelectedAgent(agent)}
-              className={`w-40 shrink-0 rounded-md border px-3 py-3 text-left ${selectedAgent === agent ? "border-[#5470e8] bg-[#eef1fd]" : "border-slate-200"}`}
-            >
-              <p className="mb-2 truncate font-semibold text-slate-800">{agent}</p>
-              <div className="flex h-7 items-center justify-center rounded bg-[#5470e8] font-semibold text-white">0</div>
-              <p className="mt-1 text-center text-slate-500">0 SUM</p>
-            </button>
-          ))}
-        </div>
-      </section>
+        ))}
+      </div>
 
-      <section className="flex min-h-[420px] flex-col items-center justify-center gap-4 py-12">
-        <Image src="/robot-empty.png" alt="Робот-помощник" width={150} height={150} priority className="h-36 w-36 object-contain" />
-        <p className="text-lg text-slate-400">По вашему запросу ничего не найдено...</p>
+      <section className="flex flex-col items-center gap-3 pt-[76px]">
+        <Image src="/robot-empty.png" alt={t("Робот-помощник")} width={150} height={150} priority className="h-36 w-36 object-contain" />
+        <p className="text-[13px] text-[#666]">{t("По вашему запросу ничего не найдено...")}</p>
       </section>
-
-      {filterOpen && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/45 p-4" onMouseDown={() => setFilterOpen(false)}>
-          <section onMouseDown={(event) => event.stopPropagation()} role="dialog" aria-modal="true" className="w-full max-w-sm rounded bg-white p-7 shadow-2xl">
-            <header className="mb-6 flex items-center justify-between">
-              <h2 className="text-lg font-semibold text-slate-800">Фильтр</h2>
-              <button type="button" onClick={() => setFilterOpen(false)} aria-label="Закрыть" className="rounded-full border border-slate-300 p-1 text-slate-500 hover:bg-slate-100">
-                <X className="h-4 w-4" />
-              </button>
-            </header>
-            <div className="space-y-6">
-              <label className="block">
-                <span className="mb-2 block font-semibold text-slate-800">Дата</span>
-                <div className="flex items-center gap-2 border-b border-slate-300 pb-2">
-                  <input type="date" value={draftFrom} max={draftTo} onChange={(event) => setDraftFrom(event.target.value)} className="w-full bg-transparent text-sm outline-none" />
-                  <span className="text-slate-400">-</span>
-                  <input type="date" value={draftTo} min={draftFrom} onChange={(event) => setDraftTo(event.target.value)} className="w-full bg-transparent text-sm outline-none" />
-                </div>
-              </label>
-              <label className="relative block border-b border-slate-300 pb-2">
-                <span className="mb-2 block font-semibold text-slate-800">Тип клиента</span>
-                <select value={clientType} onChange={(event) => setClientType(event.target.value)} className="block w-full appearance-none bg-transparent text-sm outline-none">
-                  {clientTypes.map((item) => (
-                    <option key={item}>{item}</option>
-                  ))}
-                </select>
-              </label>
-              <label className="relative block border-b border-slate-300 pb-2">
-                <span className="mb-2 block font-semibold text-slate-800">Магазин с оборудованием</span>
-                <select value={equipmentStore} onChange={(event) => setEquipmentStore(event.target.value)} className="block w-full appearance-none bg-transparent text-sm outline-none">
-                  {equipmentStores.map((item) => (
-                    <option key={item}>{item}</option>
-                  ))}
-                </select>
-              </label>
-              <button type="button" onClick={applyFilters} className="rounded bg-[#5d6474] px-6 py-3 font-semibold uppercase text-white hover:brightness-95">
-                Применить
-              </button>
-            </div>
-          </section>
-        </div>
-      )}
-    </main>
+    </RefPage>
   )
 }

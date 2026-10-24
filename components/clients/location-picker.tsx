@@ -7,7 +7,7 @@ import { X } from "lucide-react"
 import { useLanguage } from "@/lib/i18n/language-context"
 
 const pinIcon = L.divIcon({
-  html: `<div style="width:18px;height:18px;border-radius:50% 50% 50% 0;background:#4f71dc;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4);transform:rotate(-45deg);"></div>`,
+  html: `<div style="width:18px;height:18px;border-radius:50% 50% 50% 0;background:#e53935;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4);transform:rotate(-45deg);"></div>`,
   className: "",
   iconSize: [18, 18],
   iconAnchor: [9, 18],
@@ -28,7 +28,7 @@ export function LocationPicker({ initialLat, initialLng, onCancel, onConfirm }: 
   const mapRef = useRef<L.Map | null>(null)
   const markerRef = useRef<L.Marker | null>(null)
   const [point, setPoint] = useState<{ lat: number; lng: number } | null>(
-    initialLat != null && initialLng != null ? { lat: initialLat, lng: initialLng } : null,
+    initialLat != null && initialLng != null ? { lat: initialLat, lng: initialLng } : { lat: 41.3111, lng: 69.2797 },
   )
 
   useEffect(() => {
@@ -37,7 +37,7 @@ export function LocationPicker({ initialLat, initialLng, onCancel, onConfirm }: 
     const map = L.map(containerRef.current, { center: start, zoom: point ? 15 : 11 })
     mapRef.current = map
 
-    L.control.zoom({ position: "topright" }).addTo(map)
+    L.control.zoom({ position: "bottomright" }).addTo(map)
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19 }).addTo(map)
 
     if (point) markerRef.current = L.marker([point.lat, point.lng], { icon: pinIcon }).addTo(map)
@@ -63,32 +63,17 @@ export function LocationPicker({ initialLat, initialLng, onCancel, onConfirm }: 
   }, [])
 
   return (
-    <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/50 p-4">
-      <div className="flex w-full max-w-2xl flex-col overflow-hidden rounded bg-white shadow-2xl">
-        <header className="flex items-center justify-between border-b p-4">
-          <b className="uppercase">{t("Отметить местоположение на карте")}</b>
-          <button type="button" onClick={onCancel} aria-label={t("Закрыть")}>
-            <X className="h-5 w-5" />
+    <div className="fixed inset-0 z-[110] flex items-start justify-center bg-black/50 px-4 pt-[64px]">
+      <div className="relative flex w-full max-w-[1000px] flex-col overflow-hidden bg-white shadow-2xl">
+        <div ref={containerRef} className="h-[600px] max-h-[calc(100vh-140px)] w-full" />
+        <button type="button" onClick={onCancel} aria-label={t("Закрыть")} className="absolute right-[18px] top-[16px] z-[1000] text-[#333] hover:text-black">
+          <X className="h-6 w-6" />
+        </button>
+        <footer className="flex h-[56px] items-center justify-between bg-[#5a5a5a] px-[30px] text-[13px] font-bold text-white">
+          <span>{t("Кликните по карте, чтобы обозначить локацию")}</span>
+          <button type="button" onClick={() => point && onConfirm(point.lat, point.lng)} className="uppercase hover:opacity-80">
+            {t("Сохранить")}
           </button>
-        </header>
-        <div ref={containerRef} className="h-[420px] w-full" />
-        <footer className="flex flex-wrap items-center justify-between gap-3 border-t p-4">
-          <span className="text-sm text-slate-500">
-            {point ? `${point.lat.toFixed(6)}, ${point.lng.toFixed(6)}` : t("Нажмите на карту, чтобы выбрать точку")}
-          </span>
-          <div className="flex gap-3">
-            <button type="button" onClick={onCancel} className="rounded border px-4 py-2 font-semibold text-slate-700 hover:bg-slate-50">
-              {t("Отмена")}
-            </button>
-            <button
-              type="button"
-              disabled={!point}
-              onClick={() => point && onConfirm(point.lat, point.lng)}
-              className="rounded bg-[#71ce87] px-5 py-2 font-semibold text-white hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {t("Сохранить")}
-            </button>
-          </div>
         </footer>
       </div>
     </div>

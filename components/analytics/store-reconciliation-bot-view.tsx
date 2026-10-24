@@ -108,6 +108,8 @@ const TITLES: Record<ReconciliationVariant, string> = {
 export function StoreReconciliationBotView({ variant = "client" }: { variant?: ReconciliationVariant }) {
   const { t, language } = useLanguage()
   const isAccount = variant === "account"
+  // Both variants share the reference's grid (300px client column + 100px columns, white card); only the header colour differs.
+  const refGrid = true
   const title = TITLES[variant]
   const searchParams = useSearchParams()
   const [state, setState] = useState<ReconciliationState>(() => stateFromParams(searchParams))
@@ -172,7 +174,7 @@ export function StoreReconciliationBotView({ variant = "client" }: { variant?: R
   const deadlineText = (value: string | null) => (value ? formatStatementDate(value, language, false) : t("Не указано"))
 
   // --- Excel ---------------------------------------------------------------------------------
-  const cashBankHeaders = (codes: string[]) => codes.flatMap((code) => [`${currencyLabel(code)} ${t("нал.")}`, `${currencyLabel(code)} ${t("переч.")}`])
+  const cashBankHeaders = (codes: string[]) => codes.flatMap((code) => [`${currencyLabel(code)}${t(" нал.")}`, `${currencyLabel(code)}${t(" переч.")}`])
   const cashBankCells = (row: StoreReconciliationRow, codes: string[]) => codes.flatMap((code) => [roundMoney(row.currencies[code]?.cash ?? 0), roundMoney(row.currencies[code]?.bank ?? 0)])
 
   /** "Список": the loaded page with the demo's list columns (4613 `re ∪ ie`). */
@@ -232,15 +234,15 @@ export function StoreReconciliationBotView({ variant = "client" }: { variant?: R
       <ArrowUpDown className="h-3.5 w-3.5 opacity-40" />
     )
     return (
-      <button type="button" onClick={() => update({ ordering: nextOrdering(state.ordering, sortKey, "asc-first"), page: 1 })} className="inline-flex items-center gap-1 whitespace-nowrap">
+      <button type="button" onClick={() => update({ ordering: nextOrdering(state.ordering, sortKey, "asc-first"), page: 1 })} className={`inline-flex items-center gap-1 ${refGrid ? "justify-center whitespace-normal text-center" : "whitespace-nowrap"}`}>
         {label}
-        {icon}
+        {refGrid ? null : icon}
       </button>
     )
   }
   const openAct = (row: StoreReconciliationRow) => update({ openClient: { key: row.key, name: row.name } })
   const columnCount = 7 + columnCurrencies.length * 2
-  const head = "border border-[#6b87e3] px-4 py-3 text-left font-semibold"
+  const head = refGrid ? "border border-[#efefef] px-2 py-2 text-center text-[13px] font-semibold leading-[18px] whitespace-normal break-words" : "border border-[#6b87e3] px-4 py-3 text-left font-semibold"
 
   const actionButton = (title: string, icon: ReactNode, onClick: () => void) => (
     <button
@@ -259,13 +261,13 @@ export function StoreReconciliationBotView({ variant = "client" }: { variant?: R
 
   return (
     <main className="min-h-screen bg-white text-[#17233b]">
-      <header className="flex min-h-[76px] flex-wrap items-center justify-between gap-4 border-b border-[#d8dee7] bg-[#f2f5f8] px-6 md:px-9">
-        <div className="flex items-center gap-3">
-          <FavoritesButton className="flex items-center gap-3 text-2xl font-bold text-[#4f70e7]" />
-          <span className="text-3xl font-light text-[#586174]">|</span>
-          <span className="text-2xl font-bold text-[#586174]">{t(title)}</span>
+      <header className="flex min-h-[60px] flex-wrap items-center justify-between gap-4 px-[28px]">
+        <div className="flex items-center">
+          <FavoritesButton className="flex items-center gap-[5px] text-[18px] font-bold text-[#4f71dc]" />
+          <span className="mx-[11px] h-[21px] w-[2px] bg-[#5d6474]" />
+          <span className="text-[18px] font-bold text-[#5d6474]">{t(title)}</span>
         </div>
-        <div className="my-3 flex overflow-hidden rounded-md border border-[#dbe0e8]">
+        <div className="mt-[1px] -mr-[23px] flex h-[32px] w-[51%] overflow-hidden bg-white">
           {(
             [
               ["created", "По дате создания"],
@@ -276,7 +278,7 @@ export function StoreReconciliationBotView({ variant = "client" }: { variant?: R
               key={mode}
               type="button"
               onClick={() => changeMode(mode)}
-              className={`px-5 py-3 text-[15px] font-semibold ${state.mode === mode ? "bg-[#71ce87] text-white shadow" : "bg-white text-[#586174]"}`}
+              className={`flex-1 px-5 text-[13px] font-normal ${state.mode === mode ? "bg-[#71ce87] text-white shadow" : "bg-white text-[#586174]"}`}
             >
               {t(label)}
             </button>
@@ -284,11 +286,13 @@ export function StoreReconciliationBotView({ variant = "client" }: { variant?: R
         </div>
       </header>
 
-      <div className="px-6 pt-4 text-[14px] text-[#586174] md:px-9">
-        {t("Баланс на")} <strong className="text-[#4f70e7]">{formatStatementDate(asOf, language, false)}</strong>
-      </div>
-      <div className="pt-4">
-        <BalanceSummaryCards boxes={SUMMARY} totals={cardTotals} currencies={data?.visibleCurrencies ?? []} loading={loading} />
+      {!refGrid && (
+        <div className="px-6 pt-4 text-[14px] text-[#586174] md:px-9">
+          {t("Баланс на")} <strong className="text-[#4f70e7]">{formatStatementDate(asOf, language, false)}</strong>
+        </div>
+      )}
+      <div className={refGrid ? "pt-1" : "pt-4"}>
+        <BalanceSummaryCards plain marginClass="mx-[28px]" boxes={SUMMARY} totals={cardTotals} currencies={data?.visibleCurrencies ?? []} loading={loading} />
       </div>
       {data && data.missingRates.length > 0 && (
         <p className="px-6 pb-3 text-[13px] text-[#8a6d3b] md:px-9">
@@ -296,8 +300,9 @@ export function StoreReconciliationBotView({ variant = "client" }: { variant?: R
         </p>
       )}
 
+      <div className={refGrid ? "mx-[28px] mt-[15px] bg-white shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]" : ""}>
       <ExpandedOverlay expanded={expanded}>
-        <section className="flex flex-wrap items-center gap-3 border-t border-[#efefef] px-6 py-3 md:px-9">
+        <section className="flex h-[55px] items-center gap-3 px-[30px]">
           <BalanceFilterChip
             count={filterCount}
             onOpen={() => setFilterOpen(true)}
@@ -307,7 +312,7 @@ export function StoreReconciliationBotView({ variant = "client" }: { variant?: R
             }}
           />
           <form
-            className="mx-auto flex min-w-[160px] flex-1 items-center justify-center gap-1"
+            className="relative mx-auto flex min-w-[160px] flex-1 items-center justify-center gap-1"
             onSubmit={(event) => {
               event.preventDefault()
               update({ search: searchDraft.trim(), page: 1 })
@@ -318,13 +323,13 @@ export function StoreReconciliationBotView({ variant = "client" }: { variant?: R
               onChange={(event) => setSearchDraft(event.target.value)}
               placeholder={t("Поиск")}
               aria-label={t("Поиск")}
-              className="h-10 w-full max-w-[260px] border-b border-[#dbe0e8] bg-transparent px-1 text-[15px] outline-none focus:border-[#4f70e7]"
+              className="h-[36px] w-[256px] border-b border-[#dbe0e8] bg-transparent text-[13px] outline-none placeholder:font-semibold placeholder:text-black focus:border-[#4f70e7]"
             />
-            <button type="submit" aria-label={t("Поиск")} className="p-1.5 text-[#ccc]">
+            <button type="submit" aria-label={t("Поиск")} className="absolute left-[calc(50%+138px)] p-1.5 text-[#ccc]">
               <Search className="h-5 w-5" />
             </button>
           </form>
-          <div className="flex flex-wrap items-center gap-3">
+          <div className="flex items-center gap-3">
             {user.canEdit && !isAccount && (
               <button type="button" onClick={() => setImportOpen(true)} className="flex h-[34px] items-center gap-2 rounded-sm bg-[rgb(79,113,220)] px-4 font-semibold text-white">
                 <FileSpreadsheet className="h-4 w-4" /> {t("Установить долг с Excel")}
@@ -354,10 +359,18 @@ export function StoreReconciliationBotView({ variant = "client" }: { variant?: R
         )}
 
         <div className={`overflow-x-auto ${loading ? "opacity-60" : ""}`}>
-          <table className="w-full min-w-[1150px] border-collapse text-[14px] text-[#666]">
-            <thead className="sticky top-0 z-[1] bg-[#4f71dc] text-white">
+          <table className={`border-collapse text-[#666] ${refGrid ? "table-fixed text-[13px]" : "w-full min-w-[1150px] text-[14px]"}`} style={refGrid ? { width: 300 + 100 * (5 + columnCurrencies.length * 2 + 1) } : undefined}>
+            {refGrid && (
+              <colgroup>
+                <col style={{ width: 300 }} />
+                {Array.from({ length: 5 + columnCurrencies.length * 2 + 1 }, (_, index) => (
+                  <col key={index} style={{ width: 100 }} />
+                ))}
+              </colgroup>
+            )}
+            <thead className={`sticky top-0 z-[1] bg-[#f0f4f9] text-[#374557]`}>
               <tr>
-                <th className={`${head} sticky left-0 z-[2] min-w-[300px] bg-[#4f71dc]`}>{t("Клиент")}</th>
+                <th className={`${head} sticky left-0 z-[2] min-w-[300px] bg-[#f0f4f9]`}>{t("Клиент")}</th>
                 <th className={head}>{sortHeader("status", t("Статус сверки"))}</th>
                 <th className={head}>{sortHeader("deadline", t("Срок долга"))}</th>
                 <th className={head}>{sortHeader("payment_days", t("Прошло дней после оплаты"))}</th>
@@ -366,7 +379,7 @@ export function StoreReconciliationBotView({ variant = "client" }: { variant?: R
                 {columnCurrencies.flatMap((code) =>
                   (["cash", "bank"] as const).map((field) => (
                     <th key={`${field}.${code}`} className={head}>
-                      {sortHeader(`${field}.${code}`, `${currencyLabel(code)} ${t(field === "cash" ? "нал." : "переч.")}`)}
+                      {sortHeader(`${field}.${code}`, `${currencyLabel(code)}${t(field === "cash" ? " нал." : " переч.")}`)}
                     </th>
                   )),
                 )}
@@ -376,7 +389,7 @@ export function StoreReconciliationBotView({ variant = "client" }: { variant?: R
             <tbody>
               {rows.map((row, index) => {
                 const background = index % 2 ? "#ffffff" : "#F4F8FB"
-                const cell = "cursor-pointer border-b border-r border-[#efefef] px-4 py-2 whitespace-nowrap"
+                const cell = "cursor-pointer border-b border-r border-[#efefef] px-[6px] py-[3px] leading-[16px]"
                 const overdue = Boolean(row.paymentDeadline && row.paymentDeadline < todayIso())
                 return (
                   <tr key={row.key} style={{ background }} className="group hover:!bg-[#e9f8ff] hover:font-semibold">
@@ -437,6 +450,7 @@ export function StoreReconciliationBotView({ variant = "client" }: { variant?: R
           </table>
         </div>
       </ExpandedOverlay>
+      </div>
 
       <ReconciliationFilterDialog
         open={filterOpen}

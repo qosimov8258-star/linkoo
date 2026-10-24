@@ -4,6 +4,7 @@ import { useMemo, useState, type ReactNode } from "react"
 import { Banknote, CreditCard, Pencil, X } from "lucide-react"
 
 import { BalancePagination } from "@/components/analytics/balance/pagination"
+import { Modal as CatalogModal, SaveButton as CatalogSaveButton } from "@/components/analytics/catalog-ui"
 import { cashMutate, useCashJson } from "@/components/analytics/cash/use-cash"
 import { PaymentModal } from "@/components/analytics/customer-payments-dialogs"
 import { formatRuDate } from "@/components/analytics/customer-payments-filters"
@@ -71,6 +72,7 @@ export function useBucketTitle(config: OrderDebtConfig) {
 // --- "Настроить период" -----------------------------------------------------------------
 
 export function OrderDebtPeriodDialog({ config, onClose, onSaved }: { config: OrderDebtConfig; onClose: () => void; onSaved: (config: OrderDebtConfig) => void }) {
+  const { t } = useLanguage()
   const [values, setValues] = useState({ first: String(config.firstDebtPeriod), second: String(config.secondDebtPeriod), third: String(config.thirdDebtPeriod) })
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState("")
@@ -84,10 +86,20 @@ export function OrderDebtPeriodDialog({ config, onClose, onSaved }: { config: Or
     if (!result.ok) return setError(result.error)
     onSaved(result.data)
   }
+  // The demo's dialog: 500px, 60px title bar, underlined fields with a 10px label, green "Сохранить" in the footer.
   return (
-    <PaymentModal title="Настроить период" onClose={onClose} width={500}>
+    <CatalogModal
+      title={t("Настроить период")}
+      onClose={onClose}
+      titleClassName="text-[15px]"
+      bodyClassName="min-h-[301px] px-[30px] pt-[22px]"
+      footer={
+        <CatalogSaveButton disabled={busy} onClick={() => void submit()}>
+          {busy ? t("Сохранение...") : t("Сохранить")}
+        </CatalogSaveButton>
+      }
+    >
       <form
-        className="flex flex-col gap-4 px-5 py-5"
         onSubmit={(event) => {
           event.preventDefault()
           void submit()
@@ -100,24 +112,23 @@ export function OrderDebtPeriodDialog({ config, onClose, onSaved }: { config: Or
             ["third", "Третий период"],
           ] as const
         ).map(([field, label]) => (
-          <Label key={field} text={label}>
+          <label key={field} className="relative mb-[10px] block h-[42px] border-b border-[#e0e0e0]">
+            <span className="absolute left-0 top-0 text-[10px] font-semibold leading-3 text-black">{t(label)}</span>
             <input
               type="number"
               min={1}
               max={3650}
               value={values[field]}
               onChange={(event) => setValues((current) => ({ ...current, [field]: event.target.value }))}
-              className={fieldClass}
+              className="absolute inset-x-0 top-[16px] h-[24px] bg-transparent text-[13px] font-semibold text-[#333] outline-none"
               required
             />
-          </Label>
+          </label>
         ))}
         <ErrorLine error={error} />
-        <div className="flex justify-end">
-          <SaveButton busy={busy} />
-        </div>
+        <button type="submit" className="hidden" />
       </form>
-    </PaymentModal>
+    </CatalogModal>
   )
 }
 

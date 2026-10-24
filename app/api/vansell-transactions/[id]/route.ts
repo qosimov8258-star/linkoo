@@ -4,7 +4,7 @@ import { getCurrentUser } from "@/lib/current-user"
 import { vansellTransactionUpdateSchema } from "@/lib/finance-vansell-balance-api"
 import { requireRole } from "@/lib/rbac"
 import { parseJsonBody } from "@/lib/validation"
-import { getVansellTransaction, updateVansellTransaction } from "@/lib/vansell-transactions-repo"
+import { deleteVansellTransaction, getVansellTransaction, updateVansellTransaction } from "@/lib/vansell-transactions-repo"
 
 type RouteParams = { params: Promise<{ id: string }> }
 
@@ -34,4 +34,17 @@ export async function PUT(request: Request, { params }: RouteParams) {
   if (result === "employee_not_found") return NextResponse.json({ error: "Вансел не найден" }, { status: 404 })
   if (result === "currency_not_found") return NextResponse.json({ error: "Валюта не найдена" }, { status: 400 })
   return NextResponse.json(result)
+}
+
+/** Soft delete of a manual ("Нет типа") movement. */
+export async function DELETE(_request: Request, { params }: RouteParams) {
+  const auth = await requireRole("manager")
+  if ("error" in auth) return auth.error
+
+  const id = Number((await params).id)
+  if (!Number.isInteger(id) || id <= 0) return NextResponse.json({ error: "Запись не найдена" }, { status: 404 })
+  const result = await deleteVansellTransaction(id)
+  if (result === "not_found") return NextResponse.json({ error: "Запись не найдена" }, { status: 404 })
+  if (result === "not_editable") return NextResponse.json({ error: "Удалять можно только движения без типа" }, { status: 409 })
+  return NextResponse.json({ id, deleted: true })
 }

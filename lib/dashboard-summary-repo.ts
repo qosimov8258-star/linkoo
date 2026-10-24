@@ -1,5 +1,7 @@
+import { selectedBranchName } from "@/lib/selected-branch"
 import "server-only"
 
+import { getFieldSummary, type FieldSummary } from "@/lib/agent-visits-repo"
 import { getDb } from "@/lib/db"
 
 export type CurrencyAmount = { value: number; currency: string }
@@ -9,6 +11,7 @@ export type DashboardSummary = {
   payments: CurrencyAmount
   returns: CurrencyAmount
   akb: number
+  field: FieldSummary
   orderStatusCounts: {
     shipped: number
     inTransit: number
@@ -46,9 +49,10 @@ function pickPrimary(map: Map<string, number>): CurrencyAmount {
 export async function getDashboardSummary(beginISO: string, endISO: string): Promise<DashboardSummary> {
   const db = getDb()
 
+  const branch = await selectedBranchName()
   const orderRows = (await db
-      .prepare("SELECT client, amount, status FROM orders WHERE date(created_at) BETWEEN ? AND ?")
-      .all(beginISO, endISO)) as { client: string; amount: string; status: string }[]
+      .prepare("SELECT client, amount, status FROM orders WHERE date(created_at) BETWEEN ? AND ? AND (?::text = '' OR branch_name = ?)")
+      .all(beginISO, endISO, branch, branch)) as { client: string; amount: string; status: string }[]
 
   const salesByCurrency = new Map<string, number>()
   const returnsByCurrency = new Map<string, number>()
@@ -84,6 +88,7 @@ export async function getDashboardSummary(beginISO: string, endISO: string): Pro
     payments: pickPrimary(paymentsByCurrency),
     returns: pickPrimary(returnsByCurrency),
     akb: clients.size,
+    field: await getFieldSummary(beginISO, endISO),
     orderStatusCounts: {
       shipped: inTransit + delivered,
       inTransit,

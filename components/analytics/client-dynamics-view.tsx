@@ -8,8 +8,6 @@ import { ReportMultiChipField, ReportPage, ReportRangeField, ReportSelectField, 
 type PeriodData = { stores: number; storePercent: number; sum: number; sumPercent: number; dynamic?: number }
 type ClassificationRow = { name: string; periods: [PeriodData, PeriodData, PeriodData] }
 type Period = { from: string; to: string }
-type ClientRow = { name: string }
-type OrderRow = { client: string; created: string; amount: string; type: string }
 
 const GEAR = "M19.43 12.98c.04-.32.07-.64.07-.98s-.03-.66-.07-.98l2.11-1.65c.19-.15.24-.42.12-.64l-2-3.46c-.12-.22-.39-.3-.61-.22l-2.49 1c-.52-.4-1.08-.73-1.69-.98l-.38-2.65C14.46 2.18 14.25 2 14 2h-4c-.25 0-.46.18-.49.42l-.38 2.65c-.61.25-1.17.59-1.69.98l-2.49-1c-.23-.09-.49 0-.61.22l-2 3.46c-.13.22-.07.49.12.64l2.11 1.65c-.04.32-.07.65-.07.98s.03.66.07.98l-2.11 1.65c-.19.15-.24.42-.12.64l2 3.46c.12.22.39.3.61.22l2.49-1c.52.4 1.08.73 1.69.98l.38 2.65c.03.24.24.42.49.42h4c.25 0 .46-.18.49-.42l.38-2.65c.61-.25 1.17-.59 1.69-.98l2.49 1c.23.09.49 0 .61-.22l2-3.46c.12-.22.07-.49-.12-.64l-2.11-1.65zM12 15.5c-1.93 0-3.5-1.57-3.5-3.5s1.57-3.5 3.5-3.5 3.5 1.57 3.5 3.5-1.57 3.5-3.5 3.5z"
 
@@ -24,33 +22,9 @@ const DEFAULT_CLASSES: ClassRow[] = [
   { name: "10-20 млн", amount: 20_000_000 },
 ]
 
-function bucketNames(classes: ClassRow[]) {
-  const last = classes[classes.length - 1]
-  return ["Нет заказа", ...classes.map((row) => row.name), `> ${last ? last.amount / 1_000_000 : 0} млн`]
-}
-
-function bucketOf(total: number, classes: ClassRow[]) {
-  if (total <= 0) return 0
-  const index = classes.findIndex((row) => total < row.amount)
-  return index === -1 ? classes.length + 1 : index + 1
-}
-
 function isoDate(date: Date) {
   const pad = (value: number) => String(value).padStart(2, "0")
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
-}
-
-// Same tolerant parsing as the other order reports: ISO date or "06 сент. 14:23" (no year).
-function orderDate(value: string): Date | null {
-  const iso = value.match(/^(\d{4})-(\d{2})-(\d{2})/)
-  if (iso) return new Date(Number(iso[1]), Number(iso[2]) - 1, Number(iso[3]))
-  const ru = value.match(/(\d{1,2})\s+([а-яё]+)\.?/i)
-  if (!ru) return null
-  const names = ["янв", "февр", "мар", "апр", "мая", "июня", "июля", "авг", "сент", "окт", "нояб", "дек"]
-  const month = names.indexOf(ru[2].toLowerCase())
-  if (month < 0) return null
-  const year = value.match(/(\d{4})/)
-  return new Date(year ? Number(year[1]) : new Date().getFullYear(), month, Number(ru[1]))
 }
 
 function defaultPeriods(): [Period, Period, Period] {
@@ -62,18 +36,22 @@ function defaultPeriods(): [Period, Period, Period] {
   }) as [Period, Period, Period]
 }
 
-const selects = {
-  zone: ["Andijon shaharchasi", "Arslan", "chilonzor"],
-  status: ["Новый", "Принят", "Передан доставщику", "Доставлен", "Отменён", "Возврат"],
-  brand: ["Alpen Gold", "Apple", "Aqua de lux"],
-  productType: ["Мыло", "Напитки", "Снеки"],
-  agent: ["Samandar Abdurahmonov", "Хайрулло Доставщик"],
-  branch: ["777", "878", "Andijon"],
-  clientType: ["horeca", "market", "market100"],
-  dateBy: ["Доставки", "Заказы", "Оплаты"],
-  closing: ["Незакрыто", "Закрыто", "Все"],
+const STATUS_FALLBACK = ["В процессе", "Есть на складе", "Передан доставщику", "Доставлен", "Не подтвержден"]
+const STATUS_IDS: Record<string, number> = { "В процессе": 0, "Есть на складе": 1, "Передан доставщику": 2, Доставлен: 3, "Не подтвержден": 5 }
+const DATE_TYPES: Record<string, string> = { Доставки: "date_delivery", Создания: "created_date", Реализации: "accepted_time" }
+const CLOSED_TYPES: Record<string, string> = { Незакрыто: "not_closed", Все: "all", Закрыто: "closed" }
+const emptySelects = {
+  zone: [] as string[],
+  status: STATUS_FALLBACK,
+  brand: [] as string[],
+  productType: [] as string[],
+  agent: [] as string[],
+  branch: [] as string[],
+  clientType: [] as string[],
+  dateBy: ["Доставки", "Создания", "Реализации"],
+  closing: ["Незакрыто", "Все", "Закрыто"],
 }
-type SelectKey = keyof typeof selects
+type SelectKey = keyof typeof emptySelects
 const labels: Record<SelectKey, string> = { zone: "Зона", status: "Статус", brand: "Бренд", productType: "Тип товара", agent: "Ответственный агент магазина", branch: "Филиалы", clientType: "Тип клиента", dateBy: "По дате", closing: "Статус закрытия" }
 
 export function ClientDynamicsView() {
@@ -81,22 +59,39 @@ export function ClientDynamicsView() {
   const [classes, setClasses] = useState<ClassRow[]>(DEFAULT_CLASSES)
   const [periods, setPeriods] = useState<[Period, Period, Period]>(defaultPeriods)
   const [filters, setFilters] = useState<Record<SelectKey, string>>({ zone: "", status: "", brand: "", productType: "", agent: "", branch: "", clientType: "", dateBy: "Доставки", closing: "Незакрыто" })
-  const [statuses, setStatuses] = useState<string[]>(["Передан доставщику", "Доставлен"])
-  const [clients, setClients] = useState<ClientRow[]>([])
-  const [orders, setOrders] = useState<OrderRow[]>([])
-  const [applied, setApplied] = useState(periods)
-  const periodLabels = useMemo(() => applied.map(periodLabel), [applied])
+  const [statuses, setStatuses] = useState<string[]>([])
+  const [selects, setSelects] = useState(emptySelects)
+  const [rows, setRows2] = useState<ClassificationRow[]>([])
+  const [applied, setApplied] = useState({ periods, filters, statuses, classes })
+  const periodLabels = useMemo(() => applied.periods.map(periodLabel), [applied])
+
+  useEffect(() => {
+    fetch("/api/client-classification/classes")
+      .then((response) => (response.ok ? response.json() : null))
+      .then((saved: ClassRow[] | null) => {
+        if (!Array.isArray(saved) || !saved.length) return
+        setClasses(saved)
+        setApplied((current) => ({ ...current, classes: saved }))
+      })
+      .catch(() => {})
+  }, [])
 
   useEffect(() => {
     let cancelled = false
-    Promise.all([
-      fetch("/api/clients").then((response) => (response.ok ? (response.json() as Promise<ClientRow[]>) : [])),
-      fetch("/api/orders").then((response) => (response.ok ? (response.json() as Promise<OrderRow[]>) : [])),
-    ])
-      .then(([clientRows, orderRows]) => {
-        if (cancelled) return
-        setClients(clientRows)
-        setOrders(orderRows)
+    fetch("/api/client-classification?options=1")
+      .then((response) => (response.ok ? response.json() : null))
+      .then((options) => {
+        if (cancelled || !options) return
+        setSelects((current) => ({
+          ...current,
+          zone: options.zones,
+          brand: options.brands,
+          productType: options.productTypes,
+          agent: options.agents,
+          branch: options.branches,
+          clientType: options.marketTypes,
+          status: options.statuses.map((item: { name: string }) => item.name),
+        }))
       })
       .catch(() => {})
     return () => {
@@ -104,44 +99,35 @@ export function ClientDynamicsView() {
     }
   }, [])
 
-  // Every store lands in one bucket per period by the sum of its (non-return) orders in that period.
-  const rows = useMemo<ClassificationRow[]>(() => {
-    const perPeriod = applied.map((period) => {
-      const totals = new Map<string, number>()
-      for (const order of orders) {
-        if (order.type === "Возврат") continue
-        const date = orderDate(order.created)
-        if (!date || isoDate(date) < period.from || isoDate(date) > period.to) continue
-        totals.set(order.client, (totals.get(order.client) ?? 0) + (Number.parseFloat(order.amount.replace(/[^\d.,-]/g, "").replace(",", ".")) || 0))
-      }
-      const buckets = bucketNames(classes).map(() => ({ stores: 0, sum: 0 }))
-      for (const client of clients) {
-        const total = totals.get(client.name) ?? 0
-        const bucket = buckets[bucketOf(total, classes)]
-        bucket.stores += 1
-        bucket.sum += total
-      }
-      const storeTotal = clients.length || 1
-      const sumTotal = buckets.reduce((sum, bucket) => sum + bucket.sum, 0) || 1
-      return buckets.map((bucket) => ({
-        stores: bucket.stores,
-        storePercent: Math.round((bucket.stores / storeTotal) * 100),
-        sum: bucket.sum,
-        sumPercent: Math.round((bucket.sum / sumTotal) * 100),
-      }))
+  useEffect(() => {
+    let cancelled = false
+    const { periods: range, filters: choice, statuses: picked, classes: limits } = applied
+    const query = new URLSearchParams({
+      closed_status: CLOSED_TYPES[choice.closing] ?? "not_closed",
+      date_type: DATE_TYPES[choice.dateBy] ?? "date_delivery",
+      first_begin_date: range[0].from,
+      first_end_date: range[0].to,
+      second_begin_date: range[1].from,
+      second_end_date: range[1].to,
+      third_begin_date: range[2].from,
+      third_end_date: range[2].to,
+      classes: limits.map((row) => `${row.name}:${row.amount}`).join("|"),
     })
-    return bucketNames(classes).map((name, index) => {
-      const dynamic = (current: number, previous: number) => (previous > 0 ? Math.round(((current - previous) / previous) * 100) : 0)
-      return {
-        name,
-        periods: [
-          perPeriod[0][index],
-          { ...perPeriod[1][index], dynamic: dynamic(perPeriod[1][index].stores, perPeriod[0][index].stores) },
-          { ...perPeriod[2][index], dynamic: dynamic(perPeriod[2][index].stores, perPeriod[1][index].stores) },
-        ],
-      }
-    })
-  }, [applied, clients, orders])
+    // Like the reference, an empty status field leaves the server default (delivered / handed to the courier).
+    const statusIds = picked.map((name) => STATUS_IDS[name]).filter((id) => id !== undefined)
+    if (statusIds.length) query.set("order_status", statusIds.join("-"))
+    const pairs: [string, string][] = [["zones", choice.zone], ["brands", choice.brand], ["productTypes", choice.productType], ["agents", choice.agent], ["branches", choice.branch], ["marketTypes", choice.clientType]]
+    for (const [key, value] of pairs) if (value) query.set(key, value)
+    fetch(`/api/client-classification?${query}`)
+      .then((response) => (response.ok ? (response.json() as Promise<ClassificationRow[]>) : []))
+      .then((data) => {
+        if (!cancelled) setRows2(data)
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [applied])
 
   function download() {
     const header = ["Классификация", ...periodLabels.flatMap((label) => [`${label} магазинов`, "%", "Сумма заказа", "%", "Динамика`"])].join(";")
@@ -169,7 +155,7 @@ export function ClientDynamicsView() {
       <form
         onSubmit={(event) => {
           event.preventDefault()
-          setApplied(periods)
+          setApplied({ periods, filters, statuses, classes })
         }}
         className="mx-7 bg-white px-[20px] pb-[11px] pt-[10px] shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]"
       >
@@ -216,7 +202,13 @@ export function ClientDynamicsView() {
         </table>
       </section>
 
-      {settingsOpen && <ClassificationSettings classes={classes} onSave={(next) => { setClasses(next); setSettingsOpen(false) }} onClose={() => setSettingsOpen(false)} />}
+      {settingsOpen && <ClassificationSettings classes={classes} onSave={async (next) => {
+        const response = await fetch("/api/client-classification/classes", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ classes: next }) }).catch(() => null)
+        const saved = response?.ok ? ((await response.json()) as ClassRow[]) : next
+        setClasses(saved)
+        setApplied((current) => ({ ...current, classes: saved }))
+        setSettingsOpen(false)
+      }} onClose={() => setSettingsOpen(false)} />}
     </ReportPage>
   )
 }
@@ -225,7 +217,7 @@ function Dynamic({ value, spaced }: { value: number; spaced?: boolean }) {
   const positive = value > 0
   return <span className={`inline-block w-full rounded-[3px] py-[8px] text-[13px] font-semibold ${positive ? "bg-[#dff5e3] text-[#35b653]" : "bg-[#fde2e2] text-[#f25555]"}`}>{positive ? "▲" : "▼"} {format(value)}{spaced ? " %" : "%"}</span>
 }
-function ClassificationSettings({ classes, onSave, onClose }: { classes: ClassRow[]; onSave: (rows: ClassRow[]) => void; onClose: () => void }) {
+function ClassificationSettings({ classes, onSave, onClose }: { classes: ClassRow[]; onSave: (rows: ClassRow[]) => void | Promise<void>; onClose: () => void }) {
   const [rows, setRows] = useState(classes)
   const [draftName, setDraftName] = useState("")
   const [draftAmount, setDraftAmount] = useState("")

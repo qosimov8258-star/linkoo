@@ -38,7 +38,7 @@ function differenceClass(value: number, section: ManagementSection["key"]): stri
   return good ? "font-semibold text-[#48a34b]" : "font-semibold text-[#E27676]"
 }
 
-const cell = "whitespace-nowrap px-5 tabular-nums"
+const cell = "whitespace-nowrap border border-[#dcdcdc] px-[9px] tabular-nums"
 
 export function ManagementBranchCard({
   branch,
@@ -61,22 +61,22 @@ export function ManagementBranchCard({
   }
 
   return (
-    <section className="overflow-hidden rounded bg-white shadow">
-      <h2 className="px-5 pt-4 text-lg font-bold text-slate-700">{managementBranchName(branch, t)}</h2>
-      <div className="mt-3 overflow-x-auto">
-        <table className="w-full min-w-[720px] table-fixed text-left">
+    <section className="rounded-[10px] bg-white px-[10px] pb-[10px] pt-[1px]">
+      <h2 className="py-[8px] text-[15px] font-bold text-[#333]">{managementBranchName(branch, t)}</h2>
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[720px] table-fixed border-collapse text-left text-[13px]">
           <colgroup>
-            <col className="w-[40%]" />
-            <col className="w-[20%]" />
-            <col className="w-[20%]" />
-            <col className="w-[20%]" />
+            <col className="w-[33.5%]" />
+            <col className="w-[26%]" />
+            <col className="w-[27.5%]" />
+            <col className="w-[13%]" />
           </colgroup>
           <thead>
-            <tr className="bg-slate-50 text-slate-600">
-              <th className="px-5 py-3 font-medium">{t("Наименование")}</th>
-              <th className="whitespace-nowrap px-5 py-3 font-medium">{balanceOnLabel(from, t, language)}</th>
-              <th className="whitespace-nowrap px-5 py-3 font-medium">{balanceOnLabel(to, t, language)}</th>
-              <th className="whitespace-nowrap px-5 py-3 font-medium">{t("Разница")}</th>
+            <tr className="bg-white text-[#333]">
+              <th className="border border-[#dcdcdc] px-[9px] py-[8px] font-semibold">{t("Наименование")}</th>
+              <th className="whitespace-nowrap border border-[#dcdcdc] px-[9px] py-[8px] font-semibold">{balanceOnLabel(from, t, language)}</th>
+              <th className="whitespace-nowrap border border-[#dcdcdc] px-[9px] py-[8px] font-semibold">{balanceOnLabel(to, t, language)}</th>
+              <th className="whitespace-nowrap border border-[#dcdcdc] px-[9px] py-[8px] font-semibold">{t("Разница")}</th>
             </tr>
           </thead>
           <tbody>
@@ -90,17 +90,17 @@ export function ManagementBranchCard({
                     onKeyDown={expandable ? onKey(section.key) : undefined}
                     tabIndex={expandable ? 0 : undefined}
                     aria-expanded={expandable ? open : undefined}
-                    className={`border-b border-white bg-[#f4f6fb] ${expandable ? "cursor-pointer outline-none hover:bg-[#eaeefa] focus-visible:bg-[#eaeefa]" : ""}`}
+                    className={`bg-[#edf1fd] ${expandable ? "cursor-pointer outline-none hover:bg-[#e3e9fb] focus-visible:bg-[#e3e9fb]" : ""}`}
                   >
-                    <td className="px-5 py-3 font-medium text-slate-700">
+                    <td className="border border-[#dcdcdc] px-[9px] py-[9px] font-semibold text-[#333]">
                       <span className="inline-flex items-center gap-1.5">
                         {t(section.label)}
-                        {expandable && (open ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />)}
+                        {expandable && (open ? <ChevronUp className="h-4 w-4 text-[#4f71dc]" /> : <ChevronDown className="h-4 w-4 text-[#4f71dc]" />)}
                       </span>
                     </td>
-                    <td className={`${cell} py-3`}>{formatMoney(section.begin_balance)}</td>
-                    <td className={`${cell} py-3`}>{formatMoney(section.end_balance)}</td>
-                    <td className={`${cell} py-3 ${differenceClass(section.difference, section.key)}`}>{formatMoney(section.difference)}</td>
+                    <td className={`${cell} py-[9px]`}>{formatMoney(section.begin_balance)}</td>
+                    <td className={`${cell} py-[9px]`}>{formatMoney(section.end_balance)}</td>
+                    <td className={`${cell} py-[9px] ${differenceClass(section.difference, section.key)}`}>{formatMoney(section.difference)}</td>
                   </tr>
                   {open &&
                     section.lines.map((line) => (

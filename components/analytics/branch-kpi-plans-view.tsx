@@ -1,14 +1,13 @@
 "use client"
 
-import { Fragment, useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { useSearchParams } from "next/navigation"
-import { ChevronDown, ChevronsUpDown, ChevronUp, Copy, ListChecks, ListX, Pencil, RefreshCw, Search, X } from "lucide-react"
 
-import { BalancePagination } from "@/components/analytics/balance/pagination"
 import { BranchKpiDetailPanel } from "@/components/analytics/branch-kpi-detail"
 import { BranchKpiBulkDialog, BranchKpiDuplicateDialog, BranchKpiLevelsDialog } from "@/components/analytics/branch-kpi-dialogs"
 import { BRANCH_KPI_API, fetchJson, formatKpiDate, KPI_COLORS, KpiMonthYearFilter, kpiNumber, sendJson } from "@/components/analytics/branch-kpi-shared"
-import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
+import { ListBTable } from "@/components/analytics/list-b-table"
+import { RI, RefCard, RefHeader, RefIconButton, RefPage, RefToolbar } from "@/components/ref/list-kit"
 import type { BranchKpiListResult, BranchKpiRecalcResult } from "@/lib/branch-kpi-types"
 import { useLanguage } from "@/lib/i18n/language-context"
 
@@ -151,234 +150,162 @@ export function BranchKpiPlansView() {
     const next: Ordering = state.ordering === field ? `-${field}` : state.ordering === `-${field}` ? "" : field
     update({ ordering: next, page: 1 })
   }
-  const orderingIcon = (field: "name" | "salary") => {
-    if (state.ordering === field) return <ChevronUp className="h-4 w-4" />
-    if (state.ordering === `-${field}`) return <ChevronDown className="h-4 w-4" />
-    return <ChevronsUpDown className="h-4 w-4 opacity-50" />
-  }
 
-  const actionButtons = (
-    <div className="flex items-center gap-2.5">
-      <span title={selected.length ? undefined : t("Выберите хотя бы один сотрудник !")}>
-        <button
-          type="button"
-          disabled={!selected.length || !canEdit}
-          onClick={() => setDialog({ kind: "bulk" })}
-          className="flex h-[30px] items-center gap-1.5 whitespace-nowrap rounded px-3 text-[13px] font-semibold text-white"
-          style={{ backgroundColor: selected.length && canEdit ? KPI_COLORS.blue : KPI_COLORS.disabled }}
-        >
-          <Pencil className="h-4 w-4" /> {t("Изменить планы")}
-        </button>
-      </span>
-      <button
-        type="button"
-        disabled={!canEdit}
-        onClick={() => setDialog({ kind: "duplicate" })}
-        title={t("Дублировать")}
-        aria-label={t("Дублировать")}
-        className="flex h-9 w-9 items-center justify-center rounded-full text-[#666] hover:bg-[#f2f5f8] disabled:opacity-40"
-      >
-        <Copy className="h-5 w-5" />
-      </button>
-    </div>
+  const pageCount = Math.max(1, Math.ceil((data?.count ?? 0) / Math.max(1, state.pageSize)))
+  const from = data && data.count > 0 ? (state.page - 1) * state.pageSize + 1 : 0
+  const to = data ? Math.min(data.count, state.page * state.pageSize) : 0
+  const sortHead = (field: "name" | "salary", label: string) => (
+    <button type="button" onClick={() => toggleOrdering(field)} className="text-left font-semibold hover:opacity-80">
+      {label}
+      {state.ordering === field ? <span className="ml-1 text-[10px]">▲</span> : state.ordering === `-${field}` ? <span className="ml-1 text-[10px]">▼</span> : null}
+    </button>
   )
-
-  const pagination = (
-    <BalancePagination
-      page={state.page}
-      pageSize={state.pageSize}
-      count={data?.count ?? 0}
-      onChange={({ page, pageSize }) => update({ page, pageSize })}
-    />
+  const checkbox = (checked: boolean, onChange: () => void, label: string) => (
+    <input type="checkbox" checked={checked} onChange={onChange} aria-label={label} className="block h-[18px] w-[18px] accent-[#333]" />
   )
+  const cols = state.showCheckboxes ? "26px 463px 227px 1fr" : "469.3px 230.7px 1fr"
 
-  const head = "border-b border-[#efefef] px-5 py-3 text-left font-semibold text-[#333]"
-  const colSpan = state.showCheckboxes ? 4 : 3
   return (
-    <main className="min-h-screen bg-white text-[#17233b]">
-      <header className="flex min-h-[76px] flex-wrap items-center gap-4 border-b border-[#d8dee7] bg-[#f2f5f8] px-6 md:px-9">
-        <div className="flex items-center gap-3">
-          <FavoritesButton className="flex items-center gap-3 text-2xl font-bold text-[#4f70e7]" />
-          <span className="text-3xl font-light text-[#586174]">|</span>
-          <span className="text-2xl font-bold text-[#586174]">{t("KPI план филиалов")}</span>
-        </div>
-        <div className="ml-auto flex flex-wrap items-center gap-3">
-          {data?.lastDate && (
-            <div className="font-semibold text-[#586174]">
-              {t("ДАННЫЕ ЗА")} <span className="font-normal">{formatKpiDate(data.lastDate, language)}</span>
-            </div>
-          )}
+    <RefPage>
+      <RefHeader title={t("KPI план филиалов")}>
+        {data?.lastDate && (
+          <div className="font-semibold text-[#5d6474]">
+            {t("ДАННЫЕ ЗА")} <span className="font-normal">{formatKpiDate(data.lastDate, language)}</span>
+          </div>
+        )}
+        <div className="mr-[34px]">
           <button
             type="button"
             onClick={() => void recalc()}
             disabled={!canEdit || recalculating}
-            className="flex h-[30px] items-center gap-1.5 whitespace-nowrap rounded px-3 text-[13px] font-semibold text-white disabled:opacity-60"
+            className="flex h-[30px] items-center whitespace-nowrap rounded-[5px] px-4 text-[13px] font-semibold text-white disabled:opacity-60"
             style={{ backgroundColor: KPI_COLORS.green }}
           >
-            <RefreshCw className={`h-4 w-4 ${recalculating ? "animate-spin" : ""}`} />
             {t("Перерасчет KPI")}
           </button>
         </div>
-      </header>
+      </RefHeader>
 
-      {selected.length === 0 ? (
-        <section className="flex min-h-[64px] flex-wrap items-end gap-x-6 gap-y-3 px-6 py-2 md:px-9">
-          <KpiMonthYearFilter month={state.month} year={state.year} onChange={({ month, year }) => update({ month, year, page: 1 })} />
-          <form
-            className="flex min-w-[200px] flex-1 items-center justify-center gap-1"
-            onSubmit={(event) => {
-              event.preventDefault()
-              update({ search: searchDraft.trim(), page: 1 })
-            }}
-          >
-            <input
-              value={searchDraft}
-              onChange={(event) => setSearchDraft(event.target.value)}
-              placeholder={t("Поиск")}
-              aria-label={t("Поиск")}
-              className="h-10 w-full max-w-[260px] border-b border-[#dbe0e8] bg-transparent px-1 text-[15px] outline-none focus:border-[#4f70e7]"
-            />
-            <button type="submit" aria-label={t("Поиск")} className="p-1.5 text-[#ccc]">
-              <Search className="h-5 w-5" />
+      <RefCard className="bg-white">
+        <RefToolbar
+          hideFilter
+          leftSlot={
+            selected.length === 0 ? (
+              <KpiMonthYearFilter className="pl-[5px]" month={state.month} year={state.year} onChange={({ month, year }) => update({ month, year, page: 1 })} />
+            ) : (
+              <strong className="pl-[10px] text-[#333]">
+                {t("Выбрано")}: {selected.length}
+              </strong>
+            )
+          }
+          query={searchDraft}
+          onQuery={setSearchDraft}
+          pageSize={state.pageSize}
+          onPageSize={(pageSize) => update({ pageSize, page: 1 })}
+          from={from}
+          to={to}
+          total={data?.count ?? 0}
+          page={state.page}
+          pageCount={pageCount}
+          onPage={(page) => update({ page })}
+          icons={
+            <>
+              <RefIconButton
+                path={RI.checklist}
+                label={state.showCheckboxes ? t("Спрятать флажки") : t("Выбрать из списка")}
+                color="#5d6474"
+                onClick={() => {
+                  if (state.showCheckboxes) setSelected([])
+                  update({ showCheckboxes: !state.showCheckboxes })
+                }}
+              />
+              <span className="group relative">
+                {!selected.length && (
+                  <span className="pointer-events-none absolute left-0 top-[36px] z-50 hidden whitespace-nowrap rounded-[2px] bg-[#2d3037] px-[21px] py-[8px] text-[13px] font-bold leading-[17px] text-white opacity-90 group-hover:block">
+                    {t("Выберите хотя бы один сотрудник !")}
+                  </span>
+                )}
+                <button
+                  type="button"
+                  disabled={!selected.length || !canEdit}
+                  onClick={() => setDialog({ kind: "bulk" })}
+                  className="flex h-[30px] items-center whitespace-nowrap rounded-[5px] pl-3 text-[13px] font-semibold text-white"
+                  style={{ backgroundColor: KPI_COLORS.blue }}
+                >
+                  <svg viewBox="0 0 24 24" className="h-[18px] w-[18px] fill-white"><path d={RI.edit} /></svg>
+                  <span className="pl-2 pr-4">{t("Изменить планы")}</span>
+                </button>
+              </span>
+              <span className="ml-[18px]">
+                <RefIconButton path="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z" label={t("Дублировать")} color="#5d6474" onClick={() => canEdit && setDialog({ kind: "duplicate" })} />
+              </span>
+            </>
+          }
+        />
+
+        {error && (
+          <div className="flex items-center gap-3 px-6 py-3 text-[#e57373]">
+            <span>
+              {t("Не удалось загрузить данные")}: {t(error)}
+            </span>
+            <button type="button" onClick={reload} className="font-semibold text-[#4f71dc] hover:underline">
+              {t("Повторить")}
             </button>
-          </form>
-          <div className="flex flex-wrap items-center gap-3">
-            {pagination}
-            <button
-              type="button"
-              onClick={() => {
-                if (state.showCheckboxes) setSelected([])
-                update({ showCheckboxes: !state.showCheckboxes })
-              }}
-              title={state.showCheckboxes ? t("Спрятать флажки") : t("Выбрать из списка")}
-              aria-label={state.showCheckboxes ? t("Спрятать флажки") : t("Выбрать из списка")}
-              aria-pressed={state.showCheckboxes}
-              className="flex h-9 w-9 items-center justify-center rounded-full text-[#5d6474] hover:bg-[#f2f5f8]"
-            >
-              {state.showCheckboxes ? <ListX className="h-5 w-5" /> : <ListChecks className="h-5 w-5" />}
-            </button>
-            {actionButtons}
           </div>
-        </section>
-      ) : (
-        <section className="flex min-h-[64px] flex-wrap items-center gap-4 bg-[#f2f5f8] px-6 py-2 md:px-9">
-          <strong className="text-[#333]">
-            {t("Выбрано")}: {selected.length}
-          </strong>
-          <div className="ml-auto flex flex-wrap items-center gap-3">
-            {pagination}
-            {actionButtons}
-            <button
-              type="button"
-              onClick={() => setSelected([])}
-              title={t("Снять выделение")}
-              aria-label={t("Снять выделение")}
-              className="flex h-9 w-9 items-center justify-center rounded-full text-[#666] hover:bg-white"
-            >
-              <X className="h-5 w-5" />
-            </button>
-          </div>
-        </section>
-      )}
+        )}
 
-      {error && (
-        <div className="flex items-center gap-3 px-6 py-3 text-[#e57373] md:px-9">
-          <span>
-            {t("Не удалось загрузить данные")}: {t(error)}
-          </span>
-          <button type="button" onClick={reload} className="font-semibold text-[#4f70e7] hover:underline">
-            {t("Повторить")}
-          </button>
-        </div>
-      )}
-
-      <div className={`overflow-x-auto pb-10 ${loading ? "opacity-60" : ""}`}>
-        <table className="w-full min-w-[760px] border-collapse text-[14px] text-[#666]">
-          <thead>
-            <tr>
-              {state.showCheckboxes && (
-                <th className={`${head} w-12`}>
-                  <input
-                    type="checkbox"
-                    checked={allChecked}
-                    onChange={() => setSelected((current) => (allChecked ? current.filter((id) => !pageIds.includes(id)) : [...new Set([...current, ...pageIds])]))}
-                    aria-label={t("Выбрать все")}
-                    className="h-4 w-4 accent-[#4f71dc]"
+        <div className={loading ? "opacity-60" : undefined}>
+          <ListBTable
+            cols={cols}
+            minWidth={900}
+            cellPad={0}
+            inset={state.showCheckboxes ? 24 : 30}
+            heads={[
+              ...(state.showCheckboxes ? [checkbox(allChecked, () => setSelected((current) => (allChecked ? current.filter((id) => !pageIds.includes(id)) : [...new Set([...current, ...pageIds])])), t("Выбрать все"))] : []),
+              sortHead("name", t("Филиал")),
+              sortHead("salary", t("Сумма бонусов")),
+              "KPI",
+            ]}
+            rows={rows}
+            rowKey={(row) => row.id}
+            rowClass={(row) => (state.id === row.id ? "!bg-[#f2f5f8]" : "")}
+            onRowClick={(row) => update({ id: state.id === row.id ? null : row.id })}
+            empty={loading ? "" : t("Нет данных")}
+            render={(row) => [
+              ...(state.showCheckboxes
+                ? [
+                    <span key="check" onClick={(event) => event.stopPropagation()}>
+                      {checkbox(selected.includes(row.id), () => setSelected((current) => (current.includes(row.id) ? current.filter((id) => id !== row.id) : [...current, row.id])), row.name)}
+                    </span>,
+                  ]
+                : []),
+              <span key="name" className={`block ${state.showCheckboxes ? "pl-[13px]" : "pl-2"}`}>{row.name}</span>,
+              kpiNumber(row.totalBonus),
+              <div key="kpi" className="flex flex-wrap items-center">
+                {row.performanceIndicators.map((item) => (
+                  <div key={item.id} className="my-[5px] mr-2.5 inline-flex h-7 items-center rounded-sm bg-[#e9ecef] px-2.5 leading-none">
+                    {item.name}: <span className="ml-1 font-semibold text-[#4f71dc]">{kpiNumber(item.plan)}</span>
+                  </div>
+                ))}
+              </div>,
+            ]}
+            expanded={(row) =>
+              state.id === row.id ? (
+                <div className="border-b-2 border-[#dbe0e8]">
+                  <BranchKpiDetailPanel
+                    branchId={row.id}
+                    month={state.month}
+                    year={state.year}
+                    version={version}
+                    onClose={() => update({ id: null })}
+                    onOpenIndicator={(indicatorId) => setDialog({ kind: "levels", indicatorId })}
                   />
-                </th>
-              )}
-              <th className={`${head} w-1/3`}>
-                <button type="button" onClick={() => toggleOrdering("name")} className="inline-flex items-center gap-1">
-                  {t("Филиал")} {orderingIcon("name")}
-                </button>
-              </th>
-              <th className={`${head} w-1/6`}>
-                <button type="button" onClick={() => toggleOrdering("salary")} className="inline-flex items-center gap-1">
-                  {t("Сумма бонусов")} {orderingIcon("salary")}
-                </button>
-              </th>
-              <th className={head}>KPI</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((row) => {
-              const open = state.id === row.id
-              return (
-                <Fragment key={row.id}>
-                  <tr
-                    className={`cursor-pointer border-b border-[#efefef] ${open ? "bg-[#f2f5f8]" : "hover:bg-[#f9fafc]"}`}
-                    onClick={() => update({ id: open ? null : row.id })}
-                  >
-                    {state.showCheckboxes && (
-                      <td className="px-5" onClick={(event) => event.stopPropagation()}>
-                        <input
-                          type="checkbox"
-                          checked={selected.includes(row.id)}
-                          onChange={() => setSelected((current) => (current.includes(row.id) ? current.filter((id) => id !== row.id) : [...current, row.id]))}
-                          aria-label={row.name}
-                          className="h-4 w-4 accent-[#4f71dc]"
-                        />
-                      </td>
-                    )}
-                    <td className="px-5 py-2 font-semibold text-[#333]">{row.name}</td>
-                    <td className="px-5 py-2">{kpiNumber(row.totalBonus)}</td>
-                    <td className="px-5 py-1">
-                      <div className="flex min-h-[50px] flex-wrap items-center">
-                        {row.performanceIndicators.map((item) => (
-                          <div key={item.id} className="my-[5px] mr-2.5 inline-flex h-7 items-center rounded-sm bg-[#e9ecef] px-2.5 leading-none">
-                            {item.name}: <span className="ml-1 font-semibold text-[#4f71dc]">{kpiNumber(item.plan)}</span>
-                          </div>
-                        ))}
-                      </div>
-                    </td>
-                  </tr>
-                  {open && (
-                    <tr>
-                      <td colSpan={colSpan} className="border-b-2 border-[#dbe0e8] p-0">
-                        <BranchKpiDetailPanel
-                          branchId={row.id}
-                          month={state.month}
-                          year={state.year}
-                          version={version}
-                          onClose={() => update({ id: null })}
-                          onOpenIndicator={(indicatorId) => setDialog({ kind: "levels", indicatorId })}
-                        />
-                      </td>
-                    </tr>
-                  )}
-                </Fragment>
-              )
-            })}
-            {!rows.length && !loading && (
-              <tr>
-                <td colSpan={colSpan} className="px-5 py-10 text-center text-[#999]">
-                  {t("Нет данных")}
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+                </div>
+              ) : null
+            }
+          />
+        </div>
+      </RefCard>
 
       {dialog?.kind === "bulk" && (
         <BranchKpiBulkDialog
@@ -430,6 +357,6 @@ export function BranchKpiPlansView() {
           {notice.text}
         </div>
       )}
-    </main>
+    </RefPage>
   )
 }

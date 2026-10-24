@@ -12,6 +12,7 @@ const salaryPlanSchema = z.object({
   bonus: z.coerce.number().finite().optional(),
   kpi: z.coerce.number().finite().optional(),
   credited: z.boolean().optional(),
+  period: z.string().regex(/^\d{4}-\d{2}$/).optional(),
 })
 
 export async function GET() {

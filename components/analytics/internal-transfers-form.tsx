@@ -4,7 +4,8 @@ import { useEffect, useMemo, useState } from "react"
 import { FileSpreadsheet, Plus, Trash2 } from "lucide-react"
 
 import { buildCashQuery, cashMutate, useCashJson } from "@/components/analytics/cash/use-cash"
-import { CashModal, ConfirmDialog, FormField, PrimaryButton, SearchSelect, inputClass, mutationError, parseAmount } from "@/components/analytics/cash-management-shared"
+import { MaterialCheckbox, MaterialDate } from "@/components/analytics/cash-material"
+import { CashModal, ConfirmDialog, FormField, MaterialDateTime, SearchSelect, inputClass, mutationError, parseAmount } from "@/components/analytics/cash-management-shared"
 import { ExcelImportPanel, StockProductPicker, validQty, type PickEntry } from "@/components/analytics/internal-transfers-picker"
 import { formatQty, formatSum, formatWeight } from "@/components/analytics/internal-transfers-shared"
 import { nowLocalIso, todayIso } from "@/lib/finance/dates"
@@ -162,47 +163,42 @@ export function TransferFormDialog({
     onSaved(result.data, !editing)
   }
 
-  const field = "h-10 w-full rounded-md border border-[#dbe0e8] px-3 text-[14px] outline-none focus:border-[#4f70e7]"
+  const field = inputClass
   return (
     <CashModal
       title={editing ? t("Изменить передачу товаров") : t("Добавить передачу товаров")}
       onClose={onClose}
-      size="full"
+      size="screen"
       footer={
         <>
-          <ul className="mr-auto flex flex-wrap gap-x-6 gap-y-1 text-[14px] text-[#586174]">
+          <ul className="flex flex-wrap items-center gap-x-6 gap-y-1 pl-[15px] text-[14px] text-black">
             <li>
-              {t("Сумма")}: <b className="text-[#17233b]">{formatSum(totals.amount, shownCurrency)}</b>
+              {t("Сумма")}: <b className="font-semibold text-[#0e9fe0]">{formatSum(totals.amount, shownCurrency)}</b>
             </li>
             <li>
-              {t("Общее кол-во:")} <b className="text-[#17233b]">{formatQty(totals.qty, t("ед"))}</b>
-            </li>
-            <li>
-              {t("Вес")}: <b className="text-[#17233b]">{formatWeight(totals.weight, t("кг"))}</b>
+              {t("Общее кол-во:")} <b className="font-semibold text-[#0e9fe0]">{formatQty(totals.qty, t("ед"))}</b>
             </li>
           </ul>
-          {error && <span className="w-full text-right text-[13px] text-[#e57373] md:w-auto">{error}</span>}
-          <PrimaryButton busy={busy} onClick={() => void submit()}>
+          {error && <span className="ml-auto mr-4 text-[13px] text-[#f44336]">{error}</span>}
+          <button type="button" disabled={busy} onClick={() => void submit()} className={`${error ? "" : "ml-auto "}mr-[16px] h-9 text-[13px] font-semibold uppercase text-[#129fdd] hover:underline disabled:opacity-60`}>
             {editing ? t("Сохранить") : t("Добавить")}
-          </PrimaryButton>
+          </button>
         </>
       }
     >
-      <div className="flex flex-col gap-6 lg:flex-row">
-        <div className="flex flex-col gap-3 lg:w-[330px] lg:shrink-0">
-          <span className="text-[13px] font-semibold uppercase text-[#586174]">{t("Условия передачи товара")}</span>
+      <div className="flex min-h-0 flex-1">
+        <div className="flex w-[450px] shrink-0 flex-col gap-3 overflow-y-auto border-r border-[#efefef] px-[30px] pb-6 pt-[22px]">
+          <span className="text-[13px] text-black">{t("Условия передачи товара")}</span>
           <FormField label={t("Со склада")} required error={showErrors && !from ? t("Склад не выбран") : undefined}>
             <SearchSelect value={from} options={warehouseOptions} onChange={(value) => setFrom(value)} invalid={showErrors && !from} />
           </FormField>
           <FormField label={t("На склад")} required error={showErrors && !to ? t("Склад не выбран") : undefined}>
             <SearchSelect value={to} options={warehouseOptions.filter((option) => option.value !== from)} onChange={(value) => setTo(value)} invalid={showErrors && !to} />
           </FormField>
-          <FormField label={t("Дата доставки")} required>
-            <input type="date" value={deliveredAt} onChange={(event) => setDeliveredAt(event.target.value)} className={field} />
-          </FormField>
-          <FormField label={t("Дата создания")} required>
-            <input type="datetime-local" value={createdAt} onChange={(event) => setCreatedAt(event.target.value)} className={field} />
-          </FormField>
+          <MaterialDate className="mt-[18px]" label={t("Дата доставки")} required value={deliveredAt} onChange={setDeliveredAt} display={deliveredAt ? new Date(deliveredAt).toLocaleDateString("ru-RU", { day: "numeric", month: "long", year: "numeric" }) : undefined} />
+          <div className="mt-[10px]">
+            <MaterialDateTime label={`${t("Дата создания")}`} value={createdAt} onChange={setCreatedAt} />
+          </div>
           <FormField label={t("Прайс лист")}>
             <SearchSelect
               value={priceList}
@@ -228,24 +224,18 @@ export function TransferFormDialog({
           <FormField label={t("Водитель")}>
             <input value={driver} onChange={(event) => setDriver(event.target.value)} maxLength={200} className={field} />
           </FormField>
-          <textarea value={comment} onChange={(event) => setComment(event.target.value)} rows={2} maxLength={2000} placeholder={`${t("Оставить комментарий")}...`} className={`${inputClass} h-auto py-2`} />
-          <label className="flex items-center gap-2 text-[14px]">
-            <input type="checkbox" checked={confirmed} disabled={autoAccept} onChange={(event) => setConfirmed(event.target.checked)} className="h-4 w-4 accent-[rgb(79,113,220)]" />
-            {t("Подтвержденный")}
-          </label>
-          {!editing && (
-            <label className="flex items-center gap-2 text-[14px]">
-              <input type="checkbox" checked={autoAccept} onChange={(event) => setAutoAccept(event.target.checked)} className="h-4 w-4 accent-[rgb(79,113,220)]" />
-              {t("Сразу передать товары без потверждения")}
-            </label>
-          )}
+          <FormField label={`${t("Оставить комментарий")}...`}>
+            <input value={comment} onChange={(event) => setComment(event.target.value)} maxLength={2000} className={inputClass} />
+          </FormField>
+          <MaterialCheckbox checked={confirmed} disabled={autoAccept} onChange={setConfirmed} label={t("Подтвержденный")} />
+          {!editing && <MaterialCheckbox checked={autoAccept} onChange={setAutoAccept} label={t("Сразу передать товары без потверждения")} />}
         </div>
 
-        <div className="min-w-0 flex-1">
+        <div className="min-w-0 flex-1 overflow-y-auto px-[30px] pt-[18px]">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <strong>{t("Список товаров")}</strong>
+            <span className="text-[13px] text-black">{t("Список товаров")}</span>
             <div className="flex flex-wrap items-center gap-3" title={ready ? undefined : t("Выберите склад")}>
-              <button type="button" disabled={!ready || !rows.length} onClick={() => setPickerOpen(true)} className="text-[13px] font-semibold uppercase text-[rgb(79,113,220)] disabled:opacity-40">
+              <button type="button" disabled={!ready || !rows.length} onClick={() => setPickerOpen(true)} className="text-[13px] font-medium uppercase text-black hover:underline disabled:opacity-40">
                 {t("добавить из списка")}
               </button>
               <button

@@ -1,11 +1,14 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react"
-import { ChevronDown, X } from "lucide-react"
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react"
+import { createPortal } from "react-dom"
 
 import { useLanguage } from "@/lib/i18n/language-context"
 
-import type { Order } from "./orders-data"
+import { AddOrderDialog } from "./add-order-dialog"
+import { RefCheck, RefDate, RefSelect, RefText } from "./order-ref-fields"
+import { OrderPaymentsDialog, OrderReturnsTab } from "./order-returns-tab"
+import { orderOrganization, type Order } from "./orders-data"
 
 /* ------------------------------------------------------------------ */
 /* Types & constants                                                   */
@@ -20,25 +23,63 @@ type OrderLineItem = {
   discountPercent: number
   currency: string
   lineTotal: number
+  article?: string
+  boxAmount?: number
+  boxUnit?: string
+  returnQuantity?: number
 }
 
-type OrderLog = {
-  kind: "Обновленный" | "Создан"
+type ApiOrderLog = {
+  id: number
+  action: string
   status: string
-  by: string
-  at: string
-  sum: string
-  comment?: string
+  comment: string
+  totalPrice: number
+  currency: string
+  payType: string
+  createdBy: string
+  createdAt: string
+  market: string
+  products: { productId: number | null; name: string; amount: number; price: number; total: number }[]
 }
 
 type InvoiceDetails = { number: string; date: string; contract: string; active: boolean }
 
-type OrderExtras = { invoice?: InvoiceDetails; logs?: OrderLog[] }
+/** Reference action codes -> badge label and colour of the "Логи" tab. */
+const LOG_ACTIONS: Record<string, { label: string; tone: "success" | "begin" | "error" }> = {
+  created: { label: "Создан", tone: "success" },
+  updated: { label: "Обновленный", tone: "begin" },
+  given: { label: "Передан доставщику", tone: "begin" },
+  cancel_given: { label: "Отменил передачу", tone: "error" },
+  delivered: { label: "Доставлен", tone: "success" },
+  undelivered: { label: "Отменена доставки", tone: "error" },
+  add_discount: { label: "Добавлена скидка", tone: "success" },
+  add_bonus: { label: "Добавлен бонус", tone: "success" },
+  canceled: { label: "Заказ отменен", tone: "error" },
+}
+
+/** Reference status codes of a log entry -> the order status label used by STATUS_MENU, and the label the log prints. */
+const LOG_STATUS: Record<string, { status: string; label: string; color: string }> = {
+  "0": { status: "В процессе", label: "В процессе", color: "#f0ad4e" },
+  "1": { status: "Есть на складе", label: "Есть на складе", color: "#f0ad4e" },
+  "2": { status: "В пути", label: "Передан доставщику", color: "#f0ad4e" },
+  "3": { status: "Доставлено", label: "Доставлен", color: "#81c784" },
+  "4": { status: "Отменен", label: "Заказ отменен", color: "#e57373" },
+  "5": { status: "Не подтвержден", label: "Не подтвержден", color: "#999" },
+}
+const STATUS_CODE_OF: Record<string, string> = { "В процессе": "0", "Есть на складе": "1", "В пути": "2", "Доставлено": "3", "Отменен": "4", "Не подтвержден": "5" }
+
+/** "2026-08-17T13:47:59" -> "17 авг. 2026, 13:47" */
+function formatLogDate(iso: string) {
+  const date = new Date(iso)
+  if (Number.isNaN(date.getTime())) return iso
+  return `${formatRuDate(date)}, ${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`
+}
 
 export const ORDER_STATUS_OPTIONS = ["Не подтвержден", "В процессе", "Есть на складе", "В пути", "Доставлено", "Отменен"]
 
 const STATUS_MENU: { status: string; label: string; icon: string; color: string }[] = [
-  { status: "Не подтвержден", label: "Не подтвержденный", icon: "M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z", color: "#757575" },
+  { status: "Не подтвержден", label: "Не подтвержденный", icon: "M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z", color: "#999" },
   {
     status: "В процессе",
     label: "В процессе",
@@ -55,13 +96,13 @@ const STATUS_MENU: { status: string; label: string; icon: string; color: string 
   {
     status: "Доставлено",
     label: "Доставлен",
-    icon: "M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-9 14l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z",
-    color: "#71ce87",
+    icon: "M19 3h-4.18C14.4 1.84 13.3 1 12 1c-1.3 0-2.4.84-2.82 2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-7 0c.55 0 1 .45 1 1s-.45 1-1 1-1-.45-1-1 .45-1 1-1zm-2 14l-4-4 1.41-1.41L10 14.17l6.59-6.59L18 9l-8 8z",
+    color: "#81c784",
   },
   {
     status: "Отменен",
     label: "Отменен",
-    icon: "M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zM4 12c0-4.42 3.58-8 8-8 1.85 0 3.55.63 4.9 1.69L5.69 16.9C4.63 15.55 4 13.85 4 12zm8 8c-1.85 0-3.55-.63-4.9-1.69L18.31 7.1C19.37 8.45 20 10.15 20 12c0 4.42-3.58 8-8 8z",
+    icon: "M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10 10-4.5 10-10S17.5 2 12 2zM4 12c0-4.4 3.6-8 8-8 1.8 0 3.5.6 4.9 1.7L5.7 16.9C4.6 15.5 4 13.8 4 12zm8 8c-1.8 0-3.5-.6-4.9-1.7L18.3 7.1C19.4 8.5 20 10.2 20 12c0 4.4-3.6 8-8 8z",
     color: "#e57373",
   },
 ]
@@ -73,7 +114,10 @@ const ICONS = {
   undo: "M10 9V5l-7 7 7 7v-4.1c5 0 8.5 1.6 11 5.1-1-5-4-10-11-11z",
   print: "M19 8H5c-1.66 0-3 1.34-3 3v6h4v4h12v-4h4v-6c0-1.66-1.34-3-3-3zm-3 11H8v-5h8v5zm3-7c-.55 0-1-.45-1-1s.45-1 1-1 1 .45 1 1-.45 1-1 1zm-1-9H6v4h12V3z",
   trash: "M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z",
-  sync: "M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z",
+  sync: "M19 8l-4 4h3c0 3.31-2.69 6-6 6-1.01 0-1.97-.25-2.8-.7l-1.46 1.46C8.97 19.54 10.43 20 12 20c4.42 0 8-3.58 8-8h3l-4-4zM6 12c0-3.31 2.69-6 6-6 1.01 0 1.97.25 2.8.7l1.46-1.46C15.03 4.46 13.57 4 12 4c-4.42 0-8 3.58-8 8H1l4 4 4-4H6z",
+  receipt:
+    "M18 17H6v-2h12v2zm0-4H6v-2h12v2zm0-4H6V7h12v2zM3 22l1.5-1.5L6 22l1.5-1.5L9 22l1.5-1.5L12 22l1.5-1.5L15 22l1.5-1.5L18 22l1.5-1.5L21 22V2l-1.5 1.5L18 2l-1.5 1.5L15 2l-1.5 1.5L12 2l-1.5 1.5L9 2 7.5 3.5 6 2 4.5 3.5 3 2v20z",
+  editMode: "M17.75 7L14 3.25l-10 10V17h3.75l10-10zm2.96-2.96c.39-.39.39-1.02 0-1.41L18.37.29c-.39-.39-1.02-.39-1.41 0L15 2.25 18.75 6l1.96-1.96z",
   article:
     "M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-5 14H7v-2h7v2zm3-4H7v-2h10v2zm0-4H7V7h10v2z",
   info: "M11 7h2v2h-2zm0 4h2v6h-2zm1-9C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z",
@@ -113,38 +157,6 @@ function formatNumber(value: number) {
   return value.toLocaleString("ru-RU", { maximumFractionDigits: 2 })
 }
 
-function nowStamp() {
-  const date = new Date()
-  const hh = String(date.getHours()).padStart(2, "0")
-  const mm = String(date.getMinutes()).padStart(2, "0")
-  return `${formatRuDate(date)}, ${hh}:${mm}`
-}
-
-/* ------------------------------------------------------------------ */
-/* Persisted extras (invoice details + change log)                    */
-/* ------------------------------------------------------------------ */
-
-const EXTRAS_KEY = "linko-order-extras-v1"
-
-function readExtras(orderId: number): OrderExtras {
-  try {
-    const all = JSON.parse(window.localStorage.getItem(EXTRAS_KEY) ?? "{}") as Record<string, OrderExtras>
-    return all[orderId] ?? {}
-  } catch {
-    return {}
-  }
-}
-
-function writeExtras(orderId: number, extras: OrderExtras) {
-  try {
-    const all = JSON.parse(window.localStorage.getItem(EXTRAS_KEY) ?? "{}") as Record<string, OrderExtras>
-    all[orderId] = extras
-    window.localStorage.setItem(EXTRAS_KEY, JSON.stringify(all))
-  } catch {
-    // storage is optional
-  }
-}
-
 /* ------------------------------------------------------------------ */
 /* Small building blocks                                               */
 /* ------------------------------------------------------------------ */
@@ -170,33 +182,88 @@ function HeaderButton({ icon, label, onClick }: { icon: string; label: string; o
   )
 }
 
-function MenuItem({ icon, color = "#666", label, onClick }: { icon: string; color?: string; label: string; onClick: () => void }) {
+const MONEY_BILLS_PATH =
+  "M32.72,34.72,27.64,46.06c12.92,9.33,32.17,15,45.57,8-11.46,21.62-38,21.61-55.7,14.55L12.33,80.23,0,47.39,32.72,34.72ZM49,0l73.92,17.59L112.28,60,38.36,42.42,49,0Zm34.8,17.53a12.86,12.86,0,1,1-15.6,9.37,12.86,12.86,0,0,1,15.6-9.37ZM61,9.86l46.57,10.76a6.47,6.47,0,0,0,4.71,7.83l-4.18,16.78a6.46,6.46,0,0,0-7.83,4.7L53.67,39.17A6.47,6.47,0,0,0,49,31.34l4.18-16.77A6.47,6.47,0,0,0,61,9.86Z"
+
+/**
+ * A row of the header drop-down menus. "status" rows carry a coloured 24px icon; "action" rows keep the reference's
+ * 48px icon button (20px grey icon inside) before the label.
+ */
+function MenuItem({
+  icon,
+  color = "#666",
+  label,
+  onClick,
+  kind = "action",
+  iconNode,
+}: {
+  icon?: string
+  color?: string
+  label: string
+  onClick: () => void
+  kind?: "status" | "action"
+  iconNode?: ReactNode
+}) {
   return (
-    <button type="button" onClick={onClick} className="flex h-12 w-full items-center gap-[10px] pl-[22px] pr-6 text-left text-[13px] text-[#333] hover:bg-[#f5f5f5]">
-      <svg viewBox="0 0 24 24" className="h-6 w-6 shrink-0" aria-hidden>
-        <path d={icon} fill={color} />
-      </svg>
-      <span className="whitespace-nowrap">{label}</span>
+    <button type="button" onClick={onClick} className="flex h-12 w-full cursor-pointer items-center pl-5 pr-4 text-left text-[13px] text-[#333] hover:bg-[#f5f5f5]">
+      {kind === "status" ? (
+        <svg viewBox="0 0 24 24" className="h-6 w-6 shrink-0" aria-hidden>
+          <path d={icon} fill={color} />
+        </svg>
+      ) : (
+        <span className="flex h-12 w-12 shrink-0 items-center justify-center">
+          {iconNode ?? (
+            <svg viewBox="0 0 24 24" className="h-5 w-5" fill={color} aria-hidden>
+              <path d={icon} />
+              {icon === ICONS.editMode && <path d="M0 20h24v4H0z" fillOpacity=".36" />}
+            </svg>
+          )}
+        </span>
+      )}
+      <span className="whitespace-nowrap pl-[5px]">{label}</span>
     </button>
   )
 }
 
-function Menu({ children, onClose }: { children: ReactNode; onClose: () => void }) {
+function Menu({ children, onClose, width = 224 }: { children: ReactNode; onClose: () => void; width?: number }) {
   return (
     <>
       <button type="button" data-order-overlay aria-label="close" onClick={onClose} className="fixed inset-0 z-[110] cursor-default" />
-      <div className="absolute right-0 top-[30px] z-[115] min-w-[224px] rounded-[2px] bg-white py-[5px] shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">{children}</div>
+      <div
+        style={{ width }}
+        className="absolute right-0 top-[30px] z-[115] overflow-hidden rounded-[8px] bg-white py-1 shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]"
+      >
+        {children}
+      </div>
     </>
   )
 }
 
-function DialogShell({
+/** Escape closes whichever dialog/sheet is mounted last, like the reference. */
+function useEscape(onClose: () => void) {
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => event.key === "Escape" && onClose()
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
+  }, [onClose])
+}
+
+/**
+ * The reference's Material dialog: title 21.4px from the top, 48px close button 10px from the right, flat blue
+ * action pinned 10px above the bottom edge. `height` / `top` fix the geometry of dialogs the reference sizes that way.
+ */
+export function DialogShell({
   title,
   onClose,
   action,
   onAction,
   children,
   disabled,
+  width = 500,
+  height,
+  top,
+  inset,
+  closeRight = 10,
 }: {
   title: string
   onClose: () => void
@@ -204,65 +271,54 @@ function DialogShell({
   onAction: () => void
   children: ReactNode
   disabled?: boolean
+  width?: number
+  height?: number
+  top?: number
+  /** The line above the action stops 30px short of the edges (the status dialog) instead of spanning the dialog. */
+  inset?: boolean
+  /** Distance of the 48px close button from the right edge (the reference uses 15px in a few dialogs). */
+  closeRight?: number
 }) {
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => event.key === "Escape" && onClose()
-    window.addEventListener("keydown", onKey)
-    return () => window.removeEventListener("keydown", onKey)
-  }, [onClose])
-  return (
-    <div data-order-overlay className="fixed inset-0 z-[130] flex items-center justify-center bg-black/[0.54] p-4 font-sans text-[13px] text-[#333]">
-      <div className="w-[500px] max-w-full bg-white shadow-[0_10px_30px_rgba(0,0,0,0.3)]">
-        <div className="flex items-center justify-between border-b border-[#e8e8e8] px-[30px] py-[22px]">
-          <h3 className="text-[13px] font-bold uppercase leading-4 tracking-[0.2px]">{title}</h3>
-          <button type="button" aria-label="close" onClick={onClose}>
-            <Mi d={ICONS.close} className="h-6 w-6 fill-[#333]" />
-          </button>
-        </div>
-        <div className="min-h-[120px] px-[30px] py-5">{children}</div>
-        <div className="flex justify-end border-t border-[#e8e8e8] px-[30px] py-[18px]">
-          <button type="button" disabled={disabled} onClick={onAction} className="text-[13px] font-semibold uppercase text-[#0a9ddb] disabled:opacity-40">
-            {action}
-          </button>
-        </div>
+  useEscape(onClose)
+  return createPortal(
+    <div
+      data-order-overlay
+      className={`fixed inset-0 z-[1500] flex justify-center bg-black/[0.54] font-sans text-[13px] text-[#333] ${top === undefined ? "items-center" : "items-start"}`}
+    >
+      <div style={{ width, minHeight: height, marginTop: top }} className="relative max-w-full bg-white pb-[56px] pt-[60px] shadow-[0_10px_32px_rgba(0,0,0,0.19),0_6px_10px_rgba(0,0,0,0.23)]">
+        <span className="absolute left-[30px] top-[21.4px] text-[13px] font-bold uppercase leading-[16.3px]">{title}</span>
+        <button type="button" aria-label="close" onClick={onClose} style={{ right: closeRight }} className="absolute top-[5.5px] flex h-12 w-12 cursor-pointer items-center justify-center">
+          <Mi d={ICONS.close} className="h-6 w-6 fill-[#333]" />
+        </button>
+        <span className="absolute inset-x-0 top-[59.3px] h-px bg-[#efefef]" />
+        <span className={`absolute bottom-[56px] h-px bg-[#efefef] ${inset ? "inset-x-[30px]" : "inset-x-0"}`} />
+        <div className="px-[30px]">{children}</div>
+        <button type="button" disabled={disabled} onClick={onAction} className="absolute bottom-[10px] right-[10px] h-9 min-w-[88px] cursor-pointer text-center disabled:cursor-default disabled:opacity-40">
+          <span className="inline-block px-[16px] py-[9px] text-[13px] font-semibold uppercase leading-[18px] text-[#129fdd]">{action}</span>
+        </button>
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }
 
-function SheetShell({ title, onClose, children, footer }: { title: string; onClose: () => void; children: ReactNode; footer?: ReactNode }) {
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => event.key === "Escape" && onClose()
-    window.addEventListener("keydown", onKey)
-    return () => window.removeEventListener("keydown", onKey)
-  }, [onClose])
-  return (
-    <div data-order-overlay className="fixed inset-0 z-[120] flex flex-col bg-white font-sans text-[13px] text-[#333]">
-      <div className="flex h-[59px] shrink-0 items-center justify-between border-b border-[#efefef] px-[30px]">
-        <h3 className="text-[13px] font-bold uppercase leading-4">{title}</h3>
-        <button type="button" aria-label="close" onClick={onClose}>
+/** Full-screen sheet; rendered in a portal so it covers the navbar like the reference (z-index 1001+). */
+function SheetShell({ title, onClose, children, footer, z = 1301 }: { title: string; onClose: () => void; children: ReactNode; footer?: ReactNode; z?: number }) {
+  useEscape(onClose)
+  return createPortal(
+    <div data-order-overlay style={{ zIndex: z }} className="fixed inset-0 flex flex-col bg-white font-sans text-[13px] text-[#333]">
+      <div className="relative h-[59px] shrink-0 border-b border-[#efefef]">
+        <span className="absolute left-[30px] top-[21.4px] text-[13px] font-bold uppercase leading-[16.3px]">{title}</span>
+        <button type="button" aria-label="close" onClick={onClose} className="absolute right-[10px] top-[5.5px] flex h-12 w-12 cursor-pointer items-center justify-center">
           <Mi d={ICONS.close} className="h-6 w-6 fill-[#333]" />
         </button>
       </div>
       <div className="min-h-0 flex-1 overflow-auto">{children}</div>
       {footer && <div className="shrink-0 border-t border-[#efefef]">{footer}</div>}
-    </div>
+    </div>,
+    document.body,
   )
 }
-
-function Field({ label, children, required }: { label: string; children: ReactNode; required?: boolean }) {
-  return (
-    <label className="mb-[14px] block">
-      <span className="block text-[10px] font-bold leading-3">
-        {label}
-        {required && <span className="text-[#e57373]"> *</span>}
-      </span>
-      {children}
-    </label>
-  )
-}
-
-const fieldClass = "mt-[6px] block w-full border-b border-[#d9d9d9] bg-transparent pb-[6px] text-[13px] font-semibold outline-none focus:border-[#4f71dc]"
 
 function Robot({ text, overlay }: { text: string; overlay?: boolean }) {
   return (
@@ -279,6 +335,8 @@ function Robot({ text, overlay }: { text: string; overlay?: boolean }) {
 /* ------------------------------------------------------------------ */
 
 const TABS = ["Список товаров", "Серии", "Возврат", "Задействованные акции", "Логи"] as const
+/** The reference's tab widths (px): the "Возврат" tab is 15px wider than the others. */
+const TAB_COLUMNS = [279.8, 279.8, 294.8, 279.8, 279.8]
 type DetailTab = (typeof TABS)[number]
 
 export function OrderDetailCard({
@@ -296,14 +354,40 @@ export function OrderDetailCard({
 }) {
   const { t } = useLanguage()
   const [tab, setTab] = useState<DetailTab>("Список товаров")
-  const [menu, setMenu] = useState<null | "status" | "edit" | "discount" | "return">(null)
+  const [menu, setMenu] = useState<null | "status" | "edit" | "discount" | "discountSize" | "return">(null)
+  const [paymentsOpen, setPaymentsOpen] = useState(false)
   const [dialog, setDialog] = useState<
     null | "status" | "invoice" | "manualDiscount" | "recalc" | "cancelDiscount" | "fullReturn" | "cancelOrder" | "logDetails"
   >(null)
-  const [sheet, setSheet] = useState<null | "edit" | "quickEdit" | "quickReturn" | "print">(null)
+  const [sheet, setSheet] = useState<null | "edit" | "quickEdit" | "quickReturn" | "print" | "printPreview">(null)
+  const [printCopies, setPrintCopies] = useState(1)
+
+  // The reference keeps these dialogs in the query string: ?openUpdateDialog=true, ?openQuickEdit=true, ?openInvoiceDialog=true
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    if (params.get("openUpdateDialog") === "true") setSheet("edit")
+    else if (params.get("openQuickEdit") === "true") setSheet("quickEdit")
+    if (params.get("openInvoiceDialog") === "true") setDialog("invoice")
+  }, [])
+  const urlFlags = `${sheet === "edit" ? "u" : ""}${sheet === "quickEdit" ? "q" : ""}${dialog === "invoice" ? "i" : ""}`
+  const urlReady = useRef(false)
+  useEffect(() => {
+    if (!urlReady.current) {
+      urlReady.current = true
+      return
+    }
+    const url = new URL(window.location.href)
+    const set = (name: string, on: boolean) => (on ? url.searchParams.set(name, "true") : url.searchParams.delete(name))
+    set("openUpdateDialog", urlFlags.includes("u"))
+    set("openQuickEdit", urlFlags.includes("q"))
+    set("openInvoiceDialog", urlFlags.includes("i"))
+    url.searchParams.sort()
+    const next = url.pathname + url.search
+    if (next !== window.location.pathname + window.location.search) window.history.replaceState(window.history.state, "", next)
+  }, [urlFlags])
   const [items, setItems] = useState<OrderLineItem[]>([])
   const [itemsLoading, setItemsLoading] = useState(true)
-  const [extras, setExtras] = useState<OrderExtras>({})
+  const [logs, setLogs] = useState<ApiOrderLog[]>([])
   const [statusTarget, setStatusTarget] = useState(order.status)
 
   const loadItems = useCallback(() => {
@@ -316,57 +400,80 @@ export function OrderDetailCard({
 
   useEffect(() => {
     loadItems()
-    setExtras(readExtras(order.id))
     setTab("Список товаров")
     setMenu(null)
   }, [order.id, loadItems])
 
-  const saveExtras = (next: OrderExtras) => {
-    setExtras(next)
-    writeExtras(order.id, next)
-  }
+  const loadLogs = useCallback(() => {
+    fetch(`/api/orders/${order.id}/logs`)
+      .then(async (response) => (response.ok ? ((await response.json()) as ApiOrderLog[]) : []))
+      .then(setLogs)
+      .catch(() => setLogs([]))
+  }, [order.id])
 
-  const addLog = (entry: Omit<OrderLog, "by" | "at" | "sum">) => {
-    const log: OrderLog = { ...entry, by: "Admin Ritm", at: nowStamp(), sum: order.amount }
-    saveExtras({ ...extras, logs: [log, ...(extras.logs ?? [])] })
+  useEffect(() => {
+    loadLogs()
+  }, [loadLogs, order.status])
+
+  // The status change itself is logged by the API; every other action posts its own entry.
+  const addLog = (action: string, comment = "") => {
+    void fetch(`/api/orders/${order.id}/logs`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action, status: STATUS_CODE_OF[order.status] ?? "", comment }),
+    }).then(loadLogs)
   }
 
   const changeStatus = (status: string) => {
     if (status === order.status) return
     onUpdate(order.id, { status })
-    addLog({ kind: "Обновленный", status, comment: `${t("Изменен статус:")} ${t(order.status)} - ${t(status)}` })
     onNotify(`${t("Статус заказа изменён:")} ${t(status)}`)
   }
 
-  const logs: OrderLog[] = [
-    ...(extras.logs ?? []),
-    {
-      kind: "Обновленный",
-      status: order.status,
-      by: "Admin Ritm",
-      at: `${formatRuDate(new Date())}, 20:03`,
-      sum: order.amount,
-      comment: `${t("Изменен статус:")} ${t("Не подтвержден")} - ${t(order.status)}`,
-    },
-    { kind: "Создан", status: "Не подтвержден", by: "Admin Ritm", at: `${order.created}`, sum: order.amount },
-  ]
+  /** The reference only offers returns once the goods left the warehouse (delivered / handed to the courier). */
+  const canReturn = order.status === "Доставлено" || order.status === "В пути"
 
-  const invoiceActive = extras.invoice?.active ?? false
+  async function applyDiscountPercent(percent: number) {
+    await Promise.all(
+      items.map((item) =>
+        fetch(`/api/orders/${order.id}/items/${item.id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ productName: item.productName, unit: item.unit, quantity: item.quantity, unitPrice: item.unitPrice, discountPercent: percent, currency: item.currency }),
+        }),
+      ),
+    )
+    onUpdate(order.id, { discount: `${percent}%` })
+    addLog("add_discount", `Ручная скидка: ${percent}%`)
+    loadItems()
+    refreshOrder(order.id)
+  }
+
+  const invoiceActive = order.invoiceActive ?? false
+  const invoiceNumber = order.invoiceNumber ?? ""
+  const invoiceDate = order.invoiceDate ?? ""
+  const invoiceContract = order.invoiceContract ?? ""
   const statusColor =
-    order.status === "Доставлено" ? "text-[#81c784]" : order.status === "Отменен" ? "text-[#e57373]" : "text-[#f0ad4e]"
-  const operativeDebt = order.negative ? order.balance : "12 047 000 SUM"
+    order.status === "Доставлено" ? "text-[#81c784]" : order.status === "Отменен" ? "text-[#e57373]" : order.status === "Не подтвержден" ? "text-[#999]" : "text-[#f0ad4e]"
+  const currency = order.amount.trim().split(/\s+/).pop() || "SUM"
+  const money = (value: number, unit = currency) => `${formatNumber(value)} ${unit}`
+  const debtClass = (value: number) => (value < 0 ? "text-[#e57373]" : "text-[#81c784]")
+  const debtLines = (expand: Order["operativeExpand"], fallback: number) => (expand ?? [{ currency: "SUM", amount: fallback }])
+  const operativeLines = debtLines(order.operativeExpand, order.operativeDebt ?? 0)
+  const actualLines = debtLines(order.actualExpand, order.actualDebt ?? 0)
+  const createdDate = order.createdAt ? fromInputDate(order.createdAt.slice(0, 10)) : /^\d{1,2}\s+\S+\s+\d{4}/.test(order.created) ? order.created.replace(/\s+\d{1,2}:\d{2}$/, "") : `${order.created.replace(/\s+\d{1,2}:\d{2}$/, "")} ${new Date().getFullYear()}`
 
   const row = (label: string, value: ReactNode, valueClass = "") => (
     <li className="flex min-h-[25px] items-start justify-between leading-[25px]">
       <span>{label}</span>
-      <span className={`text-right font-semibold ${valueClass}`}>{value}</span>
+      <span className={`max-w-[50%] text-right font-semibold ${valueClass}`}>{value}</span>
     </li>
   )
 
   const tabIndex = TABS.indexOf(tab)
 
   return (
-    <div className="relative bg-white font-sans text-[13px] leading-normal text-[#333] shadow-[0_1px_6px_rgba(0,0,0,0.2),0_1px_4px_rgba(0,0,0,0.2)]">
+    <div className="relative bg-white font-sans text-[13px] leading-normal text-[#333] shadow-[0_3px_10px_rgba(0,0,0,0.16),0_3px_10px_rgba(0,0,0,0.23)]">
       {/* header */}
       <div className="flex h-[65px] items-center justify-between border-b border-[#efefef] px-[30px]">
         <h2 className="text-[18px] font-semibold leading-[22.5px]">
@@ -389,6 +496,7 @@ export function OrderDetailCard({
                 {STATUS_MENU.map((item) => (
                   <MenuItem
                     key={item.status}
+                    kind="status"
                     icon={item.icon}
                     color={item.color}
                     label={t(item.label)}
@@ -405,10 +513,10 @@ export function OrderDetailCard({
           <div className="relative">
             <HeaderButton icon={ICONS.edit} label={t("Изменить")} onClick={() => setMenu(menu === "edit" ? null : "edit")} />
             {menu === "edit" && (
-              <Menu onClose={() => setMenu(null)}>
+              <Menu onClose={() => setMenu(null)} width={336}>
                 <MenuItem icon={ICONS.edit} label={t("Изменить")} onClick={() => (setMenu(null), setSheet("edit"))} />
-                <MenuItem icon={ICONS.edit} label={t("Быстрая правка")} onClick={() => (setMenu(null), setSheet("quickEdit"))} />
-                <MenuItem icon={ICONS.article} label={t("Изменить детали счет фактуры")} onClick={() => (setMenu(null), setDialog("invoice"))} />
+                <MenuItem icon={ICONS.editMode} label={t("Быстрая правка")} onClick={() => (setMenu(null), setSheet("quickEdit"))} />
+                <MenuItem icon={ICONS.receipt} label={t("Изменить детали счет фактуры")} onClick={() => (setMenu(null), setDialog("invoice"))} />
               </Menu>
             )}
           </div>
@@ -416,98 +524,139 @@ export function OrderDetailCard({
             <HeaderButton icon={ICONS.discount} label={t("Скидка")} onClick={() => setMenu(menu === "discount" ? null : "discount")} />
             {menu === "discount" && (
               <Menu onClose={() => setMenu(null)}>
-                <MenuItem icon={ICONS.discount} label={t("Скидка")} onClick={() => (setMenu(null), setDialog("manualDiscount"))} />
+                <MenuItem icon={ICONS.discount} label={t("Скидка")} onClick={() => setMenu("discountSize")} />
                 <MenuItem icon={ICONS.discount} label={t("Частичная скидка")} onClick={() => (setMenu(null), setSheet("quickEdit"))} />
                 <MenuItem icon={ICONS.discount} label={t("Ручная скидка")} onClick={() => (setMenu(null), setDialog("manualDiscount"))} />
                 <MenuItem icon={ICONS.sync} label={t("Пересчитать")} onClick={() => (setMenu(null), setDialog("recalc"))} />
                 <MenuItem icon={ICONS.trash} label={t("Отменить скидки")} onClick={() => (setMenu(null), setDialog("cancelDiscount"))} />
               </Menu>
             )}
+            {menu === "discountSize" && (
+              <DiscountSizePopover
+                onClose={() => setMenu(null)}
+                onApply={(percent) => {
+                  setMenu(null)
+                  void applyDiscountPercent(percent)
+                }}
+              />
+            )}
           </div>
           <div className="relative">
             <HeaderButton icon={ICONS.undo} label={t("Возврат")} onClick={() => setMenu(menu === "return" ? null : "return")} />
-            {menu === "return" && (
-              <Menu onClose={() => setMenu(null)}>
-                <MenuItem icon={ICONS.money} label={t("Полный возврат")} onClick={() => (setMenu(null), setDialog("fullReturn"))} />
-                <MenuItem icon={ICONS.edit} label={t("Быстрый возврат")} onClick={() => (setMenu(null), setSheet("quickReturn"))} />
-                <MenuItem
-                  icon={ICONS.undo}
-                  label={t("Частичный возврат")}
-                  onClick={() => (setMenu(null), onNavigate(`/analytics/returns?o=${order.id}&openCreateDialog=true`))}
-                />
-              </Menu>
-            )}
+            {menu === "return" &&
+              (canReturn ? (
+                <Menu onClose={() => setMenu(null)}>
+                  <MenuItem
+                    label={t("Полный возврат")}
+                    onClick={() => (setMenu(null), setDialog("fullReturn"))}
+                    iconNode={
+                      <svg viewBox="0 0 24 24" className="h-6 w-6" aria-hidden>
+                        <svg viewBox="0 0 122.88 80.23" y="4.2" width="24" height="15.7">
+                          <path fill="#666" d={MONEY_BILLS_PATH} />
+                        </svg>
+                      </svg>
+                    }
+                  />
+                  <MenuItem icon={ICONS.editMode} label={t("Быстрый возврат")} onClick={() => (setMenu(null), setSheet("quickReturn"))} />
+                  <MenuItem
+                    icon={ICONS.undo}
+                    label={t("Частичный возврат")}
+                    onClick={() => (setMenu(null), onNavigate(`/analytics/returns?o=${order.id}&openCreateDialog=true`))}
+                  />
+                </Menu>
+              ) : (
+                <ReturnNotice onClose={() => setMenu(null)} />
+              ))}
           </div>
           <HeaderButton icon={ICONS.print} label={t("Распечатать")} onClick={() => setSheet("print")} />
           <button
             type="button"
-            title={t("Отменить")}
             aria-label={t("Отменить")}
             onClick={() => setDialog("cancelOrder")}
-            className="-ml-2 flex h-12 w-12 items-center justify-center"
+            className="group relative flex h-12 w-12 items-center justify-center"
           >
-            <Mi d={ICONS.trash} className="h-5 w-5 fill-black/30 hover:fill-black/60" />
+            <Mi d={ICONS.trash} className="h-5 w-5 fill-black/30 group-hover:fill-black/60" />
+            <span className="pointer-events-none absolute right-[-27px] top-[58px] z-[120] hidden whitespace-nowrap rounded-[2px] bg-[#2d3037] px-[21px] py-[8px] text-[13px] font-bold leading-[17px] text-white opacity-90 group-hover:block">{t("Отменить")}</span>
           </button>
         </div>
       </div>
 
       {/* info columns */}
       <div className="flex border-b border-[#efefef] px-[15px]">
-        <div className="min-h-[320px] w-1/3 border-r border-[#efefef] p-[15px]">
+        <div className="w-1/3 border-r border-[#efefef] p-[15px]">
           <ul>
             {row(
               `${t("Клиент")}:`,
               <button type="button" onClick={() => onNavigate(`/clients?openClient=${encodeURIComponent(order.client)}`)} className="font-semibold text-[#5869f0] hover:underline">
-                {order.client}
+                {order.marketName || order.client}
               </button>,
             )}
-            {row(`${t("Транспорт")}:`, t("Не указан"))}
-            {row(`${t("Филиал")}:`, order.zone || "ddr")}
-            {row(`${t("Склад")}:`, "toshkent")}
-            {row(`${t("Договор")}:`, extras.invoice?.contract || t("Не указан"))}
+            {row(`${t("Транспорт")}:`, order.transportNumber || t("Не указан"))}
+            {row(`${t("Филиал")}:`, order.branchName || t("Не указан"))}
+            {row(`${t("Склад")}:`, order.stockName || t("Не указан"))}
+            {row(`${t("Договор")}:`, invoiceContract || t("Не указан"))}
             {row(`${t("Счет фактура")}:`, invoiceActive ? t("Активный") : t("Не активный"), invoiceActive ? "text-[#81c784]" : "text-[#e57373]")}
-            {row(`${t("Номер счет фактура")}:`, extras.invoice?.number || t("Не указан"))}
-            {row(`${t("Дата счет фактуры")}:`, extras.invoice?.date ? fromInputDate(extras.invoice.date) : t("Не указан"))}
+            {row(`${t("Номер счет фактура")}:`, invoiceNumber || t("Не указан"))}
+            {row(`${t("Дата счет фактуры")}:`, invoiceDate ? fromInputDate(invoiceDate) : t("Не указан"))}
           </ul>
         </div>
-        <div className="min-h-[320px] w-1/3 border-r border-[#efefef] p-[15px]">
+        <div className="w-1/3 border-r border-[#efefef] p-[15px]">
           <ul>
-            {row(`${t("Прайс-лист")}:`, "donalik")}
-            {row(`${t("Организация")}:`, order.product)}
-            {row(`${t("Дата окончательной оплаты")}:`, order.delivery)}
-            {row(`${t("Тип оплаты")}:`, t("Перечисление"))}
+            {row(`${t("Прайс-лист")}:`, order.priceList || t("Не указан"))}
+            {row(`${t("Организация")}:`, orderOrganization(order) || t("Не указан"))}
+            {row(`${t("Дата окончательной оплаты")}:`, order.dueDate ? fromInputDate(order.dueDate) : order.delivery)}
+            {row(`${t("Тип оплаты")}:`, order.payTypeName || t(order.payMethod === "bank" ? "Перечисление" : "Наличные"))}
             {row(t("Общая стоимость"), order.amount)}
             {order.discount && row(t("Скидка"), order.discount, "text-[#278549]")}
-            {row(`${t("Оплачено")}:`, "0 SUM")}
-            {row(`${t("Остаток")}:`, order.balance, order.negative ? "text-[#e57373]" : "text-[#e57373]")}
+            {row(
+              `${t("Оплачено")}:`,
+              (order.paidAmount ?? 0) > 0 ? (
+                <button type="button" onClick={() => setPaymentsOpen(true)} className="cursor-pointer border-b border-dashed border-[#4f71dc] font-semibold text-[#4f71dc]">
+                  {money(order.paidAmount ?? 0)}
+                </button>
+              ) : (
+                money(order.paidAmount ?? 0)
+              ),
+            )}
+            {row(`${t("Остаток")}:`, order.orderBalance === undefined ? order.balance : money(order.orderBalance), (order.orderBalance ?? 0) > 0 ? "text-[#e57373]" : "")}
             <li className="flex min-h-[25px] items-center justify-between font-semibold leading-[25px]">
               <span className="flex items-center gap-[5px]">
                 <Mi d={ICONS.info} className="h-6 w-6 fill-[#4f71dc]" />
                 {t("Оперативный долг клиента")}:
               </span>
-              <span className={order.negative ? "text-[#e57373]" : "text-[#81c784]"}>{operativeDebt}</span>
+              <span className="text-right">
+                {operativeLines.map((line) => (
+                  <span key={line.currency} className={`block ${debtClass(line.amount)}`}>{`${line.amount.toLocaleString("ru-RU", { maximumFractionDigits: 3 })} ${line.currency}`}</span>
+                ))}
+              </span>
             </li>
             <li className="flex min-h-[25px] items-center justify-between font-semibold leading-[25px]">
               <span className="flex items-center gap-[5px]">
                 <Mi d={ICONS.info} className="h-6 w-6 fill-[#4f71dc]" />
                 {t("Фактический долг клиента")}:
               </span>
-              <span className="text-[#81c784]">{order.negative ? order.balance : "12 048 000 SUM"}</span>
+              <span className="text-right">
+                {actualLines.map((line) => (
+                  <span key={line.currency} className={`block ${debtClass(line.amount)}`}>{`${line.amount.toLocaleString("ru-RU", { maximumFractionDigits: 3 })} ${line.currency}`}</span>
+                ))}
+              </span>
             </li>
           </ul>
         </div>
-        <div className="min-h-[320px] w-1/3 px-[15px] pb-5 pt-[15px]">
+        <div className="w-1/3 px-[15px] pb-5 pt-[15px]">
           <ul>
             {row(`${t("Создал")}:`, order.agent)}
-            {row(`${t("Доставщик")}:`, order.agent)}
-            {row(`${t("Экспедитор")}:`, t("Не указано"))}
-            {row(t("Дата создания"), order.created)}
-            {row(`${t("Дата реализации")}:`, order.status === "Доставлено" ? order.delivery : t("Не реализовано"))}
-            {row(`${t("Текущий статус")}:`, t(order.status === "Доставлено" ? "Доставлен" : order.status), statusColor)}
-            {row(`${t("Тип передачи")}:`, t("Доставка"))}
+            {row(`${t("Доставщик")}:`, order.deliveryMan || order.agent)}
+            {row(`${t("Экспедитор")}:`, order.expeditor || t("Не указано"))}
+            {row(t("Дата создания"), createdDate)}
+            {row(`${t("Дата реализации")}:`, order.acceptedDate ? fromInputDate(order.acceptedDate) : order.status === "Доставлено" ? order.delivery : t("Не реализовано"))}
+            {row(`${t("Текущий статус")}:`, t(order.status === "Доставлено" ? "Доставлен" : order.status === "В пути" ? "Передан доставщику" : order.status), statusColor)}
+            {row(`${t("Тип передачи")}:`, order.deliveryType === "self" ? t("Самовывоз") : t("Доставка"))}
             {row(`${t("Дата доставки")}:`, order.delivery)}
-            {row(`${t("Тип сделки")}:`, order.status === "Доставлено" ? t("Стандартная") : t("Консигнация"))}
+            {row(`${t("Тип сделки")}:`, order.dealType === "0" ? t("Стандартная") : t("Консигнация"))}
+            {invoiceActive && invoiceNumber && row(`${t("Статус отправки")}:`, t("Заполнено"))}
           </ul>
+          {order.wrongDebt && (
           <div>
             <b className="block leading-[25px] text-[#e57373]">{t("У этого клиента остаток, требуется перасчет")}</b>
             <button
@@ -518,79 +667,96 @@ export function OrderDetailCard({
               {t("Пересчитать")}
             </button>
           </div>
+          )}
         </div>
       </div>
 
       {/* tabs */}
       <div className="px-[30px] pb-5">
-        <div className="relative grid grid-cols-5 border-b border-[#f2f5f8]">
-          {TABS.map((label) => (
-            <button key={label} type="button" onClick={() => setTab(label)} className="h-12 text-center text-[13px] font-medium text-black">
-              {t(label)}
+        <div className="relative grid border-b border-[#f2f5f8]" style={{ gridTemplateColumns: TAB_COLUMNS.map((width) => `${width}fr`).join(" ") }}>
+          {TABS.map((label, index) => (
+            <button key={label} type="button" onClick={() => setTab(label)} className="h-12 text-left text-[13px] font-medium text-black">
+              <span className="block text-center" style={{ width: `${(TAB_COLUMNS[0] / TAB_COLUMNS[index]) * 100}%` }}>
+                {t(label)}
+              </span>
             </button>
           ))}
-          <span className="absolute -bottom-[1px] left-0 h-[2px] w-1/5 bg-[#4f71dc] transition-transform duration-300" style={{ transform: `translateX(${tabIndex * 100}%)` }} />
+          <span
+            className="absolute -bottom-[1px] h-[2px] bg-[#4f71dc] transition-all duration-300"
+            style={{ left: `${tabIndex * 20}%`, width: "20%" }}
+          />
         </div>
 
         {tab === "Список товаров" && (
-          <ItemsTable
-            orderId={order.id}
-            items={items}
-            loading={itemsLoading}
-            reload={() => {
-              loadItems()
-              refreshOrder(order.id)
-            }}
-          />
+          <ItemsTable items={items} loading={itemsLoading} />
         )}
         {tab === "Серии" && <Robot text={t("По вашему запросу ничего не найдено")} />}
-        {tab === "Возврат" && <Robot overlay text={t("В данном заказе нет возвратов")} />}
+        {tab === "Возврат" && <OrderReturnsTab orderId={order.id} currency={currency} empty={<Robot overlay text={t("В данном заказе нет возвратов")} />} />}
         {tab === "Задействованные акции" && <Robot overlay text={t("Для этого заказа нет акций")} />}
         {tab === "Логи" && (
-          <div className="pt-[10px]">
-            <div className="flex justify-end">
+          <div>
+            <div className="mt-[10px] flex w-full items-end justify-end">
               <button
                 type="button"
                 onClick={() => setDialog("logDetails")}
-                className="flex h-[30px] items-center rounded-[5px] bg-[#4f71dc] px-4 text-[13px] font-semibold text-white"
+                className="mr-2 flex h-[30px] items-center rounded-[5px] bg-[#4f71dc] px-4 text-[13px] font-semibold text-white"
               >
                 {t("Детали изменений заказа")}
               </button>
             </div>
-            <div className="mt-5 space-y-[20px]">
-              {logs.map((log, index) => (
-                <div key={index} className="rounded-[10px] border border-[#e6e6e6] bg-[#fafafa] px-5 py-[18px]">
-                  <div className="flex items-center gap-5">
-                    <span className="flex items-center gap-2">
-                      <b>{t("Заказ")}:</b>
-                      <span className={`rounded-full border px-[10px] py-[2px] ${log.kind === "Создан" ? "border-[#48a34b] text-[#48a34b]" : "border-[#4fa8f0] text-[#4fa8f0]"}`}>
-                        {t(log.kind)}
-                      </span>
-                    </span>
-                    <span className="flex items-center gap-2">
-                      <b>{t("Статус")}:</b>
-                      <StatusIcon status={log.status} />
-                      {t(log.status === "Доставлено" ? "Доставлен" : log.status)}
-                    </span>
-                    <span className="ml-auto flex gap-5">
-                      <span>
-                        <b>{t("Кем")}:</b> {log.by}
-                      </span>
-                      <span>
-                        <b>{t("Когда")}:</b> {log.at}
-                      </span>
-                      <span>
-                        <b>{t("Сумма")}:</b> {log.sum}
-                      </span>
-                    </span>
+            <div className="flex flex-col pt-[15px]">
+              {logs.map((log) => {
+                const action = LOG_ACTIONS[log.action]
+                const status = LOG_STATUS[log.status]
+                const tone = action?.tone === "begin" ? "border-[#64b5f6] text-[#64b5f6]" : action?.tone === "error" ? "border-[#e57373] text-[#e57373]" : "border-[#81c784] text-[#81c784]"
+                return (
+                  <div key={log.id} className="mb-5 grid grid-cols-2 gap-y-[7px] rounded-[10px] border border-[#e5e8f1] bg-[#fbfbfb] p-5 [&_p]:leading-[26px]">
+                    <div className="flex">
+                      <div className="flex items-center">
+                        <span className="font-semibold">{t("Заказ")}:</span>
+                        {action ? (
+                          <span className="whitespace-nowrap rounded-[15px] px-[7px] py-px">
+                            <span className={`whitespace-nowrap rounded-[15px] border px-[7px] py-px ${tone}`}>{t(action.label)}</span>
+                          </span>
+                        ) : (
+                          t("Не установлен")
+                        )}
+                      </div>
+                      {status && (
+                        <div className="ml-[10px] flex items-center">
+                          <span className="font-semibold">{t("Статус")}:</span>
+                          <div>
+                            <div className="flex items-center">
+                              <span className="flex h-[33px] w-[33px] items-center justify-center">
+                                <StatusIcon status={status.status} color={status.color} size={23} />
+                              </span>
+                              <span>{t(status.label)}</span>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex items-center justify-start">
+                      <p>
+                        <span className="font-semibold">{t("Кем")}:</span> {log.createdBy}
+                      </p>
+                      <div className="ml-5 flex items-center">
+                        <span className="font-semibold">{t("Когда")}:</span>
+                        <p className="ml-[5px]">{formatLogDate(log.createdAt)}</p>
+                      </div>
+                      <div className="ml-[10px] flex items-center">
+                        <span className="mr-[5px] font-semibold">{t("Сумма")}:</span> {formatNumber(log.totalPrice)} {log.currency}
+                      </div>
+                    </div>
+                    {log.comment && (
+                      <div className="col-span-full flex items-center">
+                        <span className="mr-[5px] font-semibold">{t("Комментарий")}:</span>
+                        <p>{t(log.comment)}</p>
+                      </div>
+                    )}
                   </div>
-                  {log.comment && (
-                    <p className="mt-4">
-                      <b>{t("Комментарий")}:</b> {log.comment}
-                    </p>
-                  )}
-                </div>
-              ))}
+                )
+              })}
             </div>
           </div>
         )}
@@ -606,16 +772,16 @@ export function OrderDetailCard({
             setDialog(null)
             if (deliveryDate) onUpdate(order.id, { status, delivery: fromInputDate(deliveryDate) })
             else changeStatus(status)
-            if (deliveryDate) addLog({ kind: "Обновленный", status, comment: `${t("Изменен статус:")} ${t(order.status)} - ${t(status)}` })
           }}
         />
       )}
       {dialog === "invoice" && (
         <InvoiceDialog
-          initial={extras.invoice}
+          initial={{ number: invoiceNumber, date: invoiceDate, contract: invoiceContract, active: invoiceActive }}
           onClose={() => setDialog(null)}
           onSave={(invoice) => {
-            saveExtras({ ...extras, invoice })
+            onUpdate(order.id, { invoiceActive: invoice.active, invoiceNumber: invoice.number, invoiceDate: invoice.date, invoiceContract: invoice.contract })
+            addLog("updated")
             setDialog(null)
             onNotify(t("Детали счет фактуры сохранены"))
           }}
@@ -625,26 +791,15 @@ export function OrderDetailCard({
         <ManualDiscountDialog
           onClose={() => setDialog(null)}
           onApply={async (percent) => {
-            await Promise.all(
-              items.map((item) =>
-                fetch(`/api/orders/${order.id}/items/${item.id}`, {
-                  method: "PUT",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ productName: item.productName, unit: item.unit, quantity: item.quantity, unitPrice: item.unitPrice, discountPercent: percent, currency: item.currency }),
-                }),
-              ),
-            )
-            onUpdate(order.id, { discount: `${percent}%` })
-            addLog({ kind: "Обновленный", status: order.status, comment: `${t("Ручная скидка")}: ${percent}%` })
             setDialog(null)
-            loadItems()
-            refreshOrder(order.id)
+            await applyDiscountPercent(percent)
           }}
         />
       )}
       {dialog === "recalc" && (
         <DialogShell
           title={t("Пересчитать скидочные акции")}
+          height={327}
           onClose={() => setDialog(null)}
           action={t("Да")}
           onAction={() => {
@@ -653,15 +808,16 @@ export function OrderDetailCard({
             onNotify(t("Скидочные акции пересчитаны"))
           }}
         >
-          <p className="pb-5 pt-1">{t("Подтверждение запроса")}</p>
-          <div className="-mx-[30px] bg-[#f1f4f7] px-[30px] py-5">
-            <b>{t("Выбранные заказы:")}</b> №{order.id}
-          </div>
+          <ConfirmText>{t("Подтверждение запроса")}</ConfirmText>
+          <ConfirmStrip>
+            {t("Выбранные заказы:")} №{order.id}
+          </ConfirmStrip>
         </DialogShell>
       )}
       {dialog === "cancelDiscount" && (
         <DialogShell
           title={t("Подтверждение отмены")}
+          height={327}
           onClose={() => setDialog(null)}
           action={t("Да")}
           onAction={async () => {
@@ -675,30 +831,51 @@ export function OrderDetailCard({
               ),
             )
             onUpdate(order.id, { discount: "" })
-            addLog({ kind: "Обновленный", status: order.status, comment: t("Скидки отменены") })
+            addLog("updated", "Скидки отменены")
             setDialog(null)
             loadItems()
             refreshOrder(order.id)
           }}
         >
-          <p className="pb-5 pt-1">{t("Вы уверены что хотите отменить эти данные?")}</p>
-          <div className="-mx-[30px] bg-[#f1f4f7] px-[30px] py-5 font-semibold">{t("Отменить скидку")}</div>
+          <ConfirmText>{t("Вы уверены что хотите отменить эти данные?")}</ConfirmText>
+          <ConfirmStrip>{t("Отменить скидку")}</ConfirmStrip>
         </DialogShell>
       )}
       {dialog === "fullReturn" && (
         <FullReturnDialog
           orderId={order.id}
           onClose={() => setDialog(null)}
-          onConfirm={() => {
-            addLog({ kind: "Обновленный", status: order.status, comment: t("Оформлен полный возврат") })
+          onConfirm={async () => {
+            // every line that has not been returned yet goes back: line return quantities + the return document (P&L and the returns report read it)
+            const open = items.filter((item) => item.quantity - (item.returnQuantity ?? 0) > 0)
             setDialog(null)
-            onNotify(t("Полный возврат оформлен"))
+            if (!open.length) return onNotify(t("Все товары уже возвращены"))
+            try {
+              await Promise.all(
+                open.map((item) =>
+                  fetch(`/api/orders/${order.id}/items/${item.id}`, {
+                    method: "PUT",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ productName: item.productName, unit: item.unit, quantity: item.quantity, unitPrice: item.unitPrice, discountPercent: item.discountPercent, currency: item.currency, returnQuantity: item.quantity }),
+                  }),
+                ),
+              )
+              const lines = open.map((item) => ({ productName: item.productName, quantity: item.quantity - (item.returnQuantity ?? 0), unitPrice: item.unitPrice, discountPercent: item.discountPercent, currency: item.currency }))
+              const document = await fetch(`/api/orders/${order.id}/returns`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ comment: "", lines }) })
+              if (!document.ok) throw new Error("return document failed")
+              addLog("updated", "Оформлен полный возврат")
+              await loadItems()
+              onNotify(t("Полный возврат оформлен"))
+            } catch {
+              onNotify(t("Не удалось сохранить изменения на сервере"))
+            }
           }}
         />
       )}
       {dialog === "cancelOrder" && (
         <DialogShell
           title={t("Подтверждение отмены")}
+          height={327}
           onClose={() => setDialog(null)}
           action={t("Да")}
           onAction={() => {
@@ -706,37 +883,30 @@ export function OrderDetailCard({
             changeStatus("Отменен")
           }}
         >
-          <p className="pb-5 pt-1">{t("Вы уверены что хотите отменить эти данные?")}</p>
-          <div className="-mx-[30px] bg-[#f1f4f7] px-[30px] py-5 font-semibold">{t("Заказ №")}{order.id}</div>
+          <ConfirmText>{t("Вы уверены что хотите отменить эти данные?")}</ConfirmText>
+          <ConfirmStrip>
+            {t("Заказ")}№ {order.id}
+          </ConfirmStrip>
         </DialogShell>
       )}
-      {dialog === "logDetails" && (
-        <DialogShell title={t("Детали изменений заказа")} onClose={() => setDialog(null)} action={t("Закрыть")} onAction={() => setDialog(null)}>
-          <ul className="space-y-2">
-            {logs.map((log, index) => (
-              <li key={index}>
-                <b>{log.at}</b> — {t(log.kind)}: {log.comment ?? t(log.status)}
-              </li>
-            ))}
-          </ul>
-        </DialogShell>
-      )}
+      {paymentsOpen && <OrderPaymentsDialog orderId={order.id} onClose={() => setPaymentsOpen(false)} />}
+      {dialog === "logDetails" && <LogDetailsSheet orderId={order.id} logs={logs} onClose={() => setDialog(null)} />}
 
       {/* full-screen sheets */}
-      {sheet === "edit" && (
-        <EditOrderSheet
-          order={order}
-          items={items}
+      {sheet === "edit" && !itemsLoading && (
+        <AddOrderDialog
+          edit={{
+            order,
+            items: items.map((item) => ({ id: item.id, productName: item.productName, unit: item.unit, quantity: item.quantity, unitPrice: item.unitPrice, discountPercent: item.discountPercent, boxAmount: item.boxAmount, boxUnit: item.boxUnit })),
+          }}
           onClose={() => setSheet(null)}
-          reloadItems={() => {
+          onCreated={() => setSheet(null)}
+          onSaved={(patch) => {
+            onUpdate(order.id, patch)
+            addLog("updated")
+            setSheet(null)
             loadItems()
             refreshOrder(order.id)
-          }}
-          onQuickEdit={() => setSheet("quickEdit")}
-          onSave={(patch) => {
-            onUpdate(order.id, patch)
-            addLog({ kind: "Обновленный", status: order.status, comment: t("Заказ изменён") })
-            setSheet(null)
             onNotify(t("Заказ обновлён"))
           }}
         />
@@ -747,7 +917,7 @@ export function OrderDetailCard({
           items={items}
           onClose={() => setSheet(null)}
           onSaved={() => {
-            addLog({ kind: "Обновленный", status: order.status, comment: t("Быстрая правка") })
+            addLog("updated")
             setSheet(null)
             loadItems()
             refreshOrder(order.id)
@@ -761,23 +931,140 @@ export function OrderDetailCard({
           items={items}
           onClose={() => setSheet(null)}
           onSaved={() => {
-            addLog({ kind: "Обновленный", status: order.status, comment: t("Оформлен быстрый возврат") })
+            addLog("updated", "Оформлен быстрый возврат")
             setSheet(null)
             onNotify(t("Возврат оформлен"))
           }}
         />
       )}
-      {sheet === "print" && <PrintSheet order={order} items={items} onClose={() => setSheet(null)} />}
+      {sheet === "print" && (
+        <PrintDrawer
+          onClose={() => setSheet(null)}
+          onPick={(copies) => {
+            setPrintCopies(copies)
+            setSheet("printPreview")
+          }}
+        />
+      )}
+      {sheet === "printPreview" && <PrintSheet order={order} items={items} copies={printCopies} onClose={() => setSheet(null)} />}
     </div>
   )
 }
 
-function StatusIcon({ status }: { status: string }) {
+function StatusIcon({ status, color, size = 20 }: { status: string; color?: string; size?: number }) {
   const item = STATUS_MENU.find((entry) => entry.status === status) ?? STATUS_MENU[0]
   return (
-    <svg viewBox="0 0 24 24" className="h-5 w-5" aria-hidden>
-      <path d={item.icon} fill={item.color} />
+    <svg viewBox="0 0 24 24" style={{ width: size, height: size }} aria-hidden>
+      <path d={item.icon} fill={color ?? item.color} />
     </svg>
+  )
+}
+
+/** "Детали изменений заказа": one column per log entry that changed products, one block per product. */
+function LogDetailsSheet({ orderId, logs, onClose }: { orderId: number; logs: ApiOrderLog[]; onClose: () => void }) {
+  const { t } = useLanguage()
+  const [show, setShow] = useState({ amount: true, price: true, total: true })
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => event.key === "Escape" && onClose()
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
+  }, [onClose])
+
+  const columns = logs.filter((log) => log.products.length > 0).sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+  const products: { key: string; name: string }[] = []
+  for (const log of columns) {
+    for (const product of log.products) {
+      const key = String(product.productId ?? product.name)
+      if (!products.some((entry) => entry.key === key)) products.push({ key, name: product.name })
+    }
+  }
+  const lineOf = (log: ApiOrderLog, key: string) => log.products.find((product) => String(product.productId ?? product.name) === key)
+  const rows = [
+    { key: "amount" as const, label: "Кол-во", color: "", value: (line: NonNullable<ReturnType<typeof lineOf>>) => `${formatNumber(line.amount)} шт.` },
+    { key: "price" as const, label: "Цена", color: "#129fdd", value: (line: NonNullable<ReturnType<typeof lineOf>>, log: ApiOrderLog) => `${formatNumber(line.price)} ${log.currency}` },
+    { key: "total" as const, label: "Сумма", color: "#48a34b", value: (line: NonNullable<ReturnType<typeof lineOf>>, log: ApiOrderLog) => `${formatNumber(line.total)} ${log.currency}` },
+  ].filter((row) => show[row.key])
+  const cellClass = "border border-[#e8eaf6] px-[10px] py-[14px] text-center"
+
+  return (
+    <div data-order-overlay className="fixed inset-x-0 bottom-0 top-[50px] z-[120] flex flex-col bg-white font-sans text-[13px] text-[#333]">
+      <div className="flex h-[59px] shrink-0 items-center border-b border-[#efefef] px-[30px]">
+        <h3 className="text-[13px] font-bold uppercase leading-4">
+          {t("Детали изменений заказа")} № {orderId}
+        </h3>
+        <div className="ml-[430px] flex items-center gap-[30px]">
+          {([["amount", "Количество"], ["price", "Цена"], ["total", "Сумма"]] as const).map(([key, label]) => (
+            <label key={key} className="flex cursor-pointer items-center gap-2 text-[13px] font-semibold uppercase">
+              <input type="checkbox" checked={show[key]} onChange={() => setShow((current) => ({ ...current, [key]: !current[key] }))} className="h-[18px] w-[18px] accent-[#5d6474]" />
+              {t(label)}
+            </label>
+          ))}
+        </div>
+        <button type="button" aria-label="close" onClick={onClose} className="ml-auto">
+          <Mi d={ICONS.close} className="h-6 w-6 fill-[#666]" />
+        </button>
+      </div>
+      <div className="min-h-0 flex-1 overflow-auto p-6">
+        {columns.length === 0 || products.length === 0 ? (
+          <div className="pt-[60px] text-center text-[#666]">{t("Нет данных по истории")}...</div>
+        ) : (
+          <table className="border-collapse" style={{ tableLayout: "fixed", width: 450 + columns.length * 200 }}>
+            <colgroup>
+              <col style={{ width: 50 }} />
+              <col style={{ width: 250 }} />
+              <col style={{ width: 150 }} />
+              {columns.map((log) => <col key={log.id} style={{ width: 200 }} />)}
+            </colgroup>
+            <thead>
+              <tr className="bg-[#fafafa] font-semibold">
+                <th colSpan={3} className={`${cellClass} font-normal`}>{t("Время изменений")}</th>
+                {columns.map((log) => <th key={log.id} className={`${cellClass} font-normal`}>{formatLogDate(log.createdAt)}</th>)}
+              </tr>
+            </thead>
+            <tbody>
+              {([
+                ["Клиент", (log: ApiOrderLog) => log.market],
+                ["Изменил", (log: ApiOrderLog) => log.createdBy],
+                ["Тип оплаты", (log: ApiOrderLog) => log.payType],
+                ["Статус", (log: ApiOrderLog) => {
+                  const status = LOG_STATUS[log.status]
+                  return status ? <span style={{ color: status.color, fontWeight: 600 }}>{t(status.label)}</span> : null
+                }],
+              ] as const).map(([label, value], index) => (
+                <tr key={label} className={index % 2 === 0 ? "bg-[#fafafa]" : ""}>
+                  <td colSpan={3} className={`${cellClass} font-semibold`}>{t(label)}</td>
+                  {columns.map((log) => <td key={log.id} className={cellClass}>{value(log)}</td>)}
+                </tr>
+              ))}
+              <tr className="bg-[#fafafa] font-semibold">
+                <td colSpan={3} className={cellClass}>{t("Продукты")}</td>
+                <td colSpan={columns.length} className={cellClass} />
+              </tr>
+            </tbody>
+            {rows.length > 0 &&
+              products.map((product, index) => (
+                <tbody key={product.key} className={index % 2 === 0 ? "" : "bg-[#fafafa]"}>
+                  {rows.map((row, rowIndex) => (
+                    <tr key={row.key}>
+                      {rowIndex === 0 && <td rowSpan={rows.length} className={cellClass}>{index + 1}</td>}
+                      {rowIndex === 0 && <td rowSpan={rows.length} className={`${cellClass} font-semibold`}>{product.name}</td>}
+                      <td className="border border-[#e8eaf6] px-[10px] py-[6px] text-left font-semibold">{t(row.label)}</td>
+                      {columns.map((log) => {
+                        const line = lineOf(log, product.key)
+                        return (
+                          <td key={log.id} className="border border-[#e8eaf6] px-[10px] py-[6px] text-right">
+                            {line ? <span style={{ fontWeight: 600, color: row.color }}>{row.value(line, log)}</span> : ""}
+                          </td>
+                        )
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              ))}
+          </table>
+        )}
+      </div>
+    </div>
   )
 }
 
@@ -785,92 +1072,70 @@ function StatusIcon({ status }: { status: string }) {
 /* Items table                                                         */
 /* ------------------------------------------------------------------ */
 
-function SortHead({ children }: { children: ReactNode }) {
+function SortHead({ children, width }: { children: ReactNode; width?: string }) {
   return (
-    <th className="whitespace-nowrap bg-[#f0f4f9] px-[17.5px] py-[7.8px] text-left text-[13px] font-semibold text-[#374557]">
+    <th style={width ? { width } : undefined} className="whitespace-nowrap bg-[#f0f4f9] px-[17.5px] py-[7.8px] text-left text-[13px] font-semibold text-[#374557]">
       <span className="flex items-center">
         {children}
-        <span className="ml-[5px] flex flex-col text-[#888]">
-          <ChevronDown className="-mb-[5px] h-[15px] w-[15px] rotate-180" />
-          <ChevronDown className="-mt-[5px] h-[15px] w-[15px]" />
+        <span className="flex h-5 w-5 flex-col">
+          <svg viewBox="0 0 24 24" className="ml-[5px] -mb-[5px] h-[15px] w-[15px] fill-[#888]"><path d="M7 14l5-5 5 5z" /></svg>
+          <svg viewBox="0 0 24 24" className="ml-[5px] -mt-[5px] h-[15px] w-[15px] fill-[#888]"><path d="M7 10l5 5 5-5z" /></svg>
         </span>
       </span>
     </th>
   )
 }
 
-function ItemsTable({ orderId, items, loading, reload }: { orderId: number; items: OrderLineItem[]; loading: boolean; reload: () => void }) {
+/** "0 тонна(+1 кг)": whole blocks of `boxAmount` units, the remainder in the product's own unit. */
+function blockLabel(quantity: number, unit: string, boxAmount?: number, boxUnit?: string) {
+  if (!boxAmount || boxAmount <= 0 || !boxUnit) return "0"
+  const blocks = Math.floor(quantity / boxAmount)
+  const rest = Math.round((quantity - blocks * boxAmount) * 1000) / 1000
+  return `${blocks} ${boxUnit}${rest > 0 ? `(+${formatNumber(rest)} ${unit})` : ""}`
+}
+
+function ItemsTable({ items, loading }: { items: OrderLineItem[]; loading: boolean }) {
   const { t } = useLanguage()
-  const [addOpen, setAddOpen] = useState(false)
-  const [productName, setProductName] = useState("")
-  const [quantity, setQuantity] = useState("1")
-  const [unit, setUnit] = useState("шт.")
-  const [unitPrice, setUnitPrice] = useState("")
-  const [error, setError] = useState("")
-
-  async function addItem() {
-    setError("")
-    const parsedQuantity = Number(quantity)
-    const parsedPrice = Number(unitPrice)
-    if (!productName.trim()) return setError(t("Наименование товара обязательно"))
-    if (!Number.isFinite(parsedQuantity) || parsedQuantity <= 0 || !Number.isFinite(parsedPrice) || parsedPrice < 0) return setError(t("Проверьте количество и цену"))
-    const response = await fetch(`/api/orders/${orderId}/items`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ productName: productName.trim(), unit: unit.trim() || "шт.", quantity: parsedQuantity, unitPrice: parsedPrice }),
-    })
-    if (!response.ok) return setError(t("Не удалось добавить товар"))
-    setProductName("")
-    setQuantity("1")
-    setUnitPrice("")
-    setAddOpen(false)
-    reload()
-  }
-
-  async function removeItem(itemId: number) {
-    const response = await fetch(`/api/orders/${orderId}/items/${itemId}`, { method: "DELETE" })
-    if (response.ok) reload()
-  }
-
   const totals = items.reduce(
     (sum, item) => ({
       quantity: sum.quantity + item.quantity,
       total: sum.total + item.lineTotal,
       discount: sum.discount + item.quantity * item.unitPrice - item.lineTotal,
+      returned: sum.returned + (item.returnQuantity ?? 0),
     }),
-    { quantity: 0, total: 0, discount: 0 },
+    { quantity: 0, total: 0, discount: 0, returned: 0 },
   )
   const unitLabel = items[0]?.unit ?? "dona"
+  const currency = items[0]?.currency || "SUM"
 
-  const cell = "border-b border-r border-[#efefef] px-[17.5px] py-[10px] align-middle"
+  const cell = "border-b border-r border-[#efefef] px-[17.5px] py-[8px] align-middle"
 
   return (
     <div className="border-l border-[#efefef]">
-      <table className="w-full border-collapse">
+      <table className="w-full table-auto border-collapse">
         <thead>
           <tr>
-            <th className="w-[50px] bg-[#f0f4f9] px-[17.5px] py-[7.8px] text-left text-[13px] font-semibold text-[#374557]">№</th>
-            <SortHead>{t("Товар")}</SortHead>
+            <th className="bg-[#f0f4f9] px-[17.5px] py-[7.8px] text-left text-[13px] font-semibold text-[#374557]">№</th>
+            <SortHead width="30%">{t("Товар")}</SortHead>
             <SortHead>{t("Количество")}</SortHead>
             <SortHead>{t("Блок")}</SortHead>
             <SortHead>{t("Кг.")}</SortHead>
             <SortHead>{t("Возврат")}</SortHead>
-            <SortHead>{`${t("Цена")} SUM`}</SortHead>
-            <SortHead>{`${t("Сумма")} SUM`}</SortHead>
-            <SortHead>{`${t("Скидка")} (SUM)`}</SortHead>
-            <th className="w-10 bg-[#f0f4f9]" />
+            <SortHead>{`${t("Цена")} ${currency}`}</SortHead>
+            <SortHead>{`${t("Сумма")} ${currency}`}</SortHead>
+            <SortHead>{`${t("Скидка")} (${currency})`}</SortHead>
           </tr>
         </thead>
         <tbody>
           {loading ? (
             <tr>
-              <td colSpan={10} className="p-6 text-center text-[#888]">
+              <td colSpan={9} className="p-6 text-center text-[#888]">
                 {t("Загрузка...")}
               </td>
             </tr>
           ) : items.length === 0 ? (
             <tr>
-              <td colSpan={10} className="p-6 text-center text-[#888]">
+              <td colSpan={9} className="p-6 text-center text-[#888]">
                 {t("Товары не добавлены")}
               </td>
             </tr>
@@ -880,78 +1145,38 @@ function ItemsTable({ orderId, items, loading, reload }: { orderId: number; item
                 <td className={cell}>{index + 1}</td>
                 <td className={cell}>
                   {item.productName}
-                  <span className="block text-[#4f71dc]">{1000 + item.id}</span>
+                  {item.article && <span className="block text-[#4f71dc]">{item.article}</span>}
                 </td>
                 <td className={cell}>
                   {formatNumber(item.quantity)} {item.unit}
                 </td>
+                <td className={cell}>{blockLabel(item.quantity, item.unit, item.boxAmount, item.boxUnit)}</td>
                 <td className={cell}>0</td>
-                <td className={cell}>0</td>
-                <td className={cell}>0 {item.unit}</td>
+                <td className={`${cell} ${(item.returnQuantity ?? 0) > 0 ? "text-[#e57373]" : ""}`}>{(item.returnQuantity ?? 0) > 0 ? "- " : ""}{formatNumber(item.returnQuantity ?? 0)} {item.unit}</td>
                 <td className={cell}>{formatNumber(item.unitPrice)}</td>
                 <td className={cell}>{formatNumber(item.lineTotal)}</td>
                 <td className={cell}>{formatNumber(item.quantity * item.unitPrice - item.lineTotal)}</td>
-                <td className="border-b border-r border-[#efefef] text-center">
-                  <button type="button" onClick={() => removeItem(item.id)} aria-label={t("Удалить")} className="text-[#e57373] hover:text-red-700">
-                    <X className="mx-auto h-4 w-4" />
-                  </button>
-                </td>
               </tr>
             ))
           )}
           {!loading && items.length > 0 && (
-            <tr className="text-[16px] font-semibold">
-              <td colSpan={2} className="border-b border-r border-[#efefef] px-[17.5px] py-[14px]">
+            <tr className="text-[15px] font-semibold">
+              <td colSpan={2} className="border-b border-r border-[#efefef] px-[17.5px] py-[8px]">
                 {t("Итого")}:
               </td>
-              <td className="border-b border-r border-[#efefef] px-[17.5px] py-[14px]">
+              <td className="border-b border-r border-[#efefef] px-[17.5px] py-[8px]">
                 {formatNumber(totals.quantity)} {unitLabel}
               </td>
               <td className="border-b border-r border-[#efefef]" />
               <td className="border-b border-r border-[#efefef] px-[17.5px]">0</td>
-              <td className="border-b border-r border-[#efefef] px-[17.5px]">0 {unitLabel}</td>
+              <td className={`border-b border-r border-[#efefef] px-[17.5px] ${totals.returned > 0 ? "text-[#e57373]" : ""}`}>{totals.returned > 0 ? "- " : ""}{formatNumber(totals.returned)} {unitLabel}</td>
               <td className="border-b border-r border-[#efefef]" />
               <td className="border-b border-r border-[#efefef] px-[17.5px]">{formatNumber(totals.total)}</td>
               <td className="border-b border-r border-[#efefef] px-[17.5px]">{formatNumber(totals.discount)}</td>
-              <td className="border-b border-r border-[#efefef]" />
             </tr>
           )}
         </tbody>
       </table>
-
-      <div className="pt-4">
-        {addOpen ? (
-          <div className="flex flex-wrap items-end gap-3">
-            <label className="text-xs text-[#888]">
-              {t("Товар")}
-              <input value={productName} onChange={(event) => setProductName(event.target.value)} className="mt-1 block w-48 rounded border px-2 py-1.5 text-sm" autoFocus />
-            </label>
-            <label className="text-xs text-[#888]">
-              {t("Количество")}
-              <input type="number" min="0" step="any" value={quantity} onChange={(event) => setQuantity(event.target.value)} className="mt-1 block w-24 rounded border px-2 py-1.5 text-sm" />
-            </label>
-            <label className="text-xs text-[#888]">
-              {t("Ед. измерения")}
-              <input value={unit} onChange={(event) => setUnit(event.target.value)} className="mt-1 block w-20 rounded border px-2 py-1.5 text-sm" />
-            </label>
-            <label className="text-xs text-[#888]">
-              {t("Цена")}
-              <input type="number" min="0" step="any" value={unitPrice} onChange={(event) => setUnitPrice(event.target.value)} className="mt-1 block w-28 rounded border px-2 py-1.5 text-sm" />
-            </label>
-            <button type="button" onClick={addItem} className="rounded bg-[#4f71dc] px-4 py-1.5 text-sm font-semibold text-white">
-              {t("Добавить")}
-            </button>
-            <button type="button" onClick={() => setAddOpen(false)} className="rounded border px-4 py-1.5 text-sm">
-              {t("Отмена")}
-            </button>
-            {error && <span className="text-xs text-red-500">{error}</span>}
-          </div>
-        ) : (
-          <button type="button" onClick={() => setAddOpen(true)} className="text-[13px] font-medium text-[#4f71dc]">
-            + {t("Добавить товар")}
-          </button>
-        )}
-      </div>
     </div>
   )
 }
@@ -959,6 +1184,69 @@ function ItemsTable({ orderId, items, loading, reload }: { orderId: number; item
 /* ------------------------------------------------------------------ */
 /* Dialogs                                                             */
 /* ------------------------------------------------------------------ */
+
+/** "Размер скидки / OK" popover under the Скидка button (the reference's first discount menu item). */
+function DiscountSizePopover({ onClose, onApply }: { onClose: () => void; onApply: (percent: number) => void }) {
+  const { t } = useLanguage()
+  const [value, setValue] = useState("")
+  const submit = () => {
+    const percent = Number(value)
+    if (percent > 0 && percent <= 100) onApply(percent)
+    else onClose()
+  }
+  return (
+    <>
+      <button type="button" data-order-overlay aria-label="close" onClick={onClose} className="fixed inset-0 z-[110] cursor-default" />
+      <div className="absolute left-[-71.1px] top-[38.3px] z-[115] h-[72px] w-[198.1px] rounded-[2px] bg-white shadow-[0_3px_10px_rgba(0,0,0,0.16),0_3px_10px_rgba(0,0,0,0.23)]">
+        <span className="absolute left-[149px] top-[-7px] h-[14px] w-[14px] rotate-45 bg-white shadow-[-2px_-2px_4px_rgba(0,0,0,0.06)]" />
+        <div className="relative h-full overflow-hidden rounded-[2px] bg-white">
+          <span className="absolute left-5 top-[10.7px] text-[9.75px] font-semibold leading-[12.2px] text-black">{t("Размер скидки")}</span>
+          <input
+            autoFocus
+            inputMode="decimal"
+            value={value}
+            onChange={(event) => setValue(event.target.value.replace(/[^\d.]/g, ""))}
+            onKeyDown={(event) => event.key === "Enter" && submit()}
+            className="absolute left-5 top-[27px] h-[26px] w-[110px] bg-transparent text-[13px] font-semibold text-[#333] outline-none"
+          />
+          <span className="absolute left-5 top-[53px] h-px w-[110px] bg-[#e0e0e0]" />
+          <button type="button" onClick={submit} className="absolute left-[138px] top-[21.5px] h-9 w-[50.1px] text-center">
+            <span className="inline-block py-[9px] text-[13px] leading-[18px] text-[#4f71dc]">OK</span>
+          </button>
+        </div>
+      </div>
+    </>
+  )
+}
+
+/** Shown instead of the return menu while the goods are still in the warehouse. */
+function ReturnNotice({ onClose }: { onClose: () => void }) {
+  const { t } = useLanguage()
+  return (
+    <>
+      <button type="button" data-order-overlay aria-label="close" onClick={onClose} className="fixed inset-0 z-[110] cursor-default" />
+      <div className="absolute right-0 top-[38px] z-[115] w-[260px] rounded-[2px] bg-white px-5 py-4 text-[13px] font-semibold leading-[18px] text-[#333] shadow-[0_3px_10px_rgba(0,0,0,0.16),0_3px_10px_rgba(0,0,0,0.23)]">
+        {t("Вы можете создать возврат после реализации со склада")}
+      </div>
+    </>
+  )
+}
+
+/** "23 октября 2026 г." — how the reference's date pickers print a YYYY-MM-DD value. */
+function longRuDate(value: string) {
+  if (!value) return ""
+  const date = new Date(`${value}T00:00:00`)
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString("ru-RU", { day: "numeric", month: "long", year: "numeric" })
+}
+
+/** Grey strip under a confirmation text (full dialog width). */
+function ConfirmStrip({ children }: { children: ReactNode }) {
+  return <div className="-mx-[30px] bg-[#f1f5f8] px-[30px] py-5 text-[13px] font-semibold leading-[16.3px]">{children}</div>
+}
+
+function ConfirmText({ children }: { children: ReactNode }) {
+  return <div className="py-5 text-[13px] leading-[16.3px]">{children}</div>
+}
 
 function StatusDialog({
   orderId,
@@ -976,29 +1264,27 @@ function StatusDialog({
   const [changeDelivery, setChangeDelivery] = useState(false)
   const [changeTransfer, setChangeTransfer] = useState(false)
   const [date, setDate] = useState(toInputDate(""))
+  const label = (value: string) => t(value === "Доставлено" ? "Доставлен" : value)
   return (
-    <DialogShell title={t("Изменение")} onClose={onClose} action={t("Изменить")} onAction={() => onApply(status, changeDelivery ? date : undefined)}>
-      <p className="font-semibold">
+    <DialogShell title={t("Изменение")} height={302.3} inset onClose={onClose} action={t("Изменить")} onAction={() => onApply(status, changeDelivery ? date : undefined)}>
+      <p className="mt-[10px] text-[13px] font-bold leading-[16.3px]">
         {t("Заказ №")} {orderId}
       </p>
-      <Field label={t("Статус")}>
-        <select value={status} onChange={(event) => setStatus(event.target.value)} className={fieldClass}>
-          {ORDER_STATUS_OPTIONS.map((value) => (
-            <option key={value} value={value}>
-              {t(value === "Доставлено" ? "Доставлен" : value)}
-            </option>
-          ))}
-        </select>
-      </Field>
-      <label className="mt-5 flex items-center gap-3 font-semibold">
-        <input type="checkbox" checked={changeDelivery} onChange={(event) => setChangeDelivery(event.target.checked)} className="h-4 w-4" />
+      <RefSelect
+        className="mt-[10px]"
+        label={t("Статус")}
+        value={status}
+        display={label(status)}
+        options={ORDER_STATUS_OPTIONS.map((value) => ({ value, label: label(value) }))}
+        onChange={setStatus}
+      />
+      <RefCheck className="mt-[15px]" checked={changeDelivery} onChange={setChangeDelivery}>
         {t("Изменить дата доставки")}
-      </label>
-      {changeDelivery && <input type="date" value={date} onChange={(event) => setDate(event.target.value)} className={`${fieldClass} mb-2`} />}
-      <label className="mt-5 flex items-center gap-3 font-semibold">
-        <input type="checkbox" checked={changeTransfer} onChange={(event) => setChangeTransfer(event.target.checked)} className="h-4 w-4" />
+      </RefCheck>
+      {changeDelivery && <RefDate className="mt-[10px]" label={t("Дата доставки")} value={date} display={longRuDate(date)} onChange={setDate} />}
+      <RefCheck className={changeDelivery ? "mt-[10px]" : "mt-[20px]"} checked={changeTransfer} onChange={setChangeTransfer}>
         {t("Изменить дату передачи")}
-      </label>
+      </RefCheck>
     </DialogShell>
   )
 }
@@ -1010,24 +1296,31 @@ function InvoiceDialog({ initial, onClose, onSave }: { initial?: InvoiceDetails;
   const [contract, setContract] = useState(initial?.contract ?? "")
   const [active, setActive] = useState(initial?.active ?? false)
   return (
-    <DialogShell title={t("Изменить детали счет фактуры")} onClose={onClose} action={t("Сохранить")} onAction={() => onSave({ number: number.trim(), date, contract, active })}>
-      <Field label={t("Номер счет фактуры")}>
-        <input value={number} onChange={(event) => setNumber(event.target.value)} className={fieldClass} />
-      </Field>
-      <Field label={t("Дата счет фактуры")}>
-        <input type="date" value={date} onChange={(event) => setDate(event.target.value)} className={fieldClass} />
-      </Field>
-      <Field label={t("Договор")}>
-        <select value={contract} onChange={(event) => setContract(event.target.value)} className={fieldClass}>
-          <option value="">{t("Не указан")}</option>
-          <option value="Договор №1">Договор №1</option>
-          <option value="Договор №2">Договор №2</option>
-        </select>
-      </Field>
-      <label className="mt-4 flex items-center gap-3 font-semibold">
-        <input type="checkbox" checked={active} onChange={(event) => setActive(event.target.checked)} className="h-4 w-4" />
+    <DialogShell
+      title={t("Изменить детали счет фактуры")}
+      width={550}
+      height={467}
+      top={50}
+      onClose={onClose}
+      action={t("Сохранить")}
+      onAction={() => onSave({ number: number.trim(), date, contract, active })}
+    >
+      <RefText className="mt-[8px]" label={t("Номер счет фактуры")} value={number} onChange={setNumber} />
+      <RefDate className="mt-[13px]" height={49} label={t("Дата счет фактуры")} value={date} display={longRuDate(date)} onChange={setDate} />
+      <RefSelect
+        className="mt-[24px]"
+        label={t("Договор")}
+        value={contract}
+        options={[
+          { value: "Договор №1", label: "Договор №1" },
+          { value: "Договор №2", label: "Договор №2" },
+        ]}
+        onChange={setContract}
+        onClear={() => setContract("")}
+      />
+      <RefCheck className="mt-[25px]" checked={active} onChange={setActive}>
         {t("Активная счет фактура")}
-      </label>
+      </RefCheck>
     </DialogShell>
   )
 }
@@ -1036,17 +1329,14 @@ function ManualDiscountDialog({ onClose, onApply }: { onClose: () => void; onApp
   const { t } = useLanguage()
   const [percent, setPercent] = useState("")
   return (
-    <DialogShell title={t("Ручная скидка")} onClose={onClose} action={t("Применить")} disabled={!percent} onAction={() => onApply(Number(percent))}>
-      <Field label={t("Акция")}>
-        <select value={percent} onChange={(event) => setPercent(event.target.value)} className={fieldClass}>
-          <option value="" />
-          {[5, 10, 15, 20, 25, 30].map((value) => (
-            <option key={value} value={value}>
-              {t("Скидка")} {value}%
-            </option>
-          ))}
-        </select>
-      </Field>
+    <DialogShell title={t("Ручная скидка")} height={367} onClose={onClose} action={t("Применить")} disabled={!percent} onAction={() => onApply(Number(percent))}>
+      <RefSelect
+        className="mt-[30px]"
+        label={t("Акция")}
+        value={percent}
+        options={[5, 10, 15, 20, 25, 30].map((value) => ({ value: String(value), label: `${t("Скидка")} ${value}%` }))}
+        onChange={setPercent}
+      />
     </DialogShell>
   )
 }
@@ -1056,17 +1346,15 @@ function FullReturnDialog({ orderId, onClose, onConfirm }: { orderId: number; on
   const today = new Date()
   const [date, setDate] = useState(new Date(today.getTime() - today.getTimezoneOffset() * 60000).toISOString().slice(0, 10))
   return (
-    <DialogShell title={t("Выполнить")} onClose={onClose} action={t("Да")} onAction={onConfirm}>
-      <p className="pb-5 pt-1">{t("Подтверждение запроса")}</p>
-      <div className="-mx-[30px] bg-[#f1f4f7] px-[30px] py-5">
-        <p className="font-semibold">{t("Вы действительно хотите сделать полный возврат ?")}</p>
-        <p className="font-semibold">
+    <DialogShell title={t("Выполнить")} height={350.8} onClose={onClose} action={t("Да")} onAction={onConfirm}>
+      <ConfirmText>{t("Подтверждение запроса")}</ConfirmText>
+      <ConfirmStrip>
+        <p>{t("Вы действительно хотите сделать полный возврат ?")}</p>
+        <p>
           {t("Заказ №")} {orderId}
         </p>
-        <Field label={t("Дата")}>
-          <input type="date" value={date} onChange={(event) => setDate(event.target.value)} className={fieldClass} />
-        </Field>
-      </div>
+        <RefDate className="mt-[6px]" height={46} compact label={t("Дата")} value={date} display={longRuDate(date)} onChange={setDate} />
+      </ConfirmStrip>
     </DialogShell>
   )
 }
@@ -1074,206 +1362,6 @@ function FullReturnDialog({ orderId, onClose, onConfirm }: { orderId: number; on
 /* ------------------------------------------------------------------ */
 /* Full screen sheets                                                  */
 /* ------------------------------------------------------------------ */
-
-function GreenButton({ children, onClick, disabled }: { children: ReactNode; onClick: () => void; disabled?: boolean }) {
-  return (
-    <button type="button" onClick={onClick} disabled={disabled} className="h-9 rounded-[3px] bg-[#71ce87] px-5 text-[12px] font-semibold uppercase text-white disabled:opacity-50">
-      {children}
-    </button>
-  )
-}
-
-function EditOrderSheet({
-  order,
-  items,
-  onClose,
-  onSave,
-  reloadItems,
-  onQuickEdit,
-}: {
-  order: Order
-  items: OrderLineItem[]
-  onClose: () => void
-  onSave: (patch: Partial<Order>) => void
-  reloadItems: () => void
-  onQuickEdit: () => void
-}) {
-  const { t } = useLanguage()
-  const [created, setCreated] = useState(toInputDate(order.created))
-  const [client, setClient] = useState(order.client)
-  const [paymentType, setPaymentType] = useState("Перечисление")
-  const [prize, setPrize] = useState(false)
-  const [currency, setCurrency] = useState("SUM")
-  const [priceList, setPriceList] = useState("donalik")
-  const [agent, setAgent] = useState(order.agent)
-  const [payUntil, setPayUntil] = useState(toInputDate(order.delivery))
-  const [deal, setDeal] = useState<"standard" | "consignment">("standard")
-  const [warehouse, setWarehouse] = useState("toshkent")
-  const [deliveryType, setDeliveryType] = useState("Доставка")
-  const [deliverer, setDeliverer] = useState(order.agent)
-  const [deliveryDate, setDeliveryDate] = useState(toInputDate(order.delivery))
-  const [confirmed, setConfirmed] = useState(true)
-
-  async function removeItem(itemId: number) {
-    const response = await fetch(`/api/orders/${order.id}/items/${itemId}`, { method: "DELETE" })
-    if (response.ok) reloadItems()
-  }
-
-  return (
-    <SheetShell
-      title={t("Изменение заказа")}
-      onClose={onClose}
-      footer={
-        <div className="flex justify-end gap-3 px-[30px] py-3">
-          <GreenButton
-            onClick={() =>
-              onSave({
-                client: client.trim() || order.client,
-                agent: agent.trim() || order.agent,
-                delivery: fromInputDate(deliveryDate),
-                status: confirmed ? (order.status === "Не подтвержден" ? "Есть на складе" : order.status) : "Не подтвержден",
-              })
-            }
-          >
-            {t("Сохранить")}
-          </GreenButton>
-        </div>
-      }
-    >
-      <div className="flex min-h-full">
-        <div className="w-[280px] shrink-0 overflow-auto border-r border-[#efefef] px-[30px] pb-6 pt-[22px]">
-          <div className="mb-[2px] flex items-center justify-between">
-            <b className="text-[13px]">{t("Выбор клиента")}</b>
-            <span className="text-[13px] text-[#4f71dc]">+ {t("добавить")}</span>
-          </div>
-          <Field label={t("Дата создания")} required>
-            <input type="date" value={created} onChange={(event) => setCreated(event.target.value)} className={fieldClass} />
-          </Field>
-          <Field label={t("Название клиента")} required>
-            <input value={client} onChange={(event) => setClient(event.target.value)} className={fieldClass} />
-          </Field>
-          <b className="mb-3 mt-6 block text-[13px]">{t("Оплата")}</b>
-          <label className="mb-4 flex items-center gap-3 font-semibold">
-            <input type="checkbox" checked={prize} onChange={(event) => setPrize(event.target.checked)} className="h-4 w-4" />
-            {t("Призовой заказ за балл")}
-          </label>
-          <Field label={t("Тип оплаты")}>
-            <select value={paymentType} onChange={(event) => setPaymentType(event.target.value)} className={fieldClass}>
-              {["Перечисление", "Наличные", "Банковский счет", "Терминал"].map((value) => (
-                <option key={value}>{value}</option>
-              ))}
-            </select>
-          </Field>
-          <Field label={t("Валюта")} required>
-            <select value={currency} onChange={(event) => setCurrency(event.target.value)} className={fieldClass}>
-              {["SUM", "USD", "EUR"].map((value) => (
-                <option key={value}>{value}</option>
-              ))}
-            </select>
-          </Field>
-          <Field label={t("Прайс лист")} required>
-            <select value={priceList} onChange={(event) => setPriceList(event.target.value)} className={fieldClass}>
-              {["donalik", "optom"].map((value) => (
-                <option key={value}>{value}</option>
-              ))}
-            </select>
-          </Field>
-          <Field label={t("Агент")} required>
-            <input value={agent} onChange={(event) => setAgent(event.target.value)} className={fieldClass} />
-          </Field>
-          <Field label={t("Дата окончательной оплаты")} required>
-            <input type="date" value={payUntil} onChange={(event) => setPayUntil(event.target.value)} className={fieldClass} />
-          </Field>
-          <b className="mb-3 mt-6 block text-[13px]">{t("Условия договора")}</b>
-          {(["standard", "consignment"] as const).map((value) => (
-            <label key={value} className="mb-3 flex items-center gap-3">
-              <input type="radio" name="deal" checked={deal === value} onChange={() => setDeal(value)} className="h-4 w-4" />
-              {value === "standard" ? t("Стандартная") : t("Консигнация")}
-            </label>
-          ))}
-          <Field label={t("Склад")} required>
-            <select value={warehouse} onChange={(event) => setWarehouse(event.target.value)} className={fieldClass}>
-              {["toshkent", "Andijon skladi"].map((value) => (
-                <option key={value}>{value}</option>
-              ))}
-            </select>
-          </Field>
-          <b className="mb-1 mt-6 block text-[13px]">{t("Условия доставки")}</b>
-          <Field label={t("Тип доставки")} required>
-            <select value={deliveryType} onChange={(event) => setDeliveryType(event.target.value)} className={fieldClass}>
-              {["Доставка", "Самовывоз"].map((value) => (
-                <option key={value}>{value}</option>
-              ))}
-            </select>
-          </Field>
-          <Field label={t("Доставщик")}>
-            <input value={deliverer} onChange={(event) => setDeliverer(event.target.value)} className={fieldClass} />
-          </Field>
-          <Field label={t("Дата доставки")}>
-            <input type="date" value={deliveryDate} onChange={(event) => setDeliveryDate(event.target.value)} className={fieldClass} />
-          </Field>
-          <label className="mt-2 flex items-center gap-3 font-semibold">
-            <input type="checkbox" checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} className="h-4 w-4" />
-            {t("Подтвержденный")}
-          </label>
-        </div>
-        <div className="min-w-0 flex-1 px-[30px] pt-[14px]">
-          <div className="border-b-2 border-[#4f71dc] pb-[14px] text-center text-[13px] font-medium">{t("Товары")}</div>
-          <div className="flex items-center justify-between pt-8 text-[13px]">
-            <b>{t("Список товаров")}</b>
-            <span className="flex gap-8 text-[#4f71dc]">
-              <span>{t("добавить из списка")}</span>
-              <span>{t("импортировать с excel")}</span>
-            </span>
-          </div>
-          <table className="mt-8 w-full text-left">
-            <thead>
-              <tr className="font-semibold">
-                <th className="px-[5px] py-2">{t("Наименование")}</th>
-                <th className="py-2">{t("Кол-во")}</th>
-                <th className="py-2">{t("На складе")}</th>
-                <th className="py-2">{t("Цена")}(SUM)</th>
-                <th className="py-2">{t("Всего")}(SUM)</th>
-                <th />
-              </tr>
-            </thead>
-            <tbody>
-              {items.map((item, index) => (
-                <tr key={item.id}>
-                  <td className="px-[5px] py-4">
-                    <b className="mr-2">{index + 1}.</b>
-                    {item.productName}
-                  </td>
-                  <td>
-                    {formatNumber(item.quantity)} {item.unit}
-                  </td>
-                  <td>209 {item.unit}</td>
-                  <td>{formatNumber(item.unitPrice)}</td>
-                  <td>{formatNumber(item.lineTotal)}</td>
-                  <td className="whitespace-nowrap text-right">
-                    <button type="button" onClick={onQuickEdit} aria-label={t("Изменить")} className="mr-5">
-                      <Mi d={ICONS.edit} className="h-5 w-5 fill-[#666]" />
-                    </button>
-                    <button type="button" onClick={() => removeItem(item.id)} aria-label={t("Удалить")}>
-                      <Mi d={ICONS.trash} className="h-5 w-5 fill-black/30" />
-                    </button>
-                  </td>
-                </tr>
-              ))}
-              {items.length === 0 && (
-                <tr>
-                  <td colSpan={6} className="py-8 text-center text-[#888]">
-                    {t("Товары не добавлены")}
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </SheetShell>
-  )
-}
 
 function QuickEditSheet({ order, items, onClose, onSaved }: { order: Order; items: OrderLineItem[]; onClose: () => void; onSaved: () => void }) {
   const { t } = useLanguage()
@@ -1329,83 +1417,67 @@ function QuickEditSheet({ order, items, onClose, onSaved }: { order: Order; item
     return () => window.removeEventListener("keydown", onKey)
   }, [save])
 
-  const inputClass = "w-full border-b border-[#d9d9d9] bg-transparent py-1 text-[13px] outline-none focus:border-[#374557]"
+  const COLS = "grid grid-cols-[364px_121.3px_242.7px_repeat(6,121.3px)]"
+  const cellInput = "ml-2 h-[35px] w-[105.3px] border-b border-[#e0e0e0] bg-transparent text-[13px] font-semibold text-black outline-none focus:border-[#374557]"
 
   return (
     <SheetShell
+      z={1001}
       title={`${t("Быстрая правка")} №${order.id}`}
       onClose={onClose}
       footer={
-        <div className="flex items-center justify-between px-[10px] py-[10px]">
-          <div className="flex gap-8 text-[13px]">
-            <span>
-              {t("Сумма без скидка")}: <b className="text-[16px] font-semibold text-[#0a9ddb]">{formatNumber(grossTotal)}</b> ,
-            </span>
-            <span>
-              {t("Скидка / накидка")}: <b className="text-[16px] font-semibold text-[#0a9ddb]">{formatNumber(grossTotal - netTotal)}</b> ,
-            </span>
-            <span>
-              {t("Итого")}: <b className="text-[16px] font-semibold text-[#0a9ddb]">{formatNumber(netTotal)}</b>
-            </span>
+        <div className="flex h-[62px] items-center justify-between pl-[10px] pr-[10px]">
+          <div className="flex items-center text-[14px] text-black">
+            <span>{t("Сумма без скидка")}:</span>
+            <b className="ml-[10px] mr-[29px] text-[16px] font-semibold text-[#129fdd]">{formatNumber(grossTotal)}</b>
+            <span>{t("Скидка / накидка")}:</span>
+            <b className="ml-[10px] mr-[29px] text-[16px] font-semibold text-[#129fdd]">{formatNumber(grossTotal - netTotal)}</b>
+            <span>{t("Итого")}:</span>
+            <b className="ml-[10px] text-[16px] font-semibold text-[#129fdd]">{formatNumber(netTotal)}</b>
           </div>
-          <GreenButton onClick={save} disabled={saving}>
+          <button type="button" onClick={save} disabled={saving} className="h-9 min-w-[213.9px] rounded-[2px] bg-[#71ce87] px-[5.3px] text-[13px] font-semibold uppercase text-white disabled:opacity-50">
             {t("Сохранить")} (Alt + Enter)
-          </GreenButton>
+          </button>
         </div>
       }
     >
-      <div className="px-[30px] pt-10">
-        <div className="flex items-center gap-10">
-          <span>
-            {t("Клиент")}: <b className="ml-6 font-semibold text-[#0a9ddb]">{order.client}</b>
-          </span>
-          <span>
-            {t("Инициатор")}: <b className="ml-12 font-semibold">{order.agent}</b>
-          </span>
-          <label className="flex items-center gap-3 font-semibold">
-            <input type="checkbox" checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} className="h-4 w-4" />
+      <div className="px-[22px] pt-[41px]">
+        <div className="ml-2 flex h-[25px] items-center text-[13px] text-[#333]">
+          <span className="w-[100px]">{t("Клиент")}:</span>
+          <b className="w-[120px] font-semibold text-[#129fdd]">{order.marketName || order.client}</b>
+          <span className="w-[126.2px]">{t("Инициатор")}:</span>
+          <b className="w-[88.8px] font-semibold">{order.agent}</b>
+          <RefCheck checked={confirmed} onChange={setConfirmed}>
             {t("Подтвердить заказ")} (Alt + 1)
-          </label>
+          </RefCheck>
         </div>
-        <table className="mt-8 w-full text-left">
-          <thead>
-            <tr className="font-semibold">
-              <th className="py-3">{t("Наименование")}</th>
-              <th>{t("Группа")}</th>
-              <th>{t("Изначальный кол-во")}</th>
-              <th>{t("Кол-во")}</th>
-              <th>{t("Цена")}</th>
-              <th>{t("Сумма")}</th>
-              <th>{t("Скидка")} (%)</th>
-              <th>{t("Новая цена")}</th>
-              <th className="text-right">{t("Новая сумма")}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {items.map((item, index) => (
-              <tr key={item.id} className="border-y border-dotted border-[#cfd8dc] bg-[#f1f4f7]">
-                <td className="py-[14px]">{item.productName}</td>
-                <td className="w-[100px] pr-6">
-                  <b>0</b>
-                </td>
-                <td>{formatNumber(item.quantity)}</td>
-                <td className="w-[110px] pr-6">
-                  <input value={lines[index]?.quantity ?? ""} onChange={(event) => update(index, { quantity: event.target.value })} className={`${inputClass} font-semibold`} />
-                </td>
-                <td className="w-[110px] pr-6">
-                  <input value={lines[index]?.price ?? ""} onChange={(event) => update(index, { price: event.target.value })} className={`${inputClass} font-bold`} />
-                </td>
-                <td>{formatNumber(calc[index]?.gross ?? 0)}</td>
-                <td className="w-[110px] pr-6">
-                  <input value={lines[index]?.discount ?? ""} onChange={(event) => update(index, { discount: event.target.value })} className={inputClass} />
-                </td>
-                <td>{formatNumber(calc[index]?.newPrice ?? 0)}</td>
-                <td className="text-right">{formatNumber(calc[index]?.net ?? 0)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        <div className="mt-5 bg-[#f1f4f7] px-[10px] py-[10px] text-[#888]">{t("Бонусные товары")}</div>
+        <div className={`${COLS} mt-5 text-[13px] font-semibold leading-[16.3px]`}>
+          <span>{t("Наименование")}</span>
+          <span>{t("Группа")}</span>
+          <span>{t("Изначальный кол-во")}</span>
+          <span>{t("Кол-во")}</span>
+          <span>{t("Цена")}</span>
+          <span>{t("Сумма")}</span>
+          <span>{t("Скидка")} (%)</span>
+          <span>{t("Новая цена")}</span>
+          <span>{t("Новая сумма")}</span>
+        </div>
+        <div className="mt-[19.3px]">
+          {items.map((item, index) => (
+            <div key={item.id} className={`${COLS} h-[56px] items-center border-y border-dotted border-[#cfd8dc] bg-[#f1f4f7] text-[13px] leading-[16.3px] text-[#333]`}>
+              <span>{item.productName}</span>
+              <input value="0" readOnly className={cellInput} />
+              <span>{formatNumber(item.quantity)}</span>
+              <input value={lines[index]?.quantity ?? ""} onChange={(event) => update(index, { quantity: event.target.value })} className={cellInput} />
+              <input value={lines[index]?.price ?? ""} onChange={(event) => update(index, { price: event.target.value })} className={cellInput} />
+              <span>{formatNumber(calc[index]?.gross ?? 0)}</span>
+              <input value={lines[index]?.discount ?? ""} onChange={(event) => update(index, { discount: event.target.value })} className={cellInput} />
+              <span>{formatNumber(calc[index]?.newPrice ?? 0)}</span>
+              <span>{formatNumber(calc[index]?.net ?? 0)}</span>
+            </div>
+          ))}
+        </div>
+        <div className="ml-2 mt-[24.7px] text-[13px] leading-[16.3px] text-[#999]">{t("Бонусные товары")}</div>
       </div>
     </SheetShell>
   )
@@ -1414,106 +1486,183 @@ function QuickEditSheet({ order, items, onClose, onSaved }: { order: Order; item
 function QuickReturnSheet({ order, items, onClose, onSaved }: { order: Order; items: OrderLineItem[]; onClose: () => void; onSaved: () => void }) {
   const { t } = useLanguage()
   const [paymentType, setPaymentType] = useState("Банковский счет")
-  const [warehouse, setWarehouse] = useState("")
+  const [warehouse, setWarehouse] = useState(order.stockName ?? "")
+  const [warehouses, setWarehouses] = useState<string[]>([])
   const [comment, setComment] = useState("")
   const [manualPrice, setManualPrice] = useState(false)
   const [qty, setQty] = useState<Record<number, string>>({})
   const [prices, setPrices] = useState<Record<number, string>>({})
   const [error, setError] = useState("")
+  const [saving, setSaving] = useState(false)
 
-  const total = items.reduce((sum, item) => sum + (Number(qty[item.id]) || 0) * (Number(prices[item.id] ?? item.unitPrice) || 0), 0)
+  useEffect(() => {
+    fetch("/api/warehouses")
+      .then(async (response) => (response.ok ? ((await response.json()) as { name: string }[]) : []))
+      .then((rows) => setWarehouses(rows.map((row) => row.name)))
+      .catch(() => setWarehouses([]))
+  }, [])
 
+  const available = (item: OrderLineItem) => Math.max(0, item.quantity - (item.returnQuantity ?? 0))
+  const priceOf = (item: OrderLineItem) => Number(prices[item.id] ?? item.unitPrice) || 0
+  const total = items.reduce((sum, item) => sum + (Number(qty[item.id]) || 0) * priceOf(item), 0)
+
+  async function save() {
+    if (items.some((item) => (Number(qty[item.id]) || 0) > available(item))) return setError(t("Количество возврата больше доступного"))
+    if (total <= 0) return setError(t("Укажите количество возврата"))
+    setSaving(true)
+    try {
+      await Promise.all(
+        items
+          .filter((item) => (Number(qty[item.id]) || 0) > 0)
+          .map((item) =>
+            fetch(`/api/orders/${order.id}/items/${item.id}`, {
+              method: "PUT",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                productName: item.productName,
+                unit: item.unit,
+                quantity: item.quantity,
+                unitPrice: item.unitPrice,
+                discountPercent: item.discountPercent,
+                currency: item.currency,
+                returnQuantity: (item.returnQuantity ?? 0) + Number(qty[item.id]),
+              }),
+            }),
+          ),
+      )
+      const lines = items
+        .filter((item) => (Number(qty[item.id]) || 0) > 0)
+        .map((item) => ({ productName: item.productName, quantity: Number(qty[item.id]), unitPrice: priceOf(item), discountPercent: item.discountPercent, currency: item.currency }))
+      // the return document itself (P&L and the returns report read these rows)
+      const document = await fetch(`/api/orders/${order.id}/returns`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ comment, lines }),
+      })
+      if (!document.ok) throw new Error("return document failed")
+      onSaved()
+    } catch {
+      setError(t("Не удалось сохранить изменения на сервере"))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const COLS = "grid grid-cols-[121.3px_364px_121.3px_121.3px_242.7px_242.7px_242.7px]"
   return (
     <SheetShell
+      z={1001}
       title={`${t("Быстрый возврат")} №${order.id}`}
       onClose={onClose}
       footer={
-        <div className="flex items-center justify-end gap-4 px-[10px] py-[10px]">
+        <div className="flex h-[56px] items-center justify-end gap-4 pr-[10px]">
           {error && <span className="text-[#e57373]">{error}</span>}
-          <GreenButton
-            onClick={() => {
-              const invalid = items.some((item) => (Number(qty[item.id]) || 0) > item.quantity)
-              if (invalid) return setError(t("Количество возврата больше доступного"))
-              if (total <= 0) return setError(t("Укажите количество возврата"))
-              onSaved()
-            }}
-          >
+          <button type="button" onClick={save} disabled={saving} className="h-9 min-w-[110.8px] rounded-[2px] bg-[#71ce87] px-4 text-[13px] font-semibold uppercase text-white disabled:opacity-50">
             {t("Сохранить")}
-          </GreenButton>
+          </button>
         </div>
       }
     >
-      <div className="px-[30px] pt-[30px]">
-        <div className="flex items-end gap-4">
-          <div className="w-[290px]">
-            <Field label={t("Тип оплаты")}>
-              <select value={paymentType} onChange={(event) => setPaymentType(event.target.value)} className={fieldClass}>
-                {["Банковский счет", "Наличные", "Перечисление"].map((value) => (
-                  <option key={value}>{value}</option>
-                ))}
-              </select>
-            </Field>
-          </div>
-          <div className="w-[290px]">
-            <Field label={t("Склад")}>
-              <select value={warehouse} onChange={(event) => setWarehouse(event.target.value)} className={fieldClass}>
-                <option value="" />
-                <option>toshkent</option>
-                <option>Andijon skladi</option>
-              </select>
-            </Field>
-          </div>
-          <div className="w-[290px]">
-            <Field label={t("Комментарий")}>
-              <input value={comment} onChange={(event) => setComment(event.target.value)} className={fieldClass} />
-            </Field>
-          </div>
-          <label className="mb-4 ml-auto flex items-center gap-3 font-semibold">
-            <input type="checkbox" checked={manualPrice} onChange={(event) => setManualPrice(event.target.checked)} className="h-4 w-4" />
+      <div className="px-[22px] pt-[31px]">
+        <div className="ml-2 flex items-start gap-[25px]">
+          <RefSelect
+            className="w-[316px]"
+            label={t("Тип оплаты")}
+            value={paymentType}
+            options={["Банковский счет", "Наличные", "Перечисление"].map((value) => ({ value, label: t(value) }))}
+            onChange={setPaymentType}
+            onClear={() => setPaymentType("")}
+          />
+          <RefSelect
+            className="w-[316px]"
+            label={t("Склад")}
+            value={warehouse}
+            options={Array.from(new Set([...(warehouse ? [warehouse] : []), ...warehouses])).map((value) => ({ value, label: value }))}
+            onChange={setWarehouse}
+            onClear={() => setWarehouse("")}
+          />
+          <RefText className="w-[326px]" label={t("Комментарий")} value={comment} onChange={setComment} />
+          <RefCheck className="ml-auto mt-[13.5px] mr-[42px]" checked={manualPrice} onChange={setManualPrice}>
             {t("Изменение цены вручную")}
-          </label>
+          </RefCheck>
         </div>
-        <table className="mt-6 w-full text-left">
-          <thead>
-            <tr className="font-semibold">
-              <th className="py-3">№</th>
-              <th>{t("Наименование")}</th>
-              <th>{t("По заказу")}</th>
-              <th>{t("Доступно")}</th>
-              <th>{t("Кол-во возврата")}</th>
-              <th>{t("Цена")}</th>
-              <th>{t("Сумма")}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {items.map((item) => (
-              <tr key={item.id} className="border-y border-dotted border-[#9ec9e8] bg-[#f1f4f7]">
-                <td className="py-[14px]">{1000 + item.id}</td>
-                <td>{item.productName}</td>
-                <td>{formatNumber(item.quantity)}</td>
-                <td>{formatNumber(item.quantity)}</td>
-                <td className="w-[200px] pr-6">
-                  <input value={qty[item.id] ?? ""} onChange={(event) => setQty((current) => ({ ...current, [item.id]: event.target.value }))} className="w-full border-b-2 border-[#374557] bg-transparent py-1 outline-none" />
-                </td>
-                <td className="w-[200px] pr-6">
-                  <input
-                    disabled={!manualPrice}
-                    value={prices[item.id] ?? String(item.unitPrice)}
-                    onChange={(event) => setPrices((current) => ({ ...current, [item.id]: event.target.value }))}
-                    className="w-full border-b border-dotted border-[#374557] bg-transparent py-1 font-bold outline-none"
-                  />
-                </td>
-                <td>{formatNumber((Number(qty[item.id]) || 0) * (Number(prices[item.id] ?? item.unitPrice) || 0))}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <div className={`${COLS} mt-[22.7px] text-[13px] font-semibold leading-[16.3px]`}>
+          <span>№</span>
+          <span>{t("Наименование")}</span>
+          <span>{t("По заказу")}</span>
+          <span>{t("Доступно")}</span>
+          <span>{t("Кол-во возврата")}</span>
+          <span>{t("Цена")}</span>
+          <span>{t("Сумма")}</span>
+        </div>
+        <div className="mt-[19.4px]">
+          {items.map((item) => (
+            <div key={item.id} className={`${COLS} h-[56px] items-center border-y border-dotted border-[#9ec9e8] bg-[#f1f4f7] text-[13px] leading-[16.3px] text-[#333]`}>
+              <span>{item.id}</span>
+              <span>{item.productName}</span>
+              <span>{formatNumber(item.quantity)}</span>
+              <span>{formatNumber(available(item))}</span>
+              <input
+                value={qty[item.id] ?? ""}
+                onChange={(event) => setQty((current) => ({ ...current, [item.id]: event.target.value }))}
+                className="ml-2 h-[35px] w-[226.7px] border-b-2 border-[#374557] bg-transparent text-[13px] font-semibold text-black outline-none"
+              />
+              <input
+                disabled={!manualPrice}
+                value={prices[item.id] ?? String(item.unitPrice)}
+                onChange={(event) => setPrices((current) => ({ ...current, [item.id]: event.target.value }))}
+                className="ml-2 h-[35px] w-[226.7px] border-b border-dotted border-[#374557] bg-transparent text-[13px] font-semibold outline-none"
+              />
+              <span>{formatNumber((Number(qty[item.id]) || 0) * priceOf(item))}</span>
+            </div>
+          ))}
+        </div>
       </div>
     </SheetShell>
   )
 }
 
-function PrintSheet({ order, items, onClose }: { order: Order; items: OrderLineItem[]; onClose: () => void }) {
+/** Right-hand "Распечатать" panel: repeat count and the active order-invoice templates (Справочники → Шаблоны документов). */
+function PrintDrawer({ onClose, onPick }: { onClose: () => void; onPick: (copies: number) => void }) {
+  const { t } = useLanguage()
+  const [copies, setCopies] = useState("1")
+  const [templates, setTemplates] = useState<{ id: number; name: string }[] | null>(null)
+  useEscape(onClose)
+  useEffect(() => {
+    fetch("/api/doc-templates?pageSize=500")
+      .then(async (response) => (response.ok ? ((await response.json()) as { results: { id: number; name: string; keyName: string; isActive: boolean }[] }) : { results: [] }))
+      .then((data) => setTemplates(data.results.filter((row) => row.keyName === "order" && row.isActive)))
+      .catch(() => setTemplates([]))
+  }, [])
+  return createPortal(
+    <div data-order-overlay className="fixed inset-0 z-[2100] font-sans text-[13px] text-[#333]">
+      <button type="button" aria-label="close" onClick={onClose} className="absolute inset-0 cursor-default" />
+      <aside className="absolute top-0 h-full w-[358px] overflow-y-auto bg-white shadow-[0_3px_10px_rgba(0,0,0,0.16),0_3px_10px_rgba(0,0,0,0.23)]" style={{ left: "calc(100% - 459px)" }}>
+        <div className="px-5 pb-[10px] pt-5">
+          <span className="block text-[9.75px] font-semibold leading-[12.2px] text-black">{t("Кол - во повторений")}</span>
+          <input value={copies} onChange={(event) => setCopies(event.target.value.replace(/\D/g, ""))} className="h-[26px] w-[170px] border-b border-[#e0e0e0] bg-transparent text-[13px] font-semibold outline-none" />
+        </div>
+        {templates === null ? null : templates.length === 0 ? (
+          <p className="px-5 py-4 text-[#999]">{t("По вашему запросу ничего не найдено...")}</p>
+        ) : (
+          templates.map((template) => (
+            <button
+              key={template.id}
+              type="button"
+              onClick={() => onPick(Math.max(1, Number(copies) || 1))}
+              className="block h-12 w-full cursor-pointer px-5 text-left leading-[48px] hover:bg-[#f5f5f5]"
+            >
+              {template.name}
+            </button>
+          ))
+        )}
+      </aside>
+    </div>,
+    document.body,
+  )
+}
+
+function PrintSheet({ order, items, copies = 1, onClose }: { order: Order; items: OrderLineItem[]; copies?: number; onClose: () => void }) {
   const { t } = useLanguage()
   const total = items.reduce((sum, item) => sum + item.lineTotal, 0)
   const qty = items.reduce((sum, item) => sum + item.quantity, 0)
@@ -1559,7 +1708,7 @@ function PrintSheet({ order, items, onClose }: { order: Order; items: OrderLineI
           {t("Баланс на конец")}: {order.balance}
         </span>
         <span>
-          {t("Организация")}: {order.product}
+          {t("Организация")}: {orderOrganization(order) || t("Не указан")}
         </span>
       </div>
       <div className="mt-6 flex justify-between">
@@ -1615,8 +1764,9 @@ function PrintSheet({ order, items, onClose }: { order: Order; items: OrderLineI
           </p>
         </div>
       </div>
-      {block}
-      {block}
+      {Array.from({ length: copies * 2 }, (_, index) => (
+        <div key={index}>{block}</div>
+      ))}
       <div className="mt-6 flex justify-center gap-3 print:hidden">
         <button type="button" onClick={() => window.print()} className="h-9 rounded-[3px] bg-[#4f71dc] px-5 text-[12px] font-semibold uppercase text-white">
           {t("Распечатать")}

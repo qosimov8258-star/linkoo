@@ -12,6 +12,9 @@ const kpiTaskSchema = z.object({
   clientType: z.string().trim().optional(),
   comment: z.string().optional(),
   active: z.boolean().optional(),
+  detail: z.record(z.string(), z.unknown()).nullable().optional(),
+  startDate: z.string().nullable().optional(),
+  tillDate: z.string().nullable().optional(),
 })
 
 export async function GET() {
@@ -33,6 +36,9 @@ export async function POST(request: Request) {
     clientType: parsed.data.clientType || "Для всех",
     comment: parsed.data.comment ?? "",
     active: parsed.data.active ?? true,
+    detail: parsed.data.detail,
+    startDate: parsed.data.startDate,
+    tillDate: parsed.data.tillDate,
   }))
   return NextResponse.json(task, { status: 201 })
 }

@@ -162,12 +162,17 @@ const toOperation = (row: OperationRow): ProductionOperation => ({
 })
 
 const OPERATION_SELECT = `
-  SELECT o.*, e.name AS equipment_name
-  FROM production_operations o LEFT JOIN production_equipment e ON e.id = o.equipment_id`
+  SELECT o.*, COALESCE(e.name, NULLIF(m.equipment_name, '')) AS equipment_name
+  FROM production_operations o
+  LEFT JOIN production_equipment e ON e.id = o.equipment_id
+  LEFT JOIN production_operation_meta m ON m.operation_id = o.id`
 
-export async function listOperations(stageId: number): Promise<ProductionOperation[]> {
+export async function listOperations(stageId?: number): Promise<ProductionOperation[]> {
   const db = await getProductionDb()
-  return ((await db.prepare(`${OPERATION_SELECT} WHERE o.stage_id = ? ORDER BY o.id`).all(stageId)) as OperationRow[]).map(toOperation)
+  const rows = stageId
+    ? await db.prepare(`${OPERATION_SELECT} WHERE o.stage_id = ? ORDER BY COALESCE(m.sort_order, o.id), o.id`).all(stageId)
+    : await db.prepare(`${OPERATION_SELECT} ORDER BY COALESCE(m.sort_order, o.id), o.id`).all()
+  return (rows as OperationRow[]).map(toOperation)
 }
 
 async function getOperation(id: number): Promise<ProductionOperation | null> {

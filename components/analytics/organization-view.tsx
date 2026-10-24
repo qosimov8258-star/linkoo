@@ -1,10 +1,9 @@
 "use client"
 
-import { ArrowDown, ArrowUp, FileText, Pencil, Plus, Search, Trash2 } from "lucide-react"
+import { ArrowDown, ArrowUp } from "lucide-react"
 import { useSearchParams } from "next/navigation"
-import { useCallback, useEffect, useState, type FormEvent } from "react"
+import { useCallback, useEffect, useState } from "react"
 
-import { BalancePagination } from "@/components/analytics/balance/pagination"
 import { CatalogPageLayout } from "@/components/dashboard/catalog-sidebar"
 import { useLanguage } from "@/lib/i18n/language-context"
 import {
@@ -13,9 +12,9 @@ import {
   type OrganizationListResult,
   type OrganizationOrdering,
 } from "./organization-data"
+import { EmptyState, HoverActions, ListToolbar, grayHead, listRow } from "./catalog-ui"
 import {
   OrganizationDeleteDialog,
-  OrganizationImportDialog,
   OrganizationSnackbar,
   type OrganizationNotice,
 } from "./organization-dialogs"
@@ -130,7 +129,6 @@ function OrganizationGrid() {
   const [state, setState] = useState<ViewState>(() => stateFromParams(searchParams))
   const [dialog, setDialog] = useState<DialogState>(() => dialogFromParams(searchParams))
   const [searchDraft, setSearchDraft] = useState(state.search)
-  const [importOpen, setImportOpen] = useState(false)
   const [notice, setNotice] = useState<OrganizationNotice | null>(null)
   const [canEdit, setCanEdit] = useState(false)
   const { data, loading, error, reload } = useOrganizationList(listUrl(state))
@@ -168,107 +166,57 @@ function OrganizationGrid() {
     if (state.page > lastPage) update({ page: lastPage })
   }, [data, loading, state.page, state.pageSize, update])
 
-  function submitSearch(event: FormEvent) {
-    event.preventDefault()
-    update({ search: searchDraft.trim(), page: 1 })
-  }
-
   const rows = data?.results ?? []
-  const sortIcon = state.ordering === "name" ? <ArrowUp className="h-4 w-4" /> : state.ordering === "-name" ? <ArrowDown className="h-4 w-4" /> : null
+  const count = data?.count ?? 0
+  const pageCount = Math.max(1, Math.ceil(count / state.pageSize))
+  const start = (state.page - 1) * state.pageSize
+  const sortIcon = state.ordering === "name" ? <ArrowDown className="h-4 w-4" /> : state.ordering === "-name" ? <ArrowUp className="h-4 w-4" /> : null
+  const gridCols = "grid-cols-[514px_1fr]"
 
   return (
-    <section className="min-w-0 flex-1 px-9 py-5">
-      <div className="mb-4 flex flex-wrap items-center gap-x-6 gap-y-3">
-        {canEdit && (
-          <button type="button" onClick={() => setDialog({ kind: "create" })} className="inline-flex items-center gap-1 text-[16px] text-[#4f70e7] hover:underline">
-            <Plus className="h-4 w-4" /> {t("добавить организацию")}
-          </button>
-        )}
-        {canEdit && (
-          <button type="button" onClick={() => setImportOpen(true)} className="inline-flex items-center gap-1 text-[16px] text-[#4f70e7] hover:underline">
-            <FileText className="h-4 w-4" /> {t("Импорт с Excel")}
-          </button>
-        )}
-        <form onSubmit={submitSearch} className="relative mx-auto w-full max-w-[300px]">
-          <input
-            value={searchDraft}
-            onChange={(event) => setSearchDraft(event.target.value)}
-            placeholder={t("Поиск")}
-            className="w-full border-b border-slate-300 py-2 pr-10 outline-none focus:border-[#4f70e7]"
-          />
-          <button type="submit" aria-label={t("Поиск")} className="absolute right-1 top-1.5 text-slate-300 hover:text-[#4f70e7]">
-            <Search className="h-5 w-5" />
-          </button>
-        </form>
-        <BalancePagination
-          page={state.page}
-          pageSize={state.pageSize}
-          count={data?.count ?? 0}
-          onChange={(next) => update({ page: next.page, pageSize: next.pageSize })}
-        />
+    <section className="min-h-[calc(100vh-50px)] min-w-0 flex-1 bg-white text-[13px] text-[#333]">
+      <ListToolbar
+        addLabel={t("добавить организацию")}
+        hideAdd={!canEdit}
+        onAdd={() => setDialog({ kind: "create" })}
+        query={searchDraft}
+        onQuery={setSearchDraft}
+        addPad={16}
+        searchPos={{ left: 335, top: 19 }}
+        pageSize={state.pageSize}
+        onPageSize={(pageSize) => update({ page: 1, pageSize })}
+        from={count ? start + 1 : 0}
+        to={Math.min(start + state.pageSize, count)}
+        total={count}
+        onPrev={state.page > 1 ? () => update({ page: state.page - 1 }) : undefined}
+        onNext={state.page < pageCount ? () => update({ page: state.page + 1 }) : undefined}
+      />
+      <div className={`${grayHead} ${gridCols}`}>
+        <button type="button" onClick={() => update({ ordering: nextOrdering(state.ordering), page: 1 })} className="inline-flex items-center gap-2 text-left font-bold">
+          {t("Наименование")} {sortIcon}
+        </button>
+        <span>{t("Ограничение по долгу клиента")}</span>
       </div>
-
-      <table className="w-full table-fixed text-left">
-        <thead className="bg-[#626b7e] text-white">
-          <tr>
-            <th className="w-5/12 px-9 py-4">
-              <button type="button" onClick={() => update({ ordering: nextOrdering(state.ordering), page: 1 })} className="inline-flex items-center gap-2 font-semibold">
-                {t("Наименование")} {sortIcon}
-              </button>
-            </th>
-            <th className="w-5/12 px-5 py-4 font-semibold">{t("Ограничение по долгу клиента")}</th>
-            <th className="w-2/12" />
-          </tr>
-        </thead>
-        <tbody className={loading && data ? "opacity-60" : undefined}>
-          {loading && !data ? (
-            <tr>
-              <td colSpan={3} className="px-9 py-10 text-center text-slate-400">
-                {t("Загрузка...")}
-              </td>
-            </tr>
-          ) : error ? (
-            <tr>
-              <td colSpan={3} className="px-9 py-10 text-center text-red-600">
-                {t(error)}
-              </td>
-            </tr>
-          ) : rows.length === 0 ? (
-            <tr>
-              <td colSpan={3} className="px-9 py-10 text-center text-slate-400">
-                {t("По вашему запросу ничего не найдено")}
-              </td>
-            </tr>
-          ) : (
-            rows.map((organization) => (
-              <tr key={organization.id} className="group border-b border-dashed border-slate-300 hover:bg-slate-50">
-                <td className="truncate px-9 py-4 font-medium" title={organization.name}>
-                  {organization.name}
-                </td>
-                <td className="px-5 py-4">{organization.limitByDebt ? t("С ограничением") : t("Без ограничения")}</td>
-                <td className="px-5 py-4">
-                  {canEdit && (
-                    <div className="flex items-center justify-end gap-3 text-slate-500 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
-                      <button type="button" onClick={() => setDialog({ kind: "update", id: organization.id })} title={t("Изменить")} aria-label={t("Изменить")} className="hover:text-[#4f70e7]">
-                        <Pencil className="h-5 w-5" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setDialog({ kind: "delete", id: organization.id, name: organization.name })}
-                        title={t("Удалить")}
-                        aria-label={t("Удалить")}
-                        className="hover:text-rose-600"
-                      >
-                        <Trash2 className="h-5 w-5" />
-                      </button>
-                    </div>
-                  )}
-                </td>
-              </tr>
-            ))
-          )}
-        </tbody>
-      </table>
+      <div className={loading && data ? "opacity-60" : undefined}>
+        {error ? (
+          <p className="px-[30px] py-10 text-center text-red-600">{t(error)}</p>
+        ) : rows.length === 0 ? (
+          loading && !data ? null : <EmptyState />
+        ) : (
+          rows.map((organization) => (
+            <div key={organization.id} className={`${listRow} ${gridCols}`}>
+              <span title={organization.name} className="truncate pr-4">{organization.name}</span>
+              <span>{organization.limitByDebt ? t("С ограничением") : t("Без ограничения")}</span>
+              {canEdit && (
+                <HoverActions
+                  onEdit={() => setDialog({ kind: "update", id: organization.id })}
+                  onDelete={() => setDialog({ kind: "delete", id: organization.id, name: organization.name })}
+                />
+              )}
+            </div>
+          ))
+        )}
+      </div>
 
       {(dialog?.kind === "create" || dialog?.kind === "update") && (
         <OrganizationFormModal
@@ -295,18 +243,6 @@ function OrganizationGrid() {
             reload()
           }}
           onFailed={(message) => setNotice({ text: message, tone: "error" })}
-        />
-      )}
-
-      {importOpen && (
-        <OrganizationImportDialog
-          onClose={() => setImportOpen(false)}
-          onImported={(result) => {
-            setImportOpen(false)
-            setNotice(result)
-            update({ page: 1 })
-            reload()
-          }}
         />
       )}
 

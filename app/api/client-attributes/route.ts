@@ -4,12 +4,13 @@ import { z } from "zod"
 import { getCurrentUser } from "@/lib/current-user"
 import { requireRole } from "@/lib/rbac"
 import { parseJsonBody } from "@/lib/validation"
-import { createClientAttribute, listClientAttributes } from "@/lib/client-attributes-repo"
+import { CLIENT_ATTRIBUTE_FIELD_TYPES, createClientAttribute, listClientAttributes } from "@/lib/client-attributes-repo"
 
 const clientAttributeSchema = z.object({
   name: z.string().trim().min(1),
-  fieldType: z.enum(["Выбор вариантов", "Текстовое поле", "Цифровое поле"]).optional(),
+  fieldType: z.enum(CLIENT_ATTRIBUTE_FIELD_TYPES as [string, ...string[]]).optional(),
   required: z.boolean().optional(),
+  cacheNumber: z.number().int().nullable().optional(),
 })
 
 export async function GET() {
@@ -29,6 +30,7 @@ export async function POST(request: Request) {
     name: parsed.data.name,
     fieldType: parsed.data.fieldType ?? "Выбор вариантов",
     required: parsed.data.required ?? false,
+    cacheNumber: parsed.data.cacheNumber ?? null,
   })
   return NextResponse.json(attribute, { status: 201 })
 }

@@ -3,6 +3,7 @@
 import { useState } from "react"
 
 import { cashMutate } from "@/components/analytics/cash/use-cash"
+import { MaterialDate } from "@/components/analytics/cash-material"
 import {
   CashModal,
   FormField,
@@ -20,7 +21,7 @@ import {
 import { transferAmountTo } from "@/lib/cash/rates"
 import type { CashboxWithBalance, CashTransferInput, CashTransferResult } from "@/lib/cash/types"
 import { currencyLabel, formatMoney, normCurrency } from "@/lib/finance/currency"
-import { monthEndIso, monthStartIso, todayIso } from "@/lib/finance/dates"
+import { todayIso } from "@/lib/finance/dates"
 import { useLanguage } from "@/lib/i18n/language-context"
 
 // "Перевод" (demo module 3849, TransactionSendForm): Текущая касса (a select
@@ -57,7 +58,8 @@ export function CashTransferDialog({
   const [rate, setRate] = useState("")
   const [date, setDate] = useState(() => todayIso())
   const [comment, setComment] = useState("")
-  const [accumulated, setAccumulated] = useState(() => ({ from: monthStartIso(), to: monthEndIso() }))
+  const [accumulated, setAccumulated] = useState({ from: "", to: "" })
+  const [periodOpen, setPeriodOpen] = useState(false)
   const [errors, setErrors] = useState<Errors>({})
   const [busy, setBusy] = useState(false)
 
@@ -130,11 +132,12 @@ export function CashTransferDialog({
     <CashModal
       title={t("Перевод")}
       onClose={onClose}
-      size="sm"
+      size="xs"
+      footerButtons="filled"
       footer={
         <>
           {errors.form && <span className="mr-auto text-[13px] text-[#e57373]">{errors.form}</span>}
-          <PrimaryButton busy={busy} onClick={submit}>
+          <PrimaryButton tone="green" busy={busy} onClick={submit}>
             {t("Отправить")}
           </PrimaryButton>
         </>
@@ -142,7 +145,7 @@ export function CashTransferDialog({
     >
       <div className="flex flex-col gap-3">
         {fromCashbox ? (
-          <ReadonlyField label={t("Текущая касса")} value={`${fromCashbox.name} (${currencyLabel(fromCashbox.currency)})`} />
+          <ReadonlyField label={t("Текущая касса")} value={fromCashbox.name} />
         ) : (
           <FormField label={t("Текущая касса")} required error={errors.from}>
             <SearchSelect
@@ -178,7 +181,7 @@ export function CashTransferDialog({
           <SearchSelect value={toOrganization} onChange={setToOrganization} options={organizationOptions} placeholder={t("На организацию")} />
         </FormField>
         <div className={percentMode || rateMode ? "grid grid-cols-2 gap-3" : ""}>
-          <FormField label={`${t("Сумма с кассы")}${fromCurrency ? ` (${currencyLabel(fromCurrency)})` : ""}`} required error={errors.amount}>
+          <FormField label={<>{t("Сумма с кассы")}{fromCurrency ? <span className="ml-3 font-normal text-[#555]">{currencyLabel(fromCurrency)}</span> : null}</>} required error={errors.amount}>
             <input type="number" min="0" step="any" inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} className={`${inputClass} ${errors.amount ? "border-[#e57373]" : ""}`} />
           </FormField>
           {percentMode && (
@@ -199,19 +202,28 @@ export function CashTransferDialog({
             <b className="text-[#17233b]">{preview?.amountTo !== null && preview?.amountTo !== undefined ? `${formatMoney(preview.amountTo, 5)} ${currencyLabel(toCurrency)}` : "—"}</b>
           </p>
         )}
-        <FormField label={t("Дата создания")}>
-          <input type="date" value={date} onChange={(event) => setDate(event.target.value)} className={inputClass} />
-        </FormField>
+        <MaterialDate label={t("Дата создания")} value={date} onChange={setDate} />
         <FormField label={t("Комментарий...")} error={errors.comment}>
-          <textarea rows={2} value={comment} onChange={(event) => setComment(event.target.value)} className={`${inputClass} h-auto py-2`} />
+          <input value={comment} onChange={(event) => setComment(event.target.value)} className={inputClass} />
         </FormField>
-        <FormField label={t("Деньги накопленные за период")}>
-          <span className="flex items-center gap-2">
-            <input type="date" value={accumulated.from} onChange={(event) => setAccumulated((current) => ({ ...current, from: event.target.value }))} className={`${inputClass} flex-1`} />
-            <span className="text-[#586174]">—</span>
-            <input type="date" value={accumulated.to} onChange={(event) => setAccumulated((current) => ({ ...current, to: event.target.value }))} className={`${inputClass} flex-1`} />
+        <div className="flex min-h-[44px] flex-col justify-end">
+          <span className="mb-[2px] flex items-center gap-1 text-[10px] font-bold leading-3 text-black">
+            {t("Деньги накопленные за период")}
+            <svg viewBox="0 0 24 24" className="h-3 w-3 fill-[#bdbdbd]" aria-hidden>
+              <path d="M19 3h-1V1h-2v2H8V1H6v2H5c-1.11 0-1.99.9-1.99 2L3 19c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V8h14v11z" />
+            </svg>
           </span>
-        </FormField>
+          <button type="button" onClick={() => setPeriodOpen((current) => !current)} className="h-[26px] w-[256px] border-b border-[#e8e8e8] text-left text-[13px] text-black">
+            {accumulated.from || accumulated.to ? `${accumulated.from || "…"} — ${accumulated.to || "…"}` : t("Укажите дату")}
+          </button>
+          {periodOpen && (
+            <span className="mt-2 flex items-center gap-2">
+              <input type="date" value={accumulated.from} onChange={(event) => setAccumulated((current) => ({ ...current, from: event.target.value }))} className={`${inputClass} flex-1`} />
+              <span className="text-[#586174]">—</span>
+              <input type="date" value={accumulated.to} onChange={(event) => setAccumulated((current) => ({ ...current, to: event.target.value }))} className={`${inputClass} flex-1`} />
+            </span>
+          )}
+        </div>
       </div>
     </CashModal>
   )

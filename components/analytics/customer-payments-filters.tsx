@@ -5,6 +5,8 @@ import type { ReactNode } from "react"
 import { BALANCE_PAGE_SIZES } from "@/components/analytics/balance/pagination"
 import type { CashQuery } from "@/components/analytics/cash/use-cash"
 import { MultiSelect } from "@/components/analytics/client-balance-filters"
+import { FilterDate, FilterSelect, RefFilterPanel } from "@/components/ref/list-kit"
+import { ReportMultiChipField } from "@/components/ref/report-kit"
 import { formatStatementDate, isIsoDay } from "@/lib/finance/dates"
 import { NO_CLIENT_TYPE } from "@/lib/finance-client-balance-types"
 import {
@@ -119,8 +121,8 @@ export function stateFromParams(params: ParamReader): CustomerPaymentsState {
     page: Number.isInteger(page) && page > 0 ? page : 1,
     pageSize: (BALANCE_PAGE_SIZES as readonly number[]).includes(pageSize) ? pageSize : CUSTOMER_PAYMENTS_PAGE_SIZE,
     ordering: params.get("ordering")?.trim() ?? "",
-    // The menu opens the page with showCheckboxes=true (demo); only "Спрятать флажки" turns it off.
-    showCheckboxes: params.get("showCheckboxes") !== "false",
+    // The menu link carries showCheckboxes=true (demo); a bare URL shows the list without checkboxes.
+    showCheckboxes: params.get("showCheckboxes") === "true",
     select: (params.get("select") ?? "")
       .split("-")
       .map(Number)
@@ -214,6 +216,27 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
 
 type Option = { value: string; label: string }
 
+/** Reference-style (Material) filter fields over the {value,label} option lists of this page. */
+export function RMulti({ label, value, options, onChange }: { label: string; value: string[]; options: Option[]; onChange: (next: string[]) => void }) {
+  const { t } = useLanguage()
+  const labelOf = (item: string) => options.find((option) => option.value === item)?.label ?? item
+  return (
+    <div className="relative h-[62px]">
+      <ReportMultiChipField label={t(label)} values={value.map(labelOf)} options={options.map((option) => option.label)} onChange={(next) => onChange(next.map((name) => options.find((option) => option.label === name)?.value ?? name))} />
+    </div>
+  )
+}
+
+export function RSel({ label, value, options, onChange }: { label: string; value: string; options: Option[]; onChange: (next: string) => void; disabled?: boolean }) {
+  const { t } = useLanguage()
+  return <FilterSelect label={t(label)} value={options.find((option) => option.value === value)?.label ?? ""} options={options.map((option) => option.label)} onChange={(name) => onChange(options.find((option) => option.label === name)?.value ?? "")} />
+}
+
+export function RDate({ label, from, to, onChange }: { label: string; from: string; to: string; onChange: (from: string, to: string) => void }) {
+  const { t } = useLanguage()
+  return <FilterDate label={t(label)} begin={from} end={to} onChange={onChange} />
+}
+
 function Select({ value, options, onChange, disabled = false }: { value: string; options: Option[]; onChange: (next: string) => void; disabled?: boolean }) {
   const { t } = useLanguage()
   return (
@@ -247,11 +270,13 @@ export function CustomerPaymentsFilterPanel({
   onChange,
   options,
   onApply,
+  onClose,
 }: {
   draft: CustomerPaymentsFilters
   onChange: (next: CustomerPaymentsFilters) => void
   options: CustomerPaymentOptions | null
   onApply: () => void
+  onClose: () => void
 }) {
   const { t } = useLanguage()
   const set = <K extends keyof CustomerPaymentsFilters>(key: K, value: CustomerPaymentsFilters[K]) => onChange({ ...draft, [key]: value })
@@ -260,84 +285,51 @@ export function CustomerPaymentsFilterPanel({
     ...names(options?.clientTypes ?? []),
   ]
   return (
-    <section className="border-b border-[#e1e5eb] bg-white px-4 py-5 md:px-9">
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <Field label="Филиалы">
-          <MultiSelect value={draft.branch} options={names(options?.branches ?? [])} onChange={(value) => set("branch", value)} />
-        </Field>
-        <Field label="Доставщик">
-          <MultiSelect value={draft.deliveryMan} options={names(options?.deliverers ?? [])} onChange={(value) => set("deliveryMan", value)} />
-        </Field>
-        <Field label="Организация">
-          <MultiSelect value={draft.division} options={names(options?.organizations ?? [])} onChange={(value) => set("division", value)} />
-        </Field>
-        <Field label="Тип клиента">
-          <Select value={draft.marketTypeParent} options={typeOptions} onChange={(value) => onChange({ ...draft, marketTypeParent: value, marketType: "" })} />
-        </Field>
+    <RefFilterPanel narrow onClose={onClose} onApply={onApply} className="!w-[310px] max-h-[calc(100vh-120px)] overflow-y-auto">
+      <div className="grid grid-cols-1">
+        <RMulti label="Филиалы" value={draft.branch} options={names(options?.branches ?? [])} onChange={(value) => set("branch", value)} />
+        <RMulti label="Доставщик" value={draft.deliveryMan} options={names(options?.deliverers ?? [])} onChange={(value) => set("deliveryMan", value)} />
+        <RMulti label="Организация" value={draft.division} options={names(options?.organizations ?? [])} onChange={(value) => set("division", value)} />
+        <RSel label="Тип клиента" value={draft.marketTypeParent} options={typeOptions} onChange={(value) => onChange({ ...draft, marketTypeParent: value, marketType: "" })} />
         {draft.marketTypeParent && (
-          <Field label="Подкатегория">
-            <Select value={draft.marketType} options={[]} onChange={(value) => set("marketType", value)} disabled />
-          </Field>
+          <RSel label="Подкатегория" value={draft.marketType} options={[]} onChange={(value) => set("marketType", value)} disabled />
         )}
-        <Field label="Касса">
-          <MultiSelect
+        <RMulti label="Касса"
             value={draft.cashbox}
             options={(options?.cashboxes ?? []).map((cashbox) => ({ value: String(cashbox.id), label: cashbox.name }))}
             onChange={(value) => set("cashbox", value)}
           />
-        </Field>
-        <Field label="Зона">
-          <MultiSelect value={draft.border} options={names(options?.zones ?? [])} onChange={(value) => set("border", value)} />
-        </Field>
-        <Field label="Клиент">
-          <MultiSelect
+        <RMulti label="Зона" value={draft.border} options={names(options?.zones ?? [])} onChange={(value) => set("border", value)} />
+        <RMulti label="Клиент"
             value={draft.client}
             options={(options?.clients ?? []).map((client) => ({ value: String(client.id), label: client.name }))}
             onChange={(value) => set("client", value)}
           />
-        </Field>
-        <Field label="Создал">
-          <Select value={draft.user} options={names(options?.users ?? [])} onChange={(value) => set("user", value)} />
-        </Field>
-        <Field label="Принял">
-          <Select value={draft.acceptedBy} options={names(options?.acceptedBy ?? [])} onChange={(value) => set("acceptedBy", value)} />
-        </Field>
-        <Field label="Ответственный агент магазина">
-          <MultiSelect value={draft.marketResponsibleAgent} options={names(options?.agents ?? [])} onChange={(value) => set("marketResponsibleAgent", value)} />
-        </Field>
-        <Field label="Ответственный доставщик магазина">
-          <MultiSelect
+        <RSel label="Создал" value={draft.user} options={names(options?.users ?? [])} onChange={(value) => set("user", value)} />
+        <RSel label="Принял" value={draft.acceptedBy} options={names(options?.acceptedBy ?? [])} onChange={(value) => set("acceptedBy", value)} />
+        <RMulti label="Ответственный агент магазина" value={draft.marketResponsibleAgent} options={names(options?.agents ?? [])} onChange={(value) => set("marketResponsibleAgent", value)} />
+        <RMulti label="Ответственный доставщик магазина"
             value={draft.marketResponsibleDeliveryMan}
             options={names(options?.deliverers ?? [])}
             onChange={(value) => set("marketResponsibleDeliveryMan", value)}
           />
-        </Field>
-        <Field label="Подтверждение клиента">
-          <Select
+        <RSel label="Подтверждение клиента"
             value={draft.status}
             options={CLIENT_CONFIRMATIONS.map((status) => ({ value: status, label: t(CLIENT_CONFIRMATION_FILTER_LABELS[status]) }))}
             onChange={(value) => set("status", value)}
           />
-        </Field>
-        <Field label="Дата оплаты">
-          <DayRange from={draft.fromDate} to={draft.toDate} onChange={(from, to) => onChange({ ...draft, fromDate: from, toDate: to })} />
-        </Field>
-        <Field label="Дата получения">
-          <DayRange
+        <RDate label="Дата оплаты" from={draft.fromDate} to={draft.toDate} onChange={(from, to) => onChange({ ...draft, fromDate: from, toDate: to })} />
+        <RDate label="Дата получения"
             from={draft.beginAcceptedTime}
             to={draft.endAcceptedTime}
             onChange={(from, to) => onChange({ ...draft, beginAcceptedTime: from, endAcceptedTime: to })}
           />
-        </Field>
-        <Field label="Дата счет фактуры">
-          <DayRange
+        <RDate label="Дата счет фактуры"
             from={draft.beginInvoiceDate}
             to={draft.endInvoiceDate}
             onChange={(from, to) => onChange({ ...draft, beginInvoiceDate: from, endInvoiceDate: to })}
           />
-        </Field>
-        <Field label="Счета фактура">
-          <Select
+        <RSel label="Счета фактура"
             value={draft.showInvoice}
             options={[
               { value: "set", label: t("Установлен") },
@@ -345,20 +337,12 @@ export function CustomerPaymentsFilterPanel({
             ]}
             onChange={(value) => set("showInvoice", value)}
           />
-        </Field>
-        <Field label="Валюта">
-          <Select
+        <RSel label="Валюта"
             value={draft.currency}
             options={(options?.currencies ?? []).map((currency) => ({ value: currency.code, label: currency.label }))}
             onChange={(value) => set("currency", value)}
           />
-        </Field>
       </div>
-      <div className="mt-5 flex justify-end">
-        <button type="button" onClick={onApply} className="h-10 rounded-md bg-[#4f70e7] px-6 font-semibold text-white">
-          {t("Применить")}
-        </button>
-      </div>
-    </section>
+    </RefFilterPanel>
   )
 }

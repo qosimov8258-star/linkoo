@@ -77,10 +77,10 @@ export async function listProductTypes(): Promise<ProductType[]> {
   return (await allRows(await dictionariesDb())).map(rowToType)
 }
 
-/** The tree grid: top-level types (searched, sorted, paged) with their children. Default order = Порядок, name. */
+/** The tree grid: top-level types (searched, sorted, paged) with their children. Default order = name (the demo ignores its "order" field here). */
 export async function listProductTypeTree(query: DictionaryListQuery): Promise<ProductTypeTreeResult> {
   const types = (await allRows(await dictionariesDb())).map(rowToType)
-  const tree = filterTree(buildTree<ProductType, ProductTypeNode>(types, query.ordering), query.search)
+  const tree = filterTree(buildTree<ProductType, ProductTypeNode>(types, query.ordering || "name"), query.search)
   const start = (query.page - 1) * query.pageSize
   return { count: tree.length, results: tree.slice(start, start + query.pageSize) }
 }
@@ -138,7 +138,8 @@ export type ProductTypeInput = {
 
 type Fields = { name: string; organization: string; parentId: number | null; showInBot: boolean; position: number; image: string | null | undefined }
 
-async function validate(tx: PgDb, id: number | null, fields: Fields): Promise<string | null> {
+/** `legacyEmpty`: the stored type has no organization (demo data) and keeps none, so editing it stays possible. */
+async function validate(tx: PgDb, id: number | null, fields: Fields, legacyEmpty = false): Promise<string | null> {
   let parentName: string | null = null
   if (fields.parentId !== null) {
     if (fields.parentId === id) throw fieldError("parent", "Тип не может быть родителем самого себя")
@@ -157,7 +158,7 @@ async function validate(tx: PgDb, id: number | null, fields: Fields): Promise<st
     )
     .get({ name: fields.name, parentId: fields.parentId, exceptId: id })
   if (duplicate) throw fieldError("name", DUPLICATE)
-  if (!fields.organization && (await organizationRequired(tx))) throw fieldError("organization", REQUIRED)
+  if (!fields.organization && !legacyEmpty && (await organizationRequired(tx))) throw fieldError("organization", REQUIRED)
   return parentName
 }
 
@@ -202,7 +203,7 @@ export async function updateProductType(id: number, input: ProductTypeInput): Pr
       position: input.position ?? Number(current.position ?? 0),
       image: input.image,
     }
-    const parentName = await validate(tx, id, fields)
+    const parentName = await validate(tx, id, fields, !cleanText(current.organization))
     const currentParent = current.parent_id === null ? null : await nameOf(tx, Number(current.parent_id))
     let renamed: DictionaryRenameChange[] = []
     if (current.name !== fields.name || currentParent !== parentName) {

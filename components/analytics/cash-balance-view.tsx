@@ -147,16 +147,16 @@ function CashBalanceContent() {
   const detailName = detail ? (data?.rows.find((row) => row.key === detail.key)?.name ?? "") : ""
 
   return (
-    <main className="min-h-screen bg-white text-[#17233b]">
-      <header className="flex min-h-[76px] items-center border-b border-[#d8dee7] bg-[#f2f5f8] px-6 md:px-9">
-        <div className="flex items-center gap-3">
-          <FavoritesButton className="flex items-center gap-3 text-2xl font-bold text-[#4f70e7]" />
-          <span className="text-3xl font-light text-[#586174]">|</span>
-          <span className="text-2xl font-bold text-[#586174]">{t("Баланс кассы")}</span>
+    <main className="ref-white min-h-screen bg-white text-[#333]">
+      <header className="flex min-h-[60px] items-center px-[28px]">
+        <div className="flex items-center">
+          <FavoritesButton className="flex items-center gap-[5px] text-[18px] font-bold text-[#4f71dc]" />
+          <span className="mx-[11px] h-[21px] w-[2px] bg-[#5d6474]" />
+          <span className="text-[18px] font-bold text-[#5d6474]">{t("Баланс кассы")}</span>
         </div>
       </header>
 
-      <section className="flex flex-wrap items-center gap-4 px-6 py-4 md:px-9">
+      <section className="flex flex-wrap items-center gap-4 px-[30px] pt-5">
         <BalanceFilterButton count={countActiveFilters({ toDate: period.to })} from={period.from} to={period.to} onOpen={() => setFilterOpen(true)} />
         <div className="ml-auto">
           <BalanceDownloadMenu disabled={!data?.rows.length} items={[{ label: "Скачать все", onClick: downloadAll }]} />
@@ -188,12 +188,12 @@ function CashBalanceContent() {
       {data && rows.length > 0 && (
         <>
           <CashBalanceSummary totals={data.totals} currencies={data.visibleCurrencies} loading={loading} />
-          <section className="pb-10">
+          <section className="px-[30px] pb-10">
             <BalanceTable
               rows={rows}
               groups={GROUPS}
               currencies={data.visibleCurrencies}
-              first={{ label: "Кассы", render: (row) => row.name }}
+              first={{ label: "Кассы", width: 177, render: (row) => row.name }}
               cellCurrency={(row) => String(row.info.currency || data.baseCurrency)}
               trailing={[
                 { label: "Кассир", render: (row) => cashierOf(row, t) },

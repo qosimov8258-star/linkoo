@@ -34,6 +34,7 @@ import { cn } from "@/lib/utils"
 import { downloadExcelTable } from "@/lib/excel-export"
 import { mapHeaderColumns, normalizeHeader, readExcelRows } from "@/lib/excel-import"
 import { useLanguage } from "@/lib/i18n/language-context"
+import { notify } from "@/lib/notify"
 
 type ModuleRowStatus = "active" | "attention" | "inactive"
 
@@ -450,7 +451,7 @@ export function ClientModuleView({ clientModule }: { clientModule: ClientModule 
     try {
       const excelRows = await readExcelRows(importFile)
       if (!excelRows.length) {
-        window.alert(t("Не удалось найти данные для импорта в выбранном файле"))
+        notify(t("Не удалось найти данные для импорта в выбранном файле"))
         return
       }
       const fieldByIndex = mapHeaderColumns(excelRows[0], importAliases)
@@ -489,7 +490,7 @@ export function ClientModuleView({ clientModule }: { clientModule: ClientModule 
       }
 
       if (!parsed.length) {
-        window.alert(t("Не удалось найти данные для импорта в выбранном файле"))
+        notify(t("Не удалось найти данные для импорта в выбранном файле"))
         return
       }
 
@@ -518,7 +519,7 @@ export function ClientModuleView({ clientModule }: { clientModule: ClientModule 
       }
       if (created.length) setRows((current) => [...created, ...current])
       if (failed)
-        window.alert(
+        notify(
           t("Импортировано") + " " + created.length + " " + t("из") + " " + parsed.length + ". " + t("Не удалось сохранить") + ": " + failed,
         )
       else setNotice(t("Импортировано записей") + ": " + created.length)

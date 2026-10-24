@@ -30,11 +30,11 @@ type BonusClient = {
 
 const initialClients: BonusClient[] = [];
 
-const dateLabel = new Intl.DateTimeFormat("ru-RU", {
-  day: "numeric",
-  month: "short",
-  year: "numeric",
-});
+// moment's Russian short months, as the reference prints them ("22 апр. 2026", "04 мар. 2026").
+const SHORT_MONTHS = ["янв.", "февр.", "мар.", "апр.", "мая", "июня", "июля", "авг.", "сент.", "окт.", "нояб.", "дек."];
+const dateLabel = {
+  format: (date: Date) => `${String(date.getDate()).padStart(2, "0")} ${SHORT_MONTHS[date.getMonth()]} ${date.getFullYear()}`,
+};
 
 export function ClientBonusesView() {
   const { t } = useLanguage();
@@ -52,16 +52,11 @@ export function ClientBonusesView() {
 
   useEffect(() => {
     let cancelled = false;
-    fetch("/api/clients")
+    fetch("/api/ref-records/bonus", { cache: "no-store" })
       .then((response) => (response.ok ? response.json() : []))
-      .then((data: { id: number; name: string }[]) => {
+      .then((data: { id: number; name: string; points: number; lastScore: string }[]) => {
         if (cancelled || !Array.isArray(data)) return;
-        setClients(
-          data
-            .slice()
-            .sort((a, b) => b.id - a.id)
-            .map((client) => ({ id: client.id, name: client.name, points: 0, lastScore: "Не получатель", history: [] })),
-        );
+        setClients(data.map((client) => ({ id: client.id, name: client.name, points: Number(client.points) || 0, lastScore: client.lastScore, history: [] })));
       })
       .catch(() => {});
     return () => {
@@ -170,6 +165,12 @@ export function ClientBonusesView() {
       points,
     };
 
+    const nextPoints = (clients.find((client) => client.id === bonusClient.id)?.points ?? bonusClient.points) + points;
+    void fetch(`/api/ref-records/bonus/${bonusClient.id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ points: nextPoints, lastScore: entry.date }),
+    });
     setClients((current) =>
       current.map((client) =>
         client.id === bonusClient.id
@@ -249,8 +250,8 @@ export function ClientBonusesView() {
         />
 
         <RefTable
-          cols="minmax(0,90fr) minmax(0,330fr) minmax(0,150fr) minmax(0,260fr) minmax(0,60fr)"
-          heads={[t("№"), t("Наименование"), t("Балл"), t("Дата последнего бала"), ""]}
+          cols="minmax(0,1fr) minmax(0,6fr) minmax(0,2fr) minmax(0,3fr)"
+          heads={[t("№"), t("Наименование"), t("Балл"), t("Дата последнего бала")]}
           rows={pagedClients}
           rowKey={(client) => client.id}
           onRowClick={(client) => setSelectedClient(client)}
@@ -258,21 +259,22 @@ export function ClientBonusesView() {
           render={(client) => [
             client.id,
             client.name,
-            <span key="p" className={client.points < 0 ? "text-[#e57373]" : ""}>{client.points}</span>,
-            t(client.lastScore),
-            <button
-              key="b"
-              title={t("Добавить балл")}
-              onClick={(event) => {
-                event.stopPropagation();
-                setBonusClient(client);
-                setBonusKind("minus");
-                setFormError("");
-              }}
-              className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-[#71ce87] text-white"
-            >
-              <Plus size={14} strokeWidth={3} />
-            </button>,
+            <span key="p">{client.points}</span>,
+            <span key="last" className="flex items-center">
+              <span>{t(client.lastScore)}</span>
+              <button
+                title={t("Добавить балл")}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setBonusClient(client);
+                  setBonusKind("minus");
+                  setFormError("");
+                }}
+                className="ml-auto mr-[72px] inline-flex h-5 w-5 items-center justify-center rounded-full bg-[#71ce87] text-white"
+              >
+                <Plus size={14} strokeWidth={3} />
+              </button>
+            </span>,
           ]}
         />
       </RefCard>

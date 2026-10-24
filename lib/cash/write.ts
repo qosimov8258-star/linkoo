@@ -81,7 +81,7 @@ type SupplierPlan = {
 
 type Plan = CashPlan | CustomerPlan | SupplierPlan
 
-const TABLE: Record<Exclude<CashSource, "acceptance">, string> = {
+const TABLE: Record<Exclude<CashSource, "acceptance" | "reference">, string> = {
   cash: "cash_management_entries",
   customer: "customer_payments",
   supplier: "supplier_payments",
@@ -92,6 +92,8 @@ type OwnerRow = { source: CashSource; id: number; docNo: number; row: Record<str
 async function lockOwner(tx: PgDb, key: string): Promise<OwnerRow> {
   const parsed = parseOperationKey(key)
   if (!parsed) throw new CashError("Операция не найдена", 404)
+  // Archived reference operations (cash_reference_rows) are list-only; their money is already part of the cashbox balance.
+  if (parsed.source === "reference") throw new CashError("Эта операция загружена из архива и не может быть изменена или удалена", 409)
   const table = parsed.source === "acceptance" ? "cash_acceptances" : TABLE[parsed.source]
   const row = (await tx.prepare(`SELECT * FROM ${table} WHERE id = @id FOR UPDATE`).get({ id: parsed.id })) as Record<string, unknown> | undefined
   if (!row) throw new CashError("Операция не найдена", 404)
@@ -621,7 +623,7 @@ export async function updateCashOperation(key: string, input: CashOperationInput
       }
       result = { key: operationKey(owner.source, owner.id), source: owner.source, id: owner.id, docNo: owner.docNo }
     } else {
-      await tx.prepare(`DELETE FROM ${TABLE[owner.source as Exclude<CashSource, "acceptance">]} WHERE id = @id`).run({ id: owner.id })
+      await tx.prepare(`DELETE FROM ${TABLE[owner.source as Exclude<CashSource, "acceptance" | "reference">]} WHERE id = @id`).run({ id: owner.id })
       result = await insertPlan(tx, plan, user, owner.docNo)
     }
     await recomputeSupplyPaid(tx, [oldSupply, plan.owner === "supplier" ? plan.supplyId : null], cc)
@@ -674,7 +676,7 @@ export async function deleteCashOperation(key: string, user: string): Promise<{ 
       // Staff allocations and detalization stay (they follow the entry's is_deleted); the loyalty row was removed.
       await updateRow(tx, "cash_management_entries", owner.id, stamp)
     } else {
-      await updateRow(tx, TABLE[owner.source], owner.id, stamp)
+      await updateRow(tx, TABLE[owner.source as Exclude<CashSource, "acceptance" | "reference">], owner.id, stamp)
       if (owner.source === "supplier") await recomputeSupplyPaid(tx, [numOrNull(owner.row.supply_id)], cc)
     }
     return { key, deleted: [key] }
@@ -716,11 +718,46 @@ export async function verifyCashOperation(key: string, verifyDate: string | null
   })
 }
 
+/** Prefill of the edit/duplicate dialog for an archived reference row (saving it is refused by lockOwner). */
+async function referenceOperationInput(id: number, db: PgDb): Promise<CashOperationInput | null> {
+  const row = (await db.prepare("SELECT * FROM cash_reference_rows WHERE id = @id").get({ id })) as Record<string, unknown> | undefined
+  if (!row) return null
+  const amount = num(row.amount)
+  const kind = amount >= 0 ? "income" : "expense"
+  const table = kind === "income" ? "income_categories" : "expense_categories"
+  const category = row.category_name
+    ? ((await db.prepare(`SELECT id FROM ${table} WHERE lower(name) = lower(@name) ORDER BY id LIMIT 1`).get({ name: String(row.category_name) })) as { id: number } | undefined)
+    : undefined
+  const iso = row.ts instanceof Date ? row.ts.toISOString().slice(0, 19) : String(row.ts ?? "").replace(" ", "T").slice(0, 19)
+  const extra = (() => {
+    try {
+      return JSON.parse(String(row.extra ?? "{}")) as { children?: Array<{ name: string; amount: number }> }
+    } catch {
+      return {}
+    }
+  })()
+  return {
+    kind,
+    date: iso || undefined,
+    cashboxId: num(row.cashbox_id),
+    branch: String(row.branch ?? "") || undefined,
+    organization: String(row.organization ?? "") || undefined,
+    categoryId: category?.id,
+    amount: Math.abs(amount),
+    comment: String(row.comment ?? "") || undefined,
+    isVerified: num(row.verified) !== 0,
+    clientId: numOrNull(row.client_id) ?? undefined,
+    supplierId: numOrNull(row.supplier_id) ?? undefined,
+    children: extra.children?.map((item) => ({ name: item.name, amount: num(item.amount) })),
+  }
+}
+
 /** Form values of an operation (edit / duplicate prefill). null for unknown keys and acceptances. */
 export async function getOperationInput(key: string, db: PgDb = getDb()): Promise<CashOperationInput | null> {
   const parsed = parseOperationKey(key)
   if (!parsed || parsed.source === "acceptance") return null
   await ensureCashSchema(db)
+  if (parsed.source === "reference") return referenceOperationInput(parsed.id, db)
   const row = (await db.prepare(`SELECT * FROM ${TABLE[parsed.source]} WHERE id = @id`).get({ id: parsed.id })) as Record<string, unknown> | undefined
   if (!row) return null
   const str = (value: unknown) => (value === null || value === undefined ? undefined : String(value) || undefined)

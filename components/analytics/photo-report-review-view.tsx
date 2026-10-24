@@ -52,10 +52,20 @@ export function PhotoReportReviewView() {
   // strip below is wired to real staff.
   useEffect(() => {
     let cancelled = false
-    fetch("/api/employees")
-      .then((response) => (response.ok ? (response.json() as Promise<{ name: string }[]>) : Promise.reject()))
-      .then((data) => {
-        if (!cancelled) setEmployeeNames(data.map((employee) => employee.name).filter(Boolean).sort((a, b) => a.localeCompare(b, "ru")))
+    // Like the reference, the strip lists the active members of the agents plan in the plan's own order; while the plan
+    // is not loaded it falls back to every employee by name.
+    Promise.all([
+      fetch("/api/employees").then((response) => (response.ok ? (response.json() as Promise<{ id: number; name: string }[]>) : [])),
+      fetch("/api/agent-plan-members").then((response) => (response.ok ? (response.json() as Promise<{ employeeId: number; active: boolean; position: number }[]>) : [])),
+    ])
+      .then(([employees, members]) => {
+        if (cancelled) return
+        const nameById = new Map(employees.map((employee) => [employee.id, employee.name]))
+        const planned = members
+          .filter((member) => member.active && nameById.get(member.employeeId))
+          .sort((a, b) => (a.position < 0 ? 1e6 + a.employeeId : a.position) - (b.position < 0 ? 1e6 + b.employeeId : b.position))
+          .map((member) => nameById.get(member.employeeId) as string)
+        setEmployeeNames(planned.length > 0 ? planned : employees.map((employee) => employee.name).filter(Boolean).sort((a, b) => a.localeCompare(b, "ru")))
       })
       .catch(() => {
         if (!cancelled) setEmployeeNames([])

@@ -5,15 +5,48 @@ import { ChevronLeft, ChevronRight, Expand, List, Pencil, Search } from "lucide-
 import { RefHeader } from "@/components/ref/list-kit"
 import { ReportFilterPanel, ReportInputField, ReportPage, ReportRangeField, ReportSelectField, ReportTopRow } from "@/components/ref/report-kit"
 import { downloadExcelTable } from "@/lib/excel-export"
+import { useRefRecords } from "@/lib/use-ref-records"
 
+// Clients with equipment and the summary of the reference's "Эффективность оборудования" (kind "gear": one record per client,
+// plus the record "total" with the summary figures).
 type EquipmentRow = {
+  id: number | string
   client: string
   equipment: string
-  branch: string
-  inventoryType: string
+  sales: number
+  gearSales: number
+  variety: number
+  products: number
+  branch?: string
+  inventoryType?: string
+  isTotal?: boolean
 }
 
-const equipmentRows: EquipmentRow[] = []
+type GearTotal = {
+  okb: number
+  okb_gear: number
+  akb: number
+  akb_gear: number
+  avg_check: number
+  first_amount: number
+  second_amount: number
+  third_amount: number
+  total_fact: number
+  total_fact_gear: number
+  okb_gear_count: number
+  akb_gear_count: number
+  first_gear_count: number
+  second_gear_count: number
+  third_gear_count: number
+  currency: string
+}
+
+const fmt = (value: number) => {
+  const [whole, fraction] = value.toFixed(3).replace(/\.?0+$/, "").split(".")
+  const grouped = whole.replace(/\B(?=(\d{3})+(?!\d))/g, " ")
+  return fraction ? `${grouped},${fraction}` : grouped
+}
+const percent = (part: number, whole: number) => (whole ? fmt((part / whole) * 100) : "0")
 
 const selectOptions = {
   organization: ["Linko", "Time3 Distribution"],
@@ -60,7 +93,7 @@ const emptyFilters: Filters = {
 }
 
 export function EquipmentEfficiencyView() {
-  const [mode, setMode] = useState<"created" | "realized">("created")
+  const [mode] = useState<"created" | "realized">("created")
   const [filterOpen, setFilterOpen] = useState(false)
   const [query, setQuery] = useState("")
   const [draft, setDraft] = useState<Filters>(emptyFilters)
@@ -68,6 +101,10 @@ export function EquipmentEfficiencyView() {
   const [fullscreen, setFullscreen] = useState(false)
   const [rangeFrom, setRangeFrom] = useState(() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01` })
   const [rangeTo, setRangeTo] = useState(() => { const d = new Date(); const e = new Date(d.getFullYear(), d.getMonth() + 1, 0); return `${e.getFullYear()}-${String(e.getMonth() + 1).padStart(2, "0")}-${String(e.getDate()).padStart(2, "0")}` })
+
+  const { rows: records } = useRefRecords<EquipmentRow>("gear")
+  const equipmentRows = useMemo(() => records.filter((record) => !record.isTotal), [records])
+  const total = useMemo(() => (records.find((record) => record.isTotal) as unknown as GearTotal | undefined) ?? null, [records])
 
   const rows = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase("ru")
@@ -79,7 +116,7 @@ export function EquipmentEfficiencyView() {
       if (filters.product !== "" && !row.equipment.toLowerCase().includes(filters.product.toLowerCase())) return false
       return true
     })
-  }, [query, filters])
+  }, [query, filters, equipmentRows])
 
   function updateFilter<Key extends keyof Filters>(key: Key, value: Filters[Key]) {
     setDraft((current) => ({ ...current, [key]: value }))
@@ -87,7 +124,7 @@ export function EquipmentEfficiencyView() {
 
   function downloadExcel() {
     const header = ["Клиент", "Факт. продажи", "Факт. продажи оборудования", "Разновидности", "Кол-во продуктов", "Оборудование"]
-    const body = rows.map((row) => [row.client, "0 SUM", "0 SUM", "0 SUM", "0 SUM", row.equipment])
+    const body = rows.map((row) => [row.client, `${fmt(row.sales)} ${total?.currency ?? "SUM"}`, `${fmt(row.gearSales)} ${total?.currency ?? "SUM"}`, fmt(row.variety), fmt(row.products), row.equipment])
     downloadExcelTable("equipment-efficiency", [header, ...body])
   }
 
@@ -95,12 +132,7 @@ export function EquipmentEfficiencyView() {
     <ReportPage>
       <div className={fullscreen ? "fixed inset-0 z-50 overflow-auto bg-[#f2f5f8]" : ""}>
       <div className="pl-[30px] pr-[38px]">
-        <RefHeader title="Эффективность оборудования">
-          <div className="flex overflow-hidden rounded-[3px] shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
-            <button type="button" onClick={() => setMode("created")} className={`h-[30px] px-4 text-[13px] font-medium transition-colors ${mode === "created" ? "bg-[#71ce87] text-white" : "bg-white text-black"}`}>ПО ДАТЕ СОЗДАНИЕ</button>
-            <button type="button" onClick={() => setMode("realized")} className={`h-[30px] px-4 text-[13px] font-medium transition-colors ${mode === "realized" ? "bg-[#71ce87] text-white" : "bg-white text-black"}`}>ПО ДАТЕ РЕАЛИЗАЦИИ</button>
-          </div>
-        </RefHeader>
+        <RefHeader title="Эффективность оборудования" />
       </div>
 
       <section className="border-b border-[#d9d9d9] bg-white pb-[1px] pt-[20px]">
@@ -109,20 +141,20 @@ export function EquipmentEfficiencyView() {
 
           <div className="mt-[15px] grid border border-[#e8e8e8] md:grid-cols-4">
             <div className="space-y-[10px] border-r border-[#e8e8e8] px-[15px] py-[11px]">
-              <div><p className="text-[13px] text-[#555]">ОКВ / ОКВ с оборудованием</p><b className="text-[13px]">0 / 0 (0 %) <span className="text-[#4f71dc]">0</span></b></div>
-              <div><p className="text-[13px] text-[#555]">АКВ / АКВ с оборудованием</p><b className="text-[13px]">0 / 0 (0 %) <span className="text-[#4f71dc]">0</span></b></div>
+              <div><p className="text-[13px] text-[#555]">ОКВ / ОКВ с оборудованием</p><b className="text-[13px]">{fmt(total?.okb ?? 0)} / {fmt(total?.okb_gear ?? 0)} ({percent(total?.okb_gear ?? 0, total?.okb ?? 0)} %) <span className="text-[#4f71dc]">{total?.okb_gear_count ?? 0}</span></b></div>
+              <div><p className="text-[13px] text-[#555]">АКВ / АКВ с оборудованием</p><b className="text-[13px]">{fmt(total?.akb ?? 0)} / {fmt(total?.akb_gear ?? 0)} ({percent(total?.akb_gear ?? 0, total?.akb ?? 0)} %) <span className="text-[#4f71dc]">{total?.akb_gear_count ?? 0}</span></b></div>
             </div>
             <div className="space-y-[10px] border-r border-[#e8e8e8] px-[15px] py-[11px]">
-              <div><p className="text-[13px] text-[#555]">Средний чек одного оборудования</p><b className="text-[13px]">0 SUM</b></div>
-              <div><p className="text-[13px] text-[#555]">От 0 SUM до 1 500 000 SUM</p><b className="text-[13px]">0 шт. (0%) <span className="text-[#4f71dc]">0</span></b></div>
+              <div><p className="text-[13px] text-[#555]">Средний чек одного оборудования</p><b className="text-[13px]">{fmt(total?.avg_check ?? 0)} {total?.currency ?? "SUM"}</b></div>
+              <div><p className="text-[13px] text-[#555]">От 0 SUM до 1 500 000 SUM</p><b className="text-[13px]">{total?.first_amount ?? 0} шт. ({percent(total?.first_amount ?? 0, total?.okb_gear ?? 0)}%) <span className="text-[#4f71dc]">{total?.first_gear_count ?? 0}</span></b></div>
             </div>
             <div className="space-y-[10px] border-r border-[#e8e8e8] px-[15px] py-[11px]">
-              <div><p className="flex items-center gap-3 text-[13px] text-[#555]">От 1 500 000 SUM до 3 000 000 SUM <Pencil className="h-4 w-4 text-[#555]" /></p><b className="text-[13px]">0 шт. (0%) <span className="text-[#4f71dc]">0</span></b></div>
-              <div><p className="text-[13px] text-[#555]">Больше 3 000 000 SUM</p><b className="text-[13px]">0 шт. (0%) <span className="text-[#4f71dc]">0</span></b></div>
+              <div><p className="flex items-center gap-3 text-[13px] text-[#555]">От 1 500 000 SUM до 3 000 000 SUM <Pencil className="h-4 w-4 text-[#555]" /></p><b className="text-[13px]">{total?.second_amount ?? 0} шт. ({percent(total?.second_amount ?? 0, total?.okb_gear ?? 0)}%) <span className="text-[#4f71dc]">{total?.second_gear_count ?? 0}</span></b></div>
+              <div><p className="text-[13px] text-[#555]">Больше 3 000 000 SUM</p><b className="text-[13px]">{total?.third_amount ?? 0} шт. ({percent(total?.third_amount ?? 0, total?.okb_gear ?? 0)}%) <span className="text-[#4f71dc]">{total?.third_gear_count ?? 0}</span></b></div>
             </div>
             <div className="space-y-[10px] px-[15px] py-[11px] text-right">
-              <div><p className="text-[13px] text-[#555]">Фактическая продажа</p><b className="text-[13px]">0 SUM</b></div>
-              <div><p className="text-[13px] text-[#555]">С оборудованием</p><b className="text-[13px]">0 SUM (0 %)</b></div>
+              <div><p className="text-[13px] text-[#555]">Фактическая продажа</p><b className="text-[13px]">{fmt(total?.total_fact ?? 0)} {total?.currency ?? "SUM"}</b></div>
+              <div><p className="text-[13px] text-[#555]">С оборудованием</p><b className="text-[13px]">{fmt(total?.total_fact_gear ?? 0)} {total?.currency ?? "SUM"} ({percent(total?.total_fact_gear ?? 0, total?.total_fact ?? 0)} %)</b></div>
             </div>
           </div>
 
@@ -145,16 +177,16 @@ export function EquipmentEfficiencyView() {
 
         <div className="overflow-x-auto">
           <table className="w-full min-w-[1100px] table-fixed border-collapse text-[13px]">
-            <colgroup><col className="w-[220px]" /><col className="w-[200px]" /><col className="w-[200px]" /><col className="w-[200px]" /><col className="w-[200px]" /><col /></colgroup>
+            <colgroup><col className="w-[220px]" /><col className="w-[237px]" /><col className="w-[237px]" /><col className="w-[237px]" /><col className="w-[237px]" /><col /></colgroup>
             <thead className="shadow-[0_3px_6px_rgba(0,0,0,0.12)]">
-              <tr className="h-[48px] bg-[#f2f5f8]">{["Клиент", "Факт. продажи", "Факт. продажи оборудования", "Разновидности", "Кол-во продуктов", "Оборудование"].map((title) => <th key={title} className="border-r border-[#e1e5eb] px-2 text-center font-semibold leading-4 last:border-r-0">{title}</th>)}</tr>
+              <tr className="h-[33px] bg-white">{["Клиент", "Факт. продажи", "Факт. продажи оборудования", "Разновидности", "Кол-во продуктов", "Оборудование"].map((title) => <th key={title} className="border-r border-[#e1e5eb] px-2 text-center font-semibold leading-4 last:border-r-0">{title}</th>)}</tr>
             </thead>
             <tbody>
               {rows.map((row, index) => (
-                <tr key={row.client} className={`h-[31px] ${index % 2 ? "bg-white" : "bg-[#f2f5f8]"}`}>
+                <tr key={row.id} className={`min-h-[31px] h-[31px] ${index % 2 ? "bg-[#f2f5f8]" : "bg-white"}`}>
                   <td className="truncate px-[6px]">{row.client}</td>
-                  {Array.from({ length: 4 }).map((_, cell) => <td key={cell} className="border-l border-[#ececec] px-[6px]">0</td>)}
-                  <td className="border-l border-[#ececec] px-[6px]">{row.equipment}</td>
+                  {[row.sales, row.gearSales, row.variety, row.products].map((value, cell) => <td key={cell} className="border-l border-[#ececec] px-[6px] text-right">{fmt(value)}</td>)}
+                  <td className="border-l border-[#ececec] px-[6px] py-[5px] leading-[18px]"><span className="line-clamp-2">{row.equipment}</span></td>
                 </tr>
               ))}
             </tbody>

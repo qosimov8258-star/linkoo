@@ -1,3 +1,5 @@
+import { getLiveBalanceDeltas, mergeBalance } from "@/lib/client-live-balance"
+import { selectedBranchName } from "@/lib/selected-branch"
 import "server-only"
 
 import { getDb } from "@/lib/db"
@@ -24,6 +26,26 @@ async function ensureSchema(db: ReturnType<typeof getDb>) {
   await db.exec(`ALTER TABLE clients ADD COLUMN IF NOT EXISTS attributes TEXT NOT NULL DEFAULT '{}';`)
   await db.exec(`ALTER TABLE clients ADD COLUMN IF NOT EXISTS in_route INTEGER NOT NULL DEFAULT 0;`)
   await db.exec(`ALTER TABLE clients ADD COLUMN IF NOT EXISTS is_problem INTEGER NOT NULL DEFAULT 0;`)
+  // «Статус объекта»; a client without a row counts as active.
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS client_object_status (
+      client_id INTEGER PRIMARY KEY,
+      is_active INTEGER NOT NULL DEFAULT 1
+    );
+  `)
+}
+
+const SELECT_CLIENT = `SELECT c.*, s.is_active AS object_active
+  FROM clients c LEFT JOIN client_object_status s ON s.client_id = c.id`
+
+async function saveObjectStatus(db: ReturnType<typeof getDb>, id: number, isActive: boolean | undefined) {
+  if (isActive === undefined) return
+  await db
+    .prepare(
+      `INSERT INTO client_object_status (client_id, is_active) VALUES (@id, @isActive)
+       ON CONFLICT (client_id) DO UPDATE SET is_active = excluded.is_active RETURNING client_id`,
+    )
+    .run({ id, isActive: isActive ? 1 : 0 })
 }
 
 type ClientRow = {
@@ -56,6 +78,7 @@ type ClientRow = {
   attributes?: string | null
   in_route?: number | null
   is_problem?: number | null
+  object_active?: number | null
 }
 
 function rowToClient(row: ClientRow): Client {
@@ -74,6 +97,7 @@ function rowToClient(row: ClientRow): Client {
     tab: row.tab,
     inRoute: row.in_route === 1,
     isProblem: row.is_problem === 1,
+    isActive: row.object_active == null ? true : row.object_active === 1,
     branch: row.branch || undefined,
     salesChannel: row.sales_channel || undefined,
     realizationBy: row.realization_by || undefined,
@@ -103,12 +127,15 @@ function parseBalanceLines(raw: string | null | undefined): string[] | undefined
   }
 }
 
+/** The form's "Linko магазин" rows live in the attributes map under this key (the other "_" keys are internal). */
+const LINKO_MARKETS_KEY = "__linko_markets"
+
 function parseAttributes(raw: string | null | undefined): Record<string, string> | undefined {
   if (!raw) return undefined
   try {
     const parsed = JSON.parse(raw) as unknown
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return undefined
-    const entries = Object.entries(parsed as Record<string, unknown>).filter(([k, v]) => !k.startsWith("_") && typeof v === "string" && v !== "") as [string, string][]
+    const entries = Object.entries(parsed as Record<string, unknown>).filter(([k, v]) => (!k.startsWith("_") || k === LINKO_MARKETS_KEY) && typeof v === "string" && v !== "") as [string, string][]
     return entries.length ? Object.fromEntries(entries) : undefined
   } catch {
     return undefined
@@ -127,7 +154,7 @@ export function parseClientInput(body: unknown): ClientInput | null {
   const phone = typeof value.phone === "string" ? value.phone.trim() : ""
   const type = typeof value.type === "string" ? value.type.trim() : ""
   const zone = typeof value.zone === "string" ? value.zone.trim() : ""
-  if (!name || !phone || !type || !zone) return null
+  if (!name || !type) return null
 
   const tab = typeof value.tab === "string" && allowedTabs.has(value.tab) ? (value.tab as ClientInput["tab"]) : "all"
   const balance = typeof value.balance === "number" && Number.isFinite(value.balance) ? value.balance : undefined
@@ -159,6 +186,7 @@ export function parseClientInput(body: unknown): ClientInput | null {
     note: typeof value.note === "string" ? value.note.trim() || undefined : undefined,
     autoDelivery: typeof value.autoDelivery === "boolean" ? value.autoDelivery : undefined,
     unlimitedDebt: typeof value.unlimitedDebt === "boolean" ? value.unlimitedDebt : undefined,
+    isActive: typeof value.isActive === "boolean" ? value.isActive : undefined,
     attributes:
       value.attributes && typeof value.attributes === "object" && !Array.isArray(value.attributes)
         ? (Object.fromEntries(Object.entries(value.attributes as Record<string, unknown>).filter(([, v]) => typeof v === "string" && v !== "")) as Record<string, string>)
@@ -169,19 +197,37 @@ export function parseClientInput(body: unknown): ClientInput | null {
 export async function listClients(search?: string): Promise<Client[]> {
   const db = getDb()
   await ensureSchema(db)
+  const branch = await selectedBranchName()
   const rows = search
     ? ((await db
-              .prepare("SELECT * FROM clients WHERE name LIKE ? OR phone LIKE ? ORDER BY id DESC")
-              .all(`%${search}%`, `%${search}%`)) as ClientRow[])
-    : ((await db.prepare("SELECT * FROM clients ORDER BY id DESC").all()) as ClientRow[])
-  return rows.map(rowToClient)
+              .prepare(`${SELECT_CLIENT} WHERE (c.name LIKE ? OR c.phone LIKE ?) AND (?::text = '' OR c.branch = ?) ORDER BY c.id DESC`)
+              .all(`%${search}%`, `%${search}%`, branch, branch)) as ClientRow[])
+    : ((await db.prepare(`${SELECT_CLIENT} WHERE (?::text = '' OR c.branch = ?) ORDER BY c.id DESC`).all(branch, branch)) as ClientRow[])
+  return withLiveBalances(rows.map(rowToClient))
 }
 
 export async function getClient(id: number): Promise<Client | null> {
   const db = getDb()
   await ensureSchema(db)
-  const row = (await db.prepare("SELECT * FROM clients WHERE id = ?").get(id)) as ClientRow | undefined
-  return row ? rowToClient(row) : null
+  const row = (await db.prepare(`${SELECT_CLIENT} WHERE c.id = ?`).get(id)) as ClientRow | undefined
+  return row ? (await withLiveBalances([rowToClient(row)]))[0] : null
+}
+
+/** Reference balance + what the app moved since the baseline (orders, payments, returns, cancellations). */
+async function withLiveBalances(clients: Client[]): Promise<Client[]> {
+  let deltas: Awaited<ReturnType<typeof getLiveBalanceDeltas>>
+  try {
+    deltas = await getLiveBalanceDeltas()
+  } catch {
+    return clients
+  }
+  if (!deltas.size) return clients
+  return clients.map((client) => {
+    const delta = deltas.get(client.id)
+    if (!delta) return client
+    const merged = mergeBalance({ balance: client.balance, lines: client.balanceLines }, delta)
+    return { ...client, balance: merged.balance, balanceLines: merged.lines }
+  })
 }
 
 export async function createClient(input: ClientInput): Promise<Client> {
@@ -227,6 +273,7 @@ export async function createClient(input: ClientInput): Promise<Client> {
         unlimitedDebt: input.unlimitedDebt ? 1 : 0,
         attributes: JSON.stringify(input.attributes ?? {}),
       }))
+  await saveObjectStatus(db, Number(result.lastInsertRowid), input.isActive)
   return (await getClient(Number(result.lastInsertRowid)))!
 }
 
@@ -274,6 +321,7 @@ export async function updateClient(id: number, input: ClientInput): Promise<Clie
         unlimitedDebt: input.unlimitedDebt ? 1 : 0,
         attributes: JSON.stringify(input.attributes ?? {}),
       })
+  await saveObjectStatus(db, id, input.isActive)
   return (await getClient(id))
 }
 

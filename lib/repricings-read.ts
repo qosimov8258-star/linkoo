@@ -46,7 +46,7 @@ export function repricingErrorResponse(error: unknown): NextResponse | null {
 // Schema
 // ---------------------------------------------------------------------------
 
-const SCHEMA_VERSION = 1
+const SCHEMA_VERSION = 2
 
 declare global {
   var __linkoRepricingsSchema: { version: number; ready: Promise<void> } | undefined
@@ -65,6 +65,11 @@ async function install(): Promise<void> {
     ADD COLUMN IF NOT EXISTS canceled_at TEXT NOT NULL DEFAULT '',
     ADD COLUMN IF NOT EXISTS canceled_by TEXT NOT NULL DEFAULT '',
     ADD COLUMN IF NOT EXISTS recalculated_at TEXT NOT NULL DEFAULT ''`)
+  // Product lines of documents whose `items` are empty (the reference's lines, scripts/demo/seed-reprice-lines.mjs).
+  await getDb().exec(`CREATE TABLE IF NOT EXISTS repricing_reference_lines (
+    repricing_id INTEGER NOT NULL, position INTEGER NOT NULL, product_id INTEGER, name TEXT NOT NULL, unit TEXT NOT NULL DEFAULT '',
+    amount DOUBLE PRECISION NOT NULL, old_price DOUBLE PRECISION, old_currency TEXT, price DOUBLE PRECISION NOT NULL,
+    PRIMARY KEY (repricing_id, position))`)
 }
 
 export function ensureRepricingsSchema(): Promise<void> {
@@ -225,8 +230,28 @@ export async function readRow(db: PgDb, id: number, lock = false): Promise<Row |
   return (await db.prepare(`${SELECT} WHERE r.id = ?`).get(id)) as Row | undefined
 }
 
+/** Lines kept apart from `items` for documents that have none (additive reference data). */
+async function referenceLines(db: PgDb, row: Row): Promise<StoredLine[]> {
+  const rows = (await db
+    .prepare("SELECT position, product_id, name, unit, amount, old_price, old_currency, price FROM repricing_reference_lines WHERE repricing_id = ? ORDER BY position")
+    .all(row.id)) as Array<{ position: number; product_id: number | null; name: string; unit: string; amount: number; old_price: number | null; old_currency: string | null; price: number }>
+  return rows.map((line) => ({
+    kind: "product" as const,
+    id: line.product_id ?? 0,
+    key: line.product_id ? `product:${line.product_id}` : `reference:${row.id}:${line.position}`,
+    name: line.name,
+    product: line.name,
+    unit: line.unit,
+    amount: Number(line.amount) || 0,
+    oldPrice: line.old_price === null ? null : Number(line.old_price),
+    oldCurrency: line.old_currency ?? "",
+    price: Number(line.price) || 0,
+  }))
+}
+
 export async function detailOf(db: PgDb, row: Row): Promise<RepricingDetail> {
-  const stored = parseLines(row)
+  let stored = parseLines(row)
+  if (!stored.length) stored = await referenceLines(db, row)
   const names = await itemNames(db, stored.map((line) => line.key))
   const lines: RepricingLine[] = stored.map((line) => ({
     kind: line.kind,
@@ -279,7 +304,8 @@ export async function listRepricingsPage(query: RepricingListQuery): Promise<Rep
     AND (cardinality(@users::text[]) = 0 OR COALESCE(NULLIF(r.created_by, ''), r."user") = ANY(@users::text[]))
     AND (@status = '' OR (@status = 'canceled') = (r.status = '${STATUS_DB.canceled}'))
     AND (cardinality(@products::text[]) = 0 OR ('product:' || r.product_id) = ANY(@products::text[])
-         OR (r.items LIKE '[%' AND EXISTS (SELECT 1 FROM jsonb_array_elements(r.items::jsonb) e WHERE e->>'key' = ANY(@products::text[]))))`
+         OR (r.items LIKE '[%' AND EXISTS (SELECT 1 FROM jsonb_array_elements(r.items::jsonb) e WHERE e->>'key' = ANY(@products::text[])))
+         OR EXISTS (SELECT 1 FROM repricing_reference_lines l WHERE l.repricing_id = r.id AND l.product_id IS NOT NULL AND ('product:' || l.product_id) = ANY(@products::text[])))`
   const params = { search: query.search.trim().toLowerCase(), priceLists: query.priceLists, users: query.users, status: query.status, products: query.products }
   const count = (await db.prepare(`SELECT COUNT(*) AS n FROM repricings r LEFT JOIN price_lists pl ON pl.id = r.price_list_id ${where}`).get(params)) as
     | { n: string | number }
@@ -322,6 +348,7 @@ export async function repricingOptions(): Promise<RepricingOptions> {
       `SELECT DISTINCT key FROM (
          SELECT e->>'key' AS key FROM repricings r, jsonb_array_elements(CASE WHEN r.items LIKE '[%' THEN r.items::jsonb ELSE '[]'::jsonb END) e
          UNION SELECT 'product:' || product_id FROM repricings WHERE product_id IS NOT NULL
+         UNION SELECT 'product:' || product_id FROM repricing_reference_lines WHERE product_id IS NOT NULL
        ) k WHERE key IS NOT NULL`,
     )
     .all()) as Array<{ key: string }>

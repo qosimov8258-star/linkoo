@@ -319,20 +319,20 @@ export function AccountDebtsView() {
     ) : null
 
   return (
-    <main className="min-h-screen bg-white text-[#17233b]">
-      <header className="flex min-h-[76px] flex-wrap items-center justify-between gap-4 border-b border-[#d8dee7] bg-[#f2f5f8] px-6 md:px-9">
-        <div className="flex items-center gap-3">
-          <FavoritesButton className="flex items-center gap-3 text-2xl font-bold text-[#4f70e7]" />
-          <span className="text-3xl font-light text-[#586174]">|</span>
-          <h1 className="text-2xl font-bold text-[#586174]">{t("Долги по счетам")}</h1>
+    <main className="ref-white min-h-screen bg-white text-[#333]">
+      <header className="flex min-h-[60px] flex-wrap items-center justify-between gap-4 px-[28px]">
+        <div className="flex items-center">
+          <FavoritesButton className="flex items-center gap-[5px] text-[18px] font-bold text-[#4f71dc]" />
+          <span className="mx-[11px] h-[21px] w-[2px] bg-[#5d6474]" />
+          <h1 className="text-[18px] font-bold text-[#5d6474]">{t("Долги по счетам")}</h1>
         </div>
-        <div className="my-3 flex rounded-md border border-[#dbe0e8] bg-white">
+        <div className="flex h-[32px] w-[720px] max-w-full bg-white">
           {(["created", "realization"] as const).map((value) => (
             <button
               key={value}
               type="button"
               onClick={() => value !== mode && update({ mode: value })}
-              className={`group relative flex items-center gap-2 px-5 py-3 text-[15px] font-semibold first:rounded-l-md last:rounded-r-md ${mode === value ? "bg-[#71ce87] text-white" : "text-[#586174] hover:bg-[#f7f9fb]"}`}
+              className={`group relative flex flex-1 items-center justify-center gap-2 px-5 text-[13px] font-normal ${mode === value ? "bg-[#71ce87] text-white" : "text-[#586174] hover:bg-[#f7f9fb]"}`}
             >
               <Info className="h-4 w-4" />
               {t(value === "created" ? "По дате создание транзакции" : "По дате реализации")}
@@ -351,17 +351,17 @@ export function AccountDebtsView() {
         </div>
       </header>
 
-      <section className="flex flex-wrap items-center gap-4 px-6 py-4 md:px-9">
+      <section className="flex flex-wrap items-center gap-4 px-[30px] pb-[20px] pt-[21px]">
         <BalanceFilterButton count={filterCount} from={from} to={to} scope={scope} onOpen={() => setFilterOpen(true)} extra={realizedBadge} />
         <div className="ml-auto flex flex-wrap items-center gap-3">
           {!byType && (
             <button
               type="button"
               onClick={() => setGroupPaymentOpen(true)}
-              className="flex h-11 items-center gap-2 rounded-md border border-[#4f70e7] px-5 font-semibold text-[#4f70e7] hover:bg-[#f2f5fd]"
+              className="flex h-[34px] items-center gap-2 rounded-[3px] bg-[#4f71dc] pl-2 pr-4 text-[13px] font-semibold text-white"
             >
               <CreditCard className="h-5 w-5" /> {t("Групповая оплата")}
-              {selected.size > 0 && <span className="rounded-full bg-[#4f70e7] px-2 text-[12px] text-white">{selected.size}</span>}
+              {selected.size > 0 && <span className="rounded-full bg-white px-2 text-[12px] text-[#4f71dc]">{selected.size}</span>}
             </button>
           )}
           <BalanceDownloadMenu
@@ -454,6 +454,7 @@ export function AccountDebtsView() {
 
         <div className="pb-10">
           <BalanceTable
+              inset
             rows={rows}
             groups={GROUPS}
             currencies={currencies.length ? currencies : ["SUM"]}

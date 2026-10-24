@@ -40,10 +40,10 @@ export function parsePermissionIds(body: unknown): number[] | undefined {
   return value.permissionIds.filter((item): item is number => typeof item === "number")
 }
 
-export async function createCapability(name: string): Promise<Capability | null> {
+export async function createCapability(name: string, permissionIds: number[] = []): Promise<Capability | null> {
   const db = getDb()
   try {
-    const result = (await db.prepare("INSERT INTO capabilities (name) VALUES (?)").run(name))
+    const result = (await db.prepare("INSERT INTO capabilities (name, permission_ids) VALUES (@name, @permissionIds)").run({ name, permissionIds: JSON.stringify(permissionIds) }))
     return (await getCapability(Number(result.lastInsertRowid)))
   } catch {
     return null

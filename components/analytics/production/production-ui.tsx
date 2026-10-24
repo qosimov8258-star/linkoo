@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } 
 import { Check, ChevronDown, Pencil, Trash2, X } from "lucide-react"
 
 import { useLanguage } from "@/lib/i18n/language-context"
+import { notify } from "@/lib/notify"
 
 // Shared pieces of the production pages (Партии / Этапы производства).
 
@@ -15,8 +16,8 @@ export type Stage = { id: number; name: string; warehouse: string; responsible: 
 export type PartyStatus = "pending" | "finished" | "cancelled"
 
 export const STATUS_LABELS: Record<PartyStatus, string> = { pending: "В процессе", finished: "Завершен", cancelled: "Отменен" }
-export const STATUS_DOT: Record<PartyStatus, string> = { pending: "bg-amber-400", finished: "bg-sky-500", cancelled: "bg-red-400" }
-export const STATUS_TEXT: Record<PartyStatus, string> = { pending: "text-amber-500", finished: "text-sky-500", cancelled: "text-red-400" }
+export const STATUS_DOT: Record<PartyStatus, string> = { pending: "bg-[#ffa726]", finished: "bg-[#64b5f6]", cancelled: "bg-[#ef5350]" }
+export const STATUS_TEXT: Record<PartyStatus, string> = { pending: "text-[#ffa726]", finished: "text-[#64b5f6]", cancelled: "text-[#ef5350]" }
 
 export class ApiError extends Error {}
 
@@ -47,7 +48,7 @@ export function useApiData<T>(url: string | null, initial: T) {
     setLoading(true)
     api<T>(url)
       .then((value) => !cancelled && setData(value))
-      .catch((error: Error) => !cancelled && window.alert(error.message))
+      .catch((error: Error) => !cancelled && notify(error.message))
       .finally(() => !cancelled && setLoading(false))
     return () => {
       cancelled = true
@@ -66,11 +67,18 @@ export function todayIso() {
 }
 
 /** "14 апр. 2026" from YYYY-MM-DD. */
+// The reference formats dates with moment's Russian short months ("26 июля 2025", "19 окт. 2026").
+const RU_SHORT_MONTHS = ["янв.", "февр.", "мар.", "апр.", "мая", "июня", "июля", "авг.", "сент.", "окт.", "нояб.", "дек."]
+
+function ruDay(date: Date) {
+  return `${String(date.getDate()).padStart(2, "0")} ${RU_SHORT_MONTHS[date.getMonth()]} ${date.getFullYear()}`
+}
+
 export function formatDate(value: string) {
   if (!value) return ""
   const date = new Date(`${value.slice(0, 10)}T12:00:00`)
   if (Number.isNaN(date.getTime())) return value
-  return new Intl.DateTimeFormat("ru-RU", { day: "2-digit", month: "short", year: "numeric" }).format(date).replace(" г.", "")
+  return ruDay(date)
 }
 
 /** "14 апр. 2026, 18:30" from an ISO timestamp. */
@@ -78,9 +86,8 @@ export function formatDateTime(value: string) {
   if (!value) return ""
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return value
-  const day = new Intl.DateTimeFormat("ru-RU", { day: "2-digit", month: "short", year: "numeric" }).format(date).replace(" г.", "")
   const time = new Intl.DateTimeFormat("ru-RU", { hour: "2-digit", minute: "2-digit" }).format(date)
-  return `${day}, ${time}`
+  return `${ruDay(date)}, ${time}`
 }
 
 export function Modal({
@@ -89,7 +96,7 @@ export function Modal({
   children,
   footer,
   onSubmit,
-  width = "max-w-xl",
+  width = "max-w-[600px]",
   tall,
 }: {
   title: string
@@ -104,16 +111,16 @@ export function Modal({
   const { t } = useLanguage()
   const body = (
     <>
-      <div className="flex items-center justify-between border-b px-7 py-5">
-        <h2 className="text-lg font-bold uppercase">{title}</h2>
-        <button type="button" onClick={onClose} aria-label={t("Закрыть")}><X className="h-6 w-6 text-slate-500" /></button>
+      <div className="flex h-[60px] items-center justify-between border-b border-[#efefef] pl-[30px] pr-[10px]">
+        <h2 className="text-[13px] font-bold uppercase text-[#333]">{title}</h2>
+        <button type="button" onClick={onClose} aria-label={t("Закрыть")} className="flex h-12 w-12 items-center justify-center"><X className="h-6 w-6 text-[#333]" strokeWidth={1.6} /></button>
       </div>
-      <div className={`max-h-[70vh] overflow-y-auto px-7 py-6 ${tall ? "min-h-[440px]" : ""}`}>{children}</div>
-      {footer && <div className="flex items-center justify-end gap-3 border-t px-7 py-4">{footer}</div>}
+      <div className={`max-h-[70vh] overflow-y-auto px-[30px] pb-[20px] pt-[16px] ${tall ? "min-h-[440px]" : ""}`}>{children}</div>
+      {footer && <div className="flex h-[57px] items-center justify-end gap-4 border-t border-[#efefef] pr-[26px]">{footer}</div>}
     </>
   )
   return (
-    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/45 p-4" role="dialog" aria-modal="true">
+    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/45 p-4 font-sans text-[13px]" role="dialog" aria-modal="true">
       {onSubmit ? (
         <form onSubmit={onSubmit} className={`w-full ${width} bg-white shadow-2xl`}>{body}</form>
       ) : (
@@ -126,7 +133,7 @@ export function Modal({
 export function SaveButton({ saving, label = "Сохранить", type = "submit", onClick, disabled }: { saving?: boolean; label?: string; type?: "submit" | "button"; onClick?: () => void; disabled?: boolean }) {
   const { t } = useLanguage()
   return (
-    <button type={type} onClick={onClick} disabled={saving || disabled} className="rounded-md bg-emerald-400 px-7 py-2.5 font-semibold uppercase text-white hover:brightness-95 disabled:opacity-40">
+    <button type={type} onClick={onClick} disabled={saving || disabled} className="h-9 text-[13px] font-semibold uppercase text-[#129fdd] hover:underline disabled:no-underline disabled:opacity-40">
       {saving ? "..." : t(label)}
     </button>
   )
@@ -136,15 +143,15 @@ export function Field({ label, required, children, className = "" }: { label: st
   const { t } = useLanguage()
   return (
     <label className={`block ${className}`}>
-      <span className="mb-1 block text-sm font-semibold text-slate-700">
-        {t(label)} {required && <span className="text-red-500">*</span>}
+      <span className="mb-1 block text-[13px] font-semibold text-black">
+        {t(label)} {required && <span className="text-[#f44336]">*</span>}
       </span>
       {children}
     </label>
   )
 }
 
-export const inputClass = "w-full border-b border-slate-300 bg-transparent py-2 outline-none focus:border-blue-600"
+export const inputClass = "w-full border-b border-[#e8e8e8] bg-transparent py-[6px] text-[13px] outline-none focus:border-[#4f71dc]"
 
 /** Searchable dropdown over catalog / stock items; stock items show the
  * demo's "Доступно / Брак" lines under the name. */
@@ -189,7 +196,7 @@ export function ItemPicker<T extends CatalogItem>({
           setOpen((current) => !current)
           setQuery("")
         }}
-        className={`flex w-full items-center justify-between border-b border-slate-300 py-2 text-left ${selected ? "text-slate-800" : "text-slate-400"}`}
+        className={`flex w-full items-center justify-between border-b border-[#e8e8e8] py-[6px] text-left text-[13px] ${selected ? "text-[#333]" : "text-[#999]"}`}
       >
         <span className="truncate">{selected ? selected.name : t(placeholder)}</span>
         <ChevronDown className="h-4 w-4 shrink-0 text-slate-400" />
@@ -247,7 +254,7 @@ export function RobotEmpty({ text, size = 150 }: { text: string; size?: number }
   const { t } = useLanguage()
   return (
     <div className="flex flex-col items-center justify-center py-8 text-center">
-      <Image src="/robot-mascot.png" alt="" width={size} height={size} />
+      <Image src="/robot-empty.png" alt="" width={size} height={size} />
       <p className="mt-3 text-slate-500">{t(text)}</p>
     </div>
   )
@@ -276,12 +283,15 @@ export function ItemLinesEditor<T extends CatalogItem>({
   onChange,
   showStock,
   emptyText = "Вы еще не выбрали ни одного товара",
+  hideInput,
 }: {
   items: T[]
   lines: DraftLine[]
   onChange: (lines: DraftLine[]) => void
   showStock?: boolean
   emptyText?: string
+  /** Hides the add row (the reference reveals it with the "+ добавить" link). */
+  hideInput?: boolean
 }) {
   const { t } = useLanguage()
   const [key, setKey] = useState("")
@@ -308,7 +318,7 @@ export function ItemLinesEditor<T extends CatalogItem>({
 
   return (
     <div>
-      <div className="-mx-7 flex items-end gap-4 bg-slate-100 px-7 py-3">
+      <div className={`-mx-[30px] flex items-end gap-4 bg-[#eef2f8] px-[30px] py-3 ${hideInput ? "hidden" : ""}`}>
         <div className="min-w-0 flex-1">
           <ItemPicker items={items} value={key} onChange={setKey} showStock={showStock} />
         </div>
@@ -354,7 +364,14 @@ export function ItemLinesEditor<T extends CatalogItem>({
           })}
         </ul>
       ) : (
-        <p className="py-10 text-center text-sm text-slate-400">{t(emptyText)}</p>
+        <div className="flex flex-col items-center py-8 text-center text-[13px] text-[#999]">
+          <svg viewBox="0 0 24 24" className="mb-3 h-[70px] w-[70px] fill-none stroke-[#d9dde3]" strokeWidth={0.8} aria-hidden>
+            <path d="M6 7h12l1 13H5L6 7z" strokeLinejoin="round" />
+            <path d="M9 7a3 3 0 0 1 6 0" strokeLinecap="round" />
+            <path d="M8 13h8M8 16h5" strokeLinecap="round" />
+          </svg>
+          {t(emptyText)}
+        </div>
       )}
     </div>
   )

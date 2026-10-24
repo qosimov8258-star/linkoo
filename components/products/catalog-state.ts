@@ -17,7 +17,7 @@ export type CatalogViewState = {
   detailId: number | null
 }
 
-export const PAGE_SIZES = [10, 25, 50, 100, 200, 500] as const
+export const PAGE_SIZES = [10, 25, 50, 100, 200, 500, 1000, 2000] as const
 
 const positiveInt = (value: string | null) => {
   const number = Number(value)

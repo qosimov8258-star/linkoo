@@ -243,6 +243,7 @@ export const bulkSchema = z.object({
     manualDiscount: z.boolean().optional(),
     hideFromAgent: z.boolean().optional(),
     deleted: z.boolean().optional(),
+    moveTo: z.enum(["product", "raw_material"]).optional(),
   }),
 })
 

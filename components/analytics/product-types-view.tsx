@@ -1,19 +1,21 @@
 "use client"
 
 import { Pencil, Trash2 } from "lucide-react"
-import { Fragment, useCallback, useState } from "react"
+import { useCallback, useState } from "react"
 
 import { CashSnackbar, useCanWrite, type SnackbarMessage } from "@/components/analytics/cash-management-shared"
 import { CatalogPageLayout } from "@/components/dashboard/catalog-sidebar"
-import { formatStatementDate } from "@/lib/finance/dates"
 import { useLanguage } from "@/lib/i18n/language-context"
+import { formatCategoryDate } from "./categories-grid"
 import {
   DictionaryDeleteDialog,
+  DICT_HEAD,
+  DICT_ROW,
+  DictionaryPage,
+  DictionaryRowActions,
   DictionaryToolbar,
-  MessageRow,
   SortHeader,
   dictionaryListUrl,
-  useClampPage,
   useDictionaryList,
   useDictionaryUrlState,
 } from "./dictionaries-shared"
@@ -26,10 +28,8 @@ import { PRODUCT_TYPES_API, PRODUCT_TYPE_ORDERINGS, PRODUCT_TYPE_PAGE_SIZE, type
 // subcategories is a bold group row followed by its children (indented, with their
 // picture), hover ✎ / 🗑. Create / update dialog = product-types-form.tsx, delete confirm =
 // dictionaries-shared.tsx. Like the demo the state lives in the URL (?openCreateDialog=true,
-// ?productType=<id>&openUpdateDialog=true | openDeleteDialog=true, ?ordering); the search
-// box and the paginator (over top-level types, 100 per page) are additions of this app.
-
-const COLUMNS = 5
+// ?productType=<id>&openUpdateDialog=true | openDeleteDialog=true, ?ordering). Like the demo
+// there is no search box and no paginator: every type is listed, ordered by name.
 
 export function ProductTypesView({ embedded = false }: { embedded?: boolean }) {
   if (embedded) return <ProductTypesGrid />
@@ -48,79 +48,71 @@ function ProductTypesGrid() {
   const canEdit = useCanWrite()
   const closeNotice = useCallback(() => setNotice(null), [])
   const closeDialog = useCallback(() => setDialog(null), [setDialog])
-  useClampPage(data?.count, loading, state, update)
 
   const rows = data?.results ?? []
   const notSet = t("Не указано")
-  const created = (node: ProductTypeNode) => (node.createdAt ? formatStatementDate(node.createdAt, language, false).replace(/\s*г\.$/, "") : node.createdDate)
+  const created = (node: ProductTypeNode) => (node.createdAt ? formatCategoryDate(node.createdAt, language) : node.createdDate)
   const sort = (next: string) => update({ ordering: next, page: 1 })
 
-  function renderNode(node: ProductTypeNode, level: number) {
-    const group = level === 0 && node.children.length > 0
+  const actions = (node: ProductTypeNode) =>
+    canEdit && <DictionaryRowActions onEdit={() => setDialog({ kind: "update", id: node.id })} onDelete={() => setDialog({ kind: "delete", id: node.id, name: node.name })} />
+
+  // demo rows: Bootstrap grid xs-3 / 3 / 3 / 2 / 1; the children of a type sit in a nested grid
+  // (picture xs-1, name xs-4, organization xs-3, date xs-2, bot xs-1, actions xs-1)
+  function renderNode(node: ProductTypeNode) {
+    const group = node.children.length > 0
     return (
-      <Fragment key={node.id}>
-        <tr className={`group border-b border-dashed border-slate-300 hover:bg-slate-50 ${group ? "bg-[#f8f9fb]" : ""}`}>
-          <td className="py-3 pr-4" style={{ paddingLeft: 24 + level * 30 }}>
-            <div className="flex items-center gap-3">
-              {level > 0 && (
-                <span className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden">
-                  {/* eslint-disable-next-line @next/next/no-img-element -- private API pictures */}
-                  {node.imageUrl && <img src={node.imageUrl} alt="" className="max-h-10 max-w-10 object-contain" />}
-                </span>
-              )}
-              <span className={group ? "font-semibold" : level === 0 ? "font-medium" : ""}>{node.name}</span>
+      <div key={node.id}>
+        <div className={`${DICT_ROW} grid-cols-[311.8px_303.7px_303.8px_1fr] ${group ? "font-semibold" : ""}`}>
+          <div className="break-words py-3 pr-4 font-semibold leading-[16.25px]">{node.name}</div>
+          <div className="py-3 pr-4 leading-[16.25px]">{node.organization || notSet}</div>
+          <div className="whitespace-nowrap py-3 pr-4 leading-[16.25px]">{created(node)}</div>
+          <div className="py-3 pr-4 leading-[16.25px]">{node.showInBot ? t("Да") : t("Нет")}</div>
+          {actions(node)}
+        </div>
+        {node.children.map((child) => (
+          <div key={child.id} className="group relative ml-[145px] mr-[30px] grid min-h-[45px] grid-cols-[408px_300px_200px_1fr] items-center after:pointer-events-none after:absolute after:inset-x-0 after:bottom-0 after:h-[2px] after:bg-[linear-gradient(to_right,#d9e0e5_2px,transparent_2px)] after:bg-[length:8px_2px] after:content-[''] hover:bg-[#f2f5f8]">
+            <div className="flex min-h-[45px] items-center break-words py-2.5 pr-4 leading-[16.25px]">
+              {/* eslint-disable-next-line @next/next/no-img-element -- private API pictures */}
+              {child.imageUrl && <img src={child.imageUrl} alt="" className="mr-2 max-h-10 max-w-10 object-contain" />}
+              {child.name}
             </div>
-          </td>
-          <td className="px-4 py-3">{node.organization || notSet}</td>
-          <td className="whitespace-nowrap px-4 py-3">{created(node)}</td>
-          <td className="px-4 py-3">{node.showInBot ? t("Да") : t("Нет")}</td>
-          <td className="px-4 py-3">
-            {canEdit && (
-              <div className="flex items-center justify-end gap-3 text-slate-500 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
-                <button type="button" onClick={() => setDialog({ kind: "update", id: node.id })} title={t("Изменить")} aria-label={t("Изменить")} className="hover:text-[#4f70e7]">
-                  <Pencil className="h-5 w-5" />
-                </button>
-                <button type="button" onClick={() => setDialog({ kind: "delete", id: node.id, name: node.name })} title={t("Удалить")} aria-label={t("Удалить")} className="hover:text-rose-600">
-                  <Trash2 className="h-5 w-5" />
-                </button>
-              </div>
-            )}
-          </td>
-        </tr>
-        {node.children.map((child) => renderNode(child, level + 1))}
-      </Fragment>
+            <div className="py-2.5 pr-4">{child.organization || notSet}</div>
+            <div className="whitespace-nowrap py-2.5 pr-4">{created(child)}</div>
+            <div className="py-2.5 pr-4">{child.showInBot ? t("Да") : t("Нет")}</div>
+            {actions(child)}
+          </div>
+        ))}
+      </div>
     )
   }
 
+  const headerCell = "px-0 font-semibold"
+
   return (
-    <section className="min-w-0 flex-1 px-6 pb-6 pt-4 lg:px-9">
-      <DictionaryToolbar addLabel={canEdit ? t("добавить тип продукта") : null} onAdd={() => setDialog({ kind: "create" })} state={state} update={update} count={data?.count ?? 0} />
+    <DictionaryPage>
+      <DictionaryToolbar addLabel={canEdit ? t("добавить тип продукта") : null} onAdd={() => setDialog({ kind: "create" })} state={state} update={update} count={data?.count ?? 0} bare />
 
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[820px] text-left text-[14px]">
-          <thead className="bg-[#626b7e] text-white">
-            <tr>
-              <SortHeader label={t("Категории")} field="name" ordering={state.ordering} onSort={sort} className="pl-6" />
-              <SortHeader label={t("Организация")} field="division" ordering={state.ordering} onSort={sort} />
-              <SortHeader label={t("Дата создания")} field="created_date" ordering={state.ordering} onSort={sort} />
-              <th className="px-4 py-4 font-semibold">{t("Показывать в боте")}</th>
-              <th className="w-24" />
-            </tr>
-          </thead>
-          <tbody className={loading && data ? "opacity-60" : undefined}>
+        <div className="min-w-[820px]">
+          <div className={`${DICT_HEAD} grid-cols-[311.8px_303.7px_303.8px_1fr]`}>
+            <SortHeader as="div" label={t("Категории")} field="name" ordering={state.ordering} onSort={sort} className={headerCell} />
+            <SortHeader as="div" label={t("Организация")} field="division" ordering={state.ordering} onSort={sort} className={headerCell} />
+            <SortHeader as="div" label={t("Дата создания")} field="created_date" ordering={state.ordering} onSort={sort} className={headerCell} />
+            <div className={headerCell}>{t("Показывать в боте")}</div>
+          </div>
+          <div className={loading && data ? "opacity-60" : undefined}>
             {loading && !data ? (
-              <MessageRow colSpan={COLUMNS}>{t("Загрузка...")}</MessageRow>
+              <p className="px-9 py-10 text-center text-slate-400">{t("Загрузка...")}</p>
             ) : error ? (
-              <MessageRow colSpan={COLUMNS} tone="error">
-                {t(error)}
-              </MessageRow>
+              <p className="px-9 py-10 text-center text-red-600">{t(error)}</p>
             ) : rows.length === 0 ? (
-              <MessageRow colSpan={COLUMNS}>{t("По вашему запросу ничего не найдено")}</MessageRow>
+              <p className="px-9 py-10 text-center text-slate-400">{t("По вашему запросу ничего не найдено")}</p>
             ) : (
-              rows.map((node) => renderNode(node, 0))
+              rows.map((node) => renderNode(node))
             )}
-          </tbody>
-        </table>
+          </div>
+        </div>
       </div>
 
       {(dialog?.kind === "create" || dialog?.kind === "update") && (
@@ -153,6 +145,6 @@ function ProductTypesGrid() {
       )}
 
       <CashSnackbar message={notice} onClose={closeNotice} />
-    </section>
+    </DictionaryPage>
   )
 }

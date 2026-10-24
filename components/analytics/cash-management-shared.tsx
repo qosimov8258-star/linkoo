@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react"
+import { Children, cloneElement, isValidElement, useEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from "react"
 import { Check, ChevronDown, CircleAlert, Loader2, Search, SearchX, X } from "lucide-react"
 
 import { useFinanceCurrencies } from "@/components/analytics/balance/use-balance"
@@ -136,9 +136,9 @@ export function mutationError(result: CashMutationResult<unknown>, t: (text: str
 // --- layout ---------------------------------------------------------------------------
 
 export const inputClass =
-  "h-10 w-full min-w-0 rounded-md border border-[#dbe0e8] bg-white px-3 text-[14px] text-[#17233b] outline-none focus:border-[#4f70e7] disabled:bg-[#f2f5f8] disabled:text-[#7b8497]"
+  "h-[34px] w-full min-w-0 rounded-none border-0 border-b border-[#e8e8e8] bg-transparent px-0 text-[13px] text-black outline-none focus:border-[#129fdd] disabled:text-[#9e9e9e]"
 
-const MODAL_WIDTHS = { sm: "max-w-[420px]", md: "max-w-[560px]", lg: "max-w-[1000px]", xl: "max-w-[1200px]", full: "max-w-[1400px]" } as const
+const MODAL_WIDTHS = { inv: "max-w-[650px]", xs: "max-w-[350px]", sm: "max-w-[400px]", md: "max-w-[500px]", lg: "max-w-[1000px]", xl: "max-w-[1200px]", full: "max-w-[1400px]" } as const
 
 /** Modal shell: full-width sheet on phones, centered card from sm up. */
 export function CashModal({
@@ -149,15 +149,25 @@ export function CashModal({
   footer,
   headerExtra,
   zIndex = 100,
+  top,
+  footerButtons = "text",
+  closeInset = 10,
 }: {
   title: ReactNode
   onClose: () => void
-  size?: keyof typeof MODAL_WIDTHS
+  /** "screen" = the reference's full-screen Material page (white, 57px header, 57px footer). */
+  size?: keyof typeof MODAL_WIDTHS | "screen"
   children: ReactNode
   footer?: ReactNode
   /** Extra controls in the header (pagination, filters). */
   headerExtra?: ReactNode
   zIndex?: number
+  /** Distance from the window top in px (the reference hangs table dialogs there); centered when omitted. */
+  top?: number
+  /** "text" = blue uppercase text action (reference default); "filled" keeps the coloured button (the transfer dialog); "danger" = the same text action in red (the reference's warning confirmation). */
+  footerButtons?: "text" | "filled" | "danger"
+  /** Right padding of the header in px (the reference settings dialogs keep the close button 15 px from the edge). */
+  closeInset?: number
 }) {
   const { t } = useLanguage()
   useEffect(() => {
@@ -167,41 +177,106 @@ export function CashModal({
     document.addEventListener("keydown", onKey)
     return () => document.removeEventListener("keydown", onKey)
   }, [onClose])
-  return (
-    <div className="fixed inset-0 flex items-start justify-center overflow-y-auto bg-black/40 sm:p-4 sm:py-8" style={{ zIndex }} onMouseDown={onClose}>
-      <div className={`flex min-h-full w-full flex-col bg-white shadow-xl sm:min-h-0 sm:rounded-lg ${MODAL_WIDTHS[size]}`} onMouseDown={(event) => event.stopPropagation()}>
-        <div className="flex flex-wrap items-center gap-3 border-b border-[#e1e5eb] px-4 py-3 sm:px-6 sm:py-4">
-          <h2 className="min-w-0 flex-1 text-[17px] font-bold uppercase text-[#17233b]">{title}</h2>
+  if (size === "screen") {
+    return (
+      <div className="fixed inset-0 flex flex-col bg-white font-sans text-[13px] text-black" style={{ zIndex: Math.max(zIndex, 110) }}>
+        <div className="flex h-[57px] shrink-0 items-center border-b border-[#efefef] pl-[30px] pr-[13px]">
+          <h2 className="min-w-0 flex-1 text-[13px] font-bold uppercase text-[#333]">{title}</h2>
           {headerExtra}
-          <button type="button" onClick={onClose} aria-label={t("Закрыть")} className="text-[#586174] hover:text-[#17233b]">
-            <X className="h-5 w-5" />
+          <button type="button" onClick={onClose} aria-label={t("Закрыть")} className="flex h-12 w-12 items-center justify-center text-[#333]">
+            <X className="h-6 w-6" strokeWidth={1.6} />
           </button>
         </div>
-        <div className="flex-1 px-4 py-4 sm:px-6 sm:py-5">{children}</div>
-        {footer && <div className="flex flex-wrap items-center justify-end gap-3 border-t border-[#e1e5eb] px-4 py-3 sm:px-6 sm:py-4">{footer}</div>}
+        <div className="flex min-h-0 flex-1">{children}</div>
+        {footer && <div className="flex h-[57px] shrink-0 items-center justify-between border-t border-[#efefef] pl-[10px] pr-[10px]">{footer}</div>}
+      </div>
+    )
+  }
+  return (
+    <div
+      className={`fixed inset-0 flex justify-center overflow-y-auto bg-black/45 font-sans text-[13px] text-black ${top === undefined ? "items-center" : "items-start"}`}
+      style={{ zIndex, paddingTop: top }}
+      onMouseDown={onClose}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        className={`flex max-h-[calc(100vh-64px)] w-full flex-col bg-white shadow-[0_10px_30px_rgba(0,0,0,0.19),0_6px_10px_rgba(0,0,0,0.23)] ${MODAL_WIDTHS[size]}`}
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <div className="flex h-[60px] shrink-0 items-center border-b border-[#efefef] pl-[30px]" style={{ paddingRight: closeInset }}>
+          <h2 className="min-w-0 flex-1 text-[13px] font-bold uppercase text-[#333]">{title}</h2>
+          {headerExtra}
+          <button type="button" onClick={onClose} aria-label={t("Закрыть")} className="flex h-12 w-12 items-center justify-center text-[#333]">
+            <X className="h-6 w-6" strokeWidth={1.6} />
+          </button>
+        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto px-[30px] pb-[10px] pt-[15px]">{children}</div>
+        {footer && (
+          <div
+            className={`flex h-[57px] shrink-0 items-center justify-end gap-4 border-t border-[#efefef] pr-[26px] ${
+              footerButtons === "filled"
+                ? "[&_button]:!h-9 [&_button]:!rounded-[2px] [&_button]:!px-5 [&_button]:!text-[13px] [&_button]:!font-bold"
+                : `[&_button]:!h-9 [&_button]:!rounded-none [&_button]:!border-0 [&_button]:!bg-transparent [&_button]:!min-w-[56px] [&_button]:!px-0 [&_button]:!text-[13px] [&_button]:!font-semibold [&_button]:!uppercase ${footerButtons === "danger" ? "[&_button]:!text-[#f44336]" : "[&_button]:!text-[#129fdd]"} [&_button]:!shadow-none [&_button]:hover:!underline`
+            }`}
+          >
+            {footer}
+          </div>
+        )}
       </div>
     </div>
   )
 }
 
-export function FormField({ label, required, error, children, className = "" }: { label: ReactNode; required?: boolean; error?: string; children: ReactNode; className?: string }) {
+/**
+ * Material field: the bold 13 px label sits inside the empty control and shrinks to a 10 px caption
+ * above the value once it is filled (the reference's floating label). Works for a direct
+ * input / SearchSelect child; any other child keeps the small caption above.
+ */
+export function FormField({ label, required, error, children, className = "", showRequired = false, semibold = false }: { label: ReactNode; required?: boolean; error?: string; children: ReactNode; className?: string; /** 600 instead of 700 label weight (reference settings dialogs). */ semibold?: boolean; /** Draw the red "*" after the label (the reference price-list dialog does; the cash dialogs do not). */ showRequired?: boolean }) {
+  void required
+  const only = Children.count(children) === 1 && isValidElement(children) ? (children as ReactElement<{ value?: unknown; type?: string }>) : null
+  const nativeSelect = only !== null && typeof only.type === "string" && only.type === "select"
+  const known = only !== null && !nativeSelect && only.props.value !== undefined && only.props.type !== "datetime-local" && only.props.type !== "date"
+  const filled = known ? String(only!.props.value ?? "").length > 0 : true
   return (
-    <label className={`flex min-w-0 flex-col gap-1 text-[13px] text-[#586174] ${className}`}>
-      <span>
-        {label}
-        {required && <span className="text-[#e57373]"> *</span>}
+    <label className={`flex min-h-[50px] min-w-0 flex-col justify-end text-[13px] ${className}`}>
+      <span className="relative block">
+        <span className={filled ? `mb-[2px] block text-[10px] ${semibold ? "font-semibold" : "font-bold"} leading-3 text-black` : `pointer-events-none absolute bottom-[7px] left-0 z-[1] text-[13px] ${semibold ? "font-semibold" : "font-bold"} text-black`}>{label}{showRequired && <span className="font-semibold text-[#e57373]"> *</span>}</span>
+        <span className="block [&_.sel-ph]:text-transparent [&_input::placeholder]:text-transparent [&_textarea::placeholder]:text-transparent">{children}</span>
       </span>
-      {children}
-      {error && <span className="text-[12px] text-[#e57373]">{error}</span>}
+      {error && <span className="text-[11px] text-[#f44336]">{error}</span>}
     </label>
+  )
+}
+
+/** Reference date field: the long date ("24 октября 2026 г.") with a calendar mark; the native picker (date + time) is the transparent input over it. */
+export function MaterialDateTime({ label, value, onChange, error }: { label: ReactNode; value: string; onChange: (value: string) => void; error?: string }) {
+  const { language } = useLanguage()
+  const ref = useRef<HTMLInputElement>(null)
+  const locale = ({ ru: "ru-RU", uz: "uz-UZ", tk: "tk-TM", en: "en-US" } as Record<string, string>)[language] ?? "ru-RU"
+  const parsed = value ? new Date(value) : null
+  const text = parsed && !Number.isNaN(parsed.getTime()) ? `${parsed.toLocaleDateString(locale, { day: "numeric", month: "long", year: "numeric" })}` : ""
+  return (
+    <div className="relative flex min-h-[54px] flex-col justify-end">
+      <span className="mb-[2px] text-[10px] font-bold leading-3 text-black">{label}</span>
+      <div className={`relative h-[34px] border-b ${error ? "border-[#f44336]" : "border-[#e8e8e8]"}`}>
+        <span className="absolute bottom-[6px] left-0 text-[13px] leading-4 text-black">{text}</span>
+        <svg viewBox="0 0 24 24" className="pointer-events-none absolute bottom-[4px] right-0 h-6 w-6 fill-[#bdbdbd]" aria-hidden>
+          <path d="M19 3h-1V1h-2v2H8V1H6v2H5c-1.11 0-1.99.9-1.99 2L3 19c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V8h14v11zM7 10h5v5H7z" opacity=".6" />
+        </svg>
+        <input ref={ref} type="datetime-local" value={value} onChange={(event) => onChange(event.target.value)} onClick={() => ref.current?.showPicker?.()} aria-label={String(label)} className="absolute inset-0 h-full w-full cursor-pointer opacity-0" />
+      </div>
+      {error && <span className="text-[11px] text-[#f44336]">{error}</span>}
+    </div>
   )
 }
 
 export function ReadonlyField({ label, value }: { label: string; value: ReactNode }) {
   return (
-    <div className="flex min-w-0 flex-col gap-1 text-[13px] text-[#586174]">
-      <span>{label}</span>
-      <span className="min-h-10 rounded-md bg-[#f2f5f8] px-3 py-2 text-[14px] text-[#17233b]">{value || "—"}</span>
+    <div className="flex min-w-0 flex-col pb-1 pt-[2px]">
+      <span className="text-[10px] leading-3 text-[#555]">{label}:</span>
+      <span className="text-[13px] font-semibold text-black">{value || "—"}</span>
     </div>
   )
 }
@@ -257,7 +332,9 @@ export function SearchSelect({
   onSearch,
   loading,
   allowClear = true,
+  variant = "box",
 }: {
+  variant?: "box" | "underline"
   value: string
   onChange: (value: string, option: PickOption | null) => void
   options: PickOption[]
@@ -270,9 +347,14 @@ export function SearchSelect({
   allowClear?: boolean
 }) {
   const { t } = useLanguage()
+  const underline = variant === "underline"
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState("")
-  const ref = useOutside(open, () => setOpen(false))
+  // a search typed and abandoned (closed with the arrow or a click outside) must not greet the next opening
+  const ref = useOutside(open, () => {
+    setOpen(false)
+    setQuery("")
+  })
   const selected = options.find((option) => option.value === value)
   const label = selected?.label ?? (value ? selectedLabel || value : "")
   const needle = query.trim().toLowerCase()
@@ -282,16 +364,19 @@ export function SearchSelect({
       <button
         type="button"
         disabled={disabled}
-        onClick={() => setOpen((current) => !current)}
-        className={`${inputClass} flex items-center justify-between gap-2 pr-14 text-left ${invalid ? "border-[#e57373]" : ""}`}
+        onClick={() => {
+          setOpen((current) => !current)
+          setQuery("")
+        }}
+        className={`${inputClass} flex items-center justify-between gap-2 pr-12 text-left ${invalid ? "!border-[#f44336]" : ""}`}
       >
-        <span className={`truncate ${label ? "" : "text-[#9aa3b6]"}`}>{label || placeholder || t("Выберите")}</span>
+        <span className={`truncate ${label ? "" : "sel-ph text-[#9aa3b6]"}`}>{label || (underline ? "" : placeholder || t("Выберите"))}</span>
       </button>
-      <span className="pointer-events-none absolute right-3 top-3 text-[#9aa3b6]">
-        <ChevronDown className="h-4 w-4" />
+      <span className="pointer-events-none absolute right-1 top-[15px] text-[#9e9e9e]">
+        <span className="block h-0 w-0 border-x-[5px] border-t-[5px] border-x-transparent border-t-[#9e9e9e]" />
       </span>
       {allowClear && value && !disabled && (
-        <button type="button" aria-label={t("Очистить")} onClick={() => onChange("", null)} className="absolute right-8 top-3 text-[#9aa3b6] hover:text-[#17233b]">
+        <button type="button" aria-label={t("Очистить")} onClick={() => onChange("", null)} className="absolute right-7 top-[9px] text-[#9e9e9e] hover:text-[#17233b]">
           <X className="h-4 w-4" />
         </button>
       )}
@@ -313,9 +398,9 @@ export function SearchSelect({
           </div>
           <div className="max-h-64 overflow-y-auto py-1">
             {!visible.length && <p className="px-3 py-2 text-[13px] text-[#9aa3b6]">{loading ? t("Загрузка...") : t("Ничего не найдено")}</p>}
-            {visible.map((option) => (
+            {visible.map((option, optionIndex) => (
               <button
-                key={option.value}
+                key={`${option.value}:${optionIndex}`}
                 type="button"
                 onClick={() => {
                   onChange(option.value, option)
@@ -361,8 +446,8 @@ export function MultiPick({ label, options, value, onChange }: { label: string; 
           </div>
           <div className="max-h-64 overflow-y-auto py-1">
             {!visible.length && <p className="px-3 py-2 text-[13px] text-[#9aa3b6]">{t("Ничего не найдено")}</p>}
-            {visible.map((option) => (
-              <button key={option.value} type="button" onClick={() => toggle(option.value)} className="flex w-full items-center gap-2 px-3 py-2 text-left text-[14px] hover:bg-[#f2f5f8]">
+            {visible.map((option, optionIndex) => (
+              <button key={`${option.value}:${optionIndex}`} type="button" onClick={() => toggle(option.value)} className="flex w-full items-center gap-2 px-3 py-2 text-left text-[14px] hover:bg-[#f2f5f8]">
                 <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${value.includes(option.value) ? "border-[#4f70e7] bg-[#4f70e7] text-white" : "border-[#c4cbd6]"}`}>
                   {value.includes(option.value) && <Check className="h-3 w-3" />}
                 </span>
@@ -424,6 +509,9 @@ export function ConfirmDialog({
   text,
   confirmLabel = "Удалить",
   tone = "red",
+  kind,
+  item,
+  warning,
   busy,
   error,
   onConfirm,
@@ -431,6 +519,12 @@ export function ConfirmDialog({
   children,
 }: {
   title: string
+  /** "cancel": the reference's "ПОДТВЕРЖДЕНИЕ ОТМЕНЫ" (question + the item on a grey band + «ДА»). "request": its "ВЫПОЛНИТЬ" (title + «Подтверждение запроса» + the question on a grey band). */
+  kind?: "cancel" | "request"
+  /** Text of the grey band under the question (delete: the title; cancel: this). */
+  item?: string
+  /** The reference's pink warning body (red bold text, red «ДА»), e.g. cancelling an already accepted supply. */
+  warning?: ReactNode
   text?: ReactNode
   confirmLabel?: string
   tone?: "red" | "blue" | "green"
@@ -441,24 +535,46 @@ export function ConfirmDialog({
   children?: ReactNode
 }) {
   const { t } = useLanguage()
+  // The reference's confirmation: "ПОДТВЕРЖДЕНИЕ УДАЛЕНИЯ" (500 × 327), the question, the item in bold and a single blue action.
+  const deleting = confirmLabel === "Удалить"
+  const cancelling = kind === "cancel"
+  const requesting = kind === "request"
+  const heading = deleting ? t("Подтверждение удаления") : cancelling ? t("Подтверждение отмены") : title
+  const showItem = deleting && title !== "Удалить" && title !== "Подтверждение удаления" && title !== t("Удалить") && title !== heading
+  // Some callers already pass the full question in `text`; don't print it twice.
+  const question = cancelling ? t("Вы уверены что хотите отменить эти данные?") : t("Вы уверены что хотите удалить эти данные?")
+  const textHasQuestion = typeof text === "string" && text.includes(question)
   return (
     <CashModal
-      title={title}
+      title={heading}
       onClose={onClose}
-      size="sm"
+      size="md"
       zIndex={160}
+      footerButtons={warning ? "danger" : "text"}
       footer={
         <>
-          {error && <span className="mr-auto text-[13px] text-[#e57373]">{error}</span>}
-          <SecondaryButton onClick={onClose}>{t("Отмена")}</SecondaryButton>
+          {error && <span className="mr-auto text-[12px] text-[#f44336]">{error}</span>}
           <PrimaryButton tone={tone} busy={busy} onClick={onConfirm}>
             {t(confirmLabel)}
           </PrimaryButton>
         </>
       }
     >
-      {text && <p className="text-[15px] text-[#17233b]">{text}</p>}
-      {children}
+      {/* reference: 500 × 327 (60 header + 210 body + 57 footer), the question 28 px below the header, the item on a 55 px grey band */}
+      {warning ? (
+        <div className="-mx-[30px] -mb-[10px] -mt-[15px] flex min-h-[210px] items-center justify-center bg-[#fef5f5] px-[30px] text-center text-[13px] font-semibold text-[#f44336]">
+          <p>{warning}</p>
+        </div>
+      ) : (
+      <div className="-mt-[15px] min-h-[200px] pt-[19px] text-[13px] text-black">
+        {requesting && <p>{t("Подтверждение запроса")}</p>}
+        {requesting && text && <div className="-mx-[30px] mt-[19px] flex h-[55px] items-center bg-[#f2f5f8] px-[30px] font-semibold">{text}</div>}
+        {(deleting || cancelling) && !textHasQuestion && <p>{question}</p>}
+        {(showItem || (cancelling && item)) && <div className="-mx-[30px] mt-[19px] flex h-[55px] items-center bg-[#f2f5f8] px-[30px] font-semibold">{cancelling && item ? item : title}</div>}
+        {text && !requesting && !(cancelling && item) && <p className={(deleting || cancelling) && !textHasQuestion ? "mt-2" : ""}>{text}</p>}
+        {children}
+      </div>
+      )}
     </CashModal>
   )
 }

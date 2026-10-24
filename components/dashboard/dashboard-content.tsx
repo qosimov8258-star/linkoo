@@ -16,12 +16,23 @@ import { HOME_WIDGETS, loadSelectedHomeWidgets, saveSelectedHomeWidgets } from "
 import {
   MONTHS_NOMINATIVE,
   type PeriodKey,
+  endOfMonth,
   formatRangeLabel,
   parseISODate,
   rangeForPeriod,
+  startOfMonth,
   toISODate,
 } from "@/lib/dashboard-date-range"
 import type { DashboardSummary } from "@/lib/dashboard-summary-repo"
+
+const PERIOD_TO_TYPE: Record<PeriodKey, string> = {
+  "СЕГОДНЯ": "today",
+  "ВЧЕРА": "yesterday",
+  "ПОСЛ. 7": "week",
+  "МЕСЯЦ": "month",
+  "СВОЯ": "ownDate",
+}
+const TYPE_TO_PERIOD: Record<string, PeriodKey> = Object.fromEntries(Object.entries(PERIOD_TO_TYPE).map(([period, type]) => [type, period as PeriodKey]))
 
 export function DashboardContent() {
   const searchParams = useSearchParams()
@@ -29,18 +40,44 @@ export function DashboardContent() {
 
   const urlBegin = searchParams.get("beginDate")
   const urlEnd = searchParams.get("endDate")
-  const hasUrlCustomRange = searchParams.get("typeDate") === "ownDate" && !!urlBegin && !!urlEnd
+  const urlType = searchParams.get("typeDate")
+  const hasUrlCustomRange = (!urlType || urlType === "ownDate") && !!urlBegin && !!urlEnd
 
-  const [period, setPeriod] = useState<PeriodKey>("СВОЯ")
+  const [period, setPeriodState] = useState<PeriodKey>(() => TYPE_TO_PERIOD[urlType ?? ""] ?? "СВОЯ")
   const [customBegin, setCustomBegin] = useState<Date>(() =>
     urlBegin && hasUrlCustomRange ? parseISODate(urlBegin) : today,
   )
   const [customEnd, setCustomEnd] = useState<Date>(() => (urlEnd && hasUrlCustomRange ? parseISODate(urlEnd) : today))
 
+  const [touched, setTouched] = useState(false)
+
+  function setPeriod(next: PeriodKey) {
+    // like the reference app, switching to СВОЯ shows the whole month picked in the left panel
+    if (next === "СВОЯ" && period !== "СВОЯ") {
+      setCustomBegin(startOfMonth(customBegin))
+      setCustomEnd(endOfMonth(customBegin))
+    }
+    setTouched(true)
+    setPeriodState(next)
+  }
+
+  function selectOwnRange() {
+    setTouched(true)
+    setPeriodState("СВОЯ")
+  }
+
   const { begin, end } = rangeForPeriod(period, today, { begin: customBegin, end: customEnd })
-  const label = formatRangeLabel(begin, end)
+  // Like the reference, the own range stays "Укажите Дату" until a date is picked (the widgets show today meanwhile).
+  const label = period === "СВОЯ" && !touched && !hasUrlCustomRange ? "Укажите Дату" : formatRangeLabel(begin, end)
   const beginISO = toISODate(begin)
   const endISO = toISODate(end)
+
+  // keep the range in the address bar (beginDate / endDate / typeDate), as the reference app does
+  useEffect(() => {
+    if (!touched) return
+    const params = new URLSearchParams({ beginDate: beginISO, endDate: endISO, typeDate: PERIOD_TO_TYPE[period] })
+    window.history.replaceState(window.history.state, "", `${window.location.pathname}?${params}`)
+  }, [touched, period, beginISO, endISO])
 
   const [summary, setSummary] = useState<DashboardSummary | null>(null)
   const [selectedWidgets, setSelectedWidgets] = useState<string[]>(() => loadSelectedHomeWidgets())
@@ -50,6 +87,14 @@ export function DashboardContent() {
     setSelectedWidgets(keys)
     saveSelectedHomeWidgets(keys)
   }
+
+  // bumped when "Перерасчет" took a new attendance snapshot, so the tiles are fetched again
+  const [recalcStamp, setRecalcStamp] = useState(0)
+  useEffect(() => {
+    const onRecalc = () => setRecalcStamp((value) => value + 1)
+    window.addEventListener("linko:attendance-recalculated", onRecalc)
+    return () => window.removeEventListener("linko:attendance-recalculated", onRecalc)
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -63,7 +108,7 @@ export function DashboardContent() {
     return () => {
       cancelled = true
     }
-  }, [beginISO, endISO])
+  }, [beginISO, endISO, recalcStamp])
 
   function handleCustomMonthChange(monthName: string) {
     const monthIndex = MONTHS_NOMINATIVE.indexOf(monthName)
@@ -71,7 +116,7 @@ export function DashboardContent() {
     const year = customBegin.getFullYear()
     setCustomBegin(new Date(year, monthIndex, 1))
     setCustomEnd(new Date(year, monthIndex + 1, 0))
-    setPeriod("СВОЯ")
+    selectOwnRange()
   }
 
   function handleCustomYearChange(yearText: string) {
@@ -80,7 +125,7 @@ export function DashboardContent() {
     const month = customBegin.getMonth()
     setCustomBegin(new Date(year, month, 1))
     setCustomEnd(new Date(year, month + 1, 0))
-    setPeriod("СВОЯ")
+    selectOwnRange()
   }
 
   const placeholderWidgets = HOME_WIDGETS.filter(
@@ -98,7 +143,7 @@ export function DashboardContent() {
         onCustomRange={(from, to) => {
           setCustomBegin(parseISODate(from))
           setCustomEnd(parseISODate(to))
-          setPeriod("СВОЯ")
+          selectOwnRange()
         }}
         selectedWidgets={selectedWidgets}
         onWidgetsChange={handleWidgetsChange}
@@ -125,7 +170,7 @@ export function DashboardContent() {
 
       {visibleWidgets.has("agentBranchVisits") && (
         <div className="mt-5">
-          <AgentBranchVisitsWidget showTrends={visibleWidgets.has("agentSales") || visibleWidgets.has("akbTrend")} showCouriers={visibleWidgets.has("couriers")} />
+          <AgentBranchVisitsWidget showTrends={visibleWidgets.has("agentSales") || visibleWidgets.has("akbTrend")} showCouriers={visibleWidgets.has("couriers")} begin={beginISO} end={endISO} />
         </div>
       )}
 

@@ -17,7 +17,7 @@ export async function GET(request: Request) {
   const query = cashboxListQuerySchema.safeParse(cashboxQueryObject(params))
   if (!query.success) return NextResponse.json({ error: "Ma'lumotlar noto'g'ri", details: query.error.flatten() }, { status: 400 })
   if (wantsPagedCashboxes(params)) return NextResponse.json(await listCashboxesPage(query.data))
-  return NextResponse.json(await listCashboxes(query.data.search ?? ""))
+  return NextResponse.json(await listCashboxes(query.data.search ?? "", params.get("sort") === "created"))
 }
 
 // POST /api/cashboxes {name, currency, cashierId, branchId?, paymentType, vansell, orderNumber}

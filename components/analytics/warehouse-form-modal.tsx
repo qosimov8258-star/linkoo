@@ -4,7 +4,8 @@ import { ExternalLink, Loader2, MapPin, X } from "lucide-react"
 import dynamic from "next/dynamic"
 import { FormEvent, useEffect, useMemo, useState, type ReactNode } from "react"
 
-import { SearchSelect, inputClass, type PickOption } from "@/components/analytics/cash-management-shared"
+import { SearchSelect, type PickOption } from "@/components/analytics/cash-management-shared"
+import { MaterialBody, MaterialCheckbox, MaterialDialog, MaterialFooter } from "@/components/analytics/cash-material"
 import { useLanguage } from "@/lib/i18n/language-context"
 import {
   WAREHOUSES_API,
@@ -69,7 +70,7 @@ const EMPTY_DRAFT: Draft = {
   address: "",
   branch: "",
   manager: "",
-  stockType: "basic",
+  stockType: "",
   comment: "",
   online: false,
   trackMinAmount: false,
@@ -221,8 +222,8 @@ export function WarehouseFormModal({
     setError("")
   }
 
-  async function save(event: FormEvent) {
-    event.preventDefault()
+  async function save(event?: FormEvent) {
+    event?.preventDefault()
     if (!draft || saving) return
     setTouched(true)
     if (Object.keys(validate(draft, options)).length) return
@@ -273,16 +274,30 @@ export function WarehouseFormModal({
   const busy = saving || (!draft && !loadError)
   const hasPoint = draft?.lat != null && draft?.lon != null
 
+  const text = (field: WarehouseField, value: string, onChange: (next: string) => void, maxLength: number, label: string, required?: boolean, gap?: number) => (
+    <MField label={label} required={required} filled={Boolean(value)} error={fieldError(field)} gap={gap}>
+      <input
+        aria-label={label}
+        value={value}
+        maxLength={maxLength}
+        onChange={(event) => onChange(event.target.value)}
+        className={`absolute inset-x-0 bottom-0 h-[26px] border-b bg-transparent text-[13px] outline-none ${fieldError(field) ? "border-[#f44336]" : "border-[#e0e0e0]"}`}
+      />
+    </MField>
+  )
+
   return (
-    <div className="fixed inset-0 z-[70] flex items-start justify-center overflow-y-auto bg-black/45 p-4 sm:py-10" onMouseDown={onClose}>
-      <form onSubmit={save} onMouseDown={(event) => event.stopPropagation()} className="relative w-full max-w-[500px] rounded bg-white shadow-2xl" aria-busy={busy} noValidate>
-        <header className="flex h-[60px] items-center justify-between border-b border-[#efefef] pl-[30px] pr-3">
-          <b className="text-[14px] uppercase text-[#333]">{isEdit ? t("Изменить склад") : t("Добавить склад")}</b>
-          <button type="button" onClick={onClose} aria-label={t("Закрыть")} className="rounded-full p-2 text-[#666] hover:bg-slate-100">
-            <X className="h-5 w-5" />
-          </button>
-        </header>
-        <div className="relative min-h-[200px] space-y-4 px-[30px] pb-6 pt-5">
+    <>
+      <MaterialDialog
+        title={isEdit ? t("Изменить склад") : t("Добавить склад")}
+        onClose={onClose}
+        width={500}
+        maxHeight={540}
+        closeInset={15}
+        onSubmit={() => void save()}
+        footer={<MaterialFooter label={saving ? t("Сохранение...") : t("Сохранить")} busy={busy} disabled={Boolean(loadError)} error={error ? t(error) : undefined} />}
+      >
+        <MaterialBody className="relative pb-[24px] pt-[29px]" minHeight={200}>
           {busy && (
             <div className="absolute inset-0 z-30 flex items-center justify-center bg-white/80">
               <Loader2 className="h-8 w-8 animate-spin text-[#4f70e7]" />
@@ -293,60 +308,47 @@ export function WarehouseFormModal({
           ) : (
             draft && (
               <>
-                <Field label={t("Наименование")} required error={fieldError("name")}>
-                  <input
-                    autoFocus
-                    aria-label={t("Наименование")}
-                    value={draft.name}
-                    maxLength={255}
-                    onChange={(event) => change({ name: event.target.value }, "name")}
-                    className={`${inputClass} ${fieldError("name") ? "border-[#e57373]" : ""}`}
-                  />
-                </Field>
-                <Field label={t("Полное наименование")} error={fieldError("fullName")}>
-                  <input aria-label={t("Полное наименование")} value={draft.fullName} maxLength={255} onChange={(event) => change({ fullName: event.target.value }, "fullName")} className={inputClass} />
-                </Field>
-                <Field label={t("Адрес")} required error={fieldError("address")}>
-                  <input
-                    aria-label={t("Адрес")}
-                    value={draft.address}
-                    maxLength={500}
-                    onChange={(event) => change({ address: event.target.value }, "address")}
-                    className={`${inputClass} ${fieldError("address") ? "border-[#e57373]" : ""}`}
-                  />
-                </Field>
-                <Field label={t("Филиал")} required={branchOptions.length > 0} error={fieldError("branch")}>
-                  <SearchSelect value={draft.branch} onChange={(value) => change({ branch: value }, "branch")} options={branchOptions} placeholder={t("Не указано")} invalid={Boolean(fieldError("branch"))} />
-                </Field>
-                <Field label={t("Зав. склад")} required={managerOptions.length > 0} error={fieldError("manager")}>
-                  <SearchSelect value={draft.manager} onChange={(value) => change({ manager: value }, "manager")} options={managerOptions} placeholder={t("Не указано")} invalid={Boolean(fieldError("manager"))} />
-                </Field>
-                <Field label={t("Тип склада")} required error={fieldError("stockType")}>
-                  <SearchSelect
-                    value={draft.stockType}
-                    onChange={(value) => change({ stockType: value === "basic" || value === "manufacturing" ? value : "" }, "stockType")}
-                    options={typeOptions}
-                    invalid={Boolean(fieldError("stockType"))}
-                  />
-                </Field>
-                <Field label={t("Комментарий")} error={fieldError("comment")}>
+                {text("name", draft.name, (value) => change({ name: value }, "name"), 255, t("Наименование"), true)}
+                {text("fullName", draft.fullName, (value) => change({ fullName: value }, "fullName"), 255, t("Полное наименование"))}
+                {text("address", draft.address, (value) => change({ address: value }, "address"), 500, t("Адрес"), true, 30)}
+                <MField label={t("Филиал")} required={branchOptions.length > 0} filled={Boolean(draft.branch)} error={fieldError("branch")} gap={26}>
+                  <div className="absolute inset-x-0 bottom-0">
+                    <SearchSelect variant="underline" value={draft.branch} onChange={(value) => change({ branch: value }, "branch")} options={branchOptions} invalid={Boolean(fieldError("branch"))} />
+                  </div>
+                </MField>
+                <MField label={t("Завскладь")} required={managerOptions.length > 0} filled={Boolean(draft.manager)} error={fieldError("manager")} gap={26}>
+                  <div className="absolute inset-x-0 bottom-0">
+                    <SearchSelect variant="underline" value={draft.manager} onChange={(value) => change({ manager: value }, "manager")} options={managerOptions} invalid={Boolean(fieldError("manager"))} />
+                  </div>
+                </MField>
+                <MField label={t("Тип склада")} required filled={Boolean(draft.stockType)} error={fieldError("stockType")} gap={26}>
+                  <div className="absolute inset-x-0 bottom-0">
+                    <SearchSelect
+                      variant="underline"
+                      value={draft.stockType}
+                      onChange={(value) => change({ stockType: value === "basic" || value === "manufacturing" ? value : "" }, "stockType")}
+                      options={typeOptions}
+                      invalid={Boolean(fieldError("stockType"))}
+                    />
+                  </div>
+                </MField>
+                <MField label={`${t("Комментарий")}...`} filled={Boolean(draft.comment)} error={fieldError("comment")} height={47}>
                   <textarea
                     aria-label={t("Комментарий")}
                     value={draft.comment}
                     maxLength={2000}
                     rows={2}
-                    placeholder={`${t("Комментарий")}...`}
                     onChange={(event) => change({ comment: event.target.value }, "comment")}
-                    className={`${inputClass} h-auto py-2`}
+                    className="absolute inset-x-0 bottom-0 h-[44px] resize-none border-b border-[#e0e0e0] bg-transparent text-[13px] outline-none"
                   />
-                </Field>
+                </MField>
                 <div className="grid gap-3 pt-1">
-                  <Check label={t("Вэнсел")} checked={draft.online} onChange={(online) => change({ online }, null)} />
-                  <Check label={t("Отслеживать минимальный остаток")} checked={draft.trackMinAmount} onChange={(trackMinAmount) => change({ trackMinAmount }, null)} />
-                  <Check label={t("Склад возврата")} checked={draft.forReturn} onChange={(forReturn) => change({ forReturn }, null)} />
-                  <Check label={t("Активный")} checked={draft.active} onChange={(active) => change({ active }, null)} />
+                  <MaterialCheckbox label={t("Вэнсел")} checked={draft.online} onChange={(online) => change({ online }, null)} />
+                  <MaterialCheckbox label={t("Отслеживать минимальный остаток")} checked={draft.trackMinAmount} onChange={(trackMinAmount) => change({ trackMinAmount }, null)} />
+                  <MaterialCheckbox label={t("Склад возврата")} checked={draft.forReturn} onChange={(forReturn) => change({ forReturn }, null)} />
+                  <MaterialCheckbox label={t("Активный")} checked={draft.active} onChange={(active) => change({ active }, null)} />
                 </div>
-                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 pt-1 text-[13px]">
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 pt-3 text-[13px]">
                   {hasPoint ? (
                     <>
                       <span className="inline-flex items-center gap-1 text-[#586174]">
@@ -369,17 +371,11 @@ export function WarehouseFormModal({
                   )}
                   {fieldError("location") && <span className="w-full text-[12px] text-[#e57373]">{fieldError("location")}</span>}
                 </div>
-                {error && <p className="text-sm font-medium text-rose-600">{t(error)}</p>}
               </>
             )
           )}
-        </div>
-        <footer className="flex justify-end border-t border-[#efefef] p-4">
-          <button type="submit" disabled={busy || Boolean(loadError)} className="rounded bg-[#6ccd8b] px-6 py-3 font-semibold text-white hover:brightness-95 disabled:opacity-60">
-            {saving ? t("Сохранение...") : t("Сохранить")}
-          </button>
-        </footer>
-      </form>
+        </MaterialBody>
+      </MaterialDialog>
       {mapOpen && draft && (
         <div onMouseDown={(event) => event.stopPropagation()}>
           <LocationPicker
@@ -393,28 +389,20 @@ export function WarehouseFormModal({
           />
         </div>
       )}
-    </div>
+    </>
   )
 }
 
-function Field({ label, required, error, children }: { label: string; required?: boolean; error?: string; children: ReactNode }) {
+/** Material field block like the reference: the bold label sits on the underline and floats up (10 px) once filled. */
+function MField({ label, required, filled, error, height = 36, gap = 16, children }: { label: string; required?: boolean; filled: boolean; error?: string; height?: number; gap?: number; children: ReactNode }) {
   return (
-    <div className="flex min-w-0 flex-col gap-1 text-[13px] text-[#586174]">
-      <span>
+    <div className="relative" style={{ height, marginBottom: gap }}>
+      <span className={`pointer-events-none absolute left-0 z-[1] font-bold text-black ${filled ? "top-[-12px] text-[10px] leading-3" : "bottom-[8px] text-[13px] leading-4"}`}>
         {label}
-        {required && <span className="text-[#e57373]"> *</span>}
+        {required && <span className="text-[#f44336]"> *</span>}
       </span>
       {children}
-      {error && <span className="text-[12px] text-[#e57373]">{error}</span>}
+      {error && <span className="absolute -bottom-[16px] left-0 text-[11px] text-[#f44336]">{error}</span>}
     </div>
-  )
-}
-
-function Check({ label, checked, onChange }: { label: string; checked: boolean; onChange: (checked: boolean) => void }) {
-  return (
-    <label className="flex cursor-pointer items-center gap-3 text-[14px] text-[#333]">
-      <input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} className="h-[18px] w-[18px] accent-[#4f70e7]" />
-      {label}
-    </label>
   )
 }

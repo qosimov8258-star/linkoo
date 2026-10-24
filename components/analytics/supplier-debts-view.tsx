@@ -327,9 +327,9 @@ export function SupplierDebtsView() {
           onClick={() => update({ openClient: row.key })}
           title={t("Информация по балансу доставщика")}
           aria-label={t("Информация по балансу доставщика")}
-          className="rounded-full p-1 text-[#666] hover:bg-[#e8edf3]"
+          className="rounded-full text-[#666] hover:bg-[#e8edf3]"
         >
-          <Info className="h-4 w-4" />
+          <Info className="h-[18px] w-[18px]" />
         </button>
         {canEdit && row.id !== null && (
           <button
@@ -337,9 +337,9 @@ export function SupplierDebtsView() {
             onClick={() => update({ openAddDialog: row.id })}
             title={t("Корректировка")}
             aria-label={t("Корректировка")}
-            className="flex h-5 w-5 items-center justify-center rounded-full bg-[#8dc572] text-white hover:opacity-85"
+            className="flex h-[18px] w-[18px] items-center justify-center rounded-full bg-[#8dc572] text-white hover:opacity-85"
           >
-            <Plus className="h-3.5 w-3.5" />
+            <Plus className="h-3 w-3" />
           </button>
         )}
       </span>
@@ -366,19 +366,19 @@ export function SupplierDebtsView() {
   const actRow = state.openClient ? rows.find((row) => row.key === state.openClient) : undefined
 
   const toggleButton = (active: boolean) =>
-    `h-9 px-4 text-[13px] font-semibold uppercase tracking-wide transition-colors ${active ? "bg-[#4f71dc] text-white" : "bg-[#dadada] text-white hover:bg-[#c8c8c8]"}`
+    `h-[32px] px-4 text-[13px] font-normal uppercase transition-colors ${active ? "bg-[#4f71dc] text-white" : "bg-white text-[#333] shadow-[0_1px_3px_rgba(0,0,0,0.2)] hover:bg-[#f2f5f8]"}`
 
   return (
     <main className="min-h-screen bg-[#f1f4f8] text-[#17233b]">
-      <header className="flex min-h-[76px] items-center border-b border-[#d8dee7] bg-[#f2f5f8] px-6 md:px-9">
-        <div className="flex items-center gap-3">
-          <FavoritesButton className="flex items-center gap-3 text-2xl font-bold text-[#4f70e7]" />
-          <span className="text-3xl font-light text-[#586174]">|</span>
-          <span className="text-2xl font-bold text-[#586174]">{t("Долги доставщиков")}</span>
+      <header className="flex min-h-[60px] items-center px-[28px]">
+        <div className="flex items-center">
+          <FavoritesButton className="flex items-center gap-[5px] text-[18px] font-bold text-[#4f71dc]" />
+          <span className="mx-[11px] h-[21px] w-[2px] bg-[#5d6474]" />
+          <span className="text-[18px] font-bold text-[#5d6474]">{t("Долги доставщиков")}</span>
         </div>
       </header>
 
-      <section className="relative flex flex-wrap items-center gap-x-5 gap-y-3 border-b border-[#e1e5eb] bg-white px-6 py-3 shadow-[0_1px_4px_rgba(0,0,0,0.08)] md:px-9">
+      <section className="relative mx-[30px] flex min-h-[52px] flex-wrap items-center gap-x-5 gap-y-3 bg-white px-[35px] shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
         <div className="flex overflow-hidden rounded-sm">
           {PERIODS.map((item) => (
             <button key={item.key} type="button" onClick={() => update({ typeCash: item.key })} className={toggleButton(state.typeCash === item.key)}>
@@ -433,7 +433,7 @@ export function SupplierDebtsView() {
         )}
       </section>
 
-      <div className="border-b border-[#e1e5eb] bg-white pt-6">
+      <div className="pt-[35px]">
         {data ? (
           <BalanceSummaryCards boxes={isAgents ? AGENT_BOXES : DELIVERER_BOXES} totals={data.totals} currencies={codes} loading={list.loading} />
         ) : (
@@ -455,6 +455,9 @@ export function SupplierDebtsView() {
       <section className="bg-white pb-10">
         {isAgents ? (
           <BalanceTable
+          fixedWidth={100}
+            inset
+            compact
             rows={rows}
             groups={AGENT_GROUPS}
             currencies={codes}
@@ -469,6 +472,9 @@ export function SupplierDebtsView() {
           />
         ) : (
           <BalanceTable
+          fixedWidth={100}
+            inset
+            compact
             rows={rows}
             groups={DELIVERER_GROUPS}
             currencies={codes}

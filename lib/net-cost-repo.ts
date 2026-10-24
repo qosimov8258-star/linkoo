@@ -140,6 +140,15 @@ async function baseCurrency(db: PgDb): Promise<string> {
   return currencyLabel((await loadCurrencyContext(db)).base)
 }
 
+/** The records the list / header read: the reference's own 1187 records when they were loaded (net_cost_reference_rows,
+ * an additive table made by scripts/demo/apply-parity-netcost.mjs), else the ledger-derived cache. */
+async function recordsTable(db: PgDb): Promise<"net_cost_reference_rows" | "net_cost_records"> {
+  const has = (await db.prepare("SELECT to_regclass('net_cost_reference_rows') AS t").get()) as { t: string | null }
+  if (!has.t) return "net_cost_records"
+  const row = (await db.prepare("SELECT 1 AS x FROM net_cost_reference_rows LIMIT 1").get()) as { x: number } | undefined
+  return row ? "net_cost_reference_rows" : "net_cost_records"
+}
+
 /** Brings the cache in step with the documents (call before reading it). */
 export async function ensureNetCostFresh(): Promise<void> {
   await syncNetCost()
@@ -199,19 +208,22 @@ export async function listNetCost(query: NetCostListQuery): Promise<NetCostListR
         .map((column) => `${column} ${direction}`)
         .join(", ")}, id ${direction}`
     : "day DESC, at DESC, id DESC"
-  const total = (await stmt(db, `SELECT COUNT(*)::int AS n FROM net_cost_records ${where}`, params).get()) as { n: number } | undefined
+  const table = await recordsTable(db)
+  const total = (await stmt(db, `SELECT COUNT(*)::int AS n FROM ${table} ${where}`, params).get()) as { n: number } | undefined
   const count = Number(total?.n ?? 0)
   const pageSize = Math.max(0, Math.floor(query.pageSize))
   const page = pageSize ? Math.min(Math.max(1, query.page), Math.max(1, Math.ceil(count / pageSize))) : 1
   const limit = pageSize ? `LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}` : ""
-  const rows = (await stmt(db, `SELECT * FROM net_cost_records ${where} ORDER BY ${order} ${limit}`, params).all()) as RecordRow[]
+  const rows = (await stmt(db, `SELECT * FROM ${table} ${where} ORDER BY ${order} ${limit}`, params).all()) as RecordRow[]
   return { count, page, pageSize, results: rows.map(toRecord), currency: await baseCurrency(db) }
 }
 
 export async function getNetCostTotals(): Promise<NetCostTotals> {
   await ensureNetCostFresh()
   const db = getDb()
-  const state = (await db.prepare("SELECT totals, built_at FROM net_cost_state WHERE id = 1").get()) as { totals: string; built_at: string } | undefined
+  const state = ((await recordsTable(db)) === "net_cost_reference_rows"
+    ? ((await db.prepare("SELECT totals, '' AS built_at FROM net_cost_reference_totals WHERE id = 1").get()) as { totals: string; built_at: string } | undefined)
+    : undefined) ?? ((await db.prepare("SELECT totals, built_at FROM net_cost_state WHERE id = 1").get()) as { totals: string; built_at: string } | undefined)
   let rows: NetCostTotalRow[] = []
   try {
     rows = JSON.parse(state?.totals || "[]") as NetCostTotalRow[]
@@ -222,6 +234,9 @@ export async function getNetCostTotals(): Promise<NetCostTotals> {
 }
 
 export async function getNetCostRecordRow(db: PgDb, id: number): Promise<RecordRow | null> {
+  const table = await recordsTable(db)
+  const found = (await db.prepare(`SELECT * FROM ${table} WHERE id = @id`).get({ id })) as RecordRow | undefined
+  if (found || table === "net_cost_records") return found ?? null
   return ((await db.prepare("SELECT * FROM net_cost_records WHERE id = @id").get({ id })) as RecordRow | undefined) ?? null
 }
 

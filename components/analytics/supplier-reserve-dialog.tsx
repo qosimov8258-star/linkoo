@@ -5,6 +5,7 @@ import { FormEvent, useEffect, useState } from "react"
 
 import { useLanguage } from "@/lib/i18n/language-context"
 import type { Supplier } from "./suppliers-data"
+import { notify } from "@/lib/notify"
 
 type Line = { key: number; product: string; qty: string; price: string; currency: string }
 
@@ -57,12 +58,12 @@ export function SupplierReserveDialog({ supplier, onClose, onSaved }: { supplier
       })
       const data = await response.json().catch(() => ({}))
       if (!response.ok) {
-        window.alert(data.error ? t(data.error) : t("Не удалось сохранить"))
+        notify(data.error ? t(data.error) : t("Не удалось сохранить"))
         return
       }
       onSaved(data as Supplier)
     } catch {
-      window.alert(t("Сервер недоступен, попробуйте ещё раз"))
+      notify(t("Сервер недоступен, попробуйте ещё раз"))
     } finally {
       setSaving(false)
     }

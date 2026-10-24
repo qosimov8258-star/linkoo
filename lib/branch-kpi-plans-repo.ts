@@ -344,7 +344,11 @@ export async function listBranchKpi(query: BranchKpiListQuery): Promise<BranchKp
     totalBonus: bonusByBranch.has(Number(branch.id)) ? bonusByBranch.get(Number(branch.id))! : null,
   }))
   const direction = query.ordering.startsWith("-") ? -1 : 1
-  if (query.ordering.endsWith("name")) {
+  // The reference lists the branches by name, ignoring case, spaces and punctuation, when no ordering is chosen.
+  const nameCollator = new Intl.Collator("en", { sensitivity: "base", ignorePunctuation: true })
+  if (!query.ordering) {
+    rows.sort((a, b) => nameCollator.compare(a.name, b.name) || a.id - b.id)
+  } else if (query.ordering.endsWith("name")) {
     rows.sort((a, b) => direction * a.name.localeCompare(b.name, "ru") || a.id - b.id)
   } else if (query.ordering.endsWith("salary")) {
     rows.sort((a, b) => direction * ((a.totalBonus ?? -Infinity) - (b.totalBonus ?? -Infinity) || 0) || a.id - b.id)

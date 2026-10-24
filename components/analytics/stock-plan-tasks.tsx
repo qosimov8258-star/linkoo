@@ -1,18 +1,18 @@
 "use client"
 
-import { Fragment, useEffect, useState, type ReactNode } from "react"
-import { ArrowDown, ArrowUp, ArrowUpDown, FileSpreadsheet, Search } from "lucide-react"
+import { useEffect, useState, type ReactNode } from "react"
 
-import { BalanceFilterChip } from "@/components/analytics/balance/filter-bar"
-import { BalancePagination } from "@/components/analytics/balance/pagination"
 import { useCashJson } from "@/components/analytics/cash/use-cash"
 import type { StockOptions } from "@/components/analytics/stock-move-filters"
+import { formatCategoryDate } from "@/components/analytics/categories-grid"
+import { ListBTable } from "@/components/analytics/list-b-table"
 import { StockPlanDetail } from "@/components/analytics/stock-plan-detail"
+import { RI, RefCard, RefIconButton, RefToolbar } from "@/components/ref/list-kit"
 import { PlanTaskFilterDialog, type PlanFilterChanges } from "@/components/analytics/stock-plan-filters"
 import { CLEAR_PLAN_FILTERS, countPlanFilters, planDate, taskApiQuery, type PlanState } from "@/components/analytics/stock-plan-state"
 import { downloadExcelTable } from "@/lib/excel-export"
 import { useLanguage } from "@/lib/i18n/language-context"
-import { PLAN_PAGE_SIZES, PLAN_TAB_LABELS, PLAN_TYPE_LABELS, type PlanTaskListResult, type PlanTaskRow, type PlanTaskTab } from "@/lib/stock-plan-types"
+import { PLAN_TAB_LABELS, PLAN_TYPE_LABELS, type PlanTaskListResult, type PlanTaskRow, type PlanTaskTab } from "@/lib/stock-plan-types"
 
 // The four task tabs of "План приемок и передач" (demo c88 / c89 grids):
 //   Приемка           № | От кого | Тип | Дата приемки | Склад
@@ -25,17 +25,11 @@ type UrlChanges = Record<string, string | number | string[] | null>
 
 type Column = { label: string; sort?: string; cell: (row: PlanTaskRow) => ReactNode; excel: (row: PlanTaskRow) => string | number }
 
-function SortIcon({ ordering, sortKey }: { ordering: string; sortKey: string }) {
-  if (ordering === sortKey) return <ArrowUp className="h-3.5 w-3.5" />
-  if (ordering === `-${sortKey}`) return <ArrowDown className="h-3.5 w-3.5" />
-  return <ArrowUpDown className="h-3.5 w-3.5 opacity-40" />
-}
-
 function useColumns(tab: PlanTaskTab): Column[] {
   const { t, language } = useLanguage()
-  const date = (iso: string) => planDate(iso, language) || t("Не указана")
+  const date = (iso: string) => (iso ? formatCategoryDate(iso.slice(0, 10), language) : "") || t("Не указана")
   const name = (value: string) => value || t("Не указано")
-  const no: Column = { label: "№", sort: "id", cell: (row) => <span className="font-semibold">{row.id}</span>, excel: (row) => row.id }
+  const no: Column = { label: "№", sort: "id", cell: (row) => row.id, excel: (row) => row.id }
   const type: Column = { label: "Тип", sort: "type", cell: (row) => t(PLAN_TYPE_LABELS[row.type]), excel: (row) => t(PLAN_TYPE_LABELS[row.type]) }
   const warehouse: Column = { label: "Склад", sort: "warehouse", cell: (row) => name(row.warehouse), excel: (row) => row.warehouse }
   const party = (label: string): Column => ({ label, sort: "party", cell: (row) => name(row.party), excel: (row) => row.party })
@@ -43,9 +37,10 @@ function useColumns(tab: PlanTaskTab): Column[] {
   const who = (label: string): Column => ({ label, sort: "doneBy", cell: (row) => name(row.doneBy), excel: (row) => row.doneBy })
   const deliverer: Column = { label: "Доставщик", sort: "deliverer", cell: (row) => name(row.deliverer), excel: (row) => row.deliverer }
   if (tab === "receive") return [no, party("От кого"), type, when("Дата приемки", "date", "date"), warehouse]
-  if (tab === "receive_history") return [no, party("От кого"), type, when("Дата приемки", "doneAt", "date"), who("Принял"), warehouse]
-  if (tab === "transfer") return [no, when("Дата запроса", "requestDate", "requestDate"), warehouse, type, party("Кому"), deliverer, when("Дата передачи", "date", "date")]
-  return [no, when("Дата запроса", "requestDate", "requestDate"), warehouse, type, party("Кому"), deliverer, who("Передал"), when("Дата передачи", "doneAt", "date")]
+  if (tab === "receive_history") return [{ ...no, label: "№ заказа" }, party("От кого"), type, when("Дата приемки", "doneAt", "date"), who("Принял"), warehouse]
+  if (tab === "transfer") return [no, when("Дата запроса", "requestDate", "requestDate"), warehouse, type, party("Кому"), who("Передал"), when("Дата передачи", "date", "date")]
+  void deliverer
+  return [no, when("Дата запроса", "requestDate", "requestDate"), warehouse, type, party("Кому"), who("Передал"), when("Дата передачи", "doneAt", "date")]
 }
 
 const EMPTY_TEXT: Record<PlanTaskTab, string> = {
@@ -120,134 +115,114 @@ export function StockPlanTasks({
     }
   }
 
-  const th = "whitespace-nowrap px-3 py-3 text-left font-semibold"
-  const td = "px-3 py-3 align-middle"
+  const pageSize = state.pageSize
+  const total = data?.count ?? 0
+  const page = data?.page ?? state.page
+  const pageCount = Math.max(1, Math.ceil(total / Math.max(1, pageSize)))
+  const from = total > 0 ? (page - 1) * pageSize + 1 : 0
+  const to = Math.min(total, page * pageSize)
+  const filterCount = countPlanFilters(state)
+  const gridCols = tab === "receive" ? "239px 461px 231px 230px 1fr" : tab === "receive_history" ? "239px 230px 231px 231px 230px 1fr" : "123px 231px 231px 115px 231px 230px 1fr"
 
   return (
-    <section className="mx-4 mb-10 mt-4 rounded-sm bg-white shadow-sm md:mx-6">
-      <div className="flex flex-wrap items-center gap-x-5 gap-y-3 border-b border-[#e1e5eb] px-4 py-3 md:px-6">
-        <BalanceFilterChip count={countPlanFilters(state)} onOpen={openFilter} onClear={() => update({ ...CLEAR_PLAN_FILTERS })} />
-        <label className="relative min-w-[180px] flex-1 border-b border-[#dbe0e8] pb-1.5 md:max-w-[340px]">
-          <input
-            value={searchDraft}
-            onChange={(event) => setSearchDraft(event.target.value)}
-            placeholder={t("Поиск")}
-            aria-label={t("Поиск")}
-            className="w-full bg-transparent pr-7 text-[15px] outline-none placeholder:text-[#9aa3b6]"
-          />
-          <Search className="pointer-events-none absolute right-0 top-0.5 h-5 w-5 text-[#9aa3b6]" />
-        </label>
-        <div className="ml-auto flex flex-wrap items-center gap-3">
-          <BalancePagination
-            page={data?.page ?? state.page}
-            pageSize={state.pageSize}
-            count={data?.count ?? 0}
-            sizes={PLAN_PAGE_SIZES}
-            onChange={(next) => update({ page: next.page > 1 ? next.page : null, pageSize: next.pageSize === 25 ? null : next.pageSize, id: null })}
-          />
-          <button
-            type="button"
-            onClick={() => void downloadExcel()}
-            disabled={!data || exporting}
-            title={t("Скачать Excel")}
-            aria-label={t("Скачать Excel")}
-            className="flex h-9 w-9 items-center justify-center rounded-full text-[#4caf72] hover:bg-[#f2f5f8] disabled:opacity-40"
-          >
-            <FileSpreadsheet className="h-5 w-5" />
-          </button>
-        </div>
-      </div>
+    <RefCard className="mt-5 bg-white">
+      <RefToolbar
+        filterOpen={filterOpen}
+        filterPanel={<PlanTaskFilterDialog tab={tab} state={state} options={options} doneByOptions={data?.doneByOptions ?? []} onClose={() => setFilterOpen(false)} onApply={applyFilter} />}
+        leftSlot={
+          filterCount === 0 ? (
+            <button type="button" onClick={openFilter} className="text-[13px] text-[#4f71dc]">
+              {t("Показать фильтр")} ⌄
+            </button>
+          ) : (
+            <span className="ml-[5px] inline-flex h-[30px] items-center gap-2 rounded-md bg-[#efefef] px-4 text-[#666]">
+              {t("Фильтр")}: {filterCount} {t("элемента")}
+              <button type="button" onClick={openFilter} aria-label={t("Изменить")} className="border-l border-white pl-2 text-[#8f8f8f]">✎</button>
+              <button type="button" onClick={() => update({ ...CLEAR_PLAN_FILTERS })} aria-label={t("Очистить")} className="border-l border-white pl-2 text-[#8f8f8f]">×</button>
+            </span>
+          )
+        }
+        query={searchDraft}
+        onQuery={setSearchDraft}
+        pageSize={pageSize}
+        onPageSize={(size) => update({ pageSize: size === 25 ? null : size, page: null, id: null })}
+        from={from}
+        to={to}
+        total={total}
+        page={page}
+        pageCount={pageCount}
+        onPage={(next) => update({ page: next > 1 ? next : null, id: null })}
+        icons={<RefIconButton path={RI.download} label={t("Скачать Excel")} color="#5d6474" onClick={() => !exporting && data && void downloadExcel()} />}
+      />
 
       {list.error && !list.loading && (
         <div className="flex flex-wrap items-center gap-3 px-6 py-3 text-[#e57373]">
           <span>
             {t("Не удалось загрузить данные")}: {t(list.error)}
           </span>
-          <button type="button" onClick={list.reload} className="font-semibold text-[#4f70e7] hover:underline">
+          <button type="button" onClick={list.reload} className="font-semibold text-[#4f71dc] hover:underline">
             {t("Повторить")}
           </button>
         </div>
       )}
 
-      <div className={`overflow-x-auto ${list.loading ? "opacity-60" : ""}`}>
-        <table className="w-full min-w-[860px] border-collapse text-[14px]">
-          <thead>
-            <tr className="border-b border-[#e1e5eb] text-[#17233b]">
-              {columns.map((column, index) => (
-                <th key={column.label} className={`${th} ${index === 0 ? "pl-6" : ""}`}>
-                  {column.sort ? (
-                    <button type="button" onClick={() => sort(column.sort!)} className="inline-flex items-center gap-1 font-semibold">
-                      {t(column.label)}
-                      <SortIcon ordering={state.ordering} sortKey={column.sort} />
-                    </button>
-                  ) : (
-                    t(column.label)
-                  )}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((row) => {
-              const id = `${row.type}-${row.id}`
-              const open = state.detail === id
-              return (
-                <Fragment key={id}>
-                  <tr onClick={() => update({ id: open ? null : id })} className={`cursor-pointer border-b border-[#efefef] ${open ? "bg-[#eef2ff]" : "hover:bg-[#f2f5f8]"}`}>
-                    {columns.map((column, index) => (
-                      <td key={column.label} className={`${td} ${index === 0 ? "pl-6" : ""}`}>
-                        {column.cell(row)}
-                      </td>
-                    ))}
-                  </tr>
-                  {open && (
-                    <tr>
-                      <td colSpan={columns.length} className="bg-[#f2f5f8] px-2 py-3 md:px-4">
-                        <StockPlanDetail
-                          tab={tab}
-                          row={row}
-                          canWrite={canWrite}
-                          onClose={() => update({ id: null })}
-                          onDone={(message) => {
-                            notify(message)
-                            update({ id: null })
-                            list.reload()
-                            onChanged()
-                          }}
-                        />
-                      </td>
-                    </tr>
-                  )}
-                </Fragment>
-              )
-            })}
-            {!rows.length && (
-              <tr>
-                <td colSpan={columns.length} className="px-4 py-16 text-center text-[#9aa3b6]">
-                  {list.loading ? (
-                    t("Загрузка...")
-                  ) : list.error ? (
-                    ""
-                  ) : (
-                    <div className="flex flex-col items-center gap-2">
-                      <span>{t(countPlanFilters(state) || state.search ? "По вашему запросу ничего не найдено" : EMPTY_TEXT[tab])}</span>
-                      {(tab === "transfer" || tab === "transfer_history") && (
-                        <span className="max-w-[560px] text-[13px]">
-                          {t("Заказы появятся здесь, когда в заказе будет указан склад: модуль заказов пока не указывает склад")}
-                        </span>
-                      )}
-                    </div>
-                  )}
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+      <div className={list.loading ? "opacity-60" : undefined}>
+        <ListBTable
+          cols={gridCols}
+          minWidth={900}
+          cellPad={0}
+          heads={columns.map((column) =>
+            column.sort ? (
+              <button key={column.label} type="button" onClick={() => sort(column.sort!)} className="text-left font-semibold hover:opacity-80">
+                {t(column.label)}
+                {state.ordering === column.sort ? <span className="ml-1 text-[10px]">▲</span> : state.ordering === `-${column.sort}` ? <span className="ml-1 text-[10px]">▼</span> : null}
+              </button>
+            ) : (
+              t(column.label)
+            ),
+          )}
+          rows={rows}
+          rowKey={(row) => `${row.type}-${row.id}`}
+          rowClass={(row) => (state.detail === `${row.type}-${row.id}` ? "!bg-[#eef2ff]" : "")}
+          onRowClick={(row) => update({ id: state.detail === `${row.type}-${row.id}` ? null : `${row.type}-${row.id}` })}
+          empty={
+            list.loading ? (
+              t("Загрузка...")
+            ) : list.error ? (
+              ""
+            ) : (
+              <div className="flex flex-col items-center gap-2">
+                <span>{t(filterCount || state.search ? "По вашему запросу ничего не найдено" : EMPTY_TEXT[tab])}</span>
+                {(tab === "transfer" || tab === "transfer_history") && (
+                  <span className="max-w-[560px] text-[13px]">
+                    {t("Заказы появятся здесь, когда в заказе будет указан склад: модуль заказов пока не указывает склад")}
+                  </span>
+                )}
+              </div>
+            )
+          }
+          render={(row) => columns.map((column) => column.cell(row))}
+          expanded={(row) =>
+            state.detail === `${row.type}-${row.id}` ? (
+              <div className="bg-[#f2f5f8] px-2 py-3 md:px-4">
+                <StockPlanDetail
+                  tab={tab}
+                  row={row}
+                  canWrite={canWrite}
+                  onClose={() => update({ id: null })}
+                  onDone={(message) => {
+                    notify(message)
+                    update({ id: null })
+                    list.reload()
+                    onChanged()
+                  }}
+                />
+              </div>
+            ) : null
+          }
+        />
       </div>
 
-      {filterOpen && (
-        <PlanTaskFilterDialog tab={tab} state={state} options={options} doneByOptions={data?.doneByOptions ?? []} onClose={() => setFilterOpen(false)} onApply={applyFilter} />
-      )}
-    </section>
+    </RefCard>
   )
 }

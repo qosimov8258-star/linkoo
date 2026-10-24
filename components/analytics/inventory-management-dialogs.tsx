@@ -5,6 +5,7 @@ import Image from "next/image"
 import { ImagePlus, PlusCircle, Trash2 } from "lucide-react"
 
 import { buildCashQuery, cashMutate, useCashJson, type CashQuery } from "@/components/analytics/cash/use-cash"
+import { MaterialDate } from "@/components/analytics/cash-material"
 import {
   CashModal,
   FormField,
@@ -137,17 +138,20 @@ function PhotoField({ value, stored, onChange }: { value: string | undefined; st
       <button
         type="button"
         onClick={() => input.current?.click()}
-        className="relative flex h-[200px] w-[200px] items-center justify-center overflow-hidden rounded-md border border-dashed border-[#c4cbd6] bg-[#f7f9fc] text-[#9aa3b6] hover:border-[#4f70e7]"
+        className="relative flex h-[250px] w-[250px] flex-col items-center justify-center gap-2 overflow-hidden border border-dashed border-[#c4cbd6] bg-white text-[#9aa3b6] hover:border-[#4f70e7]"
       >
-        {shown ? <Image src={shown} alt="" fill unoptimized className="object-cover" /> : <ImagePlus className="h-10 w-10" />}
+        {shown ? <Image src={shown} alt="" fill unoptimized className="object-cover" /> : (
+          <>
+            <ImagePlus className="h-10 w-10" />
+            <span className="text-[13px] text-[#555]">{t("Добавьте фото")}</span>
+          </>
+        )}
       </button>
       {shown ? (
         <button type="button" onClick={() => onChange("")} className="inline-flex items-center gap-1 text-[13px] text-[#e57373] hover:underline">
           <Trash2 className="h-4 w-4" /> {t("Удалить фото")}
         </button>
-      ) : (
-        <span className="text-[12px] text-[#9aa3b6]">{t("Загрузить фото")}</span>
-      )}
+      ) : null}
       {error && <span className="text-[12px] text-[#e57373]">{error}</span>}
     </div>
   )
@@ -229,22 +233,22 @@ export function ItemFormDialog({
     <CashModal
       title={item ? t("Изменение инвентаря") : t("Добавление инвентаря")}
       onClose={onClose}
-      size="lg"
+      size="inv"
+      footerButtons="filled"
       zIndex={item ? 120 : 170}
       footer={
         <>
-          {error && <span className="mr-auto text-[13px] text-[#e57373]">{error}</span>}
-          <SecondaryButton onClick={onClose}>{t("Отмена")}</SecondaryButton>
-          <PrimaryButton busy={busy} onClick={() => void submit()}>
+          {error && <span className="mr-auto text-[12px] text-[#f44336]">{error}</span>}
+          <PrimaryButton tone="green" busy={busy} onClick={() => void submit()}>
             {t("Сохранить")}
           </PrimaryButton>
         </>
       }
     >
-      <div className="grid gap-5 md:grid-cols-[minmax(0,1fr)_220px]">
-        <div className="grid gap-3 sm:grid-cols-2">
+      <div className="grid gap-5 md:grid-cols-[minmax(0,1fr)_250px]">
+        <div className="grid gap-3">
           {item && (
-            <div className="sm:col-span-2">
+            <div>
               <ReadonlyField label={t("Текущий Клиент")} value={item.client?.name ?? t("На складе")} />
             </div>
           )}
@@ -262,7 +266,7 @@ export function ItemFormDialog({
             <SearchSelect value={draft.responsible} options={named(options?.responsibles ?? [])} invalid={Boolean(errors.responsible)} onChange={(responsible) => set({ responsible })} />
           </FormField>
           {!item && !inStock && (
-            <FormField label={t("Клиент")} error={errors.clientId} className="sm:col-span-2">
+            <FormField label={t("Клиент")} error={errors.clientId}>
               <ClientPicker value={draft.clientId} label={draft.clientLabel} invalid={Boolean(errors.clientId)} onChange={(clientId, clientLabel) => set({ clientId, clientLabel })} />
             </FormField>
           )}
@@ -272,11 +276,9 @@ export function ItemFormDialog({
           <FormField label={t("Инвентарный номер")} required error={errors.stockNumber}>
             <input value={draft.stockNumber} maxLength={200} onChange={(event) => set({ stockNumber: event.target.value })} className={inputClass} />
           </FormField>
-          <FormField label={t("Дата")} required error={errors.date}>
-            <input type="date" value={draft.date} onChange={(event) => set({ date: event.target.value })} className={inputClass} />
-          </FormField>
-          <FormField label={`${t("Комментарий")}...`} className="sm:col-span-2">
-            <textarea value={draft.comment} maxLength={2000} rows={2} onChange={(event) => set({ comment: event.target.value })} className={`${inputClass} h-auto py-2`} />
+          <MaterialDate label={t("Дата")} required value={draft.date} onChange={(date) => set({ date })} error={errors.date} />
+          <FormField label={`${t("Комментарий")}...`}>
+            <input value={draft.comment} maxLength={2000} onChange={(event) => set({ comment: event.target.value })} className={inputClass} />
           </FormField>
         </div>
         <PhotoField value={photo} stored={item?.hasPhoto ? photoUrl(item) : null} onChange={setPhoto} />

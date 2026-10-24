@@ -99,8 +99,23 @@ export const emptyClientFilters: ClientFilters = {
 
 const NOT_SET = "Не указано"
 
+/** Reference "Тип лимита долга" filter values (`debt_limit_type`) with their Russian labels. */
+export const DEBT_LIMIT_TYPES = [
+  { id: "no_debt_no_order", label: "Нельзя в долг без учета последнего заказа" },
+  { id: "no_debt_with_order", label: "Нельзя в долг с учетом последнего заказ" },
+  { id: "debt_limit_no_order", label: "С ограничением без учета последнего заказа" },
+  { id: "debt_limit_with_order", label: "С ограничением с учетом последнего заказ" },
+  { id: "no_debt_limit", label: "Без ограничения" },
+] as const
+
+/** Limit types per client from `/api/client-debt-limits?types=1` and the filter label (any language) → type id map. */
+export type DebtLimitFilterContext = {
+  types: Record<number, string[]> | null
+  idByLabel: Map<string, string>
+}
+
 /** Applies the filters that map onto fields the client records actually carry. */
-export function applyClientFilters(client: Client, filters: ClientFilters): boolean {
+export function applyClientFilters(client: Client, filters: ClientFilters, debtLimit?: DebtLimitFilterContext): boolean {
   if (filters.client && client.name !== filters.client) return false
   if (filters.type && client.type !== filters.type) return false
   if (filters.zone && client.zone !== filters.zone) return false
@@ -109,10 +124,17 @@ export function applyClientFilters(client: Client, filters: ClientFilters): bool
   if (filters.collector && client.collector !== filters.collector) return false
   if (filters.branch && client.branch !== filters.branch) return false
   if (filters.channelCategory && client.salesChannel !== filters.channelCategory) return false
-  if (filters.status === "Подтвержденные" && client.tab === "unconfirmed") return false
-  if (filters.status === "Не подтвержденные" && client.tab !== "unconfirmed") return false
+  if (filters.status === "Активен" && client.isActive === false) return false
+  if (filters.status === "Неактивен" && client.isActive !== false) return false
+  if (filters.only === "Подтвержденный" && client.tab === "unconfirmed") return false
+  if (filters.only === "Не подтвержденный" && client.tab !== "unconfirmed") return false
   if (filters.zoneUndefined && client.zone && client.zone !== NOT_SET) return false
   if (filters.unlimitedDebt && !client.unlimitedDebt) return false
+  if (filters.debtLimitType && debtLimit?.types) {
+    const wanted = debtLimit.idByLabel.get(filters.debtLimitType)
+    // Clients that carry no limits are the reference's "Без ограничения" (no_debt_limit).
+    if (wanted && !(debtLimit.types[client.id] ?? ["no_debt_limit"]).includes(wanted)) return false
+  }
   if (filters.createdBegin) {
     const created = (client.createdAt ?? "").slice(0, 10)
     if (!created || created < filters.createdBegin || created > (filters.createdEnd || filters.createdBegin)) return false
@@ -149,6 +171,34 @@ export function ClientsFilterPanel({
   const [draft, setDraft] = useState<ClientFilters>(value)
   const [expanded, setExpanded] = useState(false)
   const [attributeNames, setAttributeNames] = useState<string[]>([])
+  const [branchNames, setBranchNames] = useState<string[]>([])
+  const [server, setServer] = useState<{ types: string[]; users: string[]; zones: string[]; refusalTypes: string[]; categories: string[]; collectors: string[]; channelCategories: string[] } | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    fetch("/api/branches")
+      .then((response) => (response.ok ? response.json() : []))
+      .then((rows: { name?: string }[]) => {
+        if (!cancelled && Array.isArray(rows)) setBranchNames(rows.map((row) => row.name ?? "").filter(Boolean))
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    fetch("/api/client-filter-options")
+      .then((response) => (response.ok ? response.json() : null))
+      .then((data) => {
+        if (!cancelled && data) setServer(data)
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   useEffect(() => {
     if (!expanded || attributeNames.length) return
@@ -167,15 +217,17 @@ export function ClientsFilterPanel({
   const options = useMemo(
     () => ({
       clients: uniq(clients.map((c) => c.name)).slice(0, 300),
-      types: uniq(clients.map((c) => c.type)),
-      zones: uniq(clients.map((c) => c.zone)),
-      agents: uniq(clients.map((c) => c.agent)),
+      types: server?.types.length ? server.types : uniq(clients.map((c) => c.type)),
+      zones: server?.zones.length ? server.zones : uniq(clients.map((c) => c.zone)),
+      agents: server?.users.length ? server.users : uniq(clients.map((c) => c.agent)),
+      refusalTypes: server?.refusalTypes ?? [],
+      categories: server?.categories ?? [],
       deliverers: uniq(clients.map((c) => c.deliverer)),
-      collectors: uniq(clients.map((c) => c.collector)),
-      branches: uniq(clients.map((c) => c.branch)),
-      channels: uniq(clients.map((c) => c.salesChannel)),
+      collectors: server?.collectors.length ? server.collectors : uniq(clients.map((c) => c.collector)),
+      branches: branchNames.length ? branchNames : uniq(clients.map((c) => c.branch)),
+      channels: server ? server.channelCategories : uniq(clients.map((c) => c.salesChannel)),
     }),
-    [clients],
+    [clients, branchNames, server],
   )
 
   const attributeOptions = (name: string) => uniq(clients.map((c) => c.attributes?.[name]))
@@ -197,28 +249,28 @@ export function ClientsFilterPanel({
       <div className="grid grid-cols-4 gap-x-[9.33px] gap-y-[5px]">
         <FilterSelect className={cell} label={t("Клиент")} value={draft.client} onChange={set("client")} options={options.clients} />
         <FilterSelect className={cell} label={t("Тип клиента")} value={draft.type} onChange={set("type")} options={options.types} />
-        <FilterSelect className={cell} label={t("Статус")} value={draft.status} onChange={set("status")} options={[t("Подтвержденные"), t("Не подтвержденные")]} />
-        <FilterSelect className={cell} label={t("Показать только")} value={draft.only} onChange={set("only")} options={[t("С координатами"), t("Без координат")]} />
+        <FilterSelect className={cell} label={t("Статус")} value={draft.status} onChange={set("status")} options={[t("Активен"), t("Неактивен")]} />
+        <FilterSelect className={cell} label={t("Показать только")} value={draft.only} onChange={set("only")} options={[t("Подтвержденный"), t("Не подтвержденный")]} />
 
-        <FilterSelect className={cell} label={t("Последнее посещение")} value={draft.lastVisit} onChange={set("lastVisit")} options={[t("Сегодня"), t("Вчера"), t("Последние 7 дней"), t("Текущий месяц")]} />
+        <FilterSelect className={cell} label={t("Последнее посещение")} value={draft.lastVisit} onChange={set("lastVisit")} options={[t("Успешный"), t("Не успешно")]} />
         <FilterSelect className={cell} label={t("Создал")} value={draft.createdBy} onChange={set("createdBy")} options={options.agents} />
         <FilterSelect className={cell} label={t("Зона")} value={draft.zone} onChange={set("zone")} options={options.zones} />
         <FilterSelect className={cell} label={t("Ответственный агент")} value={draft.agent} onChange={set("agent")} options={options.agents} />
 
         <FilterSelect className={cell} label={t("Ответственные доставщики")} value={draft.deliverer} onChange={set("deliverer")} options={options.deliverers} />
-        <FilterSelect className={cell} label={t("Тип отказа")} value={draft.refusalType} onChange={set("refusalType")} options={[]} />
+        <FilterSelect className={cell} label={t("Тип отказа")} value={draft.refusalType} onChange={set("refusalType")} options={options.refusalTypes} />
         <FilterSelect className={cell} label={t("Филиалы")} value={draft.branch} onChange={set("branch")} options={options.branches} />
         <FilterSelect className={cell} label={t("Инкассаторы")} value={draft.collector} onChange={set("collector")} options={options.collectors} />
 
-        <FilterSelect className={cell} label={t("Категория")} value={draft.category} onChange={set("category")} options={[]} />
-        <FilterSelect className={cell} label={t("Тип лимита долга")} value={draft.debtLimitType} onChange={set("debtLimitType")} options={[t("По сумме"), t("По дням")]} />
-        <FilterSelect className={cell} label={t("Частота посещения")} value={draft.visitFrequency} onChange={set("visitFrequency")} options={[t("Еженедельно"), t("Раз в 2 недели"), t("Ежемесячно")]} />
+        <FilterSelect className={cell} label={t("Категория")} value={draft.category} onChange={set("category")} options={options.categories} />
+        <FilterSelect className={cell} label={t("Тип лимита долга")} value={draft.debtLimitType} onChange={set("debtLimitType")} options={DEBT_LIMIT_TYPES.map((type) => t(type.label))} />
+        <FilterSelect className={cell} label={t("Частота посещения")} value={draft.visitFrequency} onChange={set("visitFrequency")} options={[t("Раз в неделю"), t("Раз в две недели"), t("Четные недели"), t("Нечетные недели"), t("Раз в три недели"), t("Раз в четыре недели"), t("Гибкий месяц")]} />
         <FilterSelect className={cell} label={t("Маршрут агента")} value={draft.agentRoute} onChange={set("agentRoute")} options={options.agents} />
 
         <FilterSelect className={cell} label={t("Локация заблокировано")} value={draft.locationBlocked} onChange={set("locationBlocked")} options={yesNo} />
         <FilterSelect className={cell} label={t("Не верно установлено маршрут")} value={draft.wrongRoute} onChange={set("wrongRoute")} options={yesNo} />
         <FilterSelect className={cell} label={t("Индивидуальный курс")} value={draft.individualRate} onChange={set("individualRate")} options={yesNo} />
-        <FilterSelect className={cell} label={t("Класс клиента")} value={draft.clientClass} onChange={set("clientClass")} options={["A", "B", "C"]} />
+        <FilterSelect className={cell} label={t("Класс клиента")} value={draft.clientClass} onChange={set("clientClass")} options={[]} emptyText="Не найдено" />
       </div>
 
       <div className="grid grid-cols-4 grid-rows-[68px_63px] gap-x-[9.33px]">

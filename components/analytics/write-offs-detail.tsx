@@ -1,12 +1,10 @@
 "use client"
 
 import { useState } from "react"
-import { CheckCircle2, FileSpreadsheet, Undo2, XCircle } from "lucide-react"
 
 import { cashMutate, useCashJson } from "@/components/analytics/cash/use-cash"
 import { ConfirmDialog, EmptyBlock, ErrorBlock, LoadingBlock, mutationError } from "@/components/analytics/cash-management-shared"
-import { InfoRow, docDate, formatQty, formatSum } from "@/components/analytics/internal-transfers-shared"
-import { downloadExcelTable } from "@/lib/excel-export"
+import { docDate, formatQty } from "@/components/analytics/internal-transfers-shared"
 import { useLanguage } from "@/lib/i18n/language-context"
 import { WRITE_OFF_STATUS_COLORS, type WriteOff, type WriteOffAction, type WriteOffStatus } from "@/lib/write-offs-types"
 
@@ -63,96 +61,67 @@ export function WriteOffDetailPanel({ id, canEdit, onClose, onChanged, notify }:
     onChanged()
   }
 
-  const iconButton = "flex h-10 w-10 items-center justify-center rounded-full text-[#666] hover:bg-[#f2f5f8] disabled:opacity-40"
-  const qty = data.items.reduce((sum, item) => sum + item.qty, 0)
+  const iconButton = "flex h-6 w-6 items-center justify-center text-[#555] hover:opacity-70 disabled:opacity-40"
+  const money = (value: number) => new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 3 }).format(value)
+  const row = "flex h-[25px] items-center justify-between"
+  // Reference layout (measured on #/write-off/69): 66 px title row, 370 px info column, 13 px text, columns 3:1:2:1:1:2:2.
+  const cols = "grid grid-cols-[3fr_1fr_2fr_1fr_1fr_2fr_2fr]"
   return (
-    <div className="bg-white text-[14px] text-[#333] shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
-      <div className="relative flex min-h-[65px] flex-wrap items-center justify-between gap-3 border-b border-[#efefef] px-4 py-2 md:px-[30px]">
+    <div className="bg-white text-[13px] text-[#333] shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
+      <div className="relative flex h-[66px] items-center justify-between border-b border-[#efefef] pl-[30px] pr-[27px]">
         <button type="button" onClick={onClose} className="absolute inset-0 cursor-pointer" aria-label={t("Закрыть")} />
-        <h3 className="relative z-[1] text-[16px] font-bold">
+        <h3 className="relative z-[1] text-[18px] font-semibold">
           {t("Списание")} № {data.id}
         </h3>
-        <div className="relative z-[3] flex items-center gap-1.5">
+        <div className="relative z-[3] flex items-center gap-[24px]">
           {canEdit && data.status === "ожидает" && (
-            <>
-              <button type="button" onClick={() => setPending("finish")} title={t("Списать")} aria-label={t("Списать")} className={iconButton}>
-                <CheckCircle2 className="h-5 w-5 text-[#81c784]" />
-              </button>
-              <button type="button" onClick={() => setPending("cancel")} title={t("Отменить")} aria-label={t("Отменить")} className={iconButton}>
-                <XCircle className="h-5 w-5 text-[#e57373]" />
-              </button>
-            </>
-          )}
-          {canEdit && data.status === "закрыт" && (
-            <button type="button" onClick={() => setPending("cancel")} title={t("Отменить списание")} aria-label={t("Отменить списание")} className={iconButton}>
-              <Undo2 className="h-5 w-5 text-[#e57373]" />
+            <button type="button" onClick={() => setPending("finish")} title={t("Списать")} aria-label={t("Списать")} className={iconButton}>
+              <svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#81c784]" aria-hidden><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z" /></svg>
             </button>
           )}
-          <button type="button" onClick={() => downloadExcelTable(`${t("Списание")} №${data.id}`, writeOffItemsSheet(data, t))} title={t("Скачать Excel")} aria-label={t("Скачать Excel")} className={iconButton}>
-            <FileSpreadsheet className="h-5 w-5 text-[#71ce87]" />
+          {canEdit && (data.status === "ожидает" || data.status === "закрыт") && (
+            <button type="button" onClick={() => setPending("cancel")} title={data.status === "закрыт" ? t("Отменить списание") : t("Отменить")} aria-label={data.status === "закрыт" ? t("Отменить списание") : t("Отменить")} className={iconButton}>
+              <svg viewBox="0 0 24 24" className="h-6 w-6 fill-current" aria-hidden><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm5 11H7v-2h10v2z" /></svg>
+            </button>
+          )}
+          <button type="button" onClick={() => window.print()} title={t("Печать")} aria-label={t("Печать")} className={iconButton}>
+            <svg viewBox="0 0 24 24" className="h-6 w-6 fill-current" aria-hidden><path d="M19 8H5c-1.66 0-3 1.34-3 3v6h4v4h12v-4h4v-6c0-1.66-1.34-3-3-3zm-3 11H8v-5h8v5zm3-7c-.55 0-1-.45-1-1s.45-1 1-1 1 .45 1 1-.45 1-1 1zm-1-9H6v4h12V3z" /></svg>
           </button>
         </div>
       </div>
-      <div className="flex flex-col md:flex-row">
-        <div className="border-b border-[#efefef] px-4 py-3 md:w-[340px] md:shrink-0 md:border-b-0 md:border-r md:px-[30px]">
-          <ul>
-            <InfoRow label={t("Создал")}>{data.creator || t("Не указано")}</InfoRow>
-            <InfoRow label={t("Склад")}>{data.warehouse}</InfoRow>
-            <InfoRow label={t("Дата создания")}>{docDate(data.date, language, true)}</InfoRow>
-            <InfoRow label={t("Статус")}>
-              <WriteOffStatusLabel status={data.status} />
-            </InfoRow>
+      <div className="flex">
+        <div className="w-[370px] shrink-0 border-r border-[#efefef] pb-[27px]">
+          <ul className="border-b border-[#efefef] px-[30px] pb-[17.8px] pt-[12.2px]">
+            <li className={row}>{t("Создал")}<b className="font-semibold">{data.creator || t("Не указано")}</b></li>
+            <li className={row}>{t("Склад")}<b className="font-semibold">{data.warehouse}</b></li>
+            <li className={row}>{t("Дата создания")}<b className="font-semibold">{docDate(data.date, language)}</b></li>
+            <li className={row}>{t("Статус")}<span className="relative top-[3px]"><WriteOffStatusLabel status={data.status} /></span></li>
             {data.status === "отменен" && data.cancelledAt && (
-              <InfoRow label={t("Отменил")}>
-                {data.cancelledBy || "—"}
-                <span className="block text-[12px] font-normal text-[#586174]">{docDate(data.cancelledAt, language, true)}</span>
-              </InfoRow>
+              <li className={row}>{t("Отменил")}<b className="font-semibold">{data.cancelledBy || "—"}</b></li>
             )}
           </ul>
-          <div className="mt-3">
-            <div className="mb-1 font-semibold uppercase">{t("Комментарий")}:</div>
-            <div className="text-[#586174]">{data.comment || t("Комментарий отсутствует")}</div>
+          <div className="px-[30px] pt-[20px]">
+            <div className="font-semibold">{t("Комментарий")}:</div>
+            <div className="mt-[2px]">{data.comment || t("Комментарий отсутствует")}</div>
           </div>
         </div>
-        <div className="min-w-0 flex-1 px-4 pb-5 md:px-[30px]">
+        <div className="min-w-0 flex-1 pl-[5.5px] pr-[6px]">
           {data.items.length ? (
             <div className="max-h-[560px] overflow-auto">
-              <table className="w-full min-w-[680px] border-collapse">
-                <thead>
-                  <tr className="border-b border-dashed border-[#e1e5eb] text-left font-semibold">
-                    <th className="py-3 pr-3">{t("Товар")}</th>
-                    <th className="py-3 pr-3">{t("Код товара")}</th>
-                    <th className="py-3 pr-3">{t("Серия")}</th>
-                    <th className="py-3 pr-3 text-right">{t("Блок")}</th>
-                    <th className="py-3 pr-3 text-right">{t("Кол-во")}</th>
-                    <th className="py-3 pr-3 text-right">{t("Себестоимость")}</th>
-                    <th className="py-3 text-right">{t("Сумма")}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {data.items.map((item) => (
-                    <tr key={item.id} className="border-b border-dashed border-[#e1e5eb] hover:bg-[#f2f5f8]">
-                      <td className="py-3 pr-3">{item.product}</td>
-                      <td className="py-3 pr-3">{item.code || "-"}</td>
-                      <td className="py-3 pr-3">{item.series || "-"}</td>
-                      <td className="whitespace-nowrap py-3 pr-3 text-right">{item.block ? formatQty(item.block) : "-"}</td>
-                      <td className="whitespace-nowrap py-3 pr-3 text-right">{formatQty(item.qty, item.unit)}</td>
-                      <td className="whitespace-nowrap py-3 pr-3 text-right">{formatSum(item.cost)}</td>
-                      <td className="whitespace-nowrap py-3 text-right">{formatSum(item.sum)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-                <tfoot>
-                  <tr className="font-semibold">
-                    <td className="pt-3 pr-3" colSpan={4}>
-                      {t("Итого")}
-                    </td>
-                    <td className="whitespace-nowrap pt-3 pr-3 text-right">{formatQty(qty)}</td>
-                    <td />
-                    <td className="whitespace-nowrap pt-3 text-right">{formatSum(data.total)}</td>
-                  </tr>
-                </tfoot>
-              </table>
+              <div className={`${cols} border-b border-dashed border-[#dcdcdc] pb-[12px] pt-[20px] font-semibold`}>
+                <span>{t("Товар")}</span><span>{t("Код товара")}</span><span>{t("Серия")}</span><span>{t("Блок")}</span><span>{t("Кол-во")}</span><span>{t("Себестоимость")}</span><span>{t("Сумма")}</span>
+              </div>
+              {data.items.map((item) => (
+                <div key={item.id} className={`${cols} border-b border-dashed border-[#dcdcdc] py-[14px] hover:bg-[#f2f5f8]`}>
+                  <span className="pr-2">{item.product}</span>
+                  <span>{item.code || "-"}</span>
+                  <span>{item.series || "-"}</span>
+                  <span>{item.block ? formatQty(item.block) : "0"}</span>
+                  <span>{formatQty(item.qty, item.unit)}</span>
+                  <span>{money(item.cost)}</span>
+                  <span>{money(item.sum)}</span>
+                </div>
+              ))}
             </div>
           ) : (
             <EmptyBlock text="Товаров не найдено" className="py-10" />
@@ -163,8 +132,10 @@ export function WriteOffDetailPanel({ id, canEdit, onClose, onChanged, notify }:
         <ConfirmDialog
           title={pending === "finish" ? t("Списать") : t("Отменить списание")}
           text={`${t("Списание")} №${data.id}`}
-          confirmLabel={pending === "finish" ? "Списать" : "Подтвердить"}
+          confirmLabel={pending === "finish" ? "Списать" : "Да"}
           tone={pending === "finish" ? "blue" : "red"}
+          kind={pending === "cancel" ? "cancel" : undefined}
+          item={`${t("Списание")} №${data.id}`}
           busy={busy}
           error={error}
           onConfirm={() => void run()}

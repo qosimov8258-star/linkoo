@@ -35,12 +35,12 @@ import {
 // the source warehouse lacks the goods (stock core balances).
 
 declare global {
-  var __linkoTransfersSchemaV1: Promise<void> | undefined
+  var __linkoTransfersSchemaV2: Promise<void> | undefined
 }
 
 export async function ensureTransfersSchema(): Promise<void> {
-  if (!globalThis.__linkoTransfersSchemaV1) {
-    globalThis.__linkoTransfersSchemaV1 = (async () => {
+  if (!globalThis.__linkoTransfersSchemaV2) {
+    globalThis.__linkoTransfersSchemaV2 = (async () => {
       await ensureStockSchema()
       await getDb().exec(`
         ALTER TABLE internal_transfers ADD COLUMN IF NOT EXISTS given_at TEXT NOT NULL DEFAULT '';
@@ -64,13 +64,26 @@ export async function ensureTransfersSchema(): Promise<void> {
           created_at TEXT NOT NULL DEFAULT ''
         );
         CREATE INDEX IF NOT EXISTS internal_transfer_logs_transfer_idx ON internal_transfer_logs (transfer_id);
+        CREATE TABLE IF NOT EXISTS transfer_reference_items (
+          id SERIAL PRIMARY KEY,
+          transfer_id INTEGER NOT NULL,
+          position INTEGER NOT NULL DEFAULT 0,
+          product TEXT NOT NULL DEFAULT '',
+          article TEXT NOT NULL DEFAULT '',
+          unit TEXT NOT NULL DEFAULT '',
+          quantity DOUBLE PRECISION NOT NULL DEFAULT 0,
+          weight DOUBLE PRECISION NOT NULL DEFAULT 0,
+          price DOUBLE PRECISION NOT NULL DEFAULT 0,
+          series TEXT NOT NULL DEFAULT ''
+        );
+        CREATE INDEX IF NOT EXISTS transfer_reference_items_transfer_idx ON transfer_reference_items (transfer_id);
       `)
     })().catch((error) => {
-      globalThis.__linkoTransfersSchemaV1 = undefined
+      globalThis.__linkoTransfersSchemaV2 = undefined
       throw error
     })
   }
-  await globalThis.__linkoTransfersSchemaV1
+  await globalThis.__linkoTransfersSchemaV2
 }
 
 export type TransferRow = {
@@ -162,6 +175,29 @@ export async function getTransfer(id: number, db?: PgDb): Promise<Transfer | nul
   await ensureTransfersSchema()
   const row = (await (db ?? getDb()).prepare("SELECT * FROM internal_transfers WHERE id = @id").get({ id })) as TransferRow | undefined
   return row ? rowToTransfer(row) : null
+}
+
+/**
+ * Product lines the reference shows for a transfer whose own `items` are empty (read-only display data copied from the
+ * reference; they never take part in stock or in actions).
+ */
+export async function getTransferReferenceItems(id: number): Promise<TransferItem[]> {
+  await ensureTransfersSchema()
+  const rows = (await getDb()
+    .prepare("SELECT product, article, unit, quantity, weight, price, series FROM transfer_reference_items WHERE transfer_id = @id ORDER BY position, id")
+    .all({ id })) as Array<{ product: string; article: string; unit: string; quantity: number; weight: number; price: number; series: string }>
+  return rows.map((row, index) => ({
+    id: index + 1,
+    key: "",
+    product: row.product,
+    article: row.article,
+    unit: row.unit,
+    quantity: Number(row.quantity) || 0,
+    price: Number(row.price) || 0,
+    // `weight` of a line is its total weight; TransferItem keeps the weight of one unit
+    weight: Number(row.quantity) ? (Number(row.weight) || 0) / Number(row.quantity) : 0,
+    series: row.series,
+  }))
 }
 
 // ---------------------------------------------------------------------------

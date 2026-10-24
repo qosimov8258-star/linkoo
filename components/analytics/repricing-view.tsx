@@ -2,15 +2,14 @@
 
 import { Fragment, useCallback, useEffect, useState, type ReactNode } from "react"
 import { useSearchParams } from "next/navigation"
-import { ArrowDown, ArrowUp, ArrowUpDown, FileSpreadsheet, Plus, RefreshCw, Search } from "lucide-react"
+import { ArrowDown, ArrowUp } from "lucide-react"
 
-import { BalancePagination } from "@/components/analytics/balance/pagination"
 import { buildCashQuery, useCashJson, type CashQuery } from "@/components/analytics/cash/use-cash"
-import { CashSnackbar, FormField, MultiPick, SearchSelect, useCanWrite, type SnackbarMessage } from "@/components/analytics/cash-management-shared"
-import { FilterPopup, FilterToggle } from "@/components/analytics/internal-transfers-filter"
+import { CashSnackbar, useCanWrite, type SnackbarMessage } from "@/components/analytics/cash-management-shared"
 import { docDate, formatSum } from "@/components/analytics/internal-transfers-shared"
-import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
-import { downloadExcelTable } from "@/lib/excel-export"
+import { RI, RefButton, RefCard, RefFilterPanel, RefHeader, RefPage, RefToolbar } from "@/components/ref/list-kit"
+import { RefMultiField } from "@/components/ref/multi-field"
+import { RefTip } from "@/components/ref/ref-tip"
 import { useLanguage } from "@/lib/i18n/language-context"
 import { RepricingDetailPanel, RepricingStatusLabel } from "./repricing-detail"
 import { RepricingLinkedDialog } from "./repricing-dialogs"
@@ -19,23 +18,18 @@ import {
   REPRICINGS_API,
   REPRICING_STATUSES,
   REPRICING_STATUS_LABELS,
-  type Repricing,
   type RepricingListResult,
   type RepricingOptions,
   type RepricingStatus,
 } from "./repricing-data"
 
-// "Переоценка" (demo #/revaluation, chunk c143: list 5205, filter 4463, detail 5206, create 5207/5208,
-// linked 5210). Header buttons "Переоценку связанных" (tooltip "Создать переоценку для связанных
-// прайс-листов") and "Добавить"; toolbar "Показать фильтр" (Прайс лист, Пользователь, Статус, Товар),
-// search, paginator, Excel; columns № | Создал | Дата создания | Прайс лист | Сумма переоценки |
-// Статус (проведен / отменен); a row opens its detail in place. The URL keeps the state; the price
-// lists page links here with ?openCreateDialog=true&priceListId=&currency= ("Установить цену").
-
-const PAGE_SIZES = [10, 25, 50, 100, 200, 500] as const
+// "Переоценка" (reference #/revaluation/). Header buttons "Переоценку связанных" (tooltip "Создать переоценку для
+// связанных прайс-листов") and "Добавить"; toolbar "Показать фильтр" opens a full-width panel (Прайс лист,
+// Пользователь, Статус, Товар + ПРИМЕНИТЬ), search, page size + "1 - 25 из N"; columns № | Создал | Дата создания |
+// Прайс лист | Сумма переоценки | Статус (проведен / отменен); a row opens its detail card in place.
+// The URL keeps the state; the price lists page links here with ?openCreateDialog=true&priceListId=&currency=.
 
 type Filters = { priceLists: string[]; users: string[]; status: RepricingStatus | ""; products: string[] }
-const EMPTY: Filters = { priceLists: [], users: [], status: "", products: [] }
 type ViewState = { search: string; ordering: string; page: number; pageSize: number; filters: Filters; detailId: number | null }
 type CreateState = { priceListId: number | null; currency: string } | null
 
@@ -72,30 +66,31 @@ function stateToSearch(state: ViewState): string {
   return buildCashQuery({ search: state.search, ordering: state.ordering, page: state.page > 1 ? state.page : "", pageSize: state.pageSize, priceList: f.priceLists, user: f.users, status: f.status, product: f.products, id: state.detailId ?? "" })
 }
 
-function RepricingFilter({ filters, options, onClose, onApply }: { filters: Filters; options: RepricingOptions | null; onClose: () => void; onApply: (filters: Filters) => void }) {
+function RepricingFilterPanel({ filters, options, onClose, onApply }: { filters: Filters; options: RepricingOptions | null; onClose: () => void; onApply: (filters: Filters) => void }) {
   const { t } = useLanguage()
   const [draft, setDraft] = useState(filters)
   return (
-    <FilterPopup onClose={onClose} onSubmit={() => onApply(draft)}>
-      <MultiPick label={t("Прайс лист")} options={(options?.priceLists ?? []).map((list) => ({ value: String(list.id), label: list.name }))} value={draft.priceLists} onChange={(priceLists) => setDraft((current) => ({ ...current, priceLists }))} />
-      <MultiPick label={t("Пользователь")} options={(options?.users ?? []).map((user) => ({ value: user, label: user }))} value={draft.users} onChange={(users) => setDraft((current) => ({ ...current, users }))} />
-      <FormField label={t("Статус")}>
-        <SearchSelect
-          value={draft.status}
+    <RefFilterPanel onClose={onClose} onApply={() => onApply(draft)} applyClassName="mt-[24px]">
+      <div className="mt-0 grid grid-cols-4 gap-x-[12px] pr-[3px]">
+        <RefMultiField label={t("Прайс лист")} options={(options?.priceLists ?? []).map((list) => ({ value: String(list.id), label: list.name }))} value={draft.priceLists} onChange={(priceLists) => setDraft((current) => ({ ...current, priceLists }))} />
+        <RefMultiField label={t("Пользователь")} options={(options?.users ?? []).map((user) => ({ value: user, label: user }))} value={draft.users} onChange={(users) => setDraft((current) => ({ ...current, users }))} />
+        <RefMultiField
+          label={t("Статус")}
+          multiple={false}
           options={REPRICING_STATUSES.map((status) => ({ value: status, label: t(REPRICING_STATUS_LABELS[status]) }))}
-          placeholder={t("Все")}
-          onChange={(status) => setDraft((current) => ({ ...current, status: status as RepricingStatus | "" }))}
+          value={draft.status ? [draft.status] : []}
+          onChange={(next) => setDraft((current) => ({ ...current, status: (next[0] ?? "") as RepricingStatus | "" }))}
         />
-      </FormField>
-      <MultiPick label={t("Товар")} options={(options?.products ?? []).map((product) => ({ value: product.key, label: product.name }))} value={draft.products} onChange={(products) => setDraft((current) => ({ ...current, products }))} />
-    </FilterPopup>
+        <RefMultiField label={t("Товар")} options={(options?.products ?? []).map((product) => ({ value: product.key, label: product.name }))} value={draft.products} onChange={(products) => setDraft((current) => ({ ...current, products }))} />
+      </div>
+    </RefFilterPanel>
   )
 }
 
 function SortIcon({ ordering, sortKey }: { ordering: string; sortKey: string }) {
   if (ordering === sortKey) return <ArrowUp className="h-3.5 w-3.5" />
   if (ordering === `-${sortKey}`) return <ArrowDown className="h-3.5 w-3.5" />
-  return <ArrowUpDown className="h-3.5 w-3.5 opacity-40" />
+  return null
 }
 
 export function RepricingView() {
@@ -148,85 +143,51 @@ export function RepricingView() {
       <SortIcon ordering={state.ordering} sortKey={key} />
     </button>
   )
-  const f = state.filters
-  const filterCount = [f.priceLists.length > 0, f.users.length > 0, Boolean(f.status), f.products.length > 0].filter(Boolean).length
 
-  const downloadExcel = async () => {
-    try {
-      const response = await fetch(`${REPRICINGS_API}?${buildCashQuery(listQuery(state, 0))}`, { cache: "no-store" })
-      const body = (await response.json().catch(() => null)) as (RepricingListResult & { error?: string }) | null
-      if (!response.ok || !body) throw new Error(body?.error || `HTTP ${response.status}`)
-      downloadExcelTable(t("Переоценка"), [
-        ["№", t("Создал"), t("Дата создания"), t("Прайс лист"), t("Сумма переоценки"), t("Валюта"), t("Статус"), t("Комментарий")],
-        ...body.results.map((row: Repricing) => [row.id, row.createdBy, docDate(row.createdAt, language, true), row.priceList, row.total, row.currency, t(REPRICING_STATUS_LABELS[row.status]), row.comment]),
-      ])
-    } catch (reason) {
-      notify(reason instanceof Error ? t(reason.message) : t("Сервер недоступен, попробуйте ещё раз"), true)
-    }
-  }
-
-  const headerButton = "inline-flex h-[30px] items-center gap-1.5 rounded-sm bg-[#71ce87] px-3 text-[14px] font-semibold text-white hover:brightness-95"
-  const th = "whitespace-nowrap px-3 py-3 text-left font-semibold"
-  const td = "px-3 py-3 align-middle"
+  const th = "whitespace-nowrap px-2 py-0 text-left font-semibold"
+  const td = "px-2 py-0 align-middle leading-[16.25px]"
+  const pageCount = Math.max(1, Math.ceil((data?.count ?? 0) / Math.max(1, state.pageSize)))
+  const from = data?.count ? (state.page - 1) * state.pageSize + 1 : 0
+  const to = Math.min(state.page * state.pageSize, data?.count ?? 0)
   return (
-    <main className="min-h-screen bg-[#f1f4f8] text-[#17233b]">
-      <header className="flex min-h-[76px] flex-wrap items-center justify-between gap-4 border-b border-[#d8dee7] bg-[#f2f5f8] px-4 py-3 md:px-9">
-        <div className="flex min-w-0 items-center gap-3">
-          <FavoritesButton className="flex items-center gap-3 text-2xl font-bold text-[#4f70e7]" />
-          <span className="text-3xl font-light text-[#586174]">|</span>
-          <h1 className="truncate text-xl font-bold text-[#586174] md:text-2xl">{t("Переоценка")}</h1>
-        </div>
+    <RefPage>
+      <RefHeader title={t("Переоценка")}>
         {canEdit && (
-          <div className="flex flex-wrap items-center gap-2.5">
-            <button type="button" onClick={() => setLinkedOpen(true)} title={t("Создать переоценку для связанных прайс-листов")} className={headerButton}>
-              <Plus className="h-4 w-4" /> {t("Переоценку связанных")}
-            </button>
-            <button type="button" onClick={() => setCreate({ priceListId: null, currency: "" })} title={t("Добавление")} className={headerButton}>
-              <Plus className="h-4 w-4" /> {t("Добавить")}
-            </button>
-          </div>
+          <>
+            <RefTip text={t("Создать переоценку для связанных прайс-листов")} side="bottom">
+              <RefButton exact green icon={RI.add} label={t("Переоценку связанных")} onClick={() => setLinkedOpen(true)} />
+            </RefTip>
+            <RefButton exact green icon={RI.add} label={t("Добавить")} onClick={() => setCreate({ priceListId: null, currency: "" })} />
+          </>
         )}
-      </header>
+      </RefHeader>
 
-      <section className="mx-4 mb-10 mt-4 rounded-sm bg-white shadow-sm md:mx-6">
-        <div className="flex flex-wrap items-center gap-x-5 gap-y-3 border-b border-[#e1e5eb] px-4 py-3 md:px-6">
-          <div className="relative">
-            <FilterToggle
-              count={filterCount}
-              open={filterOpen}
-              onOpen={() => setFilterOpen(true)}
+      <RefCard>
+        <RefToolbar
+          filterOpen={filterOpen}
+          onToggleFilter={() => setFilterOpen((open) => !open)}
+          filterPanel={
+            <RepricingFilterPanel
+              filters={state.filters}
+              options={options.data}
               onClose={() => setFilterOpen(false)}
-              onClear={() => {
+              onApply={(filters) => {
                 setFilterOpen(false)
-                update({ filters: { ...EMPTY }, page: 1, detailId: null })
+                update({ filters, page: 1, detailId: null })
               }}
             />
-            {filterOpen && (
-              <RepricingFilter
-                filters={state.filters}
-                options={options.data}
-                onClose={() => setFilterOpen(false)}
-                onApply={(filters) => {
-                  setFilterOpen(false)
-                  update({ filters, page: 1, detailId: null })
-                }}
-              />
-            )}
-          </div>
-          <label className="relative min-w-[180px] flex-1 border-b border-[#dbe0e8] pb-1.5 md:max-w-[340px]">
-            <input value={searchDraft} onChange={(event) => setSearchDraft(event.target.value)} placeholder={t("Поиск")} aria-label={t("Поиск")} className="w-full bg-transparent pr-7 text-[15px] outline-none placeholder:text-[#9aa3b6]" />
-            <Search className="pointer-events-none absolute right-0 top-0.5 h-5 w-5 text-[#9aa3b6]" />
-          </label>
-          <div className="ml-auto flex flex-wrap items-center gap-3">
-            <BalancePagination page={state.page} pageSize={state.pageSize} count={data?.count ?? 0} sizes={PAGE_SIZES} onChange={({ page, pageSize }) => update({ page, pageSize, detailId: null })} />
-            <button type="button" onClick={list.reload} title={t("Обновить список")} aria-label={t("Обновить список")} className="flex h-9 w-9 items-center justify-center rounded-full text-[#666] hover:bg-[#f2f5f8]">
-              <RefreshCw className={`h-5 w-5 ${list.loading ? "animate-spin" : ""}`} />
-            </button>
-            <button type="button" onClick={() => void downloadExcel()} disabled={!data} title={t("Скачать Excel")} aria-label={t("Скачать Excel")} className="flex h-9 w-9 items-center justify-center rounded-full text-[#666] hover:bg-[#f2f5f8] disabled:opacity-40">
-              <FileSpreadsheet className="h-5 w-5" />
-            </button>
-          </div>
-        </div>
+          }
+          query={searchDraft}
+          onQuery={setSearchDraft}
+          pageSize={state.pageSize}
+          onPageSize={(pageSize) => update({ pageSize, page: 1, detailId: null })}
+          from={from}
+          to={to}
+          total={data?.count ?? 0}
+          page={state.page}
+          pageCount={pageCount}
+          onPage={(page) => update({ page, detailId: null })}
+        />
 
         {list.error && (
           <div className="flex flex-wrap items-center gap-3 px-6 py-3 text-[#e57373]">
@@ -239,16 +200,17 @@ export function RepricingView() {
           </div>
         )}
 
-        <div className={`overflow-x-auto ${list.loading ? "opacity-60" : ""}`}>
-          <table className="w-full min-w-[820px] border-collapse text-[14px]">
+        <div className={`overflow-x-auto xl:overflow-visible ${list.loading ? "opacity-60" : ""}`}>
+          <table className="w-full min-w-[820px] table-fixed border-collapse text-[13px]">
             <thead>
-              <tr className="border-b border-[#e1e5eb]">
-                <th className={`${th} w-[8%] pl-6`}>{sortHeader("id", "№")}</th>
-                <th className={`${th} w-[24%]`}>{t("Создал")}</th>
-                <th className={`${th} w-[20%]`}>{sortHeader("created_date", t("Дата создания"))}</th>
-                <th className={`${th} w-[18%]`}>{t("Прайс лист")}</th>
-                <th className={`${th} w-[18%]`}>{sortHeader("total", t("Сумма переоценки"))}</th>
-                <th className={`${th} pr-6`}>{t("Статус")}</th>
+              <tr className="h-[50px] bg-[#5d6474] text-white">
+                {/* widths: lib/ref-table-columns.ts (TableFitter) */}
+                <th className={`${th} pl-[30px]`}>{sortHeader("id", "№")}</th>
+                <th className={th}>{t("Создал")}</th>
+                <th className={th}>{sortHeader("created_date", t("Дата создания"))}</th>
+                <th className={th}>{t("Прайс лист")}</th>
+                <th className={th}>{sortHeader("total", t("Сумма переоценки"))}</th>
+                <th className={`${th} pr-[38px]`}>{t("Статус")}</th>
               </tr>
             </thead>
             <tbody>
@@ -256,28 +218,32 @@ export function RepricingView() {
                 const open = state.detailId === row.id
                 return (
                   <Fragment key={row.id}>
-                    <tr onClick={() => update({ detailId: open ? null : row.id })} className={`cursor-pointer border-b border-[#efefef] ${open ? "bg-[#eef2ff]" : "hover:bg-[#f2f5f8]"}`}>
-                      <td className={`${td} pl-6 font-semibold`}>{row.id}</td>
-                      <td className={td}>{row.createdBy || t("Не указано")}</td>
-                      <td className={`${td} whitespace-nowrap`}>{docDate(row.createdAt, language)}</td>
-                      <td className={td}>{row.priceList || t("Не указано")}</td>
-                      <td className={`${td} whitespace-nowrap`}>{formatSum(row.total, row.currency)}</td>
-                      <td className={`${td} pr-6`}>
-                        <RepricingStatusLabel status={row.status} />
-                      </td>
-                    </tr>
-                    {open && (
+                    {open ? (
                       <tr>
-                        <td colSpan={6} className="bg-[#f2f5f8] px-2 py-3 md:px-4">
-                          <RepricingDetailPanel
-                            key={`${row.id}-${detailVersion}`}
-                            id={row.id}
-                            canEdit={canEdit}
-                            onClose={() => update({ detailId: null })}
-                            onOpen={(id) => update({ detailId: id })}
-                            onChanged={refresh}
-                            notify={notify}
-                          />
+                        {/* like the reference the card takes the row's place, 20 px apart from its neighbours and 15 px wider than the list */}
+                        <td colSpan={6} className="p-0">
+                          <div className="-mx-[15px] mb-[19px] mt-[21px]">
+                            <RepricingDetailPanel
+                              key={`${row.id}-${detailVersion}`}
+                              id={row.id}
+                              canEdit={canEdit}
+                              onClose={() => update({ detailId: null })}
+                              onOpen={(id) => update({ detailId: id })}
+                              onChanged={refresh}
+                              notify={notify}
+                            />
+                          </div>
+                        </td>
+                      </tr>
+                    ) : (
+                      <tr onClick={() => update({ detailId: row.id })} className="h-[50px] cursor-pointer border-b-2 border-dotted border-[#d9e0e5] hover:bg-[#f2f5f8]">
+                        <td className={`${td} pl-[38px]`}>{row.id}</td>
+                        <td className={td}>{row.createdBy || t("Не указано")}</td>
+                        <td className={`${td} whitespace-nowrap`}>{docDate(row.createdAt, language)}</td>
+                        <td className={td}>{row.priceList || t("Не указано")}</td>
+                        <td className={`${td} whitespace-nowrap`}>{formatSum(row.total, row.currency)}</td>
+                        <td className={`${td} pr-[38px]`}>
+                          <RepricingStatusLabel status={row.status} />
                         </td>
                       </tr>
                     )}
@@ -294,7 +260,7 @@ export function RepricingView() {
             </tbody>
           </table>
         </div>
-      </section>
+      </RefCard>
 
       {create && (
         <RepricingFormDialog
@@ -323,6 +289,6 @@ export function RepricingView() {
         />
       )}
       <CashSnackbar message={message} onClose={closeSnackbar} />
-    </main>
+    </RefPage>
   )
 }

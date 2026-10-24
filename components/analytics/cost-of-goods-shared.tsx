@@ -1,7 +1,7 @@
 "use client"
 
 import Link from "next/link"
-import { CheckCircle2, XCircle } from "lucide-react"
+import { XCircle } from "lucide-react"
 
 import { docDate } from "@/components/analytics/internal-transfers-shared"
 import { formatMoney } from "@/lib/finance/currency"
@@ -28,7 +28,13 @@ export function checksTitle(checks: NetCostCheck[], t: Translate): string {
 }
 
 export function CheckIcon({ ok, title }: { ok: boolean; title?: string }) {
-  return ok ? <CheckCircle2 className="h-5 w-5 text-[#8acb8d]" aria-label={title} /> : <XCircle className="h-5 w-5 text-[#e57373]" aria-label={title} />
+  return ok ? (
+    <svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#8acb8d]" role="img" aria-label={title}>
+      <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z" />
+    </svg>
+  ) : (
+    <XCircle className="h-5 w-5 text-[#e57373]" aria-label={title} />
+  )
 }
 
 /** "Поставка №12" / "Списание №4" … linked to the document page when it opens by id. */

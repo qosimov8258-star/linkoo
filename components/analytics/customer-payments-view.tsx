@@ -3,9 +3,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import { useSearchParams } from "next/navigation"
 import {
-  ArrowDown,
-  ArrowUp,
-  ArrowUpDown,
   Banknote,
   Check,
   CheckCheck,
@@ -14,13 +11,9 @@ import {
   CreditCard,
   Download,
   Info,
-  Pencil,
   RefreshCw,
   Search,
-  Send,
-  Settings2,
   Square,
-  Trash2,
   Wallet,
   X,
   XCircle,
@@ -43,7 +36,7 @@ import {
   type CustomerPaymentsFilters,
   type CustomerPaymentsState,
 } from "@/components/analytics/customer-payments-filters"
-import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
+import { RI, RefButton, RefCard, RefHeader, RefIconButton, RefPage, RefTable, RefTabs, RefToolbar } from "@/components/ref/list-kit"
 import { downloadExcelTable } from "@/lib/excel-export"
 import { CLIENT_CONFIRMATION_ICON_LABELS, type CustomerPaymentOptions, type CustomerPaymentRow, type CustomerPaymentsResult, type CustomerPaymentTab, type CustomerPaymentTotalsResult } from "@/lib/cash/customer-payments-types"
 import { currencyLabel, formatMoney } from "@/lib/finance/currency"
@@ -164,8 +157,10 @@ function ColumnSettings({ hidden, onChange }: { hidden: ColumnId[]; onChange: (n
   }, [open])
   return (
     <div ref={ref} className="relative">
-      <button type="button" onClick={() => setOpen((value) => !value)} title={t("Настройки таблицы")} aria-label={t("Настройки таблицы")} className="p-1 text-[#586174] hover:text-[#4f70e7]">
-        <Settings2 className="h-5 w-5" />
+      <button type="button" onClick={() => setOpen((value) => !value)} title={t("Вкл/Выкл колонки")} aria-label={t("Вкл/Выкл колонки")} className="flex h-12 w-12 items-center justify-center">
+        <svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#333]" aria-hidden>
+          <path d="M7 15v2h10v-2H7zm-4 6h18v-2H3v2zm0-8h18v-2H3v2zm4-6v2h10V7H7zM3 3v2h18V3H3z" />
+        </svg>
       </button>
       {open && (
         <div className="absolute right-0 z-[60] mt-1 w-64 rounded-md border border-[#e1e5eb] bg-white py-2 shadow-lg">
@@ -186,9 +181,23 @@ function ColumnSettings({ hidden, onChange }: { hidden: ColumnId[]; onChange: (n
   )
 }
 
+const MATERIAL_PATHS = {
+  reply: "M10 9V5l-7 7 7 7v-4.1c5 0 8.5 1.6 11 5.1-1-5-4-10-11-11z",
+  edit: "M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z",
+  trash: "M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z",
+} as const
+
+function MaterialIcon({ name }: { name: keyof typeof MATERIAL_PATHS }) {
+  return (
+    <svg viewBox="0 0 24 24" className="h-6 w-6 fill-current" aria-hidden>
+      <path d={MATERIAL_PATHS[name]} />
+    </svg>
+  )
+}
+
 function IconButton({ label, onClick, disabled = false, children, className = "" }: { label: string; onClick: () => void; disabled?: boolean; children: ReactNode; className?: string }) {
   return (
-    <button type="button" title={label} aria-label={label} disabled={disabled} onClick={onClick} className={`p-1 text-[#586174] hover:text-[#4f70e7] disabled:cursor-not-allowed disabled:opacity-40 ${className}`}>
+    <button type="button" title={label} aria-label={label} disabled={disabled} onClick={onClick} className={`p-0.5 text-[#5d6474] hover:text-[#4f70e7] disabled:cursor-not-allowed disabled:opacity-40 ${className}`}>
       {children}
     </button>
   )
@@ -486,17 +495,17 @@ export function CustomerPaymentsView() {
         <ConfirmationIcon status={row.clientConfirmation} />
         {canResend && (
           <IconButton label={t("Переотправить запрос")} disabled={!canWrite} onClick={() => openPending("resend", row)}>
-            <Send className="h-4 w-4" />
+            <MaterialIcon name="reply" />
           </IconButton>
         )}
         {row.acceptance ? (
           canWrite ? (
             <a href={`/analytics/cash-management?search=${row.acceptance.docNo}`} target="_blank" rel="noreferrer" title={warn} aria-label={warn} className="p-1 text-[#e5484d]">
-              <Pencil className="h-4 w-4" />
+              <MaterialIcon name="edit" />
             </a>
           ) : (
             <IconButton label={warn} disabled onClick={() => undefined} className="text-[#e5484d]">
-              <Pencil className="h-4 w-4" />
+              <MaterialIcon name="edit" />
             </IconButton>
           )
         ) : (
@@ -506,194 +515,125 @@ export function CustomerPaymentsView() {
             onClick={() => setEditing(row)}
             className={row.accepted ? "text-[#e5484d] hover:text-[#c53238]" : ""}
           >
-            <Pencil className="h-4 w-4" />
+            <MaterialIcon name="edit" />
           </IconButton>
         )}
-        <IconButton label={t("Удалить транзакцию")} disabled={!canWrite} onClick={() => openPending("delete", row)} className="text-[#e5484d] hover:text-[#c53238]">
-          <Trash2 className="h-4 w-4" />
+        <IconButton label={t("Удалить транзакцию")} disabled={!canWrite} onClick={() => openPending("delete", row)} className="!text-[#e57373] hover:!text-[#e5484d]">
+          <MaterialIcon name="trash" />
         </IconButton>
       </div>
     )
   }
 
   const sortIcon = (id: ColumnId) =>
-    state.ordering === id ? <ArrowUp className="h-3.5 w-3.5" /> : state.ordering === `-${id}` ? <ArrowDown className="h-3.5 w-3.5" /> : <ArrowUpDown className="h-3.5 w-3.5 opacity-40" />
+    state.ordering === id ? <span className="ml-1 text-[10px]">▲</span> : state.ordering === `-${id}` ? <span className="ml-1 text-[10px]">▼</span> : null
+
+  const WEIGHTS: Record<ColumnId, number> = { id: 42, client: 166, user: 138, created_date: 138, accepted_time: 139, responsible_agent: 138, division: 139, amount: 138, real_amount: 138, cashbox: 69, comment: 139 }
+  const pageCount = Math.max(1, Math.ceil((list.data?.count ?? 0) / state.pageSize))
+  const heads = [
+    ...(state.showCheckboxes ? [<input key="all" type="checkbox" checked={allOnPage} onChange={toggleAll} aria-label={t("Выбрать все")} className="h-4 w-4 accent-[#4f71dc]" />] : []),
+    ...visibleColumns.map((column) => {
+      const label = (
+        <span className={column.align === "right" ? "-mr-[22px] block text-right" : undefined}>
+          {column.id === "id" ? column.label : t(column.label)}
+          {sortIcon(column.id)}
+        </span>
+      )
+      return column.sortable ? (
+        <button key={column.id} type="button" onClick={() => sort(column.id)} className="block w-full text-left font-semibold hover:opacity-80">
+          {label}
+        </button>
+      ) : (
+        <span key={column.id}>{label}</span>
+      )
+    }),
+  ]
 
   return (
-    <main className="min-h-screen bg-white text-[#17233b]">
-      <header className="flex min-h-[76px] flex-wrap items-center justify-between gap-4 border-b border-[#d8dee7] bg-[#f2f5f8] px-4 py-3 md:px-9">
-        <div className="flex min-w-0 items-center gap-3">
-          <FavoritesButton className="flex items-center gap-3 text-2xl font-bold text-[#4f70e7]" />
-          <span className="text-3xl font-light text-[#586174]">|</span>
-          <h1 className="truncate text-xl font-bold text-[#586174] md:text-2xl">{t("Оплаты от клиентов")}</h1>
-        </div>
-        <button
-          type="button"
-          onClick={() => void exportAll()}
-          disabled={exporting || !list.data}
-          className="flex h-11 items-center gap-2 rounded-md bg-[#4caf72] px-5 font-semibold text-white disabled:opacity-60"
-        >
-          <Download className="h-5 w-5" /> {exporting ? t("Загрузка...") : t("Скачать Excel")}
-        </button>
-      </header>
+    <RefPage>
+      <RefHeader title={t("Оплаты от клиентов")}>
+        <RefButton green icon={RI.download} label={exporting ? t("Загрузка...") : t("Скачать Excel")} onClick={() => void exportAll()} disabled={exporting || !list.data} />
+      </RefHeader>
 
-      <div
-        className={`relative px-4 py-3 text-[13px] font-bold text-white md:px-9 ${hasSelection ? "bg-[#09890f]" : "bg-[#5869f0]"}`}
-        aria-live="polite"
-      >
+      <div className={`relative px-[5px] py-[5px] text-[13px] font-semibold leading-4 text-white ${hasSelection ? "bg-[#09890f]" : "bg-[#5869f0]"}`} aria-live="polite">
         {t("Оплаты от клиентов")}: {summary || "0"}
         {totals.loading && !hasSelection && <RefreshCw className="ml-2 inline h-3.5 w-3.5 animate-spin" />}
       </div>
 
-      <nav className="grid grid-cols-3 bg-white text-center">
-        {TABS.map((item) => (
-          <button
-            key={item.tab}
-            type="button"
-            onClick={() => update({ tab: item.tab, page: 1 })}
-            className={`border-b-2 px-1 py-3 text-[14px] font-medium md:text-[16px] ${state.tab === item.tab ? "border-[#4f5fd9] text-[#17233b]" : "border-transparent text-[#586174]"}`}
-          >
-            {t(item.label)}
-          </button>
-        ))}
-      </nav>
-
-      <section className="flex flex-wrap items-center gap-3 border-y border-[#e1e5eb] bg-white px-4 py-3 md:px-9">
-        <BalanceFilterChip
-          count={filterCount}
-          onOpen={() => {
+      <RefCard>
+        <div className="bg-white pb-[2px]"><RefTabs labels={TABS.map((item) => item.label)} value={TABS.find((item) => item.tab === state.tab)?.label ?? TABS[0].label} onChange={(label) => update({ tab: TABS.find((item) => item.label === label)?.tab ?? "all", page: 1 })} /></div>
+        <RefToolbar
+          linkFilter="flush"
+          filterOpen={filterOpen}
+          onToggleFilter={() => {
             setDraft(state.filters)
             setFilterOpen((value) => !value)
           }}
-          onClear={clearFilters}
-        />
-        <label className="relative min-w-[160px] flex-1 border-b border-[#dbe0e8] pb-1.5 md:max-w-[320px]">
-          <input
-            value={searchDraft}
-            onChange={(event) => setSearchDraft(event.target.value)}
-            placeholder={t("Поиск")}
-            aria-label={t("Поиск")}
-            className="w-full bg-transparent pr-7 text-[15px] outline-none placeholder:text-[#9aa3b6]"
-          />
-          <Search className="pointer-events-none absolute right-0 top-0.5 h-5 w-5 text-[#9aa3b6]" />
-        </label>
-
-        <div className="ml-auto flex flex-wrap items-center gap-2">
-          {hasSelection && (
-            <span className="flex items-center gap-2 font-semibold text-[#17233b]">
-              {t("Выбрано")}: {state.select.length}
-              <IconButton label={t("Снять выделение")} onClick={() => setSelection([])}>
-                <X className="h-4 w-4" />
-              </IconButton>
-            </span>
-          )}
-          <BalancePagination page={state.page} pageSize={state.pageSize} count={list.data?.count ?? 0} onChange={({ page, pageSize }) => update({ page, pageSize })} />
-          <IconButton
-            label={t(state.showCheckboxes ? "Спрятать флажки" : "Выбрать из списка")}
-            onClick={() => update({ showCheckboxes: !state.showCheckboxes, select: [] })}
-          >
-            {state.showCheckboxes ? <CheckSquare className="h-5 w-5" /> : <Square className="h-5 w-5" />}
-          </IconButton>
-          <IconButton label={t("Скачать")} onClick={exportPage} disabled={!rows.length}>
-            <Download className="h-5 w-5" />
-          </IconButton>
-          <ColumnSettings hidden={hidden} onChange={changeHidden} />
-          <IconButton label={t("Обновить список")} onClick={reloadAll}>
-            <RefreshCw className={`h-5 w-5 ${list.loading ? "animate-spin" : ""}`} />
-          </IconButton>
-          <IconButton
-            label={hasSelection ? t("Изменить выбранные оплаты") : t("Выберите хотя бы одного")}
-            disabled={!hasSelection || !canWrite}
-            onClick={() => setDialog("bulk")}
-          >
-            <Pencil className="h-5 w-5" />
-          </IconButton>
-          <button
-            type="button"
-            disabled={!hasSelection || !canWrite}
-            title={hasSelection ? undefined : t("Выберите хотя бы одного")}
-            onClick={() => setDialog("accept")}
-            className="flex h-10 items-center gap-2 rounded-md bg-[#4f71dc] px-4 font-semibold text-white disabled:opacity-50"
-          >
-            <Wallet className="h-5 w-5" /> {t("Принять на кассу")}
-          </button>
-        </div>
-      </section>
-
-      {filterOpen && <CustomerPaymentsFilterPanel draft={draft} onChange={setDraft} options={options} onApply={applyFilters} />}
-
-      {list.error && (
-        <div className="flex flex-wrap items-center gap-3 px-4 py-3 text-[#e57373] md:px-9">
-          <span>
-            {t("Не удалось загрузить данные")}: {t(list.error)}
-          </span>
-          <button type="button" onClick={reloadAll} className="font-semibold text-[#4f70e7] hover:underline">
-            {t("Повторить")}
-          </button>
-        </div>
-      )}
-
-      <section className={`overflow-x-auto pb-10 ${list.loading ? "opacity-60" : ""}`}>
-        <table className="w-full min-w-[1200px] border-collapse text-[14px]">
-          <thead>
-            <tr className="bg-[#edf2f7] text-[#253653]">
-              {state.showCheckboxes && (
-                <th className="w-10 border-b border-[#e1e5eb] px-2 py-3">
-                  <input type="checkbox" checked={allOnPage} onChange={toggleAll} aria-label={t("Выбрать все")} className="h-4 w-4 accent-[#4f70e7]" />
-                </th>
+          filterPanel={<CustomerPaymentsFilterPanel draft={draft} onChange={setDraft} options={options} onApply={applyFilters} onClose={() => setFilterOpen(false)} />}
+          query={searchDraft}
+          onQuery={setSearchDraft}
+          pageSize={state.pageSize}
+          onPageSize={(size) => update({ page: 1, pageSize: size })}
+          from={list.data?.count ? (state.page - 1) * state.pageSize + 1 : 0}
+          to={Math.min(state.page * state.pageSize, list.data?.count ?? 0)}
+          total={list.data?.count ?? 0}
+          page={state.page}
+          pageCount={pageCount}
+          onPage={(page) => update({ page })}
+          icons={
+            <>
+              {hasSelection && (
+                <span className="mr-2 flex items-center gap-1 whitespace-nowrap font-semibold text-[#333]">
+                  {t("Выбрано")}: {state.select.length}
+                  <IconButton label={t("Снять выделение")} onClick={() => setSelection([])}>
+                    <X className="h-4 w-4" />
+                  </IconButton>
+                </span>
               )}
-              {visibleColumns.map((column) => (
-                <th key={column.id} className={`border-b border-[#e1e5eb] px-3 py-3 font-semibold whitespace-nowrap ${column.align === "right" ? "text-right" : "text-left"}`}>
-                  {column.sortable ? (
-                    <button type="button" onClick={() => sort(column.id)} className="inline-flex items-center gap-1">
-                      {column.id === "id" ? column.label : t(column.label)}
-                      {sortIcon(column.id)}
-                    </button>
-                  ) : (
-                    t(column.label)
-                  )}
-                </th>
-              ))}
-              <th className="sticky right-0 border-b border-[#e1e5eb] bg-[#edf2f7] px-2 py-3" aria-label={t("Действия")} />
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((row, index) => {
-              const background = selected.has(row.id) ? "#eaf0fd" : index % 2 ? "#F4F8FB" : "#ffffff"
-              return (
-                <tr key={row.id} className="group border-b border-dashed border-[#e1e5eb]" style={{ background }}>
-                  {state.showCheckboxes && (
-                    <td className="px-2 py-3 text-center align-top">
-                      <input
-                        type="checkbox"
-                        checked={selected.has(row.id)}
-                        onChange={() => toggleRow(row)}
-                        aria-label={`№ ${row.id}`}
-                        className="h-4 w-4 accent-[#4f70e7]"
-                      />
-                    </td>
-                  )}
-                  {visibleColumns.map((column) => (
-                    <td key={column.id} className={`px-3 py-3 align-top ${column.align === "right" ? "text-right" : ""}`}>
-                      {cell(row, column.id)}
-                    </td>
-                  ))}
-                  <td className="sticky right-0 px-2 py-3 align-top transition-opacity md:opacity-0 md:group-hover:opacity-100 md:focus-within:opacity-100" style={{ background }}>
-                    {actions(row)}
-                  </td>
-                </tr>
-              )
-            })}
-            {!rows.length && (
-              <tr>
-                <td colSpan={columnCount} className="px-4 py-16 text-center text-[#9aa3b6]">
-                  {list.loading ? t("Загрузка...") : list.error ? "" : t("По вашему запросу ничего не найдено")}
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </section>
+              <RefIconButton path={state.showCheckboxes ? RI.eyeOff : RI.checklist} label={t(state.showCheckboxes ? "Спрятать флажки" : "Выбрать из списка")} onClick={() => update({ showCheckboxes: !state.showCheckboxes, select: [] })} color="#5d6474" />
+              <RefIconButton path={RI.download} label={t("Скачать Excel")} onClick={() => rows.length && exportPage()} color="#333" />
+              <ColumnSettings hidden={hidden} onChange={changeHidden} />
+              <RefIconButton path={RI.sync} label={t("Обновить список")} onClick={reloadAll} color="#5d6474" />
+              <RefIconButton path={RI.edit} label={hasSelection ? t("Изменить выбранные оплаты") : t("Выберите хотя бы одного")} onClick={() => hasSelection && canWrite && setDialog("bulk")} color={hasSelection ? "#333" : "#bdbdbd"} />
+            </>
+          }
+          extra={<span className="mr-2 flex"><RefButton icon={RI.card} label={t("Принять на кассу")} onClick={() => hasSelection && canWrite && setDialog("accept")} disabled={!hasSelection || !canWrite} /></span>}
+        />
+
+        {list.error && (
+          <div className="flex flex-wrap items-center gap-3 bg-white px-5 py-3 text-[#e57373]">
+            <span>
+              {t("Не удалось загрузить данные")}: {t(list.error)}
+            </span>
+            <button type="button" onClick={reloadAll} className="font-semibold text-[#4f70e7] hover:underline">
+              {t("Повторить")}
+            </button>
+          </div>
+        )}
+
+        <RefTable
+          cols={`${state.showCheckboxes ? "40px " : ""}${visibleColumns.map((column) => `minmax(0,${WEIGHTS[column.id]}fr)`).join(" ")}`}
+          heads={heads}
+          rows={rows}
+          headPad={30}
+          rowKey={(row) => row.id}
+          rowClass={(row) => (selected.has(row.id) ? "!bg-[#eaf0fd]" : "")}
+          empty={list.loading ? t("Загрузка...") : list.error ? "" : t("По вашему запросу ничего не найдено")}
+          render={(row) => [
+            ...(state.showCheckboxes ? [<input key="check" type="checkbox" checked={selected.has(row.id)} onChange={() => toggleRow(row)} aria-label={`№ ${row.id}`} className="h-4 w-4 accent-[#4f71dc]" />] : []),
+            ...visibleColumns.map((column) =>
+              column.id === "comment" ? (
+                <div key={column.id} className="relative text-right">
+                  {cell(row, column.id)}
+                  <div className="absolute inset-y-0 right-0 flex items-center bg-[#f2f5f8] opacity-0 group-hover:opacity-100 focus-within:opacity-100">{actions(row)}</div>
+                </div>
+              ) : (
+                cell(row, column.id)
+              ),
+            ),
+          ]}
+        />
+      </RefCard>
 
       {dialog === "accept" && (
         <AcceptCashboxDialog
@@ -735,10 +675,10 @@ export function CustomerPaymentsView() {
       )}
       {pending && (
         <ConfirmDialog
-          title={pending.kind === "delete" ? "Подтверждение удаления" : "Подтверждение запроса"}
-          question={pending.kind === "delete" ? "Вы уверены что хотите удалить эти данные?" : undefined}
+          title={pending.kind === "delete" ? "Подтверждение удаления" : "Выполнить"}
+          question={pending.kind === "delete" ? "Вы уверены что хотите удалить эти данные?" : "Подтверждение запроса"}
           message={`${t("Транзакция")} №${pending.row.id}`}
-          confirmLabel={pending.kind === "delete" ? "Удалить" : "Выполнить"}
+          confirmLabel={pending.kind === "delete" ? "Удалить" : "Да"}
           danger={pending.kind === "delete"}
           busy={pendingBusy}
           error={pendingError}
@@ -755,6 +695,6 @@ export function CustomerPaymentsView() {
           {notice.text}
         </div>
       )}
-    </main>
+    </RefPage>
   )
 }

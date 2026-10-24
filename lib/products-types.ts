@@ -200,6 +200,8 @@ export type CatalogBulkChanges = {
   hideFromAgent?: boolean
   /** true = delete (soft), false = restore. */
   deleted?: boolean
+  /** "Переместить в раздел (Сырье/Продукт)": the section to move the selected items to. */
+  moveTo?: CatalogKind
 }
 
 /** JS twin of the SQL fin_key(): lower-case, trimmed, whitespace (NBSP too) collapsed. */

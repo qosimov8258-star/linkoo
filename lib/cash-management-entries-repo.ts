@@ -1,3 +1,4 @@
+import { selectedBranchName } from "@/lib/selected-branch"
 import "server-only"
 
 import { getDb } from "@/lib/db"
@@ -98,9 +99,10 @@ export function parseCashManagementEntryInput(body: unknown): CashManagementEntr
 export async function listCashManagementEntries(cashboxId?: number): Promise<CashManagementEntry[]> {
   const db = getDb()
   await ensureSchema(db)
+  const branch = await selectedBranchName()
   const rows = cashboxId
-    ? ((await db.prepare("SELECT * FROM cash_management_entries WHERE cashbox_id = ? ORDER BY id DESC").all(cashboxId)) as Row[])
-    : ((await db.prepare("SELECT * FROM cash_management_entries ORDER BY id DESC").all()) as Row[])
+    ? ((await db.prepare("SELECT * FROM cash_management_entries WHERE cashbox_id = ? AND (?::text = '' OR branch = ?) ORDER BY id DESC").all(cashboxId, branch, branch)) as Row[])
+    : ((await db.prepare("SELECT * FROM cash_management_entries WHERE (?::text = '' OR branch = ?) ORDER BY id DESC").all(branch, branch)) as Row[])
   return rows.map(rowToEntry)
 }
 

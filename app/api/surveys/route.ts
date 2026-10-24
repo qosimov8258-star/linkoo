@@ -12,6 +12,21 @@ const surveySchema = z.object({
   organization: z.string().optional(),
   storeType: z.string().optional(),
   comment: z.string().optional(),
+  orderNo: z.string().optional(),
+  flags: z.object({ required: z.boolean(), storeCheck: z.boolean(), scoring: z.boolean(), perfect: z.boolean() }).partial().optional(),
+  questions: z
+    .array(
+      z.object({
+        text: z.string(),
+        type: z.string(),
+        maxAnswers: z.string(),
+        format: z.string(),
+        orderNo: z.string(),
+        required: z.boolean(),
+        answers: z.array(z.string()),
+      }),
+    )
+    .optional(),
 })
 
 export async function GET() {

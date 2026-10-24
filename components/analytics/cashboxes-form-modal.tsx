@@ -1,9 +1,11 @@
 "use client"
 
-import { Loader2, X } from "lucide-react"
-import { FormEvent, useEffect, useMemo, useState, type ReactNode } from "react"
+import { Loader2 } from "lucide-react"
+import { useEffect, useMemo, useState } from "react"
 
-import { SearchSelect, inputClass, type PickOption } from "@/components/analytics/cash-management-shared"
+import { type PickOption } from "@/components/analytics/cash-management-shared"
+import { CheckBox, LineField, Modal, SaveButton } from "@/components/analytics/catalog-ui"
+import { LinePick } from "@/components/analytics/settings-list-kit"
 import { currencyLabel, normCurrency } from "@/lib/finance/currency"
 import { useLanguage } from "@/lib/i18n/language-context"
 import {
@@ -70,6 +72,9 @@ function draftFromCashbox(cashbox: Cashbox, options: CashboxOptions): Draft {
   }
 }
 
+/** The dialog lists the payment types capitalized ("Банковский счет" / "Наличный"); the grid keeps them lower case. */
+const capitalize = (text: string) => text.charAt(0).toUpperCase() + text.slice(1)
+
 function validate(draft: Draft): Errors {
   const errors: Errors = {}
   if (!draft.name.trim()) errors.name = "Обязательное поле"
@@ -118,21 +123,13 @@ export function CashboxFormModal({
       .then(([loadedOptions, loadedCashbox]) => {
         setOptions(loadedOptions)
         setCashbox(loadedCashbox)
-        setDraft(loadedCashbox ? draftFromCashbox(loadedCashbox, loadedOptions) : { ...EMPTY_DRAFT, currency: loadedOptions.currencies[0]?.code ?? "" })
+        setDraft(loadedCashbox ? draftFromCashbox(loadedCashbox, loadedOptions) : EMPTY_DRAFT)
       })
       .catch((reason: unknown) => {
         if (!controller.signal.aborted) setLoadError(reason instanceof Error ? reason.message : String(reason))
       })
     return () => controller.abort()
   }, [cashboxId])
-
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose()
-    }
-    window.addEventListener("keydown", onKey)
-    return () => window.removeEventListener("keydown", onKey)
-  }, [onClose])
 
   const currencyOptions = useMemo<PickOption[]>(() => {
     const list = (options?.currencies ?? []).map((item) => ({
@@ -160,7 +157,7 @@ export function CashboxFormModal({
   }, [options, cashbox])
 
   const typeOptions = useMemo<PickOption[]>(
-    () => (["cash", "bank"] as const).map((type) => ({ value: type, label: t(CASHBOX_TYPE_LABELS[type]) })),
+    () => (["bank", "cash"] as const).map((type) => ({ value: type, label: t(capitalize(CASHBOX_TYPE_LABELS[type])) })),
     [t],
   )
 
@@ -170,8 +167,7 @@ export function CashboxFormModal({
     setError("")
   }
 
-  async function save(event: FormEvent) {
-    event.preventDefault()
+  async function save() {
     if (!draft || saving) return
     setTouched(true)
     if (Object.keys(validate(draft)).length) return
@@ -215,101 +211,50 @@ export function CashboxFormModal({
   }
   const busy = saving || (!draft && !loadError)
 
-  return (
-    <div className="fixed inset-0 z-[70] flex items-start justify-center overflow-y-auto bg-black/45 p-4 sm:py-10" onMouseDown={onClose}>
-      <form onSubmit={save} onMouseDown={(event) => event.stopPropagation()} className="relative w-full max-w-[500px] rounded bg-white shadow-2xl" aria-busy={busy} noValidate>
-        <header className="flex h-[60px] items-center justify-between border-b border-[#efefef] pl-[30px] pr-3">
-          <b className="text-[14px] uppercase text-[#333]">{isEdit ? t("Изменить кассу") : t("Добавить кассу")}</b>
-          <button type="button" onClick={onClose} aria-label={t("Закрыть")} className="rounded-full p-2 text-[#666] hover:bg-slate-100">
-            <X className="h-5 w-5" />
-          </button>
-        </header>
-        <div className="relative min-h-[450px] space-y-4 px-[30px] pb-6 pt-5">
-          {busy && (
-            <div className="absolute inset-0 z-30 flex items-center justify-center bg-white/80">
-              <Loader2 className="h-8 w-8 animate-spin text-[#4f70e7]" />
-            </div>
-          )}
-          {loadError ? (
-            <p className="py-10 text-center text-[14px] text-[#f44336]">{t(loadError)}</p>
-          ) : (
-            draft && (
-              <>
-                <Field label={t("Наименование")} required error={fieldError("name")}>
-                  <input
-                    autoFocus
-                    aria-label={t("Наименование")}
-                    value={draft.name}
-                    maxLength={255}
-                    onChange={(event) => change({ name: event.target.value }, "name")}
-                    className={`${inputClass} ${fieldError("name") ? "border-[#e57373]" : ""}`}
-                  />
-                </Field>
-                <Field label={t("Валюта")} required error={fieldError("currency")}>
-                  <SearchSelect value={draft.currency} onChange={(value) => change({ currency: value }, "currency")} options={currencyOptions} invalid={Boolean(fieldError("currency"))} />
-                </Field>
-                <Field label={t("Кассир")} required error={fieldError("cashier")}>
-                  <SearchSelect value={draft.cashier} onChange={(value) => change({ cashier: value }, "cashier")} options={cashierOptions} invalid={Boolean(fieldError("cashier"))} />
-                </Field>
-                <Field label={t("Филиал")} error={fieldError("branch")}>
-                  <SearchSelect
-                    value={draft.branch}
-                    onChange={(value) => change({ branch: value }, "branch")}
-                    options={branchOptions}
-                    placeholder={t("Не указано")}
-                    invalid={Boolean(fieldError("branch"))}
-                  />
-                </Field>
-                <Field label={t("Тип оплаты")} required error={fieldError("paymentType")}>
-                  <SearchSelect
-                    value={draft.type}
-                    onChange={(value) => change({ type: value === "cash" || value === "bank" ? value : "" }, "paymentType")}
-                    options={typeOptions}
-                    invalid={Boolean(fieldError("paymentType"))}
-                  />
-                </Field>
-                <label className="flex cursor-pointer items-center gap-3 py-1 text-[14px] text-[#333]">
-                  <input
-                    type="checkbox"
-                    checked={draft.vansell}
-                    onChange={(event) => change({ vansell: event.target.checked }, null)}
-                    className="h-[18px] w-[18px] accent-[#4f70e7]"
-                  />
-                  {t("Вэнсел")}
-                </label>
-                <Field label={t("Порядковый номер")} required error={fieldError("orderNumber")}>
-                  <input
-                    value={draft.orderNumber}
-                    aria-label={t("Порядковый номер")}
-                    inputMode="numeric"
-                    onChange={(event) => change({ orderNumber: event.target.value }, "orderNumber")}
-                    className={`${inputClass} ${fieldError("orderNumber") ? "border-[#e57373]" : ""}`}
-                  />
-                </Field>
-                {error && <p className="text-sm font-medium text-rose-600">{t(error)}</p>}
-              </>
-            )
-          )}
-        </div>
-        <footer className="flex justify-end border-t border-[#efefef] p-4">
-          <button type="submit" disabled={busy || Boolean(loadError)} className="rounded bg-[#6ccd8b] px-6 py-3 font-semibold text-white hover:brightness-95 disabled:opacity-60">
-            {saving ? t("Сохранение...") : t("Сохранить")}
-          </button>
-        </footer>
-      </form>
+  const currencyItems = currencyOptions.map(({ value, label }) => ({ value, label }))
+  const cashierItems = cashierOptions.map(({ value, label }) => ({ value, label }))
+  const branchItems = branchOptions.map(({ value, label }) => ({ value, label }))
+  const typeItems = typeOptions.map(({ value, label }) => ({ value, label }))
+  const textField = (label: string, field: CashboxField, value: string, onChange: (value: string) => void, required = true) => (
+    <div className={fieldError(field) ? "[&>div]:border-[#e57373]" : ""}>
+      <LineField label={label} required={required} value={value} onChange={onChange} />
+      {fieldError(field) && <span className="mt-[2px] block text-[12px] text-[#e57373]">{fieldError(field)}</span>}
     </div>
   )
-}
 
-function Field({ label, required, error, children }: { label: string; required?: boolean; error?: string; children: ReactNode }) {
   return (
-    <div className="flex min-w-0 flex-col gap-1 text-[13px] text-[#586174]">
-      <span>
-        {label}
-        {required && <span className="text-[#e57373]"> *</span>}
-      </span>
-      {children}
-      {error && <span className="text-[12px] text-[#e57373]">{error}</span>}
-    </div>
+    <Modal
+      title={isEdit ? t("Изменить кассу") : t("Добавить кассу")}
+      onClose={onClose}
+      bodyClassName="relative min-h-[390px] pl-[30px] pr-[52px] pb-[60px] pt-[13px]"
+      footer={<SaveButton disabled={busy || Boolean(loadError)} onClick={() => void save()}>{saving ? t("Сохранение...") : t("Сохранить")}</SaveButton>}
+    >
+      {busy && !saving && <div className="absolute inset-0 z-30 flex items-center justify-center bg-white/80"><Loader2 className="h-8 w-8 animate-spin text-[#4f70e7]" /></div>}
+      {loadError ? (
+        <p className="py-10 text-center text-[14px] text-[#f44336]">{t(loadError)}</p>
+      ) : (
+        draft && (
+          <>
+            {textField(t("Наименование"), "name", draft.name, (name) => change({ name }, "name"))}
+            <div className="mt-[27px]"><LinePick label={t("Валюта")} required value={draft.currency} options={currencyItems} onChange={(value) => change({ currency: value }, "currency")} error={fieldError("currency")} /></div>
+            <div className="mt-[22px]"><LinePick label={t("Кассир")} required value={draft.cashier} options={cashierItems} onChange={(value) => change({ cashier: value }, "cashier")} error={fieldError("cashier")} /></div>
+            <div className="mt-[22px]"><LinePick label={t("Филиал")} value={draft.branch} options={branchItems} onChange={(value) => change({ branch: value }, "branch")} error={fieldError("branch")} /></div>
+            <div className="mt-[22px]">
+              <LinePick
+                label={t("Тип оплаты")}
+                required
+                value={draft.type}
+                options={typeItems}
+                onChange={(value) => change({ type: value === "cash" || value === "bank" ? value : "" }, "paymentType")}
+                error={fieldError("paymentType")}
+              />
+            </div>
+            <div className="mb-[11px] mt-[9px] flex h-[24px] items-center"><CheckBox label={t("Вэнсел")} checked={draft.vansell} onChange={(vansell) => change({ vansell }, null)} /></div>
+            {textField(t("Порядковый номер"), "orderNumber", draft.orderNumber, (orderNumber) => change({ orderNumber }, "orderNumber"))}
+            {error && <p className="mt-3 text-sm font-medium text-rose-600">{t(error)}</p>}
+          </>
+        )
+      )}
+    </Modal>
   )
 }

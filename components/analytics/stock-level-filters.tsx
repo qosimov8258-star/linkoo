@@ -20,10 +20,11 @@ export function StockFilterButton({ filters, onOpen }: { filters: StockLevelFilt
   const scope = [...filters.organization, ...filters.branch, ...filters.warehouse]
   return (
     <div className="flex flex-wrap items-center gap-4">
-      <button type="button" onClick={onOpen} className="flex h-11 items-center gap-2 rounded-md bg-[#4f70e7] px-5 font-semibold text-white">
-        <Filter className="h-4 w-4" /> {t("Фильтр")} / {countStockFilters(filters)}
+      <button type="button" onClick={onOpen} className="flex h-[34px] items-center whitespace-nowrap rounded-[3px] bg-[#4f71dc] pl-3 text-[13px] font-semibold text-white hover:brightness-95">
+        <Filter className="mb-px h-[18px] w-[18px]" />
+        <span className="pl-2 pr-4">{t("Фильтр")}{countStockFilters(filters) > 0 ? ` / ${countStockFilters(filters)}` : ""}</span>
       </button>
-      <span className="font-semibold text-[#4f70e7]">{scope.length ? scope.join(", ") : t("Во всей организации")}</span>
+      <span className="text-[13px] font-semibold text-[#4f71dc]">{scope.length ? scope.join(", ") : t("Во всей организации")}</span>
     </div>
   )
 }

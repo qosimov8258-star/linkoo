@@ -227,8 +227,8 @@ export function InventoryDetailPanel({
       {pending === "cancel" && (
         <ConfirmDialog
           title={t("Подтверждение отмены")}
-          text={`${t("Вы уверены что хотите отменить эти данные?")} (${t("Инвентаризация")} №${data.id})`}
-          confirmLabel="Подтвердить"
+          kind="cancel"
+          confirmLabel="Да"
           busy={busy}
           error={error}
           onConfirm={() => void run()}

@@ -7,6 +7,7 @@ import { createCapability, listCapabilities } from "@/lib/capabilities-repo"
 
 const capabilityNameSchema = z.object({
   name: z.string().trim().min(1),
+  permissionIds: z.array(z.number()).optional(),
 })
 
 export async function GET() {
@@ -22,7 +23,7 @@ export async function POST(request: Request) {
   const parsed = await parseJsonBody(request, capabilityNameSchema)
   if (parsed.error) return parsed.error
 
-  const capability = (await createCapability(parsed.data.name))
+  const capability = (await createCapability(parsed.data.name, parsed.data.permissionIds))
   if (!capability) return NextResponse.json({ error: "Такая возможность уже существует" }, { status: 409 })
   return NextResponse.json(capability, { status: 201 })
 }

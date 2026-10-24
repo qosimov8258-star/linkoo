@@ -273,13 +273,13 @@ export function ClientBalancePeriodToggle({ mode, onChange }: { mode: ClientBala
     { mode: "realization", label: "По дате реализации" },
   ]
   return (
-    <div className="my-3 flex overflow-visible rounded-md border border-[#dbe0e8]">
+    <div className="flex h-[32px] w-[720px] max-w-full overflow-visible bg-white">
       {items.map((item) => (
         <button
           key={item.mode}
           type="button"
           onClick={() => onChange(item.mode)}
-          className={`group relative flex items-center gap-2 px-5 py-3 text-[15px] font-semibold first:rounded-l-md last:rounded-r-md ${
+          className={`group relative flex flex-1 items-center justify-center gap-2 px-5 text-[13px] font-normal ${
             mode === item.mode ? "bg-[#71ce87] text-white" : "bg-white text-[#586174]"
           }`}
         >
@@ -308,16 +308,16 @@ export function ClientBalanceFilterButton({ state, onOpen }: { state: ClientBala
   const realization = state.mode === "realization"
   const scopeText = scope.length ? scope.join(" ") : realization ? `${t("Реализовано")}${f.deliveryMan ? ` ${t("(По доставщику)")}` : ""}` : t("Во всей организации")
   return (
-    <div className="flex flex-wrap items-center gap-4">
-      <button type="button" onClick={onOpen} className="flex h-11 items-center gap-2 rounded-md bg-[#4f70e7] px-5 font-semibold text-white">
-        <Filter className="h-4 w-4" /> {t("Фильтр")} / {countClientFilters(state)}
+    <div className="flex flex-wrap items-center gap-[10px]">
+      <button type="button" onClick={onOpen} className="flex h-[34px] items-center gap-2 rounded-[3px] bg-[#4f71dc] pl-2 pr-4 text-[13px] font-semibold text-white">
+        <Filter className="h-[18px] w-[18px]" /> {t("Фильтр")} / {countClientFilters(state)}
       </button>
       {!realization && (
-        <span className="font-semibold text-[#4f70e7]">
+        <span className="text-[13px] font-semibold text-[#4f71dc]">
           {formatDotDate(f.from)} - {formatDotDate(f.to)}
         </span>
       )}
-      <span className="font-semibold" style={{ color: realization ? "rgb(113, 206, 135)" : "#4f70e7" }}>
+      <span className="text-[13px] font-semibold" style={{ color: realization ? "rgb(113, 206, 135)" : "#4f71dc" }}>
         {scopeText}
       </span>
     </div>
@@ -326,7 +326,7 @@ export function ClientBalanceFilterButton({ state, onOpen }: { state: ClientBala
 
 // --- popup fields ---------------------------------------------------------------
 
-const fieldClass = "h-10 w-full rounded-md border border-[#dbe0e8] bg-white px-3 text-[#17233b]"
+const fieldClass = "h-9 w-full border-0 border-b border-[#dbe0e8] bg-white px-0 text-[13px] text-[#17233b]"
 
 function Field({ label, children, wide = false }: { label: string; children: ReactNode; wide?: boolean }) {
   const { t } = useLanguage()

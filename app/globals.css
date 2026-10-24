@@ -197,6 +197,9 @@
   align-items: center;
 }
 main { background-color: transparent !important; }
+/* Report pages of the reference (balances, expenses by category): white body under a grey header band. */
+main.ref-white { background-color: #fff !important; }
+main.ref-white [data-ref-header] { background-color: #f2f5f8 !important; }
 thead.text-white th,
 thead[class*="bg-[#5d6474]"] th {
   font-size: 13px;

@@ -3,8 +3,10 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react"
 import { FileText, X } from "lucide-react"
 
+import { useLanguage } from "@/lib/i18n/language-context"
 import { downloadExcelTable } from "@/lib/excel-export"
 import { mapHeaderColumns, readExcelRows } from "@/lib/excel-import"
+import { notify } from "@/lib/notify"
 
 type NamedItem = { id: number; name: string }
 
@@ -38,6 +40,8 @@ export function DashboardDialog({
   onClose: () => void
   onSave?: () => void
 }) {
+  const { t } = useLanguage()
+  const [dashboards, setDashboards] = useState<string[]>([])
   const [employees, setEmployees] = useState<NamedItem[]>([])
   const [accessRights, setAccessRights] = useState<NamedItem[]>([])
   const [selectedEmployeeIds, setSelectedEmployeeIds] = useState<number[]>([])
@@ -56,6 +60,10 @@ export function DashboardDialog({
       .then((response) => (response.ok ? response.json() : []))
       .then((rows: { id: number; name: string }[]) => setEmployees(rows.map((row) => ({ id: row.id, name: row.name }))))
       .catch(() => setEmployees([]))
+    fetch("/api/custom-dashboards")
+      .then((response) => (response.ok ? response.json() : []))
+      .then((rows: { name: string }[]) => setDashboards(rows.map((row) => row.name)))
+      .catch(() => setDashboards([]))
     fetch("/api/access-rights")
       .then((response) => (response.ok ? response.json() : []))
       .then((rows: { id: number; name: string }[]) => setAccessRights(rows.map((row) => ({ id: row.id, name: row.name }))))
@@ -113,7 +121,7 @@ export function DashboardDialog({
     try {
       const rows = await readExcelRows(file)
       if (!rows.length) {
-        window.alert("Не удалось найти данные в выбранном файле")
+        notify("Не удалось найти данные в выбранном файле")
         return
       }
       const fieldByIndex = mapHeaderColumns(rows[0], NAME_ALIASES)
@@ -129,7 +137,7 @@ export function DashboardDialog({
       const dataRows = hasHeader ? rows.slice(1) : rows
       const names = dataRows.map((row) => (row[nameIndex] ?? "").trim()).filter(Boolean)
       if (!names.length) {
-        window.alert("Не удалось найти данные в выбранном файле")
+        notify("Не удалось найти данные в выбранном файле")
         return
       }
       const byName = new Map(list.map((item) => [item.name.trim().toLowerCase(), item.id]))
@@ -141,7 +149,7 @@ export function DashboardDialog({
         else unmatched += 1
       }
       setSelectedIds((current) => Array.from(new Set([...current, ...matchedIds])))
-      if (unmatched) window.alert(`Добавлено ${matchedIds.length} из ${names.length}. Не найдено: ${unmatched}`)
+      if (unmatched) notify(`Добавлено ${matchedIds.length} из ${names.length}. Не найдено: ${unmatched}`)
     } finally {
       setImporting(false)
     }
@@ -151,28 +159,29 @@ export function DashboardDialog({
     <section
       role="dialog"
       aria-modal="true"
-      className="fixed left-1/2 top-1/2 z-[100] flex h-[min(720px,calc(100vh-32px))] w-[min(750px,calc(100vw-32px))] -translate-x-1/2 -translate-y-1/2 flex-col bg-white"
+      className="fixed left-1/2 top-1/2 z-[100] flex max-h-[calc(100vh-32px)] min-h-[min(520px,calc(100vh-32px))] w-[min(600px,calc(100vw-32px))] -translate-x-1/2 -translate-y-1/2 flex-col bg-white shadow-[0_11px_15px_-7px_rgba(0,0,0,0.2),0_24px_38px_3px_rgba(0,0,0,0.14),0_9px_46px_8px_rgba(0,0,0,0.12)]"
     >
-      <header className="flex justify-between border-b px-9 py-7">
-        <h2 className="font-bold uppercase">Добавить в дашборд</h2>
-        <button type="button" onClick={onClose}>
-          <X />
+      <header className="flex h-[60px] shrink-0 items-center justify-between border-b border-[#e0e0e0] px-[30px]">
+        <h2 className="text-[14px] font-bold uppercase text-[#333]">{t("Добавить в дашборд")}</h2>
+        <button type="button" onClick={onClose} aria-label={t("Закрыть")} className="text-[#555]">
+          <X className="h-5 w-5" />
         </button>
       </header>
-      <div className="flex-1 overflow-y-auto px-16 py-10">
-        <fieldset className="space-y-5">
+      <div className="flex-1 overflow-y-auto px-[40px] py-[30px]">
+        <fieldset className="space-y-[14px]">
           {[
             ["all", "Все"],
             ["employees", "Выбранным сотрудникам"],
             ["access", "Выбранным доступам"],
           ].map(([value, label]) => (
-            <label key={value} className="flex gap-4 text-lg">
-              <input type="radio" checked={visibility === value} onChange={() => setVisibility(value)} />
-              {label}
+            <label key={value} className="flex cursor-pointer items-center gap-[14px] text-[13px] text-[#333]">
+              <input type="radio" checked={visibility === value} onChange={() => setVisibility(value)} className="h-[18px] w-[18px] accent-[#5470d6]" />
+              {t(label)}
             </label>
           ))}
         </fieldset>
 
+        {visibility !== "all" && (
         <div className="mt-6 rounded border border-slate-200">
           <div className="flex border-b border-slate-200">
             <button
@@ -224,17 +233,18 @@ export function DashboardDialog({
             </div>
             {selectedIds.length > 0 && <p className="border-t border-slate-200 px-4 py-2 text-xs text-slate-500">Выбрано: {selectedIds.length}</p>}
         </div>
+        )}
 
-        <label className="mt-12 block font-bold">
-          Дашборд
-          <select value={dashboard} onChange={(event) => setDashboard(event.target.value)} className="mt-2 block w-full border-b py-2 font-normal">
-            <option>Основной дашборд</option>
-            <option>Продажи</option>
-            <option>Аналитика</option>
+        <label className="mt-[34px] block text-[13px] font-semibold text-[#333]">
+          {t("Дашборд")}
+          <select value={dashboard} onChange={(event) => setDashboard(event.target.value)} className="mt-2 block w-full border-b border-[#757575] bg-transparent py-2 text-[14px] font-normal outline-none">
+            {["Основной дашборд", ...dashboards.filter((name) => name !== "Основной дашборд")].map((name) => (
+              <option key={name}>{name}</option>
+            ))}
           </select>
         </label>
       </div>
-      <footer className="flex justify-end border-t px-9 py-6">
+      <footer className="flex h-[57px] shrink-0 items-center justify-end border-t border-[#e0e0e0] px-[30px]">
         <button
           type="button"
           disabled={saving}
@@ -257,12 +267,12 @@ export function DashboardDialog({
                 onSave?.()
                 onClose()
               })
-              .catch(() => window.alert("Не удалось сохранить, попробуйте ещё раз"))
+              .catch(() => notify("Не удалось сохранить, попробуйте ещё раз"))
               .finally(() => setSaving(false))
           }}
-          className="font-bold uppercase text-sky-500 disabled:opacity-50"
+          className="text-[14px] font-bold uppercase text-[#2f9ae0] disabled:opacity-50"
         >
-          {saving ? "Сохранение..." : "Сохранить"}
+          {saving ? t("Сохранение...") : t("Сохранить")}
         </button>
       </footer>
     </section>

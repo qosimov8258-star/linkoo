@@ -1,7 +1,8 @@
 "use client"
 
 import { Search, X } from "lucide-react"
-import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
+import { createPortal } from "react-dom"
 import { useRouter } from "next/navigation"
 import { compareText } from "@/components/ref/list-kit"
 
@@ -11,48 +12,53 @@ import { useLanguage } from "@/lib/i18n/language-context"
 
 import { AddOrderDialog } from "./add-order-dialog"
 import { OrderDetailCard } from "./order-detail"
+import { OrderGroupPayment } from "./order-group-payment"
+import { EdoMenu, InvoiceNumberDialog, SERIES_STORAGE_KEY, SeriesDialog, useUrlParams } from "./orders-extra-dialogs"
+import { BulkEditDialog, NoSelectionPopover, RowCheckbox, SelectedTotalsDialog, type BulkEditValues } from "./orders-selection"
 import { EMPTY_ORDER_FILTERS, OrderFilterPanel, countOrderFilters, matchesOrderFilters, type OrderFilters } from "./order-filter-panel"
-import type { Order } from "./orders-data"
+import { ORDER_STATUS_REF_LABEL, orderOrganization, type Order } from "./orders-data"
 
-export function OrdersView() {
+export function OrdersView({ initialOrderId }: { initialOrderId?: number } = {}) {
   const router = useRouter()
   const { t } = useLanguage()
   const [orders, setOrders] = useState<Order[]>([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState("")
-  const [tab, setTab] = useState<string>("Активные")
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(25)
-  const [selectMode, setSelectMode] = useState(true)
+  const [selectMode, setSelectMode] = useState(false)
   const [query, setQuery] = useState("")
   const [selected, setSelected] = useState<Order | null>(null)
   const [checkedIds, setCheckedIds] = useState<number[]>([])
   const [filterOpen, setFilterOpen] = useState(false)
-  const [chipOn, setChipOn] = useState(true)
   const [filters, setFilters] = useState<OrderFilters>(EMPTY_ORDER_FILTERS)
   const [notice, setNotice] = useState("")
   const [addOpen, setAddOpen] = useState(false)
   const [initialShopId, setInitialShopId] = useState<number | undefined>()
   const [bulkPayOpen, setBulkPayOpen] = useState(false)
-  const importInputRef = useRef<HTMLInputElement>(null)
+  const [noSelection, setNoSelection] = useState<string | null>(null)
+  const [moreOpen, setMoreOpen] = useState(false)
+  const [totalsOpen, setTotalsOpen] = useState(false)
+  const [bulkEditOpen, setBulkEditOpen] = useState(false)
+  const [onlyIds, setOnlyIds] = useState<number[] | null>(null)
+  const [importOpen, setImportOpen] = useState(false)
+  const [seriesOpen, setSeriesOpen] = useState(false)
+  const [invoiceNumOpen, setInvoiceNumOpen] = useState(false)
+  const [edoOpen, setEdoOpen] = useState(false)
   const detailRowRef = useRef<HTMLDivElement>(null)
-  const activeFilterCount = countOrderFilters(filters)
+  const [statusTouched, setStatusTouched] = useState(false)
+  const activeFilterCount = countOrderFilters(filters) + (onlyIds ? 1 : 0)
+  const statusFilter = filters.select.status ?? []
+  const tab = TAB_LABELS.find((label) => sameSet(TAB_STATUSES[label], statusFilter)) ?? null
+  const badgeStatus = statusFilter.length === 1 && tab === null ? statusFilter[0] : null
 
   const filtered = useMemo(
     () =>
       orders
-        .filter((row) => `${row.id} ${row.client} ${row.agent}`.toLowerCase().includes(query.toLowerCase()))
+        .filter((row) => `${row.id} ${row.client} ${row.marketName ?? ""} ${row.agent}`.toLowerCase().includes(query.toLowerCase()))
         .filter((row) => matchesOrderFilters(row, filters))
-        .filter((row) =>
-          tab === "Активные"
-            ? row.status !== "Доставлено" && row.status !== "Отменен" && row.status !== "В пути"
-            : tab === "Доставляется"
-              ? row.status === "В пути"
-              : tab === "Доставленные"
-                ? row.status === "Доставлено"
-                : true,
-        ),
-    [orders, query, filters, tab],
+        .filter((row) => !onlyIds || onlyIds.includes(row.id)),
+    [orders, query, filters, onlyIds],
   )
   const [sort, setSort] = useState<{ head: string; desc: boolean } | null>(null)
   const sortedRows = useMemo(() => {
@@ -76,17 +82,20 @@ export function OrdersView() {
   const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize))
   const pageStart = (Math.min(page, pageCount) - 1) * pageSize
   const pageRows = sortedRows.slice(pageStart, pageStart + pageSize)
-  const totals = useMemo(
-    () => ({
-      orders: sumByCurrency(filtered),
-      returns: sumByCurrency([]),
-      fact: sumByCurrency(filtered),
-    }),
-    [filtered],
-  )
-  const alertCount = orders.filter((row) => row.negative).length
-  const transitCount = orders.filter((row) => row.status === "В пути").length
-  const stockCount = orders.filter((row) => row.status === "Есть на складе").length
+  const selectedRows = useMemo(() => orders.filter((row) => checkedIds.includes(row.id)), [orders, checkedIds])
+  const selecting = selectedRows.length > 0
+  const totals = useMemo(() => {
+    const rows = selecting ? selectedRows : filtered
+    return {
+      // total_price is stored rounded to 2 decimals; fact + return carry the reference's full precision (they add up to its total).
+      orders: sumByCurrency(rows, (row) => (row.factPrice !== undefined ? row.factPrice + (row.returnPrice ?? 0) : (row.totalPrice ?? parseAmount(row.amount)?.number ?? 0))),
+      returns: sumByCurrency(rows, (row) => row.returnPrice ?? 0),
+      fact: sumByCurrency(rows, (row) => row.factPrice ?? parseAmount(row.amount)?.number ?? 0),
+    }
+  }, [filtered, selectedRows, selecting])
+  const unconfirmedCount = orders.filter((row) => row.status === "Не подтвержден").length
+  const requestedCount = orders.filter((row) => row.status === "В процессе").length
+  const readyCount = orders.filter((row) => row.status === "Есть на складе").length
 
   useEffect(() => {
     let cancelled = false
@@ -112,23 +121,43 @@ export function OrdersView() {
     }
   }, [])
 
-  // Deep link to an expanded order: /analytics/sales?order=<id>
+  // The expanded order lives in the URL like the reference's #/order/<id>: /analytics/sales/<id> (the old ?order=<id> still works).
+  const orderIdFromUrl = () => {
+    const path = /\/analytics\/sales\/(\d+)/.exec(window.location.pathname)
+    const id = Number(path?.[1] ?? new URLSearchParams(window.location.search).get("order") ?? initialOrderId)
+    return Number.isFinite(id) && id > 0 ? id : 0
+  }
+
   useEffect(() => {
     if (loading || selected) return
-    const id = Number(new URLSearchParams(window.location.search).get("order"))
-    if (!Number.isFinite(id) || id <= 0) return
+    const id = orderIdFromUrl()
+    if (!id) return
     const match = orders.find((row) => row.id === id)
-    if (match) setSelected(match)
+    if (match) {
+      setSelected(match)
+      // the card sits inside the list, so jump to the page holding the order unless the URL already names one
+      const index = sortedRows.findIndex((row) => row.id === id)
+      if (index >= 0 && !new URLSearchParams(window.location.search).get("page")) setPage(Math.floor(index / pageSize) + 1)
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loading, orders])
 
+  // Opening an order pushes its URL, so the browser's Back button returns to the list.
   useEffect(() => {
     if (!selected) return
-    const url = new URL(window.location.href)
-    url.searchParams.set("order", String(selected.id))
-    window.history.replaceState(null, "", url)
-    detailRowRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" })
+    const target = `/analytics/sales/${selected.id}`
+    if (window.location.pathname !== target) window.history.pushState(null, "", target)
   }, [selected?.id])
+
+  useEffect(() => {
+    const onPop = () => {
+      const id = orderIdFromUrl()
+      setSelected((current) => (id ? (orders.find((row) => row.id === id) ?? current) : null))
+    }
+    window.addEventListener("popstate", onPop)
+    return () => window.removeEventListener("popstate", onPop)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orders])
 
   // Esc collapses the expanded order unless one of its dialogs is open
   useEffect(() => {
@@ -136,9 +165,7 @@ export function OrdersView() {
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== "Escape" || document.querySelector("[data-order-overlay]")) return
       setSelected(null)
-      const url = new URL(window.location.href)
-      url.searchParams.delete("order")
-      window.history.replaceState(null, "", url)
+      window.history.replaceState(null, "", "/analytics/sales")
     }
     window.addEventListener("keydown", onKey)
     return () => window.removeEventListener("keydown", onKey)
@@ -147,16 +174,62 @@ export function OrdersView() {
   // Deep link from the client card: /analytics/sales?openOrderDialog=true&openShop=<id>
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
-    if (params.get("openOrderDialog") !== "true") return
-    const shop = Number(params.get("openShop"))
-    setInitialShopId(Number.isFinite(shop) && shop > 0 ? shop : undefined)
-    setAddOpen(true)
+    const ids = (params.get("select") ?? "").split("-").map(Number).filter((id) => Number.isFinite(id) && id > 0)
+    const flag = (name: string) => params.get(name) === "true"
+    const urlPage = Number(params.get("page"))
+    if (Number.isFinite(urlPage) && urlPage > 1) setPage(urlPage)
+    const urlPageSize = Number(params.get("pageSize"))
+    if ([10, 25, 50, 100].includes(urlPageSize)) setPageSize(urlPageSize)
+    // The reference's menu opens the list as ?status=0-1-5 (Активные), 2 (Доставляется), 3 (Доставленные) or empty (Все).
+    const statusParam = params.get("status")
+    if (statusParam !== null) {
+      const byCode: Record<string, string[]> = { "0-1-5": TAB_STATUSES["Активные"], "2": TAB_STATUSES["Доставляется"], "3": TAB_STATUSES["Доставленные"], "": TAB_STATUSES["Все"] }
+      const labels = byCode[statusParam] ?? []
+      setFilters((current) => ({ ...current, select: { ...current.select, status: labels } }))
+      setStatusTouched(true)
+    }
+    if (flag("showCheckboxes") || ids.length) setSelectMode(true)
+    if (ids.length) setCheckedIds(ids)
+    if (flag("openFilterDialog")) setFilterOpen(true)
+    if (flag("openGroupPaymentDialog")) setBulkPayOpen(true)
+    if (flag("openOrderSummaryDialog")) setTotalsOpen(true)
+    // The bulk actions need ticked orders; without any the reference shows its "pick at least one order" popover.
+    const bulk = (name: string, key: string, open: () => void) => {
+      if (!flag(name)) return
+      if (ids.length) open()
+      else setNoSelection(key)
+    }
+    bulk("openMultiEdit", "edit", () => setBulkEditOpen(true))
+    bulk("openExpirationDateDialog", "series", () => setSeriesOpen(true))
+    bulk("openInvoiceNumberDialog", "invoice", () => setInvoiceNumOpen(true))
+    if (flag("openOrderDialog") || flag("openCreateDialog")) {
+      const shop = Number(params.get("openShop"))
+      setInitialShopId(Number.isFinite(shop) && shop > 0 ? shop : undefined)
+      setAddOpen(true)
+    }
   }, [])
+
+  useUrlParams(
+    {
+      status: statusTouched && tab ? { Активные: "0-1-5", Доставляется: "2", Доставленные: "3", Все: null }[tab] : null,
+      showCheckboxes: selectMode ? "true" : null,
+      select: checkedIds.length ? checkedIds.join("-") : null,
+      openFilterDialog: filterOpen ? "true" : null,
+      openGroupPaymentDialog: bulkPayOpen ? "true" : null,
+      openOrderSummaryDialog: totalsOpen ? "true" : null,
+      openMultiEdit: bulkEditOpen || noSelection === "edit" ? "true" : null,
+      openExpirationDateDialog: seriesOpen || noSelection === "series" ? "true" : null,
+      openInvoiceNumberDialog: invoiceNumOpen || noSelection === "invoice" ? "true" : null,
+      openCreateDialog: addOpen ? "true" : null,
+      page: page > 1 ? String(page) : null,
+      pageSize: pageSize !== 25 ? String(pageSize) : null,
+    },
+    addOpen ? [] : ["openOrderDialog", "openShop"],
+  )
 
   function closeAddDialog() {
     setAddOpen(false)
     setInitialShopId(undefined)
-    if (window.location.search) router.replace("/analytics/sales")
   }
 
   async function reloadOrders() {
@@ -184,14 +257,59 @@ export function OrdersView() {
     URL.revokeObjectURL(url)
   }
 
-  function editChecked() {
-    const target = orders.find((row) => row.id === checkedIds[0])
-    if (!target) {
-      setSelectMode(true)
-      flash(t("Выберите заказ для изменения"))
+  /** Runs a toolbar action that needs ticked orders, or shows the "pick at least one order" popover. */
+  function requireSelection(key: string, run: () => void) {
+    if (!selecting) {
+      setNoSelection(key)
       return
     }
-    setSelected(target)
+    run()
+  }
+
+  async function applyBulkEdit(values: BulkEditValues, showAfter: boolean) {
+    const ids = [...checkedIds]
+    const patchFor = (row: Order): Partial<Order> => {
+      const patch: Partial<Order> = {}
+      if (values.created) {
+        patch.created = formatCreated(values.created, row.created)
+        patch.createdAt = `${values.created} ${(row.createdAt ?? "").slice(11) || "00:00:00"}`
+      }
+      if (values.delivery) patch.delivery = formatIsoDate(values.delivery)
+      if (values.paid) {
+        patch.paymentDate = values.paid
+        patch.dueDate = values.paid
+      }
+      if (values.realization) {
+        const delivery = values.delivery ? values.delivery : parseRuDate(row.delivery)
+        if (delivery) patch.acceptedDate = delivery
+      }
+      if (values.deliverer) patch.deliveryMan = values.deliverer
+      if (values.expeditor) patch.expeditor = values.expeditor
+      if (values.agent) patch.agent = values.agent
+      if (values.warehouse) patch.stockName = values.warehouse
+      if (values.transport) patch.transportNumber = values.transport
+      if (values.dealType) patch.dealType = values.dealType === "Консигнация" ? "1" : "0"
+      if (values.payStatus) {
+        const total = row.totalPrice ?? 0
+        patch.paidAmount = values.payStatus === "Оплачен" ? total : 0
+        patch.orderBalance = values.payStatus === "Оплачен" ? 0 : total
+      }
+      if (values.status) {
+        const label = values.status === "Не подтвержденный" ? "Не подтвержден" : values.status
+        patch.status = Object.entries(ORDER_STATUS_REF_LABEL).find(([, refLabel]) => refLabel === label)?.[0] ?? row.status
+      }
+      return patch
+    }
+    setBulkEditOpen(false)
+    await Promise.all(
+      ids.map((id) => {
+        const row = orders.find((item) => item.id === id)
+        const patch = row ? patchFor(row) : {}
+        return Object.keys(patch).length ? updateOrder(id, patch) : Promise.resolve()
+      }),
+    )
+    if (showAfter) setOnlyIds(ids)
+    flash(`${ids.length} ${t("заказ(ов) изменено")}`)
   }
 
   function flash(text: string) {
@@ -204,10 +322,6 @@ export function OrdersView() {
   }
 
   async function passToDelivery() {
-    if (!checkedIds.length) {
-      flash(t("Выберите заказы для передачи"))
-      return
-    }
     const ids = [...checkedIds]
     setOrders((current) => current.map((row) => (ids.includes(row.id) ? { ...row, status: "В пути" } : row)))
     setCheckedIds([])
@@ -263,10 +377,7 @@ export function OrdersView() {
     flash(t("Заказ добавлен"))
   }
 
-  function importFromExcel(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0]
-    event.target.value = ""
-    if (!file) return
+  function importFromExcel(file: File) {
     void (async () => {
       const rows = await readExcelRows(file)
       const parsed = rows
@@ -291,6 +402,54 @@ export function OrdersView() {
     })()
   }
 
+  const setStatusFilter = (labels: string[]) => {
+    setFilters((current) => ({ ...current, select: { ...current.select, status: labels } }))
+    setPage(1)
+  }
+
+  async function markDelivered() {
+    const ids = [...checkedIds]
+    setOrders((current) => current.map((row) => (ids.includes(row.id) ? { ...row, status: "Доставлено" } : row)))
+    setCheckedIds([])
+    flash(`${ids.length} ${t("заказ(ов) отмечено доставленными")}`)
+    try {
+      await Promise.all(
+        ids.map((id) =>
+          fetch(`/api/orders/${id}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ status: "Доставлено" }),
+          }),
+        ),
+      )
+    } catch {
+      flash(t("Не удалось сохранить часть изменений на сервере"))
+    }
+  }
+
+  const bulkAction =
+    tab === "Активные"
+      ? { label: t("Передать"), path: ICON.truck, onClick: passToDelivery }
+      : tab === "Доставляется"
+        ? { label: t("Доставлен"), path: ICON.clipboard, onClick: markDelivered }
+        : null
+
+  const actionDefs = {
+    select: { key: "select", path: selectMode ? ICON.visibilityOff : ICON.checklist, title: t("Выбрать из списка"), color: "#5d6474", onClick: () => setSelectMode((value) => !value) },
+    sync: { key: "sync", path: ICON.sync, title: t("Обновить список"), color: "#5d6474", onClick: reloadOrders },
+    print: { key: "print", path: ICON.print, title: t("Распечатать выбранное"), color: "#666", onClick: () => requireSelection("print", () => window.print()) },
+    download: { key: "download", path: ICON.download, title: t("Скачать"), color: "#666", onClick: exportCsv },
+    edit: { key: "edit", path: ICON.edit, title: t("Изменить выбранные заказы"), color: "#666", onClick: () => requireSelection("edit", () => setBulkEditOpen(true)) },
+    series: { key: "series", path: ICON.history, title: t("Авто распределение по сериям"), color: "#666", onClick: () => requireSelection("series", () => setSeriesOpen(true)) },
+    invoice: { key: "invoice", path: ICON.textA, title: t("Нумерация счет фактуры"), color: "#666", onClick: () => requireSelection("invoice", () => setInvoiceNumOpen(true)) },
+    edo: { key: "edo", path: ICON.send, title: t("Отправить EDO"), color: "#666", onClick: () => requireSelection("edo", () => setEdoOpen((value) => !value)) },
+    more: { key: "more", path: ICON.more, title: "", color: "#5d6474", onClick: () => setMoreOpen((value) => !value) },
+    clear: { key: "clear", path: ICON.minusBox, title: t("Снять выделение"), color: "#333", onClick: () => { setCheckedIds([]); setMoreOpen(false) } },
+  }
+  const toolbarActions = selecting
+    ? [actionDefs.sync, actionDefs.print, actionDefs.download, actionDefs.edit, actionDefs.series, actionDefs.invoice, actionDefs.edo, actionDefs.more, actionDefs.clear]
+    : [actionDefs.select, actionDefs.sync, actionDefs.print, actionDefs.download, actionDefs.edit, actionDefs.series, actionDefs.invoice, actionDefs.edo]
+
   return (
     <main className="min-h-screen bg-[#f2f5f8] px-7 pb-7 font-sans text-[13px] text-[#333]">
       <div className="flex h-[60px] items-center justify-between">
@@ -300,29 +459,38 @@ export function OrdersView() {
             <span className="mx-[11px] h-[21px] w-[2px] bg-[#5d6474]" />
             {t("Заказы")}
           </h1>
-          <div className="ml-[22px] flex items-center">
+          <div className="ml-[5px] flex items-center">
             {[
-              { path: ICON.warning, count: alertCount },
-              { path: ICON.clock, count: transitCount },
-              { path: ICON.store, count: stockCount },
-            ].map((badge, index) => (
-              <button
-                key={index}
-                type="button"
-                onClick={() => setTab(index === 0 ? "Все" : index === 1 ? "Доставляется" : "Активные")}
-                className="relative flex h-12 w-12 items-center justify-center"
-              >
-                <svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#5d6474]"><path d={badge.path} /></svg>
-                <span className="absolute left-[26px] top-1 flex h-[18px] min-w-[18px] items-center justify-center rounded-full border border-white bg-[#e57373] px-[3px] text-[9px] font-semibold text-white">{badge.count}</span>
-              </button>
-            ))}
+              { path: ICON.warning, count: unconfirmedCount, status: "Не подтвержден", tip: t("Отфильтровать неподтвержденным заказам") },
+              { path: ICON.clock, count: requestedCount, status: "В процессе", tip: t("Отфильтровать по запрошенным заказам") },
+              { path: ICON.store, count: readyCount, status: "Есть на складе", tip: t("Отфильтровать по доступным заказам") },
+            ].map((badge) => {
+              const active = badgeStatus === ORDER_STATUS_REF_LABEL[badge.status]
+              return (
+                <Tip key={badge.status} text={badge.tip} side="right">
+                  <button
+                    type="button"
+                    onClick={() => setStatusFilter([ORDER_STATUS_REF_LABEL[badge.status]])}
+                    className="relative flex h-12 w-[58px] items-center justify-center"
+                  >
+                    <svg viewBox="0 0 24 24" className={`h-6 w-6 ${active ? "fill-[#71ce87]" : "fill-[#5d6474]"}`}><path d={badge.path} /></svg>
+                    {active ? (
+                      <span className="absolute left-[42px] top-[4px] flex h-[18px] w-[18px] items-center justify-center rounded-full border border-white bg-[#71ce87]">
+                        <svg viewBox="0 0 24 24" className="h-[14px] w-[14px] fill-white"><path d="M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4L9 16.2z" /></svg>
+                      </span>
+                    ) : (
+                      <span className="absolute left-[42px] top-[4px] flex h-[18px] min-w-[18px] items-center justify-center rounded-full border border-white bg-[#e57373] px-[3px] text-[9px] font-semibold text-white">{badge.count}</span>
+                    )}
+                  </button>
+                </Tip>
+              )
+            })}
           </div>
         </div>
         <div className="flex items-center gap-[10px]">
-          <input ref={importInputRef} type="file" accept=".csv,.xls,.xlsx" onChange={importFromExcel} className="hidden" />
-          <TopButton icon={ICON.map} text={t("Показать на карте")} onClick={() => router.push("/tracking")} />
+          <TopButton icon={ICON.map} text={t("Показать на карте")} onClick={() => router.push("/clients/territory?openFilterDialog=true")} />
           <TopButton icon={ICON.card} text={t("Групповая оплата")} onClick={() => setBulkPayOpen(true)} />
-          <TopButton icon={ICON.chart} text={t("Импортировать")} onClick={() => importInputRef.current?.click()} />
+          <TopButton icon={ICON.chart} text={t("Импортировать")} onClick={() => setImportOpen(true)} />
           <TopButton
             icon={ICON.add}
             text={t("Добавить")}
@@ -345,23 +513,25 @@ export function OrdersView() {
       <section className="shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
         <div className="relative flex h-10 rounded-[2px] bg-white">
           {TAB_LABELS.map((label) => (
-            <button key={label} type="button" onClick={() => { setTab(label); setPage(1) }} className="h-10 w-1/4 text-[13px] font-medium text-black">
+            <button key={label} type="button" onClick={() => { setStatusFilter(TAB_STATUSES[label]); setStatusTouched(true) }} className="h-10 w-1/4 text-[13px] font-medium text-black">
               {t(label)}
             </button>
           ))}
-          <span
-            className="absolute -bottom-[2px] left-0 h-[3px] w-1/4 bg-[#4f71dc] shadow-[0_-3px_10px_0_#5869f0] transition-transform duration-300"
-            style={{ transform: `translateX(${TAB_LABELS.indexOf(tab as (typeof TAB_LABELS)[number]) * 100}%)` }}
-          />
+          {tab && (
+            <span
+              className="absolute -bottom-[2px] left-0 h-[3px] w-1/4 bg-[#4f71dc] shadow-[0_-3px_10px_0_#5869f0] transition-transform duration-300"
+              style={{ transform: `translateX(${TAB_LABELS.indexOf(tab) * 100}%)` }}
+            />
+          )}
         </div>
-        <div className="flex justify-between border-b border-[#efefef] bg-[#5869f0] p-[5px] text-[13px] font-semibold text-white">
+        <div className={`mt-px flex justify-between border-b border-[#efefef] pb-[2px] pl-[5px] pr-[33px] pt-[8px] text-[13px] font-semibold leading-[20.3px] text-white ${selecting ? "bg-[#008000]" : "bg-[#5869f0]"}`}>
           {[
             { label: t("Заказы"), value: totals.orders },
             { label: t("Возвраты"), value: totals.returns },
             { label: t("Факт"), value: totals.fact },
-          ].map((group, index) => (
-            <div key={group.label} className={`flex-1 pt-1 ${index === 1 ? "text-center" : index === 2 ? "text-right" : ""}`}>
-              <span className="mr-[5px]">{group.label}:</span>
+          ].map((group) => (
+            <div key={group.label}>
+              <span className={selecting ? "mr-[15px]" : "mr-[5px]"}>{group.label}:</span>
               {group.value}
             </div>
           ))}
@@ -377,78 +547,120 @@ export function OrdersView() {
               onClose={() => setFilterOpen(false)}
             />
           )}
-          <div className={`h-[50px] items-center px-[5px] ${filterOpen ? "hidden" : "flex"}`}>
-            <div className="w-[318px] shrink-0">
-            {chipOn && activeFilterCount === 0 ? (
-              <div className="relative flex h-[40px] w-[255px] items-center bg-[#f2f5f8] pl-[12px] text-[13px] text-[#5d6474]">
-                <span>{t("Фильтр: 1 элемента")}</span>
-                <button type="button" onClick={() => setFilterOpen(true)} aria-label={t("Изменить фильтр")} className="ml-auto flex h-[40px] w-[40px] items-center justify-center"><svg viewBox="0 0 24 24" className="h-5 w-5 fill-[#5d6474]"><path d={ICON.edit ?? "M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"} /></svg></button>
-                <button type="button" onClick={() => setChipOn(false)} aria-label={t("Очистить фильтр")} className="flex h-[40px] w-[40px] items-center justify-center text-[#5d6474]">⊗</button>
-              </div>
+          <div className={`h-[50px] items-center pr-[5px] ${filterOpen ? "hidden" : "flex"}`}>
+            {selecting ? (
+              <div className="w-[347px] shrink-0 pl-[5px] text-[13px] font-bold text-[#333]">{t("Выбрано:")} {selectedRows.length}</div>
             ) : (
-            <button
-              type="button"
-              onClick={() => setFilterOpen((value) => !value)}
-              className="flex h-[30px] items-center rounded-[5px] bg-[#4f71dc] pl-3 text-[13px] font-semibold text-white"
-            >
-              <svg viewBox="0 0 24 24" className="mb-1 h-[18px] w-[18px] fill-white"><path d={ICON.filter} /></svg>
-              <span className="pl-2 pr-4">{filterOpen ? t("Скрыть фильтр") : t("Показать фильтр")}</span>
-              {activeFilterCount > 0 && (
-                <span className="mr-3 flex h-5 min-w-5 items-center justify-center rounded-full bg-white px-1 text-[11px] text-[#4f71dc]">{activeFilterCount}</span>
-              )}
-            </button>
+              <div className="w-[347px] shrink-0">
+                {activeFilterCount > 0 ? (
+                  <div className="relative mt-px flex h-[48.25px] w-[346.5px] items-center bg-[#efefef] pl-[30px] text-[13px] text-[#666]">
+                    <span>{t("Фильтр:")} {activeFilterCount} {t("элемента")}</span>
+                    <button type="button" onClick={() => setFilterOpen(true)} aria-label={t("Изменить фильтр")} className="relative ml-auto flex h-[48.25px] w-[48px] items-center justify-center rounded-l-[4px] border-l border-[#e6e6e6]">
+                      <svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#8f8f8f]"><path d="M17.75 7L14 3.25l-10 10V17h3.75l10-10zm2.96-2.96c.39-.39.39-1.02 0-1.41L18.37.29c-.39-.39-1.02-.39-1.41 0L15 2.25 18.75 6l1.96-1.96z" /></svg>
+                      <span className="absolute bottom-[10px] h-[4px] w-[24px] bg-[#c8c8c8]" />
+                    </button>
+                    <button type="button" onClick={() => { setFilters(EMPTY_ORDER_FILTERS); setOnlyIds(null); setPage(1) }} aria-label={t("Очистить фильтр")} className="flex h-[48.25px] w-[48px] items-center justify-center rounded-l-[4px] border-l border-[#e6e6e6]"><svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#8f8f8f]"><path d={ICON.clear} /></svg></button>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setFilterOpen((value) => !value)}
+                    className="ml-[5px] flex h-[30px] items-center rounded-[5px] bg-[#4f71dc] pl-3 text-[13px] font-semibold text-white"
+                  >
+                    <svg viewBox="0 0 24 24" className="mb-1 h-[18px] w-[18px] fill-white"><path d={ICON.filter} /></svg>
+                    <span className="pl-2 pr-4">{filterOpen ? t("Скрыть фильтр") : t("Показать фильтр")}</span>
+                  </button>
+                )}
+              </div>
             )}
-            </div>
-            <div className="relative ml-[18px] flex w-[248px] items-center">
-              <input
-                value={query}
-                onChange={(event) => { setQuery(event.target.value); setPage(1) }}
-                placeholder={t("Поиск")}
-                className="h-12 w-full border-b border-[#e0e0e0] bg-transparent text-[13px] outline-none placeholder:text-black/30 focus:border-[#5d6474]"
-              />
-              <Search className="absolute -right-[38px] h-6 w-6 text-[#ccc]" />
-            </div>
+            {!selecting && (
+              <div className="relative ml-[30px] flex w-[265px] items-center">
+                <input
+                  value={query}
+                  onChange={(event) => { setQuery(event.target.value); setPage(1) }}
+                  placeholder={t("Поиск")}
+                  className="h-12 w-full border-b border-[#e0e0e0] bg-transparent text-[13px] outline-none placeholder:text-black/30 focus:border-[#5d6474]"
+                />
+                <Search className="absolute -right-[33px] h-6 w-6 text-[#ccc]" />
+              </div>
+            )}
             <div className="ml-auto flex items-center text-[#5d6474]">
-              <div className="relative mr-[15px]">
+              <div className="relative mr-[27px]">
                 <select
                   value={pageSize}
                   onChange={(event) => { setPageSize(Number(event.target.value)); setPage(1) }}
-                  className="h-12 w-[52px] appearance-none border-b border-[#e0e0e0] bg-transparent text-[13px] text-[#333] outline-none"
+                  className="h-12 w-[56px] appearance-none border-b pl-[16px] border-[#e0e0e0] bg-transparent text-[13px] text-[#333] outline-none"
                 >
                   {[10, 25, 50, 100].map((size) => <option key={size}>{size}</option>)}
                 </select>
                 <svg viewBox="0 0 24 24" className="pointer-events-none absolute right-0 top-3 h-6 w-6 fill-black/30"><path d="M7 10l5 5 5-5z" /></svg>
               </div>
-              <span className="mr-2">{pageStart + 1 > filtered.length ? 0 : pageStart + 1} - {Math.min(pageStart + pageSize, filtered.length)}  {t("из")}  {filtered.length}</span>
+              <span className="relative top-[1.5px] mr-[5px]">{pageStart + 1 > filtered.length ? 0 : pageStart + 1} - {Math.min(pageStart + pageSize, filtered.length)}  {t("из")}  {filtered.length}</span>
               <button type="button" disabled={page <= 1} onClick={() => setPage((current) => current - 1)} aria-label="prev" className="px-[5px] disabled:opacity-100">
                 <svg viewBox="0 0 24 24" className={`h-6 w-6 ${page <= 1 ? "fill-black/30" : "fill-black/55"}`}><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm1-12l-5 4 5 4V8z" /></svg>
               </button>
               <button type="button" disabled={page >= pageCount} onClick={() => setPage((current) => current + 1)} aria-label="next">
-                <svg viewBox="0 0 24 24" className={`h-6 w-6 ${page >= pageCount ? "fill-black/30" : "fill-black/55"}`}><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zM11 8v8l5-4-5-4z" /></svg>
+                <svg viewBox="0 0 24 24" className={`h-6 w-6 ${page >= pageCount ? "fill-black/30" : "fill-black/55"}`}><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm-1-12l5 4-5 4V8z" /></svg>
               </button>
-              {[
-                { path: ICON.checklist, title: t("Выбрать"), color: "#5d6474", onClick: () => setSelectMode((value) => !value) },
-                { path: ICON.sync, title: t("Обновить"), color: "#5d6474", onClick: reloadOrders },
-                { path: ICON.print, title: t("Распечатать"), color: "#666", onClick: () => window.print() },
-                { path: ICON.download, title: t("Экспортировать"), color: "#666", onClick: exportCsv },
-                { path: ICON.edit, title: t("Изменить"), color: "#666", onClick: editChecked },
-                { path: ICON.history, title: t("История"), color: "#666", onClick: () => flash(t("Скоро будет доступно")) },
-                { path: ICON.textA, title: t("Текст"), color: "#666", onClick: () => flash(t("Скоро будет доступно")) },
-                { path: ICON.send, title: t("Передать"), color: "#666", onClick: passToDelivery },
-              ].map((action, index) => (
-                <button key={index} type="button" title={action.title} aria-label={action.title} onClick={action.onClick} className={`flex h-12 w-12 items-center justify-center ${index === 0 ? "ml-5" : ""}`}>
-                  <svg viewBox="0 0 24 24" className="h-6 w-6" style={{ fill: action.color }}><path d={action.path} /></svg>
-                </button>
+              {toolbarActions.map((action, index) => (
+                <Tip key={action.key} text={action.title} side="left" className={index === 0 ? "ml-5" : ""}>
+                  <button type="button" aria-label={action.title} onClick={action.onClick} className="flex h-12 w-12 items-center justify-center">
+                    <svg viewBox="0 0 24 24" className="h-6 w-6" style={{ fill: action.color }}><path d={action.path} /></svg>
+                  </button>
+                  {noSelection === action.key && <NoSelectionPopover onClose={() => setNoSelection(null)} />}
+                  {action.key === "edo" && edoOpen && (
+                    <EdoMenu
+                      onClose={() => setEdoOpen(false)}
+                      onPick={() => {
+                        setEdoOpen(false)
+                        flash(t("Интеграция EDO не подключена"))
+                      }}
+                    />
+                  )}
+                  {action.key === "more" && moreOpen && (
+                    <>
+                      <div className="fixed inset-0 z-40" onClick={() => setMoreOpen(false)} />
+                      <button
+                        type="button"
+                        onClick={() => { setMoreOpen(false); setTotalsOpen(true) }}
+                        className="absolute right-0 top-[0px] z-50 flex h-[56px] w-[224px] items-center rounded-[2px] bg-white pl-[20px] text-left text-[13px] text-[#333] shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]"
+                      >
+                        {t("Итоги выбранных заказов")}
+                      </button>
+                    </>
+                  )}
+                </Tip>
               ))}
+              {bulkAction && (
+                <span className="relative flex">
+                  <button type="button" onClick={() => requireSelection("bulk", bulkAction.onClick)} className="relative flex h-[30px] w-[105.5px] items-center justify-center rounded-[5px] bg-[#71ce87] pl-[12px] hover:brightness-95">
+                    <svg viewBox="0 0 24 24" className="h-5 w-5 fill-white"><path d={bulkAction.path} /></svg>
+                    <span className="pointer-events-none absolute left-[10px] top-[36px] whitespace-nowrap text-[13px] font-semibold text-white">{bulkAction.label}</span>
+                  </button>
+                  {noSelection === "bulk" && <NoSelectionPopover onClose={() => setNoSelection(null)} />}
+                </span>
+              )}
             </div>
           </div>
 
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto min-[1130px]:overflow-visible">
             <div className="min-w-[1100px]">
-              <div className={`h-[50px] items-center bg-[#5d6474] px-[30px] font-semibold text-white ${filterOpen ? "hidden" : "grid"}`} style={{ gridTemplateColumns: COLS }}>
-                {["№", "Клиент", "Тип", "Дата создания", "Доставщик", "Дата доставки", "Агент", "Сумма заказа", "Баланс", "Статус"].map((head) => (
-                  <div key={head} className="px-2 leading-[18px]">
-                    <button type="button" onClick={() => setSort((current) => (current?.head === head ? (current.desc ? null : { head, desc: true }) : { head, desc: false }))} className="text-left font-semibold hover:opacity-80">
+              <div className={`sticky top-[50px] z-20 h-[50px] items-center bg-[#5d6474] px-[30px] font-semibold text-white ${filterOpen ? "hidden" : "flex"}`}>
+                {selectMode && (
+                  <div className="relative h-full w-[20px] shrink-0">
+                    <button
+                      type="button"
+                      aria-label={t("Выбрать все")}
+                      onClick={() => setCheckedIds(pageRows.every((row) => checkedIds.includes(row.id)) ? checkedIds.filter((id) => !pageRows.some((row) => row.id === id)) : Array.from(new Set([...checkedIds, ...pageRows.map((row) => row.id)])))}
+                      className="absolute -left-[10px] top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center"
+                    >
+                      <svg viewBox="0 0 24 24" className="h-5 w-5 fill-white"><path d={ICON.selectAll} /></svg>
+                    </button>
+                  </div>
+                )}
+                {HEADS.map((head, index) => (
+                  <div key={head} style={{ width: `${COL_PCT[index]}%` }} className="px-2 leading-[18px]">
+                    <button type="button" onClick={() => setSort((current) => (current?.head === head ? (current.desc ? null : { head, desc: true }) : { head, desc: false }))} className={`text-left font-semibold hover:opacity-80 ${index === 0 || index === COL_PCT.length - 1 ? "" : "pr-[30px]"}`}>
                       {t(head)}
                       {sort?.head === head ? <span className="ml-1 text-[10px]">{sort.desc ? "▼" : "▲"}</span> : null}
                     </button>
@@ -464,37 +676,20 @@ export function OrdersView() {
               ) : (
                 pageRows.map((row) =>
                   selected?.id === row.id ? (
-                    <div key={row.id} ref={detailRowRef} className="my-3 px-[2px]">
-                      <div className="sticky left-0 w-[calc(100vw-56px)] max-w-full">
+                    <div key={row.id} ref={detailRowRef} className="-mx-[15px] my-5">
+                      <div className="sticky left-0 w-[calc(100vw-26px)] max-w-full">
                         <OrderDetailCard order={selected} onUpdate={updateOrder} refreshOrder={refreshOrder} onNavigate={(href) => router.push(href)} onNotify={flash} />
                       </div>
                     </div>
                   ) : (
-                    <div
+                    <OrderRow
                       key={row.id}
-                      onClick={() => setSelected(row)}
-                      className="grid min-h-[50px] cursor-pointer items-center border-b border-dotted border-[#d6d6d6] bg-white px-[30px] py-[7px] hover:bg-[#f2f5f8]"
-                      style={{ gridTemplateColumns: COLS }}
-                    >
-                      <div className="flex items-center gap-2 px-2">
-                        {selectMode && (
-                          <input type="checkbox" checked={checkedIds.includes(row.id)} onClick={(event) => event.stopPropagation()} onChange={() => toggleChecked(row.id)} />
-                        )}
-                        {row.id}
-                      </div>
-                      <div className="px-2 leading-[16.25px]">{row.client}<br /><span>{t("Зона")} : {row.zone || t("Не указано")}</span></div>
-                      <div className="px-2 leading-[16.25px]">{row.type}<br /><b className="font-semibold">{row.product}</b></div>
-                      <div className="px-2">{row.created}</div>
-                      <div className="px-2 leading-[16.25px]">Admin Ritm<br /><span className="text-[#4f71dc]">{t("Не указано")}</span></div>
-                      <div className="px-2">{row.delivery}</div>
-                      <div className="px-2 leading-[16.25px]">{row.agent}<br /><span className="text-[#4f71dc]">{t("0 кг.")}</span></div>
-                      <div className="px-2">{row.amount}</div>
-                      <div className={`px-2 font-semibold ${row.negative ? "text-[#e57373]" : "text-[#48a34b]"}`}>{row.balance}</div>
-                      <div className="flex items-center gap-[10px] px-2">
-                        <StatusIcon status={row.status} />
-                        <svg viewBox="0 0 24 24" className="h-5 w-5 fill-[#e57373]"><path d={ICON.card} /></svg>
-                      </div>
-                    </div>
+                      row={row}
+                      selectMode={selectMode}
+                      checked={checkedIds.includes(row.id)}
+                      onToggle={() => toggleChecked(row.id)}
+                      onOpen={() => setSelected(row)}
+                    />
                   ),
                 )
               )}
@@ -503,39 +698,142 @@ export function OrdersView() {
         </div>
       </section>
 
+      {totalsOpen && <SelectedTotalsDialog orders={selectedRows} onClose={() => setTotalsOpen(false)} />}
+      {seriesOpen && (
+        <SeriesDialog
+          onClose={() => setSeriesOpen(false)}
+          onSave={(mode) => {
+            try {
+              window.localStorage.setItem(SERIES_STORAGE_KEY, mode)
+            } catch {}
+            setSeriesOpen(false)
+            flash(t("Сохранено"))
+          }}
+        />
+      )}
+      {invoiceNumOpen && (
+        <InvoiceNumberDialog
+          onClose={() => setInvoiceNumOpen(false)}
+          onSave={async (start) => {
+            setInvoiceNumOpen(false)
+            const rows = sortedRows.filter((row) => checkedIds.includes(row.id))
+            await Promise.all(rows.map((row, index) => updateOrder(row.id, { invoiceNumber: String(start + index) })))
+            flash(`${rows.length} ${t("заказ(ов) изменено")}`)
+          }}
+        />
+      )}
+      {bulkEditOpen && <BulkEditDialog count={selectedRows.length} onClose={() => setBulkEditOpen(false)} onApply={applyBulkEdit} />}
+
       {addOpen && (
         <AddOrderDialog initialShopId={initialShopId} onClose={closeAddDialog} onCreated={orderCreated} />
       )}
 
-      {bulkPayOpen && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/45 p-4">
-          <div className="w-full max-w-sm rounded-md bg-white p-6 shadow-xl">
-            <div className="mb-5 flex items-center justify-between">
-              <h3 className="text-lg font-bold">{t("Групповая оплата")}</h3>
-              <button type="button" onClick={() => setBulkPayOpen(false)} aria-label={t("Закрыть")}><X className="h-5 w-5" /></button>
-            </div>
-            <p className="mb-5 text-sm text-slate-500">{t("Выбрано заказов:")} {checkedIds.length || t("0 (отметьте заказы в таблице)")}</p>
-            <button
-              type="button"
-              onClick={() => {
-                if (checkedIds.length) flash(`${t("Оплата принята по")} ${checkedIds.length} ${t("заказ(ам)")}`)
-                setBulkPayOpen(false)
-                setCheckedIds([])
-              }}
-              disabled={!checkedIds.length}
-              className="w-full rounded-md bg-[#71ce87] py-3 font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              {t("Оплатить")}
-            </button>
-          </div>
-        </div>
+      {importOpen && (
+        <ImportDialog
+          onClose={() => setImportOpen(false)}
+          onSave={(file) => {
+            setImportOpen(false)
+            importFromExcel(file)
+          }}
+        />
       )}
+
+      {bulkPayOpen &&
+        (selecting ? (
+          <OrderGroupPayment
+            orders={selectedRows}
+            onClose={() => setBulkPayOpen(false)}
+            onSaved={(count) => {
+              flash(`${t("Оплата принята по")} ${count}`)
+              setBulkPayOpen(false)
+              setCheckedIds([])
+              void reloadOrders()
+            }}
+          />
+        ) : (
+          <div data-order-overlay className="fixed inset-0 z-[1200] overflow-y-auto bg-white">
+            <div className="flex h-[60px] items-center justify-between border-b border-[#efefef] pl-[30px] pr-[15px]">
+              <h3 className="text-[13px] font-bold uppercase text-[#333]">{t("Групповая оплата")}</h3>
+              <button type="button" onClick={() => setBulkPayOpen(false)} aria-label={t("Закрыть")} className="flex h-12 w-12 items-center justify-center"><X className="h-6 w-6 text-[#333]" /></button>
+            </div>
+            <p className="mt-[137px] text-center text-[18px] font-semibold text-[#333]">{t("Выберите хотя бы один заказ !")}</p>
+          </div>
+        ))}
     </main>
   )
 }
 
+const IMPORT_FORMATS = ["Korzinka", "Havas Excel", "Havas XML", "Makro", "Baraka market", "Olma market", "С шаблона накладного", "Импорт с excel", "Изменить"]
+
+/** "ИМПОРТ С EXCEL": the reference's format list and drop zone (every format reads the same client / amount columns here). */
+function ImportDialog({ onClose, onSave }: { onClose: () => void; onSave: (file: File) => void }) {
+  const { t } = useLanguage()
+  const [format, setFormat] = useState(IMPORT_FORMATS[0])
+  const [file, setFile] = useState<File | null>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => event.key === "Escape" && onClose()
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
+  }, [onClose])
+  return createPortal(
+    <div data-order-overlay className="fixed inset-0 z-[1500] flex items-start justify-center bg-black/[0.54] font-sans text-[13px] text-[#333]">
+      <div className="relative mt-[80px] h-[760px] w-[400px] max-w-full bg-white shadow-[0_10px_32px_rgba(0,0,0,0.19),0_6px_10px_rgba(0,0,0,0.23)]">
+        <span className="absolute left-[30px] top-[21.4px] text-[13px] font-bold uppercase leading-[16.3px]">{t("Импорт с Excel")}</span>
+        <button type="button" aria-label="close" onClick={onClose} className="absolute right-[15px] top-[5.5px] flex h-12 w-12 items-center justify-center">
+          <svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#333]" aria-hidden><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" /></svg>
+        </button>
+        <span className="absolute inset-x-0 top-[59.3px] h-px bg-[#efefef]" />
+        <span className="pointer-events-none absolute left-[30px] top-[90px] h-[567px] w-[348px] border border-[#efefef]" />
+        <div className="absolute left-[51px] top-[97px] w-[326px]">
+          {IMPORT_FORMATS.map((value) => (
+            <label key={value} className="flex h-[34px] cursor-pointer items-center">
+              <svg viewBox="0 0 24 24" className="ml-[2px] h-5 w-5 shrink-0" aria-hidden>
+                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8z" fill="#666" />
+                {format === value && <path d="M12 7c-2.76 0-5 2.24-5 5s2.24 5 5 5 5-2.24 5-5-2.24-5-5-5z" fill="#5d6474" />}
+              </svg>
+              <input type="radio" name="import-format" checked={format === value} onChange={() => setFormat(value)} className="sr-only" />
+              <span className="ml-[18px] text-black">{t(value)}</span>
+            </label>
+          ))}
+        </div>
+        <input ref={inputRef} type="file" accept=".csv,.xls,.xlsx" className="hidden" onChange={(event) => setFile(event.target.files?.[0] ?? null)} />
+        <button
+          type="button"
+          onClick={() => inputRef.current?.click()}
+          className="absolute left-[51px] top-[432px] flex h-[199px] w-[310px] flex-col items-center justify-center border border-dashed border-[#ccc] text-center text-[13px] text-[#333]"
+        >
+          <svg viewBox="0 0 24 24" className="mb-[14px] h-6 w-6" fill="#666" aria-hidden><path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z" /></svg>
+          {file ? file.name : t("Добавьте файл Excel или нажмите для выбора")}
+        </button>
+        <span className="absolute inset-x-0 bottom-[56px] h-px bg-[#efefef]" />
+        <button
+          type="button"
+          onClick={() => file && onSave(file)}
+          className="absolute bottom-[10px] right-[10px] h-9 min-w-[110px] rounded-[2px] bg-[#71ce87] px-4 text-[13px] font-semibold uppercase text-white"
+        >
+          {t("Сохранить")}
+        </button>
+      </div>
+    </div>,
+    document.body,
+  )
+}
+
 const TAB_LABELS = ["Активные", "Доставляется", "Доставленные", "Все"] as const
-const COLS = "minmax(0,87fr) minmax(0,198fr) minmax(0,173fr) minmax(0,124fr) minmax(0,148fr) minmax(0,99fr) minmax(0,99fr) minmax(0,124fr) minmax(0,111fr) minmax(0,74fr)"
+const TAB_STATUSES: Record<(typeof TAB_LABELS)[number], string[]> = {
+  "Активные": ["В процессе", "Есть на складе", "Не подтвержден"],
+  "Доставляется": ["Передан доставщику"],
+  "Доставленные": ["Доставлен"],
+  "Все": [],
+}
+const HEADS = ["№", "Клиент", "Тип", "Дата создания", "Доставщик", "Дата доставки", "Агент", "Сумма заказа", "Баланс", "Статус"]
+/** Column widths (%) of the reference list: every cell is padded 0.5rem, the last one is centred. */
+const COL_PCT = [7, 16, 14, 10, 12, 8, 8, 10, 9, 6]
+
+function sameSet(a: string[], b: string[]) {
+  return a.length === b.length && a.every((item) => b.includes(item))
+}
 
 const ICON = {
   warning: "M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z",
@@ -556,6 +854,15 @@ const ICON = {
   send: "M2.01 21L23 12 2.01 3 2 10l15 2-15 2z",
   clipboard: "M19 3h-4.18C14.4 1.84 13.3 1 12 1c-1.3 0-2.4.84-2.82 2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-7 0c.55 0 1 .45 1 1s-.45 1-1 1-1-.45-1-1 .45-1 1-1zm-2 14l-4-4 1.41-1.41L10 14.17l6.59-6.59L18 9l-8 8z",
   truck: "M20 8h-3V4H3c-1.1 0-2 .9-2 2v11h2c0 1.66 1.34 3 3 3s3-1.34 3-3h6c0 1.66 1.34 3 3 3s3-1.34 3-3h2v-5l-3-4zM6 18.5c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zm13.5-9l1.96 2.5H17V9.5h2.5zm-1.5 9c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5z",
+  visibilityOff: "M12 7c2.76 0 5 2.24 5 5 0 .65-.13 1.26-.36 1.83l2.92 2.92c1.51-1.26 2.7-2.89 3.43-4.75-1.73-4.39-6-7.5-11-7.5-1.4 0-2.74.25-3.98.7l2.16 2.16C10.74 7.13 11.35 7 12 7zM2 4.27l2.28 2.28.46.46C3.08 8.3 1.78 10.02 1 12c1.73 4.39 6 7.5 11 7.5 1.55 0 3.03-.3 4.38-.84l.42.42L19.73 22 21 20.73 3.27 3 2 4.27zM7.53 9.8l1.55 1.55c-.05.21-.08.43-.08.65 0 1.66 1.34 3 3 3 .22 0 .44-.03.65-.08l1.55 1.55c-.67.33-1.41.53-2.2.53-2.76 0-5-2.24-5-5 0-.79.2-1.53.53-2.2zm4.31-.78l3.15 3.15.02-.16c0-1.66-1.34-3-3-3l-.17.01z",
+  selectAll: "M3 5h2V3c-1.1 0-2 .9-2 2zm0 8h2v-2H3v2zm4 8h2v-2H7v2zM3 9h2V7H3v2zm10-6h-2v2h2V3zm6 0v2h2c0-1.1-.9-2-2-2zM5 21v-2H3c0 1.1.9 2 2 2zm-2-4h2v-2H3v2zM9 3H7v2h2V3zm2 18h2v-2h-2v2zm8-8h2v-2h-2v2zm0 8c1.1 0 2-.9 2-2h-2v2zm0-12h2V7h-2v2zm0 8h2v-2h-2v2zm-4 4h2v-2h-2v2zm0-16h2V3h-2v2zM7 17h10V7H7v10zm2-8h6v6H9V9z",
+  more: "M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z",
+  minusBox: "M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-2 10H7v-2h10v2z",
+  clear: "M14.59 8L12 10.59 9.41 8 8 9.41 10.59 12 8 14.59 9.41 16 12 13.41 14.59 16 16 14.59 13.41 12 16 9.41 14.59 8zM12 2C6.47 2 2 6.47 2 12s4.47 10 10 10 10-4.47 10-10S17.53 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z",
+  cash: "M11 17h2v-1h1c.55 0 1-.45 1-1v-3c0-.55-.45-1-1-1h-3v-1h4V8h-2V7h-2v1h-1c-.55 0-1 .45-1 1v3c0 .55.45 1 1 1h3v1H9v2h2v1zm9-13H4c-1.11 0-1.99.89-1.99 2L2 18c0 1.11.89 2 2 2h16c1.11 0 2-.89 2-2V6c0-1.11-.89-2-2-2zm0 14H4V6h16v12z",
+  bank: "M20 4H4c-1.11 0-1.99.89-1.99 2L2 18c0 1.11.89 2 2 2h16c1.11 0 2-.89 2-2V6c0-1.11-.89-2-2-2zm0 14H4v-6h16v6zm0-10H4V6h16v2z",
+  checkCircle: "M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z",
+  receipt: "M18 17H6v-2h12v2zm0-4H6v-2h12v2zm0-4H6V7h12v2zM3 22l1.5-1.5L6 22l1.5-1.5L9 22l1.5-1.5L12 22l1.5-1.5L15 22l1.5-1.5L18 22l1.5-1.5L21 22V2l-1.5 1.5L18 2l-1.5 1.5L15 2l-1.5 1.5L12 2l-1.5 1.5L9 2 7.5 3.5 6 2 4.5 3.5 3 2v20z",
   ban: "M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zM4 12c0-4.42 3.58-8 8-8 1.85 0 3.55.63 4.9 1.69L5.69 16.9C4.63 15.55 4 13.85 4 12zm8 8c-1.85 0-3.55-.63-4.9-1.69L18.31 7.1C19.37 8.45 20 10.15 20 12c0 4.42-3.58 8-8 8z",
 }
 
@@ -568,19 +875,134 @@ function TopButton({ icon, text, onClick, green }: { icon: string; text: string;
   )
 }
 
-function StatusIcon({ status }: { status: string }) {
-  const map: Record<string, { path: string; color: string }> = {
-    "Доставлено": { path: ICON.clipboard, color: "#81c784" },
-    "Есть на складе": { path: ICON.store, color: "#f0ad4e" },
-    "В пути": { path: ICON.truck, color: "#f0ad4e" },
-    "В процессе": { path: ICON.clock, color: "#f0ad4e" },
-    "Отменен": { path: ICON.ban, color: "#e57373" },
-  }
-  const item = map[status] ?? { path: ICON.warning, color: "#757575" }
+const STATUS_ICON: Record<string, { path: string; color: string }> = {
+  "Доставлено": { path: ICON.clipboard, color: "#81c784" },
+  "Есть на складе": { path: ICON.store, color: "#f0ad4e" },
+  "В пути": { path: ICON.truck, color: "#f0ad4e" },
+  "В процессе": { path: ICON.clock, color: "#f0ad4e" },
+  "Отменен": { path: ICON.ban, color: "#e57373" },
+  "Не подтвержден": { path: ICON.warning, color: "#999999" },
+}
+
+const RU_MONTHS = ["янв.", "февр.", "мар.", "апр.", "мая", "июня", "июля", "авг.", "сент.", "окт.", "нояб.", "дек."]
+
+/** "2026-05-09" -> "09 мая 2026" (the format of the delivery-date column). */
+/** "08 сент. 2026" -> "2026-09-08" (empty when the label carries no year). */
+function parseRuDate(label: string) {
+  const match = label.match(/^(\d{1,2})\s+(\S+)\s+(\d{4})/)
+  const month = match ? RU_MONTHS.indexOf(match[2]) : -1
+  return match && month >= 0 ? `${match[3]}-${String(month + 1).padStart(2, "0")}-${match[1].padStart(2, "0")}` : ""
+}
+
+function formatIsoDate(iso: string) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso)
+  return match ? `${match[3]} ${RU_MONTHS[Number(match[2]) - 1]} ${match[1]}` : ""
+}
+
+/** Re-dates "07 сент. 20:03" / "09 янв. 2025 15:25" keeping the time of day. */
+function formatCreated(iso: string, previous: string) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso)
+  if (!match) return previous
+  const time = /(\d{1,2}:\d{2})\s*$/.exec(previous)?.[1] ?? "00:00"
+  const year = match[1] === String(new Date().getFullYear()) ? "" : `${match[1]} `
+  return `${match[3]} ${RU_MONTHS[Number(match[2]) - 1]} ${year}${time}`
+}
+
+const formatNumber = (value: number) => value.toLocaleString("ru-RU", { maximumFractionDigits: 3 })
+
+/** The list always shows the client balance in SUM, whatever the order currency is. */
+function balanceInSum(balance: string) {
+  const parsed = parseAmount(balance)
+  return parsed ? { number: parsed.number, text: `${formatNumber(parsed.number)} SUM` } : { number: 0, text: balance }
+}
+
+function IconButton({ path, color }: { path: string; color: string }) {
   return (
-    <svg viewBox="0 0 24 24" className="h-5 w-5">
-      <path d={item.path} fill={item.color} />
-    </svg>
+    <span className="inline-flex h-[30px] w-[30px] items-center justify-center p-[5px]">
+      <svg viewBox="0 0 24 24" className="h-5 w-5" style={{ fill: color }}><path d={path} /></svg>
+    </span>
+  )
+}
+
+function OrderRow({ row, selectMode, checked, onToggle, onOpen }: { row: Order; selectMode: boolean; checked: boolean; onToggle: () => void; onOpen: () => void }) {
+  const { t } = useLanguage()
+  const status = STATUS_ICON[row.status] ?? { path: ICON.warning, color: "#757575" }
+  const balance = balanceInSum(row.balance)
+  const accepted = row.acceptedDate && formatIsoDate(row.acceptedDate) !== row.delivery ? formatIsoDate(row.acceptedDate) : ""
+  const returnPrice = row.returnPrice ?? 0
+  const unpaid = (row.orderBalance ?? 0) > 0
+  const payIcon = row.payMethod === "bank" ? ICON.bank : ICON.cash
+  const weight = row.weight ?? 0
+  const cell = "px-2 leading-[16.25px]"
+  return (
+    <div className="relative bg-white px-[30px] after:pointer-events-none after:absolute after:inset-x-0 after:bottom-0 after:border-b after:border-dotted after:border-[#d6d6d6]">
+      {(row.discountPercent ?? 0) > 0 && (
+        <div className="pointer-events-none absolute right-[-23px] top-[-18px] z-[1] mx-[5px] inline-block h-[60px] w-[60px] rotate-[-90deg] scale-[0.4] border-[30px] border-solid border-[#e57373] border-l-transparent border-t-transparent text-white">
+          <p className="ml-[10px] mt-[-17px] rotate-90 text-[28px] font-semibold">%</p>
+        </div>
+      )}
+      <div onClick={onOpen} className={`-mx-[30px] flex min-h-[50px] cursor-pointer items-center px-[30px] py-[7px] hover:bg-[#f2f5f8] ${checked ? "bg-[#f2f5f8]" : ""}`}>
+        {selectMode && (
+          <div className="relative h-full w-[20px] shrink-0">
+            <span className="absolute -left-[10px] top-1/2 -translate-y-1/2"><RowCheckbox checked={checked} onChange={onToggle} label={String(row.id)} /></span>
+          </div>
+        )}
+        <div style={{ width: `${COL_PCT[0]}%` }} className={cell}>{row.id}</div>
+        <div style={{ width: `${COL_PCT[1]}%` }} className={cell}>
+          {row.marketName || row.client}
+          {row.zone && <><br /><span>{t("Зона")}: {row.zone}</span></>}
+        </div>
+        <div style={{ width: `${COL_PCT[2]}%` }} className={`${cell} min-w-0`}>
+          {row.type}
+          <br />
+          <strong className="block overflow-hidden text-ellipsis whitespace-nowrap font-semibold">{orderOrganization(row)}</strong>
+        </div>
+        <div style={{ width: `${COL_PCT[3]}%` }} className={cell}>{row.created}</div>
+        <div style={{ width: `${COL_PCT[4]}%` }} className={cell}>
+          {row.deliveryMan || "Admin Ritm"}
+          <br />
+          <span className="text-[#4f71dc]">{row.expeditor || t("Не указано")}</span>
+          {row.transportNumber && <><br /><span className="text-[#4f71dc]">{row.transportNumber}</span></>}
+        </div>
+        <div style={{ width: `${COL_PCT[5]}%` }} className={cell}>
+          <span>{row.delivery}</span>
+          {accepted && <><br /><span className="text-[#4f71dc]">{accepted}</span></>}
+        </div>
+        <div style={{ width: `${COL_PCT[6]}%` }} className={cell}>
+          {row.agent}
+          <p className="text-[12px] font-medium leading-[15px] text-[#4f71dc]">{formatNumber(weight)} {t("кг.")}</p>
+        </div>
+        <div style={{ width: `${COL_PCT[7]}%` }} className={cell}>
+          <span className="ml-[3px] inline-block">
+            {row.amount}
+            {returnPrice > 0 && <><br /><span className="text-[#e57373]">-{formatNumber(returnPrice)}</span></>}
+          </span>
+        </div>
+        <div style={{ width: `${COL_PCT[8]}%` }} className={cell}>
+          <span className={balance.number > 0 ? "font-semibold text-[#48a34b]" : balance.number < 0 ? "font-semibold text-[#e27676]" : "text-black"}>{balance.text}</span>
+        </div>
+        <div style={{ width: `${COL_PCT[9]}%` }} className="flex items-center justify-start">
+          <IconButton path={status.path} color={status.color} />
+          <IconButton path={payIcon} color={unpaid ? "#e57373" : "#81c784"} />
+          {row.invoiceActive && <IconButton path={ICON.checkCircle} color="#2196f3" />}
+          <IconButton path={ICON.receipt} color={row.invoiceActive ? "#5868f0" : "transparent"} />
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/** Reference-style dark tooltip (react-tooltip look) shown on hover. */
+function Tip({ text, side, className = "", children }: { text: string; side: "left" | "right"; className?: string; children: React.ReactNode }) {
+  return (
+    <span className={`group/tip relative inline-flex ${className}`}>
+      {children}
+      {text && <span
+        className={`pointer-events-none absolute top-1/2 z-50 hidden -translate-y-1/2 whitespace-nowrap rounded-[2px] bg-[#2d3037] px-[21px] py-[8px] text-[13px] font-normal leading-[17px] text-white opacity-90 group-hover/tip:block ${side === "left" ? "right-full mr-[12px]" : "left-full ml-[5px]"}`}
+      >
+        {text}
+      </span>}
+    </span>
   )
 }
 
@@ -588,20 +1010,22 @@ function parseAmount(value: string) {
   const match = /^([\d\s\u00a0.,-]+)\s*([A-Za-z]+)/.exec(value.trim())
   if (!match) return null
   const number = Number(match[1].replace(/[\s\u00a0]/g, "").replace(",", "."))
-  return Number.isFinite(number) ? { number, currency: match[2].toUpperCase() } : null
+  return Number.isFinite(number) ? { number, currency: match[2] } : null
 }
 
-function sumByCurrency(rows: Order[]) {
-  const totals = new Map<string, number>([["SUM", 0], ["EUR", 0], ["USD", 0]])
+const CURRENCY_ORDER = ["SUM", "Euro", "USD"]
+
+function sumByCurrency(rows: Order[], pick: (row: Order) => number) {
+  const totals = new Map<string, number>()
   for (const row of rows) {
-    const parsed = parseAmount(row.amount)
-    if (parsed) totals.set(parsed.currency, (totals.get(parsed.currency) ?? 0) + parsed.number)
+    const currency = parseAmount(row.amount)?.currency
+    if (currency) totals.set(currency, (totals.get(currency) ?? 0) + pick(row))
   }
-  const label = (currency: string) => (currency === "EUR" ? "Euro" : currency)
-  const shown = [...totals.entries()].filter(([currency, number]) => currency !== "EUR" || number !== 0)
+  const shown = [...totals.entries()].sort(([a], [b]) => CURRENCY_ORDER.indexOf(a) - CURRENCY_ORDER.indexOf(b))
+  if (!shown.length) shown.push(["SUM", 0])
   return shown.map(([currency, number], index, all) => (
-    <span key={currency} className="mr-[5px]">
-      {number.toLocaleString("ru-RU", { maximumFractionDigits: 2 })} {label(currency)}{index < all.length - 1 ? " ," : ""}
+    <span key={currency} className={index < all.length - 1 ? "mr-[5px]" : ""}>
+      {formatNumber(number)} {currency}{index < all.length - 1 ? " ," : ""}
     </span>
   ))
 }

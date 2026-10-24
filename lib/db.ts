@@ -622,8 +622,9 @@ async function bootstrapSchema(): Promise<void> {
       category TEXT NOT NULL DEFAULT '',
       type TEXT NOT NULL DEFAULT '',
       label TEXT NOT NULL,
-      code TEXT NOT NULL UNIQUE,
+      code TEXT NOT NULL,
       sort_order INTEGER NOT NULL DEFAULT 0,
+      categories TEXT NOT NULL DEFAULT '[]',
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 

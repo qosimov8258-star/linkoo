@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
+
+import { releaseClientAccount } from "@/lib/financial-accounts-repo"
 import { z } from "zod"
 
 import { getCurrentUser } from "@/lib/current-user"
@@ -8,9 +10,9 @@ import { deleteClient, getClient, updateClient } from "@/lib/clients-repo"
 
 const clientSchema = z.object({
   name: z.string().trim().min(1),
-  phone: z.string().trim().min(1),
+  phone: z.string().trim().optional().default(""),
   type: z.string().trim().min(1),
-  zone: z.string().trim().min(1),
+  zone: z.string().trim().optional().default(""),
   inn: z.string().trim().optional(),
   zoneAgent: z.string().trim().optional(),
   agent: z.string().trim().optional(),
@@ -90,6 +92,7 @@ export async function DELETE(_request: NextRequest, { params }: RouteParams) {
   if ("error" in auth) return auth.error
 
   const id = Number((await params).id)
+  await releaseClientAccount(id)
   const ok = (await deleteClient(id))
   if (!ok) return NextResponse.json({ error: "Клиент не найден" }, { status: 404 })
   return NextResponse.json({ ok: true })

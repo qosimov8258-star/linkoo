@@ -1,331 +1,242 @@
 "use client"
 
+import Link from "next/link"
+import { Search, X } from "lucide-react"
+import { FormEvent, useCallback, useEffect, useState } from "react"
+
 import { CatalogPageLayout } from "@/components/dashboard/catalog-sidebar"
-import { RefButton } from "@/components/ref/list-kit"
-import { FormEvent, useEffect, useMemo, useState } from "react"
-import { DUPLICATE_ORDER } from "./duplicate-data"
-import { Check, Link2, Search, Trash2, X } from "lucide-react"
+import { RefButton, RefTabs } from "@/components/ref/list-kit"
+import { useLanguage } from "@/lib/i18n/language-context"
 
-type DuplicateGroup = {
-  id: number
-  inn: string
-  phone: string
-  clients: string[]
-}
+import { EmptyState, ErrorAlert } from "./catalog-ui"
+import { ClientPicker, type ClientLookup } from "./client-picker"
+import { OrganizationSnackbar, type OrganizationNotice } from "./organization-dialogs"
 
-type ClientRow = { name: string; phone: string; inn?: string }
+type DuplicateGroup = { name: string; markets: { id: number; name: string }[] }
 
-// Clients sharing an INN / phone number, the way the reference "Объединение" page lists them.
-function buildGroups(clients: ClientRow[], field: "inn" | "phone"): DuplicateGroup[] {
-  const byKey = new Map<string, string[]>()
-  for (const client of clients) {
-    const key = (client[field] ?? "").trim()
-    if (!key) continue
-    byKey.set(key, [...(byKey.get(key) ?? []), client.name])
-  }
-  const order = new Map(DUPLICATE_ORDER[field].map((group, index) => [group.key, index]))
-  return Array.from(byKey.entries())
-    .filter(([, names]) => names.length > 1)
-    .sort(([a], [b]) => (order.get(a) ?? 9999) - (order.get(b) ?? 9999))
-    .map(([key, names], index) => ({
-      id: index + 1,
-      inn: field === "inn" ? key : "",
-      phone: field === "phone" ? key : "",
-      clients: names,
-    }))
+const LINK_ICON = "M3.9 12c0-1.71 1.39-3.1 3.1-3.1h4V7H7c-2.76 0-5 2.24-5 5s2.24 5 5 5h4v-1.9H7c-1.71 0-3.1-1.39-3.1-3.1zM8 13h8v-2H8v2zm9-6h-4v1.9h4c1.71 0 3.1 1.39 3.1 3.1s-1.39 3.1-3.1 3.1h-4V17h4c2.76 0 5-2.24 5-5s-2.24-5-5-5z"
+
+function Spinner() {
+  return (
+    <div className="flex h-[400px] items-center justify-center">
+      <div className="relative h-[50px] w-[50px] animate-spin">
+        {Array.from({ length: 8 }, (_, index) => (
+          <span key={index} className="absolute left-1/2 top-1/2 h-[6px] w-[6px] rounded-full bg-[#4f71dc]" style={{ transform: `rotate(${index * 45}deg) translate(0, -22px)`, opacity: 0.3 + index * 0.1 }} />
+        ))}
+      </div>
+    </div>
+  )
 }
 
 export function DuplicateAnalysisView() {
+  const { t } = useLanguage()
   const [mode, setMode] = useState<"inn" | "phone">("inn")
-  const [query, setQuery] = useState("")
-  const [groups, setGroups] = useState<DuplicateGroup[]>([])
+  const [searchDraft, setSearchDraft] = useState("")
+  const [search, setSearch] = useState("")
+  const [groups, setGroups] = useState<DuplicateGroup[] | null>(null)
+  const [reloadKey, setReloadKey] = useState(0)
+  const [dialog, setDialog] = useState<{ removed: ClientLookup[]; survivor: ClientLookup | null } | null>(null)
+  const [notice, setNotice] = useState<OrganizationNotice | null>(null)
+  const closeNotice = useCallback(() => setNotice(null), [])
 
   useEffect(() => {
-    let cancelled = false
-    fetch("/api/clients")
-      .then((response) => (response.ok ? (response.json() as Promise<ClientRow[]>) : Promise.reject()))
-      .then((clients) => {
-        if (!cancelled) setGroups(buildGroups(clients, mode))
-      })
-      .catch(() => {
-        if (!cancelled) setGroups([])
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [mode])
-  const [selected, setSelected] = useState<string[]>([])
-  const [mergeOpen, setMergeOpen] = useState(false)
-  const [primary, setPrimary] = useState("")
-  const [message, setMessage] = useState("")
-  const [activeGroupId, setActiveGroupId] = useState<number | null>(null)
-  const [clientPickerOpen, setClientPickerOpen] = useState(true)
-  const [addKey, setAddKey] = useState("")
+    const timer = window.setTimeout(() => setSearch(searchDraft.trim()), 500)
+    return () => window.clearTimeout(timer)
+  }, [searchDraft])
 
-  const availableToAdd = useMemo(
-    () =>
-      groups
-        .flatMap((group) => group.clients.map((client, index) => ({ key: `${group.id}:${index}`, client })))
-        .filter(({ key }) => !selected.includes(key)),
-    [groups, selected],
-  )
+  useEffect(() => {
+    const controller = new AbortController()
+    setGroups(null)
+    fetch(`/api/clients/duplicates?by=${mode}&search=${encodeURIComponent(search)}`, { signal: controller.signal })
+      .then((response) => (response.ok ? (response.json() as Promise<DuplicateGroup[]>) : []))
+      .then(setGroups)
+      .catch(() => { if (!controller.signal.aborted) setGroups([]) })
+    return () => controller.abort()
+  }, [mode, search, reloadKey])
 
-  const survivorOptions: string[] = []
-  const LINK_ICON = "M3.9 12c0-1.71 1.39-3.1 3.1-3.1h4V7H7c-2.76 0-5 2.24-5 5s2.24 5 5 5h4v-1.9H7c-1.71 0-3.1-1.39-3.1-3.1zM8 13h8v-2H8v2zm9-6h-4v1.9h4c1.71 0 3.1 1.39 3.1 3.1s-1.39 3.1-3.1 3.1h-4V17h4c2.76 0 5-2.24 5-5s-2.24-5-5-5z"
-
-  const filtered = useMemo(() => {
-    const normalized = query.trim().toLocaleLowerCase("ru")
-    if (!normalized) return groups
-    return groups.filter((group) =>
-      [group.inn, group.phone, ...group.clients].some((value) =>
-        value.toLocaleLowerCase("ru").includes(normalized),
-      ),
-    )
-  }, [groups, query])
-
-  function toggleClient(key: string) {
-    setSelected((current) =>
-      current.includes(key) ? current.filter((item) => item !== key) : [...current, key],
-    )
-  }
-
-  function openMerge() {
-    if (selected.length < 2) {
-      const group = filtered[0]
-      if (!group || group.clients.length < 2) {
-        setMessage("Для объединения необходимо выбрать минимум двух клиентов.")
-        return
-      }
-      const fallbackSelection = group.clients.slice(0, 2).map((_, index) => `${group.id}:${index}`)
-      setSelected(fallbackSelection)
-      setPrimary(survivorOptions[0] ?? "")
-      setActiveGroupId(group.id)
-      setClientPickerOpen(true)
-      setMergeOpen(true)
-      return
-    }
-    setPrimary(survivorOptions[0] ?? "")
-    setActiveGroupId(Number(selected[0].split(":")[0]))
-    setClientPickerOpen(true)
-    setMergeOpen(true)
-  }
-
-  function openGroupMerge(group: DuplicateGroup) {
-    const groupSelection = group.clients.map((_, index) => `${group.id}:${index}`)
-    setSelected(groupSelection)
-    setPrimary(survivorOptions[0] ?? "")
-    setActiveGroupId(group.id)
-    setClientPickerOpen(true)
-    setMergeOpen(true)
-  }
-
-  function merge(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    setGroups((current) => current.filter((group) => group.id !== activeGroupId))
-    setMergeOpen(false)
-    setSelected([])
-    setMessage(`${selected.length} клиента успешно объединены.`)
+  async function openRowMerge(group: DuplicateGroup) {
+    const ids = group.markets.map((market) => market.id)
+    const response = await fetch(`/api/clients/lookup?ids=${ids.join(",")}`)
+    const rows = response.ok ? ((await response.json()) as ClientLookup[]) : []
+    const ordered = ids.map((id) => rows.find((row) => row.id === id)).filter((row): row is ClientLookup => Boolean(row))
+    setDialog({ survivor: ordered[0] ?? null, removed: ordered.slice(1) })
   }
 
   return (
     <CatalogPageLayout>
-        <section className="min-w-0 flex-1">
-          <div className="sticky top-0 z-40 bg-white shadow-sm">
-            <div className="flex h-[59px] items-end justify-end pb-[10px] pr-[26px]">
-              <RefButton icon={LINK_ICON} label="Объединить" onClick={openMerge} />
-            </div>
-            <div className="grid grid-cols-2 border-b border-[#e8e8e8]">
-              {(["inn", "phone"] as const).map((tab) => (
-                <button
-                  key={tab}
-                  type="button"
-                  onClick={() => {
-                    setMode(tab)
-                    setSelected([])
-                  }}
-                  className={`h-[41px] border-b-[3px] px-4 text-[13px] font-medium transition-colors ${
-                    mode === tab ? "border-[#6178e8] text-slate-900" : "border-transparent hover:bg-slate-50"
-                  }`}
-                >
-                  {tab === "inn" ? "По ИНН" : "По номеру телефона"}
-                </button>
-              ))}
-            </div>
-            <label className="relative block h-[50px] w-full max-w-[330px] px-[15px]">
-              <span className="sr-only">Поиск</span>
-              <input
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                placeholder="Поиск"
-                className="h-12 w-full border-b border-[#e0e0e0] bg-transparent pr-10 text-[13px] outline-none placeholder:text-black/30 focus:border-[#5d6474]"
-              />
-              <Search className="absolute right-[22px] top-1/2 h-6 w-6 -translate-y-1/2 text-[#ccc]" />
-            </label>
+      <section className="min-w-0 flex-1">
+        <div className="bg-white">
+          <div className="flex h-[60px] items-end justify-end pb-[10px] pr-[26px]">
+            <RefButton icon={LINK_ICON} label={t("Объединить")} onClick={() => setDialog({ removed: [], survivor: null })} />
           </div>
-
-          {message && (
-            <div className="mx-6 mt-4 flex items-center justify-between rounded-md bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-700">
-              {message}
-              <button type="button" onClick={() => setMessage("")} aria-label="Закрыть сообщение">
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-          )}
-
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[850px] table-fixed border-collapse text-[13px]">
-              <thead className="bg-[#5d6474] text-left" style={{ color: "#fff" }}>
-                <tr>
-                  <th className="h-[50px] w-[182px] pl-[38px] font-semibold">№</th>
-                  <th className="h-[50px] w-[243px] pl-[38px] font-semibold">Наименование</th>
-                  <th className="h-[50px] pl-[38px] font-semibold">Клиенты</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map((group) => (
-                  <tr key={group.id} className="group relative border-b border-dotted border-[#d6d6d6] hover:bg-[#f2f5f8]">
-                    <td className="pl-[38px] align-middle">{group.id}</td>
-                    <td className="pl-[38px] align-middle">{mode === "inn" ? group.inn : group.phone}</td>
-                    <td className="relative pl-[38px] pr-48">
-                      <div className="flex flex-col items-start gap-[5px] py-[5px]">
-                      {group.clients.map((client, index) => {
-                        const key = `${group.id}:${index}`
-                        const isSelected = selected.includes(key)
-                        return (
-                          <button
-                            key={key}
-                            type="button"
-                            onClick={() => toggleClient(key)}
-                            aria-pressed={isSelected}
-                            className={`flex h-[26px] max-w-full items-center gap-2 rounded-[3px] px-[10px] text-left text-[#4f71dc] transition-colors ${
-                              isSelected ? "bg-[#dfe7fb] ring-1 ring-[#4f71dc]" : "bg-[#eef0f4] hover:bg-[#e5e9f2]"
-                            }`}
-                          >
-                            <span>{index + 1}. {client}</span>
-                            {isSelected && <Check className="h-4 w-4 shrink-0" />}
-                          </button>
-                        )
-                      })}
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => openGroupMerge(group)}
-                        className="absolute right-[120px] top-1/2 hidden h-[30px] -translate-y-1/2 items-center gap-2 rounded-[5px] bg-[#4f71dc] px-4 text-[13px] font-semibold text-white group-hover:inline-flex focus:inline-flex"
-                      >
-                        <Link2 className="h-4 w-4" />
-                        Объединить
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            {filtered.length === 0 && (
-              <div className="py-20 text-center text-[13px] text-[#8c8c8c]">По вашему запросу ничего не найдено.</div>
-            )}
-          </div>
-        </section>
-
-      {mergeOpen && (
-        <div className="fixed inset-0 z-[70] bg-white" role="dialog" aria-modal="true" aria-labelledby="merge-title">
-          <form onSubmit={merge} className="flex h-full flex-col">
-            <div className="flex items-center justify-between border-b px-9 py-6">
-              <h2 id="merge-title" className="text-[17px] font-bold uppercase">Объединение клиентов</h2>
-              <button type="button" onClick={() => setMergeOpen(false)} aria-label="Закрыть" className="text-slate-500 hover:text-slate-900">
-                <X className="h-6 w-6" />
-              </button>
-            </div>
-            <div className="border-b px-3 py-6 text-[17px] font-semibold text-slate-500">
-              <p>Все данные выбранных клиентов будут переписаны на имя клиента:</p>
-              <p className="text-red-500">Объединённые клиенты нельзя восстановить !</p>
-            </div>
-            <div className="grid min-h-0 flex-1 grid-cols-1 divide-x lg:grid-cols-2">
-              <section className="overflow-y-auto p-3">
-                <h3 className="mb-8 text-2xl font-bold">Клиенты которые будут удалены</h3>
-                <div className="mb-10 flex items-end gap-4">
-                  <label className="min-w-0 flex-1">
-                    <span className="mb-2 block text-sm">Клиент</span>
-                    <select value={addKey} onChange={(event) => setAddKey(event.target.value)} className="w-full border-b border-slate-300 bg-white py-2 outline-none">
-                      <option value="">Выберите клиента</option>
-                      {availableToAdd.map(({ key, client }) => (
-                        <option key={key} value={key}>{client}</option>
-                      ))}
-                    </select>
-                  </label>
-                  <button
-                    type="button"
-                    disabled={!addKey}
-                    onClick={() => {
-                      if (!addKey) return
-                      setSelected((current) => [...current, addKey])
-                      setAddKey("")
-                    }}
-                    className="px-5 py-2 font-medium text-brand-blue disabled:cursor-not-allowed disabled:opacity-40"
-                  >
-                    ДОБАВИТЬ
-                  </button>
-                </div>
-                <div className="grid grid-cols-[1fr_155px_1fr_42px] gap-4 px-2 text-sm font-semibold">
-                  <span>Наименование</span><span>Телефон</span><span>Адрес</span><span />
-                </div>
-                {selected.map((key) => {
-                  const [id, index] = key.split(":").map(Number)
-                  const client = groups.find((group) => group.id === id)?.clients[index] ?? key
-                  return (
-                    <div key={key} className="mt-4 grid grid-cols-[1fr_155px_1fr_42px] items-center gap-4 border-b py-3 text-sm">
-                      <span>{client}</span>
-                      <span>Не указан</span>
-                      <span>Не указано</span>
-                      <button
-                        type="button"
-                        aria-label={`Удалить ${client}`}
-                        onClick={() => setSelected((current) => current.filter((item) => item !== key))}
-                        className="text-slate-500 hover:text-red-500"
-                      >
-                        <Trash2 className="h-5 w-5" />
-                      </button>
-                    </div>
-                  )
-                })}
-              </section>
-              <section className="relative overflow-y-auto p-3">
-                <h3 className="mb-3 text-2xl font-bold">Клиент который остается</h3>
-                <label className="block text-sm">
-                  Клиент
-                  <button
-                    type="button"
-                    onClick={() => setClientPickerOpen((current) => !current)}
-                    className="mt-2 flex w-full items-center justify-between border-b border-slate-300 py-2 text-left"
-                  >
-                    <span>{primary}</span>
-                    <span className="text-slate-400">{clientPickerOpen ? "▲" : "▼"}</span>
-                  </button>
-                </label>
-                {clientPickerOpen && (
-                  <div className="absolute left-3 right-3 top-28 z-10 max-h-64 overflow-y-auto border bg-white py-1 shadow-xl">
-                    {survivorOptions.map((client) => (
-                      <button
-                        key={client}
-                        type="button"
-                        onClick={() => {
-                          setPrimary(client)
-                          setClientPickerOpen(false)
-                        }}
-                        className="block w-full px-3 py-2.5 text-left text-[15px] text-slate-600 hover:bg-blue-50"
-                      >
-                        {client}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </section>
-            </div>
-            <div className="flex justify-end border-t px-7 py-5">
-              <button type="submit" disabled={!primary || selected.length === 0} className="font-semibold text-[#00a4e8] disabled:opacity-40">ОБЪЕДИНИТЬ</button>
-            </div>
-          </form>
+          <RefTabs
+            labels={[t("По ИНН"), t("По номеру телефона")]}
+            value={mode === "inn" ? t("По ИНН") : t("По номеру телефона")}
+            onChange={(label) => { setMode(label === t("По ИНН") ? "inn" : "phone"); setSearchDraft(""); setSearch("") }}
+          />
+          <label className="relative block h-[50px] w-[330px] px-[15px] pt-[9px]">
+            <span className="sr-only">{t("Поиск")}</span>
+            <input
+              value={searchDraft}
+              onChange={(event) => setSearchDraft(event.target.value)}
+              placeholder={t("Поиск")}
+              className="h-[30px] w-full border-b border-[#e0e0e0] bg-transparent pr-10 text-[13px] outline-none placeholder:text-black/30 focus:border-[#5d6474]"
+            />
+            <Search className="absolute right-[22px] top-[12px] h-6 w-6 text-[#ccc]" />
+          </label>
         </div>
+
+        <div className="grid h-[50px] grid-cols-[182px_243px_1fr] items-center bg-[#5d6474] pl-[38px] text-[13px] font-semibold text-white">
+          <span>№</span>
+          <span>{mode === "inn" ? t("Наименование") : t("Телефон")}</span>
+          <span>{t("Клиенты")}</span>
+        </div>
+        {groups === null ? (
+          <Spinner />
+        ) : groups.length === 0 ? (
+          <EmptyState />
+        ) : (
+          groups.map((group, index) => (
+            <div key={group.name} className="group relative grid min-h-[65.5px] grid-cols-[182px_243px_1fr] items-center border-b-2 border-dotted border-[#d9e0e5] pl-[38px] text-[13px] hover:bg-[#f2f5f8]">
+              <span>{index + 1}</span>
+              <span>{group.name}</span>
+              <div className="flex flex-col items-start gap-[5px] py-[5px] pr-[200px]">
+                {group.markets.map((market, position) => (
+                  <Link key={market.id} href={`/clients?ids=${group.markets.map((item) => item.id).join("-")}`} className="flex h-[26.3px] max-w-full items-center rounded-[5px] bg-[#e9ecef] px-[10px] text-left font-semibold text-[#4f71dc] hover:bg-[#dfe3ea]">
+                    <span className="truncate"><span className="mr-[2px] font-normal text-[#333]">{position + 1}.</span> {market.name}</span>
+                  </Link>
+                ))}
+              </div>
+              <div className="absolute right-[168px] top-1/2 hidden -translate-y-1/2 group-hover:block">
+                <RefButton icon={LINK_ICON} label={t("Объединить")} onClick={() => void openRowMerge(group)} />
+              </div>
+            </div>
+          ))
+        )}
+      </section>
+
+      {dialog && (
+        <MergeDialog
+          initial={dialog}
+          onClose={() => setDialog(null)}
+          onMerged={(count) => {
+            setDialog(null)
+            setNotice({ text: `${t("Успешно объединено")}: ${count}`, tone: "success" })
+            setReloadKey((key) => key + 1)
+          }}
+        />
       )}
+      <OrganizationSnackbar notice={notice} onClose={closeNotice} />
     </CatalogPageLayout>
+  )
+}
+
+function MergeDialog({ initial, onClose, onMerged }: { initial: { removed: ClientLookup[]; survivor: ClientLookup | null }; onClose: () => void; onMerged: (count: number) => void }) {
+  const { t } = useLanguage()
+  const [removed, setRemoved] = useState(initial.removed)
+  const [survivor, setSurvivor] = useState(initial.survivor)
+  const [pending, setPending] = useState<ClientLookup | null>(null)
+  const [saving, setSaving] = useState(false)
+  const [alertMessage, setAlertMessage] = useState("")
+
+  useEffect(() => {
+    function onKey(event: KeyboardEvent) {
+      if (event.key === "Escape" && !alertMessage) onClose()
+    }
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
+  }, [onClose, alertMessage])
+
+  async function merge(event?: FormEvent) {
+    event?.preventDefault()
+    if (saving) return
+    if (!survivor) return setAlertMessage(t("Выберите клиента, который остается"))
+    if (removed.length === 0) return setAlertMessage(t("Выберите клиентов для объединения"))
+    setSaving(true)
+    try {
+      const response = await fetch("/api/clients/merge", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ survivorId: survivor.id, mergeIds: removed.map((client) => client.id) }),
+      })
+      const data = (await response.json().catch(() => ({}))) as { error?: string; merged?: number }
+      if (!response.ok) return setAlertMessage(t(data.error || "Не удалось объединить клиентов"))
+      onMerged(data.merged ?? removed.length)
+    } catch {
+      setAlertMessage(t("Сервер недоступен, попробуйте ещё раз"))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const excluded = [...removed.map((client) => client.id), ...(survivor ? [survivor.id] : [])]
+
+  return (
+    <div className="fixed inset-0 z-[70] flex flex-col bg-white text-[13px] text-[#333]" role="dialog" aria-modal="true">
+      <form onSubmit={merge} className="flex h-full flex-col">
+        <header className="flex h-[60px] shrink-0 items-center justify-between border-b border-[#efefef] pl-[30px] pr-[20px]">
+          <h2 className="text-[13px] font-bold uppercase">{t("Объединение клиентов")}</h2>
+          <button type="button" onClick={onClose} aria-label={t("Закрыть")} className="text-slate-500 hover:text-slate-900"><X className="h-6 w-6" /></button>
+        </header>
+        <div className="shrink-0 border-b border-[#efefef] px-[10px] pb-[10px] pt-[20px] text-[15px] font-bold leading-[19px]">
+          <p className="tracking-[0.12px] text-[#888]">{t("Все данные выбранных клиентов будут переписаны на имя клиента:")}</p>
+          <p className="tracking-[0.12px] text-[#ff5252]">{t("Объединённые клиенты нельзя восстановить !")}</p>
+        </div>
+        <div className="grid min-h-0 flex-1 grid-cols-2 divide-x divide-[#efefef]">
+          <section className="min-h-0 overflow-y-auto px-[10px] pt-[7px]">
+            <h3 className="text-[19.5px] font-bold">{t("Клиенты которые будут удалены")}</h3>
+            <div className="mt-[16px] flex items-start justify-between gap-[148px]">
+              <div className="w-[486px]">
+                <ClientPicker
+                  label={t("Клиент")}
+                  value={pending ? `${pending.name} (№ ${pending.id}) (${pending.zone})` : undefined}
+                  optionText={(client) => `${client.name} (№ ${client.id}) (${client.zone})`}
+                  onPick={setPending}
+                  onClear={() => setPending(null)}
+                  excluded={excluded}
+                />
+              </div>
+              <button
+                type="button"
+                onClick={() => { if (pending) { setRemoved((list) => [...list, pending]); setPending(null) } }}
+                className="mr-[23px] mt-[24px] text-[13px] font-semibold uppercase text-[#4f71dc] hover:opacity-80"
+              >
+                {t("Добавить")}
+              </button>
+            </div>
+            <div className="mt-[35px] grid grid-cols-[182px_122px_1fr_30px] px-[8px] pr-[13px] font-bold">
+              <span>{t("Наименование")}</span><span>{t("Телефон")}</span><span>{t("Адрес")}</span><span />
+            </div>
+            {removed.map((client) => (
+              <div key={client.id} className="grid grid-cols-[182px_122px_1fr_30px] items-center px-[8px] pr-[13px] py-[12px]">
+                <span className="pr-[35px]">{client.name}</span>
+                <span>{client.phone && client.phone !== "-" ? client.phone : t("Не указан")}</span>
+                <span>{client.address || t("Не указано")}</span>
+                <button type="button" aria-label={t("Удалить")} onClick={() => setRemoved((list) => list.filter((item) => item.id !== client.id))} className="text-[#555] hover:text-black">
+                  <svg viewBox="0 0 24 24" className="relative -top-[4px] left-[3px] h-6 w-6 fill-current"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z" /></svg>
+                </button>
+              </div>
+            ))}
+          </section>
+          <section className="min-h-0 overflow-y-auto px-[10px] pt-[7px]">
+            <h3 className="text-[19.5px] font-bold">{t("Клиент который остается")}</h3>
+            <div className="mt-[16px]">
+              <ClientPicker
+                label={t("Клиент")}
+                value={survivor ? `${survivor.name} (№${survivor.id}) (${survivor.code}) (${survivor.zone})` : undefined}
+                optionText={(client) => `${client.name} (№${client.id}) (${client.code}) (${client.zone})`}
+                onPick={setSurvivor}
+                onClear={() => setSurvivor(null)}
+                excluded={removed.map((client) => client.id)}
+              />
+            </div>
+          </section>
+        </div>
+        <footer className="flex h-[56px] shrink-0 items-center justify-end border-t border-[#efefef] pr-[25px]">
+          <button type="submit" disabled={saving} className="text-[13px] font-semibold uppercase text-[#129fdd] hover:opacity-80 disabled:opacity-50">{t("Объединить")}</button>
+        </footer>
+      </form>
+      {alertMessage && <ErrorAlert message={alertMessage} onClose={() => setAlertMessage("")} />}
+    </div>
   )
 }

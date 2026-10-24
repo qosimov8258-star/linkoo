@@ -1,3 +1,4 @@
+import { selectedBranchName } from "@/lib/selected-branch"
 import "server-only"
 
 import { NextResponse } from "next/server"
@@ -166,8 +167,8 @@ export async function listWarehouses(options: { active?: WarehouseActiveFilter; 
   await ensureWarehousesSchema()
   const needle = (options.search ?? "").trim().toLowerCase()
   const rows = (await getDb()
-    .prepare(`${SELECT} WHERE ${activeCondition(options.active ?? "true")} AND (@needle = '' OR strpos(lower(name), @needle) > 0) ORDER BY id DESC`)
-    .all({ needle })) as WarehouseRow[]
+    .prepare(`${SELECT} WHERE ${activeCondition(options.active ?? "true")} AND (@needle = '' OR strpos(lower(name), @needle) > 0) AND (@branch = '' OR branch = @branch) ORDER BY id DESC`)
+    .all({ needle, branch: await selectedBranchName() })) as WarehouseRow[]
   return rows.map(rowToWarehouse)
 }
 
@@ -200,8 +201,9 @@ export async function listWarehousesPage(query: WarehouseListQuery): Promise<War
   const page = query.page ?? 1
   const where = `WHERE ${activeCondition(query.active)}
     AND (@stockType = '' OR COALESCE(stock_type, 'basic') = @stockType)
-    AND (@needle = '' OR strpos(lower(concat_ws(' ', name, full_name, address, branch, manager)), @needle) > 0)`
-  const params = { needle, stockType: query.stockType ?? "" }
+    AND (@needle = '' OR strpos(lower(concat_ws(' ', name, full_name, address, branch, manager)), @needle) > 0)
+    AND (@branch = '' OR branch = @branch)`
+  const params = { needle, branch: await selectedBranchName(), stockType: query.stockType ?? "" }
   const countRow = (await db.prepare(`SELECT COUNT(*) AS n FROM warehouses ${where}`).get(params)) as { n: string | number } | undefined
   const rows = (await db
     .prepare(`${SELECT} ${where} ORDER BY ${orderBy(query.ordering)} LIMIT @limit OFFSET @offset`)

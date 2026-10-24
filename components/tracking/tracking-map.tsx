@@ -3,7 +3,8 @@
 import { useEffect, useRef } from "react"
 import L from "leaflet"
 import "leaflet/dist/leaflet.css"
-import { mapAgents, mapClients } from "./tracking-data"
+import { mapClients, type Agent } from "./tracking-data"
+import { isoDay, useWayAgents } from "./use-way-agents"
 import zonePolygons from "./zone-polygons.json"
 import { useLanguage } from "@/lib/i18n/language-context"
 
@@ -11,58 +12,49 @@ type TrackingMapProps = {
   showAgents: boolean
   showClients: boolean
   showZones: boolean
+  /** Leaflet zoom +/- buttons; the reference territory map has none. */
+  zoomControl?: boolean
+  /** Opening viewport; defaults to the whole-city view of the tracking page. */
+  initialView?: { center: [number, number]; zoom: number }
+  /** Zones drawn on the territory page, shown next to the reference zones. */
+  extraZones?: { id: number; title: string; ring: [number, number][] }[]
+  /** Zone drawing: every map click adds a vertex of `draftRing` (shown as the polygon in progress). */
+  drawing?: boolean
+  draftRing?: [number, number][]
+  onAddPoint?: (point: [number, number]) => void
 }
 
-export function TrackingMap({ showAgents, showClients, showZones }: TrackingMapProps) {
+export function TrackingMap({ showAgents, showClients, showZones, zoomControl = true, initialView, extraZones = [], drawing = false, draftRing = [], onAddPoint }: TrackingMapProps) {
   const { t, language } = useLanguage()
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<L.Map | null>(null)
   const agentLayerRef = useRef<L.LayerGroup | null>(null)
   const clientLayerRef = useRef<L.LayerGroup | null>(null)
   const zoneLayerRef = useRef<L.LayerGroup | null>(null)
+  const extraLayerRef = useRef<L.LayerGroup | null>(null)
+  const draftLayerRef = useRef<L.LayerGroup | null>(null)
+  const addPointRef = useRef(onAddPoint)
+  const { agents: wayAgents } = useWayAgents("agents", isoDay(new Date()), language)
+  useEffect(() => {
+    addPointRef.current = onAddPoint
+  })
 
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return
 
     const map = L.map(containerRef.current, {
-      center: [41.31, 69.27],
-      zoom: 12,
+      center: initialView?.center ?? [41.31, 69.27],
+      zoom: initialView?.zoom ?? 12,
       zoomControl: false,
       attributionControl: false,
     })
     mapRef.current = map
 
-    L.control.zoom({ position: "topleft" }).addTo(map)
+    if (zoomControl) L.control.zoom({ position: "topleft" }).addTo(map)
 
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
       maxZoom: 19,
     }).addTo(map)
-
-    const agentMarkers = mapAgents.map((agent) => {
-      const chips = (agent.chips ?? [])
-        .map(
-          (c) =>
-            `<span style="background:#eb5757;color:#fff;border-radius:6px;padding:1px 8px;font-size:12px;font-weight:700;">${c}</span>`,
-        )
-        .join("")
-
-      const html = `
-        <div style="display:flex;flex-direction:column;align-items:center;gap:3px;transform:translateY(-50%);white-space:nowrap;">
-          <div style="background:${agent.color};color:#fff;border-radius:16px;padding:5px 14px;font-size:12px;font-weight:800;letter-spacing:.3px;box-shadow:0 2px 6px rgba(0,0,0,.35);text-transform:uppercase;">
-            ${agent.name}
-          </div>
-          <div style="display:flex;gap:4px;">${chips}</div>
-        </div>`
-
-      const icon = L.divIcon({
-        html,
-        className: "tracking-pill",
-        iconSize: [0, 0],
-        iconAnchor: [0, 0],
-      })
-
-      return L.marker(agent.position as [number, number], { icon }).bindTooltip(agent.name)
-    })
 
     const clientMarkers = mapClients.map((client) => {
       const isActive = client.status === "active"
@@ -98,7 +90,7 @@ export function TrackingMap({ showAgents, showClients, showZones }: TrackingMapP
       }),
     )
 
-    agentLayerRef.current = L.layerGroup(agentMarkers)
+    agentLayerRef.current = L.layerGroup([])
     clientLayerRef.current = L.layerGroup(clientMarkers)
     zoneLayerRef.current = L.layerGroup(zoneLayers)
 
@@ -108,8 +100,64 @@ export function TrackingMap({ showAgents, showClients, showZones }: TrackingMapP
       agentLayerRef.current = null
       clientLayerRef.current = null
       zoneLayerRef.current = null
+      extraLayerRef.current = null
+      draftLayerRef.current = null
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [language])
+
+  // Zones drawn on the page (zone_extra).
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map) return
+    if (extraLayerRef.current && map.hasLayer(extraLayerRef.current)) map.removeLayer(extraLayerRef.current)
+    extraLayerRef.current = L.layerGroup(
+      extraZones
+        .filter((zone) => zone.ring.length >= 3)
+        .map((zone) =>
+          L.polygon(zone.ring, { color: "#1b3a6b", weight: 2, fillColor: "#5aaee8", fillOpacity: 0.38 }).bindTooltip(zone.title, { permanent: true, direction: "center", className: "zone-label" }),
+        ),
+    )
+    syncLayer(map, extraLayerRef.current, showZones)
+  }, [extraZones, showZones, language])
+
+  // The zone being drawn: vertices, the line through them and, from three points on, the filled polygon.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map) return
+    if (!draftLayerRef.current) draftLayerRef.current = L.layerGroup().addTo(map)
+    const layer = draftLayerRef.current
+    layer.clearLayers()
+    draftRing.forEach((point) => L.circleMarker(point, { radius: 5, color: "#129fdd", weight: 2, fillColor: "#fff", fillOpacity: 1 }).addTo(layer))
+    if (draftRing.length >= 3) L.polygon(draftRing, { color: "#129fdd", weight: 2, fillColor: "#129fdd", fillOpacity: 0.25 }).addTo(layer)
+    else if (draftRing.length === 2) L.polyline(draftRing, { color: "#129fdd", weight: 2 }).addTo(layer)
+  }, [draftRing, language])
+
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !drawing) return
+    const container = map.getContainer()
+    const previous = container.style.cursor
+    container.style.cursor = "crosshair"
+    const onClick = (event: L.LeafletMouseEvent) => addPointRef.current?.([Number(event.latlng.lat.toFixed(6)), Number(event.latlng.lng.toFixed(6))])
+    map.on("click", onClick)
+    return () => {
+      map.off("click", onClick)
+      container.style.cursor = previous
+    }
+  }, [drawing, language])
+
+  // The agents of the day (last known positions) — the same list as the panel on the right.
+  const wayKey = wayAgents.map((agent) => `${agent.id}:${agent.position?.join(",") ?? ""}`).join("|")
+  useEffect(() => {
+    const map = mapRef.current
+    const layer = agentLayerRef.current
+    if (!map || !layer) return
+    layer.clearLayers()
+    wayAgents.filter((agent) => agent.position).forEach((agent) => layer.addLayer(agentMarker(agent)))
+    syncLayer(map, layer, showAgents)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wayKey, language])
 
   useEffect(() => {
     const map = mapRef.current
@@ -121,6 +169,22 @@ export function TrackingMap({ showAgents, showClients, showZones }: TrackingMapP
   }, [showAgents, showClients, showZones])
 
   return <div ref={containerRef} className="relative z-0 h-full w-full" />
+}
+
+function agentMarker(agent: Agent) {
+  const chips = (agent.chips ?? [])
+    .map((c) => `<span style="background:#eb5757;color:#fff;border-radius:6px;padding:1px 8px;font-size:12px;font-weight:700;">${c}</span>`)
+    .join("")
+  const name = agent.name.replace(/[<>&]/g, "")
+  const html = `
+    <div style="display:flex;flex-direction:column;align-items:center;gap:3px;transform:translateY(-50%);white-space:nowrap;">
+      <div style="background:${agent.color};color:#fff;border-radius:16px;padding:5px 14px;font-size:12px;font-weight:800;letter-spacing:.3px;box-shadow:0 2px 6px rgba(0,0,0,.35);text-transform:uppercase;">
+        ${name}
+      </div>
+      <div style="display:flex;gap:4px;">${chips}</div>
+    </div>`
+  const icon = L.divIcon({ html, className: "tracking-pill", iconSize: [0, 0], iconAnchor: [0, 0] })
+  return L.marker(agent.position as [number, number], { icon }).bindTooltip(name)
 }
 
 function syncLayer(map: L.Map, layer: L.LayerGroup | null, visible: boolean) {

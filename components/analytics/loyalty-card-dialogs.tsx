@@ -38,7 +38,7 @@ function DialogFrame({ title, width, onClose, children, footer }: { title: React
     return () => window.removeEventListener("keydown", onKey)
   }, [onClose])
   return (
-    <div className="fixed inset-0 z-[110] flex items-start justify-center overflow-y-auto bg-black/30 px-4 py-10" onClick={onClose}>
+    <div className="fixed inset-0 z-[110] flex items-center justify-center overflow-y-auto bg-black/45 px-4 py-10" onClick={onClose}>
       <div role="dialog" aria-modal="true" className="w-full rounded bg-white shadow-xl" style={{ maxWidth: width }} onClick={(event) => event.stopPropagation()}>
         <div className="flex h-[60px] items-center justify-between gap-4 border-b border-[#efefef] pl-[30px] pr-[10px]">
           <h2 className="truncate text-[14px] font-bold uppercase text-[#333]">{title}</h2>
@@ -224,8 +224,8 @@ export function LoyaltyTransactionDialog({
     }
   }
 
-  const input = "mt-1 block w-full border-b border-[#dbe0e8] bg-transparent pb-1.5 text-[14px] text-[#333] outline-none focus:border-[#4f70e7]"
-  const label = "block text-[13px] text-[#999]"
+  const input = "mt-1 block w-full border-b border-[#e8e8e8] bg-transparent pb-1.5 text-[13px] font-normal text-black outline-none focus:border-[#129fdd]"
+  const label = "block text-[13px] font-bold text-black"
   return (
     <DialogFrame
       title={t(kind === "expense" ? "Добавить расход клиенту" : "Добавить приход клиенту")}
@@ -248,20 +248,7 @@ export function LoyaltyTransactionDialog({
         <div className="py-[10px]">
           {t("Клиент")}: <strong>{client.name || "No"}</strong>
         </div>
-        <div className="flex flex-wrap gap-x-6 gap-y-1 pb-2 text-[#666]">
-          {currencies.map((item) => {
-            const value = balances[item.code] ?? 0
-            return (
-              <span key={item.code}>
-                {item.label}:{" "}
-                <span className="font-semibold" style={{ color: value > 0 ? "#92ce95" : value < 0 ? "#e27676" : undefined }}>
-                  {formatMoney(value)}
-                </span>
-              </span>
-            )
-          })}
-        </div>
-        <div className="min-h-[300px] space-y-5 pt-3">
+        <div className="min-h-[250px] space-y-5 pt-1">
           <label className={label}>
             {t("Цена")}
             <input value={price} onChange={(event) => setPrice(event.target.value)} inputMode="decimal" autoFocus className={input} aria-invalid={Boolean(errors.price)} />

@@ -9,6 +9,8 @@ import { createClientType, listClientTypes } from "@/lib/client-types-repo"
 const clientTypeSchema = z.object({
   name: z.string().trim().min(1),
   supplier: z.string().trim().optional(),
+  parentId: z.number().int().nullable().optional(),
+  innRequired: z.boolean().optional(),
 })
 
 export async function GET() {
@@ -27,6 +29,8 @@ export async function POST(request: Request) {
   const clientType = await createClientType({
     name: parsed.data.name,
     supplier: parsed.data.supplier || "Не указано",
+    parentId: parsed.data.parentId ?? null,
+    innRequired: parsed.data.innRequired ?? false,
   })
   return NextResponse.json(clientType, { status: 201 })
 }

@@ -117,7 +117,7 @@ export async function getManagementBalance(params: ManagementParams, db: PgDb = 
         `SELECT client_id::text AS client, COALESCE(fin_cur(currency), @base) AS cur,
                 SUM(amount::double precision) FILTER (WHERE fin_ts(created_at, true)::date < @from::date) AS begin_amount,
                 SUM(amount::double precision) FILTER (WHERE fin_ts(created_at, true)::date <= @to::date) AS end_amount
-         FROM loyalty_card_transactions GROUP BY 1, 2`,
+         FROM loyalty_card_transactions ${s.col("loyalty_card_transactions", "is_deleted") ? "WHERE COALESCE(is_deleted, 0) = 0" : ""} GROUP BY 1, 2`,
       )
       .all({ base, from: params.from, to: params.to })) as Array<{ client: string; cur: string; begin_amount: number | null; end_amount: number | null }>
     for (const row of rows) {

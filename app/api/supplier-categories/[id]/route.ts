@@ -3,7 +3,7 @@ import { z } from "zod"
 
 import { requireRole } from "@/lib/rbac"
 import { parseJsonBody } from "@/lib/validation"
-import { deleteSupplierCategory, parseSupplierCategoryInput, updateSupplierCategory } from "@/lib/supplier-categories-repo"
+import { deleteSupplierCategory, isSupplierCategoryUsed, parseSupplierCategoryInput, updateSupplierCategory } from "@/lib/supplier-categories-repo"
 
 const supplierCategorySchema = z.object({
   name: z.string().trim().min(1),
@@ -32,6 +32,7 @@ export async function DELETE(_request: NextRequest, { params }: RouteParams) {
   if ("error" in auth) return auth.error
 
   const id = Number((await params).id)
+  if (await isSupplierCategoryUsed(id)) return NextResponse.json({ error: "Удаление невозможно из-за связи с другими данными" }, { status: 409 })
   const ok = (await deleteSupplierCategory(id))
   if (!ok) return NextResponse.json({ error: "Категория не найдена" }, { status: 404 })
   return NextResponse.json({ ok: true })

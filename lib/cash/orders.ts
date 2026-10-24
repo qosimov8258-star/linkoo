@@ -65,7 +65,7 @@ export async function orderDues(db: PgDb, ids: number[] | null, cc: CurrencyCont
        ),
        cur AS (SELECT oid, cur FROM tot UNION SELECT oid, cur FROM paid),
        ck AS (SELECT fin_key(name) AS k, MIN(id) AS id FROM clients GROUP BY 1)
-       SELECT o.id, o.client, ck.id AS client_id, o.zone, o.agent, o.status, COALESCE(to_char(fin_ts(o.created_at, true), 'YYYY-MM-DD"T"HH24:MI:SS'), '') AS created,
+       SELECT o.id, o.client, ck.id AS client_id, o.zone, o.agent, o.status, COALESCE(to_char(fin_ts(o.created_at), 'YYYY-MM-DD"T"HH24:MI:SS'), '') AS created,
               o.delivery, c.cur, t.total, p.paid
        FROM orders o JOIN sel ON sel.id = o.id
        LEFT JOIN ck ON ck.k = fin_key(o.client)

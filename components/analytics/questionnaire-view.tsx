@@ -1,11 +1,14 @@
 "use client"
 
-import { CheckBox, LineField, LineSelect } from "@/components/analytics/catalog-ui"
-import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react"
-import { ChevronLeft, ChevronRight, Download, FileText, Filter, Pencil, PlusCircle, Search, Trash2, X } from "lucide-react"
+import { SplitDetailList } from "@/components/ref/split-detail"
+import { SurveyForm, emptySurveyDraft, type SurveyDraft } from "@/components/analytics/survey-form"
+import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react"
+import { Download, FileText, Pencil, Trash2, X } from "lucide-react"
 import { downloadExcelTable } from "@/lib/excel-export"
 import { mapHeaderColumns, readExcelRows } from "@/lib/excel-import"
-import { RefHeader, RefPage, RefTabs } from "@/components/ref/list-kit"
+import { RefHeader, RefPage, RefTabs, RefToolbar, usePaging } from "@/components/ref/list-kit"
+import { useLanguage } from "@/lib/i18n/language-context"
+import { notify } from "@/lib/notify"
 
 const IMPORT_HEADER_ALIASES: Record<string, string> = {
   "название": "name", "наименование": "name", "name": "name",
@@ -22,24 +25,22 @@ type Survey = {
   organization: string
   storeType: string
   comment: string
+  orderNo?: string
+  flags?: SurveyDraft["flags"]
+  questions?: SurveyDraft["questions"]
 }
-
-const organizations = ["Linko", "Time3 Distribution", "energetik"]
-const storeTypes = ["Не указано", "horeca", "market", "market100", "market101"]
 
 const initial: Survey[] = []
 
 type Tab = "active" | "inactive" | "all"
 
-function emptyDraft(): Omit<Survey, "id"> {
-  return { name: "", createdAt: "", active: true, organization: organizations[0], storeType: storeTypes[0], comment: "" }
-}
 
 function now() {
   return new Intl.DateTimeFormat("ru-RU", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }).format(new Date()).replace(".", "")
 }
 
 export function QuestionnaireView() {
+  const { t } = useLanguage()
   const [surveys, setSurveys] = useState(initial)
   useEffect(() => {
     let cancelled = false
@@ -52,21 +53,26 @@ export function QuestionnaireView() {
         if (!cancelled) setSurveys(data)
       })
       .catch(() => {
-        if (!cancelled) window.alert("Не удалось загрузить опросники с сервера")
+        if (!cancelled) notify("Не удалось загрузить опросники с сервера")
       })
     return () => {
       cancelled = true
     }
   }, [])
-  const [tab, setTab] = useState<Tab>("active")
+  const [tab, setTab] = useState<Tab>("all")
   const [query, setQuery] = useState("")
   const [filterOpen, setFilterOpen] = useState(false)
   const [organizationFilter, setOrganizationFilter] = useState("Все организации")
   const [selected, setSelected] = useState<number | null>(null)
   const [editing, setEditing] = useState<number | "new" | null>(null)
-  const [draft, setDraft] = useState(emptyDraft)
-  const [orderNo, setOrderNo] = useState("")
-  const [flags, setFlags] = useState({ required: false, storeCheck: false, scoring: false, perfect: false })
+  const [draft, setDraft] = useState<SurveyDraft>(emptySurveyDraft)
+  const [organizations, setOrganizations] = useState<string[]>([])
+  const [clientTypes, setClientTypes] = useState<string[]>([])
+  useEffect(() => {
+    const names = (rows: unknown) => (Array.isArray(rows) ? (rows as { name?: string }[]).map((row) => row.name ?? "").filter(Boolean) : [])
+    fetch("/api/organizations").then((r) => (r.ok ? r.json() : [])).then((rows) => setOrganizations(names(rows))).catch(() => {})
+    fetch("/api/client-types").then((r) => (r.ok ? r.json() : [])).then((rows) => setClientTypes(names(rows))).catch(() => {})
+  }, [])
   const [importOpen, setImportOpen] = useState(false)
   const [importFile, setImportFile] = useState<File | null>(null)
   const [importSaving, setImportSaving] = useState(false)
@@ -78,6 +84,7 @@ export function QuestionnaireView() {
       .filter((survey) => organizationFilter === "Все организации" || survey.organization === organizationFilter)
       .filter((survey) => survey.name.toLowerCase().includes(query.toLowerCase()))
   }, [surveys, tab, organizationFilter, query])
+  const paging = usePaging(filtered.length)
 
   const counts = useMemo(
     () => ({
@@ -88,15 +95,23 @@ export function QuestionnaireView() {
     [surveys],
   )
 
-  const detail = selected !== null ? surveys.find((survey) => survey.id === selected) ?? null : null
-
   function openCreate() {
-    setDraft(emptyDraft())
+    setDraft(emptySurveyDraft())
     setEditing("new")
   }
 
   function openEdit(survey: Survey) {
-    setDraft({ name: survey.name, createdAt: survey.createdAt, active: survey.active, organization: survey.organization, storeType: survey.storeType, comment: survey.comment })
+    setDraft({
+      ...emptySurveyDraft(),
+      name: survey.name,
+      orderNo: survey.orderNo ?? "",
+      organization: survey.organization,
+      storeType: survey.storeType,
+      active: survey.active,
+      comment: survey.comment,
+      flags: { ...emptySurveyDraft().flags, ...(survey.flags ?? {}) },
+      questions: survey.questions?.length ? survey.questions : emptySurveyDraft().questions,
+    })
     setEditing(survey.id)
   }
 
@@ -104,18 +119,17 @@ export function QuestionnaireView() {
     try {
       const response = await fetch(`/api/surveys/${id}`, { method: "DELETE" })
       if (!response.ok) {
-        window.alert("Не удалось удалить опросник")
+        notify("Не удалось удалить опросник")
         return
       }
       setSurveys((list) => list.filter((survey) => survey.id !== id))
       setSelected((current) => (current === id ? null : current))
     } catch {
-      window.alert("Сервер недоступен, попробуйте ещё раз")
+      notify("Сервер недоступен, попробуйте ещё раз")
     }
   }
 
-  async function save(event: FormEvent) {
-    event.preventDefault()
+  async function save() {
     if (!draft.name.trim()) return
     const payload = { ...draft, name: draft.name.trim() }
     try {
@@ -127,7 +141,7 @@ export function QuestionnaireView() {
         })
         if (!response.ok) {
           const data = await response.json().catch(() => ({}))
-          window.alert(data.error || "Не удалось создать опросник")
+          notify(data.error || "Не удалось создать опросник")
           return
         }
         const saved = (await response.json()) as Survey
@@ -140,7 +154,7 @@ export function QuestionnaireView() {
         })
         if (!response.ok) {
           const data = await response.json().catch(() => ({}))
-          window.alert(data.error || "Не удалось сохранить опросник")
+          notify(data.error || "Не удалось сохранить опросник")
           return
         }
         const saved = (await response.json()) as Survey
@@ -148,7 +162,7 @@ export function QuestionnaireView() {
       }
       setEditing(null)
     } catch {
-      window.alert("Сервер недоступен, попробуйте ещё раз")
+      notify("Сервер недоступен, попробуйте ещё раз")
     }
   }
 
@@ -166,7 +180,7 @@ export function QuestionnaireView() {
     try {
       const rows = await readExcelRows(importFile)
       if (!rows.length) {
-        window.alert("Не удалось найти данные для импорта в выбранном файле")
+        notify("Не удалось найти данные для импорта в выбранном файле")
         return
       }
       const fieldByIndex = mapHeaderColumns(rows[0], IMPORT_HEADER_ALIASES)
@@ -192,14 +206,14 @@ export function QuestionnaireView() {
           name: record.name.trim(),
           createdAt: now(),
           active: true,
-          organization: record.organization || organizations[0],
-          storeType: record.storeType || storeTypes[0],
+          organization: record.organization || "",
+          storeType: record.storeType || "",
           comment: record.comment || "",
         })
       }
 
       if (!parsed.length) {
-        window.alert("Не удалось найти данные для импорта в выбранном файле")
+        notify("Не удалось найти данные для импорта в выбранном файле")
         return
       }
 
@@ -219,7 +233,7 @@ export function QuestionnaireView() {
         }
       }
       if (created.length) setSurveys((current) => [...created, ...current])
-      if (failed) window.alert(`Импортировано ${created.length} из ${parsed.length}. Не удалось сохранить: ${failed}`)
+      if (failed) notify(`Импортировано ${created.length} из ${parsed.length}. Не удалось сохранить: ${failed}`)
     } finally {
       setImportSaving(false)
       setImportOpen(false)
@@ -243,160 +257,100 @@ export function QuestionnaireView() {
   return (
     <RefPage>
       <RefHeader title="Опросник">
-        <button type="button" onClick={openCreate} className="flex h-[30px] items-center gap-2 rounded-[5px] bg-[#71ce87] px-4 text-[13px] font-semibold text-white hover:brightness-95">
-          <PlusCircle className="h-4 w-4" />
+        <button type="button" onClick={openCreate} className="flex h-[30px] w-[118px] items-center justify-center gap-2 rounded-[5px] bg-[#71ce87] text-[13px] font-semibold text-white hover:brightness-95">
+          <svg viewBox="0 0 24 24" className="h-[18px] w-[18px] fill-current"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm5 11h-4v4h-2v-4H7v-2h4V7h2v4h4v2z" /></svg>
           Добавить
         </button>
       </RefHeader>
 
-      <section className="overflow-hidden rounded bg-white shadow">
-        <RefTabs labels={tabs.map((item) => item.label)} value={tabs.find((item) => item.key === tab)?.label ?? ""} onChange={(label) => setTab(tabs.find((item) => item.label === label)?.key ?? tab)} />
-
-        <div className="flex flex-wrap items-center gap-4 px-5 py-3">
-          <button type="button" onClick={() => setFilterOpen((value) => !value)} className="flex h-[30px] items-center gap-2 rounded-[5px] bg-[#4f71dc] px-4 text-[13px] font-semibold text-white hover:brightness-95">
-            <Filter className="h-4 w-4" />
-            Показать фильтр
-          </button>
-          <label className="relative w-64">
-            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Поиск" className="w-full border-b border-slate-300 py-3 pr-10 outline-none focus:border-[#4f71dc]" />
-            <Search className="absolute right-2 top-3 h-5 w-5 text-slate-300" />
-          </label>
-          <span className="ml-auto text-slate-500">25</span>
-          <span className="text-slate-500">
-            1 - {filtered.length} из {filtered.length}
-          </span>
-          <ChevronLeft className="h-5 w-5 text-slate-300" />
-          <ChevronRight className="h-5 w-5 text-slate-300" />
-        </div>
-
-        {filterOpen && (
-          <div className="flex flex-wrap items-end gap-4 border-t border-slate-200 bg-slate-50 px-5 py-4">
-            <label className="text-sm font-medium text-slate-600">
-              Организация
-              <select value={organizationFilter} onChange={(event) => setOrganizationFilter(event.target.value)} className="mt-1 block w-56 border-0 border-b border-slate-300 bg-white px-0 py-2 outline-none focus:border-[#4f71dc]">
-                <option>Все организации</option>
-                {organizations.map((item) => (
-                  <option key={item}>{item}</option>
-                ))}
-              </select>
-            </label>
-            <button type="button" onClick={() => setFilterOpen(false)} className="rounded bg-[#5d6474] px-5 py-2.5 font-semibold text-white hover:brightness-95">
-              Применить
-            </button>
-          </div>
-        )}
-
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[720px] text-left">
-            <thead className="bg-[#5d6474] text-white">
-              <tr>
-                <th className="px-9 py-4 text-[13px]">№</th>
-                <th className="px-5 py-4 text-[13px]">Название</th>
-                <th className="px-5 py-4 text-[13px]">Дата создания</th>
-                <th className="px-5 py-4 text-[13px]">Статус</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((survey) => (
-                <tr key={survey.id} className={`border-b border-dashed border-slate-300 hover:bg-slate-50 ${selected === survey.id ? "bg-slate-50" : ""}`}>
-                  <td className="px-12 py-3 text-[13px]">{survey.id}</td>
-                  <td className="px-5 py-3 text-[13px]">
-                    <button type="button" onClick={() => setSelected((current) => (current === survey.id ? null : survey.id))} className="text-left text-[#4f71dc] hover:underline">
-                      {survey.name}
-                    </button>
-                  </td>
-                  <td className="px-5 py-3 text-[13px]">{survey.createdAt}</td>
-                  <td className="px-5 py-3 text-[13px]">
-                    <span className={survey.active ? "text-[#71ce87]" : "text-slate-400"}>{survey.active ? "Активный" : "Отключен"}</span>
-                  </td>
-                </tr>
-              ))}
-              {filtered.length === 0 && (
-                <tr>
-                  <td colSpan={4} className="px-5 py-10 text-center text-slate-400">
-                    Ничего не найдено
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-
-        {detail && (
-          <div className="border-t border-slate-200 p-7">
-            <div className="flex items-center justify-between">
-              <h2 className="text-lg font-bold text-slate-800">
-                № {detail.id} - {detail.name}
+      <SplitDetailList
+        rows={filtered.slice(paging.start, paging.end)}
+        selectedKey={selected}
+        rowKey={(survey) => survey.id}
+        toolbar={
+          <>
+        <RefTabs labels={tabs.map((item) => item.label)} value={tabs.find((item) => item.key === tab)?.label ?? ""} onChange={(label) => { setTab(tabs.find((item) => item.label === label)?.key ?? tab); paging.setPage(1) }} />
+        <RefToolbar
+          filterOpen={filterOpen}
+          onToggleFilter={() => setFilterOpen((value) => !value)}
+          filterPanel={
+            <div className="flex w-full flex-wrap items-end gap-4 border-b border-slate-200 bg-white px-5 py-4 shadow">
+              <label className="text-sm font-medium text-slate-600">
+                {t("Организация")}
+                <select value={organizationFilter} onChange={(event) => { setOrganizationFilter(event.target.value); paging.setPage(1) }} className="mt-1 block w-56 border-0 border-b border-slate-300 bg-white px-0 py-2 outline-none focus:border-[#4f71dc]">
+                  <option>{t("Все организации")}</option>
+                  {organizations.map((item) => (
+                    <option key={item}>{item}</option>
+                  ))}
+                </select>
+              </label>
+              <button type="button" onClick={() => setFilterOpen(false)} className="rounded bg-[#4f71dc] px-5 py-2.5 font-semibold text-white hover:brightness-95">
+                {t("Применить")}
+              </button>
+            </div>
+          }
+          query={query}
+          onQuery={(value) => { setQuery(value); paging.setPage(1) }}
+          pageSize={paging.pageSize}
+          onPageSize={paging.setPageSize}
+          from={filtered.length ? paging.start + 1 : 0}
+          to={paging.end}
+          total={filtered.length}
+          page={paging.page}
+          pageCount={paging.pageCount}
+          onPage={paging.setPage}
+        />
+          </>
+        }
+        tableProps={{
+          cols: "minmax(0,1fr) minmax(0,5fr) minmax(0,3fr) minmax(0,2fr)",
+          heads: [t("№"), t("Название"), t("Дата создания"), t("Статус")],
+          rowKey: (survey: Survey) => survey.id,
+          onRowClick: (survey: Survey) => setSelected((current) => (current === survey.id ? null : survey.id)),
+          empty: t("Ничего не найдено"),
+          render: (survey: Survey) => [survey.id, survey.name, survey.createdAt, t(survey.active ? "Активный" : "Отключен")],
+        }}
+        detail={(survey) => (
+          <>
+            <div className="flex h-[66px] items-center justify-between border-b border-[#e5e8ed] px-[30px]">
+              <h2 className="text-[18px] font-medium text-[#333]">
+                № {survey.id} - {survey.name}
               </h2>
-              <div className="flex items-center gap-4 text-slate-500">
-                <button type="button" onClick={() => downloadSurvey(detail)} aria-label="Скачать" className="hover:text-[#4f71dc]">
+              <div className="flex items-center gap-[10px] text-[#5d6474]">
+                <button type="button" onClick={() => downloadSurvey(survey)} aria-label={t("Скачать")} className="flex h-[30px] w-[30px] items-center justify-center hover:text-[#4f71dc]">
                   <Download className="h-5 w-5" />
                 </button>
-                <button type="button" onClick={() => openEdit(detail)} aria-label="Изменить" className="hover:text-[#4f71dc]">
+                <button type="button" onClick={() => openEdit(survey)} aria-label={t("Изменить")} className="flex h-[30px] w-[30px] items-center justify-center hover:text-[#4f71dc]">
                   <Pencil className="h-5 w-5" />
                 </button>
-                <button type="button" onClick={() => remove(detail.id)} aria-label="Удалить" className="hover:text-red-500">
+                <button type="button" onClick={() => remove(survey.id)} aria-label={t("Удалить")} className="flex h-[30px] w-[30px] items-center justify-center hover:text-red-500">
                   <Trash2 className="h-5 w-5" />
                 </button>
               </div>
             </div>
-            <div className="mt-5 space-y-2 border-t border-slate-100 pt-5 text-[15px]">
-              <p>
-                <span className="text-slate-500">Дата создания</span> <b className="ml-2">{detail.createdAt}</b>
-              </p>
-              <p>
-                <span className="text-slate-500">Организация</span> <b className="ml-2">{detail.organization}</b>
-              </p>
-              <p>
-                <span className="text-slate-500">Тип магазина</span> <b className="ml-2">{detail.storeType}</b>
-              </p>
+            <div className="w-[320px] px-[30px] pb-[20px] pt-[16px] text-[13px] leading-[25px] text-[#333]">
+              <p>{t("Дата создания")} <b className="float-right">{survey.createdAt}</b></p>
+              <p>{t("Организация")} <b className="float-right">{survey.organization}</b></p>
+              <p>{t("Тип магазина")} <b className="float-right">{survey.storeType || t("Не указано")}</b></p>
+              <div className="-mx-[30px] mt-[15px] border-t border-[#e7ebf0] px-[30px] pt-[16px]">
+                <p className="font-bold">{t("Комментарий")}:</p>
+                <p className="mt-[3px]">{survey.comment || t("Комментарий отсутствует")}</p>
+              </div>
             </div>
-            <div className="mt-5 border-t border-slate-100 pt-5">
-              <p className="font-bold text-slate-800">Комментарий:</p>
-              <p className="mt-1 text-slate-700">{detail.comment || "—"}</p>
-            </div>
-          </div>
+          </>
         )}
-      </section>
+      />
 
       {editing !== null && (
-        <div className="fixed inset-0 z-50 flex bg-white text-[13px]">
-          <form onSubmit={save} className="flex h-full w-full flex-col">
-            <header className="flex h-[58px] shrink-0 items-center justify-between border-b border-[#efefef] px-[14px]">
-              <b className="uppercase">{editing === "new" ? "Добавление" : "Изменить опросник"}</b>
-              <button type="button" onClick={() => setEditing(null)} aria-label="Закрыть"><X className="h-6 w-6" /></button>
-            </header>
-            <div className="grid min-h-0 flex-1 grid-cols-[405px_minmax(0,1fr)]">
-              <aside className="space-y-[10px] overflow-y-auto border-r border-[#efefef] px-[14px] py-[16px] pr-[60px]">
-                <LineField label="Название" autoFocus value={draft.name} onChange={(value) => setDraft((current) => ({ ...current, name: value }))} />
-                <LineField label="Порядковый номер" value={orderNo} onChange={setOrderNo} />
-                <LineSelect label="Организация" value={draft.organization} onChange={(value) => setDraft((current) => ({ ...current, organization: value }))} options={organizations} />
-                <LineSelect label="Тип клиента" value={draft.storeType} onChange={(value) => setDraft((current) => ({ ...current, storeType: value }))} options={storeTypes} />
-                <div className="space-y-[12px] pt-[10px]">
-                  <CheckBox checked={flags.required} onChange={(value) => setFlags((current) => ({ ...current, required: value }))} label="Обязательный" />
-                  <CheckBox checked={flags.storeCheck} onChange={(value) => setFlags((current) => ({ ...current, storeCheck: value }))} label="Store Check" />
-                  <CheckBox checked={draft.active} onChange={(value) => setDraft((current) => ({ ...current, active: value }))} label="Активный" />
-                  <CheckBox checked={flags.scoring} onChange={(value) => setFlags((current) => ({ ...current, scoring: value }))} label="Имеет систему оценки" />
-                  <CheckBox checked={flags.perfect} onChange={(value) => setFlags((current) => ({ ...current, perfect: value }))} label="Perfect Store" />
-                </div>
-                <LineField label="Оставить комментарий..." value={draft.comment} onChange={(value) => setDraft((current) => ({ ...current, comment: value }))} />
-              </aside>
-              <main className="min-w-0 overflow-y-auto bg-[#f4f4f4] px-[14px] py-[12px]">
-                <p className="text-[13px] font-semibold">Список вопросов</p>
-                <div className="mt-[10px] bg-white shadow-[0_1px_6px_rgba(0,0,0,0.12)]">
-                  <div className="flex h-[60px] items-center justify-between bg-[#f2f5f8] px-[20px]"><b className="text-[15px]">Вопрос № 1</b><button type="button" className="flex h-[30px] w-[30px] items-center justify-center rounded-[3px] bg-[#4f71dc] text-white">+</button></div>
-                  <div className="grid grid-cols-2 gap-[20px] px-[20px] py-[16px]">
-                    <div className="space-y-[10px]"><LineField label="Напишите вопрос" value="" onChange={() => {}} /><LineSelect label="Тип" value="" onChange={() => {}} options={[]} /><LineField label="Максимум ответов" value="" onChange={() => {}} /><LineSelect label="Формат" value="" onChange={() => {}} options={[]} /><LineField label="Порядковый номер" value="" onChange={() => {}} /><CheckBox checked={false} onChange={() => {}} label="Обязательный вопрос" /></div>
-                    <div><p className="text-[18px] font-semibold">Ответы</p><div className="mt-[14px] flex items-center justify-between border-b border-[#d5dae1] pb-[8px] font-semibold"><span>Ответ #1</span><span className="text-[18px]">+</span></div></div>
-                  </div>
-                </div>
-              </main>
-            </div>
-            <footer className="flex h-[56px] shrink-0 items-center justify-end border-t border-[#efefef] px-[14px]">
-              <button type="submit" className="text-[12px] font-bold uppercase text-[#0a9ddb]">Сохранить</button>
-            </footer>
-          </form>
-        </div>
+        <SurveyForm
+          title={editing === "new" ? "Добавление" : "Изменить опросник"}
+          draft={draft}
+          organizations={organizations}
+          clientTypes={clientTypes}
+          onChange={setDraft}
+          onSave={() => void save()}
+          onClose={() => setEditing(null)}
+        />
       )}
 
       {importOpen && (

@@ -29,8 +29,9 @@ const MONTH_FORMS: Array<[RegExp, number]> = [
 
 const MONTHS: Record<TargetLanguage, { full: string[]; short: string[] }> = {
   uz: {
-    full: ["Yanvar", "Fevral", "Mart", "Aprel", "May", "Iyun", "Iyul", "Avgust", "Sentabr", "Oktabr", "Noyabr", "Dekabr"],
-    short: ["Yan.", "Fev.", "Mar.", "Apr.", "May", "Iyun", "Iyul", "Avg.", "Sen.", "Okt.", "Noy.", "Dek."],
+    // The reference app's moment "uz" locale (updateLocale): lowercase, no dots.
+    full: ["yanvar", "fevral", "mart", "aprel", "may", "iyun", "iyul", "avgust", "sentyabr", "oktyabr", "noyabr", "dekabr"],
+    short: ["yan", "fev", "mar", "apr", "may", "iyun", "iyul", "avg", "sen", "okt", "noy", "dek"],
   },
   tk: {
     full: ["Ýanwar", "Fewral", "Mart", "Aprel", "Maý", "Iýun", "Iýul", "Awgust", "Sentýabr", "Oktýabr", "Noýabr", "Dekabr"],
@@ -38,7 +39,7 @@ const MONTHS: Record<TargetLanguage, { full: string[]; short: string[] }> = {
   },
   en: {
     full: ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"],
-    short: ["Jan.", "Feb.", "Mar.", "Apr.", "May", "Jun.", "Jul.", "Aug.", "Sep.", "Oct.", "Nov.", "Dec."],
+    short: ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"],
   },
 }
 
@@ -46,7 +47,15 @@ const MONTH_WORD = /(?<![А-Яа-яЁё])(январ[ьяю]|феврал[ьяю
 
 const NUMBER_TOKEN = /\d+(?:[ .,]\d+)*/g
 
+// Some reference pages print dates with Russian month names even in the uz interface (moment locale "ru");
+// the DOM translator switches this on for those routes (see REFERENCE_RU_DATE_ROUTES).
+let keepRussianMonths = false
+export function setKeepRussianMonths(value: boolean) {
+  keepRussianMonths = value
+}
+
 function translateMonths(lang: TargetLanguage, text: string): string {
+  if (keepRussianMonths && lang === "uz") return text
   return text.replace(MONTH_WORD, (word) => {
     const index = MONTH_FORMS.findIndex(([form]) => new RegExp(`^(?:${form.source})$`, "i").test(word.replace(/\.$/, "")))
     if (index < 0) return word
@@ -58,7 +67,8 @@ function translateMonths(lang: TargetLanguage, text: string): string {
 
 // Strings that mix a Latin title with Russian glue words ("Sotuvlar на 13 октября").
 function translateGlue(lang: TargetLanguage, text: string): string {
-  const joiner = lang === "en" ? " on " : " — "
+  // The reference keeps the Russian "на" next to uz dates ("Sotuvlar на 25 oktyabr") and says "on" in English.
+  const joiner = lang === "en" ? " on " : lang === "uz" ? " на " : " — "
   return text.replace(/\sна\s(?=\d)/g, joiner).replace(/\s*г\.(?=,|\s|$)/g, "")
 }
 

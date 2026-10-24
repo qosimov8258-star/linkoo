@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
 import { RI, RefButton, RefHeader } from "@/components/ref/list-kit"
+import { useLanguage } from "@/lib/i18n/language-context"
 import { ReportPage } from "@/components/ref/report-kit"
 import {
   ChevronLeft,
@@ -16,6 +17,8 @@ import {
 
 const branches = ["777", "878", "agent", "Andijon", "AURUM samarqand", "baby still"]
 const week = ["вс", "пн", "вт", "ср", "чт", "пт", "сб"]
+// The reference prints these day headers with the built-in moment "uz" locale (Cyrillic) in the uz interface.
+const WEEK_UZ_CYRILLIC: Record<string, string> = { вс: "Як", пн: "Ду", вт: "Се", ср: "Чо", чт: "Па", пт: "Жу", сб: "Ша" }
 
 function sundaysInMonth(year: number, month: number) {
   const daysInMonth = new Date(year, month + 1, 0).getDate()
@@ -132,6 +135,7 @@ function AgentDrawer({ name, onClose }: { name: string; onClose: () => void }) {
 }
 
 export function AttendanceView() {
+  const { language } = useLanguage()
   const today = useMemo(() => new Date(), [])
   const [query, setQuery] = useState("")
   const [year, setYear] = useState(today.getFullYear())
@@ -161,7 +165,7 @@ export function AttendanceView() {
   const [agents, setAgents] = useState<string[]>([])
   useEffect(() => {
     let cancelled = false
-    fetch("/api/employees")
+    fetch("/api/attendance-users")
       .then((response) => (response.ok ? (response.json() as Promise<{ name: string }[]>) : Promise.reject()))
       .then((data) => {
         if (!cancelled) setAgents(data.map((employee) => employee.name).filter(Boolean))
@@ -173,12 +177,59 @@ export function AttendanceView() {
       cancelled = true
     }
   }, [])
+  const [clockIns, setClockIns] = useState<Record<string, Record<number, "on" | "late">>>({})
+  useEffect(() => {
+    let cancelled = false
+    fetch(`/api/agent-visits?view=attendance&year=${year}&month=${month}`)
+      .then((response) => (response.ok ? (response.json() as Promise<Record<string, Record<number, "on" | "late">>>) : {}))
+      .then((data) => {
+        if (!cancelled) setClockIns(data)
+      })
+      .catch(() => {
+        if (!cancelled) setClockIns({})
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [year, month])
+  // Like the reference, absences show only for the days covered by the "Перерасчет" snapshot.
+  const [recalcDays, setRecalcDays] = useState<number[]>([])
+  const [recalcVersion, setRecalcVersion] = useState(0)
+  useEffect(() => {
+    let cancelled = false
+    fetch(`/api/attendance-recalc?year=${year}&month=${month}`)
+      .then((response) => (response.ok ? (response.json() as Promise<number[]>) : []))
+      .then((data) => {
+        if (!cancelled) setRecalcDays(Array.isArray(data) ? data : [])
+      })
+      .catch(() => {
+        if (!cancelled) setRecalcDays([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [year, month, recalcVersion])
   const [selectedRows, setSelectedRows] = useState<string[]>([])
   const [selectedAgent, setSelectedAgent] = useState<string | null>(null)
   const [editMode, setEditMode] = useState(false)
   const [notice, setNotice] = useState("")
   const days = useMemo(() => Array.from({ length: new Date(year, month + 1, 0).getDate() }, (_, index) => index + 1), [year, month])
   const visibleAgents = agents.filter((agent) => agent.toLowerCase().includes(query.toLowerCase()))
+
+  // A working day of the "Перерасчет" snapshot without a clock-in counts as absent; other days are still open.
+  function tally(agent: string) {
+    const marks = clockIns[agent] ?? {}
+    let onTime = 0
+    let late = 0
+    let absent = 0
+    for (const day of days) {
+      if (weekends.includes(day)) continue
+      if (marks[day] === "on") onTime += 1
+      else if (marks[day] === "late") late += 1
+      else if (recalcDays.includes(day)) absent += 1
+    }
+    return { onTime, late, absent }
+  }
 
   function download() {
     const csv = ["Агент;" + days.join(";"), ...visibleAgents.map((agent) => `${agent};${days.map(() => "0").join(";")}`)].join("\n")
@@ -187,12 +238,22 @@ export function AttendanceView() {
   }
 
   function flash(text: string) { setNotice(text); window.setTimeout(() => setNotice(""), 1800) }
+  // "Перерасчет": stores the attendance snapshot of the shown month (the dashboard tiles count those days)
+  async function recalc() {
+    try {
+      const response = await fetch("/api/attendance-recalc", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ year, month }) })
+      if (response.ok) setRecalcVersion((value) => value + 1)
+      flash(response.ok ? "Перерасчет выполнен" : "Не удалось выполнить перерасчет")
+    } catch {
+      flash("Не удалось выполнить перерасчет")
+    }
+  }
 
   const CAL = "M19 4h-1V2h-2v2H8V2H6v2H5c-1.11 0-1.99.9-1.99 2L3 20c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 16H5V9h14v11zM7 11h5v5H7z"
   const arrowBtn = "flex h-[34px] w-[68px] items-center justify-center bg-[#e8f1fb] hover:bg-[#d9e8f8]"
   return (
     <ReportPage>
-      <div className="pl-[30px] pr-[38px]">
+      <div className="px-[28px]">
         <RefHeader title="Посещаемость">
           <RefButton icon={RI.add} green label="Добавить выходные дни" onClick={() => setWeekendOpen(true)} />
           <RefButton icon={RI.clock} label="Рабочее время" onClick={() => setWorkingOpen(true)} />
@@ -201,11 +262,11 @@ export function AttendanceView() {
         </RefHeader>
       </div>
       <section className="mx-7 overflow-hidden rounded-[10px] bg-white shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
-        <div className="flex h-[52px] items-center justify-end gap-[19px] border-b border-[#ececec] px-[30px]">
+        <div className="flex h-[52px] items-center justify-end gap-[18px] border-b border-[#ececec] pl-[30px] pr-[18px]">
           <RefButton icon={RI.edit} label={editMode ? "Сохранить" : "Изменить"} onClick={() => setEditMode((current) => !current)} />
-          <RefButton icon={RI.sync} label="Перерасчет" onClick={() => flash("Перерасчет выполнен")} />
+          <RefButton icon={RI.sync} label="Перерасчет" onClick={() => void recalc()} />
         </div>
-        <div className="relative flex h-[53px] items-center px-[15px]">
+        <div className="relative flex h-[53px] items-center pl-[15px] pr-[7px]">
           <button type="button" onClick={() => setFilterOpen((current) => !current)} className="flex h-[30px] w-[168px] items-center rounded-[5px] bg-[#4f71dc] pl-3 text-[13px] font-semibold text-white hover:brightness-95">
             <svg viewBox="0 0 24 24" className="mr-3 h-[18px] w-[18px] fill-white" aria-hidden><path d={RI.filter} /></svg>Показать фильтр
           </button>
@@ -215,16 +276,16 @@ export function AttendanceView() {
             <Search className="pointer-events-none absolute right-[2px] top-[2px] h-5 w-5 text-[#444]" />
           </label>
           <div className="ml-auto flex items-center gap-[10px] text-[13px]">
-            <button onClick={() => setYear(year - 1)} className={arrowBtn} aria-label="Предыдущий год"><ChevronLeft className="h-5 w-5" /></button><b className="w-[48px] text-center text-[14px] font-semibold">{year}</b><button onClick={() => setYear(year + 1)} className={arrowBtn} aria-label="Следующий год"><ChevronRight className="h-5 w-5" /></button>
-            <button onClick={() => setMonth((month + 11) % 12)} className={`${arrowBtn} ml-[5px]`} aria-label="Предыдущий месяц"><ChevronLeft className="h-5 w-5" /></button><b className="w-[85px] text-center text-[14px] font-semibold">{["январь","февраль","март","апрель","май","июнь","июль","август","сентябрь","октябрь","ноябрь","декабрь"][month]}</b><button onClick={() => setMonth((month + 1) % 12)} className={arrowBtn} aria-label="Следующий месяц"><ChevronRight className="h-5 w-5" /></button>
+            <button onClick={() => setYear(year - 1)} className={arrowBtn} aria-label="Предыдущий год"><ChevronLeft className="h-5 w-5" /></button><b className="w-[98px] text-center text-[14px] font-semibold">{year}</b><button onClick={() => setYear(year + 1)} className={arrowBtn} aria-label="Следующий год"><ChevronRight className="h-5 w-5" /></button>
+            <button onClick={() => setMonth((month + 11) % 12)} className={`${arrowBtn} ml-[5px]`} aria-label="Предыдущий месяц"><ChevronLeft className="h-5 w-5" /></button><b className="w-[98px] text-center text-[14px] font-semibold">{["январь","февраль","март","апрель","май","июнь","июль","август","сентябрь","октябрь","ноябрь","декабрь"][month]}</b><button onClick={() => setMonth((month + 1) % 12)} className={arrowBtn} aria-label="Следующий месяц"><ChevronRight className="h-5 w-5" /></button>
           </div>
         </div>
         {filterOpen && <div className="absolute z-50 ml-[15px] mt-[2px] w-[340px] bg-white p-6 text-[13px] shadow-[0_3px_10px_rgba(0,0,0,0.16),0_3px_10px_rgba(0,0,0,0.23)]"><div className="flex justify-between text-[14px] font-semibold">Фильтр<button onClick={() => setFilterOpen(false)}><X className="h-5 w-5" /></button></div><label className="mt-6 block font-semibold">Филиал<select value={branch} onChange={(event) => setBranch(event.target.value)} className="mt-2 block w-full border-b bg-white py-2 font-normal"><option value="">Все филиалы</option>{branches.map((item) => <option key={item}>{item}</option>)}</select></label></div>}
         <div className="overflow-x-auto">
           <table className="w-full min-w-[1250px] table-fixed border-collapse text-[13px]">
-            <colgroup><col className="w-[78px]" /><col className="w-[200px]" />{days.map((day) => <col key={day} className="w-[27px]" />)}<col className="w-[190px]" /></colgroup>
-            <thead className="bg-[#f2f5f8]"><tr className="h-[55px]"><th className="text-center"><svg viewBox="0 0 24 24" className="mx-auto h-6 w-6 fill-none stroke-[#333] stroke-2" aria-hidden><path d="M4 4h16v16H4z" strokeDasharray="3 2" /></svg></th><th className="px-[6px] text-left font-semibold">Агент</th>{days.map((day) => <th key={day} className={`text-center text-[12px] font-bold leading-4 text-[#555]`}>{String(day).padStart(2,"0")}<small className={`block text-[11px] font-semibold ${weekends.includes(day) ? "text-[#f06c6c]" : "text-[#1ea1f2]"}`}>{week[new Date(year, month, day).getDay()]}</small></th>)}<th className="whitespace-nowrap text-center font-semibold">Пришел вовремя <svg viewBox="0 0 24 24" className="ml-1 inline h-5 w-5 fill-none stroke-[#4f71dc] stroke-2 align-middle" aria-hidden><circle cx="12" cy="12" r="9" /><path d="M12 11v5M12 8v.01" strokeLinecap="round" /></svg></th></tr></thead>
-            <tbody>{visibleAgents.map((agent) => <tr key={agent} className="h-[52px] border-b border-[#ececec] hover:bg-[#f7f9fb]"><td className="text-center"><input type="checkbox" checked={selectedRows.includes(agent)} onChange={() => setSelectedRows(selectedRows.includes(agent) ? selectedRows.filter((item) => item !== agent) : [...selectedRows, agent])} className="h-[18px] w-[18px] cursor-pointer accent-[#444]" /></td><td className="truncate px-[6px]"><button type="button" onClick={() => setSelectedAgent(agent)} className="text-left hover:text-[#4f71dc]">{agent}</button></td>{days.map((day) => <td key={day} className="text-center">{weekends.includes(day) ? <svg viewBox="0 0 24 24" className="mx-auto h-[14px] w-[14px] fill-[#f06c6c]" aria-hidden><path d={CAL} /></svg> : editMode ? <input type="checkbox" className="h-[13px] w-[13px] cursor-pointer" /> : <span className="mx-auto block h-[11px] w-[11px] rounded-[2px] border border-[#d0d0d0]" />}</td>)}<td className="text-center"><span className="text-[#43a047]">0</span> / <span className="text-[#4f71dc]">0</span> / <span className="text-[#f06c6c]">0</span> / {days.length - weekends.length}</td></tr>)}</tbody>
+            <colgroup><col className="w-[91px]" /><col className="w-[255px]" />{days.map((day) => <col key={day} className="w-[29.3px]" />)}<col className="w-[190px]" /></colgroup>
+            <thead className="bg-[#f2f5f8]"><tr className="h-[55px]"><th className="pl-[22px] text-left"><svg viewBox="0 0 24 24" className="h-6 w-6 fill-none stroke-[#333] stroke-2" aria-hidden><path d="M4 4h16v16H4z" strokeDasharray="3 2" /></svg></th><th className="px-[8px] text-left font-semibold">Агент</th>{days.map((day) => <th key={day} className={`text-center text-[12px] font-bold leading-4 text-[#555]`}>{String(day).padStart(2,"0")}<small data-no-translate={language === "uz" ? "" : undefined} className={`block text-[11px] font-semibold ${weekends.includes(day) ? "text-[#f06c6c]" : "text-[#1ea1f2]"}`}>{language === "uz" ? WEEK_UZ_CYRILLIC[week[new Date(year, month, day).getDay()]] : week[new Date(year, month, day).getDay()]}</small></th>)}<th className="whitespace-nowrap text-center font-semibold">Пришел вовремя <svg viewBox="0 0 24 24" className="ml-1 inline h-5 w-5 fill-none stroke-[#4f71dc] stroke-2 align-middle" aria-hidden><circle cx="12" cy="12" r="9" /><path d="M12 11v5M12 8v.01" strokeLinecap="round" /></svg></th></tr></thead>
+            <tbody>{visibleAgents.map((agent, agentIndex) => <tr key={`${agent}-${agentIndex}`} className="h-[52px] border-b border-[#ececec] hover:bg-[#f7f9fb]"><td className="pl-[22px] text-left"><input type="checkbox" checked={selectedRows.includes(agent)} onChange={() => setSelectedRows(selectedRows.includes(agent) ? selectedRows.filter((item) => item !== agent) : [...selectedRows, agent])} className="h-[18px] w-[18px] cursor-pointer accent-[#444]" /></td><td className="truncate px-[8px]"><button type="button" onClick={() => setSelectedAgent(agent)} className="text-left hover:text-[#4f71dc]">{agent}</button></td>{days.map((day) => <td key={day} className="text-center">{weekends.includes(day) ? <svg viewBox="0 0 24 24" className="mx-auto h-[14px] w-[14px] fill-[#f06c6c]" aria-hidden><path d={CAL} /></svg> : editMode ? <input type="checkbox" className="h-[13px] w-[13px] cursor-pointer" /> : clockIns[agent]?.[day] || !recalcDays.includes(day) ? <span className={`mx-auto block h-[11px] w-[11px] rounded-[2px] border ${clockIns[agent]?.[day] === "on" ? "border-[#43a047] bg-[#43a047]" : clockIns[agent]?.[day] === "late" ? "border-[#4f71dc] bg-[#4f71dc]" : "border-[#d0d0d0]"}`} /> : <svg viewBox="0 0 24 24" className="mx-auto h-[14px] w-[14px] fill-[#f06c6c]" aria-label="Не пришел"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" /></svg>}</td>)}<td className="text-center"><span className="text-[#43a047]">{tally(agent).onTime}</span> / <span className="text-[#4f71dc]">{tally(agent).late}</span> / <span className="text-[#f06c6c]">{tally(agent).absent}</span> / {days.length - weekends.length}</td></tr>)}</tbody>
           </table>
         </div>
       </section>

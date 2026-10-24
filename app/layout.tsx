@@ -3,8 +3,11 @@ import type { Metadata, Viewport } from 'next'
 import { TopNav } from '@/components/dashboard/top-nav'
 import { BrandCornerLogo } from '@/components/dashboard/brand-corner-logo'
 import { getServerLanguage } from '@/lib/i18n/server'
+import { ConfirmHost } from '@/components/ref/confirm-host'
+import { AlertHost } from '@/components/ref/alert-host'
 import { TableFitter } from '@/components/ref/table-fitter'
 import { TableSorter } from '@/components/ref/table-sorter'
+import { TitleTooltips } from '@/components/ref/title-tooltips'
 import { DomTranslator } from '@/lib/i18n/dom-translator'
 import { LanguageProvider } from '@/lib/i18n/language-context'
 import './globals.css'
@@ -40,7 +43,7 @@ export default async function RootLayout({
           href="https://fonts.googleapis.com/css2?family=Open+Sans:wght@300;400;500;600;700&subset=cyrillic,latin&display=swap"
         />
       </head>
-      <body className="font-sans antialiased">
+      <body className="font-sans">
         <LanguageProvider initialLanguage={language}>
           <div className="min-h-screen bg-[#f2f5f8]">
             <TopNav />
@@ -50,6 +53,9 @@ export default async function RootLayout({
           <DomTranslator />
           <TableSorter />
           <TableFitter />
+          <TitleTooltips />
+          <ConfirmHost />
+          <AlertHost />
         </LanguageProvider>
         {process.env.NODE_ENV === 'production' && <Analytics />}
       </body>

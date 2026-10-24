@@ -3,13 +3,38 @@ import "server-only"
 import { getDb } from "@/lib/db"
 import type { Permission } from "@/components/analytics/access-rights-data"
 
-type Row = { id: number; category: string; type: string; label: string; code: string }
+type Row = { id: number; category: string; type: string; label: string; code: string; categories: string }
 
 function rowToPermission(row: Row): Permission {
-  return { id: row.id, category: row.category, type: row.type, label: row.label, code: row.code }
+  let categories: string[] = []
+  try {
+    categories = JSON.parse(row.categories) as string[]
+  } catch {
+    categories = []
+  }
+  return { id: row.id, category: row.category, type: row.type, label: row.label, code: row.code, categories }
 }
 
+let categoriesReady: Promise<void> | null = null
+function ensureCategories() {
+  categoriesReady ??= getDb()
+    .exec("CREATE TABLE IF NOT EXISTS permission_categories (id INTEGER PRIMARY KEY, name TEXT NOT NULL, sort_order INTEGER NOT NULL DEFAULT 0)")
+    .catch((error) => {
+      categoriesReady = null
+      throw error
+    })
+  return categoriesReady
+}
+
+/** `label` is the reference's full permission name ("Продажи/Добавить заказ (add_order)"). */
 export async function listPermissions(): Promise<Permission[]> {
   const db = getDb()
-  return ((await db.prepare("SELECT id, category, type, label, code FROM permissions ORDER BY sort_order ASC, id ASC").all()) as Row[]).map(rowToPermission)
+  return ((await db.prepare("SELECT id, category, type, label, code, categories FROM permissions ORDER BY sort_order ASC, id ASC").all()) as Row[]).map(rowToPermission)
+}
+
+/** Permission categories in the reference's order (billing `permission_category/`). */
+export async function listPermissionCategories(): Promise<string[]> {
+  await ensureCategories()
+  const rows = (await getDb().prepare("SELECT name FROM permission_categories ORDER BY sort_order ASC, id ASC").all()) as Array<{ name: string }>
+  return rows.map((row) => row.name)
 }

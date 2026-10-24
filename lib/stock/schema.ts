@@ -12,12 +12,13 @@ import { ensureFinanceSchema } from "@/lib/finance/schema"
 //   because several of them are created lazily by their own repos (the
 //   stock inventory tables by the "Инвентаризация" module).
 
-const STOCK_SCHEMA_VERSION = 1
+const STOCK_SCHEMA_VERSION = 2
 
 /** Every table the stock ledger reads. */
 export const STOCK_TABLES = [
   "products",
   "raw_materials",
+  "product_kind_overrides",
   "warehouses",
   "currencies",
   "supplier_incomings",
@@ -31,6 +32,9 @@ export const STOCK_TABLES = [
   "order_items",
   "stock_inventories",
   "stock_inventory_items",
+  "receive_task_reference_rows",
+  "stock_opening_balances",
+  "ref_records",
 ] as const
 
 export type StockTables = {
@@ -49,6 +53,15 @@ async function install(): Promise<void> {
   await ensureFinanceSchema(db)
   const orders = (await db.prepare("SELECT to_regclass('orders') IS NOT NULL AS ok").get()) as { ok: boolean } | undefined
   if (orders?.ok) await db.exec("ALTER TABLE orders ADD COLUMN IF NOT EXISTS warehouse TEXT NOT NULL DEFAULT ''")
+  // Registry of demo rows (scripts/demo/*): the receipts history leaves the later compensation receipts out.
+  await db.exec("CREATE TABLE IF NOT EXISTS demo_seed_rows (table_name text, row_id text, domain text, created_at timestamptz DEFAULT now())")
+  // Additive per warehouse starting quantities (the reference's real stock the local documents do not reproduce), made by
+  // scripts/demo/apply-parity-stock.mjs; counted as 'opening' movements without any value, so costs are untouched.
+  await db.exec("CREATE TABLE IF NOT EXISTS stock_opening_balances (id SERIAL PRIMARY KEY, warehouse TEXT NOT NULL, item_key TEXT NOT NULL, qty DOUBLE PRECISION NOT NULL)")
+  // Additive list of the reference's "Приемка" tasks (customer returns / transfers), filled by scripts/demo/seed-listb-extra.mjs.
+  await db.exec(
+    "CREATE TABLE IF NOT EXISTS receive_task_reference_rows (id INTEGER PRIMARY KEY, type TEXT NOT NULL, by_name TEXT NOT NULL DEFAULT '', stock_name TEXT NOT NULL DEFAULT '', task_date TEXT NOT NULL DEFAULT '', order_id INTEGER, status TEXT NOT NULL DEFAULT '0')",
+  )
 }
 
 /** Installs the SQL helpers the ledger needs (once per process). */

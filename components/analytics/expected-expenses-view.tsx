@@ -2,7 +2,7 @@
 
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react"
 import { useSearchParams } from "next/navigation"
-import { ArrowDown, ArrowUp, ArrowUpDown, Loader2, Search } from "lucide-react"
+import { ArrowDown, ArrowUp, Loader2, Search } from "lucide-react"
 
 import { nextOrdering } from "@/components/analytics/balance/balance-table"
 import { BALANCE_PAGE_SIZES, BalancePagination } from "@/components/analytics/balance/pagination"
@@ -150,15 +150,15 @@ export function ExpectedExpensesView() {
 
   return (
     <main className="min-h-screen bg-white text-[#17233b]">
-      <header className="flex min-h-[76px] items-center border-b border-[#d8dee7] bg-[#f2f5f8] px-4 md:px-9">
-        <div className="flex min-w-0 items-center gap-3">
-          <FavoritesButton className="flex items-center gap-2 text-2xl font-bold text-[#4f70e7]" />
-          <span className="text-3xl font-light text-[#586174]">|</span>
-          <span className="truncate text-xl font-bold text-[#586174] md:text-2xl">{t("Ожидаемые расходы")}</span>
+      <header className="flex min-h-[60px] items-center px-[28px]">
+        <div className="flex min-w-0 items-center">
+          <FavoritesButton className="flex items-center gap-[5px] text-[18px] font-bold text-[#4f71dc]" />
+          <span className="mx-[11px] h-[21px] w-[2px] bg-[#5d6474]" />
+          <span className="truncate text-[18px] font-bold text-[#5d6474]">{t("Ожидаемые расходы")}</span>
         </div>
       </header>
 
-      <nav className="flex overflow-x-auto border-b border-[#e1e5eb] bg-white text-center" role="tablist">
+      <nav className="mx-[28px] mb-5 flex overflow-x-auto bg-white text-center shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]" role="tablist">
         {TABS.map((tab) => {
           const active = tab.value === status
           return (
@@ -168,7 +168,7 @@ export function ExpectedExpensesView() {
               role="tab"
               aria-selected={active}
               onClick={() => changeTab(tab.value)}
-              className={`min-w-fit flex-1 whitespace-nowrap border-b-2 px-3 py-3 text-[13px] font-medium uppercase md:py-4 md:text-[14px] ${active ? "text-[#17233b]" : "border-transparent text-[#586174] hover:text-[#17233b]"}`}
+              className={`min-w-fit flex-1 whitespace-nowrap border-b-2 px-3 py-[16px] text-[13px] font-normal ${active ? "text-[#333]" : "border-transparent text-[#333] hover:text-[#4f71dc]"}`}
               style={active ? { borderColor: "rgb(79, 113, 220)" } : undefined}
             >
               {t(tab.label)}
@@ -188,27 +188,28 @@ export function ExpectedExpensesView() {
         </div>
       )}
 
-      <section className="flex flex-wrap items-center gap-3 border-b border-[#e1e5eb] bg-white px-4 py-3 md:gap-5 md:px-9">
-        <label className="relative min-w-[180px] flex-1 border-b border-[#dbe0e8] pb-1.5">
+      <div className="mx-[28px] bg-white shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
+      <section className="flex min-h-[50px] flex-wrap items-center justify-between gap-3 px-[14px]">
+        <label className="relative w-[182px] border-b border-[#dbe0e8] pb-1.5">
           <input
             value={searchInput}
             onChange={(event) => setSearchInput(event.target.value)}
             placeholder={t("Поиск")}
-            className="w-full bg-transparent pr-7 text-[15px] outline-none placeholder:text-[#9aa3b6]"
+            className="w-full bg-transparent pr-7 text-[13px] outline-none placeholder:text-[#9aa3b6]"
           />
           <Search className="pointer-events-none absolute right-0 top-0.5 h-5 w-5 text-[#9aa3b6]" />
         </label>
         <BalancePagination page={paging.page} pageSize={paging.pageSize} count={data?.count ?? 0} onChange={setPaging} />
       </section>
 
-      <section className="overflow-x-auto bg-[#f6f9fc] pb-10">
-        <table className="w-full min-w-[760px] table-fixed border-collapse text-[14px]">
+      <section className="overflow-x-auto bg-[#f6f9fc]">
+        <table className="w-full min-w-[760px] table-fixed border-collapse text-[13px]">
           <colgroup>
             {COLUMNS.map((column) => (
               <col key={column.id} style={{ width: `${(column.width / TOTAL_WIDTH) * 100}%` }} />
             ))}
           </colgroup>
-          <thead className="bg-[#626b7e] text-white">
+          <thead className="bg-[#5d6474] text-white">
             <tr>
               {COLUMNS.map((column) => {
                 const key = column.sortKey
@@ -216,7 +217,7 @@ export function ExpectedExpensesView() {
                 return (
                   <th
                     key={column.id}
-                    className={`px-4 py-4 font-semibold ${column.align === "center" ? "text-center" : "text-left"}`}
+                    className={`px-4 py-[15px] font-bold ${column.align === "center" ? "text-center" : "text-left"}`}
                     aria-sort={sorted === "asc" ? "ascending" : sorted === "desc" ? "descending" : undefined}
                   >
                     {key ? (
@@ -229,7 +230,7 @@ export function ExpectedExpensesView() {
                         className="inline-flex items-center gap-1.5 text-left hover:text-[#dfe4ff]"
                       >
                         {t(column.label)}
-                        {sorted === "asc" ? <ArrowUp className="h-3.5 w-3.5" /> : sorted === "desc" ? <ArrowDown className="h-3.5 w-3.5" /> : <ArrowUpDown className="h-3.5 w-3.5 opacity-40" />}
+                        {sorted === "asc" ? <ArrowUp className="h-3.5 w-3.5" /> : sorted === "desc" ? <ArrowDown className="h-3.5 w-3.5" /> : null}
                       </button>
                     ) : (
                       t(column.label)
@@ -281,8 +282,8 @@ export function ExpectedExpensesView() {
                       onClick={() => toggleRow(row.id)}
                       className={`cursor-pointer border-b border-dashed border-slate-200 transition-colors hover:bg-[#eef2ff] ${index % 2 ? "bg-[#f6f9fc]" : "bg-white"} ${loading ? "opacity-60" : ""}`}
                     >
-                      <td className="px-4 py-4">{row.id}</td>
-                      <td className="truncate px-4 py-4 font-medium">{row.supplier.name || t("Не указано")}</td>
+                      <td className="px-4 py-4">{row.number ?? row.id}</td>
+                      <td className="truncate px-4 py-4">{row.supplier.name || t("Не указано")}</td>
                       <td className="whitespace-nowrap px-4 py-4">{row.createdAt ? formatStatementDate(row.createdAt, language, false) : ""}</td>
                       <td className="whitespace-nowrap px-4 py-4">{formatMoney(row.balances.balance, DIGITS)}</td>
                       <td className="whitespace-nowrap px-4 py-4">{formatMoney(row.balances.reserve, DIGITS)}</td>
@@ -298,6 +299,7 @@ export function ExpectedExpensesView() {
           </tbody>
         </table>
       </section>
+      </div>
 
       <Snackbar message={message} onClose={closeMessage} />
     </main>

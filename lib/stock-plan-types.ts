@@ -119,6 +119,25 @@ export const PLAN_MOVE_TYPES: Array<{ id: string; label: string; kinds: StockMov
   { id: "manufacture_out", label: "Затрачено на производство", kinds: ["manufacture_out"] },
   { id: "none", label: "Партия", kinds: ["none_in", "none_out"] },
   { id: "inventory", label: "Инвентаризация", kinds: ["inventory_in", "inventory_out"] },
+  // Filter-only entries: the reference filter lists the two transfer directions separately.
+  { id: "transfer_in", label: "Передача", kinds: ["transfer_in"] },
+  { id: "transfer_out", label: "Передача", kinds: ["transfer_out"] },
+]
+
+/** Options of the "Тип" select in the "Движение товаров" filter (reference order and wording). */
+export const PLAN_MOVE_FILTER_TYPES: Array<{ id: string; label: string }> = [
+  { id: "order", label: "Заказы" },
+  { id: "return", label: "Возврат" },
+  { id: "supply", label: "Поставка" },
+  { id: "supply_return", label: "Возврат поставки" },
+  { id: "transfer_in", label: "Перемещение к складу" },
+  { id: "transfer_out", label: "Перемещение с склада" },
+]
+
+/** "Статус" of the "Движение товаров" filter: the sign of the quantity. */
+export const PLAN_MOVE_DIRECTIONS: Array<{ id: string; label: string }> = [
+  { id: "in", label: "Приход" },
+  { id: "out", label: "Расход" },
 ]
 
 export function planMoveType(kind: string): { id: string; label: string } {
@@ -144,6 +163,8 @@ export type PlanMovementRow = {
   /** Signed quantity (+ in, − out). */
   qty: number
   isDefect: boolean
+  /** "HH:MM" of the line (reference lines only; the stock ledger has days). */
+  time?: string
 }
 
 export type PlanMovementResult = { count: number; page: number; pageSize: number; results: PlanMovementRow[] }

@@ -1,5 +1,5 @@
 import type { Metadata } from "next"
-import { notFound } from "next/navigation"
+import { notFound, redirect } from "next/navigation"
 
 import { ClientModuleView } from "@/components/clients/client-module-view"
 import { clientModules, getClientModule } from "@/lib/clients-catalog"
@@ -34,7 +34,8 @@ export default async function ClientModulePage({ params }: ClientModulePageProps
   const { slug } = await params
   const clientModule = getClientModule(slug)
 
-  if (!clientModule || clientModule.slug === "clients") notFound()
+  if (clientModule?.slug === "clients") redirect("/clients")
+  if (!clientModule) notFound()
 
   return <ClientModuleView clientModule={clientModule} />
 }

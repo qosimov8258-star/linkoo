@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react"
 import { Bookmark, ChevronDown, ChevronUp, Download, FolderOpen, Search, X } from "lucide-react"
 import { RefHeader } from "@/components/ref/list-kit"
-import { ReportPage } from "@/components/ref/report-kit"
+import { ReportPage, monthRangeLabel } from "@/components/ref/report-kit"
 import { CHECKBOX } from "./visit-builder-view"
 import { downloadExcelTable } from "@/lib/excel-export"
 
@@ -115,7 +115,7 @@ function toggleInSet<T>(set: Set<T>, value: T) {
 export function ReportBuilderView() {
   const [mode, setMode] = useState<"stock" | "warehouse">("stock")
   const [settingsOpen, setSettingsOpen] = useState(true)
-  const [dateRange, setDateRange] = useState("01 Авг. 2026 - 31 Авг. 2026")
+  const [dateRange, setDateRange] = useState(() => monthRangeLabel())
 
   const [columnSearch, setColumnSearch] = useState("")
   const [verticalSearch, setVerticalSearch] = useState("")

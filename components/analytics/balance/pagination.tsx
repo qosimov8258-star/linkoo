@@ -28,11 +28,11 @@ export function BalancePagination({
   const start = count ? (current - 1) * pageSize + 1 : 0
   const end = Math.min(current * pageSize, count)
   return (
-    <div className="flex items-center gap-3 text-[#586174]">
+    <div className="flex items-center gap-3 text-[13px] text-[#5d6474]">
       <select
         value={pageSize}
         onChange={(event) => onChange({ page: 1, pageSize: Number(event.target.value) })}
-        className="h-9 bg-transparent"
+        className="h-8 bg-transparent"
         aria-label={t("Количество строк")}
       >
         {sizes.map((size) => (
@@ -49,18 +49,18 @@ export function BalancePagination({
         disabled={current <= 1}
         onClick={() => onChange({ page: current - 1, pageSize })}
         aria-label={t("Назад")}
-        className="rounded-full border border-[#4f70e7] p-1 text-[#4f70e7] disabled:border-[#dbe0e8] disabled:text-[#9aa3b6]"
+        className="rounded-full border border-[#5d6474] p-[2px] text-[#5d6474] disabled:border-[#cfd4de] disabled:text-[#cfd4de]"
       >
-        <ChevronLeft className="h-5 w-5" />
+        <ChevronLeft className="h-[18px] w-[18px]" />
       </button>
       <button
         type="button"
         disabled={current >= lastPage}
         onClick={() => onChange({ page: current + 1, pageSize })}
         aria-label={t("Вперед")}
-        className="rounded-full border border-[#4f70e7] p-1 text-[#4f70e7] disabled:border-[#dbe0e8] disabled:text-[#9aa3b6]"
+        className="rounded-full border border-[#5d6474] p-[2px] text-[#5d6474] disabled:border-[#cfd4de] disabled:text-[#cfd4de]"
       >
-        <ChevronRight className="h-5 w-5" />
+        <ChevronRight className="h-[18px] w-[18px]" />
       </button>
     </div>
   )

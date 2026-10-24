@@ -202,6 +202,8 @@ type Context = {
   allowedWarehouses: string[] | null
   /** Display names of keys missing from the catalog (filled by resolveOrphans). */
   orphans: Map<string, string>
+  /** Inventory items (products.is_inventory): listed only once they hold or move stock. */
+  inventoryKeys: Set<string>
 }
 
 async function loadContext(filters: Pick<MoveFilters, "warehouses" | "branches">, db: PgDb): Promise<Context> {
@@ -218,7 +220,9 @@ async function loadContext(filters: Pick<MoveFilters, "warehouses" | "branches">
     const names = filters.warehouses.length ? filters.warehouses : [...warehouses.values()].map((warehouse) => warehouse.name)
     allowedWarehouses = filters.branches.length ? names.filter((name) => filters.branches.includes(warehouses.get(finKey(name))?.branch ?? "")) : names
   }
-  return { catalog, warehouses, allowedWarehouses, orphans: new Map() }
+  const inventoryRows = (await db.prepare("SELECT id FROM products WHERE COALESCE(is_inventory, 0) = 1").all().catch(() => [])) as Array<{ id: number }>
+  const inventoryKeys = new Set(inventoryRows.map((row) => `product:${row.id}`))
+  return { catalog, warehouses, allowedWarehouses, orphans: new Map(), inventoryKeys }
 }
 
 function itemMatches(key: string, filters: MoveFilters, context: Context): boolean {
@@ -391,7 +395,35 @@ function compareRows(ordering: string) {
 }
 
 /** Every row of the report (filtered, sorted). */
-export async function stockMovementRows(filters: MoveFilters, ordering = "", db: PgDb = getDb()): Promise<{ rows: MoveRow[]; needPriceList: boolean }> {
+type MoveRowsResult = { rows: MoveRow[]; needPriceList: boolean }
+
+declare global {
+  var __linkoMoveRowsCache: Map<string, { at: number; value: Promise<MoveRowsResult> }> | undefined
+}
+
+/**
+ * The list and the sum of one report view recompute the same ledger aggregate; the page asks for both at once, so
+ * identical requests within a few seconds share one computation (ordering is applied afterwards).
+ */
+const MOVE_ROWS_TTL_MS = 5000
+
+export async function stockMovementRows(filters: MoveFilters, ordering = "", db: PgDb = getDb()): Promise<MoveRowsResult> {
+  const cache = (globalThis.__linkoMoveRowsCache ??= new Map())
+  const now = Date.now()
+  for (const [key, entry] of cache) if (now - entry.at > MOVE_ROWS_TTL_MS) cache.delete(key)
+  const cacheKey = JSON.stringify(filters)
+  let entry = cache.get(cacheKey)
+  if (!entry) {
+    const value = stockMovementRowsFresh(filters, db)
+    value.catch(() => cache.delete(cacheKey))
+    entry = { at: now, value }
+    cache.set(cacheKey, entry)
+  }
+  const { rows, needPriceList } = await entry.value
+  return { rows: [...rows].sort(compareRows(ordering || "name")), needPriceList }
+}
+
+async function stockMovementRowsFresh(filters: MoveFilters, db: PgDb): Promise<MoveRowsResult> {
   const context = await loadContext(filters, db)
   const { cells, needPriceList } = await loadCells(filters, context, db)
   if (filters.groupBy === "product") await resolveOrphans(cells.map((cell) => cell.itemKey), context, db)
@@ -428,8 +460,8 @@ export async function stockMovementRows(filters: MoveFilters, ordering = "", db:
   const rows = [...groups.values()]
     .map((row) => ({ ...row, qty: finish(row.qty), value: row.value ? finish(row.value) : null }))
     .filter((row) => presenceMatches(row, filters))
+    .filter((row) => filters.groupBy !== "product" || !(context.inventoryKeys.has(row.key) || !context.catalog.has(row.key)) || Object.values(row.qty).some((value) => value !== 0))
     .filter((row) => filters.groupBy === "product" || !needle || row.name.toLowerCase().includes(needle))
-    .sort(compareRows(ordering || "name"))
   return { rows, needPriceList }
 }
 

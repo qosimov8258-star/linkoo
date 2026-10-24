@@ -8,9 +8,9 @@ import { createOperation, getStage, listOperations } from "@/lib/production-stag
 export async function GET(request: Request) {
   const denied = await requireViewer()
   if (denied) return denied
+  // Like the reference, operations are not tied to the selected stage: without stageId the whole list is returned.
   const stageId = positiveIntParam(new URL(request.url).searchParams.get("stageId"))
-  if (!stageId) return errorResponse("stageId обязателен")
-  return NextResponse.json(await listOperations(stageId))
+  return NextResponse.json(await listOperations(stageId ?? undefined))
 }
 
 export async function POST(request: Request) {

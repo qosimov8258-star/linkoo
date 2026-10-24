@@ -150,9 +150,12 @@ export async function listOrganizations(search = ""): Promise<Organization[]> {
   return rows.map(rowToOrganization)
 }
 
+// The demo sorts names ignoring case, spaces and punctuation.
+const NAME_KEY = `regexp_replace(lower(name), '[\\s''"\`.,_()/-]+', '', 'g')`
+
 const ORDER_BY: Record<string, string> = {
-  name: "lower(name) ASC, id ASC",
-  "-name": "lower(name) DESC, id DESC",
+  name: `${NAME_KEY} ASC, id ASC`,
+  "-name": `${NAME_KEY} DESC, id DESC`,
   id: "id ASC",
   "-id": "id DESC",
   created_date: "created_at ASC, id ASC",

@@ -16,6 +16,7 @@ const orderItemSchema = z.object({
   costPrice: z.number().nonnegative().optional(),
   discountPercent: z.number().min(0).max(100).optional(),
   currency: z.string().trim().min(1).max(10).optional(),
+  returnQuantity: z.number().nonnegative().optional(),
 })
 
 export async function PUT(request: Request, { params }: RouteParams) {

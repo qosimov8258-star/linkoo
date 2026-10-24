@@ -1,23 +1,18 @@
 "use client"
 
-import { useMemo, useState } from "react"
-import { Download, Search, SlidersHorizontal } from "lucide-react"
-import { downloadExcelTable } from "@/lib/excel-export"
-import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
+import { ProfitReportView } from "@/components/analytics/profit-report-view"
 
-const products: { name: string; unit: string; sales: number; returns: number; cost: number; discount: number }[] = []
 export function ProductProfitView() {
-  const [query, setQuery] = useState("")
-  const [realized, setRealized] = useState(true)
-  const [loaded, setLoaded] = useState(false)
-  const [creationMode, setCreationMode] = useState(false)
-  const [filterOpen, setFilterOpen] = useState(false)
-  const [group, setGroup] = useState("По продукту")
-  const rows = useMemo(() => {
-    const source = loaded ? products : []
-    return source.filter((row) => row.name.toLowerCase().includes(query.toLowerCase()))
-  }, [loaded, query])
-  const sales = rows.reduce((sum, row) => sum + row.sales, 0), returns = rows.reduce((sum, row) => sum + row.returns, 0), actual = sales - returns, profit = actual - rows.reduce((sum, row) => sum + row.cost + row.discount, 0)
-  const exportExcel = () => downloadExcelTable("product-profit.xls", [["Товар", "Ед. измер", "Продажа", "Возврат", "Фактическая продажа", "Прибыль от продаж", "Скидки"], ...rows.map((row) => [row.name, row.unit, row.sales, row.returns, row.sales - row.returns, row.sales - row.returns - row.cost - row.discount, row.discount])])
-  return <main className="min-h-[calc(100vh-4rem)] bg-[#f2f5f8] text-[#17233b]"><header className="border-b px-9 py-4 text-[13px]"><div className="flex items-center gap-3"><FavoritesButton className="flex items-center gap-[5px] text-[18px] font-bold text-[#4f71dc]" /><span className="mx-[11px] inline-block h-[21px] w-[2px] bg-[#5d6474]" /><h1 className="text-2xl font-bold text-slate-600">Прибыль от товаров</h1></div></header><section className="bg-white px-9 py-6"><div className="flex items-center gap-4"><button onClick={() => setFilterOpen((value) => !value)} className="flex items-center gap-2 h-[30px] rounded-[5px] bg-[#4f71dc] px-4 text-[13px] font-semibold text-white"><SlidersHorizontal />Фильтр / 2</button><button onClick={() => setRealized((value) => !value)} className={realized ? "font-medium text-[#71ce87]" : "font-medium text-slate-500"}>{realized ? "Реализовано" : "Все статусы"}</button><button onClick={exportExcel} className="ml-auto flex items-center gap-2 h-[30px] rounded-[5px] bg-[#71ce87] px-4 text-[13px] font-semibold text-white"><Download />Скачать</button></div>{filterOpen && <div className="mt-4 flex gap-4 rounded border bg-slate-50 p-4"><select className="border p-2"><option>Все филиалы</option><option>Ташкент</option></select><select className="border p-2"><option>Все бренды</option><option>PEPSI</option></select><button onClick={() => { setFilterOpen(false); setLoaded(true) }} className="rounded bg-[#4f71dc] px-4 text-white">Применить</button></div>}<div className="mt-5 grid grid-cols-1 gap-3 lg:grid-cols-4">{[["Сумма от продаж", sales], ["Сумма возвратов", returns], ["Фактические продажи", actual], ["Прибыль от продаж", profit]].map(([label, value]) => <div key={String(label)} className="border p-4 text-right"><p className="text-slate-500">{label}</p><strong className="text-xl">{Number(value).toLocaleString("ru-RU")} SUM</strong></div>)}</div><div className="mt-5 flex flex-wrap items-end gap-6"><label className="relative w-[500px] max-w-full"><span className="font-semibold">Поиск</span><input value={query} onChange={(event) => setQuery(event.target.value)} className="mt-1 w-full border-b py-2 pr-8 outline-none" /><Search className="absolute bottom-2 right-1 text-slate-500" /></label><div className="ml-auto"><small className="block">Группировка</small><select value={group} onChange={(event) => setGroup(event.target.value)} className="border-b py-2 outline-none"><option>По продукту</option><option>По бренду</option><option>По филиалу</option></select></div><button onClick={() => setCreationMode((value) => !value)} className={`rounded px-5 py-3 font-semibold ${creationMode ? "bg-[#4f71dc] text-white" : "border bg-white"}`}>ПОКАЗАТЬ ПО ДАТЕ СОЗДАНИЯ</button><button onClick={() => setLoaded(true)} className="inline-flex items-center h-[30px] rounded-[5px] bg-[#4f71dc] px-4 text-[13px] font-semibold text-white">ПРОДАЖА ПО ТОВАРАМ С ПРИБЫЛЬЮ</button></div><p className="mt-8 text-xl text-[#4f71dc]">ⓘ {creationMode ? "Это оперативный отчет для просмотра факта перейдите в другой раздел" : "В этом отчете показываются только реализованные заказы и возвраты"}</p></section><section className="overflow-x-auto bg-white"><table className="min-w-[1300px] w-full border-collapse"><thead className="bg-[#edf2f7]"><tr><th rowSpan={2} className="border p-3">Товар</th><th rowSpan={2} className="border p-3">Ед. измер</th><th colSpan={2} className="border p-3">Продажа</th><th colSpan={2} className="border p-3">Возврат в этом периоде</th><th colSpan={2} className="border p-3">Фактическая продажа</th><th className="border p-3">Прибыль от продаж</th><th colSpan={2} className="border p-3">Скидки</th></tr><tr>{["Кол-во", "Сумма", "Кол-во", "Сумма", "Кол-во", "Сумма", "Сумма", "Кол-во", "Сумма"].map((item, index) => <th key={index} className="border p-3">{item}</th>)}</tr></thead><tbody>{rows.map((row) => <tr key={row.name}><td className="border p-3">{row.name}</td><td className="border p-3">{row.unit}</td><td className="border p-3">{Math.round(row.sales / 10000)}</td><td className="border p-3">{row.sales.toLocaleString("ru-RU")}</td><td className="border p-3">{Math.round(row.returns / 10000)}</td><td className="border p-3">{row.returns.toLocaleString("ru-RU")}</td><td className="border p-3">{Math.round((row.sales-row.returns)/10000)}</td><td className="border p-3">{(row.sales-row.returns).toLocaleString("ru-RU")}</td><td className="border p-3">{(row.sales-row.returns-row.cost-row.discount).toLocaleString("ru-RU")}</td><td className="border p-3">{row.sales ? 1 : 0}</td><td className="border p-3">{row.discount.toLocaleString("ru-RU")}</td></tr>)}</tbody></table></section></main>
+  return (
+    <ProfitReportView
+      title="Прибыль от товаров"
+      realizedLabel="ПРОДАЖА ПО ТОВАРАМ С ПРИБЫЛЬЮ"
+      fileName="product-profit.xls"
+      groupings={[
+        { label: "По продукту", entity: "Товар", source: "products" },
+        { label: "По типу продукта", entity: "Тип продукта", source: "productTypes" },
+        { label: "По бренду", entity: "Бренд", source: "brands" },
+      ]}
+    />
+  )
 }

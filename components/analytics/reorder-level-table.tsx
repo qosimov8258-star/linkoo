@@ -1,7 +1,7 @@
 "use client"
 
 import type { ReactNode } from "react"
-import { ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react"
+import { ArrowDown, ArrowUp } from "lucide-react"
 
 import { nextOrdering } from "@/components/analytics/balance/balance-table"
 import { formatMoney } from "@/lib/finance/currency"
@@ -54,11 +54,11 @@ export function ReorderLevelTable({ rows, ordering, onOrderingChange, loading }:
   const pill = new Set(["salePart", "remainDays"])
   return (
     <div className={`overflow-x-auto ${loading ? "opacity-60" : ""}`}>
-      <table className="w-full border-collapse text-[14px]">
-        <thead className="sticky top-0 z-[1] bg-[#4f71dc] text-white">
+      <table className="w-full border-collapse text-[13px] text-[#333]">
+        <thead className="sticky top-0 z-[1] bg-[#f5f7fa] text-[#333] shadow-[0_2px_4px_rgba(0,0,0,0.08)]">
           <tr>
             {columns.map((column) => (
-              <th key={column.id} className={`border border-[#6d8ae3] px-3 py-3 text-left font-semibold ${column.id === "name" ? "sticky left-0 z-[2] min-w-[260px] bg-[#4f71dc]" : ""}`}>
+              <th key={column.id} className={`border border-[#e4e8ed] px-3 py-2 text-center font-semibold ${column.id === "name" ? "sticky left-0 z-[2] min-w-[260px] bg-[#f5f7fa]" : ""}`}>
                 {column.sortKey ? (
                   <button
                     type="button"
@@ -66,7 +66,7 @@ export function ReorderLevelTable({ rows, ordering, onOrderingChange, loading }:
                     className="inline-flex items-center gap-1 text-left"
                   >
                     {t(column.label)}
-                    {ordering === column.sortKey ? <ArrowUp className="h-3.5 w-3.5 shrink-0" /> : ordering === `-${column.sortKey}` ? <ArrowDown className="h-3.5 w-3.5 shrink-0" /> : <ArrowUpDown className="h-3.5 w-3.5 shrink-0 opacity-40" />}
+                    {ordering === column.sortKey ? <ArrowUp className="h-3.5 w-3.5 shrink-0" /> : ordering === `-${column.sortKey}` ? <ArrowDown className="h-3.5 w-3.5 shrink-0" /> : null}
                   </button>
                 ) : (
                   t(column.label)
@@ -83,7 +83,7 @@ export function ReorderLevelTable({ rows, ordering, onOrderingChange, loading }:
                 {columns.map((column) => (
                   <td
                     key={column.id}
-                    className={`border-b border-[#efefef] ${pill.has(column.id) ? "p-0" : "px-3 py-2"} ${column.id === "name" ? "sticky left-0" : "whitespace-nowrap"}`}
+                    className={`h-[40px] border-b border-[#e8ecf0] ${pill.has(column.id) ? "p-0" : "px-3 py-0"} ${column.id === "name" ? "sticky left-0" : "whitespace-nowrap"}`}
                     style={column.id === "name" ? { background } : undefined}
                   >
                     {column.render(row)}

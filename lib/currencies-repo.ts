@@ -1,6 +1,7 @@
 import "server-only"
 
 import { getDb, withTransaction } from "@/lib/db"
+import { ensureRatesSchema } from "@/lib/currency-rates-repo"
 import type { Currency } from "@/components/analytics/currencies-data"
 
 type CurrencyRow = {
@@ -10,6 +11,8 @@ type CurrencyRow = {
   rate: number
   is_base: number
   created_at: string
+  updated_at: string
+  rate_date: string | null
 }
 
 function rowToCurrency(row: CurrencyRow): Currency {
@@ -20,20 +23,25 @@ function rowToCurrency(row: CurrencyRow): Currency {
     rate: row.rate,
     isBase: row.is_base === 1,
     createdDate: new Date(row.created_at).toLocaleDateString("ru-RU", { day: "2-digit", month: "short", year: "numeric" }),
+    rateDate: row.rate_date ?? row.updated_at,
   }
 }
+
+const SELECT = "SELECT c.*, (SELECT MAX(r.created_at) FROM currency_rates r WHERE r.currency_id = c.id) AS rate_date FROM currencies c"
 
 export type CurrencyInput = { name: string; code: string; rate: number; isBase: boolean }
 
 export async function listCurrencies(): Promise<Currency[]> {
+  await ensureRatesSchema()
   const db = getDb()
-  const rows = (await db.prepare("SELECT * FROM currencies ORDER BY is_base DESC, id ASC").all()) as CurrencyRow[]
+  const rows = (await db.prepare(`${SELECT} ORDER BY lower(c.name), c.id`).all()) as CurrencyRow[]
   return rows.map(rowToCurrency)
 }
 
 export async function getCurrency(id: number): Promise<Currency | null> {
   const db = getDb()
-  const row = (await db.prepare("SELECT * FROM currencies WHERE id = ?").get(id)) as CurrencyRow | undefined
+  await ensureRatesSchema()
+  const row = (await db.prepare(`${SELECT} WHERE c.id = ?`).get(id)) as CurrencyRow | undefined
   return row ? rowToCurrency(row) : null
 }
 

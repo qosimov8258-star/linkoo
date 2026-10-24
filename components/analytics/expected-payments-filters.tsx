@@ -1,10 +1,11 @@
 "use client"
 
+import { RefFilterPanel } from "@/components/ref/list-kit"
 import { useState, type ReactNode } from "react"
 
 import { BALANCE_PAGE_SIZES } from "@/components/analytics/balance/pagination"
 import type { CashQuery } from "@/components/analytics/cash/use-cash"
-import { MultiSelect } from "@/components/analytics/client-balance-filters"
+import { RDate, RMulti, RSel } from "@/components/analytics/customer-payments-filters"
 import { PaymentModal } from "@/components/analytics/customer-payments-dialogs"
 import type { CustomerPaymentOptions } from "@/lib/cash/customer-payments-types"
 import { isIsoDay } from "@/lib/finance/dates"
@@ -175,71 +176,31 @@ export function ExpectedPaymentsFilterDialog({
   const [draft, setDraft] = useState(filters)
   const set = <K extends keyof ExpectedPaymentsFilters>(key: K, value: ExpectedPaymentsFilters[K]) => setDraft((current) => ({ ...current, [key]: value }))
   return (
-    <PaymentModal title="Фильтр" onClose={onClose} width={420}>
-      <form
-        className="flex flex-col gap-4 px-5 py-5"
-        onSubmit={(event) => {
-          event.preventDefault()
-          onApply(draft)
-        }}
-      >
-        <Field label="Филиалы">
-          <MultiSelect value={draft.branch} options={names(options?.branches ?? [])} onChange={(value) => set("branch", value)} />
-        </Field>
-        <Field label="Клиент">
-          <MultiSelect
+    <RefFilterPanel narrow onClose={onClose} onApply={() => onApply(draft)} className="!w-[300px] max-h-[calc(100vh-120px)] overflow-y-auto">
+      <div className="flex flex-col">
+        <RMulti label="Филиалы" value={draft.branch} options={names(options?.branches ?? [])} onChange={(value) => set("branch", value)} />
+        <RMulti label="Клиент"
             value={draft.client}
             options={(options?.clients ?? []).map((client) => ({ value: String(client.id), label: client.name }))}
             onChange={(value) => set("client", value)}
           />
-        </Field>
-        <Field label="Агент">
-          <MultiSelect value={draft.agent} options={names(options?.agents ?? [])} onChange={(value) => set("agent", value)} />
-        </Field>
-        <Field label="Тип оплаты">
-          <select value={draft.paymentType} onChange={(event) => set("paymentType", event.target.value)} className={fieldClass}>
-            <option value="">{t("Все")}</option>
-            <option value="cash">{t("Наличными")}</option>
-            <option value="bank">{t("Перечислением")}</option>
-          </select>
-        </Field>
-        <Field label="Доставщик">
-          <MultiSelect value={draft.deliveryMan} options={names(options?.deliverers ?? [])} onChange={(value) => set("deliveryMan", value)} />
-        </Field>
-        <Field label="Организация">
-          <MultiSelect value={draft.division} options={names(options?.organizations ?? [])} onChange={(value) => set("division", value)} />
-        </Field>
-        <Field label="Статус">
-          <select value={draft.status} onChange={(event) => set("status", event.target.value)} className={fieldClass}>
-            <option value="">{t("Все")}</option>
-            {(options?.orderStatuses ?? []).map((status) => (
-              <option key={status} value={status}>
-                {t(status)}
-              </option>
-            ))}
-          </select>
-        </Field>
-        <Field label="Дата создания">
-          <DayRange from={draft.fromDate} to={draft.toDate} onChange={(from, to) => setDraft((current) => ({ ...current, fromDate: from, toDate: to }))} />
-        </Field>
-        <Field label="Дата доставки">
-          <DayRange
+        <RMulti label="Клиент"
+            value={draft.client}
+            options={(options?.clients ?? []).map((client) => ({ value: String(client.id), label: client.name }))}
+            onChange={(value) => set("client", value)}
+          />
+        <RMulti label="Агент" value={draft.agent} options={names(options?.agents ?? [])} onChange={(value) => set("agent", value)} />
+        <RSel label="Тип оплаты" value={draft.paymentType} options={[{ value: "cash", label: t("Наличными") }, { value: "bank", label: t("Перечислением") }]} onChange={(value) => set("paymentType", value)} />
+        <RMulti label="Доставщик" value={draft.deliveryMan} options={names(options?.deliverers ?? [])} onChange={(value) => set("deliveryMan", value)} />
+        <RMulti label="Организация" value={draft.division} options={names(options?.organizations ?? [])} onChange={(value) => set("division", value)} />
+        <RSel label="Статус" value={draft.status} options={(options?.orderStatuses ?? []).map((status) => ({ value: status, label: t(status) }))} onChange={(value) => set("status", value)} />
+        <RDate label="Дата создания" from={draft.fromDate} to={draft.toDate} onChange={(from, to) => setDraft((current) => ({ ...current, fromDate: from, toDate: to }))} />
+        <RDate label="Дата доставки"
             from={draft.fromDateSecond}
             to={draft.toDateSecond}
             onChange={(from, to) => setDraft((current) => ({ ...current, fromDateSecond: from, toDateSecond: to }))}
           />
-        </Field>
-        <Field label="Дата оплаты">
-          <DayRange
-            from={draft.fromDateThird}
-            to={draft.toDateThird}
-            onChange={(from, to) => setDraft((current) => ({ ...current, fromDateThird: from, toDateThird: to }))}
-          />
-        </Field>
-        <button type="submit" className="h-10 rounded-md bg-[#4f70e7] font-semibold text-white">
-          {t("Применить")}
-        </button>
-      </form>
-    </PaymentModal>
+      </div>
+    </RefFilterPanel>
   )
 }

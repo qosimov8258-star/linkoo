@@ -14,10 +14,21 @@ async function ensureSchema(db: ReturnType<typeof getDb>) {
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
+    ALTER TABLE branches ADD COLUMN IF NOT EXISTS location_lat DOUBLE PRECISION;
+    ALTER TABLE branches ADD COLUMN IF NOT EXISTS location_lng DOUBLE PRECISION;
+    CREATE TABLE IF NOT EXISTS branch_plans (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      branch_id INTEGER NOT NULL,
+      weight TEXT NOT NULL DEFAULT '',
+      amount TEXT NOT NULL DEFAULT '',
+      price TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
   `)
 }
 
-export type BranchCurrency = "SUM" | "USD" | "Euro"
+/** Currency code from "Валюты" ("" = not set). */
+export type BranchCurrency = string
 
 export type BranchRecord = {
   id: number
@@ -27,6 +38,8 @@ export type BranchRecord = {
   isMain: boolean
   priceList: string
   currency: BranchCurrency
+  locationLat: number | null
+  locationLng: number | null
 }
 
 type Row = {
@@ -37,6 +50,8 @@ type Row = {
   debt_tracking: number
   is_main: number
   created_at: string
+  location_lat: number | null
+  location_lng: number | null
 }
 
 function formatDate(raw: string): string {
@@ -46,8 +61,11 @@ function formatDate(raw: string): string {
   return `${String(date.getUTCDate()).padStart(2, "0")} ${months[date.getUTCMonth()]} ${date.getUTCFullYear()}`
 }
 
-function toCurrency(value: string): BranchCurrency {
-  return value === "USD" || value === "Euro" ? value : "SUM"
+// Names sort ignoring case and punctuation/spaces (the demo's DB collation); exact ties fall back to shorter, then id.
+const nameCollator = new Intl.Collator("en", { ignorePunctuation: true, caseFirst: "lower" })
+
+function toCurrency(value: string | null): BranchCurrency {
+  return (value ?? "").trim()
 }
 
 function rowToBranch(row: Row): BranchRecord {
@@ -59,6 +77,8 @@ function rowToBranch(row: Row): BranchRecord {
     isMain: row.is_main === 1,
     priceList: row.price_list,
     currency: toCurrency(row.currency),
+    locationLat: row.location_lat ?? null,
+    locationLng: row.location_lng ?? null,
   }
 }
 
@@ -68,6 +88,8 @@ export type BranchInput = {
   currency: BranchCurrency
   debtTracking: boolean
   isMain: boolean
+  locationLat: number | null
+  locationLng: number | null
 }
 
 export function parseBranchInput(body: unknown): BranchInput | null {
@@ -78,16 +100,22 @@ export function parseBranchInput(body: unknown): BranchInput | null {
   return {
     name,
     priceList: typeof value.priceList === "string" ? value.priceList : "",
-    currency: toCurrency(typeof value.currency === "string" ? value.currency : "SUM"),
+    currency: toCurrency(typeof value.currency === "string" ? value.currency : ""),
     debtTracking: typeof value.debtTracking === "boolean" ? value.debtTracking : true,
     isMain: typeof value.isMain === "boolean" ? value.isMain : false,
+    locationLat: typeof value.locationLat === "number" ? value.locationLat : null,
+    locationLng: typeof value.locationLng === "number" ? value.locationLng : null,
   }
 }
 
-export async function listBranches(): Promise<BranchRecord[]> {
+/** `byCreation` keeps the reference app's creation order (used by the client form/filter selects). */
+export async function listBranches(options: { byCreation?: boolean } = {}): Promise<BranchRecord[]> {
   const db = getDb()
   await ensureSchema(db)
-  return ((await db.prepare("SELECT * FROM branches ORDER BY LOWER(name) COLLATE \"C\" ASC").all()) as Row[]).map(rowToBranch)
+  const rows = (await db.prepare("SELECT * FROM branches").all()) as Row[]
+  if (options.byCreation) rows.sort((a, b) => a.id - b.id)
+  else rows.sort((a, b) => nameCollator.compare(a.name, b.name) || a.name.length - b.name.length || a.id - b.id)
+  return rows.map(rowToBranch)
 }
 
 export async function getBranch(id: number): Promise<BranchRecord | null> {
@@ -102,8 +130,8 @@ export async function createBranch(input: BranchInput): Promise<BranchRecord> {
   await ensureSchema(db)
   const result = (await db
       .prepare(
-        `INSERT INTO branches (name, price_list, currency, debt_tracking, is_main)
-       VALUES (@name, @priceList, @currency, @debtTracking, @isMain)`,
+        `INSERT INTO branches (name, price_list, currency, debt_tracking, is_main, location_lat, location_lng)
+       VALUES (@name, @priceList, @currency, @debtTracking, @isMain, @locationLat, @locationLng)`,
       )
       .run({
         name: input.name,
@@ -111,6 +139,8 @@ export async function createBranch(input: BranchInput): Promise<BranchRecord> {
         currency: input.currency,
         debtTracking: input.debtTracking ? 1 : 0,
         isMain: input.isMain ? 1 : 0,
+        locationLat: input.locationLat,
+        locationLng: input.locationLng,
       }))
   return (await getBranch(Number(result.lastInsertRowid)))!
 }
@@ -121,7 +151,8 @@ export async function updateBranch(id: number, input: BranchInput): Promise<Bran
   if (!(await getBranch(id))) return null
   await db.prepare(
         `UPDATE branches SET name = @name, price_list = @priceList, currency = @currency,
-      debt_tracking = @debtTracking, is_main = @isMain, updated_at = datetime('now')
+      debt_tracking = @debtTracking, is_main = @isMain, location_lat = @locationLat, location_lng = @locationLng,
+      updated_at = datetime('now')
      WHERE id = @id`,
       ).run({
         id,
@@ -130,6 +161,8 @@ export async function updateBranch(id: number, input: BranchInput): Promise<Bran
         currency: input.currency,
         debtTracking: input.debtTracking ? 1 : 0,
         isMain: input.isMain ? 1 : 0,
+        locationLat: input.locationLat,
+        locationLng: input.locationLng,
       })
   return (await getBranch(id))
 }
@@ -137,5 +170,27 @@ export async function updateBranch(id: number, input: BranchInput): Promise<Bran
 export async function deleteBranch(id: number): Promise<boolean> {
   const db = getDb()
   await ensureSchema(db)
+  await db.prepare("DELETE FROM branch_plans WHERE branch_id = ?").run(id)
   return (await db.prepare("DELETE FROM branches WHERE id = ?").run(id)).changes > 0
+}
+
+export type BranchPlan = { id: number; branchId: number; weight: string; amount: string; price: string }
+
+type PlanRow = { id: number; branch_id: number; weight: string; amount: string; price: string }
+
+const rowToPlan = (row: PlanRow): BranchPlan => ({ id: row.id, branchId: row.branch_id, weight: row.weight, amount: row.amount, price: row.price })
+
+export async function listBranchPlans(branchId: number): Promise<BranchPlan[]> {
+  const db = getDb()
+  await ensureSchema(db)
+  return ((await db.prepare("SELECT * FROM branch_plans WHERE branch_id = ? ORDER BY id").all(branchId)) as PlanRow[]).map(rowToPlan)
+}
+
+export async function createBranchPlan(branchId: number, input: { weight: string; amount: string; price: string }): Promise<BranchPlan | null> {
+  const db = getDb()
+  await ensureSchema(db)
+  if (!(await getBranch(branchId))) return null
+  const result = await db.prepare("INSERT INTO branch_plans (branch_id, weight, amount, price) VALUES (?, ?, ?, ?)").run(branchId, input.weight, input.amount, input.price)
+  const row = (await db.prepare("SELECT * FROM branch_plans WHERE id = ?").get(Number(result.lastInsertRowid))) as PlanRow
+  return rowToPlan(row)
 }

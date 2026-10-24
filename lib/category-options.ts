@@ -13,12 +13,9 @@ import { CATEGORY_OPTIONS, normalizeOptions, optionsOfParameter, type CategoryOp
 export type CategoryKind = "income" | "expense"
 
 /**
- * Options offered per kind, in the demo list order (demo ids descending), followed
- * by the two options our cash core supports that the demo list lacks:
- *   staff_income  "Возврат от сотрудников" (income) — staff allocations of an income;
- *   amortization  "Амортизация" (both kinds) — amortization period of the operation.
- * Both are offered only for the kinds CATEGORY_OPTIONS marks applicable, otherwise
- * no category could ever switch those cash dialog panels on.
+ * Options offered per kind, exactly the demo list (main/options/?use=income|expense, ids
+ * descending). The cash core also understands staff_income and amortization, but the
+ * demo offers neither, so the dialog does not either.
  */
 export const CATEGORY_KIND_OPTIONS: Record<CategoryKind, readonly CategoryOptionKey[]> = {
   expense: [
@@ -30,9 +27,8 @@ export const CATEGORY_KIND_OPTIONS: Record<CategoryKind, readonly CategoryOption
     "provider",
     "supply",
     "supply_expense",
-    "amortization",
   ],
-  income: ["transaction_child", "client", "provider", "order", "staff_income", "amortization"],
+  income: ["transaction_child", "client", "provider", "order"],
 }
 
 /** Tooltip of an option chip (Russian i18n keys). The first four are the demo's
@@ -43,11 +39,11 @@ export const CATEGORY_OPTION_DESCRIPTIONS: Record<CategoryOptionKey, string> = {
   client: "Может указать клиента",
   provider: "Может выбрать поставщика",
   supply: "Пользователь может выбрать поставку",
-  client_card_out: "Может выбрать клиента и выдать деньги с его карты",
-  client_contract: "Может выбрать клиента и договор для выдачи кэшбека",
-  staff_expense: "Может распределить сумму между сотрудниками",
-  supply_expense: "Может выбрать доп. расход поставки",
-  order: "Может выбрать заказ",
+  client_card_out: "client_card_out",
+  client_contract: "Выдача денег для Кэшбек",
+  staff_expense: "Расход на сотрудников",
+  supply_expense: "Доп. расход",
+  order: "Заказ",
   staff_income: "Может указать сотрудников, вернувших деньги",
   amortization: "Может указать период амортизации",
 }
@@ -60,7 +56,8 @@ export function categoryOptionTitle(key: CategoryOptionKey): string {
 }
 
 export function categoryOptionItem(key: CategoryOptionKey): CategoryOptionItem {
-  return { key, title: categoryOptionTitle(key), description: CATEGORY_OPTION_DESCRIPTIONS[key] ?? "" }
+  // the demo lists this option under its raw key
+  return { key, title: key === "client_card_out" ? key : categoryOptionTitle(key), description: CATEGORY_OPTION_DESCRIPTIONS[key] ?? "" }
 }
 
 /** The radio list of the dialog. */

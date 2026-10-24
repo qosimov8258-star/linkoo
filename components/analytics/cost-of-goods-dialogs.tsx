@@ -1,10 +1,11 @@
 "use client"
 
-import { useRef, useState, type ReactNode } from "react"
-import { FileSpreadsheet } from "lucide-react"
+import { useState } from "react"
 
 import { CashModal, FormField, PrimaryButton, SearchSelect, inputClass, parseAmount } from "@/components/analytics/cash-management-shared"
 import { netCostMutate } from "@/components/analytics/cost-of-goods-shared"
+import { RefImportDialog } from "@/components/ref/list-kit"
+import { RefMuiDate, RefMuiDialog, RefMuiRadio } from "@/components/ref/mui-dialog"
 import { downloadExcelTable } from "@/lib/excel-export"
 import { readExcelRows } from "@/lib/excel-import"
 import { monthEndIso, monthStartIso, todayIso } from "@/lib/finance/dates"
@@ -14,15 +15,6 @@ import { NET_COST_API, type NetCostActionKind, type NetCostActionResult, type Ne
 // Dialogs of "Себестоимость" (demo c46): "Добавить себестоимость" / "Изменить себестоимость"
 // (4347), "Перерасчет" (4667), "Перезаписать" (4668), "Сгенерировать заново" (4669),
 // "Пересчитать" → "Изменение" (4277) and "Импорт с Excel" (2131).
-
-function Radio({ checked, onChange, children }: { checked: boolean; onChange: () => void; children: ReactNode }) {
-  return (
-    <label className="flex cursor-pointer items-center gap-3 text-[14px] text-[#17233b]">
-      <input type="radio" checked={checked} onChange={onChange} className="h-4 w-4 accent-[#4f71dc]" />
-      {children}
-    </label>
-  )
-}
 
 function DateInput({ label, value, onChange, error }: { label: string; value: string; onChange: (value: string) => void; error?: string }) {
   return (
@@ -151,41 +143,30 @@ export function NetCostActionDialog({
     onDone(result.data, text.success)
   }
 
+  const bodyHeight = kind === "recalc" ? (onlyWrong ? 180 : undefined) : kind === "reset-period" ? 250 : kind === "regenerate" ? 300 : undefined
   return (
-    <CashModal
-      title={t(text.title)}
-      onClose={onClose}
-      size="md"
-      footer={
-        <>
-          {error && <span className="mr-auto text-[13px] text-[#e57373]">{error}</span>}
-          <PrimaryButton busy={busy} onClick={() => void submit()}>
-            {t(text.submit)}
-          </PrimaryButton>
-        </>
-      }
-    >
-      <div className="flex flex-col gap-4">
+    <RefMuiDialog title={t(text.title)} onClose={onClose} action={t(text.submit)} onAction={() => void submit()} busy={busy} error={error} bodyHeight={bodyHeight}>
+      <div className="flex flex-col pb-[30px]">
         {kind === "regenerate" && (
-          <p className="text-[14px] text-[#17233b]">
+          <p className="-mt-[11px] mb-[34px] text-[13px] leading-[18px] text-[#333]">
             {t("Себестоимости продуктов будут сгенерированы заново за указанный период. При этом старые данные будут удалены, а текущие значения себестоимостей могут измениться.")}
           </p>
         )}
         {kind === "recalc" && (
-          <div className="flex flex-col gap-2">
-            <Radio checked={onlyWrong} onChange={() => setOnlyWrong(true)}>
+          <div className="flex flex-col">
+            <RefMuiRadio checked={onlyWrong} onChange={() => setOnlyWrong(true)}>
               {t("Пересчитать только ошибки")}
-            </Radio>
-            <Radio checked={!onlyWrong} onChange={() => setOnlyWrong(false)}>
+            </RefMuiRadio>
+            <RefMuiRadio checked={!onlyWrong} onChange={() => setOnlyWrong(false)}>
               {t("Пересчитать выбранные")}
-            </Radio>
+            </RefMuiRadio>
           </div>
         )}
         {showFilters && (
           <>
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <DateInput label={t(kind === "recalc-period" ? "Дата начала" : "Дата от")} value={beginDate} onChange={setBeginDate} error={errors.beginDate} />
-              <DateInput label={t(kind === "recalc-period" ? "Дата завершения" : "Дата до")} value={endDate} onChange={setEndDate} error={errors.endDate} />
+            <div className="flex gap-[40px]">
+              <RefMuiDate label={t(kind === "recalc-period" ? "Дата начала" : "Дата от")} value={beginDate} onChange={setBeginDate} error={errors.beginDate} />
+              <RefMuiDate label={t(kind === "recalc-period" ? "Дата завершения" : "Дата до")} value={endDate} onChange={setEndDate} error={errors.endDate} />
             </div>
             {kind === "recalc" && (
               <FormField label={t("Продукт")}>
@@ -193,16 +174,16 @@ export function NetCostActionDialog({
               </FormField>
             )}
             {kind !== "recalc-period" && (
-              <div className="flex flex-col gap-2">
-                <Radio checked={stockType === "all"} onChange={() => setStockType("all")}>
+              <div className={`${kind === "regenerate" ? "mt-[9px]" : "mt-[19px]"} flex flex-col`}>
+                <RefMuiRadio checked={stockType === "all"} onChange={() => setStockType("all")}>
                   {t("Все")}
-                </Radio>
-                <Radio checked={stockType === "common"} onChange={() => setStockType("common")}>
+                </RefMuiRadio>
+                <RefMuiRadio checked={stockType === "common"} onChange={() => setStockType("common")}>
                   {t("Общие склады")}
-                </Radio>
-                <Radio checked={stockType === "own"} onChange={() => setStockType("own")}>
+                </RefMuiRadio>
+                <RefMuiRadio checked={stockType === "own"} onChange={() => setStockType("own")}>
                   {t("Выбранный склад")}
-                </Radio>
+                </RefMuiRadio>
               </div>
             )}
             {kind !== "recalc-period" && stockType === "own" && (
@@ -213,7 +194,7 @@ export function NetCostActionDialog({
           </>
         )}
       </div>
-    </CashModal>
+    </RefMuiDialog>
   )
 }
 
@@ -221,9 +202,7 @@ export function NetCostActionDialog({
 
 export function NetCostImportDialog({ options, onClose, onDone }: { options: NetCostOptions | null; onClose: () => void; onDone: (result: NetCostImportResult) => void }) {
   const { t } = useLanguage()
-  const input = useRef<HTMLInputElement>(null)
   const [file, setFile] = useState<File | null>(null)
-  const [drag, setDrag] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState("")
   const [rowErrors, setRowErrors] = useState<Array<{ row: number; error: string }>>([])
@@ -255,66 +234,29 @@ export function NetCostImportDialog({ options, onClose, onDone }: { options: Net
   }
 
   return (
-    <CashModal
-      title={t("Импорт с Excel")}
+    <RefImportDialog
+      file={file}
+      onFile={setFile}
+      onTemplate={template}
+      onSave={() => void submit()}
       onClose={onClose}
-      size="md"
-      footer={
-        <>
-          {error && <span className="mr-auto text-[13px] text-[#e57373]">{error}</span>}
-          <PrimaryButton busy={busy} onClick={() => void submit()}>
-            {t("Сохранить")}
-          </PrimaryButton>
-        </>
+      saving={busy}
+      error={
+        error || rowErrors.length > 0 ? (
+          <>
+            {error && <p>{error}</p>}
+            {rowErrors.length > 0 && (
+              <ul className="mt-2 max-h-32 overflow-y-auto">
+                {rowErrors.map((entry) => (
+                  <li key={`${entry.row}-${entry.error}`}>
+                    {t("Строка")} {entry.row}: {t(entry.error)}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </>
+        ) : undefined
       }
-    >
-      <button type="button" onClick={template} className="mb-3 text-[13px] font-semibold uppercase text-[#4f71dc] hover:underline">
-        {t("1. Скачать шаблон")}
-      </button>
-      <div
-        role="button"
-        tabIndex={0}
-        onClick={() => input.current?.click()}
-        onKeyDown={(event) => {
-          if (event.key === "Enter" || event.key === " ") input.current?.click()
-        }}
-        onDragOver={(event) => {
-          event.preventDefault()
-          setDrag(true)
-        }}
-        onDragLeave={() => setDrag(false)}
-        onDrop={(event) => {
-          event.preventDefault()
-          setDrag(false)
-          const dropped = event.dataTransfer.files?.[0]
-          if (dropped) setFile(dropped)
-        }}
-        className={`flex min-h-[160px] cursor-pointer flex-col items-center justify-center gap-2 rounded-md border-2 border-dashed px-4 text-center text-[14px] ${drag ? "border-[#4f71dc] bg-[#eef2ff]" : "border-[#dbe0e8]"}`}
-      >
-        <FileSpreadsheet className="h-8 w-8 text-[#71ce87]" />
-        {file ? <span className="font-semibold text-[#17233b]">{file.name}</span> : <span className="text-[#586174]">{t("2. Добавьте файл Excel или нажмите для выбора")}</span>}
-      </div>
-      <input
-        ref={input}
-        type="file"
-        accept=".xlsx,.xls,.csv"
-        className="hidden"
-        onChange={(event) => {
-          const picked = event.target.files?.[0]
-          if (picked) setFile(picked)
-          event.target.value = ""
-        }}
-      />
-      <p className="mt-3 text-[12px] text-[#9aa3b6]">{t("Колонки: Наименование, Себестоимость, Дата, Склад (пусто — общие склады). Строки без себестоимости пропускаются.")}</p>
-      {rowErrors.length > 0 && (
-        <ul className="mt-3 max-h-48 overflow-y-auto rounded-md bg-[#fdecea] px-3 py-2 text-[13px] text-[#b71c1c]">
-          {rowErrors.map((entry) => (
-            <li key={`${entry.row}-${entry.error}`}>
-              {t("Строка")} {entry.row}: {t(entry.error)}
-            </li>
-          ))}
-        </ul>
-      )}
-    </CashModal>
+    />
   )
 }

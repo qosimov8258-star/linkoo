@@ -3,10 +3,8 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react"
 import Link from "next/link"
 import { useSearchParams } from "next/navigation"
-import { ArrowDown, ArrowUp, CheckCircle2, MinusCircle, Search } from "lucide-react"
+import { CheckCircle2, MinusCircle } from "lucide-react"
 
-import { BalanceFilterChip } from "@/components/analytics/balance/filter-bar"
-import { BalancePagination } from "@/components/analytics/balance/pagination"
 import {
   CASHBACK_REQUESTS_API,
   CashbackRequestDecisionDialog,
@@ -16,7 +14,8 @@ import {
   type CashbackRequestFilters,
 } from "@/components/analytics/cashback-requests-dialogs"
 import { CashSnackbar, type SnackbarMessage } from "@/components/analytics/cash-management-shared"
-import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
+import { ListBTable } from "@/components/analytics/list-b-table"
+import { RefCard, RefHeader, RefPage, RefToolbar } from "@/components/ref/list-kit"
 import { cashbackRequestStatusLabel, type CashbackRequestListResult, type CashbackRequestRow } from "@/lib/cashback-requests-types"
 import { currencyLabel } from "@/lib/finance/currency"
 import { useLanguage } from "@/lib/i18n/language-context"
@@ -120,6 +119,13 @@ export function CashbackWithdrawalRequestsView() {
   const query = useMemo(() => listQuery(state), [state])
   const { data, loading, error, reload } = useRequestList(`${CASHBACK_REQUESTS_API}?${query}`)
 
+  useEffect(() => {
+    const value = searchDraft.trim()
+    if (value === state.search) return
+    const timer = window.setTimeout(() => setState((current) => ({ ...current, search: value, page: 1 })), 400)
+    return () => window.clearTimeout(timer)
+  }, [searchDraft, state.search])
+
   // The demo keeps the list state (and the open dialog) in the URL.
   useEffect(() => {
     const search = stateToSearch(state)
@@ -182,26 +188,38 @@ export function CashbackWithdrawalRequestsView() {
     </button>
   )
 
-  const th = "px-4 py-[18px] text-left font-semibold"
-  const td = "px-4 py-3 align-middle"
+  const pageCount = Math.max(1, Math.ceil((data?.count ?? 0) / Math.max(1, state.pageSize)))
+  const from = data && data.count > 0 ? (state.page - 1) * state.pageSize + 1 : 0
+  const to = data ? Math.min(data.count, state.page * state.pageSize) : 0
+  const idHead = (
+    <button type="button" onClick={() => update({ ordering: state.ordering === "-id" || !state.ordering ? "id" : "-id", page: 1 })} className="text-left font-semibold hover:opacity-80">
+      {t("№")}
+      {state.ordering === "id" ? <span className="ml-1 text-[10px]">▲</span> : state.ordering === "-id" ? <span className="ml-1 text-[10px]">▼</span> : null}
+    </button>
+  )
+  const withActions = canEdit && rows.some((row) => row.status === "pending")
   return (
-    <main className="min-h-screen bg-[#f1f4f8] text-[#17233b]">
-      <header className="flex min-h-[76px] flex-wrap items-center gap-4 border-b border-[#d8dee7] bg-[#f2f5f8] px-6 md:px-9">
-        <div className="flex items-center gap-3">
-          <FavoritesButton className="flex items-center gap-3 text-2xl font-bold text-[#4f70e7]" />
-          <span className="text-3xl font-light text-[#586174]">|</span>
-          <span className="text-2xl font-bold text-[#586174]">{t("Запросы на снятие кэшбэка")}</span>
-        </div>
-      </header>
+    <RefPage>
+      <RefHeader title={t("Запросы на снятие кэшбэка")} />
 
-      <section className="mx-4 mb-10 mt-4 rounded-sm bg-white shadow-sm md:mx-6">
-        <div className="relative flex min-h-[55px] flex-wrap items-center gap-x-5 gap-y-3 border-b border-[#efefef] px-4 py-2 md:px-6">
-          <div className="relative">
-            <BalanceFilterChip
-              count={filterCount}
-              onOpen={() => setFilterOpen(true)}
-              onClear={() => update({ status: "", currency: "", page: 1 })}
-            />
+      <RefCard className="bg-white">
+        <RefToolbar
+          filterOpen={filterOpen}
+          onToggleFilter={() => setFilterOpen((open) => !open)}
+          leftSlot={
+            filterCount === 0 ? (
+              <button type="button" onClick={() => setFilterOpen((open) => !open)} className="text-[13px] text-[#4f71dc]">
+                {filterOpen ? t("Скрыть фильтр") : t("Показать фильтр")} ⌄
+              </button>
+            ) : (
+              <span className="ml-[5px] inline-flex h-[30px] items-center gap-2 rounded-md bg-[#efefef] px-4 text-[#666]">
+                {t("Фильтр")}: {filterCount} {t("элемента")}
+                <button type="button" onClick={() => setFilterOpen(true)} aria-label={t("Изменить")} className="border-l border-white pl-2 text-[#8f8f8f]">✎</button>
+                <button type="button" onClick={() => update({ status: "", currency: "", page: 1 })} aria-label={t("Очистить")} className="border-l border-white pl-2 text-[#8f8f8f]">×</button>
+              </span>
+            )
+          }
+          filterPanel={
             <CashbackRequestsFilterPopup
               open={filterOpen}
               filters={filters}
@@ -209,93 +227,64 @@ export function CashbackWithdrawalRequestsView() {
               onClose={() => setFilterOpen(false)}
               onApply={(next) => update({ ...next, page: 1 })}
             />
-          </div>
-          <form
-            className="flex min-w-[160px] flex-1 items-center gap-1 md:max-w-[340px]"
-            onSubmit={(event) => {
-              event.preventDefault()
-              update({ search: searchDraft.trim(), page: 1 })
-            }}
-          >
-            <input
-              value={searchDraft}
-              onChange={(event) => setSearchDraft(event.target.value)}
-              placeholder={t("Поиск")}
-              aria-label={t("Поиск")}
-              className="h-10 w-full border-b border-[#dbe0e8] bg-transparent px-1 text-[15px] outline-none placeholder:text-[#9aa3b6] focus:border-[#4f70e7]"
-            />
-            <button type="submit" aria-label={t("Поиск")} className="p-1.5 text-[#9aa3b6]">
-              <Search className="h-5 w-5" />
-            </button>
-          </form>
-          <div className="ml-auto flex flex-wrap items-center gap-3">
-            <BalancePagination page={state.page} pageSize={state.pageSize} count={data?.count ?? 0} onChange={({ page, pageSize }) => update({ page, pageSize })} />
-          </div>
-        </div>
+          }
+          query={searchDraft}
+          onQuery={setSearchDraft}
+          pageSize={state.pageSize}
+          onPageSize={(pageSize) => update({ pageSize, page: 1 })}
+          from={from}
+          to={to}
+          total={data?.count ?? 0}
+          page={state.page}
+          pageCount={pageCount}
+          onPage={(page) => update({ page })}
+        />
 
         {error && (
           <div className="flex flex-wrap items-center gap-3 px-6 py-3 text-[#e57373]">
             <span>
               {t("Не удалось загрузить данные")}: {t(error)}
             </span>
-            <button type="button" onClick={reload} className="font-semibold text-[#4f70e7] hover:underline">
+            <button type="button" onClick={reload} className="font-semibold text-[#4f71dc] hover:underline">
               {t("Повторить")}
             </button>
           </div>
         )}
 
-        <div className={`overflow-x-auto pb-2 ${loading ? "opacity-60" : ""}`}>
-          <table className="w-full min-w-[720px] table-fixed border-collapse text-[14px] text-[#333]">
-            <thead>
-              <tr className="border-b border-[#efefef]">
-                <th className={`${th} w-[8.33%] pl-6`}>
-                  <button
-                    type="button"
-                    onClick={() => update({ ordering: state.ordering === "-id" || !state.ordering ? "id" : "-id", page: 1 })}
-                    className="inline-flex items-center gap-1 font-semibold"
-                  >
-                    {t("№")}
-                    {state.ordering === "id" ? <ArrowUp className="h-3.5 w-3.5" /> : <ArrowDown className={`h-3.5 w-3.5 ${state.ordering ? "" : "opacity-40"}`} />}
-                  </button>
-                </th>
-                <th className={`${th} w-[25%]`}>{t("Клиент")}</th>
-                <th className={`${th} w-[25%]`}>{t("Сумма")}</th>
-                <th className={`${th} w-[16.67%]`}>{t("Валюта")}</th>
-                <th className={`${th} w-[16.67%]`}>{t("Статус")}</th>
-                <th className={`${th} w-[8.33%]`} aria-label={t("Действия")} />
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row) => (
-                <tr key={row.id} className="border-b border-dashed border-[#e1e5eb] last:border-b-0">
-                  <td className={`${td} pl-6`}>{row.id}</td>
-                  <td className={`${td} truncate`} title={row.comment || undefined}>
-                    {row.client.exists ? row.client.name : <span className="italic text-[#999]">{row.client.name || t("Не указано")}</span>}
-                  </td>
-                  <td className={`${td} whitespace-nowrap`}>{requestAmount(row.amount)}</td>
-                  <td className={td}>{currencyLabel(row.currency)}</td>
-                  <td className={td}>{statusCell(row)}</td>
-                  <td className={td}>
-                    {row.status === "pending" && canEdit && (
-                      <div className="flex items-center justify-around">
-                        {iconButton("Подтвердить", () => update({ dialogId: row.id, dialog: "confirm" }), <CheckCircle2 className="h-[22px] w-[22px] fill-[#6FC988] text-white" />)}
-                        {iconButton("Отклонить", () => update({ dialogId: row.id, dialog: "reject" }), <MinusCircle className="h-[22px] w-[22px] fill-[#ff584b] text-white" />)}
-                      </div>
-                    )}
-                  </td>
-                </tr>
-              ))}
-              {!rows.length && (
-                <tr>
-                  <td colSpan={6} className="px-4 py-16 text-center text-[13px] text-[#666]">
-                    {loading ? t("Загрузка...") : error ? "" : t("По вашему запросу ничего не найдено")}
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+        <div className={loading ? "opacity-60" : undefined}>
+          <ListBTable
+            cols={withActions ? "123px 346px 346px 231px 1fr 110px" : "123px 346px 346px 231px 1fr"}
+            minWidth={900}
+            inset={30}
+            cellPad={0}
+            heads={withActions ? [idHead, t("Клиент"), t("Сумма"), t("Валюта"), t("Статус"), ""] : [idHead, t("Клиент"), t("Сумма"), t("Валюта"), t("Статус")]}
+            rows={rows}
+            rowKey={(row) => row.id}
+            empty={loading ? t("Загрузка...") : error ? "" : t("По вашему запросу ничего не найдено")}
+            render={(row) => {
+              const base = [
+                <span key="id" className="block pl-2">{row.id}</span>,
+                <span key="client" className="block truncate" title={row.comment || undefined}>
+                  {row.client.exists ? row.client.name : <span className="italic text-[#999]">{row.client.name || t("Не указано")}</span>}
+                </span>,
+                <span key="amount" className="whitespace-nowrap">{requestAmount(row.amount)}</span>,
+                currencyLabel(row.currency),
+                statusCell(row),
+              ]
+              if (!withActions) return base
+              return [
+                ...base,
+                row.status === "pending" && canEdit ? (
+                  <div key="actions" className="flex items-center justify-end gap-3">
+                    {iconButton("Подтвердить", () => update({ dialogId: row.id, dialog: "confirm" }), <CheckCircle2 className="h-[22px] w-[22px] fill-[#6FC988] text-white" />)}
+                    {iconButton("Отклонить", () => update({ dialogId: row.id, dialog: "reject" }), <MinusCircle className="h-[22px] w-[22px] fill-[#ff584b] text-white" />)}
+                  </div>
+                ) : null,
+              ]
+            }}
+          />
         </div>
-      </section>
+      </RefCard>
 
       {state.dialogId && state.dialog && (
         <CashbackRequestDecisionDialog
@@ -312,6 +301,6 @@ export function CashbackWithdrawalRequestsView() {
       )}
 
       <CashSnackbar message={message} onClose={closeSnackbar} />
-    </main>
+    </RefPage>
   )
 }

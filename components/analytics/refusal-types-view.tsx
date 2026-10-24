@@ -1,175 +1,92 @@
 "use client"
 
-import { LineField, Modal, SaveLink } from "@/components/analytics/catalog-ui"
-import { ChevronLeft, ChevronRight, FileText, Pencil, Plus, Search, Trash2, X } from "lucide-react"
-import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react"
+import { FormEvent, useCallback, useEffect, useMemo, useState } from "react"
 
-import { downloadExcelTable } from "@/lib/excel-export"
-import { mapHeaderColumns, readExcelRows } from "@/lib/excel-import"
+import { LineField, Modal, SaveButton } from "@/components/analytics/catalog-ui"
+import { CashSnackbar, useCanWrite, type SnackbarMessage } from "@/components/analytics/cash-management-shared"
+import { DictionaryDeleteDialog } from "@/components/analytics/dictionaries-shared"
+import { AddLink, EmptyRows, RowActions, SettingsToolbar, kitHead, kitRow } from "@/components/analytics/settings-list-kit"
 import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
+import { useLanguage } from "@/lib/i18n/language-context"
+
+// "Тип отказа" (demo #/type-failure, Settings → Тип отказа; API market/rejection_type/).
+// "+ добавить", search, paginator and the grid № | Наименование | Решение (newest first) with
+// hover ✎ / 🗑; the dialog has Название тип отказа ★ and Решение ★, delete asks for confirmation.
 
 type RefusalType = { id: number; name: string; resolution: string }
 
-const seed: RefusalType[] = []
+const API = "/api/refusal-types"
 
-const IMPORT_HEADER_ALIASES: Record<string, string> = {
-  "наименование": "name", "название": "name", "name": "name",
-  "решение": "resolution",
-}
+// Reference grid: 12 xs columns inside the 30px gutters (№ 3 | Наименование 4 | Решение 5).
+const COLUMNS = "3fr 4fr 5fr 0fr"
 
 export function RefusalTypesView({ embedded = false }: { embedded?: boolean }) {
-  const [items, setItems] = useState(seed)
+  const { t } = useLanguage()
+  const canEdit = useCanWrite()
+  const [items, setItems] = useState<RefusalType[]>([])
+  const [loaded, setLoaded] = useState(false)
   const [query, setQuery] = useState("")
+  const [paging, setPaging] = useState({ page: 1, pageSize: 25 })
   const [editing, setEditing] = useState<RefusalType | null>(null)
   const [draft, setDraft] = useState({ name: "", resolution: "" })
-  const [importOpen, setImportOpen] = useState(false)
-  const [importFile, setImportFile] = useState<File | null>(null)
-  const [importSaving, setImportSaving] = useState(false)
-  const importInputRef = useRef<HTMLInputElement>(null)
+  const [touched, setTouched] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [deleting, setDeleting] = useState<RefusalType | null>(null)
+  const [notice, setNotice] = useState<SnackbarMessage | null>(null)
+  const closeNotice = useCallback(() => setNotice(null), [])
 
-  useEffect(() => {
-    let cancelled = false
-    fetch("/api/refusal-types")
+  const load = useCallback(() => {
+    fetch(API, { cache: "no-store" })
       .then(async (response) => {
         if (!response.ok) throw new Error("Не удалось загрузить типы отказов")
-        return (await response.json()) as RefusalType[]
+        setItems(((await response.json()) as RefusalType[]).sort((a, b) => b.id - a.id))
       })
-      .then((data) => {
-        if (!cancelled) setItems(data)
-      })
-      .catch(() => {
-        if (!cancelled) window.alert("Не удалось загрузить типы отказов с сервера")
-      })
-    return () => {
-      cancelled = true
-    }
+      .catch(() => setNotice({ text: "Не удалось загрузить типы отказов с сервера", tone: "error" }))
+      .finally(() => setLoaded(true))
   }, [])
 
-  const rows = useMemo(
-    () => items.filter((item) => item.name.toLowerCase().includes(query.toLowerCase()) || item.resolution.toLowerCase().includes(query.toLowerCase())),
-    [items, query],
-  )
+  useEffect(() => {
+    load()
+  }, [load])
+
+  const rows = useMemo(() => {
+    const needle = query.trim().toLowerCase()
+    return needle ? items.filter((item) => item.name.toLowerCase().includes(needle) || item.resolution.toLowerCase().includes(needle)) : items
+  }, [items, query])
+  const lastPage = Math.max(1, Math.ceil(rows.length / paging.pageSize))
+  const page = Math.min(paging.page, lastPage)
+  const pageRows = rows.slice((page - 1) * paging.pageSize, page * paging.pageSize)
 
   function open(item?: RefusalType) {
     setEditing(item ?? { id: 0, name: "", resolution: "" })
     setDraft(item ? { name: item.name, resolution: item.resolution } : { name: "", resolution: "" })
+    setTouched(false)
   }
 
   async function save(event: FormEvent) {
     event.preventDefault()
-    if (!draft.name.trim()) return
-    const body = JSON.stringify({ name: draft.name.trim(), resolution: draft.resolution })
+    if (saving) return
+    setTouched(true)
+    if (!draft.name.trim() || !draft.resolution.trim()) return
+    setSaving(true)
     try {
-      if (editing?.id) {
-        const response = await fetch(`/api/refusal-types/${editing.id}`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body,
-        })
-        if (!response.ok) {
-          const data = await response.json().catch(() => ({}))
-          window.alert(data.error || "Не удалось сохранить тип отказа")
-          return
-        }
-        const saved = (await response.json()) as RefusalType
-        setItems((list) => list.map((item) => (item.id === editing.id ? saved : item)))
-      } else {
-        const response = await fetch("/api/refusal-types", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body,
-        })
-        if (!response.ok) {
-          const data = await response.json().catch(() => ({}))
-          window.alert(data.error || "Не удалось создать тип отказа")
-          return
-        }
-        const saved = (await response.json()) as RefusalType
-        setItems((list) => [saved, ...list])
+      const response = await fetch(editing?.id ? `${API}/${editing.id}` : API, {
+        method: editing?.id ? "PUT" : "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: draft.name.trim(), resolution: draft.resolution.trim() }),
+      })
+      if (!response.ok) {
+        const data = (await response.json().catch(() => ({}))) as { error?: string }
+        setNotice({ text: t(data.error || "Не удалось сохранить тип отказа"), tone: "error" })
+        return
       }
       setEditing(null)
+      setNotice({ text: "Успешно сохранено", tone: "success" })
+      load()
     } catch {
-      window.alert("Сервер недоступен, попробуйте ещё раз")
-    }
-  }
-
-  async function remove(id: number) {
-    try {
-      const response = await fetch(`/api/refusal-types/${id}`, { method: "DELETE" })
-      if (!response.ok) {
-        const data = await response.json().catch(() => ({}))
-        window.alert(data.error || "Не удалось удалить тип отказа")
-        return
-      }
-      setItems((list) => list.filter((row) => row.id !== id))
-    } catch {
-      window.alert("Сервер недоступен, попробуйте ещё раз")
-    }
-  }
-
-  function downloadTemplate() {
-    downloadExcelTable("refusal-types-template", [["Наименование", "Решение"]])
-  }
-
-  function pickImportFile(event: ChangeEvent<HTMLInputElement>) {
-    setImportFile(event.target.files?.[0] ?? null)
-  }
-
-  async function saveImport() {
-    if (!importFile) return
-    setImportSaving(true)
-    try {
-      const rows = await readExcelRows(importFile)
-      if (!rows.length) {
-        window.alert("Не удалось найти данные для импорта в выбранном файле")
-        return
-      }
-      const fieldByIndex = mapHeaderColumns(rows[0], IMPORT_HEADER_ALIASES)
-      const hasHeader = Array.from(fieldByIndex.values()).includes("name")
-      const dataRows = hasHeader ? rows.slice(1) : rows
-
-      const parsed: { name: string; resolution: string }[] = []
-      for (const row of dataRows) {
-        const record: Record<string, string> = {}
-        if (hasHeader) {
-          row.forEach((cell, index) => {
-            const field = fieldByIndex.get(index)
-            if (field) record[field] = cell
-          })
-        } else {
-          record.name = row[0] ?? ""
-          record.resolution = row[1] ?? ""
-        }
-        if (!record.name) continue
-        parsed.push({ name: record.name.trim(), resolution: record.resolution || "" })
-      }
-
-      if (!parsed.length) {
-        window.alert("Не удалось найти данные для импорта в выбранном файле")
-        return
-      }
-
-      const created: RefusalType[] = []
-      let failed = 0
-      for (const item of parsed) {
-        try {
-          const response = await fetch("/api/refusal-types", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(item),
-          })
-          if (response.ok) created.push((await response.json()) as RefusalType)
-          else failed += 1
-        } catch {
-          failed += 1
-        }
-      }
-      if (created.length) setItems((current) => [...created, ...current])
-      if (failed) window.alert(`Импортировано ${created.length} из ${parsed.length}. Не удалось сохранить: ${failed}`)
+      setNotice({ text: t("Сервер недоступен, попробуйте ещё раз"), tone: "error" })
     } finally {
-      setImportSaving(false)
-      setImportOpen(false)
-      setImportFile(null)
+      setSaving(false)
     }
   }
 
@@ -179,105 +96,86 @@ export function RefusalTypesView({ embedded = false }: { embedded?: boolean }) {
         <header className="flex h-[60px] flex-wrap items-center justify-between gap-3">
           <h1 className="flex items-center text-[18px] font-bold text-[#5d6474]">
             <FavoritesButton className="flex items-center gap-[5px] text-[18px] font-bold text-[#4f71dc]" />
-            <span className="mx-[11px] inline-block h-[21px] w-[2px] bg-[#5d6474]" /> Тип отказа
+            <span className="mx-[11px] inline-block h-[21px] w-[2px] bg-[#5d6474]" /> {t("Тип отказа")}
           </h1>
         </header>
       )}
 
-      <section className={embedded ? "" : "overflow-hidden rounded bg-white shadow"}>
-        <div className="flex flex-wrap items-center gap-4 px-5 py-4">
-          <button type="button" onClick={() => open()} className="text-[13px] text-[#4f71dc] hover:underline">
-            + добавить
-          </button>
-          <label className="relative ml-4 w-72">
-            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Поиск" className="w-full border-b border-slate-300 py-2 pr-10 outline-none focus:border-[#4f71dc]" />
-            <Search className="absolute right-2 top-2 h-5 w-5 text-slate-300" />
-          </label>
-          <span className="ml-auto text-slate-500">25</span>
-          <span className="text-slate-500">
-            1 - {rows.length} из {rows.length}
-          </span>
-          <ChevronLeft className="h-5 w-5 text-slate-300" />
-          <ChevronRight className="h-5 w-5 text-slate-300" />
-        </div>
+      <section className={embedded ? "bg-white text-[13px] text-[#333]" : "overflow-hidden rounded bg-white text-[13px] text-[#333] shadow"}>
+        <SettingsToolbar
+          left={canEdit ? <AddLink onClick={() => open()}>{t("добавить")}</AddLink> : undefined}
+          query={query}
+          onQuery={(value) => {
+            setQuery(value)
+            setPaging((current) => ({ ...current, page: 1 }))
+          }}
+          pager={{
+            pageSize: paging.pageSize,
+            onPageSize: (size) => setPaging({ page: 1, pageSize: size }),
+            from: rows.length ? (page - 1) * paging.pageSize + 1 : 0,
+            to: Math.min(rows.length, page * paging.pageSize),
+            total: rows.length,
+            onPrev: page > 1 ? () => setPaging((current) => ({ ...current, page: page - 1 })) : undefined,
+            onNext: page * paging.pageSize < rows.length ? () => setPaging((current) => ({ ...current, page: page + 1 })) : undefined,
+          }}
+        />
 
-        <table className="w-full text-left">
-          <thead className="bg-[#5d6474] text-white">
-            <tr>
-              <th className="px-9 py-4 text-[13px]">№</th>
-              <th className="px-5 py-4 text-[13px]">Наименование</th>
-              <th className="px-5 py-4 text-[13px]">Решение</th>
-              <th className="w-24" />
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((item) => (
-              <tr key={item.id} className="group border-b border-dashed border-slate-300 hover:bg-slate-50">
-                <td className="px-9 py-4">{item.id}</td>
-                <td className="px-5 py-4 text-[#e0972a]">{item.name}</td>
-                <td className="px-5 py-4 text-slate-700">{item.resolution}</td>
-                <td>
-                  <div className="hidden items-center justify-end gap-3 pr-4 text-slate-500 group-hover:flex">
-                    <button type="button" onClick={() => open(item)} aria-label="Изменить">
-                      <Pencil className="h-5 w-5" />
-                    </button>
-                    <button type="button" onClick={() => remove(item.id)} aria-label="Удалить">
-                      <Trash2 className="h-5 w-5" />
-                    </button>
-                  </div>
-                </td>
-              </tr>
-            ))}
-            {rows.length === 0 && (
-              <tr>
-                <td colSpan={4} className="px-5 py-10 text-center text-slate-400">
-                  Ничего не найдено
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+        <div className={`${kitHead} px-[30px]`} style={{ gridTemplateColumns: COLUMNS }}>
+          <span>№</span>
+          <span className="pl-[8px]">{t("Наименование")}</span>
+          <span className="pl-[8px]">{t("Решение")}</span>
+          <span />
+        </div>
+        {pageRows.map((item) => (
+          <div key={item.id} className={`${kitRow} px-[30px]`} style={{ gridTemplateColumns: COLUMNS }}>
+            <span>{item.id}</span>
+            <span className="pr-4">{item.name}</span>
+            <span className="pr-4">{item.resolution}</span>
+            <span />
+            {canEdit && <RowActions onEdit={() => open(item)} onDelete={() => setDeleting(item)} />}
+          </div>
+        ))}
+        {loaded && rows.length === 0 && <EmptyRows />}
       </section>
 
       {editing && (
-        <Modal title={editing.id ? "Изменить тип отказа" : "Добавить тип отказа"} onClose={() => setEditing(null)} footer={<SaveLink onClick={() => void save({ preventDefault() {} } as FormEvent)}>Сохранить</SaveLink>}>
-          <LineField label="Название тип отказа" required autoFocus value={draft.name} onChange={(value) => setDraft({ ...draft, name: value })} />
-          <div className="mt-[20px]"><LineField label="Решение" required value={draft.resolution} onChange={(value) => setDraft({ ...draft, resolution: value })} /></div>
+        <Modal
+          title={editing.id ? t("Изменить тип отказа") : t("Добавить тип отказа")}
+          onClose={() => setEditing(null)}
+          width={450}
+          anchorTop={263.5} // the reference's dialog sits 8px above the exact center
+          bodyClassName="min-h-[240px] px-[30px] pt-[42px]"
+          footer={
+            <SaveButton disabled={saving} onClick={() => void save({ preventDefault() {} } as FormEvent)}>
+              {t("Сохранить")}
+            </SaveButton>
+          }
+        >
+          <LineField label={t("Название тип отказа")} required autoFocus value={draft.name} onChange={(value) => setDraft({ ...draft, name: value })} />
+          {touched && !draft.name.trim() && <p className="mt-1 text-[12px] text-[#e57373]">{t("Обязательное поле")}</p>}
+          <div className="mt-[12px]">
+            <LineField label={t("Решение")} required value={draft.resolution} onChange={(value) => setDraft({ ...draft, resolution: value })} />
+          </div>
+          {touched && !draft.resolution.trim() && <p className="mt-1 text-[12px] text-[#e57373]">{t("Обязательное поле")}</p>}
         </Modal>
       )}
 
-      {importOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 p-4">
-          <div className="w-full max-w-md rounded-lg bg-white p-6 shadow-xl">
-            <div className="mb-5 flex justify-between">
-              <h2 className="text-xl font-bold">Импорт с Excel</h2>
-              <button type="button" onClick={() => { setImportOpen(false); setImportFile(null) }} aria-label="Закрыть">
-                <X />
-              </button>
-            </div>
-            <button type="button" onClick={downloadTemplate} className="mb-4 font-semibold text-[#5474e6] hover:underline">
-              1. Скачать шаблон
-            </button>
-            <input ref={importInputRef} type="file" accept=".csv,.xls,.xlsx" onChange={pickImportFile} className="hidden" />
-            <button
-              type="button"
-              onClick={() => importInputRef.current?.click()}
-              className="flex w-full flex-col items-center justify-center gap-3 rounded border-2 border-dashed border-slate-300 py-10 text-slate-500 hover:border-[#5474e6] hover:text-[#5474e6]"
-            >
-              <FileText className="h-8 w-8" />
-              {importFile ? importFile.name : "Добавьте файл Excel или нажмите для выбора"}
-            </button>
-            <div className="mt-6 flex justify-end gap-3">
-              <button type="button" onClick={() => { setImportOpen(false); setImportFile(null) }} className="rounded border px-4 py-2">
-                Отмена
-              </button>
-              <button type="button" disabled={!importFile || importSaving} onClick={saveImport} className="inline-flex items-center gap-2 rounded bg-[#5474e6] px-4 py-2 font-semibold text-white disabled:opacity-40">
-                {importSaving ? "Импорт..." : "Сохранить"}
-              </button>
-            </div>
-          </div>
-        </div>
+      {deleting && (
+        <DictionaryDeleteDialog
+          api={API}
+          id={deleting.id}
+          name={deleting.name}
+          onClose={() => setDeleting(null)}
+          onDeleted={() => {
+            setDeleting(null)
+            setNotice({ text: "Успешно удалено", tone: "success" })
+            load()
+          }}
+          onFailed={(message) => setNotice({ text: message, tone: "error" })}
+        />
       )}
+
+      <CashSnackbar message={notice} onClose={closeNotice} />
     </main>
   )
 }

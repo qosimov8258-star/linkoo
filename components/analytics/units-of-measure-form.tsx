@@ -2,9 +2,9 @@
 
 import { useEffect, useMemo, useState, type FormEvent } from "react"
 
-import { SearchSelect, inputClass, useJsonList, type PickOption } from "@/components/analytics/cash-management-shared"
+import { SearchSelect, useJsonList, type PickOption } from "@/components/analytics/cash-management-shared"
 import { useLanguage } from "@/lib/i18n/language-context"
-import { DictionaryFormShell, Field, requestErrors } from "./dictionaries-shared"
+import { DictionaryFormShell, Field, dictionaryInputClass, requestErrors } from "./dictionaries-shared"
 import type { DictionaryErrorBody } from "./dictionaries-data"
 import { UNITS_OF_MEASURE_API, type UnitOfMeasure, type UnitOfMeasureDetail, type UnitOfMeasurePayload } from "./units-of-measure-data"
 
@@ -105,30 +105,30 @@ export function UnitFormDialog({ unitId, onClose, onSaved }: { unitId: number | 
     >
       {draft && (
         <>
-          <Field label={t("Родительская категория")} error={fieldError("parent")}>
+          <Field select label={t("Родительская категория")} filled={Boolean(draft.parentId)} required error={fieldError("parent")}>
             <SearchSelect
+              variant="underline"
               value={draft.parentId}
               onChange={(value) => change({ parentId: value }, "parent")}
               options={parentOptions}
-              placeholder={t("Не указано")}
               disabled={hasChildren}
               loading={units.loading}
               invalid={Boolean(fieldError("parent"))}
             />
             {hasChildren && <span className="text-[12px] text-[#9aa3b6]">{t("Единица с дочерними единицами не может быть дочерней")}</span>}
           </Field>
-          <Field label={t("Наименование")} required error={fieldError("name")}>
+          <Field label={t("Наименование")} filled={Boolean(draft.name)} required error={fieldError("name")}>
             <input
               autoFocus
               aria-label={t("Наименование")}
               value={draft.name}
               maxLength={255}
               onChange={(event) => change({ name: event.target.value }, "name")}
-              className={`${inputClass} ${fieldError("name") ? "border-[#e57373]" : ""}`}
+              className={`${dictionaryInputClass} ${fieldError("name") ? "border-[#e57373]" : ""}`}
             />
           </Field>
-          <label className="flex cursor-pointer items-center gap-3 pt-1 text-[14px] text-[#333]">
-            <input type="checkbox" checked={draft.isWeighted} onChange={(event) => change({ isWeighted: event.target.checked }, null)} className="h-[18px] w-[18px] accent-[#4f70e7]" />
+          <label className="mt-[14px] flex cursor-pointer items-center gap-2 pt-1 text-[13px] font-semibold text-[#333]">
+            <input type="checkbox" checked={draft.isWeighted} onChange={(event) => change({ isWeighted: event.target.checked }, null)} className="h-[18px] w-[18px] accent-[#757575]" />
             {t("Развесной товар")}
           </label>
         </>

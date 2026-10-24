@@ -1,6 +1,6 @@
 import "server-only"
 
-import { getDb } from "@/lib/db"
+import { getRecord, listRecords, updateRecord } from "@/lib/ref-records-repo"
 
 export type Lang = "ru" | "uz" | "en"
 
@@ -13,72 +13,37 @@ export type BotPage = {
   content: Record<Lang, string>
 }
 
-type Row = {
-  key: string
-  title: string
-  description: string
-  content_ru: string
-  content_uz: string
-  content_en: string
-  created_at: string
-  updated_at: string
-}
+// "Страницы телеграм бота": the 3 system pages of the reference (kind "tg-page" of the shared reference store, id = key).
 
-const DEFAULT_PAGES: { key: string; title: string; description: string }[] = [
-  { key: "start", title: "Приветствие", description: "Сообщение при старте бота" },
-  { key: "about", title: "О компании", description: "Информация о компании" },
-  { key: "contacts", title: "Контакты", description: "Контактные данные" },
-  { key: "faq", title: "Частые вопросы", description: "Ответы на частые вопросы" },
-]
+type Stored = { id?: string; key: string; title: string; description: string; createdAt: string; updatedAt: string; content?: Partial<Record<Lang, string>> }
 
-async function ensureSchema(db: ReturnType<typeof getDb>) {
-  await db.exec(`
-    CREATE TABLE IF NOT EXISTS telegram_bot_pages (
-      key TEXT PRIMARY KEY,
-      title TEXT NOT NULL DEFAULT '',
-      description TEXT NOT NULL DEFAULT '',
-      content_ru TEXT NOT NULL DEFAULT '',
-      content_uz TEXT NOT NULL DEFAULT '',
-      content_en TEXT NOT NULL DEFAULT '',
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-    );
-  `)
-  const insert = db.prepare("INSERT OR IGNORE INTO telegram_bot_pages (key, title, description) VALUES (@key, @title, @description)")
-  for (const page of DEFAULT_PAGES) insert.run(page)
-}
-
-function formatDate(sqliteDate: string): string {
-  const isoLike = sqliteDate.includes("T") ? sqliteDate : `${sqliteDate.replace(" ", "T")}Z`
-  const date = new Date(isoLike)
-  if (Number.isNaN(date.getTime())) return sqliteDate
-  return new Intl.DateTimeFormat("ru-RU", { timeZone: "UTC", day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })
-    .format(date)
-    .replace(" г.", "")
-}
-
-function rowToPage(row: Row): BotPage {
+function toPage(data: Record<string, unknown>): BotPage {
+  const stored = data as unknown as Stored
   return {
-    key: row.key,
-    title: row.title,
-    description: row.description,
-    createdAt: formatDate(row.created_at),
-    updatedAt: formatDate(row.updated_at),
-    content: { ru: row.content_ru, uz: row.content_uz, en: row.content_en },
+    key: stored.key,
+    title: stored.title,
+    description: stored.description,
+    createdAt: stored.createdAt,
+    updatedAt: stored.updatedAt,
+    content: { ru: stored.content?.ru ?? "", uz: stored.content?.uz ?? "", en: stored.content?.en ?? "" },
   }
 }
 
+const MONTHS = ["янв.", "февр.", "мар.", "апр.", "мая", "июн.", "июл.", "авг.", "сент.", "окт.", "нояб.", "дек."]
+
+function formatNow(): string {
+  const date = new Date()
+  const pad = (value: number) => String(value).padStart(2, "0")
+  return `${pad(date.getUTCDate())} ${MONTHS[date.getUTCMonth()]} ${date.getUTCFullYear()}, ${pad(date.getUTCHours())}:${pad(date.getUTCMinutes())}`
+}
+
 export async function listBotPages(): Promise<BotPage[]> {
-  const db = getDb()
-  await ensureSchema(db)
-  return ((await db.prepare("SELECT * FROM telegram_bot_pages ORDER BY key ASC").all()) as Row[]).map(rowToPage)
+  return (await listRecords("tg-page")).map((record) => toPage(record.data)).sort((a, b) => a.key.localeCompare(b.key))
 }
 
 export async function getBotPage(key: string): Promise<BotPage | null> {
-  const db = getDb()
-  await ensureSchema(db)
-  const row = (await db.prepare("SELECT * FROM telegram_bot_pages WHERE key = ?").get(key)) as Row | undefined
-  return row ? rowToPage(row) : null
+  const record = await getRecord("tg-page", key)
+  return record ? toPage(record.data) : null
 }
 
 export type BotPageInput = {
@@ -102,23 +67,9 @@ export function parseBotPageInput(body: unknown): BotPageInput | null {
 }
 
 export async function updateBotPage(key: string, input: BotPageInput): Promise<BotPage | null> {
-  const db = getDb()
-  await ensureSchema(db)
-  const existing = (await getBotPage(key))
+  const existing = await getBotPage(key)
   if (!existing) return null
-
   const title = input.title.trim() ? input.title.trim() : existing.title
-  await db.prepare(
-        `UPDATE telegram_bot_pages SET title = @title, description = @description,
-       content_ru = @contentRu, content_uz = @contentUz, content_en = @contentEn, updated_at = datetime('now')
-     WHERE key = @key`,
-      ).run({
-        key,
-        title,
-        description: input.description,
-        contentRu: input.content.ru,
-        contentUz: input.content.uz,
-        contentEn: input.content.en,
-      })
-  return (await getBotPage(key))
+  const record = await updateRecord("tg-page", key, { title, description: input.description, content: input.content, updatedAt: formatNow() })
+  return record ? toPage(record.data) : null
 }

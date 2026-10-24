@@ -1,10 +1,9 @@
 "use client"
 
-import type { ReactNode } from "react"
-import { Info, Plus, Trash2 } from "lucide-react"
+import { Info } from "lucide-react"
 
-import { FormField, inputClass } from "@/components/analytics/cash-management-shared"
-import { Switch } from "@/components/products/catalog-shared"
+import { inputClass } from "@/components/analytics/cash-management-shared"
+import { BlueButton, CircleButton, CreateLink, SelectField, TextField, Toggle } from "@/components/products/catalog-form-ui"
 import { useLanguage } from "@/lib/i18n/language-context"
 
 // Field arrays of the product form: barcodes (demo module 3938), prices (2356) and box
@@ -83,45 +82,49 @@ export function generateBarcode(): string {
   return `${digits}${(10 - (sum % 10)) % 10}`
 }
 
-export function BarcodesEditor({ value, onChange, error }: { value: string[]; onChange: (value: string[]) => void; error?: string }) {
-  const { t } = useLanguage()
-  const rows = value.length ? value : [""]
-  return (
-    <div className="flex flex-col gap-2">
-      {rows.map((code, index) => (
-        <div key={index} className="flex items-end gap-2">
-          <FormField label={t("Штрих-код")} className="flex-1">
-            <input
-              value={code}
-              onChange={(event) => onChange(rows.map((item, i) => (i === index ? event.target.value : item)))}
-              className={`${inputClass} ${error ? "border-[#e57373]" : ""}`}
-            />
-          </FormField>
-          <button
-            type="button"
-            onClick={() => onChange(rows.map((item, i) => (i === index ? generateBarcode() : item)))}
-            className="h-10 whitespace-nowrap px-1 text-[13px] text-[#4f71dc] hover:underline"
-          >
-            {t("Сгенерировать")}
-          </button>
-          <button
-            type="button"
-            onClick={() => onChange(index === rows.length - 1 ? [...rows, ""] : rows.filter((_, i) => i !== index))}
-            className="h-10 whitespace-nowrap px-1 text-[13px] text-[#4f71dc] hover:underline"
-          >
-            {index === rows.length - 1 ? t("Добавить еще") : t("Убрать")}
-          </button>
-        </div>
-      ))}
-      {error && <span className="text-[12px] text-[#e57373]">{t(error)}</span>}
-    </div>
-  )
-}
-
 export function emptyPrice(name = "", currency = "SUM"): PriceDraft {
   return { name, cash: "", currency, nonCash: "", nonCashCurrency: currency, minMax: false, min: "", max: "" }
 }
 
+/** Barcode rows: a 399px field + a round "+" ("−" on all but the last row) and the "Сгенерировать" link. */
+export function BarcodesEditor({ value, onChange, error }: { value: string[]; onChange: (value: string[]) => void; error?: string }) {
+  const { t } = useLanguage()
+  const rows = value.length ? value : [""]
+  return (
+    <div>
+      {rows.map((code, index) => (
+        <div key={index} className={`relative ${index === 0 && error ? "h-[87px]" : "h-[68px]"}`}>
+          <div className="flex items-start">
+            <TextField
+              label={t("Штрих-код")}
+              value={code}
+              onChange={(next) => onChange(rows.map((item, i) => (i === index ? next : item)))}
+              className="w-[399px]"
+              errorShift={false}
+            />
+            <div className="mt-[23px]">
+              <CircleButton
+                minus={index < rows.length - 1}
+                label={t(index < rows.length - 1 ? "Убрать" : "Добавить еще")}
+                onClick={() => onChange(index === rows.length - 1 ? [...rows, ""] : rows.filter((_, i) => i !== index))}
+              />
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => onChange(rows.map((item, i) => (i === index ? generateBarcode() : item)))}
+            className="absolute left-0 top-[61px] text-[13px] leading-4 text-[#4f71dc]"
+          >
+            {t("Сгенерировать")}
+          </button>
+          {index === 0 && error && <span className="absolute left-0 top-[81px] whitespace-nowrap text-[13px] leading-4 text-[#f44336]">{t(error)}</span>}
+        </div>
+      ))}
+    </div>
+  )
+}
+
+/** Price blocks: "Продажная цена" + "Добавить новую цену" ("Удалить новую цену" on all but the last block). */
 export function PricesEditor({
   value,
   onChange,
@@ -138,115 +141,102 @@ export function PricesEditor({
   const { t } = useLanguage()
   const names = [...new Set([...priceLists.map((entry) => entry.name), ...value.map((entry) => entry.name).filter(Boolean)])]
   const update = (index: number, patch: Partial<PriceDraft>) => onChange(value.map((entry, i) => (i === index ? { ...entry, ...patch } : entry)))
-  const currencySelect = (current: string, onPick: (currency: string) => void) => (
-    <select value={current} onChange={(event) => onPick(event.target.value)} className={inputClass}>
-      {[...new Set([current, ...currencies].filter(Boolean))].map((code) => (
-        <option key={code} value={code}>
-          {code}
-        </option>
-      ))}
-    </select>
-  )
-  if (!names.length)
-    return (
-      <p className="rounded-md bg-[#f2f5f8] px-3 py-2 text-[13px] text-[#586174]">
-        {t("Прайс листы отсутствуют")}.{" "}
-        <a href="/analytics/price-lists" target="_blank" rel="noreferrer" className="text-[#4f71dc] hover:underline">
-          {t("Добавить прайс-лист")}
-        </a>
-      </p>
-    )
+  const currencyOptions = (current: string) => [...new Set([current, ...currencies].filter(Boolean))]
   return (
-    <div className="flex flex-col gap-3">
-      {value.map((entry, index) => (
-        <div key={index} className="flex flex-col gap-2 rounded-md border border-[#e1e5eb] p-3">
-          <FormField label={t("Прайс лист")}>
-            <select
-              value={entry.name}
-              onChange={(event) => {
-                const currency = priceLists.find((item) => item.name === event.target.value)?.currency
-                update(index, { name: event.target.value, ...(currency && !entry.cash && !entry.nonCash ? { currency, nonCashCurrency: currency } : {}) })
-              }}
-              className={inputClass}
-            >
-              <option value="">{t("Не выбрано")}</option>
-              {names.map((name) => (
-                <option key={name} value={name} disabled={name !== entry.name && value.some((other) => other.name === name)}>
-                  {name}
-                </option>
-              ))}
-            </select>
-          </FormField>
-          <div className="grid grid-cols-[1fr_110px] gap-2">
-            <FormField label={t("Цена наличные")}>
-              <NumberInput value={entry.cash} onChange={(cash) => update(index, { cash })} />
-            </FormField>
-            <FormField label={t("Валюта")}>{currencySelect(entry.currency, (currency) => update(index, { currency }))}</FormField>
-            <FormField label={t("Цена безналичные")}>
-              <NumberInput value={entry.nonCash} onChange={(nonCash) => update(index, { nonCash })} />
-            </FormField>
-            <FormField label={t("Валюта")}>{currencySelect(entry.nonCashCurrency, (nonCashCurrency) => update(index, { nonCashCurrency }))}</FormField>
-          </div>
-          <Switch checked={entry.minMax} onChange={(minMax) => update(index, { minMax })} title={t("Установить минимальную и максимальную цену для продажи")} />
-          {entry.minMax && (
-            <div className="grid grid-cols-2 gap-2">
-              <FormField label={t("Минимальная цена продажи")}>
-                <NumberInput value={entry.min} onChange={(min) => update(index, { min })} />
-              </FormField>
-              <FormField label={t("Максимальная цена продажи")}>
-                <NumberInput value={entry.max} onChange={(max) => update(index, { max })} />
-              </FormField>
+    <div className="mt-[14px]">
+      {value.map((entry, index) => {
+        const last = index === value.length - 1
+        return (
+          <div key={index} className={index === 0 ? "" : "mt-[2px]"}>
+            <div className="relative flex h-[30px] items-center">
+              {index === 0 && <span className="text-[13px] leading-4 text-[#333]">{t("Продажная цена")}</span>}
+              <span className="ml-auto mr-2">
+                {last ? (
+                  <BlueButton onClick={() => onChange([...value, emptyPrice("", "")])}>{t("Добавить новую цену")}</BlueButton>
+                ) : (
+                  <BlueButton minus onClick={() => onChange(value.filter((_, i) => i !== index))}>
+                    {t("Удалить новую цену")}
+                  </BlueButton>
+                )}
+              </span>
             </div>
-          )}
-          {value.length > 1 && (
-            <button
-              type="button"
-              onClick={() => onChange(value.filter((_, i) => i !== index))}
-              className="inline-flex items-center gap-1 self-start text-[13px] text-[#e57373] hover:underline"
-            >
-              <Trash2 className="h-4 w-4" /> {t("Удалить новую цену")}
-            </button>
-          )}
-        </div>
-      ))}
-      <button
-        type="button"
-        onClick={() => onChange([...value, emptyPrice("", currencies[0] ?? "SUM")])}
-        disabled={value.length >= names.length}
-        className="inline-flex items-center gap-1 self-start rounded-sm bg-[#4f71dc] px-3 py-1.5 text-[13px] font-semibold text-white hover:brightness-95 disabled:opacity-50"
-      >
-        <Plus className="h-4 w-4" /> {t("Добавить новую цену")}
-      </button>
-      {error && <span className="text-[12px] text-[#e57373]">{t(error)}</span>}
+            <div className="mt-4 flex items-start">
+              <SelectField
+                label={t("Прайс лист")}
+                value={entry.name}
+                options={names.filter((name) => name === entry.name || !value.some((other) => other.name === name))}
+                onChange={(name) => {
+                  const currency = priceLists.find((item) => item.name === name)?.currency
+                  update(index, { name, ...(currency && !entry.cash && !entry.nonCash ? { currency, nonCashCurrency: currency } : {}) })
+                }}
+                className="w-[406px]"
+              />
+              <span className="ml-[10px] mt-4">
+                <CreateLink href="/analytics/price-lists?openCreateDialog=true" label={t("Добавить прайс-лист")} />
+              </span>
+            </div>
+            <div className="mt-1 flex items-start">
+              <TextField label={t("Цена наличные")} numeric value={entry.cash} onChange={(cash) => update(index, { cash })} className="w-[215px]" />
+              <SelectField
+                label={t("Валюта")}
+                value={entry.currency}
+                options={currencyOptions(entry.currency)}
+                onChange={(currency) => update(index, { currency })}
+                className="ml-[10px] mt-4 w-[215px]"
+              />
+            </div>
+            <div className="mt-[15px] flex items-start">
+              <TextField label={t("Цена безналичные")} numeric value={entry.nonCash} onChange={(nonCash) => update(index, { nonCash })} className="w-[215px]" />
+              <SelectField
+                label={t("Валюта")}
+                value={entry.nonCashCurrency}
+                options={currencyOptions(entry.nonCashCurrency)}
+                onChange={(nonCashCurrency) => update(index, { nonCashCurrency })}
+                className="ml-[10px] mt-4 w-[215px]"
+              />
+            </div>
+            <Toggle className="mt-[9px]" checked={entry.minMax} onChange={(minMax) => update(index, { minMax })} title={t("Установить минимальную и максимальную цену для продажи")} />
+            {entry.minMax && (
+              <div className="mt-[5px] flex gap-5">
+                <TextField label={t("Минимальная цена продажи")} numeric value={entry.min} onChange={(min) => update(index, { min })} className="w-[210px]" />
+                <TextField label={t("Максимальная цена продажи")} numeric value={entry.max} onChange={(max) => update(index, { max })} className="w-[210px]" />
+              </div>
+            )}
+            <div className={entry.minMax ? "h-[15px]" : "h-[20.5px]"} />
+          </div>
+        )
+      })}
+      {error && <span className="text-[12px] text-[#f44336]">{t(error)}</span>}
     </div>
   )
 }
 
+/** "ДОП. параметры": Группа №N + Высота / Ширина / Длина, then "Добавить" / "Удалить" (grey until usable). */
 export function BoxSizesEditor({ value, onChange, units }: { value: BoxSizeDraft[]; onChange: (value: BoxSizeDraft[]) => void; units: string[] }) {
   const { t } = useLanguage()
   const rows = value.length ? value : [{ unit: "", height: "", width: "", length: "" }]
   const update = (index: number, patch: Partial<BoxSizeDraft>) => onChange(rows.map((row, i) => (i === index ? { ...row, ...patch } : row)))
-  const field = (label: string, node: ReactNode) => <FormField label={label}>{node}</FormField>
+  const last = rows[rows.length - 1]
+  const canAdd = Boolean(last.unit.trim() || last.height || last.width || last.length)
+  const button = "h-[34px] w-[215px] rounded-[2px] text-[13px] leading-[34px] text-white"
   return (
-    <div className="flex flex-col gap-3">
+    <div className="mt-[33px]">
       {rows.map((row, index) => (
-        <div key={index} className="grid grid-cols-2 gap-2 rounded-md border border-dashed border-[#dbe0e8] p-2">
-          {field(`${t("Группа №")}${index + 1}`, <ComboInput id={`box-unit-${index}`} value={row.unit} onChange={(unit) => update(index, { unit })} options={units} />)}
-          {field(`${t("Высота №")}${index + 1}`, <NumberInput value={row.height} onChange={(height) => update(index, { height })} />)}
-          {field(`${t("Ширина №")}${index + 1}`, <NumberInput value={row.width} onChange={(width) => update(index, { width })} />)}
-          {field(`${t("Длина №")}${index + 1}`, <NumberInput value={row.length} onChange={(length) => update(index, { length })} />)}
-          <div className="col-span-2 flex gap-3 text-[13px]">
-            <button type="button" onClick={() => onChange([...rows, { unit: "", height: "", width: "", length: "" }])} className="text-[#4f71dc] hover:underline">
-              {t("Добавить")}
-            </button>
-            {rows.length > 1 && (
-              <button type="button" onClick={() => onChange(rows.filter((_, i) => i !== index))} className="text-[#e57373] hover:underline">
-                {t("Удалить")}
-              </button>
-            )}
-          </div>
+        <div key={index}>
+          <SelectField label={`${t("Группа №")}${index + 1}`} value={row.unit} options={units} onChange={(unit) => update(index, { unit })} />
+          <TextField label={`${t("Высота №")}${index + 1}`} numeric value={row.height} onChange={(height) => update(index, { height })} />
+          <TextField label={`${t("Ширина №")}${index + 1}`} numeric value={row.width} onChange={(width) => update(index, { width })} />
+          <TextField label={`${t("Длина №")}${index + 1}`} numeric value={row.length} onChange={(length) => update(index, { length })} />
         </div>
       ))}
+      <div className="mt-[34px] flex gap-[9px]">
+        <button type="button" disabled={!canAdd} onClick={() => onChange([...rows, { unit: "", height: "", width: "", length: "" }])} className={`${button} ${canAdd ? "bg-[#4f71dc]" : "bg-[#bdbdbd]"}`}>
+          {t("Добавить")}
+        </button>
+        <button type="button" disabled={rows.length < 2} onClick={() => onChange(rows.slice(0, -1))} className={`${button} ${rows.length > 1 ? "bg-[#4f71dc]" : "bg-[#bdbdbd]"}`}>
+          {t("Удалить")}
+        </button>
+      </div>
     </div>
   )
 }

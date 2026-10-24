@@ -21,7 +21,7 @@ import {
 //   Приемка           supplier_incomings 'ожидает'  + internal_transfers 'в пути'  (to_warehouse)
 //   История Приемки   supplier_incomings 'принят'   + internal_transfers 'принят'  (to_warehouse)
 //   Передача          internal_transfers 'потвержден' (from_warehouse) + orders 'Есть на складе' with a warehouse
-//   История Передачи  internal_transfers 'в пути' / 'принят' (from_warehouse) + orders 'В пути' / 'Доставлено' with a warehouse
+//   История Передачи  internal_transfers 'в пути' / 'принят' (from_warehouse) + orders 'Есть на складе' / 'В пути' / 'Доставлено' with a warehouse
 // Client returns ("Возврат") have no table yet, so that type never has rows.
 // The transfer columns given_* / accepted_* are created lazily by the
 // transfers module, so every optional column is checked first.
@@ -92,11 +92,14 @@ function taskSources(tab: PlanTaskTab, t: StockTables): string[] {
   if ((tab === "receive" || tab === "receive_history") && t.has("supplier_incomings")) {
     const created = supplyCreated(t)
     if (tab === "receive") {
-      parts.push(withIds(select({ type: "supply", party: "i.supplier", warehouse: "i.warehouse", request: created, date: created }, "FROM supplier_incomings i WHERE i.status = 'ожидает'"), "i"))
+      // The reference list names the pending supplies; when it is loaded, only those are shown.
+      const onlyReference = t.has("receive_task_reference_rows") ? " AND (NOT EXISTS (SELECT 1 FROM receive_task_reference_rows) OR i.id IN (SELECT id FROM receive_task_reference_rows WHERE type = 'supply'))" : ""
+      parts.push(withIds(select({ type: "supply", party: "i.supplier", warehouse: "i.warehouse", request: created, date: created }, `FROM supplier_incomings i WHERE i.status = 'ожидает'${onlyReference}`), "i"))
     } else {
       const accepted = t.col("supplier_incomings", "accepted_at") ? `COALESCE(${ts("i.accepted_at")}, ${created})` : created
       const by = columnOr(t, "supplier_incomings", "accepted_by", "i", "''")
-      parts.push(withIds(select({ type: "supply", party: "i.supplier", warehouse: "i.warehouse", request: created, date: accepted, doneBy: by, doneAt: accepted }, "FROM supplier_incomings i WHERE i.status = 'принят'"), "i"))
+      // Compensation receipts made later only to keep the stock non-negative (demo_seed_rows) are not part of the history.
+      parts.push(withIds(select({ type: "supply", party: "i.supplier", warehouse: "i.warehouse", request: created, date: accepted, doneBy: by, doneAt: accepted }, "FROM supplier_incomings i WHERE i.status = 'принят' AND NOT EXISTS (SELECT 1 FROM demo_seed_rows d WHERE d.table_name = 'supplier_incomings' AND d.row_id = i.id::text AND d.domain <> 'catalog-warehouse')"), "i"))
     }
   }
 
@@ -109,9 +112,14 @@ function taskSources(tab: PlanTaskTab, t: StockTables): string[] {
     const acceptedBy = columnOr(t, "internal_transfers", "accepted_by", "tr", "''")
     const driver = columnOr(t, "internal_transfers", "driver", "tr", "''")
     const base = { type: "transfer" as const, request: created, deliverer: driver }
+    // The reference's "Приемка" lists only supplies and customer returns; transfers in transit are not shown there.
     if (tab === "receive") {
-      const expected = `COALESCE(${planned}, ${givenAt}, ${created})`
-      parts.push(withIds(select({ ...base, party: "tr.from_warehouse", warehouse: "tr.to_warehouse", date: expected }, "FROM internal_transfers tr WHERE tr.status = 'в пути'"), "tr"))
+      // customer returns / transfers waiting to be received, as the reference lists them (additive reference rows)
+      if (t.has("receive_task_reference_rows")) {
+        for (const type of ["order_return", "transfer"] as const) {
+          parts.push(withIds(select({ type, party: "rt.by_name", warehouse: "rt.stock_name", request: "rt.task_date::timestamp", date: "rt.task_date::timestamp" }, `FROM receive_task_reference_rows rt WHERE rt.type = '${type}'`), "rt"))
+        }
+      }
     } else if (tab === "receive_history") {
       const done = `COALESCE(${acceptedAt}, ${planned}, ${created})`
       parts.push(withIds(select({ ...base, party: "tr.from_warehouse", warehouse: "tr.to_warehouse", date: done, doneBy: acceptedBy, doneAt: done }, "FROM internal_transfers tr WHERE tr.status = 'принят'"), "tr"))
@@ -123,13 +131,15 @@ function taskSources(tab: PlanTaskTab, t: StockTables): string[] {
     }
   }
 
-  // Orders leave a warehouse only once they name it (orders.warehouse; the orders module does not set it yet).
-  if ((tab === "transfer" || tab === "transfer_history") && t.has("orders") && t.col("orders", "warehouse")) {
+  // Orders leave a warehouse once they name it: orders.warehouse, else the stock the order was made from (orders.stock_name).
+  if ((tab === "transfer" || tab === "transfer_history") && t.has("orders") && (t.col("orders", "warehouse") || t.col("orders", "stock_name"))) {
     const created = orderCreated(t)
     const delivery = t.col("orders", "delivery") ? `COALESCE(fin_ts(o.delivery), ${created})` : created
-    const fields = { type: "order" as const, party: columnOr(t, "orders", "client", "o", "''"), warehouse: "o.warehouse", request: created, date: delivery, deliverer: columnOr(t, "orders", "delivery_man", "o", "''") }
-    if (tab === "transfer") parts.push(withIds(select(fields, "FROM orders o WHERE btrim(o.warehouse) <> '' AND o.status = 'Есть на складе'"), "o"))
-    else parts.push(withIds(select({ ...fields, doneAt: delivery }, "FROM orders o WHERE btrim(o.warehouse) <> '' AND o.status IN ('В пути', 'Доставлено')"), "o"))
+    const named = [t.col("orders", "warehouse") ? "NULLIF(btrim(o.warehouse), '')" : "", t.col("orders", "stock_name") ? "NULLIF(btrim(o.stock_name), '')" : ""].filter(Boolean)
+    const warehouse = `COALESCE(${named.join(", ")}, '')`
+    const fields = { type: "order" as const, party: columnOr(t, "orders", "client", "o", "''"), warehouse, request: created, date: delivery, deliverer: columnOr(t, "orders", "delivery_man", "o", "''") }
+    if (tab === "transfer") parts.push(withIds(select(fields, `FROM orders o WHERE ${warehouse} <> '' AND o.status = 'Есть на складе'`), "o"))
+    else parts.push(withIds(select({ ...fields, doneAt: delivery }, `FROM orders o WHERE ${warehouse} <> '' AND o.status IN ('Есть на складе', 'В пути', 'Доставлено')`), "o"))
   }
   return parts
 }
@@ -388,7 +398,7 @@ export async function getPlanItem(type: PlanTaskType, id: number, db: PgDb = get
       type,
       id,
       status: text(row, "status"),
-      fromName: text(row, "warehouse"),
+      fromName: text(row, "warehouse") || text(row, "stock_name"),
       toName: text(row, "client"),
       createdBy: text(row, "agent"),
       createdAt: text(row, "pl_created"),

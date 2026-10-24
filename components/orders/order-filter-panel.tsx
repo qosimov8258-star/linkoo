@@ -5,7 +5,7 @@ import { useEffect, useState } from "react"
 
 import { useLanguage } from "@/lib/i18n/language-context"
 
-import type { Order } from "./orders-data"
+import { ORDER_STATUS_REF_LABEL, ORDER_STATUS_REF_OPTIONS, type Order } from "./orders-data"
 
 export type DateRange = { from: string; to: string }
 
@@ -67,9 +67,11 @@ const REFERENCE_ENDPOINTS: Record<string, string> = {
 
 const STATIC_OPTIONS: Record<string, string[]> = {
   overdue: ["Прошло до 7 дней", "C 7 дней - До 30", "C 30 дней - До 120", "Больше 120 дней"],
-  paymentStatus: ["Не оплачен", "Оплачен"],
   transactionType: ["Банковский счет", "Наличный"],
   dealType: ["Стандарт", "Консигнация"],
+  status: ORDER_STATUS_REF_OPTIONS,
+  paymentType: ["Наличные", "Перечисление"],
+  paymentStatus: ["Не оплачен", "Оплачен"],
   currency: ["Euro", "SUM", "USD"],
   printStatus: ["Напечатано", "Не напечатано"],
   marked: ["Да", "Нет"],
@@ -84,7 +86,7 @@ const STATIC_OPTIONS: Record<string, string[]> = {
 const SELECT_FIELDS: SelectField[] = [
   { key: "overdue", label: "Просроченность долга" },
   { key: "financeAccount", label: "Финансовый счет" },
-  { key: "deliverer", label: "Доставщик" },
+  { key: "deliverer", label: "Доставщик", value: (row) => row.deliveryMan ?? "" },
   { key: "picker", label: "Сборщик" },
   { key: "productType", label: "Тип товара" },
   { key: "product", label: "Товар", value: (row) => row.product },
@@ -97,14 +99,14 @@ const SELECT_FIELDS: SelectField[] = [
   { key: "priceList", label: "Прайс-лист" },
   { key: "organization", label: "Организация" },
   { key: "agent", label: "Агент", value: (row) => row.agent },
-  { key: "paymentStatus", label: "Статус оплаты" },
+  { key: "paymentStatus", label: "Статус оплаты", value: (row) => (row.orderBalance === undefined ? "" : row.orderBalance > 0 ? "Не оплачен" : "Оплачен") },
   { key: "transactionType", label: "Тип оплаты (транзакции)" },
   { key: "zone", label: "Зона", value: (row) => row.zone },
   { key: "campaign", label: "Маркетинговая акция" },
   { key: "campaignType", label: "Тип акции" },
-  { key: "paymentType", label: "Тип оплаты" },
+  { key: "paymentType", label: "Тип оплаты", value: (row) => (row.payMethod ? (row.payMethod === "bank" ? "Перечисление" : "Наличные") : "") },
   { key: "dealType", label: "Тип сделки" },
-  { key: "status", label: "Статус", value: (row) => row.status },
+  { key: "status", label: "Статус", value: (row) => ORDER_STATUS_REF_LABEL[row.status] ?? row.status },
 ]
 
 const SELECT_FIELDS_AFTER_DEBT: SelectField[] = [
@@ -112,7 +114,7 @@ const SELECT_FIELDS_AFTER_DEBT: SelectField[] = [
   { key: "currency", label: "Валюта", value: (row) => currencyOf(row.amount) },
   { key: "printStatus", label: "Статус печати" },
   { key: "marked", label: "Есть маркированный товар" },
-  { key: "invoiceType", label: "Тип счет фактуры" },
+  { key: "invoiceType", label: "Тип счет фактуры", value: (row) => (row.invoiceActive ? "Активные счет фактуры" : "Не активные счет фактуры") },
   { key: "invoiceSent", label: "Счет фактура отправлена" },
   { key: "activeContract", label: "Активный договор у клиента" },
   { key: "markingDone", label: "Маркировка завершена" },
@@ -161,6 +163,7 @@ export function matchesOrderFilters(row: Order, filters: OrderFilters) {
     const chosen = filters.select[field.key]
     if (chosen?.length && field.value && !chosen.includes(field.value(row))) return false
   }
+  if (row.status === "Отменен" && !filters.checks.cancelled && !filters.select.status?.includes("Отменен")) return false
   if (filters.debtMin && -parseMoney(row.balance) <= parseMoney(filters.debtMin)) return false
   return true
 }
@@ -218,16 +221,16 @@ function DateField({ label, value, onChange }: { label: string; value: DateRange
   const [open, setOpen] = useState(false)
   const text = value.from || value.to ? `${value.from || "…"} — ${value.to || "…"}` : t("Укажите дату")
   return (
-    <div className="relative h-[52px] border-b border-[#e0e0e0]">
+    <div className="relative h-[37px] w-[256px] border-b border-[#e0e0e0]">
       <span className="absolute left-0 top-0 flex items-center gap-[3px] text-[10px] font-bold leading-3">
         {t(label)}
         <CalendarDays className="h-3 w-3 text-[#bbb]" />
       </span>
-      <button type="button" onClick={() => setOpen((v) => !v)} className="absolute inset-x-0 bottom-0 h-[30px] text-left text-[13px]">{text}</button>
+      <button type="button" onClick={() => setOpen((v) => !v)} className="absolute inset-x-0 top-[12px] h-[24px] text-left text-[13px] leading-[24px]">{text}</button>
       {open && (
         <>
           <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <div className="absolute left-0 top-[52px] z-20 bg-white p-4 shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
+          <div className="absolute left-0 top-[37px] z-20 bg-white p-4 shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
             <RangeCalendar value={value} onChange={onChange} />
             <div className="mt-2 flex justify-between">
               <button type="button" onClick={() => onChange({ from: "", to: "" })} className="text-[13px] font-semibold text-[#5d6474]">{t("Очистить")}</button>
@@ -240,7 +243,7 @@ function DateField({ label, value, onChange }: { label: string; value: DateRange
   )
 }
 
-function SelectBox({ label, value, options, onChange }: { label: string; value: string[]; options: string[]; onChange: (value: string[]) => void }) {
+export function SelectBox({ label, value, options, onChange }: { label: string; value: string[]; options: string[]; onChange: (value: string[]) => void }) {
   const { t } = useLanguage()
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState("")
@@ -251,9 +254,9 @@ function SelectBox({ label, value, options, onChange }: { label: string; value: 
       {value.length > 0 && <span className="absolute left-0 top-0 text-[10px] font-bold leading-3">{label}</span>}
       <div onMouseDown={() => setOpen(true)} className="absolute inset-x-0 bottom-0 flex min-h-[30px] cursor-pointer flex-wrap items-center gap-1 pr-6">
         {value.map((item) => (
-          <span key={item} className="flex items-center gap-1 rounded-[2px] bg-[#e3e9fb] px-[5px] text-[12px] font-semibold text-[#4f71dc]">
-            {item}
-            <button type="button" aria-label={`${t("Удалить")} ${item}`} onMouseDown={(event) => event.stopPropagation()} onClick={() => onChange(value.filter((v) => v !== item))}>×</button>
+          <span key={item} className="flex items-stretch rounded-[2px] bg-[#5868f0] text-[11.7px] font-semibold leading-[16.4px] text-white">
+            <button type="button" aria-label={`${t("Удалить")} ${item}`} onMouseDown={(event) => event.stopPropagation()} onClick={() => onChange(value.filter((v) => v !== item))} className="border-r border-white px-[5px] py-[2px]">×</button>
+            <span className="px-[5px] py-[2px]">{item}</span>
           </span>
         ))}
         <input
@@ -270,6 +273,9 @@ function SelectBox({ label, value, options, onChange }: { label: string; value: 
           className="min-w-[40px] flex-1 bg-transparent text-[13px] font-semibold outline-none placeholder:text-black"
         />
       </div>
+      {value.length > 0 && (
+        <button type="button" aria-label={t("Очистить")} onClick={() => onChange([])} className="absolute bottom-[3px] right-[24px] text-[18px] leading-[18px] text-[#999]">×</button>
+      )}
       <svg viewBox="0 0 24 24" className={`pointer-events-none absolute bottom-0 right-0 h-6 w-6 fill-black/30 ${open ? "rotate-180" : ""}`}><path d="M7 10l5 5 5-5z" /></svg>
       {open && (
         <>
@@ -343,7 +349,7 @@ export function OrderFilterPanel({ orders, filters, onChange, onApply, onClose }
   )
 
   return (
-    <div className="bg-white px-[20px] pb-5 pt-4">
+    <div className="bg-white px-[20px] pb-5 pt-[23px]">
       <div className="flex items-center justify-between">
         <h3 className="text-[16px] font-normal text-[#757575]">{t("Фильтр")}</h3>
         <button type="button" onClick={onClose} aria-label={t("Закрыть")} className="text-[#999] hover:text-[#666]">
@@ -351,7 +357,7 @@ export function OrderFilterPanel({ orders, filters, onChange, onApply, onClose }
         </button>
       </div>
 
-      <div className="mt-4 grid grid-cols-1 gap-x-6 gap-y-[15px] sm:grid-cols-2 xl:grid-cols-4">
+      <div className="mt-[18px] grid grid-cols-1 gap-x-[10.2px] gap-y-[15px] sm:grid-cols-2 xl:grid-cols-4">
         {DATE_FIELDS.slice(0, 4).map((field) => (
           <DateField
             key={field.key}
@@ -367,15 +373,15 @@ export function OrderFilterPanel({ orders, filters, onChange, onApply, onClose }
         {SELECT_FIELDS_AFTER_DEBT.map(renderSelect)}
       </div>
 
-      <h4 className="mt-5 border-b-2 border-[#9fa8da] pb-1 text-[12px] font-bold text-[#7986cb]">{t("Дополнительно")}</h4>
-      <div className="mt-3 grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-2 xl:grid-cols-4">
+      <h4 className="mt-6 border-b-2 border-[#9fa8da] pb-1 text-[12px] font-bold text-[#7986cb]">{t("Дополнительно")}</h4>
+      <div className="mt-3 grid grid-cols-1 gap-x-[10.2px] gap-y-5 sm:grid-cols-2 xl:grid-cols-4">
         {CHECKS.map((check) => (
           <label key={check.key} className="flex cursor-pointer items-start gap-2 px-[3px] text-[13px] font-semibold">
             <input
               type="checkbox"
               checked={!!filters.checks[check.key]}
               onChange={(event) => onChange({ ...filters, checks: { ...filters.checks, [check.key]: event.target.checked } })}
-              className="mt-[2px] h-4 w-4 shrink-0 accent-[#5d6474]"
+              className="mt-[2px] h-[15px] w-[15px] shrink-0 accent-[#5d6474]"
             />
             {t(check.label)}
           </label>

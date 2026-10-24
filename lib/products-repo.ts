@@ -3,6 +3,7 @@ import "server-only"
 import type { Product } from "@/components/analytics/products-data"
 import { parseItemPrices } from "@/lib/item-prices"
 import { catalogDb } from "@/lib/products-schema"
+import { shortRuDate } from "@/lib/ref-date"
 
 // The default (legacy) shape of GET /api/products, POST and PUT responses: one array of
 // every product, deleted ones included (`deleted`), as the existing consumers expect.
@@ -45,6 +46,8 @@ function rowToProduct(row: Row): Product {
     markedProduct: flag(row.marked_product),
     limitPrice: flag(row.limit_price),
     group: text(row.product_group),
+    boxUnit: text(row.box_unit).trim(),
+    boxAmount: num(row.box_amount),
     ikpu: text(row.ikpu),
     invoiceUnitCode: text(row.invoice_unit_code),
     vat: text(row.vat) || "Без НДС",
@@ -63,13 +66,30 @@ function rowToProduct(row: Row): Product {
     cost: num(row.cost),
     priceMin: num(row.price_min),
     priceMax: num(row.price_max),
-    priceUpdatedDate: text(row.price_updated_date) || "Не установлена",
+    priceUpdatedDate: shortRuDate(text(row.price_updated_date)) || "Не установлена",
   }
 }
 
 export async function listProducts(): Promise<Product[]> {
   const db = await catalogDb()
-  const rows = (await db.prepare("SELECT * FROM products ORDER BY id DESC").all()) as Row[]
+  // The reference's own net cost / min / max price / update date (product_reference_prices, additive) win when a product has them.
+  const hasReference = ((await db.prepare("SELECT to_regclass('product_reference_prices') AS t").get()) as { t: string | null }).t
+  const hasEntries = ((await db.prepare("SELECT to_regclass('price_list_entries') AS t").get()) as { t: string | null }).t
+  // Products without saved prices fall back to their price-list entries ("Анализ цен", matched by name), like the catalog pages;
+  // the later duplicate column replaces the table column in the row object. The order form prices its lines from these.
+  // The entries are grouped once (CTE) and joined by name: a per-product subquery rescans the whole table 974 times (~20 s).
+  const withEntries = hasEntries
+    ? `WITH pe AS (SELECT fin_key(e.product) AS k, jsonb_agg(jsonb_build_object('name', e.price_list, 'cash', e.cash, 'nonCash', e.non_cash, 'min', 0, 'max', 0, 'currency', 'SUM', 'nonCashCurrency', 'SUM') ORDER BY e.id)::text AS j
+         FROM price_list_entries e GROUP BY 1) `
+    : ""
+  const priceFallback = hasEntries ? `, COALESCE(NULLIF(p.price_lists, '[]'), pe.j, '[]') AS price_lists` : ""
+  const entriesJoin = hasEntries ? " LEFT JOIN pe ON pe.k = fin_key(p.name)" : ""
+  const sql = hasReference
+    ? `${withEntries}SELECT p.*, COALESCE(r.net_cost, p.cost) AS cost, COALESCE(r.min_price, p.price_min) AS price_min, COALESCE(r.max_price, p.price_max) AS price_max,
+         COALESCE(r.price_updated, p.price_updated_date) AS price_updated_date${priceFallback}
+       FROM products p LEFT JOIN product_reference_prices r ON r.product_id = p.id${entriesJoin} ORDER BY p.id DESC`
+    : `${withEntries}SELECT p.*${priceFallback} FROM products p${entriesJoin} ORDER BY p.id DESC`
+  const rows = (await db.prepare(sql).all()) as Row[]
   return rows.map(rowToProduct)
 }
 

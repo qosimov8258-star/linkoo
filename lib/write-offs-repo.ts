@@ -70,6 +70,16 @@ type WriteOffRow = {
   cancelled_by: string
 }
 
+/** Series arrive either as a plain string or as the reference's series object ({ display_name, number, ... }). */
+function seriesLabel(value: unknown): string {
+  if (value && typeof value === "object") {
+    const record = value as Record<string, unknown>
+    return String(record.display_name ?? record.number ?? "")
+  }
+  const text = String(value ?? "")
+  return text === "-" ? "" : text
+}
+
 function parseItems(text: string): WriteOffItem[] {
   let parsed: unknown
   try {
@@ -89,7 +99,7 @@ function parseItems(text: string): WriteOffItem[] {
         product: String(line.product ?? ""),
         code: String(line.code ?? "") === "-" ? "" : String(line.code ?? ""),
         unit: String(line.unit ?? ""),
-        series: String(line.series ?? "") === "-" ? "" : String(line.series ?? ""),
+        series: seriesLabel(line.series),
         block: Number(line.block) || 0,
         qty,
         cost,

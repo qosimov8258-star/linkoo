@@ -96,12 +96,12 @@ export function CashboxDeleteDialog({
     <div className="fixed inset-0 z-[130] flex items-center justify-center bg-black/45 p-4" onMouseDown={onClose}>
       <div onMouseDown={(event) => event.stopPropagation()} className="w-full max-w-[500px] rounded bg-white shadow-2xl">
         <header className="flex h-[60px] items-center justify-between border-b border-[#efefef] pl-[30px] pr-3">
-          <b className="text-[14px] uppercase text-[#333]">{t("Подтверждение удаления")}</b>
+          <b className="text-[13px] uppercase text-[#333]">{t("Подтверждение удаления")}</b>
           <button type="button" onClick={onClose} aria-label={t("Закрыть")} className="rounded-full p-2 text-[#666] hover:bg-slate-100">
             <X className="h-5 w-5" />
           </button>
         </header>
-        <div className="relative min-h-[150px] px-[30px] text-[14px] text-[#333]">
+        <div className="relative min-h-[210px] px-[30px] text-[13px] text-[#333]">
           {busy && (
             <div className="absolute inset-0 z-10 flex items-center justify-center bg-white/80">
               <Loader2 className="h-8 w-8 animate-spin text-[#4f70e7]" />

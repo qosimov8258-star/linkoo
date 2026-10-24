@@ -24,6 +24,7 @@ export async function PUT(request: Request, { params }: RouteParams) {
   if ("error" in auth) return auth.error
 
   const id = Number((await params).id)
+  if (!Number.isInteger(id)) return NextResponse.json({ error: "Запись не найдена" }, { status: 404 })
   const parsed = await parseJsonBody(request, cashManagementEntrySchema)
   if (parsed.error) return parsed.error
 
@@ -47,6 +48,7 @@ export async function DELETE(_request: Request, { params }: RouteParams) {
   if ("error" in auth) return auth.error
 
   const id = Number((await params).id)
+  if (!Number.isInteger(id)) return NextResponse.json({ error: "Запись не найдена" }, { status: 404 })
   const ok = (await deleteCashManagementEntry(id))
   if (!ok) return NextResponse.json({ error: "Запись не найдена" }, { status: 404 })
   return NextResponse.json({ ok: true })

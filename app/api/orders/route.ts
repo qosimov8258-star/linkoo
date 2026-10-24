@@ -21,6 +21,17 @@ const orderSchema = z.object({
   paymentDate: z.union([z.string().regex(/^\d{4}-\d{2}-\d{2}$/), z.literal("")]).optional(),
   paymentType: z.enum(["cash", "bank", ""]).optional(),
   organization: z.string().trim().max(200).optional(),
+  deliveryMan: z.string().trim().max(200).optional(),
+  expeditor: z.string().trim().max(200).optional(),
+  payMethod: z.enum(["cash", "bank", ""]).optional(),
+  payTypeName: z.string().trim().max(100).optional(),
+  priceList: z.string().trim().max(200).optional(),
+  stockName: z.string().trim().max(200).optional(),
+  branchName: z.string().trim().max(200).optional(),
+  dealType: z.enum(["0", "1", ""]).optional(),
+  deliveryType: z.enum(["delivery", "self", ""]).optional(),
+  dueDate: z.union([z.string().regex(/^\d{4}-\d{2}-\d{2}$/), z.literal("")]).optional(),
+  transportNumber: z.string().trim().max(100).optional(),
 })
 
 export async function GET(request: NextRequest) {

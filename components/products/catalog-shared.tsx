@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useRef, useState, type ReactNode } from "react"
-import { ArrowDown, ArrowUp, ArrowUpDown, Check, MoreVertical, X } from "lucide-react"
+import { ArrowDown, ArrowUp, ArrowUpDown, Check, X } from "lucide-react"
 
 import { formatMoney } from "@/lib/finance/currency"
 import { CATALOG_API, type CatalogItem, type CatalogKind, type CatalogUsage } from "@/lib/products-types"
@@ -147,7 +147,7 @@ export function SortIcon({ ordering, sortKey }: { ordering: string; sortKey: str
   return <ArrowUpDown className="h-3.5 w-3.5 opacity-40" />
 }
 
-/** ⋮ menu of a list row (closes on outside click). */
+/** ⋮ menu of a list row (closes on outside click); the card opens over the button like the reference's. */
 export function RowMenu({ children }: { children: (close: () => void) => ReactNode }) {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
@@ -160,16 +160,15 @@ export function RowMenu({ children }: { children: (close: () => void) => ReactNo
     return () => document.removeEventListener("mousedown", onDown)
   }, [open])
   return (
-    <div ref={ref} className="relative inline-block" onClick={(event) => event.stopPropagation()}>
-      <button
-        type="button"
-        onClick={() => setOpen((value) => !value)}
-        aria-label="⋮"
-        className="flex h-8 w-8 items-center justify-center rounded-full text-[#666] hover:bg-[#e8ecf2]"
-      >
-        <MoreVertical className="h-5 w-5" />
+    <div ref={ref} className="relative" onClick={(event) => event.stopPropagation()}>
+      <button type="button" onClick={() => setOpen((value) => !value)} aria-label="⋮" className="flex h-12 w-12 items-center justify-center">
+        <svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#333]">
+          <path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z" />
+        </svg>
       </button>
-      {open && <div className="absolute right-0 top-full z-[30] min-w-[200px] rounded-md border border-[#e1e5eb] bg-white py-1 shadow-lg">{children(() => setOpen(false))}</div>}
+      {open && (
+        <div className="absolute right-0 top-0 z-[30] w-[168px] rounded-[2px] bg-white py-1 shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">{children(() => setOpen(false))}</div>
+      )}
     </div>
   )
 }

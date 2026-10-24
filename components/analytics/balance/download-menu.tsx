@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
-import { BarChart, ChevronDown } from "lucide-react"
+import { BarChart } from "lucide-react"
 
 import { useLanguage } from "@/lib/i18n/language-context"
 
@@ -26,9 +26,9 @@ export function BalanceDownloadMenu({ items, label = "Скачать", disabled 
         type="button"
         disabled={disabled}
         onClick={() => setOpen((value) => !value)}
-        className="flex h-11 items-center gap-2 rounded-md bg-[#4caf72] px-5 font-semibold text-white disabled:opacity-50"
+        className="flex h-[34px] items-center gap-2 rounded-[3px] bg-[#71ce87] pl-2 pr-4 text-[13px] font-semibold text-white disabled:opacity-50"
       >
-        <BarChart className="h-5 w-5" /> {t(label)} <ChevronDown className="h-4 w-4" />
+        <BarChart className="h-5 w-5" /> {t(label)}
       </button>
       {open && (
         <div className="absolute right-0 z-[60] mt-1 min-w-[220px] overflow-hidden rounded-md border border-[#e1e5eb] bg-white shadow-lg">

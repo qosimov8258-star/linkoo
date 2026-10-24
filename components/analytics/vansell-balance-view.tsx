@@ -233,7 +233,7 @@ export function VansellBalanceView() {
 
   const nameCell = (row: BalanceRow) => (
     <div className="flex items-center justify-between gap-3">
-      <button type="button" onClick={() => update({ detail: row.key })} className="text-left font-medium text-[#129fdd] hover:underline">
+      <button type="button" onClick={() => update({ detail: row.key })} className="text-left text-[#333] hover:underline">
         {row.name || t("Не указано")}
       </button>
       {canEdit && row.id !== null && (
@@ -270,18 +270,18 @@ export function VansellBalanceView() {
   }
 
   return (
-    <main className="min-h-screen bg-[#f1f4f8] text-[#17233b]">
-      <header className="flex min-h-[76px] items-center border-b border-[#d8dee7] bg-[#f2f5f8] px-6 md:px-9">
-        <div className="flex items-center gap-3">
-          <FavoritesButton className="flex items-center gap-3 text-2xl font-bold text-[#4f70e7]" />
-          <span className="text-3xl font-light text-[#586174]">|</span>
-          <span className="text-2xl font-bold text-[#586174]">{t("Баланс вансел")}</span>
+    <main className="ref-white min-h-screen bg-white text-[#333]">
+      <header className="flex min-h-[60px] items-center px-[28px]">
+        <div className="flex items-center">
+          <FavoritesButton className="flex items-center gap-[5px] text-[18px] font-bold text-[#4f71dc]" />
+          <span className="mx-[11px] h-[21px] w-[2px] bg-[#5d6474]" />
+          <span className="text-[18px] font-bold text-[#5d6474]">{t("Баланс вансел")}</span>
         </div>
       </header>
 
-      <div className="border-b border-[#e1e5eb] bg-white pt-6">
+      <div className="pt-[10px]">
         {data ? (
-          <BalanceSummaryCards boxes={boxes} totals={data.totals} currencies={visible} digits={DIGITS} loading={list.loading} />
+          <BalanceSummaryCards marginClass="mx-[10px]" boxes={boxes} totals={data.totals} currencies={visible} digits={DIGITS} loading={list.loading} />
         ) : (
           <div className="flex h-[150px] items-center justify-center pb-6">
             {list.error ? <span className="text-[#e57373]">{t(list.error)}</span> : <Loader2 className="h-7 w-7 animate-spin text-[#4f70e7]" />}
@@ -290,7 +290,7 @@ export function VansellBalanceView() {
       </div>
 
       <ExpandedOverlay expanded={expanded}>
-        <section className="flex flex-wrap items-center gap-x-5 gap-y-3 border-b border-[#e1e5eb] bg-white px-6 py-3 md:px-9">
+        <section className="flex flex-wrap items-center gap-x-5 gap-y-3 border-t border-[#efefef] px-[10px] py-[10px]">
           <BalanceFilterChip
             count={filterCount}
             onOpen={() => {
@@ -304,13 +304,13 @@ export function VansellBalanceView() {
               value={searchInput}
               onChange={(event) => setSearchInput(event.target.value)}
               placeholder={t("Поиск")}
-              className="w-full bg-transparent pr-7 text-[15px] outline-none placeholder:text-[#9aa3b6]"
+              className="w-full bg-transparent pr-7 text-[13px] outline-none placeholder:text-[#9aa3b6]"
             />
             <Search className="pointer-events-none absolute right-0 top-0.5 h-5 w-5 text-[#9aa3b6]" />
           </label>
           <div className="ml-auto flex flex-wrap items-center gap-5">
             {canEdit && (
-              <button type="button" onClick={() => setLimitOpen(true)} className="flex h-10 items-center gap-2 rounded-md bg-[#4f71dc] px-4 font-semibold text-white">
+              <button type="button" onClick={() => setLimitOpen(true)} className="flex h-[30px] items-center gap-2 rounded-[3px] bg-[#4f71dc] pl-2 pr-4 text-[13px] font-semibold text-white">
                 <Pencil className="h-4 w-4" /> {t("Изменить лимит")}
                 {selected.size > 0 && <span className="rounded-full bg-white/25 px-2 text-[12px]">{selected.size}</span>}
               </button>
@@ -331,6 +331,8 @@ export function VansellBalanceView() {
 
         <section className="bg-white pb-10">
           <BalanceTable
+          fixedWidth={100}
+              selectionAfterFirst
             rows={rows}
             groups={GROUPS}
             currencies={visible}

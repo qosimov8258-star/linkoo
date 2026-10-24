@@ -34,25 +34,28 @@ export function RepricingLinkedDialog({ options, onClose, onSaved }: { options: 
     onSaved(`${created}${notes}`, linked[0]?.id ?? null)
   }
 
+  // Reference ("openCreateRecalcDialog"): "ДОБАВИТЬ ПРАЙС-ЛИСТ", one edge-to-edge "Прайс лист" select and a green "СОХРАНИТЬ".
   return (
     <CashModal
-      title={t("Переоценку связанных")}
+      title={<span className="text-[16px]">{t("Добавить прайс-лист")}</span>}
       onClose={onClose}
       size="md"
+      footerButtons="filled"
       footer={
         <>
-          {error && <span className="mr-auto text-[13px] text-[#e57373]">{error}</span>}
-          <PrimaryButton busy={busy} onClick={() => void submit()}>
+          <button type="button" disabled={busy} onClick={() => void submit()} className="ml-[10px] mr-auto !h-9 rounded-[3px] !bg-[#71ce87] !px-4 text-[13px] font-semibold uppercase text-white hover:brightness-95 disabled:opacity-60">
             {t("Сохранить")}
-          </PrimaryButton>
+          </button>
+          {error && <span className="text-[13px] text-[#e57373]">{error}</span>}
         </>
       }
     >
-      <p className="mb-4 text-[13px] text-[#586174]">{t("Создать переоценку для связанных прайс-листов")}</p>
-      <FormField label={t("Прайс лист")} required>
-        <SearchSelect value={priceListId} options={lists.map((list) => ({ value: String(list.id), label: list.name, hint: list.dependents ? `${t("Связанных")}: ${list.dependents}` : undefined }))} onChange={setPriceListId} />
-      </FormField>
-      {!lists.length && <p className="mt-3 text-[13px] text-[#e57373]">{t("Нет связанных прайс-листов")}</p>}
+      <div className="-mx-[30px] min-h-[220px] pt-[10px]">
+        <FormField label={t("Прайс лист")} semibold>
+          <SearchSelect value={priceListId} options={lists.map((list) => ({ value: String(list.id), label: list.name, hint: list.dependents ? `${t("Связанных")}: ${list.dependents}` : undefined }))} onChange={setPriceListId} />
+        </FormField>
+        {!lists.length && <p className="mx-[30px] mt-3 text-[13px] text-[#e57373]">{t("Нет связанных прайс-листов")}</p>}
+      </div>
     </CashModal>
   )
 }

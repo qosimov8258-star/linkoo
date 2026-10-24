@@ -234,7 +234,12 @@ export const LEDGER_EXTENSIONS: Record<string, Record<string, string>> = {
     payment_id: "INTEGER",
     log: "TEXT NOT NULL DEFAULT '[]'",
   },
+  // Manual movements can be soft-deleted ("Удалить" of the movement dialog); a loyalty movement the same way.
+  loyalty_card_transactions: {
+    is_deleted: "INTEGER NOT NULL DEFAULT 0",
+  },
   vansell_transactions: {
+    is_deleted: "INTEGER NOT NULL DEFAULT 0",
     type: "TEXT NOT NULL DEFAULT 'none_type'",
     comment: "TEXT NOT NULL DEFAULT ''",
     created_date: "TEXT NOT NULL DEFAULT ''",
@@ -252,6 +257,7 @@ export const LEDGER_EXTENSIONS: Record<string, Record<string, string>> = {
 
 /** Every table the ledger reads (most are created lazily by their own repo). */
 const LEDGER_TABLES = [
+  "demo_seed_rows",
   "currencies",
   "cashboxes",
   "cash_management_entries",

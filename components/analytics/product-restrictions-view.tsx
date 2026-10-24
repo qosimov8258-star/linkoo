@@ -1,10 +1,12 @@
 "use client"
 
-import { Check, CheckCheck, ChevronDown, ChevronLeft, ChevronRight, EyeOff, Search, X } from "lucide-react"
+import { Check, X } from "lucide-react"
 import { useEffect, useMemo, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 
-import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
+import { RefHeader, RefPage } from "@/components/ref/list-kit"
+import { RefPager } from "@/components/ref/pager-controls"
+import { RefTabStrip } from "@/components/ref/tab-strip"
 import { useLanguage } from "@/lib/i18n/language-context"
 
 import { ProductPickerDialog, type PickerItem } from "./product-picker-dialog"
@@ -13,15 +15,28 @@ type Restriction = { id: number; employee: string; items: string[] }
 type Tab = "products" | "types"
 type Mode = "add" | "remove" | "replace"
 
-const PAGE_SIZES = [10, 25, 50, 100]
-
 function SolidIcon({ d, className = "h-[18px] w-[18px]" }: { d: string; className?: string }) {
   return <svg viewBox="0 0 24 24" className={`${className} fill-current`} aria-hidden="true"><path d={d} /></svg>
 }
-const ICON_BOX = "M21 7.5l-9-5.25L3 7.5v9l9 5.25 9-5.25v-9zM12 4.55l5.9 3.45L12 11.45 6.1 8 12 4.55zM5 9.7l6 3.5v6.9l-6-3.5V9.7zm8 10.4v-6.9l6-3.5v6.9l-6 3.5z"
+const ICON_BOX = [
+  "M247,250.3l1.9,0.8l8.7-4.1c0.1,0,0.1-0.1,0.1-0.2s0-0.1-0.1-0.2l-1.5-0.7c0,0-0.1,0-0.1,0l-8.9,3.9 c-0.1,0-0.1,0.1-0.1,0.2S247,250.2,247,250.3z",
+  "M255.5,255l-3.3-1.5v4.7c0,0,0,0.1-0.1,0.1c0,0,0,0-0.1,0c0,0,0,0-0.1,0l-3.5-1.7c0,0-0.1-0.1-0.1-0.1v-4.7l-2.1-0.9 c-0.1,0-0.1,0-0.2,0c-0.1,0-0.1,0.1-0.1,0.1v10.6c0,0.1,0,0.1,0.1,0.2l9.2,4.2c0,0,0.1,0,0.1,0c0,0,0.1,0,0.1,0 c0.1,0,0.1-0.1,0.1-0.1v-10.6C255.6,255.1,255.5,255.1,255.5,255z",
+  "M265.9,250.9c-0.1,0-0.1,0-0.2,0l-9.2,4.2c-0.1,0-0.1,0.1-0.1,0.2v10.6c0,0.1,0,0.1,0.1,0.1c0,0,0.1,0,0.1,0 c0,0,0.1,0,0.1,0l9.2-4.2c0.1,0,0.1-0.1,0.1-0.2V251C266,251,266,250.9,265.9,250.9z",
+  "M265.1,250.1c0-0.1,0-0.1-0.1-0.2l-3.1-1.4c0,0-0.1,0-0.1,0l-8.9,4.2l3.1,1.5c0,0,0,0,0.1,0c0,0,0.1,0,0.1,0l8.9-4 C265,250.2,265.1,250.2,265.1,250.1z",
+]
 const ICON_TRASH = "M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"
-const ICON_SHIELD = "M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm-2 16l-4-4 1.41-1.41L10 14.17l6.59-6.59L18 9l-8 8z"
+const ICON_SHIELD = "M19 1H5c-1.1 0-1.99.9-1.99 2L3 15.93c0 .69.35 1.3.88 1.66L12 23l8.11-5.41c.53-.36.88-.97.88-1.66L21 3c0-1.1-.9-2-2-2zm-9 15l-5-5 1.41-1.41L10 13.17l7.59-7.59L19 7l-9 9z"
+const ICON_EYE_OFF = "M12 7c2.76 0 5 2.24 5 5 0 .65-.13 1.26-.36 1.83l2.92 2.92c1.51-1.26 2.7-2.89 3.43-4.75-1.73-4.39-6-7.5-11-7.5-1.4 0-2.74.25-3.98.7l2.16 2.16C10.74 7.13 11.35 7 12 7zM2 4.27l2.28 2.28.46.46C3.08 8.3 1.78 10.02 1 12c1.73 4.39 6 7.5 11 7.5 1.55 0 3.03-.3 4.38-.84l.42.42L19.73 22 21 20.73 3.27 3 2 4.27zM7.53 9.8l1.55 1.55c-.05.21-.08.43-.08.65 0 1.66 1.34 3 3 3 .22 0 .44-.03.65-.08l1.55 1.55c-.67.33-1.41.53-2.2.53-2.76 0-5-2.24-5-5 0-.79.2-1.53.53-2.2zm4.31-.78l3.15 3.15.02-.16c0-1.66-1.34-3-3-3l-.17.01z"
+const ICON_DONE_ALL = "M18 7l-1.41-1.41-6.34 6.34 1.41 1.41L18 7zm4.24-1.41L11.66 16.17 7.48 12l-1.41 1.41L11.66 19l12-12-1.42-1.41zM.41 13.41L6 19l1.41-1.41L1.83 12 .41 13.41z"
 const ICON_LIST_CHECK = "M14 10H2v2h12v-2zm0-4H2v2h12V6zM2 16h8v-2H2v2zm19.5-4.5L23 13l-6.99 7-4.51-4.5L13 14l3.01 3 5.49-5.5z"
+
+const nameCollator = new Intl.Collator("en", { caseFirst: "lower" })
+const nameKey = (value: string) => value.replace(/[^\p{L}\p{N}]/gu, "")
+
+/** The original lists product types alphabetically, ignoring case and punctuation (Latin before Cyrillic). */
+function sortByName(items: PickerItem[]) {
+  return [...items].sort((a, b) => nameCollator.compare(nameKey(a.name), nameKey(b.name)))
+}
 
 const copy = {
   products: {
@@ -46,7 +61,6 @@ export function ProductRestrictionsView() {
   const [rows, setRows] = useState<Record<Tab, Restriction[]>>({ products: [], types: [] })
   const [query, setQuery] = useState("")
   const [pageSize, setPageSize] = useState(25)
-  const [pageSizeOpen, setPageSizeOpen] = useState(false)
   const [page, setPage] = useState(1)
   const [selectMode, setSelectMode] = useState(false)
   const [checked, setChecked] = useState<number[]>([])
@@ -76,7 +90,7 @@ export function ProductRestrictionsView() {
     if (!dialog) return
     const load = (url: string) => fetch(url).then((response) => (response.ok ? response.json() : []))
     if (tab === "products" && !products) load("/api/products").then((data: PickerItem[]) => setProducts(data))
-    if (tab === "types" && !productTypes) load("/api/product-types").then((data: PickerItem[]) => setProductTypes(data))
+    if (tab === "types" && !productTypes) load("/api/product-types").then((data: PickerItem[]) => setProductTypes(sortByName(data)))
   }, [dialog, tab, products, productTypes])
 
   const filtered = useMemo(() => restrictions.filter((row) => row.employee.toLowerCase().includes(query.toLowerCase())), [restrictions, query])
@@ -123,126 +137,111 @@ export function ProductRestrictionsView() {
   }
 
   const labels = copy[tab]
-  const iconBtn = "flex h-5 w-5 items-center justify-center rounded-full border text-slate-500 disabled:opacity-40"
-  const gridCols = selectMode ? "grid-cols-[48px_468px_488px_1fr]" : "grid-cols-[503px_494px_1fr]"
+  const gridCols = selectMode ? "grid-cols-[474.67px_1fr_1fr]" : "grid-cols-3"
+  const actionBtn = "flex h-9 items-center whitespace-nowrap rounded-[5px] pl-3 text-[13px] font-semibold leading-9 text-white hover:brightness-95"
 
   return (
-    <main className="min-h-[calc(100vh-50px)] bg-[#f2f5f8] px-[28px] pb-10 pt-[18px] text-[13px] text-[#333]">
-      <h1 className="mb-[17px] flex h-[26px] items-center gap-[7px] text-[18px] font-bold text-[#5d6474]">
-        <FavoritesButton className="flex items-center gap-[7px] text-[#4a6ee0]" />
-        <span className="font-normal text-[#5d6474]">|</span>
-        {t("Ограничение продуктов")}
-      </h1>
+    <RefPage>
+      <RefHeader title={t("Ограничение продуктов")} />
 
-      <section className="bg-white shadow-[0_1px_4px_rgba(0,0,0,0.08)]">
-        <div className="grid grid-cols-2">
-          {(["products", "types"] as const).map((id) => (
-            <button
-              key={id}
-              type="button"
-              onClick={() => switchTab(id)}
-              className={`relative h-10 text-center text-[13px] text-black ${tab === id ? "after:absolute after:inset-x-0 after:bottom-0 after:h-[3px] after:bg-[#4c6dd4] after:shadow-[0_-4px_8px_rgba(76,109,212,0.25)]" : ""}`}
-            >
-              {t(copy[id].tab)}
-            </button>
-          ))}
-        </div>
+      <RefTabStrip
+        tabs={[{ value: "products", label: copy.products.tab }, { value: "types", label: copy.types.tab }]}
+        value={tab}
+        onChange={switchTab}
+      />
 
-        <div className="relative flex h-[50px] items-center whitespace-nowrap border-t border-[#eef0f4] pb-[2px] pr-[5px]">
-          <label className="absolute left-[402px] top-[10px] w-[300px]">
+      <section className="bg-white">
+        <div className="relative flex h-[50px] items-center whitespace-nowrap px-[5px]">
+          <div className="absolute left-[377.5px] top-0 flex h-12 w-[300px] items-center border-b border-[#e0e0e0] focus-within:border-[#5d6474]">
             <input
               value={query}
               onChange={(event) => { setQuery(event.target.value); setPage(1) }}
               placeholder={t("Поиск")}
-              className="h-[30px] w-full border-b border-[#dfe3ea] bg-transparent pr-8 text-[13px] outline-none placeholder:text-[#b9c0cc] focus:border-[#4c6dd4]"
+              className="h-12 w-[262px] bg-transparent text-[13px] outline-none placeholder:text-black/30"
             />
-            <Search className="absolute right-2 top-1.5 h-[18px] w-[18px] text-[#c4cad4]" />
-          </label>
-
-          <div className="relative ml-auto shrink-0">
-            <button type="button" onClick={() => setPageSizeOpen((open) => !open)} className="flex items-center gap-1 text-[13px]">
-              {pageSize}<ChevronDown className="h-3.5 w-3.5 text-slate-300" />
-            </button>
-            {pageSizeOpen && (
-              <ul className="absolute left-0 top-7 z-20 w-16 bg-white py-1 shadow-[0_2px_10px_rgba(0,0,0,0.2)]">
-                {PAGE_SIZES.map((size) => (
-                  <li key={size}>
-                    <button type="button" onClick={() => { setPageSize(size); setPage(1); setPageSizeOpen(false) }} className={`block w-full px-3 py-1.5 text-left font-semibold ${size === pageSize ? "bg-[#e3effd]" : "text-slate-500 hover:bg-slate-50"}`}>{size}</button>
-                  </li>
-                ))}
-              </ul>
-            )}
+            <svg viewBox="0 0 24 24" className="ml-[12px] h-6 w-6 shrink-0 fill-[#ccc]"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z" /></svg>
           </div>
 
-          <span className="ml-[34px] shrink-0 text-[13px]">
-            {(safePage - 1) * pageSize + 1} - {Math.min(safePage * pageSize, filtered.length)} {t("из")} {filtered.length}
-          </span>
-          <button type="button" onClick={() => setPage(Math.max(1, safePage - 1))} disabled={safePage <= 1} aria-label={t("Назад")} className={`ml-[12px] ${iconBtn} border-slate-300`}><ChevronLeft className="h-4 w-4" /></button>
-          <button type="button" onClick={() => setPage(Math.min(pageCount, safePage + 1))} disabled={safePage >= pageCount} aria-label={t("Вперед")} className={`ml-[9px] ${iconBtn} border-slate-700 text-slate-700`}><ChevronRight className="h-4 w-4" /></button>
+          <div className="relative z-10 ml-auto flex shrink-0 items-center text-[#5d6474]">
+            <RefPager
+              pageSize={pageSize}
+              onPageSize={(size) => { setPageSize(size); setPage(1) }}
+              from={filtered.length ? (safePage - 1) * pageSize + 1 : 0}
+              to={Math.min(safePage * pageSize, filtered.length)}
+              total={filtered.length}
+              page={safePage}
+              pageCount={pageCount}
+              onPage={setPage}
+            />
 
-          <div className="group relative ml-[36px] shrink-0">
-            <button type="button" onClick={toggleSelectMode} aria-label={t("Выбрать из списка")} className="flex h-6 w-6 items-center justify-center text-slate-700">
-              {selectMode ? <EyeOff className="h-6 w-6" /> : <SolidIcon d={ICON_LIST_CHECK} className="h-6 w-6" />}
-            </button>
-            <span className="pointer-events-none absolute right-[calc(100%+26px)] top-[-6px] hidden whitespace-nowrap rounded-[3px] bg-[#3a3f4a] px-5 py-[9px] text-[13px] leading-4 text-white group-hover:block">{t("Выбрать из списка")}</span>
-          </div>
+            <div className="group relative ml-5 shrink-0">
+              <button type="button" onClick={toggleSelectMode} aria-label={t("Выбрать из списка")} className="flex h-12 w-12 items-center justify-center">
+                <SolidIcon d={selectMode ? ICON_EYE_OFF : ICON_LIST_CHECK} className="h-6 w-6 text-[#5d6474]" />
+              </button>
+              <span className="pointer-events-none absolute right-[calc(100%-12px)] top-[7px] hidden h-[33px] whitespace-nowrap rounded-[2px] bg-[#2d3037] px-5 text-[13px] font-bold leading-[33px] text-white opacity-90 group-hover:block">{t("Выбрать из списка")}</span>
+            </div>
 
-          <div className="ml-[13px] flex shrink-0 items-center gap-[5px]">
-            <button type="button" onClick={() => setDialog("add")} className="flex h-9 items-center gap-2 rounded-[3px] bg-[#4db6ac] px-[14px] font-bold text-white hover:brightness-95">
-              <SolidIcon d={ICON_BOX} />{t(labels.add)}
-            </button>
-            <button type="button" onClick={() => setDialog("remove")} className="flex h-9 items-center gap-2 rounded-[3px] bg-[#ff8a65] px-[14px] font-bold text-white hover:brightness-95">
-              <SolidIcon d={ICON_TRASH} />{t(labels.remove)}
-            </button>
-            <button type="button" onClick={() => setDialog("replace")} className="flex h-9 items-center gap-2 rounded-[3px] bg-[#4f71dc] px-[14px] font-bold text-white hover:brightness-95">
-              <SolidIcon d={ICON_SHIELD} />{t("Стереть и добавить")}
-            </button>
+            <div className="flex shrink-0 items-center gap-[5px]">
+              <button type="button" onClick={() => setDialog("add")} className={`${actionBtn} bg-[#4db6ac]`}>
+                <svg viewBox="244 244 24 24" className="h-6 w-6 fill-current" aria-hidden="true">{ICON_BOX.map((d) => <path key={d} d={d} />)}</svg><span className="pl-2 pr-4">{t(labels.add)}</span>
+              </button>
+              <button type="button" onClick={() => setDialog("remove")} className={`${actionBtn} bg-[#ff8a65]`}>
+                <SolidIcon d={ICON_TRASH} className="h-6 w-6" /><span className="pl-2 pr-4">{t(labels.remove)}</span>
+              </button>
+              <button type="button" onClick={() => setDialog("replace")} className={`${actionBtn} bg-[#4f71dc]`}>
+                <SolidIcon d={ICON_SHIELD} className="h-6 w-6" /><span className="pl-2 pr-4">{t("Стереть и добавить")}</span>
+              </button>
+            </div>
           </div>
         </div>
 
-        <div className={`grid h-[50px] items-center bg-[#5d6474] font-bold text-white ${gridCols}`}>
-          {selectMode && (
-            <button
-              type="button"
-              onClick={() => setChecked(allChecked ? [] : visible.map((row) => row.id))}
-              aria-label={t("Выбрать все")}
-              className="flex h-full items-center justify-end pr-2"
-            >
-              <CheckCheck className="h-5 w-5" />
-            </button>
-          )}
-          <span className={selectMode ? "pl-[2px]" : "pl-[30px]"}>№</span>
-          <span className="pl-[30px]">{t("Сотрудник")}</span>
-          <span className="pl-[30px]">{t(labels.count)}</span>
+        <div className={`grid h-[50px] items-center bg-[#5d6474] px-[30px] font-semibold text-white ${gridCols}`}>
+          <div className="flex items-center">
+            {selectMode && (
+              <button
+                type="button"
+                onClick={() => setChecked(allChecked ? [] : visible.map((row) => row.id))}
+                aria-label={t("Выбрать все")}
+                className="-ml-[10px] mr-[6px] flex h-6 w-6 items-center justify-center"
+              >
+                <SolidIcon d={ICON_DONE_ALL} className="h-6 w-6" />
+              </button>
+            )}
+            <span>№</span>
+          </div>
+          <span className="pl-2">{t("Сотрудник")}</span>
+          <span className="pl-2">{t(labels.count)}</span>
         </div>
 
         {error && <p className="px-[30px] py-3 text-red-500">{error}</p>}
 
         {visible.map((row, index) => (
-          <div key={row.id} className={`grid min-h-[50px] items-center border-b border-dashed border-[#dfe3ea] hover:bg-slate-50 ${gridCols}`}>
-            {selectMode && (
-              <label className="flex h-full cursor-pointer items-center justify-end pr-3">
-                <span className={`flex h-[18px] w-[18px] items-center justify-center rounded-[2px] border-2 ${checked.includes(row.id) ? "border-[#5d6474] bg-[#5d6474]" : "border-[#333]"}`}>
-                  {checked.includes(row.id) && <Check className="h-3 w-3 stroke-[3] text-white" />}
-                  <input
-                    type="checkbox"
-                    checked={checked.includes(row.id)}
-                    onChange={() => setChecked((current) => (current.includes(row.id) ? current.filter((id) => id !== row.id) : [...current, row.id]))}
-                    className="sr-only"
-                  />
-                </span>
-              </label>
-            )}
-            <span className={selectMode ? "pl-[2px]" : "pl-[30px]"}>{(safePage - 1) * pageSize + index + 1}</span>
-            <span className="pl-[30px] text-[#4a6ee0]">{row.employee}</span>
-            <span className="pl-[30px]">{row.items.length}</span>
+          <div key={row.id} className={`grid min-h-[50px] items-center border-b border-dotted border-[#d6d6d6] px-[30px] hover:bg-[#f2f5f8] ${gridCols}`}>
+            <div className="flex items-center">
+              {selectMode && (
+                <label className="-ml-[10px] mr-[6px] flex h-6 w-6 cursor-pointer items-center justify-center">
+                  <span className={`flex h-[18px] w-[18px] items-center justify-center rounded-[2px] border-2 ${checked.includes(row.id) ? "border-[#5d6474] bg-[#5d6474]" : "border-[#333]"}`}>
+                    {checked.includes(row.id) && <Check className="h-3 w-3 stroke-[3] text-white" />}
+                    <input
+                      type="checkbox"
+                      checked={checked.includes(row.id)}
+                      onChange={() => setChecked((current) => (current.includes(row.id) ? current.filter((id) => id !== row.id) : [...current, row.id]))}
+                      className="sr-only"
+                    />
+                  </span>
+                </label>
+              )}
+              <span>{(safePage - 1) * pageSize + index + 1}</span>
+            </div>
+            <span className="pl-2 text-[#4f71dc]">{row.employee}</span>
+            <span className="pl-2">{row.items.length}</span>
           </div>
         ))}
 
         {visible.length === 0 && (
-          <div className="flex h-[276px] flex-col items-center pt-[58px]">
+          <div className="flex h-[276.3px] flex-col items-center pt-[57px]">
             <img src="/robot-empty.png" alt="" className="h-[162px] w-[162px] object-contain" />
-            <p className="mt-[8px] text-[13px] text-[#6b7280]">{t("По вашему запросу ничего не найдено")}</p>
+            <p className="mt-[11px] text-[13px] leading-[16.25px] text-[#666]">{t("По вашему запросу ничего не найдено")}</p>
           </div>
         )}
       </section>
@@ -258,7 +257,7 @@ export function ProductRestrictionsView() {
           }}
         />
       )}
-    </main>
+    </RefPage>
   )
 }
 
@@ -311,17 +310,17 @@ function RestrictionDialog({
       </header>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-[30px] pt-[31px]">
-        <div className="flex items-center justify-between">
-          <h3 className="text-[13px] font-semibold">{t("Список товаров")}</h3>
-          <button type="button" onClick={() => setPickerOpen(true)} className="pr-[16px] text-[13px] text-[#4f6fe0] hover:underline">{t("добавить из списка")}</button>
+        <div className="flex items-start justify-between pt-[1px]">
+          <h3 className="text-[13px] font-semibold leading-[16.25px]">{t("Список товаров")}</h3>
+          <button type="button" onClick={() => setPickerOpen(true)} className="pr-[16px] pt-[1.5px] text-[13px] leading-[16.25px] text-[#4f71dc] hover:underline">{t("добавить из списка")}</button>
         </div>
 
         {chosen.length === 0 ? (
-          <div className="mt-[35px] flex flex-col items-center text-center leading-[18px] text-[#9e9e9e]">
-            <img src="/empty-basket.svg" alt="" className="mb-[20px] h-[72px] w-[72px]" />
+          <div className="mt-[37.5px] flex flex-col items-center text-center leading-[16.25px] text-[#adadad]">
+            <img src="/empty-basket.svg" alt="" className="mb-[21px] h-[70px] w-[70px]" />
             <p>
               {t("Вы еще не выбрали ни одного товара.")}<br />
-              <button type="button" onClick={() => setPickerOpen(true)} className="text-[#0a9bd9]">{t("Добавить")}</button> {t("товар?")}
+              <button type="button" onClick={() => setPickerOpen(true)} className="text-[#129fdd]">{t("Добавить")}</button> {t("товар?")}
             </p>
           </div>
         ) : (
@@ -346,19 +345,19 @@ function RestrictionDialog({
       </div>
 
       <footer className="flex h-[57px] shrink-0 items-center justify-end border-t border-[#e8ebf0] pr-[10px]">
-        <button type="button" onClick={() => setConfirmOpen(true)} disabled={saving} className="rounded-[3px] px-[16px] py-[8px] text-[13px] font-bold uppercase text-[#0a9bd9] hover:bg-[#ececec] disabled:opacity-50">{t("Сохранить")}</button>
+        <button type="button" onClick={() => setConfirmOpen(true)} disabled={saving} className="rounded-[3px] px-[16px] py-[8px] text-[13px] font-semibold uppercase text-[#129fdd] hover:bg-[#ececec] disabled:opacity-50">{t("Сохранить")}</button>
       </footer>
 
       {confirmOpen && (
-        <div className="fixed inset-0 z-[110] flex items-start justify-center bg-black/50 pt-[200px]">
-          <div className="w-[305px] bg-white shadow-xl">
+        <div className="fixed inset-0 z-[110] flex items-start justify-center bg-black/[0.54] pt-[180px]">
+          <div className="w-[305px] bg-white">
             <div className="flex h-[60px] items-center justify-between border-b border-[#e8ebf0] pl-[30px] pr-[22px]">
               <h3 className="text-[13px] font-bold uppercase">{t("Выполнить")}</h3>
               <button type="button" onClick={() => setConfirmOpen(false)} aria-label={t("Закрыть")} className="text-slate-500 hover:text-slate-800"><X className="h-6 w-6" /></button>
             </div>
-            <p className="h-[184px] px-[30px] pt-[20px] text-[13px]">{t("Подтверждение запроса")}</p>
+            <p className="h-[184px] px-[30px] pt-[19px] text-[13px]">{t("Подтверждение запроса")}</p>
             <div className="flex h-[57px] items-center justify-end border-t border-[#e8ebf0] px-[45px]">
-              <button type="button" onClick={confirmSave} className="text-[13px] font-bold uppercase text-[#0a9bd9] hover:underline">{t("Да")}</button>
+              <button type="button" onClick={confirmSave} className="text-[13px] font-semibold uppercase text-[#129fdd] hover:underline">{t("Да")}</button>
             </div>
           </div>
         </div>

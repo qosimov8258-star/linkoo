@@ -6,7 +6,7 @@ import { parseJsonBody } from "@/lib/validation"
 import { incomingChangeResponse, supplierIncomingSchema } from "@/lib/supplier-incomings-api"
 import { changeIncomingStatus, deleteIncoming, parseIncomingInput, updateIncoming } from "@/lib/supplier-incomings-repo"
 
-const statusSchema = z.object({ action: z.enum(["accept", "unaccept", "cancel"]) })
+const statusSchema = z.object({ action: z.enum(["accept", "unaccept", "cancel"]), date: z.string().optional() })
 
 type RouteParams = { params: Promise<{ id: string }> }
 
@@ -19,7 +19,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
   const parsed = await parseJsonBody(request, statusSchema)
   if (parsed.error) return parsed.error
 
-  const result = await changeIncomingStatus(id, parsed.data.action, auth.user.displayName)
+  const result = await changeIncomingStatus(id, parsed.data.action, auth.user.displayName, parsed.data.date)
   return incomingChangeResponse(result, "Действие недоступно для текущего статуса поставки")
 }
 

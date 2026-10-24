@@ -1,446 +1,363 @@
 "use client"
 
-import { ChevronLeft, ChevronRight, Pencil, Search, Trash2, X } from "lucide-react"
-import { FormEvent, useEffect, useMemo, useState } from "react"
+import { X } from "lucide-react"
+import { useCallback, useEffect, useMemo, useState } from "react"
+
+import { LineField, Modal, SaveButton } from "@/components/analytics/catalog-ui"
+import {
+  ConfirmDeleteDialog,
+  EmptyRows,
+  LinePick,
+  ROW_ICONS,
+  RowActions,
+  SettingsToolbar,
+  kitRow,
+  useListControls,
+  usePaged,
+} from "@/components/analytics/settings-list-kit"
+import { Check } from "@/components/staff/staff-kit"
+import { useLanguage } from "@/lib/i18n/language-context"
 
 import type { AccessRight, Capability, Permission } from "./access-rights-data"
+import { notify } from "@/lib/notify"
 
-function emptyDraft() {
-  return { name: "", capabilityIds: [] as number[] }
-}
+// "Права доступа" (demo #/position, Settings → Персонал; API main/position/, main/group/gcrud/ and billing permission/):
+// grid Права доступа | Возможности (chips), ✎ / 🗑 on hover; "+ создать права доступа" opens "Добавление должности"
+// (name + every capability with a ✎), "+ создать возможности" opens the full-screen permission transfer list.
 
-export function AccessRightsView() {
-  const [roles, setRoles] = useState<AccessRight[]>([])
-  const [capabilities, setCapabilities] = useState<Capability[]>([])
-  const [permissions, setPermissions] = useState<Permission[]>([])
-  const [loading, setLoading] = useState(true)
-  const [loadError, setLoadError] = useState("")
-  const [query, setQuery] = useState("")
-  const [page, setPage] = useState(1)
-  const [saving, setSaving] = useState(false)
-  const [editing, setEditing] = useState<AccessRight | "new" | null>(null)
-  const [draft, setDraft] = useState(emptyDraft)
-  const [capabilityModalOpen, setCapabilityModalOpen] = useState(false)
-  const [capabilityName, setCapabilityName] = useState("")
-  const [editingCapability, setEditingCapability] = useState<Capability | null>(null)
-  const pageSize = 25
+const PENCIL = ROW_ICONS.pencil
+const COLUMNS = "235px 1fr"
 
-  useEffect(() => {
-    let cancelled = false
-    setLoading(true)
-    Promise.all([
-      fetch("/api/access-rights").then((response) => (response.ok ? (response.json() as Promise<AccessRight[]>) : Promise.reject())),
-      fetch("/api/capabilities").then((response) => (response.ok ? (response.json() as Promise<Capability[]>) : Promise.reject())),
-      fetch("/api/permissions").then((response) => (response.ok ? (response.json() as Promise<Permission[]>) : Promise.reject())),
-    ])
-      .then(([accessRights, caps, perms]) => {
-        if (cancelled) return
-        setRoles(accessRights)
-        setCapabilities(caps)
-        setPermissions(perms)
-        setLoadError("")
-      })
-      .catch(() => {
-        if (!cancelled) setLoadError("Не удалось загрузить данные с сервера")
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false)
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [])
-
-  const capabilityById = useMemo(() => new Map(capabilities.map((item) => [item.id, item])), [capabilities])
-
-  const filtered = useMemo(() => roles.filter((role) => role.name.toLowerCase().includes(query.toLowerCase())), [roles, query])
-  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize))
-  const safePage = Math.min(page, pageCount)
-  const visible = filtered.slice((safePage - 1) * pageSize, safePage * pageSize)
-
-  function openCreate() {
-    setDraft(emptyDraft())
-    setEditing("new")
-  }
-
-  function openEdit(role: AccessRight) {
-    setDraft({ name: role.name, capabilityIds: [...role.capabilityIds] })
-    setEditing(role)
-  }
-
-  function toggleCapability(id: number) {
-    setDraft((current) => ({
-      ...current,
-      capabilityIds: current.capabilityIds.includes(id) ? current.capabilityIds.filter((value) => value !== id) : [...current.capabilityIds, id],
-    }))
-  }
-
-  async function save(event: FormEvent) {
-    event.preventDefault()
-    if (!draft.name.trim()) return
-    setSaving(true)
-    try {
-      const isEdit = editing !== "new" && editing !== null
-      const response = await fetch(isEdit ? `/api/access-rights/${(editing as AccessRight).id}` : "/api/access-rights", {
-        method: isEdit ? "PUT" : "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: draft.name.trim(), capabilityIds: draft.capabilityIds }),
-      })
-      if (!response.ok) {
-        const data = await response.json().catch(() => ({}))
-        window.alert(data.error || "Не удалось сохранить права доступа")
-        return
-      }
-      const saved = (await response.json()) as AccessRight
-      setRoles((list) => (isEdit ? list.map((role) => (role.id === saved.id ? saved : role)) : [saved, ...list]))
-      setEditing(null)
-    } catch {
-      window.alert("Сервер недоступен, попробуйте ещё раз")
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  async function remove(id: number) {
-    if (!window.confirm("Удалить эти права доступа?")) return
-    try {
-      const response = await fetch(`/api/access-rights/${id}`, { method: "DELETE" })
-      if (!response.ok) return
-      setRoles((list) => list.filter((role) => role.id !== id))
-    } catch {
-      window.alert("Сервер недоступен, попробуйте ещё раз")
-    }
-  }
-
-  async function saveCapability(event: FormEvent) {
-    event.preventDefault()
-    const name = capabilityName.trim()
-    if (!name) return
-    try {
-      const response = await fetch("/api/capabilities", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name }),
-      })
-      if (!response.ok) {
-        const data = await response.json().catch(() => ({}))
-        window.alert(data.error || "Не удалось создать возможность")
-        return
-      }
-      const created = (await response.json()) as Capability
-      setCapabilities((current) => [...current, created])
-      setCapabilityName("")
-      setCapabilityModalOpen(false)
-    } catch {
-      window.alert("Сервер недоступен, попробуйте ещё раз")
-    }
-  }
-
+function PermissionList({ items, onPick, selected }: { items: Permission[]; onPick: (id: number) => void; selected?: boolean }) {
+  const { t } = useLanguage()
   return (
-    <main className="min-w-0 flex-1">
-      <div className="flex flex-wrap items-center gap-6 px-5 py-4">
-        <button type="button" onClick={openCreate} className="text-[16px] text-[#4f71dc] hover:underline">
-          + создать права доступа
-        </button>
-        <button type="button" onClick={() => setCapabilityModalOpen(true)} className="text-[16px] text-[#4f71dc] hover:underline">
-          + создать возможности
-        </button>
-        <label className="relative ml-4 w-64">
-          <input value={query} onChange={(event) => { setQuery(event.target.value); setPage(1) }} placeholder="Поиск" className="w-full border-b border-slate-300 py-2 pr-10 outline-none focus:border-[#4f71dc]" />
-          <Search className="absolute right-2 top-2 h-5 w-5 text-slate-300" />
-        </label>
-        <span className="ml-auto text-slate-500">25</span>
-        <span className="text-slate-500">
-          {filtered.length ? (safePage - 1) * pageSize + 1 : 0} - {Math.min(safePage * pageSize, filtered.length)} из {filtered.length}
-        </span>
-        <button type="button" onClick={() => setPage((value) => Math.max(1, value - 1))} disabled={safePage <= 1} aria-label="Назад" className="disabled:opacity-30">
-          <ChevronLeft className="h-5 w-5 text-slate-400" />
-        </button>
-        <button type="button" onClick={() => setPage((value) => Math.min(pageCount, value + 1))} disabled={safePage >= pageCount} aria-label="Вперед" className="disabled:opacity-30">
-          <ChevronRight className="h-5 w-5 text-slate-400" />
-        </button>
-      </div>
-
-      {loadError && <p className="px-5 pb-3 text-sm text-red-500">{loadError}</p>}
-
-      <table className="w-full border-collapse text-left">
-        <thead>
-          <tr className="border-b border-slate-200">
-            <th className="w-[155px] px-5 py-3 text-[13px] font-bold text-black">Права доступа</th>
-            <th className="px-5 py-3 text-[13px] font-bold text-black">Возможности</th>
-            <th className="w-20" />
-          </tr>
-        </thead>
-        <tbody>
-          {visible.map((role) => (
-            <tr key={role.id} className="group border-b border-dashed border-slate-200 align-top hover:bg-slate-50">
-              <td className="whitespace-nowrap px-5 py-[12px] text-[13px]">{role.name}</td>
-              <td className="px-5 py-[7px]">
-                <div className="flex flex-wrap gap-[10px]">
-                  {role.capabilityIds.map((id) => {
-                    const capability = capabilityById.get(id)
-                    if (!capability) return null
-                    return (
-                      <span key={id} className="rounded-[3px] bg-[#eceff3] px-[14px] py-[8px] text-[13px] text-black">
-                        {capability.name}
-                      </span>
-                    )
-                  })}
-                </div>
-              </td>
-              <td className="px-5 py-5">
-                <div className="hidden items-center justify-end gap-3 text-slate-500 group-hover:flex">
-                  <button type="button" onClick={() => openEdit(role)} aria-label="Изменить">
-                    <Pencil className="h-5 w-5" />
-                  </button>
-                  <button type="button" onClick={() => remove(role.id)} aria-label="Удалить">
-                    <Trash2 className="h-5 w-5" />
-                  </button>
-                </div>
-              </td>
-            </tr>
-          ))}
-          {!loading && visible.length === 0 && (
-            <tr>
-              <td colSpan={3} className="px-5 py-10 text-center text-slate-400">
-                Ничего не найдено
-              </td>
-            </tr>
-          )}
-        </tbody>
-      </table>
-
-      {editing !== null && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
-          <form onSubmit={save} className="flex max-h-[92vh] w-[800px] max-w-full flex-col bg-white text-[13px]">
-            <header className="flex h-[60px] shrink-0 items-center justify-between border-b border-[#e8ebf0] pl-[30px] pr-[28px]">
-              <b className="uppercase">{editing === "new" ? "Добавление должности" : "Изменить права доступа"}</b>
-              <button type="button" onClick={() => setEditing(null)} aria-label="Закрыть">
-                <X className="h-5 w-5" />
-              </button>
-            </header>
-            <div className="flex-1 overflow-y-auto px-[30px] pb-[20px] pt-[20px]">
-              <label className="mb-[18px] block border-b border-[#d5dae1] pb-[4px] text-[10px] font-semibold">
-                Наименование <span className="text-red-500">*</span>
-                <input autoFocus value={draft.name} onChange={(event) => setDraft((value) => ({ ...value, name: event.target.value }))} className="mt-[6px] block h-[24px] w-full text-[13px] font-normal outline-none" />
-              </label>
-              
-              <div className="grid gap-x-6 gap-y-2 sm:grid-cols-2">
-                {capabilities.map((item) => (
-                  <div key={item.id} className="flex items-center gap-2 text-sm">
-                    <label className="flex flex-1 items-center gap-2 truncate">
-                      <input type="checkbox" checked={draft.capabilityIds.includes(item.id)} onChange={() => toggleCapability(item.id)} />
-                      <span className="truncate">{item.name}</span>
-                    </label>
-                    <button type="button" onClick={() => setEditingCapability(item)} aria-label={`Изменить «${item.name}»`} className="shrink-0 text-slate-400 hover:text-[#4f71dc]">
-                      <Pencil className="h-4 w-4" />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </div>
-            <footer className="flex h-[57px] shrink-0 items-center justify-end border-t border-[#e8ebf0] pr-[10px]">
-              <button type="submit" disabled={saving} className="h-9 min-w-[111px] rounded-[3px] bg-[#71ce87] px-[16px] text-[12px] font-bold uppercase text-white hover:brightness-95 disabled:opacity-60">
-                {saving ? "Сохранение..." : "Сохранить"}
-              </button>
-            </footer>
-          </form>
+    <div className="min-h-0 flex-1 overflow-y-auto border border-[#e0e0e0]">
+      {items.map((item) => (
+        <div key={item.id} className="flex min-h-[36px] items-center justify-between border-b border-[#e0e0e0] px-[8px] py-[2px] text-[12px] font-semibold leading-[15px]">
+          <span className="pr-4">{item.label}</span>
+          <button type="button" onClick={() => onPick(item.id)} aria-label={selected ? t("Убрать") : t("Добавить")} className="flex h-6 w-6 shrink-0 items-center justify-center text-[#4f71dc]">
+            {selected ? (
+              <X className="h-[22px] w-[22px]" />
+            ) : (
+              <svg viewBox="0 0 24 24" className="h-6 w-6 fill-current"><path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z" /></svg>
+            )}
+          </button>
         </div>
-      )}
-
-      {capabilityModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
-          <form onSubmit={saveCapability} className="w-full max-w-md rounded-lg bg-white p-6 shadow-xl">
-            <div className="mb-5 flex justify-between">
-              <h2 className="text-xl font-bold">Создать возможность</h2>
-              <button type="button" onClick={() => setCapabilityModalOpen(false)} aria-label="Закрыть">
-                <X />
-              </button>
-            </div>
-            <label className="mb-2 block font-medium">
-              Наименование <span className="text-red-500">*</span>
-            </label>
-            <input autoFocus value={capabilityName} onChange={(event) => setCapabilityName(event.target.value)} className="mb-4 w-full border-b border-slate-300 py-2 outline-none focus:border-[#4f71dc]" />
-            <div className="mt-6 flex justify-end">
-              <button type="submit" className="rounded bg-[#71ce87] px-5 py-3 font-semibold uppercase text-white hover:brightness-95">
-                Сохранить
-              </button>
-            </div>
-          </form>
-        </div>
-      )}
-
-      {editingCapability && (
-        <CapabilityPermissionsModal
-          capability={editingCapability}
-          allPermissions={permissions}
-          onClose={() => setEditingCapability(null)}
-          onSaved={(updated) => {
-            setCapabilities((current) => current.map((item) => (item.id === updated.id ? updated : item)))
-            setEditingCapability(null)
-          }}
-        />
-      )}
-    </main>
+      ))}
+    </div>
   )
 }
 
-function permissionMatches(permission: Permission, category: string, type: string, query: string) {
-  if (category && permission.category !== category) return false
-  if (type && permission.type !== type) return false
-  if (query) {
-    const needle = query.toLowerCase()
-    if (!permission.label.toLowerCase().includes(needle) && !permission.code.toLowerCase().includes(needle)) return false
-  }
-  return true
+function PermissionFilters({
+  categories,
+  types,
+  category,
+  type,
+  query,
+  onCategory,
+  onType,
+  onQuery,
+  placeholder,
+}: {
+  categories: string[]
+  types: string[]
+  category: string
+  type: string
+  query: string
+  onCategory: (value: string) => void
+  onType: (value: string) => void
+  onQuery: (value: string) => void
+  placeholder: string
+}) {
+  const { t } = useLanguage()
+  return (
+    <div className="mb-[20px] flex items-end gap-[12px]">
+      <div className="w-[220px]"><LinePick label={t("Категория")} value={category} options={categories.map((name) => ({ value: name, label: name }))} onChange={onCategory} /></div>
+      <div className="w-[195px]"><LinePick label={t("Тип")} value={type} options={types.map((name) => ({ value: name, label: name }))} onChange={onType} /></div>
+      <label className="relative min-w-0 flex-1 border-b border-[#e0e0e0]">
+        <input value={query} onChange={(event) => onQuery(event.target.value)} placeholder={placeholder} className="h-[40px] w-full bg-transparent pr-8 pt-[8px] text-[13px] outline-none placeholder:text-[#b9c0cc]" />
+        <svg viewBox="0 0 24 24" className="absolute right-1 top-[10px] h-[20px] w-[20px] fill-[#c4cad4]"><path d="M15.5 14h-.79l-.28-.27A6.47 6.47 0 0016 9.5 6.5 6.5 0 109.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z" /></svg>
+      </label>
+    </div>
+  )
 }
 
-function CapabilityPermissionsModal({
+function matches(permission: Permission, category: string, type: string, query: string) {
+  if (category && !permission.categories.includes(category)) return false
+  if (type && permission.type !== type) return false
+  return !query || permission.label.toLowerCase().includes(query.toLowerCase())
+}
+
+function CapabilityDialog({
   capability,
-  allPermissions,
+  permissions,
+  categories,
   onClose,
   onSaved,
 }: {
-  capability: Capability
-  allPermissions: Permission[]
+  capability: Capability | null
+  permissions: Permission[]
+  categories: string[]
   onClose: () => void
   onSaved: (capability: Capability) => void
 }) {
-  const [selectedIds, setSelectedIds] = useState<number[]>(capability.permissionIds)
+  const { t } = useLanguage()
+  const [name, setName] = useState(capability?.name ?? "")
+  const [selectedIds, setSelectedIds] = useState<number[]>(capability?.permissionIds ?? [])
   const [saving, setSaving] = useState(false)
-  const [availableCategory, setAvailableCategory] = useState("")
-  const [availableType, setAvailableType] = useState("")
-  const [availableQuery, setAvailableQuery] = useState("")
-  const [selectedCategory, setSelectedCategory] = useState("")
-  const [selectedType, setSelectedType] = useState("")
-  const [selectedQuery, setSelectedQuery] = useState("")
+  const [leftFilter, setLeftFilter] = useState({ category: "", type: "", query: "" })
+  const [rightFilter, setRightFilter] = useState({ category: "", type: "", query: "" })
+  const types = useMemo(() => Array.from(new Set(permissions.map((item) => item.type))).filter(Boolean), [permissions])
 
-  const categories = useMemo(() => Array.from(new Set(allPermissions.map((item) => item.category))).filter(Boolean).sort(), [allPermissions])
-  const types = useMemo(() => Array.from(new Set(allPermissions.map((item) => item.type))).filter(Boolean).sort(), [allPermissions])
+  const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds])
+  const available = useMemo(() => permissions.filter((item) => !selectedSet.has(item.id) && matches(item, leftFilter.category, leftFilter.type, leftFilter.query)), [permissions, selectedSet, leftFilter])
+  const selected = useMemo(() => permissions.filter((item) => selectedSet.has(item.id) && matches(item, rightFilter.category, rightFilter.type, rightFilter.query)), [permissions, selectedSet, rightFilter])
 
-  const available = useMemo(
-    () => allPermissions.filter((item) => !selectedIds.includes(item.id) && permissionMatches(item, availableCategory, availableType, availableQuery)),
-    [allPermissions, selectedIds, availableCategory, availableType, availableQuery],
-  )
-  const selected = useMemo(() => {
-    const byId = new Map(allPermissions.map((item) => [item.id, item]))
-    return selectedIds
-      .map((id) => byId.get(id))
-      .filter((item): item is Permission => Boolean(item))
-      .filter((item) => permissionMatches(item, selectedCategory, selectedType, selectedQuery))
-  }, [allPermissions, selectedIds, selectedCategory, selectedType, selectedQuery])
-
-  function addPermission(id: number) {
-    setSelectedIds((current) => (current.includes(id) ? current : [...current, id]))
-  }
-
-  function removePermission(id: number) {
-    setSelectedIds((current) => current.filter((value) => value !== id))
-  }
+  useEffect(() => {
+    function onKey(event: KeyboardEvent) {
+      if (event.key === "Escape") onClose()
+    }
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
+  }, [onClose])
 
   async function save() {
+    if (saving || !name.trim()) return
     setSaving(true)
     try {
-      const response = await fetch(`/api/capabilities/${capability.id}`, {
-        method: "PUT",
+      const response = await fetch(capability ? `/api/capabilities/${capability.id}` : "/api/capabilities", {
+        method: capability ? "PUT" : "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: capability.name, permissionIds: selectedIds }),
+        body: JSON.stringify({ name: name.trim(), permissionIds: selectedIds }),
       })
       if (!response.ok) {
-        const data = await response.json().catch(() => ({}))
-        window.alert(data.error || "Не удалось сохранить возможность")
+        const body = (await response.json().catch(() => ({}))) as { error?: string }
+        notify(t(body.error || "Не удалось сохранить возможность"))
         return
       }
-      const updated = (await response.json()) as Capability
-      onSaved(updated)
+      onSaved((await response.json()) as Capability)
     } catch {
-      window.alert("Сервер недоступен, попробуйте ещё раз")
+      notify(t("Сервер недоступен, попробуйте ещё раз"))
     } finally {
       setSaving(false)
     }
   }
 
   return (
-    <div className="fixed inset-0 z-[60] bg-white">
-      <div className="flex h-full w-full flex-col">
-        <header className="flex items-center justify-between border-b p-6">
-          <b className="uppercase">Изменить возможность — {capability.name}</b>
-          <button type="button" onClick={onClose} aria-label="Закрыть">
-            <X className="h-5 w-5" />
-          </button>
-        </header>
-
-        <div className="grid flex-1 grid-cols-1 gap-6 overflow-hidden p-6 sm:grid-cols-2">
+    <div className="fixed inset-0 z-[110] flex flex-col bg-white text-[13px] text-[#333]">
+      <header className="flex h-[60px] shrink-0 items-center justify-between border-b border-[#e8ebf0] pl-[30px] pr-[28px]">
+        <h3 className="text-[15px] font-bold uppercase">{capability ? t("Изменить возможность") : t("Создать возможности")}</h3>
+        <button type="button" onClick={onClose} aria-label={t("Закрыть")}><X className="h-6 w-6 text-slate-500" /></button>
+      </header>
+      <div className="flex min-h-0 flex-1 flex-col px-[20px] pt-[2px]">
+        <LineField label={t("Наименование")} required value={name} onChange={setName} />
+        <div className="mt-[26px] grid min-h-0 flex-1 grid-cols-2 gap-[17px]">
           <div className="flex min-h-0 flex-col">
-            <div className="mb-3 flex flex-wrap items-center gap-3">
-              <select value={availableCategory} onChange={(event) => setAvailableCategory(event.target.value)} className="rounded border border-slate-300 px-2 py-2 text-sm">
-                <option value="">Категория</option>
-                {categories.map((item) => <option key={item} value={item}>{item}</option>)}
-              </select>
-              <select value={availableType} onChange={(event) => setAvailableType(event.target.value)} className="rounded border border-slate-300 px-2 py-2 text-sm">
-                <option value="">Тип</option>
-                {types.map((item) => <option key={item} value={item}>{item}</option>)}
-              </select>
-              <label className="relative min-w-[160px] flex-1">
-                <input value={availableQuery} onChange={(event) => setAvailableQuery(event.target.value)} placeholder="Поиск из разрешения" className="w-full border-b border-slate-300 py-1.5 pr-8 text-sm outline-none focus:border-[#4f71dc]" />
-                <Search className="pointer-events-none absolute right-1 top-1.5 h-4 w-4 text-slate-300" />
-              </label>
-            </div>
-            <div className="flex-1 overflow-y-auto rounded border border-slate-200">
-              {available.map((item) => (
-                <button
-                  key={item.id}
-                  type="button"
-                  onClick={() => addPermission(item.id)}
-                  className="flex w-full items-center justify-between gap-3 border-b border-slate-100 px-4 py-3 text-left text-sm text-[#4f71dc] hover:bg-slate-50"
-                >
-                  <span className="truncate">
-                    {item.category}/{item.label} ({item.code})
-                  </span>
-                  <ChevronRight className="h-4 w-4 shrink-0" />
-                </button>
-              ))}
-              {available.length === 0 && <p className="px-4 py-6 text-center text-sm text-slate-400">Ничего не найдено</p>}
-            </div>
+            <PermissionFilters categories={categories} types={types} {...leftFilter} onCategory={(category) => setLeftFilter((v) => ({ ...v, category }))} onType={(type) => setLeftFilter((v) => ({ ...v, type }))} onQuery={(query) => setLeftFilter((v) => ({ ...v, query }))} placeholder={t("Поиск из разрешения")} />
+            <PermissionList items={available} onPick={(id) => setSelectedIds((current) => [...current, id])} />
           </div>
-
           <div className="flex min-h-0 flex-col">
-            <div className="mb-3 flex flex-wrap items-center gap-3">
-              <select value={selectedCategory} onChange={(event) => setSelectedCategory(event.target.value)} className="rounded border border-slate-300 px-2 py-2 text-sm">
-                <option value="">Категория</option>
-                {categories.map((item) => <option key={item} value={item}>{item}</option>)}
-              </select>
-              <select value={selectedType} onChange={(event) => setSelectedType(event.target.value)} className="rounded border border-slate-300 px-2 py-2 text-sm">
-                <option value="">Тип</option>
-                {types.map((item) => <option key={item} value={item}>{item}</option>)}
-              </select>
-              <label className="relative min-w-[160px] flex-1">
-                <input value={selectedQuery} onChange={(event) => setSelectedQuery(event.target.value)} placeholder="Поиск из выбранных разрешения" className="w-full border-b border-slate-300 py-1.5 pr-8 text-sm outline-none focus:border-[#4f71dc]" />
-                <Search className="pointer-events-none absolute right-1 top-1.5 h-4 w-4 text-slate-300" />
-              </label>
-            </div>
-            <div className="flex-1 overflow-y-auto rounded border border-slate-200">
-              {selected.map((item) => (
-                <div key={item.id} className="flex items-center justify-between gap-3 border-b border-slate-100 px-4 py-3 text-sm text-slate-700">
-                  <span className="truncate">
-                    {item.category}/{item.label} ({item.code})
-                  </span>
-                  <button type="button" onClick={() => removePermission(item.id)} aria-label="Убрать" className="shrink-0 text-[#4f71dc] hover:text-rose-500">
-                    <X className="h-4 w-4" />
-                  </button>
-                </div>
-              ))}
-              {selected.length === 0 && <p className="px-4 py-6 text-center text-sm text-slate-400">Ничего не выбрано</p>}
-            </div>
+            <PermissionFilters categories={categories} types={types} {...rightFilter} onCategory={(category) => setRightFilter((v) => ({ ...v, category }))} onType={(type) => setRightFilter((v) => ({ ...v, type }))} onQuery={(query) => setRightFilter((v) => ({ ...v, query }))} placeholder={t("Поиск из выбранных разрешения")} />
+            <PermissionList selected items={selected} onPick={(id) => setSelectedIds((current) => current.filter((value) => value !== id))} />
           </div>
         </div>
-
-        <footer className="flex justify-end border-t p-5">
-          <button type="button" onClick={() => void save()} disabled={saving} className="rounded bg-[#71ce87] px-6 py-3 font-semibold uppercase text-white hover:brightness-95 disabled:opacity-60">
-            {saving ? "Сохранение..." : "Сохранить"}
-          </button>
-        </footer>
       </div>
+      <footer className="flex h-[66px] shrink-0 items-center justify-end border-t border-[#e8ebf0] pr-[15px]">
+        <SaveButton disabled={saving || !name.trim()} onClick={() => void save()}>{t("Сохранить")}</SaveButton>
+      </footer>
     </div>
   )
+}
+
+function AccessRightDialog({
+  role,
+  capabilities,
+  onEditCapability,
+  onClose,
+  onSaved,
+}: {
+  role: AccessRight | null
+  capabilities: Capability[]
+  onEditCapability: (capability: Capability) => void
+  onClose: () => void
+  onSaved: (role: AccessRight) => void
+}) {
+  const { t } = useLanguage()
+  const [name, setName] = useState(role?.name ?? "")
+  const [ids, setIds] = useState<number[]>(role?.capabilityIds ?? [])
+  const [saving, setSaving] = useState(false)
+
+  async function save() {
+    if (saving || !name.trim()) return
+    setSaving(true)
+    try {
+      const response = await fetch(role ? `/api/access-rights/${role.id}` : "/api/access-rights", {
+        method: role ? "PUT" : "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: name.trim(), capabilityIds: ids }),
+      })
+      if (!response.ok) {
+        const body = (await response.json().catch(() => ({}))) as { error?: string }
+        notify(t(body.error || "Не удалось сохранить права доступа"))
+        return
+      }
+      onSaved((await response.json()) as AccessRight)
+    } catch {
+      notify(t("Сервер недоступен, попробуйте ещё раз"))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <Modal
+      title={role ? t("Изменить должность") : t("Добавление должности")}
+      width={1000}
+      anchorTop={50}
+      onClose={onClose}
+      bodyClassName="flex h-[643px] flex-col px-[20px] pt-[6px]"
+      headerClassName="pl-[30px]"
+      footer={<SaveButton disabled={saving || !name.trim()} onClick={() => void save()}>{t("Сохранить")}</SaveButton>}
+    >
+      <LineField label={t("Наименование")} required value={name} onChange={setName} />
+      <div className="mt-[6px] grid min-h-0 flex-1 grid-cols-2 content-start overflow-y-auto">
+        {capabilities.map((capability) => (
+          <div key={capability.id} className="relative flex h-[40px] items-center">
+            <Check className="!gap-[4px]" checked={ids.includes(capability.id)} onChange={(checked) => setIds((current) => (checked ? [...current, capability.id] : current.filter((id) => id !== capability.id)))} label={capability.name} />
+            <button type="button" onClick={() => onEditCapability(capability)} aria-label={`${t("Изменить")} ${capability.name}`} className="absolute right-[44px] top-1/2 -translate-y-1/2 text-[#555] hover:text-[#222]">
+              <svg viewBox="0 0 24 24" className="h-5 w-5 fill-current"><path d={PENCIL} /></svg>
+            </button>
+          </div>
+        ))}
+      </div>
+    </Modal>
+  )
+}
+
+export function AccessRightsView({ embedded = false }: { embedded?: boolean }) {
+  const { t } = useLanguage()
+  const [roles, setRoles] = useState<AccessRight[] | null>(null)
+  const [capabilities, setCapabilities] = useState<Capability[]>([])
+  const [permissions, setPermissions] = useState<Permission[]>([])
+  const [categories, setCategories] = useState<string[]>([])
+  const [dialog, setDialog] = useState<{ role: AccessRight | null } | null>(null)
+  const [capabilityDialog, setCapabilityDialog] = useState<{ capability: Capability | null } | null>(null)
+  const [deleting, setDeleting] = useState<AccessRight | null>(null)
+  const controls = useListControls(100)
+
+  const load = useCallback(async () => {
+    try {
+      const [rolesResponse, capabilitiesResponse] = await Promise.all([
+        fetch("/api/access-rights", { cache: "no-store" }),
+        fetch("/api/capabilities", { cache: "no-store" }),
+      ])
+      if (!rolesResponse.ok || !capabilitiesResponse.ok) throw new Error("load")
+      setRoles((await rolesResponse.json()) as AccessRight[])
+      setCapabilities((await capabilitiesResponse.json()) as Capability[])
+    } catch {
+      setRoles([])
+    }
+  }, [])
+  useEffect(() => { void load() }, [load])
+
+  // Permission catalogue is only needed by the capability dialog; load it on first use.
+  const ensurePermissions = useCallback(async () => {
+    if (permissions.length) return
+    try {
+      const response = await fetch("/api/permissions", { cache: "no-store" })
+      if (!response.ok) return
+      const data = (await response.json()) as { permissions: Permission[]; categories: string[] }
+      setPermissions(data.permissions)
+      setCategories(data.categories)
+    } catch {
+      /* the dialog shows an empty list */
+    }
+  }, [permissions.length])
+
+  function openCapability(capability: Capability | null) {
+    void ensurePermissions()
+    setCapabilityDialog({ capability })
+  }
+
+  const capabilityById = useMemo(() => new Map(capabilities.map((item) => [item.id, item])), [capabilities])
+  const needle = controls.query.trim().toLowerCase()
+  const filtered = (roles ?? []).filter((role) => role.name.toLowerCase().includes(needle))
+  const paged = usePaged(filtered, controls.page, controls.pageSize)
+
+  async function remove(role: AccessRight) {
+    const response = await fetch(`/api/access-rights/${role.id}`, { method: "DELETE" })
+    if (!response.ok) {
+      const body = (await response.json().catch(() => ({}))) as { error?: string }
+      notify(t(body.error || "Не удалось удалить права доступа"))
+      return
+    }
+    setDeleting(null)
+    await load()
+  }
+
+  const body = (
+    <section className="min-w-0 flex-1 bg-white text-[13px] text-[#333]">
+      <SettingsToolbar
+        left={
+          <>
+            <button type="button" onClick={() => setDialog({ role: null })} className="ml-[45px] text-[13px] text-[#4f71dc] hover:underline">+ {t("создать права доступа")}</button>
+            <button type="button" onClick={() => openCapability(null)} className="ml-[33px] text-[13px] text-[#4f71dc] hover:underline">+ {t("создать возможности")}</button>
+          </>
+        }
+        query={controls.query}
+        onQuery={controls.setQuery}
+        searchClassName="left-[595px] top-[22px] !w-[250px]"
+        className="h-[67px] pr-[27px] pt-[10px]"
+        pager={{
+          pageSize: controls.pageSize,
+          onPageSize: controls.setPageSize,
+          from: paged.from,
+          to: paged.to,
+          total: paged.total,
+          onPrev: paged.page > 1 ? () => controls.setPage(paged.page - 1) : undefined,
+          onNext: paged.page < paged.pageCount ? () => controls.setPage(paged.page + 1) : undefined,
+        }}
+      />
+      <div className="grid h-[48px] items-center border-b-2 border-dotted border-[#d9e0e5] font-semibold text-[#333]" style={{ gridTemplateColumns: COLUMNS }}>
+        <span className="pl-[30px]">{t("Права доступа")}</span>
+        <span>{t("Возможности")}</span>
+      </div>
+      {paged.rows.map((role) => (
+        <div key={role.id} className={`${kitRow} !min-h-[50px] py-[4.5px]`} style={{ gridTemplateColumns: COLUMNS }}>
+          <span className="pl-[30px] pr-2">{role.name}</span>
+          <div className="flex flex-wrap gap-x-[9px] gap-y-[10px] pr-[120px]">
+            {role.capabilityIds.map((id) => {
+              const capability = capabilityById.get(id)
+              return capability ? <span key={id} className="bg-[#ebedf0] px-[10px] py-[5px] text-[13px] leading-[18px] text-black">{capability.name}</span> : null
+            })}
+          </div>
+          <RowActions right={60} gap={6} onEdit={() => setDialog({ role })} onDelete={() => setDeleting(role)} />
+        </div>
+      ))}
+      {roles && paged.rows.length === 0 && <EmptyRows />}
+
+      {dialog && (
+        <AccessRightDialog
+          key={dialog.role?.id ?? "new"}
+          role={dialog.role}
+          capabilities={capabilities}
+          onEditCapability={(capability) => openCapability(capability)}
+          onClose={() => setDialog(null)}
+          onSaved={() => { setDialog(null); void load() }}
+        />
+      )}
+      {capabilityDialog && (
+        <CapabilityDialog
+          key={capabilityDialog.capability?.id ?? "new"}
+          capability={capabilityDialog.capability}
+          permissions={permissions}
+          categories={categories}
+          onClose={() => setCapabilityDialog(null)}
+          onSaved={() => { setCapabilityDialog(null); void load() }}
+        />
+      )}
+      {deleting && <ConfirmDeleteDialog name={`${t("Права доступа")}: ${deleting.name}`} onConfirm={() => void remove(deleting)} onClose={() => setDeleting(null)} />}
+    </section>
+  )
+  return embedded ? body : <main className="min-h-[calc(100vh-4rem)] bg-white">{body}</main>
 }

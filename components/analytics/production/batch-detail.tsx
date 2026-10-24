@@ -1,7 +1,8 @@
 "use client"
 
+import { askDelete } from "@/lib/ask-confirm"
 import { useMemo, useRef, useState, type FormEvent, type ReactNode } from "react"
-import { Calculator, ImagePlus, Package, PackagePlus, Pencil, Plus, ShieldAlert, Trash2 } from "lucide-react"
+import { Calculator, ImagePlus, Pencil, Trash2 } from "lucide-react"
 
 import { useLanguage } from "@/lib/i18n/language-context"
 import {
@@ -26,6 +27,7 @@ import {
   type Stage,
   type StockItem,
 } from "./production-ui"
+import { notify } from "@/lib/notify"
 
 type Movement = {
   id: number
@@ -93,79 +95,84 @@ export function BatchDetail({ partyId, stages, onChanged }: { partyId: number; s
   }
 
   async function removeMovement(id: number) {
-    if (!window.confirm(t("Удалить запись?"))) return
+    if (!(await askDelete())) return
     try {
       await api(`/api/production/movements/${id}`, { method: "DELETE" })
       setParty(await api<PartyDetail>(`/api/production/parties/${partyId}`))
       onChanged()
     } catch (error) {
-      window.alert((error as Error).message)
+      notify((error as Error).message)
     }
   }
 
+  const MADE_SUMMARY = "436px 218px 218px minmax(0,1fr)"
+  const PLAIN = "454px 182px 182px minmax(0,1fr)"
+  const RAW = "363px 273px 182px minmax(0,1fr)"
   return (
-    <div className="my-3 bg-white shadow-[0_6px_24px_rgba(15,23,42,0.18)]">
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b px-6 py-4">
-        <h3 className="text-xl font-semibold">
+    <div className="mx-[-15px] my-5 bg-white font-sans text-[13px] text-[#333] shadow-[0_3px_10px_rgba(0,0,0,0.16),0_3px_10px_rgba(0,0,0,0.23)]">
+      <div className="flex h-[66px] items-center justify-between border-b border-[#efefef] pl-[30px] pr-[6px]">
+        <h3 className="text-[18px] font-semibold">
           № {party.id} <span className={STATUS_TEXT[party.status]}>{t(STATUS_LABELS[party.status])}</span>
         </h3>
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex items-center gap-[10px]">
           {pending && (
             <>
-              <ActionButton color="bg-[#5b7ce6]" icon={<Plus className="h-4 w-4" />} label="Автодобавление" onClick={() => setDialog("auto")} />
-              <ActionButton color="bg-[#f0856a]" icon={<ShieldAlert className="h-4 w-4" />} label="Добавить бракованный товар" onClick={() => setDialog("defect")} />
-              <ActionButton color="bg-[#5cc6a4]" icon={<Package className="h-4 w-4" />} label="Добавить сырье" onClick={() => setDialog("raw")} />
-              <ActionButton color="bg-[#5d6be0]" icon={<PackagePlus className="h-4 w-4" />} label="Добавить продукт" onClick={() => setDialog("made")} />
+              <ActionButton color="bg-[#4f71dc]" icon="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z" label="Автодобавление" onClick={() => setDialog("auto")} />
+              <ActionButton color="bg-[#fa8072]" icon="M7 18c-1.1 0-1.99.9-1.99 2S5.9 22 7 22s2-.9 2-2-.9-2-2-2zM1 2v2h2l3.6 7.59-1.35 2.45c-.16.28-.25.61-.25.96 0 1.1.9 2 2 2h12v-2H7.42c-.14 0-.25-.11-.25-.25l.03-.12.9-1.63h7.45c.75 0 1.41-.41 1.75-1.03l3.58-6.49A1.003 1.003 0 0 0 20 4H5.21l-.94-2H1zm16 16c-1.1 0-1.99.9-1.99 2s.89 2 1.99 2 2-.9 2-2-.9-2-2-2z" label="Добавить бракованный товар" onClick={() => setDialog("defect")} />
+              <ActionButton color="bg-[#4db6ac]" icon="M20 2H4c-1 0-2 .9-2 2v3.01c0 .72.43 1.34 1 1.69V20c0 1.1 1.1 2 2 2h14c.9 0 2-.9 2-2V8.7c.57-.35 1-.97 1-1.69V4c0-1.1-1-2-2-2zm-5 12H9v-2h6v2zm5-7H4V4h16v3z" label="Добавить сырье" onClick={() => setDialog("raw")} />
+              <ActionButton color="bg-[#4f71dc]" icon="M10 17l5-5-5-5v10zM19 3H5a2 2 0 0 0-2 2v4h2V5h14v14H5v-4H3v4a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2z" label="Добавить продукт" onClick={() => setDialog("made")} />
             </>
           )}
-          <button onClick={() => setDialog("edit")} aria-label={t("Изменить")} className="p-2 text-slate-600 hover:text-blue-600">
-            <Pencil className="h-5 w-5" />
+          <button onClick={() => setDialog("edit")} aria-label={t("Изменить")} className="-ml-[10px] flex h-12 w-12 items-center justify-center">
+            <svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#5d6474]"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z" /></svg>
           </button>
         </div>
       </div>
 
-      <div className="grid md:grid-cols-[300px_minmax(0,1fr)]">
-        <aside className="border-slate-200 md:border-r">
-          <dl className="space-y-2 border-b px-6 py-5 text-sm">
+      <div className="grid md:grid-cols-[320px_minmax(0,1fr)]">
+        <aside>
+          <dl className="border-b border-[#efefef] px-[30px] pb-[18px] pt-[15px]">
             <InfoRow label="Дата создания" value={formatDateTime(party.createdAt)} />
             <InfoRow label="Дата завершения" value={party.finishedAt ? formatDateTime(party.finishedAt) : t("Не указано")} />
             <InfoRow label="Дата партии" value={formatDate(party.date)} />
             <InfoRow label="Пользователь" value={party.userName} />
-            <div>
-              <dt className="text-slate-600">{t("Этап производства")}</dt>
-              <dd className="mt-1 font-semibold uppercase">{party.stageName}</dd>
-            </div>
+            <InfoRow label="Этап производства" value={party.stageName} />
           </dl>
-          <div className="px-6 py-5 text-sm">
+          <div className="px-[30px] py-[20px]">
             <p className="font-semibold">{t("Комментарий")}:</p>
-            <p className="mt-1 whitespace-pre-wrap text-slate-600">{party.comment || t("Комментарий отсутствует")}</p>
+            <p className="mt-[5px] whitespace-pre-wrap">{party.comment || t("Комментарий отсутствует")}</p>
           </div>
         </aside>
 
-        <section className="min-w-0 px-6 pb-6">
-          <nav className="grid grid-cols-2 sm:grid-cols-4">
+        <section className="min-w-0 pb-[20px] pl-[22px] pr-[40px]">
+          <nav className="relative ml-[8px] mr-[10px] grid h-[50px] grid-cols-4">
             {TABS.map(([value, label]) => (
-              <button key={value} onClick={() => setTab(value)} className={`border-b-2 px-2 py-4 text-sm ${tab === value ? "border-blue-600 font-semibold" : "border-transparent text-slate-600"}`}>
+              <button key={value} onClick={() => setTab(value)} className="text-center text-[13px]">
                 {t(label)}
               </button>
             ))}
+            <span className="absolute bottom-0 h-[2px] bg-[#4f71dc] transition-transform duration-300" style={{ width: "25%", transform: `translateX(${TABS.findIndex(([value]) => value === tab) * 100}%)` }} />
           </nav>
           {tab === "summary" && (
             <>
               <LinesTable
+                cols={MADE_SUMMARY}
                 headers={["Произведенные товары", "Кол-во", "Себестоимость", "Срок годности"]}
                 rows={party.totalMade.map((line) => [line.name, formatAmount(line.amount, line.unit), formatNumber(line.cost), "-"])}
               />
               <LinesTable
+                cols={MADE_SUMMARY}
                 headers={["Затраченное сырье", "Кол-во", "Себестоимость", "Сумма"]}
                 rows={party.totalRaw.map((line) => [line.name, formatAmount(line.amount, line.unit), formatNumber(line.cost), formatNumber(line.total)])}
               />
-              <TotalRow value={party.totalRawCost} />
+              <TotalRow cols={MADE_SUMMARY} value={party.totalRawCost} />
             </>
           )}
           {tab === "made" && (
             <LinesTable
-              headers={["Продукт", "Кол-во", "Себестоимость", "Срок годности"]}
+              cols={PLAIN}
+              loose
+              headers={["Товар", "Кол-во", "Себестоимость", "Срок годности"]}
               rows={party.made.map((row) => [row.name, formatAmount(row.amount, row.unit), formatNumber(row.cost), "-"])}
               onDelete={pending ? party.made.map((row) => () => removeMovement(row.id)) : undefined}
             />
@@ -173,11 +180,13 @@ export function BatchDetail({ partyId, stages, onChanged }: { partyId: number; s
           {tab === "raw" && (
             <>
               <LinesTable
-                headers={["Продукт", "Кол-во", "Себестоимость", "Сумма"]}
+                cols={RAW}
+                loose
+                headers={["Товар", "Кол-во", "Себестоимость", "Сумма"]}
                 rows={party.raw.map((row) => [row.name, formatAmount(row.amount, row.unit), formatNumber(row.cost), formatNumber(row.total)])}
                 onDelete={pending ? party.raw.map((row) => () => removeMovement(row.id)) : undefined}
               />
-              <TotalRow value={party.totalRawCost} />
+              <TotalRow cols={RAW} value={party.totalRawCost} />
             </>
           )}
           {tab === "defects" && (
@@ -208,11 +217,11 @@ export function BatchDetail({ partyId, stages, onChanged }: { partyId: number; s
   )
 }
 
-function ActionButton({ color, icon, label, onClick }: { color: string; icon: ReactNode; label: string; onClick: () => void }) {
+function ActionButton({ color, icon, label, onClick }: { color: string; icon: string; label: string; onClick: () => void }) {
   const { t } = useLanguage()
   return (
-    <button onClick={onClick} className={`flex items-center gap-2 rounded px-4 py-2 text-sm font-semibold text-white shadow-sm hover:brightness-95 ${color}`}>
-      {icon}
+    <button onClick={onClick} className={`flex h-[36px] items-center rounded-[3px] px-4 text-[13px] font-semibold text-white shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)] hover:brightness-95 ${color}`}>
+      <svg viewBox="0 0 24 24" className="mr-[10px] h-6 w-6 fill-white" aria-hidden><path d={icon} /></svg>
       {t(label)}
     </button>
   )
@@ -221,88 +230,82 @@ function ActionButton({ color, icon, label, onClick }: { color: string; icon: Re
 function InfoRow({ label, value }: { label: string; value: string }) {
   const { t } = useLanguage()
   return (
-    <div className="flex justify-between gap-3">
-      <dt className="text-slate-600">{t(label)}</dt>
-      <dd className="text-right font-semibold">{value}</dd>
+    <div className="flex min-h-[25px] flex-wrap items-center justify-between leading-[16px]">
+      <dt className="mr-3 whitespace-nowrap">{t(label)}</dt>
+      <dd className="font-semibold">{value}</dd>
     </div>
   )
 }
 
-function LinesTable({ headers, rows, onDelete }: { headers: string[]; rows: string[][]; onDelete?: Array<() => void> }) {
+const DOTTED = "after:pointer-events-none after:absolute after:inset-x-0 after:bottom-0 after:h-[2px] after:bg-[linear-gradient(to_right,#d9e0e5_2px,transparent_2px)] after:bg-[length:8px_2px] after:content-['']"
+
+/** `loose`: the reference's single-list tabs (Произведенные продукты / Сырье) use 60px rows and indent the cells. */
+function LinesTable({ headers, rows, onDelete, cols, loose }: { headers: string[]; rows: string[][]; onDelete?: Array<() => void>; cols: string; loose?: boolean }) {
   const { t } = useLanguage()
+  const grid = onDelete ? `${cols} 40px` : cols
   return (
-    <table className="mt-2 w-full text-sm">
-      <thead>
-        <tr className="border-b border-dashed border-slate-300 text-left">
-          {headers.map((header, index) => (
-            <th key={header} className={`py-3 font-semibold ${index === 0 ? "w-2/5" : ""}`}>{t(header)}</th>
-          ))}
-          {onDelete && <th className="w-10" />}
-        </tr>
-      </thead>
-      <tbody>
-        {rows.map((row, index) => (
-          <tr key={index} className="border-b border-dashed border-slate-200">
-            {row.map((cell, cellIndex) => <td key={cellIndex} className="py-3">{cell}</td>)}
-            {onDelete && (
-              <td className="text-right">
-                <button onClick={onDelete[index]} aria-label={t("Удалить")} className="p-1 text-slate-500 hover:text-red-500"><Trash2 className="h-4 w-4" /></button>
-              </td>
-            )}
-          </tr>
-        ))}
-      </tbody>
-    </table>
+    <div>
+      <div className={`relative grid h-[56px] items-center font-semibold ${DOTTED}`} style={{ gridTemplateColumns: grid }}>
+        {headers.map((header) => <div key={header} className={loose ? "pl-2" : ""}>{t(header)}</div>)}
+        {onDelete && <div />}
+      </div>
+      {rows.map((row, index) => (
+        <div key={index} className={`relative grid items-center ${loose ? "min-h-[60px]" : "min-h-[50px]"} ${DOTTED}`} style={{ gridTemplateColumns: grid }}>
+          {row.map((cell, cellIndex) => <div key={cellIndex} className={loose ? "pl-[13px]" : ""}>{cell}</div>)}
+          {onDelete && (
+            <button onClick={onDelete[index]} aria-label={t("Удалить")} className="flex h-8 w-8 items-center justify-center justify-self-end">
+              <Trash2 className="h-4 w-4 text-[#5d6474]" />
+            </button>
+          )}
+        </div>
+      ))}
+    </div>
   )
 }
 
-function TotalRow({ value }: { value: number }) {
+function TotalRow({ value, cols }: { value: number; cols: string }) {
   const { t } = useLanguage()
   return (
-    <div className="mt-4 flex justify-between pr-10 text-sm font-semibold">
-      <span>{t("Итого")}</span>
-      <span>{formatNumber(value)}</span>
+    <div className="grid h-[50px] items-center font-semibold" style={{ gridTemplateColumns: cols }}>
+      <span className="pl-[5px]">{t("Итого")}</span>
+      <span /><span />
+      <span className="pl-[5px]">{formatNumber(value)}</span>
     </div>
   )
 }
 
 function DefectTable({ title, rows, onDelete }: { title: string; rows: Movement[]; onDelete?: (id: number) => void }) {
   const { t } = useLanguage()
+  // Name | amount | photo (the reference lists the defect's photo in the third column).
+  const grid = onDelete ? "636px 281px minmax(0,1fr) 40px" : "636px 281px minmax(0,1fr)"
   return (
-    <table className="mt-2 w-full text-sm">
-      <thead>
-        <tr className="border-b border-dashed border-slate-300 text-left">
-          <th className="w-2/5 py-3 font-semibold">{t(title)}</th>
-          <th className="py-3 font-semibold">{t("Кол-во")}</th>
-          <th className="py-3 font-semibold">{t("Комментарий")}</th>
-          {onDelete && <th className="w-10" />}
-        </tr>
-      </thead>
-      <tbody>
-        {rows.map((row) => (
-          <tr key={row.id} className="border-b border-dashed border-slate-200">
-            <td className="py-3">
-              <span className="flex items-center gap-2">
-                {row.image && (
-                  <a href={row.image} target="_blank" rel="noreferrer">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={row.image} alt="" className="h-9 w-9 rounded object-cover" />
-                  </a>
-                )}
-                {row.name}
-              </span>
-            </td>
-            <td className="py-3">{formatAmount(row.amount, row.unit)}</td>
-            <td className="py-3 text-slate-600">{row.comment || "-"}</td>
-            {onDelete && (
-              <td className="text-right">
-                <button onClick={() => onDelete(row.id)} aria-label={t("Удалить")} className="p-1 text-slate-500 hover:text-red-500"><Trash2 className="h-4 w-4" /></button>
-              </td>
+    <div>
+      <div className={`relative grid h-[56px] items-center font-semibold ${DOTTED}`} style={{ gridTemplateColumns: grid }}>
+        <div className="pl-2">{t(title)}</div>
+        <div className="pl-2">{t("Кол-во")}</div>
+        <div />
+        {onDelete && <div />}
+      </div>
+      {rows.map((row) => (
+        <div key={row.id} title={row.comment || undefined} className={`relative grid min-h-[60px] items-center ${DOTTED}`} style={{ gridTemplateColumns: grid }}>
+          <span className="pl-[13px]">{row.name}</span>
+          <span className="pl-[13px]">{formatAmount(row.amount, row.unit)}</span>
+          <span>
+            {row.image && (
+              <a href={row.image} target="_blank" rel="noreferrer">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={row.image} alt={row.name} className="h-10 w-10 rounded object-cover" />
+              </a>
             )}
-          </tr>
-        ))}
-      </tbody>
-    </table>
+          </span>
+          {onDelete && (
+            <button onClick={() => onDelete(row.id)} aria-label={t("Удалить")} className="flex h-8 w-8 items-center justify-center justify-self-end">
+              <Trash2 className="h-4 w-4 text-[#5d6474]" />
+            </button>
+          )}
+        </div>
+      ))}
+    </div>
   )
 }
 
@@ -345,14 +348,14 @@ function AutoAddDialog({ party, recipes, stock, onClose, onSaved }: DialogProps 
         }),
       )
     } catch (error) {
-      window.alert((error as Error).message)
+      notify((error as Error).message)
     } finally {
       setSaving(false)
     }
   }
 
   return (
-    <Modal title={t("Автодобавление")} tall onClose={onClose} width="max-w-3xl" footer={<SaveButton type="button" label="Подтвердить" saving={saving} disabled={!components} onClick={confirm} />}>
+    <Modal title={t("Автодобавление")} tall onClose={onClose} width="max-w-[1000px]" footer={<SaveButton type="button" label="Подтвердить" saving={saving} disabled={!components} onClick={confirm} />}>
       <div className="grid gap-5 sm:grid-cols-[minmax(0,1fr)_160px_auto] sm:items-end">
         <Field label="Продукт">
           <ItemPicker items={recipes} value={recipeKey} onChange={(key) => { setRecipeKey(key); setComponents(null) }} placeholder="Продукт" />
@@ -459,7 +462,7 @@ function DefectDialog({ party, recipes, stock, onClose, onSaved }: DialogProps &
     try {
       setImage(await readImageFile(file))
     } catch (error) {
-      window.alert((error as Error).message)
+      notify((error as Error).message)
     }
   }
 
@@ -471,22 +474,22 @@ function DefectDialog({ party, recipes, stock, onClose, onSaved }: DialogProps &
     try {
       onSaved(await api<PartyDetail>(`/api/production/parties/${party.id}/defects`, { method: "POST", body: { type, key, amount: value, comment, image } }))
     } catch (error) {
-      window.alert((error as Error).message)
+      notify((error as Error).message)
     } finally {
       setSaving(false)
     }
   }
 
   return (
-    <Modal title={t("Добавление брака")} tall onClose={onClose} onSubmit={save} footer={<SaveButton saving={saving} disabled={!type || !key} />}>
+    <Modal title={t("Добавление брака")} tall width="max-w-[700px]" onClose={onClose} onSubmit={save} footer={<SaveButton saving={saving} disabled={!type || !key} />}>
       <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={(event) => pickImage(event.target.files?.[0])} />
-      <button type="button" onClick={() => fileRef.current?.click()} className="mx-auto mb-6 flex h-40 w-56 flex-col items-center justify-center gap-2 overflow-hidden border-2 border-dashed border-slate-300 text-sm text-slate-500 hover:border-blue-500">
+      <button type="button" onClick={() => fileRef.current?.click()} className="mx-auto mb-6 flex h-[200px] w-[200px] flex-col items-center justify-center gap-2 overflow-hidden border border-dashed border-[#dcdcdc] text-[13px] text-[#333]">
         {image ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img src={image} alt="" className="h-full w-full object-cover" />
         ) : (
           <>
-            <ImagePlus className="h-8 w-8" />
+            <svg viewBox="0 0 24 24" className="h-10 w-10 fill-[#c4c4c4]" aria-hidden><path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z" /></svg>
             {t("Добавьте фото")}
           </>
         )}
@@ -527,7 +530,7 @@ function ItemsDialog({ party, direction, items, onClose, onSaved }: DialogProps 
     try {
       onSaved(await api<PartyDetail>(`/api/production/parties/${party.id}/items`, { method: "POST", body: { direction, date, items: lines } }))
     } catch (error) {
-      window.alert((error as Error).message)
+      notify((error as Error).message)
     } finally {
       setSaving(false)
     }
@@ -567,14 +570,14 @@ function EditDialog({ party, stages, onClose, onSaved }: { party: PartyDetail; s
       await api(`/api/production/parties/${party.id}`, { method: "PUT", body: { stageId: Number(stageId), status, date, comment } })
       await onSaved()
     } catch (error) {
-      window.alert((error as Error).message)
+      notify((error as Error).message)
     } finally {
       setSaving(false)
     }
   }
 
   return (
-    <Modal title={t("Изменение партии")} onClose={onClose} onSubmit={save} footer={<SaveButton saving={saving} />}>
+    <Modal title={t("Изменение партии")} width="max-w-[700px]" onClose={onClose} onSubmit={save} footer={<SaveButton saving={saving} label="Изменить" />}>
       <div className="space-y-5">
         <Field label="Этап производства" required>
           <select required value={stageId} onChange={(event) => setStageId(event.target.value)} className={inputClass}>

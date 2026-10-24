@@ -16,7 +16,7 @@ import {
   type SupplierPaymentsFilterValues,
 } from "@/components/analytics/supplier-payments-filter"
 import type { SupplierPaymentItem, SupplierPaymentsOptions, SupplierPaymentsResult } from "@/components/analytics/supplier-payments-data"
-import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
+import { RI, RefCard, RefHeader, RefIconButton, RefPage, RefTable, RefToolbar } from "@/components/ref/list-kit"
 import { downloadExcelTable } from "@/lib/excel-export"
 import { currencyLabel, formatMoney } from "@/lib/finance/currency"
 import { formatStatementDate, isIsoDay } from "@/lib/finance/dates"
@@ -320,17 +320,37 @@ export function SupplierPaymentsView() {
     }
   }
 
-  return (
-    <main className="min-h-screen bg-white text-[#17233b]">
-      <header className="flex min-h-[76px] items-center border-b border-[#d8dee7] bg-[#f2f5f8] px-4 md:px-9">
-        <div className="flex min-w-0 items-center gap-3">
-          <FavoritesButton className="flex items-center gap-3 text-2xl font-bold text-[#4f70e7]" />
-          <span className="text-3xl font-light text-[#586174]">|</span>
-          <span className="truncate text-xl font-bold text-[#586174] md:text-2xl">{t("Оплаты поставщикам")}</span>
-        </div>
-      </header>
+  const WEIGHTS: Record<ColumnId, number> = { id: 1, client: 3, user: 2, created_date: 2, division: 3, amount: 3, real_amount: 2, cashbox: 2, comment: 2 }
+  const pageCount = Math.max(1, Math.ceil((data?.count ?? 0) / paging.pageSize))
+  const heads = visibleColumns.map((column) => {
+    const sorted = ordering.includes(column.id) ? "asc" : ordering.includes(`-${column.id}`) ? "desc" : null
+    const label = (
+      <span className={column.align === "right" || column.id === "comment" ? "-mr-[22px] block text-right" : undefined}>
+        {t(column.label)}
+        {sorted ? <span className="ml-1 text-[10px]">{sorted === "asc" ? "▲" : "▼"}</span> : null}
+      </span>
+    )
+    return column.sortable ? (
+      <button
+        key={column.id}
+        type="button"
+        onClick={() => {
+          setOrdering(nextOrdering(ordering, column.id))
+          setPaging((current) => ({ ...current, page: 1 }))
+        }}
+        className="block w-full text-left font-semibold hover:opacity-80"
+      >
+        {label}
+      </button>
+    ) : (
+      <span key={column.id}>{label}</span>
+    )
+  })
 
-      <div className="flex min-h-[46px] flex-wrap items-center gap-x-2 px-4 py-3 text-[15px] font-semibold text-white md:px-9" style={{ background: "#5869f0" }}>
+  return (
+    <RefPage>
+      <RefHeader title={t("Оплаты поставщикам")} />
+      <div className="flex flex-wrap items-center gap-x-2 bg-[#5869f0] px-[5px] py-[5px] text-[13px] font-semibold leading-4 text-white">
         <span>{t("Оплаты поставщикам")}:</span>
         {loading && !data ? (
           <Loader2 className="h-4 w-4 animate-spin" aria-label={t("Загрузка...")} />
@@ -342,13 +362,12 @@ export function SupplierPaymentsView() {
                 {index < list.length - 1 ? " ," : ""}
               </span>
             ))}
-            {loading && <Loader2 className="h-4 w-4 animate-spin opacity-70" aria-label={t("Загрузка...")} />}
           </span>
         )}
       </div>
 
       {error && (
-        <div className="mx-4 mt-4 flex flex-wrap items-center gap-3 rounded-md bg-[#fdecec] px-4 py-3 text-sm text-[#c94848] md:mx-9">
+        <div className="mt-4 flex flex-wrap items-center gap-3 rounded-md bg-[#fdecec] px-4 py-3 text-sm text-[#c94848]">
           <span>
             {t("Не удалось загрузить данные")}: {t(error)}
           </span>
@@ -358,114 +377,53 @@ export function SupplierPaymentsView() {
         </div>
       )}
 
-      <section className="flex flex-wrap items-center gap-3 border-b border-[#e1e5eb] bg-white px-4 py-3 md:gap-5 md:px-9">
-        <BalanceFilterChip count={filterCount} onOpen={() => setFilterOpen((value) => !value)} onClear={clearFilter} />
-
-        <label className="relative min-w-[180px] flex-1 border-b border-[#dbe0e8] pb-1.5">
-          <input
-            value={searchInput}
-            onChange={(event) => setSearchInput(event.target.value)}
-            placeholder={t("Поиск")}
-            className="w-full bg-transparent pr-7 text-[15px] outline-none placeholder:text-[#9aa3b6]"
-          />
-          <Search className="pointer-events-none absolute right-0 top-0.5 h-5 w-5 text-[#9aa3b6]" />
-        </label>
-
-        <BalancePagination page={paging.page} pageSize={paging.pageSize} count={data?.count ?? 0} onChange={setPaging} />
-
-        <button
-          type="button"
-          onClick={() => void exportExcel()}
-          disabled={exporting || !data?.count}
-          className="flex h-10 items-center gap-2 rounded px-4 font-semibold text-white disabled:opacity-50"
-          style={{ background: "#71ce87" }}
-        >
-          <FileSpreadsheet className="h-[18px] w-[18px]" /> {exporting ? t("Загрузка...") : t("Скачать Excel")}
-        </button>
-
-        <ColumnChooser columns={COLUMNS} hidden={hidden} onChange={changeHidden} />
-        {exportError && <span className="basis-full text-sm text-[#e57373]">{exportError}</span>}
-      </section>
-
-      <div className="relative">
-        <SupplierPaymentsFilterPanel
-          open={filterOpen}
-          values={filter}
-          options={{
-            organizations: options?.organizations ?? [],
-            branches: options?.branches ?? [],
-            suppliers: options?.suppliers ?? [],
-            currencies: options?.currencies ?? [base],
-          }}
-          onApply={applyFilter}
-          onClose={() => setFilterOpen(false)}
+      <RefCard>
+        <RefToolbar
+          linkFilter="flush"
+          filterOpen={filterOpen}
+          onToggleFilter={() => setFilterOpen((value) => !value)}
+          filterPanel={
+            <SupplierPaymentsFilterPanel
+              open={filterOpen}
+              values={filter}
+              options={{
+                organizations: options?.organizations ?? [],
+                branches: options?.branches ?? [],
+                suppliers: options?.suppliers ?? [],
+                currencies: options?.currencies ?? [base],
+              }}
+              onApply={applyFilter}
+              onClose={() => setFilterOpen(false)}
+            />
+          }
+          query={searchInput}
+          onQuery={setSearchInput}
+          pageSize={paging.pageSize}
+          onPageSize={(size) => setPaging({ page: 1, pageSize: size })}
+          from={data?.count ? (paging.page - 1) * paging.pageSize + 1 : 0}
+          to={Math.min(paging.page * paging.pageSize, data?.count ?? 0)}
+          total={data?.count ?? 0}
+          page={paging.page}
+          pageCount={pageCount}
+          onPage={(page) => setPaging((current) => ({ ...current, page }))}
+          icons={
+            <>
+              <RefIconButton path={RI.download} label={exporting ? t("Загрузка...") : t("Скачать Excel")} onClick={() => void (!exporting && data?.count && exportExcel())} color="#333" />
+              <ColumnChooser columns={COLUMNS} hidden={hidden} onChange={changeHidden} />
+            </>
+          }
         />
-
-        <section className="overflow-x-auto bg-white pb-10">
-          <table className="w-full min-w-[1100px] table-fixed border-collapse text-[14px]">
-            <colgroup>
-              {visibleColumns.map((column) => (
-                <col key={column.id} style={{ width: `${(column.width / totalWidth) * 100}%` }} />
-              ))}
-            </colgroup>
-            <thead className="bg-[#626b7e] text-white">
-              <tr>
-                {visibleColumns.map((column) => {
-                  const sorted = ordering.includes(column.id) ? "asc" : ordering.includes(`-${column.id}`) ? "desc" : null
-                  return (
-                    <th key={column.id} className={`px-4 py-4 font-semibold ${column.align === "right" ? "text-right" : "text-left"}`} aria-sort={sorted === "asc" ? "ascending" : sorted === "desc" ? "descending" : undefined}>
-                      {column.sortable ? (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setOrdering(nextOrdering(ordering, column.id))
-                            setPaging((current) => ({ ...current, page: 1 }))
-                          }}
-                          className="inline-flex items-center gap-1.5 text-left hover:text-[#dfe4ff]"
-                        >
-                          {t(column.label)}
-                          {sorted === "asc" ? <ArrowUp className="h-3.5 w-3.5" /> : sorted === "desc" ? <ArrowDown className="h-3.5 w-3.5" /> : <ArrowUpDown className="h-3.5 w-3.5 opacity-40" />}
-                        </button>
-                      ) : (
-                        t(column.label)
-                      )}
-                    </th>
-                  )
-                })}
-              </tr>
-            </thead>
-            <tbody>
-              {loading && !rows.length ? (
-                <tr>
-                  <td colSpan={visibleColumns.length} className="px-4 py-16 text-center text-[#9aa3b6]">
-                    <Loader2 className="mx-auto mb-2 h-6 w-6 animate-spin" />
-                    {t("Загрузка...")}
-                  </td>
-                </tr>
-              ) : !rows.length ? (
-                <tr>
-                  <td colSpan={visibleColumns.length} className="px-4 py-16 text-center text-[#9aa3b6]">
-                    <div className="sticky left-0 w-[min(100vw,100%)]">{error ? t("Не удалось загрузить данные") : t("По вашему запросу ничего не найдено")}</div>
-                  </td>
-                </tr>
-              ) : (
-                rows.map((row, index) => (
-                  <tr
-                    key={row.id}
-                    className={`cursor-pointer border-b border-dashed border-slate-200 transition-colors hover:bg-[#eef2ff] ${index % 2 ? "bg-[#f6f9fc]" : "bg-white"} ${loading ? "opacity-60" : ""}`}
-                  >
-                    {visibleColumns.map((column) => (
-                      <td key={column.id} className={`px-4 py-4 align-top ${column.align === "right" ? "text-right" : ""}`}>
-                        {renderCell(row, column.id)}
-                      </td>
-                    ))}
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </section>
-      </div>
-    </main>
+        {exportError && <div className="bg-white px-5 pb-2 text-sm text-[#e57373]">{exportError}</div>}
+        <RefTable
+          cols={visibleColumns.map((column) => `minmax(0,${WEIGHTS[column.id]}fr)`).join(" ")}
+          heads={heads}
+          headPad={30}
+          rows={rows}
+          rowKey={(row) => row.id}
+          empty={loading && !rows.length ? t("Загрузка...") : error ? t("Не удалось загрузить данные") : t("По вашему запросу ничего не найдено")}
+          render={(row) => visibleColumns.map((column) => (column.id === "comment" ? <div key={column.id} className="text-right">{renderCell(row, column.id)}</div> : renderCell(row, column.id)))}
+        />
+      </RefCard>
+    </RefPage>
   )
 }

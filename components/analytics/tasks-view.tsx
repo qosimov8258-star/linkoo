@@ -5,9 +5,11 @@ import { Clock3, FileText, Pencil, PlusCircle, X } from "lucide-react"
 import Image from "next/image"
 import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react"
 
+import { FilterToggle } from "@/components/analytics/internal-transfers-filter"
 import { RI, RefButton, RefCard, RefHeader, RefPage, RefTable, RefTabs, RefToolbar } from "@/components/ref/list-kit"
 import { mapHeaderColumns, readExcelRows } from "@/lib/excel-import"
 import { taskResponsibles as responsibles, taskStatusLabels as statusLabels, taskStores as stores, type Task } from "./tasks-data"
+import { notify } from "@/lib/notify"
 
 const IMPORT_HEADER_ALIASES: Record<string, string> = {
   "ответственный": "responsible", "responsible": "responsible",
@@ -92,7 +94,7 @@ export function TasksView() {
       const saved = (await response.json()) as Task
       setTasks((current) => current.map((item) => (item.id === id ? saved : item)))
     } catch {
-      window.alert("Сервер недоступен, попробуйте ещё раз")
+      notify("Сервер недоступен, попробуйте ещё раз")
     }
   }
 
@@ -108,14 +110,14 @@ export function TasksView() {
       })
       if (!response.ok) {
         const data = await response.json().catch(() => ({}))
-        window.alert(data.error || "Не удалось создать задачу")
+        notify(data.error || "Не удалось создать задачу")
         return
       }
       const saved = (await response.json()) as Task
       setTasks((current) => [saved, ...current])
       setEditing(null)
     } catch {
-      window.alert("Сервер недоступен, попробуйте ещё раз")
+      notify("Сервер недоступен, попробуйте ещё раз")
     } finally {
       setSaving(false)
     }
@@ -131,7 +133,7 @@ export function TasksView() {
     try {
       const rows = await readExcelRows(importFile)
       if (!rows.length) {
-        window.alert("Не удалось найти задачи для импорта в выбранном файле")
+        notify("Не удалось найти задачи для импорта в выбранном файле")
         return
       }
       const fieldByIndex = mapHeaderColumns(rows[0], IMPORT_HEADER_ALIASES)
@@ -160,7 +162,7 @@ export function TasksView() {
       }
 
       if (!parsed.length) {
-        window.alert("Не удалось найти задачи для импорта в выбранном файле")
+        notify("Не удалось найти задачи для импорта в выбранном файле")
         return
       }
 
@@ -180,7 +182,7 @@ export function TasksView() {
         }
       }
       if (created.length) setTasks((current) => [...created, ...current])
-      if (failed) window.alert(`Импортировано ${created.length} из ${parsed.length}. Не удалось сохранить: ${failed}`)
+      if (failed) notify(`Импортировано ${created.length} из ${parsed.length}. Не удалось сохранить: ${failed}`)
     } finally {
       setImportSaving(false)
       setImportOpen(false)
@@ -205,32 +207,29 @@ export function TasksView() {
 
       <RefCard className="bg-white">
         <RefTabs labels={tabs.map((item) => item.label)} value={tabs.find((item) => item.key === tab)?.label ?? ""} onChange={(label) => { setTab(tabs.find((item) => item.label === label)?.key ?? tab); setPage(1) }} />
-      </RefCard>
-
-      <RefCard className="mt-[20px] bg-white">
         <RefToolbar
           leftSlot={
-            filterActive ? (
-              <div className="relative mr-[10px] flex h-[40px] items-center bg-[#f2f5f8] pl-[12px] text-[13px] text-[#5d6474]">
-                <span>Фильтр: 1 элемента</span>
-                <button type="button" onClick={() => setFilterEditOpen((value) => !value)} aria-label="Изменить фильтр" className="ml-[8px] flex h-[40px] w-[40px] items-center justify-center"><Pencil className="h-4 w-4 text-[#5d6474]" /></button>
-                <button type="button" onClick={() => setFilterActive(false)} aria-label="Очистить фильтр" className="flex h-[40px] w-[40px] items-center justify-center"><X className="h-5 w-5 rounded-full border border-[#5d6474] p-0.5 text-[#5d6474]" /></button>
-                {filterEditOpen && (
-                  <div className="absolute left-0 top-full z-20 mt-1 w-64 border border-slate-200 bg-white p-4 shadow-xl">
-                    <label className="block text-[10px] font-bold">
-                      Магазин
-                      <select value={storeFilter} onChange={(event) => setStoreFilter(event.target.value)} className="mt-1 block w-full border-b border-[#e0e0e0] bg-white py-2 text-[13px] font-normal outline-none">
-                        <option>Все магазины</option>
-                        {stores.map((item) => <option key={item}>{item}</option>)}
-                      </select>
-                    </label>
-                    <button type="button" onClick={() => setFilterEditOpen(false)} className="mt-4 h-[30px] w-full rounded-[5px] bg-[#4f71dc] text-[13px] font-semibold text-white">Применить</button>
-                  </div>
-                )}
-              </div>
-            ) : (
-              <button type="button" onClick={() => setFilterActive(true)} className="pl-[5px] text-[13px] text-[#4f71dc]">Показать фильтр ⌄</button>
-            )
+            <div className="relative">
+              <FilterToggle
+                count={filterActive ? 1 : 0}
+                open={filterEditOpen}
+                onOpen={() => (filterActive ? setFilterEditOpen((value) => !value) : setFilterActive(true))}
+                onClose={() => setFilterEditOpen(false)}
+                onClear={() => { setFilterActive(false); setFilterEditOpen(false) }}
+              />
+              {filterActive && filterEditOpen && (
+                <div className="absolute left-0 top-full z-20 mt-1 w-64 border border-slate-200 bg-white p-4 shadow-xl">
+                  <label className="block text-[10px] font-bold">
+                    Магазин
+                    <select value={storeFilter} onChange={(event) => setStoreFilter(event.target.value)} className="mt-1 block w-full border-b border-[#e0e0e0] bg-white py-2 text-[13px] font-normal outline-none">
+                      <option>Все магазины</option>
+                      {stores.map((item) => <option key={item}>{item}</option>)}
+                    </select>
+                  </label>
+                  <button type="button" onClick={() => setFilterEditOpen(false)} className="mt-4 h-[30px] w-full rounded-[5px] bg-[#4f71dc] text-[13px] font-semibold text-white">Применить</button>
+                </div>
+              )}
+            </div>
           }
           query={query}
           onQuery={(value) => { setQuery(value); setPage(1) }}

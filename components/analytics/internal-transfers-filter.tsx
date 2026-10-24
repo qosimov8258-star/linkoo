@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useState, type ReactNode } from "react"
-import { ChevronDown, Pencil, X } from "lucide-react"
+import { ChevronDown, X } from "lucide-react"
 
 import { FormField, MultiPick, inputClass } from "@/components/analytics/cash-management-shared"
 import { useLanguage } from "@/lib/i18n/language-context"
@@ -49,17 +49,24 @@ export function transferFilterCount(filters: TransferFilters): number {
 /** "Показать фильтр" / "Фильтр: N элемента" toggle shared by both pages. */
 export function FilterToggle({ count, open, onOpen, onClose, onClear }: { count: number; open: boolean; onOpen: () => void; onClose: () => void; onClear: () => void }) {
   const { t } = useLanguage()
+  // The reference's applied-filter bar: a 347x48 grey block flush with the toolbar's left edge,
+  // the text 30px in, then two 48px icon buttons (edit, clear) at its right end.
   if (count > 0)
     return (
-      <div className="flex items-center gap-2 rounded-md bg-[#efefef] px-4 py-1.5 text-[#666]">
+      <div className="-ml-[5px] flex h-12 w-[346.5px] items-center bg-[#efefef] pl-[30px] text-[13px] text-[#666]">
         <span className="whitespace-nowrap">
           {t("Фильтр")}: {count} {t("элемента")}
         </span>
-        <button type="button" onClick={onOpen} aria-label={t("Изменить фильтр")} title={t("Изменить фильтр")} className="border-l border-white pl-2 text-[#8f8f8f] hover:text-[#17233b]">
-          <Pencil className="h-4 w-4" />
+        <button type="button" onClick={onOpen} aria-label={t("Изменить фильтр")} title={t("Изменить фильтр")} className="ml-auto flex h-12 w-12 items-center justify-center">
+          <svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#8f8f8f]">
+            <path d="M17.75 7L14 3.25l-10 10V17h3.75l10-10zm2.96-2.96c.39-.39.39-1.02 0-1.41L18.37.29c-.39-.39-1.02-.39-1.41 0L15 2.25 18.75 6l1.96-1.96z" />
+            <path fillOpacity=".36" d="M0 20h24v4H0z" />
+          </svg>
         </button>
-        <button type="button" onClick={onClear} aria-label={t("Очистить фильтр")} title={t("Очистить фильтр")} className="border-l border-white pl-2 text-[#8f8f8f] hover:text-[#17233b]">
-          <X className="h-4 w-4" />
+        <button type="button" onClick={onClear} aria-label={t("Очистить фильтр")} title={t("Очистить фильтр")} className="flex h-12 w-12 items-center justify-center">
+          <svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#8f8f8f]">
+            <path d="M14.59 8L12 10.59 9.41 8 8 9.41 10.59 12 8 14.59 9.41 16 12 13.41 14.59 16 16 14.59 13.41 12 16 9.41 14.59 8zM12 2C6.47 2 2 6.47 2 12s4.47 10 10 10 10-4.47 10-10S17.53 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z" />
+          </svg>
         </button>
       </div>
     )

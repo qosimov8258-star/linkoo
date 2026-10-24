@@ -13,10 +13,11 @@ const taskSchema = z.object({
   status: z.enum(["in_progress", "fulfilled", "closed"]).optional(),
 })
 
-export async function GET() {
+export async function GET(request: Request) {
   const user = await getCurrentUser()
   if (!user) return NextResponse.json({ error: "Вы не вошли в систему" }, { status: 401 })
-  return NextResponse.json((await listTasks()))
+  const includeDemo = new URL(request.url).searchParams.get("all") === "1"
+  return NextResponse.json((await listTasks({ includeDemo })))
 }
 
 export async function POST(request: Request) {

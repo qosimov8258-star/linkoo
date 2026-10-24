@@ -1,12 +1,6 @@
-import type { Metadata } from "next"
+import { redirect } from "next/navigation"
 
-import { ClientDebtsView } from "@/components/analytics/client-debts-view"
-
-export const metadata: Metadata = {
-  title: "Долги с заказов — Linko",
-  description: "Долги клиентов по заказам с разбивкой по срокам просрочки.",
-}
-
+// The dashboard tab "ДОЛГ КЛИЕНТОВ" is the demo's #/statistics/debtors?toggle=order, i.e. "Долги с заказов".
 export default function ClientDebtsPage() {
-  return <ClientDebtsView />
+  redirect("/analytics/order-debts?toggle=order&pageSize=25")
 }

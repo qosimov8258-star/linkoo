@@ -18,6 +18,8 @@ async function ensureSchema(db: ReturnType<typeof getDb>) {
       currency TEXT NOT NULL DEFAULT 'SUM',
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
+    ALTER TABLE products ADD COLUMN IF NOT EXISTS box_unit TEXT NOT NULL DEFAULT '';
+    ALTER TABLE order_items ADD COLUMN IF NOT EXISTS return_quantity REAL NOT NULL DEFAULT 0;
   `)
 }
 
@@ -34,6 +36,13 @@ export type OrderItem = {
   currency: string
   lineTotal: number
   lineCost: number
+  /** Product article (the reference shows it under the product name). */
+  article?: string
+  /** Units per block and the block's unit name ("0 тонна(+1 кг)" in the order card). */
+  boxAmount?: number
+  boxUnit?: string
+  /** Quantity already returned by the client (the "Возврат" column of the order card). */
+  returnQuantity?: number
 }
 
 export type OrderItemWithOrder = OrderItem & {
@@ -80,6 +89,8 @@ function rowToOrderItem(row: Row): OrderItem {
 }
 
 export type OrderItemInput = {
+  /** Total quantity returned by the client so far (written by the quick return). */
+  returnQuantity?: number
   productId?: number
   productName: string
   unit?: string
@@ -146,13 +157,36 @@ async function syncOrderSummary(orderId: number): Promise<void> {
 export async function listOrderItems(orderId: number): Promise<OrderItem[]> {
   const db = getDb()
   await ensureSchema(db)
-  const rows = (await db.prepare("SELECT * FROM order_items WHERE order_id = ? ORDER BY id ASC").all(orderId)) as Row[]
-  return rows.map(rowToOrderItem)
+  const rows = (await db
+    .prepare(
+      `SELECT i.*, COALESCE(p.article, '') AS article, COALESCE(p.box_amount, 0) AS box_amount, COALESCE(p.box_unit, '') AS box_unit, COALESCE(i.return_quantity, 0) AS return_quantity
+       FROM order_items i LEFT JOIN products p ON p.id = i.product_id WHERE i.order_id = ? ORDER BY i.id ASC`,
+    )
+    .all(orderId)) as Array<Row & { article: string; box_amount: number; box_unit: string; return_quantity: number }>
+  return rows.map((row) => ({ ...rowToOrderItem(row), article: row.article, boxAmount: Number(row.box_amount), boxUnit: row.box_unit, returnQuantity: Number(row.return_quantity) }))
+}
+
+/** A line sent by name only (the order form) is linked to the one live product with that name and gets its cost, so stock and profit reports see it. */
+async function resolveProduct(db: ReturnType<typeof getDb>, input: OrderItemInput): Promise<{ productId: number | null; costPrice: number }> {
+  let productId = input.productId ?? null
+  let costPrice = input.costPrice ?? 0
+  if (productId === null) {
+    const found = (await db.prepare("SELECT id, cost FROM products WHERE name = ? AND COALESCE(deleted, 0) = 0 LIMIT 2").all(input.productName)) as Array<{ id: number; cost: number | null }>
+    if (found.length === 1) {
+      productId = found[0].id
+      if (!costPrice) costPrice = Number(found[0].cost) || 0
+    }
+  } else if (!costPrice) {
+    const row = (await db.prepare("SELECT cost FROM products WHERE id = ?").get(productId)) as { cost: number | null } | undefined
+    costPrice = Number(row?.cost) || 0
+  }
+  return { productId, costPrice }
 }
 
 export async function createOrderItem(orderId: number, input: OrderItemInput): Promise<OrderItem> {
   const db = getDb()
   await ensureSchema(db)
+  const linked = await resolveProduct(db, input)
   const result = await db
     .prepare(
       `INSERT INTO order_items (order_id, product_id, product_name, unit, quantity, unit_price, cost_price, discount_percent, currency)
@@ -160,12 +194,12 @@ export async function createOrderItem(orderId: number, input: OrderItemInput): P
     )
     .run({
       orderId,
-      productId: input.productId ?? null,
+      productId: linked.productId,
       productName: input.productName,
       unit: input.unit ?? "шт.",
       quantity: input.quantity,
       unitPrice: input.unitPrice,
-      costPrice: input.costPrice ?? 0,
+      costPrice: linked.costPrice,
       discountPercent: input.discountPercent ?? 0,
       currency: input.currency ?? "SUM",
     })
@@ -179,24 +213,29 @@ export async function updateOrderItem(orderId: number, itemId: number, input: Or
   await ensureSchema(db)
   const existing = (await db.prepare("SELECT * FROM order_items WHERE id = ? AND order_id = ?").get(itemId, orderId)) as Row | undefined
   if (!existing) return null
+  // A body without productId / costPrice (the edit form, quick return) keeps the link and the cost the line already has; a renamed line is re-linked by name.
+  const renamed = existing.product_name !== input.productName
+  const linked = await resolveProduct(db, { ...input, productId: input.productId ?? (renamed ? undefined : (existing.product_id as number | null) ?? undefined), costPrice: input.costPrice || (renamed ? 0 : Number(existing.cost_price) || 0) })
 
   await db
     .prepare(
       `UPDATE order_items SET product_id = @productId, product_name = @productName, unit = @unit, quantity = @quantity,
-       unit_price = @unitPrice, cost_price = @costPrice, discount_percent = @discountPercent, currency = @currency
+       unit_price = @unitPrice, cost_price = @costPrice, discount_percent = @discountPercent, currency = @currency,
+       return_quantity = COALESCE(@returnQuantity, return_quantity)
        WHERE id = @id AND order_id = @orderId`,
     )
     .run({
       id: itemId,
       orderId,
-      productId: input.productId ?? null,
+      productId: linked.productId,
       productName: input.productName,
       unit: input.unit ?? "шт.",
       quantity: input.quantity,
       unitPrice: input.unitPrice,
-      costPrice: input.costPrice ?? 0,
+      costPrice: linked.costPrice,
       discountPercent: input.discountPercent ?? 0,
       currency: input.currency ?? "SUM",
+      returnQuantity: input.returnQuantity ?? null,
     })
   const row = (await db.prepare("SELECT * FROM order_items WHERE id = ?").get(itemId)) as Row
   await syncOrderSummary(orderId)
