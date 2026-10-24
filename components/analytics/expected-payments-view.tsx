@@ -260,7 +260,7 @@ export function ExpectedPaymentsView() {
                 color="#5d6474"
                 active={state.showCheckboxes}
               />
-              <RefIconButton path={RI.download} label={t("Скачать")} onClick={() => rows.length && exportPage()} color="#333" />
+              <RefIconButton path={RI.download} label={t("Скачать Excel")} onClick={() => rows.length && exportPage()} color="#333" />
             </>
           }
         />

@@ -5334,4 +5334,6 @@ export const tk: Record<string, string> = {
   "Жу": "Жу",
   "Ша": "Ша",
   "Як": "Як",
+  "Добавить зону": "Zona goşmak",
+  "Добавить поставку": "Eltip bermäni goşmak",
 }

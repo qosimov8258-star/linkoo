@@ -86,7 +86,7 @@ export function ReportFilters({
       <button
         type="submit"
         disabled={applyDisabled}
-        className="mt-2 block h-9 w-full rounded-[5px] bg-[#71ce87] text-[13px] font-semibold text-white transition-[filter] hover:brightness-95 disabled:opacity-60"
+        className="mt-2 block h-9 w-full rounded-[5px] bg-[#71ce87] text-[13px] font-semibold text-white transition-[filter] hover:brightness-95 disabled:opacity-60 uppercase"
       >
         {t("Применить")}
       </button>
@@ -644,7 +644,7 @@ export function ReportFilterPanel({
         </div>
         {tabs && <div className="-mx-[25px] mt-[6px]">{tabs}</div>}
         <div className={`${tabs ? "mt-[20px]" : "mt-[18px]"} grid grid-cols-1 gap-x-[10.67px] gap-y-[13px] sm:grid-cols-2 lg:grid-cols-4`}>{children}</div>
-        <button type="submit" className="mt-[12px] block h-9 w-full rounded-[5px] bg-[#71ce87] text-[13px] font-semibold text-white transition-[filter] hover:brightness-95">
+        <button type="submit" className="mt-[12px] block h-9 w-full rounded-[5px] bg-[#71ce87] text-[13px] font-semibold text-white transition-[filter] hover:brightness-95 uppercase">
           {t("Применить")}
         </button>
       </form>

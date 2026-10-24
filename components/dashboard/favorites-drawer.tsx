@@ -142,7 +142,7 @@ export function FavoritesButton({ className = "flex items-center gap-2 text-[#4f
           </svg>
         </button>
         {tip && (
-          <span className="pointer-events-none absolute left-[34px] top-[-5px] z-50 whitespace-nowrap rounded-[2px] bg-[#2d3037] px-[21px] py-[8px] text-[13px] font-bold leading-[17px] text-white opacity-90">
+          <span role="tooltip" className="pointer-events-none absolute left-[34px] top-[-5px] z-50 whitespace-nowrap rounded-[2px] bg-[#2d3037] px-[21px] py-[8px] text-[13px] font-bold leading-[17px] text-white opacity-90">
             {t("Добавить в избранные")}
           </span>
         )}
@@ -155,6 +155,7 @@ export function FavoritesButton({ className = "flex items-center gap-2 text-[#4f
         sectionLabel &&
         createPortal(
           <span
+            role="tooltip"
             style={{ left: titleTip.left, top: titleTip.top }}
             className="pointer-events-none fixed z-[1000] whitespace-nowrap rounded-[2px] bg-[#2d3037] px-[21px] py-[8px] font-sans text-[13px] font-normal leading-[17px] text-white opacity-90"
           >

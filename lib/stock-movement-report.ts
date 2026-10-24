@@ -184,6 +184,51 @@ function previousDay(day: string): string {
   return date.toISOString().slice(0, 10)
 }
 
+// --- mirrored reference history ----------------------------------------------------
+// scripts/demo/apply-sbd-parity.mjs copies the reference's own day-by-day stock history (stock_report_ref_moves /
+// stock_report_ref_marks) so this report equals the reference for any period; our own ledger rows dated after the
+// mirror's cutoff day (documents created in this app later) are added on top. Without the tables the report uses
+// the ledger alone.
+declare global {
+  var __linkoMoveMirror: { at: number; cutoff: string | null } | undefined
+}
+
+async function mirrorCutoff(db: PgDb): Promise<string | null> {
+  const cached = globalThis.__linkoMoveMirror
+  if (cached && Date.now() - cached.at < 15000) return cached.cutoff
+  let cutoff: string | null = null
+  try {
+    const row = await db.prepare("SELECT value FROM stock_report_ref_meta WHERE key = 'cutoff'").get()
+    if (row?.value) cutoff = String(row.value)
+  } catch {
+    cutoff = null
+  }
+  globalThis.__linkoMoveMirror = { at: Date.now(), cutoff }
+  return cutoff
+}
+
+/** The ledger the report aggregates: columns day, warehouse, item_key, qty, value, kind, doc_type, doc_id, is_defect, is_mirror. */
+async function reportLedger(db: PgDb): Promise<{ sql: string; params: Record<string, unknown>; cutoff: string | null }> {
+  const ledger = await stockMovementsSql({}, db)
+  const cutoff = await mirrorCutoff(db)
+  if (!cutoff) {
+    return {
+      sql: `SELECT l.day, l.warehouse, l.item_key, l.qty, l.value, l.kind, l.doc_type, l.doc_id, l.is_defect, 0 AS is_mirror FROM (${ledger.sql}) l`,
+      params: ledger.params,
+      cutoff: null,
+    }
+  }
+  return {
+    sql: `SELECT r.day, r.warehouse, r.item_key, r.qty, r.value, r.kind, COALESCE(r.doc_type, 'stock_report_ref') AS doc_type, COALESCE(r.doc_id, r.id) AS doc_id, 0 AS is_defect, 1 AS is_mirror
+            FROM stock_report_ref_moves r
+          UNION ALL
+          SELECT l.day, l.warehouse, l.item_key, l.qty, l.value, l.kind, l.doc_type, l.doc_id, l.is_defect, 0 AS is_mirror
+            FROM (${ledger.sql}) l WHERE l.day > @rep_cutoff`,
+    params: { ...ledger.params, rep_cutoff: cutoff },
+    cutoff,
+  }
+}
+
 function nameOfKey(key: string, context: Context): string {
   return context.catalog.get(key)?.name ?? context.orphans.get(key) ?? (key.startsWith("name:") ? key.slice(5) : key)
 }
@@ -265,7 +310,7 @@ async function loadCells(
   const needPriceList = filters.mode === "price" && !filters.priceList
   const costs = new Map<string, number>()
   if (context.allowedWarehouses && !context.allowedWarehouses.length) return { cells: [], needPriceList, costs }
-  const ledger = await stockMovementsSql({}, db)
+  const ledger = await reportLedger(db)
   const params: Record<string, unknown> = { ...ledger.params, rep_from: filters.from, rep_to: filters.to }
   const where = [...ledgerWhere(context, params), "m.day <= @rep_to"]
   if (itemKey) {
@@ -276,14 +321,15 @@ async function loadCells(
     .prepare(
       `SELECT m.item_key, fin_key(m.warehouse) AS wk, MIN(m.warehouse) AS wh, m.kind, (m.day < @rep_from) AS is_before,
               SUM(m.qty) AS qty, SUM(m.value) AS value,
-              SUM(CASE WHEN COALESCE(m.value, 0) = 0 THEN m.qty ELSE 0 END) AS unvalued
+              SUM(CASE WHEN COALESCE(m.value, 0) = 0 AND m.is_mirror = 0 THEN m.qty ELSE 0 END) AS unvalued
          FROM (${ledger.sql}) m
         WHERE ${where.join(" AND ")}
         GROUP BY 1, 2, 4, 5`,
     )
     .all(params)
 
-  const cells = new Map<string, Cell & { kindValue: MoveNumbers; unvalued: MoveNumbers }>()
+  // `adj` = quantity the reference books without a column (kind "residual"): it moves the balance only.
+  const cells = new Map<string, Cell & { kindValue: MoveNumbers; unvalued: MoveNumbers; adj: number }>()
   for (const row of rows) {
     const key = String(row.item_key)
     if (!itemKey && !itemMatches(key, filters, context)) continue
@@ -292,13 +338,15 @@ async function loadCells(
     let cell = cells.get(id)
     if (!cell) {
       const warehouse = context.warehouses.get(warehouseKey)?.name ?? String(row.wh ?? "").trim()
-      cell = { itemKey: key, warehouseKey, warehouse, qty: emptyMoveNumbers(), value: null, kindValue: emptyMoveNumbers(), unvalued: emptyMoveNumbers() }
+      cell = { itemKey: key, warehouseKey, warehouse, qty: emptyMoveNumbers(), value: null, kindValue: emptyMoveNumbers(), unvalued: emptyMoveNumbers(), adj: 0 }
       cells.set(id, cell)
     }
     const qty = Number(row.qty) || 0
     const kind = String(row.kind) as StockMoveKind
     if (row.is_before === true) {
       cell.qty.begin += qty
+    } else if (String(row.kind) === "residual") {
+      cell.adj += qty
     } else if (STOCK_MOVE_KINDS.includes(kind)) {
       cell.qty[kind] += qty
       cell.kindValue[kind] += Number(row.value) || 0
@@ -311,7 +359,43 @@ async function loadCells(
   // a cost) qty × the average cost at the end of the period.
   let beginBalances = new Map<string, StockBalance>()
   let endBalances = new Map<string, StockBalance>()
-  if (filters.mode === "cost" && cells.size) {
+  const mirrored = new Map<string, { begin: number; end: number }>()
+  if (filters.mode === "cost" && cells.size && ledger.cutoff) {
+    // Valuations come from the reference's own snapshots (value after each movement day): begin = the last snapshot
+    // before the period, end = the last one up to the period's end; quantity moved after the mirror's cutoff is valued
+    // at that snapshot's unit cost. Per-item values are split over the item's warehouses by quantity.
+    const endDay = filters.to < ledger.cutoff ? filters.to : ledger.cutoff
+    const markRows = (await db.prepare("SELECT item_key, day, end_qty, end_value FROM stock_report_ref_marks WHERE day <= @m_to ORDER BY item_key, day").all({ m_to: endDay })) as Array<{ item_key: string; day: string; end_qty: number; end_value: number }>
+    const begins = new Map<string, number>()
+    const ends = new Map<string, { qty: number; value: number }>()
+    for (const row of markRows) {
+      if (row.day < filters.from) begins.set(row.item_key, Number(row.end_value) || 0)
+      ends.set(row.item_key, { qty: Number(row.end_qty) || 0, value: Number(row.end_value) || 0 })
+    }
+    const byItem = new Map<string, Array<{ id: string; cell: (typeof cells extends Map<string, infer C> ? C : never) }>>()
+    const endOf = (cell: { qty: MoveNumbers; adj: number }) => cell.qty.begin + STOCK_MOVE_KINDS.reduce((acc, kind) => acc + cell.qty[kind], 0) + cell.adj
+    for (const [id, cell] of cells) {
+      const list = byItem.get(cell.itemKey) ?? []
+      list.push({ id, cell })
+      byItem.set(cell.itemKey, list)
+    }
+    for (const [itemKey, list] of byItem) {
+      const beginTotal = list.reduce((sum, entry) => sum + entry.cell.qty.begin, 0)
+      const endQty = list.reduce((sum, entry) => sum + endOf(entry.cell), 0)
+      const mark = ends.get(itemKey)
+      const unit = mark && mark.qty ? mark.value / mark.qty : (context.catalog.get(itemKey)?.fallbackCost ?? 0)
+      costs.set(itemKey, unit)
+      const beginValue = begins.get(itemKey) ?? 0
+      const endValue = mark ? mark.value + (endQty - mark.qty) * unit : endQty * unit
+      const endTotal = Math.abs(endQty)
+      list.forEach((entry, index) => {
+        const cellEnd = endOf(entry.cell)
+        const beginShare = Math.abs(beginTotal) > 1e-9 ? entry.cell.qty.begin / beginTotal : index === 0 ? 1 : 0
+        const endShare = endTotal > 1e-9 ? cellEnd / endQty : index === 0 ? 1 : 0
+        mirrored.set(entry.id, { begin: beginValue * beginShare, end: endValue * endShare })
+      })
+    }
+  } else if (filters.mode === "cost" && cells.size) {
     const warehouses = context.allowedWarehouses ?? undefined
     const [begin, end] = await Promise.all([
       getStockBalances({ warehouses, date: previousDay(filters.from) }, db),
@@ -324,7 +408,7 @@ async function loadCells(
 
   const result: Cell[] = []
   for (const [id, cell] of cells) {
-    cell.qty.end = cell.qty.begin + STOCK_MOVE_KINDS.reduce((sum, kind) => sum + cell.qty[kind], 0)
+    cell.qty.end = cell.qty.begin + STOCK_MOVE_KINDS.reduce((sum, kind) => sum + cell.qty[kind], 0) + cell.adj
     finish(cell.qty)
     let value: MoveNumbers | null = null
     if (filters.mode === "cost") {
@@ -332,8 +416,9 @@ async function loadCells(
       const end = endBalances.get(id)
       const unitCost = costs.get(cell.itemKey) ?? context.catalog.get(cell.itemKey)?.fallbackCost ?? 0
       value = emptyMoveNumbers()
-      value.begin = begin ? begin.value : cell.qty.begin * unitCost
-      value.end = end ? end.value : cell.qty.end * unitCost
+      const mirror = mirrored.get(id)
+      value.begin = mirror ? mirror.begin : begin ? begin.value : cell.qty.begin * unitCost
+      value.end = mirror ? mirror.end : end ? end.value : cell.qty.end * unitCost
       for (const kind of STOCK_MOVE_KINDS) value[kind] = cell.kindValue[kind] + cell.unvalued[kind] * unitCost
       finish(value)
     } else if (filters.mode === "price" && !needPriceList) {
@@ -439,7 +524,14 @@ async function stockMovementRowsFresh(filters: MoveFilters, db: PgDb): Promise<M
   }
 
   // Zero rows: every catalog item / warehouse / branch / brand / type in scope.
-  const warehouseKeys = (context.allowedWarehouses ?? [...context.warehouses.values()].map((warehouse) => warehouse.name)).map(finKey).filter(Boolean)
+  let warehouseKeys = (context.allowedWarehouses ?? [...context.warehouses.values()].map((warehouse) => warehouse.name)).map(finKey).filter(Boolean)
+  if ((filters.groupBy === "stock" || filters.groupBy === "branch") && (await reportLedger(db)).cutoff) {
+    // Like the reference, the warehouse / branch grouping lists only warehouses that ever held a record (not every warehouse).
+    const ledger = await reportLedger(db)
+    const used = await db.prepare(`SELECT DISTINCT fin_key(m.warehouse) AS wk FROM (${ledger.sql}) m WHERE fin_key(m.warehouse) <> ''`).all(ledger.params)
+    const usedKeys = new Set(used.map((row) => String(row.wk)))
+    warehouseKeys = warehouseKeys.filter((key) => usedKeys.has(key))
+  }
   if (filters.groupBy === "stock") {
     for (const key of new Set(warehouseKeys)) ensure(context.warehouses.get(key)?.name ?? context.allowedWarehouses?.find((name) => finKey(name) === key) ?? key)
   } else if (filters.groupBy === "branch") {
@@ -520,7 +612,7 @@ export async function stockMovementItem(key: string, filters: MoveFilters, db: P
   if (total.value) finish(total.value)
 
   // Documents of the period (lines without a document value: qty × the average cost at the end of the period).
-  const ledger = await stockMovementsSql({}, db)
+  const ledger = await reportLedger(db)
   const params: Record<string, unknown> = { ...ledger.params, rep_key: key, rep_from: filters.from, rep_to: filters.to }
   const where = [...ledgerWhere(context, params), "m.item_key = @rep_key", "m.day >= @rep_from", "m.day <= @rep_to"]
   const docRows =
@@ -530,7 +622,7 @@ export async function stockMovementItem(key: string, filters: MoveFilters, db: P
           .prepare(
             `SELECT m.day, fin_key(m.warehouse) AS wk, MIN(m.warehouse) AS wh, m.kind, m.doc_type, m.doc_id,
                     SUM(m.qty) AS qty, SUM(m.value) AS value,
-                    SUM(CASE WHEN COALESCE(m.value, 0) = 0 THEN m.qty ELSE 0 END) AS unvalued
+                    SUM(CASE WHEN COALESCE(m.value, 0) = 0 AND m.is_mirror = 0 THEN m.qty ELSE 0 END) AS unvalued
                FROM (${ledger.sql}) m
               WHERE ${where.join(" AND ")}
               GROUP BY 1, 2, 4, 5, 6
@@ -546,7 +638,10 @@ export async function stockMovementItem(key: string, filters: MoveFilters, db: P
     let value: number | null = null
     if (filters.mode === "cost") value = round((Number(row.value) || 0) + (Number(row.unvalued) || 0) * unitCost)
     else if (withValue) value = round(qty * price)
-    return { day: String(row.day ?? ""), warehouse, kind: String(row.kind) as StockMoveKind, docType: String(row.doc_type ?? ""), docId: Number(row.doc_id) || 0, qty, value }
+    // The mirror's kind-less movements show as "Прочий приход / расход".
+    const rawKind = String(row.kind)
+    const kind = (rawKind === "residual" ? (qty >= 0 ? "none_in" : "none_out") : rawKind) as StockMoveKind
+    return { day: String(row.day ?? ""), warehouse, kind, docType: String(row.doc_type ?? ""), docId: Number(row.doc_id) || 0, qty, value }
   })
   return {
     ...(await echo(filters, needPriceList, db)),

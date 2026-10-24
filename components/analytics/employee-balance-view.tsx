@@ -349,8 +349,8 @@ export function EmployeeBalanceView() {
               type="button"
               onClick={downloadAll}
               disabled={!data || downloading}
-              title={t("Скачать")}
-              aria-label={t("Скачать")}
+              title={t("Скачать Excel")}
+              aria-label={t("Скачать Excel")}
               className="text-[#586174] hover:text-[#17233b] disabled:opacity-40"
             >
               {downloading ? <Loader2 className="h-5 w-5 animate-spin" /> : <Download className="h-5 w-5" />}

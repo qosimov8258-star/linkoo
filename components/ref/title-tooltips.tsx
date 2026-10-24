@@ -1,6 +1,9 @@
 "use client"
 
-import { useEffect } from "react"
+import { useEffect, useRef } from "react"
+import { usePathname } from "next/navigation"
+
+import { useLanguage } from "@/lib/i18n/language-context"
 
 /**
  * The reference app shows its icon-button hints as dark react-tooltip boxes (measured on #/shift: bottom placement, centered,
@@ -8,9 +11,33 @@ import { useEffect } from "react"
  * bubble. This turns the `title` of buttons / links / role=button elements into that box (the native one is suppressed
  * while hovering) so every icon hint of the app looks like the reference.
  */
-const ICON_HINTS = new Set(["Изменить", "Удалить", "Отменить", "Установить курс", "Ограничить доступ", "Выбрать из списка", "Edit", "Delete"])
+const ICON_HINTS = new Set(["Изменить", "Удалить", "Отменить", "Установить курс", "Ограничить доступ", "Выбрать из списка", "Скачать Excel", "Вкл/Выкл колонки", "Расширенный вид", "Дублировать", "Edit", "Delete"])
+
+// The reference hints its green toolbar «Добавить» button with a page-specific text (measured on each page's own hover bubble).
+const ADD_TIPS: Record<string, string> = {
+  "/clients": "Добавить клиента",
+  "/clients/territory": "Добавить зону",
+  "/tracking": "Добавить зону",
+  "/analytics/marketing-campaigns": "Добавить акцию",
+  "/analytics/supplier-incomings": "Добавить поставку",
+  "/analytics/internal-transfers": "Добавить передачу",
+  "/analytics/products": "Добавить продукт",
+  "/analytics/raw-materials": "Добавить сырье",
+  "/analytics/production-batches": "Добавить партию",
+  "/analytics/inventory-management": "Добавить инвентарь",
+  "/analytics/repricing": "Добавить",
+}
 
 export function TitleTooltips() {
+  const { t } = useLanguage()
+  const pathname = usePathname()
+  const tRef = useRef(t)
+  const pathRef = useRef(pathname)
+  useEffect(() => {
+    tRef.current = t
+    pathRef.current = pathname
+  }, [t, pathname])
+
   useEffect(() => {
     let tip: HTMLDivElement | null = null
     let host: HTMLElement | null = null
@@ -30,13 +57,28 @@ export function TitleTooltips() {
       // icon controls only: a button / link, or a wrapper around an icon / button without text of its own (text cells keep the native hint)
       let element = found && (found.matches("button, a, [role=button]") || (found.querySelector("svg, button") && !found.textContent?.trim())) ? found : null
       let text = element?.getAttribute("title") ?? ""
+      const translate = tRef.current
+      const hints = new Set([...ICON_HINTS, ...[...ICON_HINTS].map((hint) => translate(hint))])
       if (!element) {
         // icon-only buttons that carry just an aria-label: the reference hints these actions (row edit / delete, rate, access, select)
         const icon = target?.closest?.("button[aria-label]") as HTMLElement | null
         const label = icon?.getAttribute("aria-label") ?? ""
-        if (icon && !icon.textContent?.trim() && ICON_HINTS.has(label)) {
+        if (icon && !icon.textContent?.trim() && hints.has(label)) {
           element = icon
           text = label
+        }
+      }
+      if (!element) {
+        // the toolbar «Добавить» button of a list page
+        const button = target?.closest?.("button") as HTMLElement | null
+        const key = ADD_TIPS[pathRef.current ?? ""]
+        if (button && key) {
+          const rect = button.getBoundingClientRect()
+          const label = (button.textContent ?? "").replace(/^\s*\+\s*/, "").trim()
+          if (rect.left > 440 && rect.top < 130 && (label === "Добавить" || label === translate("Добавить"))) {
+            element = button
+            text = translate(key)
+          }
         }
       }
       if (!element || element === host || !text) return

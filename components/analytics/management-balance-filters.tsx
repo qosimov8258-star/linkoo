@@ -64,7 +64,7 @@ export function ManagementFilterBar({
           />
         )}
       </div>
-      <button type="button" onClick={apply} className="absolute left-[1075px] top-[26px] h-[30px] rounded-[4px] bg-[#4f71dc] px-[16px] text-[13px] font-bold text-white">
+      <button type="button" onClick={apply} className="absolute left-[1075px] top-[26px] h-[30px] rounded-[4px] bg-[#4f71dc] px-[16px] text-[13px] font-bold text-white uppercase">
         {t("Применить")}
       </button>
       {extra && <div className="absolute right-[30px] top-[17px]">{extra}</div>}

@@ -348,7 +348,7 @@ export function ReturnsView({ initialId }: { initialId?: number } = {}) {
           icons={
             <>
               <span className="-mr-[9px] flex">
-                <RefIconButton path={RI.checklist} label={t("Выбрать")} color="#5d6474" active={selectMode} onClick={() => setSelectMode((value) => !value)} />
+                <RefIconButton path={RI.checklist} label={t("Выбрать из списка")} color="#5d6474" active={selectMode} onClick={() => setSelectMode((value) => !value)} />
                 <RefIconButton path={RI.download} label={t("Скачать Excel")} color="#333" onClick={() => exportCsv(visible)} />
               </span>
             </>

@@ -120,7 +120,7 @@ export function MarketingCampaignsView() {
           page={paging.page}
           pageCount={paging.pageCount}
           onPage={paging.setPage}
-          icons={<><RefIconButton path={RI.checklist} label={t("Выбрать")} color="#5d6474" /><RefIconButton path={RI.download} label={t("Скачать CSV")} onClick={downloadCsv} /></>}
+          icons={<><RefIconButton path={RI.checklist} label={t("Выбрать из списка")} color="#5d6474" /><RefIconButton path={RI.download} label={t("Скачать Excel")} onClick={downloadCsv} /></>}
         />
         <RefTable
           cols="minmax(0,1fr) minmax(0,5fr) minmax(0,2fr) minmax(0,2fr) minmax(0,2fr)"

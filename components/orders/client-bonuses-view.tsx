@@ -228,7 +228,7 @@ export function ClientBonusesView() {
                   {t(label)}
                 </label>
               ))}
-              <button onClick={applyFilter} className="h-[30px] rounded-[5px] bg-[#71ce87] px-4 text-[13px] font-semibold text-white">
+              <button onClick={applyFilter} className="h-[30px] rounded-[5px] bg-[#71ce87] px-4 text-[13px] font-semibold text-white uppercase">
                 {t("Применить")}
               </button>
             </div>
@@ -246,7 +246,7 @@ export function ClientBonusesView() {
           page={currentPage}
           pageCount={pageCount}
           onPage={paging.setPage}
-          icons={<RefIconButton path={RI.download} label={t("Скачать Excel/CSV")} onClick={exportCsv} />}
+          icons={<RefIconButton path={RI.download} label={t("Скачать Excel")} onClick={exportCsv} />}
         />
 
         <RefTable

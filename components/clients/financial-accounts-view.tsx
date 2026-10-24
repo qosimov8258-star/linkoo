@@ -129,7 +129,7 @@ export function FinancialAccountsView() {
       filterPanel={(close) => (
         <FinanceFilter value={filters} agents={agents} types={types} onClose={close} onApply={(next) => { setFilters(next); close() }} />
       )}
-      icons={<RefIconButton path={RI.download} label={t("Скачать")} onClick={download} />}
+      icons={<RefIconButton path={RI.download} label={t("Скачать Excel")} onClick={download} />}
       render={(row) => [row.id, row.name, row.address, row.date]}
       onRowClick={(row) => setOpenId((current) => (current === row.id ? null : row.id))}
       rowClass={(row) => (openId === row.id ? "hidden" : "")}

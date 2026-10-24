@@ -85,7 +85,7 @@ export function TelegramUsersView() {
           }}
         />
       )}
-      icons={<RefIconButton path={RI.download} label={t("Скачать")} onClick={download} />}
+      icons={<RefIconButton path={RI.download} label={t("Скачать Excel")} onClick={download} />}
       render={(u) => [
         u.id,
         <>

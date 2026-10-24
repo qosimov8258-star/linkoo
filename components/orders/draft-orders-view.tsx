@@ -130,7 +130,7 @@ export function DraftOrdersView() {
           page={paging.page}
           pageCount={paging.pageCount}
           onPage={paging.setPage}
-          icons={<RefIconButton path={RI.checklist} label={t("Выбрать")} color="#5d6474" active={selectMode} onClick={() => setSelectMode((value) => !value)} />}
+          icons={<RefIconButton path={RI.checklist} label={t("Выбрать из списка")} color="#5d6474" active={selectMode} onClick={() => setSelectMode((value) => !value)} />}
         />
         <RefTable
           headPad={24}
