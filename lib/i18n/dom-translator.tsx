@@ -18,6 +18,7 @@ const originals = new WeakMap<Node, string>()
 const written = new WeakMap<Node, string>()
 const attrOriginals = new WeakMap<Element, Record<string, string>>()
 const attrWritten = new WeakMap<Element, Record<string, string>>()
+const hydratedElements = new WeakSet<Element>()
 
 // Browser dialogs aren't DOM text, so alert/confirm/prompt are wrapped once and
 // translate whatever message they receive into the current language.
@@ -86,9 +87,18 @@ export function DomTranslator() {
     setKeepRussianMonths(language === "uz" && REFERENCE_RU_DATE_ROUTES.some((route) => pathname === route || pathname.startsWith(`${route}/`)))
     patchDialogs()
 
+    // Server HTML of a Suspense boundary that React has not hydrated yet has no fiber key. Rewriting its text
+    // would make hydration fail ("server rendered text didn't match the client"), so it is skipped and picked
+    // up by the delayed passes below once React has attached to it.
+    const hydrated = (element: Element) => {
+      if (hydratedElements.has(element)) return true
+      const ok = Object.keys(element).some((key) => key.startsWith("__reactFiber$"))
+      if (ok) hydratedElements.add(element)
+      return ok
+    }
     const skipped = (node: Node) => {
       const element = node.nodeType === 1 ? (node as Element) : node.parentElement
-      return !element || !!element.closest(SKIP)
+      return !element || !!element.closest(SKIP) || !hydrated(element)
     }
 
     // Texts the reference prints in Russian on this page although they are in its dictionary.
@@ -149,7 +159,7 @@ export function DomTranslator() {
     const walk = (root: Node) => {
       if (root.nodeType === 3) return handleText(root as Text)
       if (root.nodeType !== 1) return
-      if (skipped(root)) return
+      if ((root as Element).closest(SKIP)) return
       handleElement(root as Element)
       const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT)
       let node = walker.nextNode()
@@ -207,9 +217,19 @@ export function DomTranslator() {
       })
     observe()
 
+    // Late hydration of Suspense boundaries changes no DOM, so the observer never sees it: sweep again.
+    const sweeps = [250, 700, 1500, 3000, 6000].map((delay) =>
+      window.setTimeout(() => {
+        observer.disconnect()
+        walk(document.body)
+        observe()
+      }, delay),
+    )
+
     return () => {
       titleObserver.disconnect()
       observer.disconnect()
+      sweeps.forEach((id) => window.clearTimeout(id))
       if (frame) cancelAnimationFrame(frame)
     }
   }, [language, pathname])
