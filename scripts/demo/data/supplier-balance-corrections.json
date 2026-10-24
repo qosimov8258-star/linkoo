@@ -1,0 +1,482 @@
+[
+ {
+  "supplierId": 2,
+  "name": "Demo",
+  "currency": "sum",
+  "delta": 144782000,
+  "ref": -136594000,
+  "local": -281376000
+ },
+ {
+  "supplierId": 4,
+  "name": "Kotta aka",
+  "currency": "sum",
+  "delta": 10968911168,
+  "ref": -8955504900,
+  "local": -19924416068
+ },
+ {
+  "supplierId": 5,
+  "name": "Corelion",
+  "currency": "sum",
+  "delta": 693033,
+  "ref": 199400456,
+  "local": 198707423
+ },
+ {
+  "supplierId": 7,
+  "name": "Dji technology",
+  "currency": "sum",
+  "delta": 4149880000,
+  "ref": -4149880000,
+  "local": -8299760000
+ },
+ {
+  "supplierId": 8,
+  "name": "shaxlo sutlari",
+  "currency": "sum",
+  "delta": 14500000,
+  "ref": 1085700000,
+  "local": 1071200000
+ },
+ {
+  "supplierId": 9,
+  "name": "laylo shirin",
+  "currency": "sum",
+  "delta": 56986000,
+  "ref": 69734000,
+  "local": 12748000
+ },
+ {
+  "supplierId": 10,
+  "name": "Robot postavchik",
+  "currency": "sum",
+  "delta": 5056000,
+  "ref": -5056000,
+  "local": -10112000
+ },
+ {
+  "supplierId": 11,
+  "name": "energetik postavchik",
+  "currency": "sum",
+  "delta": 973636000,
+  "ref": -963636000,
+  "local": -1937272000
+ },
+ {
+  "supplierId": 12,
+  "name": "andijanskiy postavchik",
+  "currency": "sum",
+  "delta": 410035000,
+  "ref": -410035000,
+  "local": -820070000
+ },
+ {
+  "supplierId": 13,
+  "name": "Xoramskaya postavshik",
+  "currency": "sum",
+  "delta": 1301502000,
+  "ref": -1301502000,
+  "local": -2603004000
+ },
+ {
+  "supplierId": 14,
+  "name": "universal postavshik",
+  "currency": "sum",
+  "delta": 37328272144,
+  "ref": -27331482295,
+  "local": -64659754439
+ },
+ {
+  "supplierId": 15,
+  "name": "zapas",
+  "currency": "sum",
+  "delta": 61194000,
+  "ref": -56194000,
+  "local": -117388000
+ },
+ {
+  "supplierId": 17,
+  "name": "ООО ПРОФРЕШ",
+  "currency": "sum",
+  "delta": -6500000,
+  "ref": 6500000,
+  "local": 13000000
+ },
+ {
+  "supplierId": 18,
+  "name": "Айти-Системс",
+  "currency": "sum",
+  "delta": 135000,
+  "ref": -135000,
+  "local": -270000
+ },
+ {
+  "supplierId": 19,
+  "name": "TEEDBOOM",
+  "currency": "sum",
+  "delta": -25000,
+  "ref": 75000,
+  "local": 100000
+ },
+ {
+  "supplierId": 20,
+  "name": "azamat1",
+  "currency": "sum",
+  "delta": 6450199.9,
+  "ref": -6437200,
+  "local": -12887399.9
+ },
+ {
+  "supplierId": 21,
+  "name": "PEPSI ХОЛДИНГ",
+  "currency": "sum",
+  "delta": 2378000,
+  "ref": -2378000,
+  "local": -4756000
+ },
+ {
+  "supplierId": 23,
+  "name": "Ali olimov",
+  "currency": "sum",
+  "delta": 1773100468,
+  "ref": 10000,
+  "local": -1773090468
+ },
+ {
+  "supplierId": 23,
+  "name": "Ali olimov",
+  "currency": "usd",
+  "delta": -2500,
+  "ref": 0,
+  "local": 2500
+ },
+ {
+  "supplierId": 24,
+  "name": "Доширак",
+  "currency": "sum",
+  "delta": 480000,
+  "ref": -480000,
+  "local": -960000
+ },
+ {
+  "supplierId": 25,
+  "name": "Турецкий Айран",
+  "currency": "sum",
+  "delta": 310000,
+  "ref": 0,
+  "local": -310000
+ },
+ {
+  "supplierId": 27,
+  "name": "01",
+  "currency": "sum",
+  "delta": 13092000,
+  "ref": -13092000,
+  "local": -26184000
+ },
+ {
+  "supplierId": 29,
+  "name": "Herbactive",
+  "currency": "sum",
+  "delta": 115500000,
+  "ref": -115500000,
+  "local": -231000000
+ },
+ {
+  "supplierId": 30,
+  "name": "testSupplier",
+  "currency": "sum",
+  "delta": 1000,
+  "ref": 0,
+  "local": -1000
+ },
+ {
+  "supplierId": 31,
+  "name": "ENERGY DRINK",
+  "currency": "sum",
+  "delta": 940000,
+  "ref": -940000,
+  "local": -1880000
+ },
+ {
+  "supplierId": 32,
+  "name": "ООО МАРС",
+  "currency": "sum",
+  "delta": 1200,
+  "ref": -1200,
+  "local": -2400
+ },
+ {
+  "supplierId": 34,
+  "name": "Поставщик Apple",
+  "currency": "sum",
+  "delta": 55500,
+  "ref": 0,
+  "local": -55500
+ },
+ {
+  "supplierId": 35,
+  "name": "КОЛА",
+  "currency": "sum",
+  "delta": 426000000,
+  "ref": -426000000,
+  "local": -852000000
+ },
+ {
+  "supplierId": 36,
+  "name": "ПРОФРЕШ",
+  "currency": "sum",
+  "delta": 550000000,
+  "ref": -550000000,
+  "local": -1100000000
+ },
+ {
+  "supplierId": 37,
+  "name": "Salohiddin Pastavshik 1",
+  "currency": "sum",
+  "delta": 6978350000,
+  "ref": -6978700000,
+  "local": -13957050000
+ },
+ {
+  "supplierId": 38,
+  "name": "PAM",
+  "currency": "sum",
+  "delta": -1006119872,
+  "ref": 1006119877,
+  "local": 2012239749
+ },
+ {
+  "supplierId": 39,
+  "name": "lit energy glavniy postavshik",
+  "currency": "sum",
+  "delta": 4896000,
+  "ref": -4896000,
+  "local": -9792000
+ },
+ {
+  "supplierId": 40,
+  "name": "doston lit energy",
+  "currency": "sum",
+  "delta": 9000000,
+  "ref": -9000000,
+  "local": -18000000
+ },
+ {
+  "supplierId": 41,
+  "name": "cola postavchik",
+  "currency": "sum",
+  "delta": 5406123,
+  "ref": -5406123,
+  "local": -10812246
+ },
+ {
+  "supplierId": 42,
+  "name": "SaidQosimov",
+  "currency": "sum",
+  "delta": 1581980000,
+  "ref": -1578780000,
+  "local": -3160760000
+ },
+ {
+  "supplierId": 43,
+  "name": "Temurbek Sharipov",
+  "currency": "sum",
+  "delta": 970539056,
+  "ref": -599800000,
+  "local": -1570339056
+ },
+ {
+  "supplierId": 45,
+  "name": "Samsung",
+  "currency": "sum",
+  "delta": 760060032,
+  "ref": -760060000,
+  "local": -1520120032
+ },
+ {
+  "supplierId": 46,
+  "name": "XIOMI ABBOS",
+  "currency": "sum",
+  "delta": 13605000,
+  "ref": -13605000,
+  "local": -27210000
+ },
+ {
+  "supplierId": 49,
+  "name": "qarzdorman",
+  "currency": "sum",
+  "delta": -632000,
+  "ref": 1632500,
+  "local": 2264500
+ },
+ {
+  "supplierId": 50,
+  "name": "qarzi bor",
+  "currency": "sum",
+  "delta": 133639956,
+  "ref": -132639956,
+  "local": -266279912
+ },
+ {
+  "supplierId": 51,
+  "name": "RITM TEST",
+  "currency": "sum",
+  "delta": 3300000,
+  "ref": -29952000,
+  "local": -33252000
+ },
+ {
+  "supplierId": 52,
+  "name": "name of supply",
+  "currency": "sum",
+  "delta": 299500000,
+  "ref": -299500000,
+  "local": -599000000
+ },
+ {
+  "supplierId": 54,
+  "name": "Sarvar",
+  "currency": "sum",
+  "delta": 22330739514,
+  "ref": -22333040250,
+  "local": -44663779764
+ },
+ {
+  "supplierId": 55,
+  "name": "Aqua de lux",
+  "currency": "sum",
+  "delta": 6191200,
+  "ref": -5541200,
+  "local": -11732400
+ },
+ {
+  "supplierId": 56,
+  "name": "Otash",
+  "currency": "sum",
+  "delta": 299000,
+  "ref": -7178535,
+  "local": -7477535
+ },
+ {
+  "supplierId": 57,
+  "name": "xitoy",
+  "currency": "sum",
+  "delta": 120000,
+  "ref": -120000,
+  "local": -240000
+ },
+ {
+  "supplierId": 59,
+  "name": "aziz",
+  "currency": "sum",
+  "delta": 104512840,
+  "ref": -9000,
+  "local": -104521840
+ },
+ {
+  "supplierId": 62,
+  "name": "Жасур",
+  "currency": "sum",
+  "delta": 5500000,
+  "ref": -5500000,
+  "local": -11000000
+ },
+ {
+  "supplierId": 65,
+  "name": "energetik",
+  "currency": "sum",
+  "delta": 10000000,
+  "ref": -10000000,
+  "local": -20000000
+ },
+ {
+  "supplierId": 69,
+  "name": "123123",
+  "currency": "sum",
+  "delta": 50000,
+  "ref": -50000,
+  "local": -100000
+ },
+ {
+  "supplierId": 70,
+  "name": "ali aliyev",
+  "currency": "sum",
+  "delta": 35926425628,
+  "ref": -35916424500,
+  "local": -71842850128
+ },
+ {
+  "supplierId": 71,
+  "name": "МЧЖ \"Алишер Карвон Савдо Мажмуаси\" Навои обл.",
+  "currency": "sum",
+  "delta": 3500000,
+  "ref": -3500000,
+  "local": -7000000
+ },
+ {
+  "supplierId": 72,
+  "name": "Sardoraka",
+  "currency": "sum",
+  "delta": 1500000,
+  "ref": -1500000,
+  "local": -3000000
+ },
+ {
+  "supplierId": 73,
+  "name": "Ziyovuddinaka",
+  "currency": "sum",
+  "delta": 249510000,
+  "ref": -249510000,
+  "local": -499020000
+ },
+ {
+  "supplierId": 74,
+  "name": "карим",
+  "currency": "sum",
+  "delta": 125908496,
+  "ref": -125908500,
+  "local": -251816996
+ },
+ {
+  "supplierId": 75,
+  "name": "PGC",
+  "currency": "sum",
+  "delta": 1002753000,
+  "ref": -1000050000,
+  "local": -2002803000
+ },
+ {
+  "supplierId": 76,
+  "name": "Zalal Mowafaq",
+  "currency": "sum",
+  "delta": 120000000,
+  "ref": -120000000,
+  "local": -240000000
+ },
+ {
+  "supplierId": 77,
+  "name": "наблюдатель",
+  "currency": "sum",
+  "delta": 59108200,
+  "ref": -59108100,
+  "local": -118216300
+ },
+ {
+  "supplierId": 78,
+  "name": "tillochi",
+  "currency": "sum",
+  "delta": 47520604,
+  "ref": -47519602,
+  "local": -95040206
+ },
+ {
+  "supplierId": 79,
+  "name": "Fardad",
+  "currency": "sum",
+  "delta": 134788404,
+  "ref": -131912292,
+  "local": -266700696
+ }
+]
