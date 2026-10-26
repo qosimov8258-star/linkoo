@@ -96,7 +96,8 @@ function finalizeRun(sql: string): string {
 }
 
 function translateDdl(sql: string): string {
-  return sql.replace(/INTEGER\s+PRIMARY\s+KEY\s+AUTOINCREMENT/gi, "SERIAL PRIMARY KEY")
+  // REAL (float4) keeps ~7 significant digits: 120 708 500 comes back as 120 708 496. Money/quantity columns are float8.
+  return sql.replace(/INTEGER\s+PRIMARY\s+KEY\s+AUTOINCREMENT/gi, "SERIAL PRIMARY KEY").replace(/\bREAL\b/g, "DOUBLE PRECISION")
 }
 
 function makeDb(executor: Pool | PoolClient): PgDb {
