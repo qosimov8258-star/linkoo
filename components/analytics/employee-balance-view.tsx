@@ -233,7 +233,8 @@ export function EmployeeBalanceView() {
   }
   const list = useBalanceList("employee", query)
   const currencies = useFinanceCurrencies()
-  const employees = useLookup<EmployeeOption>("/api/employees")
+  const employees = useLookup<EmployeeOption & { job?: string }>("/api/employees")
+  const [draftJob, setDraftJob] = useState("")
   const canEdit = useCanEdit()
 
   const data = list.data
@@ -415,7 +416,23 @@ export function EmployeeBalanceView() {
           update({ period: unchanged ? null : next, users: draftUsers, page: 1 })
         }}
       >
-        <EmployeeUsersSelect options={employees} value={draftUsers} onChange={setDraftUsers} />
+        <label className="flex flex-col gap-1 md:col-span-2">
+          <span className="text-sm text-[#586174]">{t("Должность")}</span>
+          <select
+            value={draftJob}
+            onChange={(event) => {
+              setDraftJob(event.target.value)
+              setDraftUsers([])
+            }}
+            className="h-10 rounded-md border border-[#dbe0e8] bg-white px-3 text-[#17233b]"
+          >
+            <option value="">{t("Выберите...")}</option>
+            {[...new Set(employees.map((item) => item.job).filter((job): job is string => !!job))].sort((a, b) => a.localeCompare(b, "ru")).map((job) => (
+              <option key={job} value={job}>{job}</option>
+            ))}
+          </select>
+        </label>
+        <EmployeeUsersSelect options={draftJob ? employees.filter((item) => item.job === draftJob) : employees} value={draftUsers} onChange={setDraftUsers} />
       </BalanceFilterDialog>
 
       {state.detail && (

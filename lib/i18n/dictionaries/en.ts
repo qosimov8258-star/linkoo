@@ -5337,4 +5337,13 @@ export const en: Record<string, string> = {
   "Як": "Як",
   "Добавить зону": "Add a zone",
   "Добавить поставку": "Add supply",
+  "Хотя бы выберете одного агента !": "Choose at least one agent!",
+  "Деактивировать": "Deactivate",
+  "Клиенты и инвентарь": "Clients and inventory",
+  "Период по дате реализации": "Period by realization date",
+  "Факт продаж оборудования": "Actual equipment sales",
+  "Тип товара заказа": "Order product type",
+  "Организация инвентаря": "Inventory organization",
+  "Ответственный агент клиента": "Client's responsible agent",
+  "Тип инвентаря (продукт)": "Inventory type (product)",
 }

@@ -433,7 +433,17 @@ export const REFERENCE_RUSSIAN_TEXTS: Record<"uz" | "en", Record<string, string[
     ],
     "/clients": [
       "ИНН",
-      "Ташкент"
+      "Ташкент",
+      "Полное наименование",
+      "отметить местоположение на карте"
+    ],
+    "/clients/client-restrictions": [
+      "Ограничения по",
+      "Ограничения по:",
+      "Выбранные клиенты",
+      "Выбранные клиенты:",
+      "Добавленные товары",
+      "Добавленные товары:"
     ],
     "/clients/financial-accounts": [
       "Не указано",

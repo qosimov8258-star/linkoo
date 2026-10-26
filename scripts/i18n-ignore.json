@@ -168,6 +168,7 @@
     "CASE r.op WHEN 1 THEN 'Перевод с кассы' WHEN 2 THEN 'Перевод на кассу' WHEN 5 THEN 'Расход' WHEN 7 THEN 'Снято со счета клиента' WHEN 9 THEN 'Доп. расход на поставку' WHEN 10 THEN 'Расход на поставку' WHEN 22 THEN 'Выдача денег для кэшбека' WHEN 8 THEN 'Принято денег' WHEN 3 THEN 'Оплата заказа' ELSE 'Приход' END",
     "IS NOT NULL AND o.status IN ('Есть на складе', 'Не подтвержден')",
     "WHERE tr.status IN ('ожидает', 'потвержден') AND fin_key(i.product) <> ''",
-    "WHERE tr.status IN ('ожидает', 'потвержден') AND fin_key(l.j ->> 'product') <> ''"
+    "WHERE tr.status IN ('ожидает', 'потвержден') AND fin_key(l.j ->> 'product') <> ''",
+    "Пришел вовремя / Опоздал (время опоздания) / Не пришел / Всего"
   ]
 }

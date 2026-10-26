@@ -202,19 +202,22 @@ export function ReportDateField({
   onChange,
   min,
   max,
+  placeholder,
 }: {
   label: string
   value: string
   onChange: (value: string) => void
   min?: string
   max?: string
+  /** Text shown while no date is set (the reference's "Укажите дату"). */
+  placeholder?: string
 }) {
   const { t } = useLanguage()
   const [open, setOpen] = useState(false)
   return (
     <div className={`${FIELD} cursor-pointer`} onClick={() => setOpen(true)}>
       <span className={FLOAT_LABEL}>{t(label)}</span>
-      <span className="absolute inset-x-0 top-[22px] text-[13px] leading-[18px] text-black">{formatReportDate(value)}</span>
+      <span className="absolute inset-x-0 top-[22px] text-[13px] leading-[18px] text-black">{value || !placeholder ? formatReportDate(value) : t(placeholder)}</span>
       <svg viewBox="0 0 24 24" className="pointer-events-none absolute bottom-[8px] right-0 h-5 w-5 fill-[#c4c4c4]" aria-hidden>
         <path d="M19 4h-1V2h-2v2H8V2H6v2H5c-1.11 0-1.99.9-1.99 2L3 20c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 16H5V9h14v11zM7 11h5v5H7z" />
       </svg>
@@ -620,12 +623,18 @@ export function ReportFilterPanel({
   tabs,
   onClose,
   onApply,
+  onReset,
+  normalCase = false,
   children,
 }: {
   title?: string
   tabs?: ReactNode
   onClose: () => void
   onApply: () => void
+  /** Adds the reference's pink "Сбросить фильтр" button next to the apply button. */
+  onReset?: () => void
+  /** The apply label keeps its case (the dynamic report filters), instead of the uppercase of the list filters. */
+  normalCase?: boolean
   children: ReactNode
 }) {
   const { t } = useLanguage()
@@ -644,9 +653,17 @@ export function ReportFilterPanel({
         </div>
         {tabs && <div className="-mx-[25px] mt-[6px]">{tabs}</div>}
         <div className={`${tabs ? "mt-[20px]" : "mt-[18px]"} grid grid-cols-1 gap-x-[10.67px] gap-y-[13px] sm:grid-cols-2 lg:grid-cols-4`}>{children}</div>
-        <button type="submit" className="mt-[12px] block h-9 w-full rounded-[5px] bg-[#71ce87] text-[13px] font-semibold text-white transition-[filter] hover:brightness-95 uppercase">
-          {t("Применить")}
-        </button>
+        <div className="mt-[12px] flex gap-[10px]">
+          {onReset && (
+            <button type="button" onClick={onReset} className="flex h-9 flex-1 items-center justify-center gap-[8px] rounded-[5px] bg-[#fbe9e9] text-[13px] font-semibold text-[#f06c6c] transition-[filter] hover:brightness-95">
+              <svg viewBox="0 0 24 24" className="h-[18px] w-[18px] fill-[#f06c6c]" aria-hidden><path d="M17.65 6.35A7.958 7.958 0 0012 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08A5.99 5.99 0 0112 18c-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z" /></svg>
+              {t("Сбросить фильтр")}
+            </button>
+          )}
+          <button type="submit" className={`block h-9 ${onReset ? "flex-1" : "w-full"} rounded-[5px] bg-[#71ce87] text-[13px] font-semibold text-white transition-[filter] hover:brightness-95 ${normalCase ? "" : "uppercase"}`}>
+            {t("Применить")}
+          </button>
+        </div>
       </form>
     </div>
   )

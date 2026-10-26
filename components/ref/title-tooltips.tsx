@@ -11,9 +11,11 @@ import { useLanguage } from "@/lib/i18n/language-context"
  * bubble. This turns the `title` of buttons / links / role=button elements into that box (the native one is suppressed
  * while hovering) so every icon hint of the app looks like the reference.
  */
-const ICON_HINTS = new Set(["Изменить", "Удалить", "Отменить", "Установить курс", "Ограничить доступ", "Выбрать из списка", "Скачать Excel", "Вкл/Выкл колонки", "Расширенный вид", "Дублировать", "Edit", "Delete"])
+const ICON_HINTS = new Set(["Изменить", "Удалить", "Отменить", "Установить курс", "Ограничить доступ", "Выбрать из списка", "Скачать Excel", "Вкл/Выкл колонки", "Расширенный вид", "Дублировать", "Деактивировать", "Edit", "Delete"])
 
 // The reference hints its green toolbar «Добавить» button with a page-specific text (measured on each page's own hover bubble).
+const BOTTOM_HINTS = ["Дублировать", "Авто распределение по сериям"]
+
 const ADD_TIPS: Record<string, string> = {
   "/clients": "Добавить клиента",
   "/clients/territory": "Добавить зону",
@@ -63,7 +65,7 @@ export function TitleTooltips() {
         // icon-only buttons that carry just an aria-label: the reference hints these actions (row edit / delete, rate, access, select)
         const icon = target?.closest?.("button[aria-label]") as HTMLElement | null
         const label = icon?.getAttribute("aria-label") ?? ""
-        if (icon && !icon.textContent?.trim() && hints.has(label)) {
+        if (icon && !icon.textContent?.trim() && hints.has(label) && !icon.parentElement?.classList.contains("group/tip")) {
           element = icon
           text = label
         }
@@ -113,7 +115,9 @@ export function TitleTooltips() {
       if (top + height > window.innerHeight - 4) top = rect.top - 9.5 - height
       // react-tooltip moves a bubble that would leave the window to the side of the icon (12px gap, vertically centered).
       // Some toolbars (e.g. the plan pages) pin it to the left of the icon in the reference (`data-tip-side="left"`).
-      if (element.getAttribute("data-tip-side") === "left") {
+      // The reference's 48 px toolbar icons (select from list, Excel, refresh, print, ...) hint to the left too, except «Дублировать».
+      const toolbarLeft = rect.width >= 44 && rect.height >= 44 && rect.top < 260 && !BOTTOM_HINTS.some((hint) => text === hint || text === translate(hint))
+      if (element.getAttribute("data-tip-side") === "left" || toolbarLeft) {
         left = rect.left - 12.5 - width
         top = rect.top + rect.height / 2 - height / 2
       } else if (centered + width > window.innerWidth) {

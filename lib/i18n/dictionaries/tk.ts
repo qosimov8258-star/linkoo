@@ -5336,4 +5336,13 @@ export const tk: Record<string, string> = {
   "Як": "Як",
   "Добавить зону": "Zona goşmak",
   "Добавить поставку": "Eltip bermäni goşmak",
+  "Хотя бы выберете одного агента !": "Azyndan bir agent saýlaň!",
+  "Деактивировать": "Işjeňsizlendirmek",
+  "Клиенты и инвентарь": "Müşderiler we inwentar",
+  "Период по дате реализации": "Amala aşyrylan senesi boýunça döwür",
+  "Факт продаж оборудования": "Enjamlar boýunça hakyky satuw",
+  "Тип товара заказа": "Sargydyň haryt görnüşi",
+  "Организация инвентаря": "Inwentaryň guramasy",
+  "Ответственный агент клиента": "Müşderiniň jogapkär agenti",
+  "Тип инвентаря (продукт)": "Inwentar görnüşi (haryt)",
 }

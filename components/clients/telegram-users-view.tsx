@@ -98,7 +98,7 @@ export function TelegramUsersView() {
         u.lang,
         refDateTime(u.first),
         refDateTime(u.last),
-        <div key="d" className="flex justify-end"><button aria-label={t("Удалить")} onClick={() => void removeUser(u.id)} className="-mr-1 opacity-0 transition-opacity group-hover:opacity-100">
+        <div key="d" className="flex justify-end"><button aria-label={t("Деактивировать")} onClick={() => void removeUser(u.id)} className="-mr-1 opacity-0 transition-opacity group-hover:opacity-100">
           <svg viewBox="0 0 24 24" className="h-[22px] w-[22px] fill-[#ff5a4f]"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm5 11H7v-2h10v2z" /></svg>
         </button></div>,
       ]}

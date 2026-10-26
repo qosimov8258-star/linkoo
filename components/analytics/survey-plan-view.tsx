@@ -231,7 +231,7 @@ export function SurveyPlanView() {
                 Изменить планы
               </button>
               <div className="relative mr-[12px]">
-                <button type="button" onClick={() => setCopyOpen((value) => !value)} aria-label="Скопировать план" className="flex h-[30px] w-[30px] items-center justify-center text-[#5d6474]">
+                <button type="button" onClick={() => setCopyOpen((value) => !value)} aria-label="Дублировать" className="flex h-[30px] w-[30px] items-center justify-center text-[#5d6474]">
                   <Copy className="h-6 w-6" />
                 </button>
                 {copyOpen && (

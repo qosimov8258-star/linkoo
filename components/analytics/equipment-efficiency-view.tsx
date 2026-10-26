@@ -3,8 +3,9 @@
 import { useMemo, useState } from "react"
 import { ChevronLeft, ChevronRight, Expand, List, Pencil, Search } from "lucide-react"
 import { RefHeader } from "@/components/ref/list-kit"
-import { ReportFilterPanel, ReportInputField, ReportPage, ReportRangeField, ReportSelectField, ReportTopRow } from "@/components/ref/report-kit"
+import { ReportDateField, ReportFilterPanel, ReportInputField, ReportPage, ReportRangeField, ReportSelectField, ReportTopRow } from "@/components/ref/report-kit"
 import { downloadExcelTable } from "@/lib/excel-export"
+import { useLanguage } from "@/lib/i18n/language-context"
 import { useRefRecords } from "@/lib/use-ref-records"
 
 // Clients with equipment and the summary of the reference's "Эффективность оборудования" (kind "gear": one record per client,
@@ -92,9 +93,30 @@ const emptyFilters: Filters = {
   equipmentSaleTo: "",
 }
 
+/** Blue-underlined group heading of the reference's filter ("Клиенты и инвентарь" / "Заказы"). */
+function FilterSection({ title }: { title: string }) {
+  const { t } = useLanguage()
+  return <h3 className="col-span-full -mb-[5px] mt-[10px] border-b border-[#a7b3e6] pb-[3px] text-[12px] font-semibold text-[#5d6ba3]">{t(title)}</h3>
+}
+
+/** «От / До» pair of numeric fields under a plain caption (fact sales of the filter). */
+function FilterPair({ caption, from, to, onFrom, onTo }: { caption: string; from: string; to: string; onFrom: (value: string) => void; onTo: (value: string) => void }) {
+  const { t } = useLanguage()
+  return (
+    <div>
+      <p className="h-[18px] text-[13px] leading-[18px] text-[#555]">{t(caption)}</p>
+      <div className="grid grid-cols-2 gap-x-[10.67px]">
+        <ReportInputField label="От" value={from} onChange={onFrom} />
+        <ReportInputField label="До" value={to} onChange={onTo} />
+      </div>
+    </div>
+  )
+}
+
 export function EquipmentEfficiencyView() {
   const [mode] = useState<"created" | "realized">("created")
   const [filterOpen, setFilterOpen] = useState(false)
+  const [realizedDate, setRealizedDate] = useState("")
   const [query, setQuery] = useState("")
   const [draft, setDraft] = useState<Filters>(emptyFilters)
   const [filters, setFilters] = useState<Filters>(emptyFilters)
@@ -197,21 +219,23 @@ export function EquipmentEfficiencyView() {
       </div>
 
       {filterOpen && (
-        <ReportFilterPanel onClose={() => setFilterOpen(false)} onApply={() => { setFilters(draft); setFilterOpen(false) }}>
-          <ReportRangeField label="Период по дате создания" from={rangeFrom} to={rangeTo} onFrom={setRangeFrom} onTo={setRangeTo} />
-          <ReportInputField label="Фактическая продажа (от)" value={draft.saleFrom} onChange={(value) => updateFilter("saleFrom", value)} />
-          <ReportInputField label="Фактическая продажа (до)" value={draft.saleTo} onChange={(value) => updateFilter("saleTo", value)} />
-          <ReportSelectField label="Клиенты агента" value={draft.agent} options={selectOptions.agent} onChange={(value) => updateFilter("agent", value)} clearable={false} />
-          <ReportSelectField label="Организация" value={draft.organization} options={selectOptions.organization} onChange={(value) => updateFilter("organization", value)} clearable={false} />
+        <ReportFilterPanel normalCase onClose={() => setFilterOpen(false)} onApply={() => { setFilters(draft); setFilterOpen(false) }} onReset={() => { setDraft(emptyFilters); setFilters(emptyFilters); setRealizedDate(""); setFilterOpen(false) }}>
+          <FilterSection title="Клиенты и инвентарь" />
+          <ReportSelectField label="Ответственный агент клиента" value={draft.agent} options={selectOptions.agent} onChange={(value) => updateFilter("agent", value)} clearable={false} />
+          <ReportSelectField label="Организация инвентаря" value={draft.organization} options={selectOptions.organization} onChange={(value) => updateFilter("organization", value)} clearable={false} />
           <ReportSelectField label="Зона" value={draft.zone} options={selectOptions.zone} onChange={(value) => updateFilter("zone", value)} clearable={false} />
-          <ReportInputField label="Факт продаж оборудования (от)" value={draft.equipmentSaleFrom} onChange={(value) => updateFilter("equipmentSaleFrom", value)} />
-          <ReportInputField label="Факт продаж оборудования (до)" value={draft.equipmentSaleTo} onChange={(value) => updateFilter("equipmentSaleTo", value)} />
           <ReportSelectField label="Филиалы" value={draft.branch} options={selectOptions.branch} onChange={(value) => updateFilter("branch", value)} clearable={false} />
           <ReportSelectField label="Инвентарь" value={draft.inventory} options={selectOptions.inventory} onChange={(value) => updateFilter("inventory", value)} clearable={false} />
-          <ReportSelectField label="Тип инвентаря" value={draft.inventoryType} options={selectOptions.inventoryType} onChange={(value) => updateFilter("inventoryType", value)} clearable={false} />
+          <ReportSelectField label="Тип инвентаря (продукт)" value={draft.inventoryType} options={selectOptions.inventoryType} onChange={(value) => updateFilter("inventoryType", value)} clearable={false} />
           <ReportSelectField label="Тип клиента" value={draft.clientType} options={selectOptions.clientType} onChange={(value) => updateFilter("clientType", value)} clearable={false} />
-          <ReportSelectField label="Тип товара" value={draft.productType} options={selectOptions.productType} onChange={(value) => updateFilter("productType", value)} clearable={false} />
+          <div className="hidden lg:block" />
+          <FilterSection title="Заказы" />
+          <ReportRangeField label="Период по дате создания" from={rangeFrom} to={rangeTo} onFrom={setRangeFrom} onTo={setRangeTo} />
+          <ReportDateField label="Период по дате реализации" placeholder="Укажите Дату" value={realizedDate} onChange={setRealizedDate} />
+          <FilterPair caption="Фактическая продажа" from={draft.saleFrom} to={draft.saleTo} onFrom={(value) => updateFilter("saleFrom", value)} onTo={(value) => updateFilter("saleTo", value)} />
+          <FilterPair caption="Факт продаж оборудования" from={draft.equipmentSaleFrom} to={draft.equipmentSaleTo} onFrom={(value) => updateFilter("equipmentSaleFrom", value)} onTo={(value) => updateFilter("equipmentSaleTo", value)} />
           <ReportSelectField label="Товар" value={draft.product} options={selectOptions.product} onChange={(value) => updateFilter("product", value)} clearable={false} />
+          <ReportSelectField label="Тип товара заказа" value={draft.productType} options={selectOptions.productType} onChange={(value) => updateFilter("productType", value)} clearable={false} />
         </ReportFilterPanel>
       )}
     </ReportPage>
