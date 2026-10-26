@@ -1,6 +1,6 @@
 "use client"
 
-import { Search, X } from "lucide-react"
+import { X } from "lucide-react"
 import { useEffect, useMemo, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 import { useRouter } from "next/navigation"
@@ -454,7 +454,7 @@ export function OrdersView({ initialOrderId }: { initialOrderId?: number } = {})
     <main className="min-h-screen bg-[#f2f5f8] px-7 pb-7 font-sans text-[13px] text-[#333]">
       <div className="flex h-[60px] items-center justify-between">
         <div className="flex items-center">
-          <h1 className="flex items-center text-[18px] font-bold text-[#5d6474]">
+          <h1 className="flex items-center text-[18px] font-bold leading-[22.5px] text-[#5d6474]">
             <FavoritesButton className="flex items-center gap-[5px] text-[18px] font-bold text-[#4f71dc]" />
             <span className="mx-[11px] h-[21px] w-[2px] bg-[#5d6474]" />
             {t("Заказы")}
@@ -471,7 +471,7 @@ export function OrdersView({ initialOrderId }: { initialOrderId?: number } = {})
                   <button
                     type="button"
                     onClick={() => setStatusFilter([ORDER_STATUS_REF_LABEL[badge.status]])}
-                    className="relative flex h-12 w-[58px] items-center justify-center"
+                    className="relative flex h-12 w-[58px] items-center justify-start pl-[28px]"
                   >
                     <svg viewBox="0 0 24 24" className={`h-6 w-6 ${active ? "fill-[#71ce87]" : "fill-[#5d6474]"}`}><path d={badge.path} /></svg>
                     {active ? (
@@ -479,7 +479,7 @@ export function OrdersView({ initialOrderId }: { initialOrderId?: number } = {})
                         <svg viewBox="0 0 24 24" className="h-[14px] w-[14px] fill-white"><path d="M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4L9 16.2z" /></svg>
                       </span>
                     ) : (
-                      <span className="absolute left-[42px] top-[4px] flex h-[18px] min-w-[18px] items-center justify-center rounded-full border border-white bg-[#e57373] px-[3px] text-[9px] font-semibold text-white">{badge.count}</span>
+                      <span className="absolute left-[42px] top-[4px] flex h-[18px] min-w-[18px] items-center justify-center rounded-full border border-white bg-[#e57373] px-[3px] text-[9px] font-semibold leading-[11.25px] text-white">{badge.count}</span>
                     )}
                   </button>
                 </Tip>
@@ -488,7 +488,7 @@ export function OrdersView({ initialOrderId }: { initialOrderId?: number } = {})
           </div>
         </div>
         <div className="flex items-center gap-[10px]">
-          <TopButton icon={ICON.map} text={t("Показать на карте")} onClick={() => router.push("/clients/territory?openFilterDialog=true")} />
+          <TopButton icon={ICON.filter} text={t("Показать на карте")} onClick={() => router.push("/clients/territory?openFilterDialog=true")} />
           <TopButton icon={ICON.card} text={t("Групповая оплата")} onClick={() => setBulkPayOpen(true)} />
           <TopButton icon={ICON.chart} text={t("Импортировать")} onClick={() => setImportOpen(true)} />
           <TopButton
@@ -513,7 +513,7 @@ export function OrdersView({ initialOrderId }: { initialOrderId?: number } = {})
       <section className="shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
         <div className="relative flex h-10 rounded-[2px] bg-white">
           {TAB_LABELS.map((label) => (
-            <button key={label} type="button" onClick={() => { setStatusFilter(TAB_STATUSES[label]); setStatusTouched(true) }} className="h-10 w-1/4 text-[13px] font-medium text-black">
+            <button key={label} type="button" onClick={() => { setStatusFilter(TAB_STATUSES[label]); setStatusTouched(true) }} className="h-10 w-1/4 pt-[2px] text-[13px] font-medium text-black">
               {t(label)}
             </button>
           ))}
@@ -524,13 +524,13 @@ export function OrdersView({ initialOrderId }: { initialOrderId?: number } = {})
             />
           )}
         </div>
-        <div className={`mt-px flex justify-between border-b border-[#efefef] pb-[2px] pl-[5px] pr-[33px] pt-[8px] text-[13px] font-semibold leading-[20.3px] text-white ${selecting ? "bg-[#008000]" : "bg-[#5869f0]"}`}>
+        <div className={`mt-px flex justify-between border-b border-[#efefef] pb-[5px] pl-[5px] pr-[33px] pt-[5px] text-[13px] font-semibold leading-[16.25px] text-white ${selecting ? "bg-[#008000]" : "bg-[#5869f0]"}`}>
           {[
             { label: t("Заказы"), value: totals.orders },
             { label: t("Возвраты"), value: totals.returns },
             { label: t("Факт"), value: totals.fact },
-          ].map((group) => (
-            <div key={group.label}>
+          ].map((group, index) => (
+            <div key={group.label} className={`flex pt-[4px] ${index === 2 ? "text-right" : ""}`}>
               <span className={selecting ? "mr-[15px]" : "mr-[5px]"}>{group.label}:</span>
               {group.value}
             </div>
@@ -551,7 +551,7 @@ export function OrdersView({ initialOrderId }: { initialOrderId?: number } = {})
             {selecting ? (
               <div className="w-[347px] shrink-0 pl-[5px] text-[13px] font-bold text-[#333]">{t("Выбрано:")} {selectedRows.length}</div>
             ) : (
-              <div className="w-[347px] shrink-0">
+              <div className="w-[326.5px] shrink-0">
                 {activeFilterCount > 0 ? (
                   <div className="relative mt-px flex h-[48.25px] w-[346.5px] items-center bg-[#efefef] pl-[30px] text-[13px] text-[#666]">
                     <span>{t("Фильтр:")} {activeFilterCount} {t("элемента")}</span>
@@ -574,29 +574,29 @@ export function OrdersView({ initialOrderId }: { initialOrderId?: number } = {})
               </div>
             )}
             {!selecting && (
-              <div className="relative ml-[30px] flex w-[265px] items-center">
+              <div className="relative flex w-[285.5px] items-center self-start">
                 <input
                   value={query}
                   onChange={(event) => { setQuery(event.target.value); setPage(1) }}
                   placeholder={t("Поиск")}
-                  className="h-12 w-full border-b border-[#e0e0e0] bg-transparent text-[13px] outline-none placeholder:text-black/30 focus:border-[#5d6474]"
+                  className="h-[40px] w-full border-b border-[#e0e0e0] bg-transparent pt-[8px] text-[13px] outline-none placeholder:text-black/30 focus:border-[#5d6474]"
                 />
-                <Search className="absolute -right-[33px] h-6 w-6 text-[#ccc]" />
+                <svg viewBox="0 0 24 24" className="absolute right-[2px] top-[12px] h-6 w-6 fill-[#ccc]"><path d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z" /></svg>
               </div>
             )}
             <div className="ml-auto flex items-center text-[#5d6474]">
-              <div className="relative mr-[27px]">
+              <div className="relative mr-[11px]">
                 <select
                   value={pageSize}
                   onChange={(event) => { setPageSize(Number(event.target.value)); setPage(1) }}
-                  className="h-12 w-[56px] appearance-none border-b pl-[16px] border-[#e0e0e0] bg-transparent text-[13px] text-[#333] outline-none"
+                  className="h-12 w-[56px] appearance-none bg-transparent text-[13px] text-[#333] outline-none"
                 >
                   {[10, 25, 50, 100].map((size) => <option key={size}>{size}</option>)}
                 </select>
-                <svg viewBox="0 0 24 24" className="pointer-events-none absolute right-0 top-3 h-6 w-6 fill-black/30"><path d="M7 10l5 5 5-5z" /></svg>
+                <svg viewBox="0 0 24 24" className="pointer-events-none absolute left-[16px] top-3 h-6 w-6 fill-[#ddd]"><path d="M7 10l5 5 5-5z" /></svg>
               </div>
-              <span className="relative top-[1.5px] mr-[5px]">{pageStart + 1 > filtered.length ? 0 : pageStart + 1} - {Math.min(pageStart + pageSize, filtered.length)}  {t("из")}  {filtered.length}</span>
-              <button type="button" disabled={page <= 1} onClick={() => setPage((current) => current - 1)} aria-label="prev" className="px-[5px] disabled:opacity-100">
+              <span className="relative top-[1.5px] whitespace-nowrap">{pageStart + 1 > filtered.length ? 0 : pageStart + 1} - {Math.min(pageStart + pageSize, filtered.length)}  {t("из")}  {filtered.length}</span>
+              <button type="button" disabled={page <= 1} onClick={() => setPage((current) => current - 1)} aria-label="prev" className="pl-[10px] pr-[5px] disabled:opacity-100">
                 <svg viewBox="0 0 24 24" className={`h-6 w-6 ${page <= 1 ? "fill-black/30" : "fill-black/55"}`}><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm1-12l-5 4 5 4V8z" /></svg>
               </button>
               <button type="button" disabled={page >= pageCount} onClick={() => setPage((current) => current + 1)} aria-label="next">
@@ -660,7 +660,7 @@ export function OrdersView({ initialOrderId }: { initialOrderId?: number } = {})
                 )}
                 {HEADS.map((head, index) => (
                   <div key={head} style={{ width: `${COL_PCT[index]}%` }} className="px-2 leading-[18px]">
-                    <button type="button" onClick={() => setSort((current) => (current?.head === head ? (current.desc ? null : { head, desc: true }) : { head, desc: false }))} className={`text-left font-semibold hover:opacity-80 ${index === 0 || index === COL_PCT.length - 1 ? "" : "pr-[30px]"}`}>
+                    <button type="button" onClick={() => setSort((current) => (current?.head === head ? (current.desc ? null : { head, desc: true }) : { head, desc: false }))} className={`max-h-[36px] overflow-hidden text-left font-semibold hover:opacity-80 ${index === 0 || index === COL_PCT.length - 1 ? "" : "pr-[30px]"}`}>
                       {t(head)}
                       {sort?.head === head ? <span className="ml-1 text-[10px]">{sort.desc ? "▼" : "▲"}</span> : null}
                     </button>
@@ -869,8 +869,8 @@ const ICON = {
 function TopButton({ icon, text, onClick, green }: { icon: string; text: string; onClick: () => void; green?: boolean }) {
   return (
     <button type="button" onClick={onClick} className={`flex h-[30px] items-center rounded-[5px] pl-3 text-[13px] font-semibold text-white hover:brightness-95 ${green ? "bg-[#71ce87]" : "bg-[#4f71dc]"}`}>
-      <svg viewBox="0 0 24 24" className="mb-1 h-[18px] w-[18px] fill-white"><path d={icon} /></svg>
-      <span className="pl-2 pr-4">{text}</span>
+      <svg viewBox="0 0 24 24" className="mb-[1px] h-[18px] w-[18px] fill-white"><path d={icon} /></svg>
+      <span className="pl-2 pr-4 leading-[18px]">{text}</span>
     </button>
   )
 }
@@ -935,7 +935,7 @@ function OrderRow({ row, selectMode, checked, onToggle, onOpen }: { row: Order; 
   const weight = row.weight ?? 0
   const cell = "px-2 leading-[16.25px]"
   return (
-    <div className="relative bg-white px-[30px] after:pointer-events-none after:absolute after:inset-x-0 after:bottom-0 after:border-b after:border-dotted after:border-[#d6d6d6]">
+    <div className="relative bg-white px-[30px] after:pointer-events-none after:absolute after:inset-x-0 after:bottom-0 after:h-[2px] after:bg-[linear-gradient(to_right,#d5d5d5_2px,transparent_2px)] after:bg-[length:8px_2px]">
       {(row.discountPercent ?? 0) > 0 && (
         <div className="pointer-events-none absolute right-[-23px] top-[-18px] z-[1] mx-[5px] inline-block h-[60px] w-[60px] rotate-[-90deg] scale-[0.4] border-[30px] border-solid border-[#e57373] border-l-transparent border-t-transparent text-white">
           <p className="ml-[10px] mt-[-17px] rotate-90 text-[28px] font-semibold">%</p>
@@ -957,7 +957,7 @@ function OrderRow({ row, selectMode, checked, onToggle, onOpen }: { row: Order; 
           <br />
           <strong className="block overflow-hidden text-ellipsis whitespace-nowrap font-semibold">{orderOrganization(row)}</strong>
         </div>
-        <div style={{ width: `${COL_PCT[3]}%` }} className={cell}>{row.created}</div>
+        <div style={{ width: `${COL_PCT[3]}%` }} className={cell}><span data-no-translate>{row.created}</span></div>
         <div style={{ width: `${COL_PCT[4]}%` }} className={cell}>
           {row.deliveryMan || "Admin Ritm"}
           <br />
@@ -970,7 +970,7 @@ function OrderRow({ row, selectMode, checked, onToggle, onOpen }: { row: Order; 
         </div>
         <div style={{ width: `${COL_PCT[6]}%` }} className={cell}>
           {row.agent}
-          <p className="text-[12px] font-medium leading-[15px] text-[#4f71dc]">{formatNumber(weight)} {t("кг.")}</p>
+          <p className="text-[12px] font-medium leading-[15px] text-[#4f71dc]"><span data-no-translate>{formatNumber(weight)} кг.</span></p>
         </div>
         <div style={{ width: `${COL_PCT[7]}%` }} className={cell}>
           <span className="ml-[3px] inline-block">

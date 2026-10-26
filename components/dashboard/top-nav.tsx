@@ -395,8 +395,8 @@ export function TopNav() {
   if (pathname === "/login" || pathname.startsWith("/login/")) return null
 
   return (
-    <header ref={headerRef} className="sticky top-0 z-40 bg-[#272780] text-white shadow-[0_6px_14px_rgba(30,41,90,0.24)]">
-      <div className="flex h-[50px] items-center px-4 xl:pl-6 xl:pr-[30px]">
+    <header ref={headerRef} className="sticky top-0 z-40 bg-[#272780] text-white shadow-[0_5px_10px_2px_rgba(79,113,220,0.3)]">
+      <div className="flex h-[50px] items-center px-4 xl:pl-6 xl:pr-[29px]">
         <div ref={brandRef} className="relative mr-auto shrink-0 lg:mr-3">
           <button
             type="button"
@@ -411,7 +411,7 @@ export function TopNav() {
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src="/nav/logo.svg" alt="linko" className="h-7 w-[55px]" />
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src="/nav/caret.svg" alt="" className="h-5 w-5" />
+                <img src="/nav/caret.svg" alt="" className="relative top-[5.8px] h-5 w-5" />
               </span>
               <span className="mt-[3px] text-[10px] font-normal leading-[12.5px]">
                 {workspace === "distribution"
@@ -445,7 +445,7 @@ export function TopNav() {
           )}
         </div>
 
-        <nav ref={navRef} className="ml-[91px] min-[1500px]:ml-[calc(50vw-708px)] max-[1499px]:ml-[max(20px,calc(50vw-595px))] hidden h-full min-w-0 shrink-0 items-stretch border-l border-white/[0.12] lg:flex">
+        <nav ref={navRef} className="ml-[91px] min-[1440px]:ml-[calc(50vw-697.6px)] max-[1439px]:ml-[max(20px,calc(50vw-582.1px))] hidden h-full min-w-0 shrink-0 items-stretch border-l border-white/[0.12] lg:flex">
           {navItems.map(({ label }) => {
             const isOpen = openMenu === label
 
@@ -468,7 +468,7 @@ export function TopNav() {
                 onFocus={() => setOpenMenu(label)}
                 aria-haspopup="menu"
                 aria-expanded={isOpen}
-                className={`flex h-full shrink-0 items-center gap-[4px] border-r border-white/[0.12] pl-[18px] pr-[26px] max-[1500px]:pl-[8px] max-[1500px]:pr-[3px] font-[Arial,Helvetica,sans-serif] text-[13px] font-normal transition-colors duration-200 ${
+                className={`flex h-full shrink-0 items-center gap-[5px] border-r border-white/[0.12] pl-[18px] pr-[25px] max-[1439px]:pl-[5px] max-[1439px]:pr-[5px] last:border-r-0 font-[Arial,Helvetica,sans-serif] text-[13px] font-normal transition-colors duration-200 ${
                   isOpen
                     ? "bg-[#5c6df3] hover:bg-[#5c6df3]"
                     : "hover:bg-[#3a3897]"
@@ -476,7 +476,7 @@ export function TopNav() {
               >
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={NAV_ICONS[label]} alt="" className={`w-[25px] ${label === "Производство" ? "h-5" : "h-6"}`} />
-                <span>{t(label)}</span>
+                <span className="relative top-[-0.3px]">{t(label)}</span>
               </button>
             )
           })}
@@ -495,7 +495,7 @@ export function TopNav() {
         <div className="flex-1" />
 
         <div ref={accountRef} className="hidden h-full shrink-0 items-center lg:flex">
-          <div className="flex h-full items-center border-l border-white/[0.12]">
+          <div className="flex h-full items-center border-x border-white/[0.12]">
           <div ref={notificationsRef}>
             <button
               type="button"
@@ -505,7 +505,7 @@ export function TopNav() {
               }}
               aria-haspopup="menu"
               aria-expanded={notificationsOpen}
-              className="relative flex h-10 w-[50px] items-center justify-center transition-colors hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-white"
+              className="relative flex h-10 w-[51px] items-center justify-start border-r border-white/[0.12] pl-[13px] transition-colors hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-white"
               aria-label={t("Уведомления")}
             >
               {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -546,7 +546,7 @@ export function TopNav() {
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src="/nav/user.svg" alt="" className="h-6 w-[25px]" />
             </span>
-            <span className="hidden w-[145px] flex-col xl:flex">
+            <span className="hidden w-[146px] flex-col xl:flex">
               <span className="text-[14px] font-medium leading-[18px]">{displayName}</span>
               <span className="truncate text-[12px] font-normal leading-[18px]">{t(branch)}</span>
             </span>
