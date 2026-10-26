@@ -1304,6 +1304,7 @@ export const tk: Record<string, string> = {
   "Ожидаемое прибытие в таможню": "Gümrüge garaşylýan geliş",
   "Ожидаемый выход с завода": "Zawoddan garaşylýan çykyş",
   "Оплачено": "Tölendi",
+  "Отменит приёмку": "Отменит приёмку",
   "Отменить приёмку": "Kabul edişi ýatyr",
   "Отменить приёмку поставки №": "Üpjünçilik №-niň kabul edilişini ýatyr",
   "Печать": "Çap et",

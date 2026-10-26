@@ -1295,6 +1295,7 @@ export const uz: Record<string, string> = {
   "Ожидаемое прибытие в таможню": "Kutilayotgan bojxonaga kelish vaqti",
   "Ожидаемый выход с завода": "Kutilayotgan zavoddan chiqish vaqti",
   "Оплачено": "To'langan",
+  "Отменит приёмку": "Отменит приёмку",
   "Отменить приёмку": "Qabulni bekor qilish",
   "Отменить приёмку поставки №": "№ yetkazib berish qabulini bekor qilish",
   "Печать": "Chop etish",

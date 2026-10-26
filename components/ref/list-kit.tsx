@@ -236,7 +236,7 @@ export function RefToolbar({
           </select>
           <svg viewBox="0 0 24 24" className="pointer-events-none absolute right-0 top-3 h-6 w-6 fill-black/30"><path d="M7 10l5 5 5-5z" /></svg>
         </div>
-        <span className="mr-[5px] whitespace-nowrap">{total === 0 ? 1 : from} - {to}  {t("из")}  {total}</span>
+        <span className="mr-[5px] whitespace-nowrap leading-[16.25px]">{total === 0 ? 1 : from} - {to}  {t("из")}  {total}</span>
         <button type="button" disabled={page <= 1} onClick={() => onPage(page - 1)} aria-label="prev" className="px-[5px]">
           <svg viewBox="0 0 24 24" className={`h-6 w-6 ${page <= 1 ? "fill-black/30" : "fill-black/55"}`}><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm1-12l-5 4 5 4V8z" /></svg>
         </button>
@@ -690,6 +690,27 @@ export function FilterText({
   )
 }
 
+/** Material-UI style text field of the supplier-incomings filter: 52px pitch, hint label floating to the top. */
+export function FilterTextMui({ label, value, onChange, className = "" }: { label: string; value: string; onChange: (value: string) => void; className?: string }) {
+  const [focused, setFocused] = useState(false)
+  const floating = focused || value !== ""
+  return (
+    <div className={`relative h-[52px] ${className}`}>
+      <div className="absolute inset-x-0 top-[7px] h-[45px]">
+        <span className={`pointer-events-none absolute left-0 font-semibold text-black transition-all ${floating ? "top-[-1px] text-[10px] leading-[15px]" : "top-[13px] text-[13px] leading-[18px]"}`}>{label}</span>
+        <input
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          onFocus={() => setFocused(true)}
+          onBlur={() => setFocused(false)}
+          className="h-[45px] w-full bg-transparent pt-[16px] text-[13px] font-semibold outline-none"
+        />
+        <span className="pointer-events-none absolute inset-x-0 top-[36px] h-px bg-[#e0e0e0]" />
+      </div>
+    </div>
+  )
+}
+
 export function FilterCaption({ children, className = "" }: { children: ReactNode; className?: string }) {
   return <div className={`text-[13px] text-[#666] ${className}`}>{children}</div>
 }
@@ -763,6 +784,8 @@ export function FilterDate({
   placement = "below",
   iconLeft,
   words,
+  mui,
+  tall,
 }: {
   label: string
   begin: string
@@ -774,19 +797,24 @@ export function FilterDate({
   placement?: "below" | "above"
   /** Pin the calendar glyph this many px from the field's left edge instead of right after the label. */
   iconLeft?: number
+  /** Material-UI geometry (52px pitch, 1px hairline) as in the supplier-incomings filter. */
+  mui?: boolean
+  /** With `mui`: the label is long enough to push the field down (60px field, label 8px lower). */
+  tall?: boolean
 }) {
   const { t, language } = useLanguage()
   const [open, setOpen] = useState(false)
   const today = new Date().toISOString().slice(0, 10)
   const wordsLanguage = words ? language : undefined
   return (
-    <div className={`relative h-[62px] ${className}`}>
-      <button type="button" onClick={() => setOpen((current) => !current)} className="absolute inset-x-0 top-[18px] h-[36px] w-full border-b border-[#e8e8e8] text-left text-[13px]">
-        <span className="absolute left-0 top-[-3px] flex items-center gap-[2px] text-[10px] font-bold leading-3 text-black">
+    <div className={`relative ${mui ? (tall ? "h-[67px]" : "h-[52px]") : "h-[62px]"} ${className}`}>
+      <button type="button" onClick={() => setOpen((current) => !current)} className={`absolute inset-x-0 w-full text-left text-[13px] ${mui ? (tall ? "top-[7px] h-[60px]" : "top-[7px] h-[45px]") : "top-[18px] h-[36px] border-b border-[#e8e8e8]"}`}>
+        {mui && <span className={`absolute inset-x-0 h-px bg-[#e0e0e0] ${tall ? "top-[51px]" : "top-[36px]"}`} />}
+        <span className={`absolute left-0 flex items-center gap-[2px] text-[10px] font-bold leading-3 text-black ${mui ? (tall ? "top-[7px]" : "top-[-1px]") : "top-[-3px]"}`}>
           {label}
-          <svg viewBox="0 0 24 24" style={iconLeft == null ? undefined : { position: "absolute", left: iconLeft, top: 0 }} className="h-[14px] w-[14px] fill-[#ccc]"><path d="M19 4h-1V2h-2v2H8V2H6v2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2zm0 16H5V9h14v11z" /></svg>
+          <svg viewBox="0 0 24 24" style={iconLeft == null ? undefined : { position: "absolute", left: iconLeft, top: 0 }} className={`fill-[#ccc] ${mui ? "h-[15px] w-[15px]" : "h-[14px] w-[14px]"}`}><path d="M19 4h-1V2h-2v2H8V2H6v2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2zm0 16H5V9h14v11z" /></svg>
         </span>
-        <span className="absolute left-0 top-[14px] font-medium text-black">{begin ? `${formatFilterDate(begin, wordsLanguage)} - ${formatFilterDate(end || begin, wordsLanguage)}` : t("Укажите дату")}</span>
+        <span className={`absolute left-0 font-medium text-black ${mui ? (tall ? "top-[29px]" : "top-[13px]") : "top-[14px]"}`}>{begin ? `${formatFilterDate(begin, wordsLanguage)} - ${formatFilterDate(end || begin, wordsLanguage)}` : t("Укажите дату")}</span>
       </button>
       {open && (
         <DateRangePicker

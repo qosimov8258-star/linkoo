@@ -3,6 +3,16 @@
 // although the same text is in its dictionary. DomTranslator skips these exact strings on the listed routes.
 export const REFERENCE_RUSSIAN_TEXTS: Record<"uz" | "en", Record<string, string[]>> = {
   "uz": {
+    "/analytics/supplier-incomings": [
+      "Наценка",
+      "Отменит приёмку",
+      "Ожидает",
+      "В процессе",
+      "Принят",
+      "Отменен",
+      "Номер счет фактуры",
+      "Исключить инвентаризации"
+    ],
     "/analytics/employees": [
       "Доставщик",
       "Зав. склад",
@@ -135,6 +145,16 @@ export const REFERENCE_RUSSIAN_TEXTS: Record<"uz" | "en", Record<string, string[
     ]
   },
   "en": {
+    "/analytics/supplier-incomings": [
+      "Наценка",
+      "Отменит приёмку",
+      "Ожидает",
+      "В процессе",
+      "Принят",
+      "Отменен",
+      "Номер счет фактуры",
+      "Исключить инвентаризации"
+    ],
     "/analytics/employees": [
       "Доставщик",
       "Зав. склад",

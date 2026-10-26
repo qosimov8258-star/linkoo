@@ -1304,6 +1304,7 @@ export const en: Record<string, string> = {
   "Ожидаемое прибытие в таможню": "Expected arrival at customs",
   "Ожидаемый выход с завода": "Expected output from the factory ",
   "Оплачено": "Paid",
+  "Отменит приёмку": "Отменит приёмку",
   "Отменить приёмку": "Cancel receipt",
   "Отменить приёмку поставки №": "Cancel receiving of delivery No.",
   "Печать": "Print",

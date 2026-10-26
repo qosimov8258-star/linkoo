@@ -23,7 +23,7 @@ import {
 } from "lucide-react"
 import { ChangeEvent, Fragment, FormEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react"
 import { usePathname, useSearchParams } from "next/navigation"
-import { FilterCheck, FilterDate, FilterSelect, FilterText, RI, RefButton, RefCard, RefFilterPanel, RefHeader, RefIconButton, RefPage, RefTable, RefToolbar, usePaging } from "@/components/ref/list-kit"
+import { FilterCheck, FilterDate, FilterSelect, FilterTextMui, RI, RefButton, RefCard, RefFilterPanel, RefHeader, RefIconButton, RefPage, RefTable, RefToolbar, usePaging } from "@/components/ref/list-kit"
 
 import { downloadExcelTable } from "@/lib/excel-export"
 import { mapHeaderColumns, readExcelRows } from "@/lib/excel-import"
@@ -77,6 +77,14 @@ function formatTimestamp(value: string) {
   return `${formatDate(date)}, ${date.toTimeString().slice(0, 5)}`
 }
 
+/** "Время приемки" is printed by the reference with the Russian short month in every language ("24 авг. 2026, 12:33"). */
+function formatAcceptedAt(value: string) {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  const day = new Intl.DateTimeFormat("ru", { day: "numeric", month: "short", year: "numeric" }).format(date).replace(/\s*г\.$/, "")
+  return `${day}, ${date.toTimeString().slice(0, 5)}`
+}
+
 const statusStyles: Record<Status, string> = {
   принят: "text-emerald-500",
   ожидает: "text-amber-500",
@@ -84,7 +92,7 @@ const statusStyles: Record<Status, string> = {
 }
 const statusDots: Record<Status, string> = {
   принят: "bg-[#81c784]",
-  ожидает: "bg-amber-500",
+  ожидает: "bg-[#f0ad4e]",
   отменен: "bg-rose-500",
 }
 
@@ -133,7 +141,7 @@ function TipIconButton({ path, label, onClick }: { path: string; label: string; 
 
 function SupplyAction({ children, icon, onClick, color = "#4f71dc", disabled, width }: { children: ReactNode; icon: string; onClick: () => void; color?: string; disabled?: boolean; width?: number }) {
   return (
-    <button type="button" disabled={disabled} onClick={onClick} style={{ backgroundColor: color, width }} className="inline-flex h-[30px] items-center justify-center gap-[8px] rounded-[5px] px-[10px] text-[13px] font-semibold text-white hover:brightness-95 disabled:opacity-50">
+    <button type="button" disabled={disabled} onClick={onClick} style={{ backgroundColor: color, width }} className="inline-flex h-[30px] min-w-[88px] items-center justify-center gap-[8px] rounded-[5px] pl-[12px] pr-[16px] text-[13px] font-semibold text-white hover:brightness-95 disabled:opacity-50">
       <svg viewBox="0 0 24 24" className="h-[18px] w-[18px] fill-white" aria-hidden>
         <path d={icon} />
       </svg>
@@ -194,7 +202,7 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
   const [query, setQuery] = useState("")
   const [page, setPage] = useState(1)
   const [filterOpen, setFilterOpen] = useState(false)
-  const [statusFilter, setStatusFilter] = useState<"all" | Status>("all")
+  const [statusFilter, setStatusFilter] = useState<string>("all")
   const [warehouseFilter, setWarehouseFilter] = useState("all")
   const [branchFilter, setBranchFilter] = useState("")
   const [supplierFilter, setSupplierFilter] = useState("")
@@ -378,7 +386,7 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
   const filtered = useMemo(() => {
     return rows.filter((row) => {
       if (query && !row.supplier.toLowerCase().includes(query.toLowerCase()) && !String(row.id).includes(query)) return false
-      if (statusFilter !== "all" && row.status !== statusFilter) return false
+      if (statusFilter !== "all" && row.status !== statusFilter.toLowerCase()) return false
       if (warehouseFilter !== "all" && row.warehouse !== warehouseFilter) return false
       if (branchFilter && row.branch !== branchFilter) return false
       if (supplierFilter && row.supplier !== supplierFilter) return false
@@ -653,22 +661,22 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
   ]
 
   const filterPanel = (
-    <RefFilterPanel narrow onClose={() => setFilterOpen(false)} onApply={() => setFilterOpen(false)} className="!w-[310px] max-h-[calc(100vh-120px)] overflow-y-auto">
-      <FilterSelect label={t("Филиалы")} value={branchFilter} onChange={(value) => { setBranchFilter(value); paging.setPage(1) }} options={branchOptions} />
+    <RefFilterPanel narrow applyClassName="mt-[25px]" onClose={() => setFilterOpen(false)} onApply={() => setFilterOpen(false)} className="!w-[310px]">
+      <FilterSelect className="-mt-[1px]" label={t("Филиалы")} value={branchFilter} onChange={(value) => { setBranchFilter(value); paging.setPage(1) }} options={branchOptions} />
       <FilterSelect label={t("Поставщик")} value={supplierFilter} onChange={(value) => { setSupplierFilter(value); paging.setPage(1) }} options={supplierOptions} />
       <FilterSelect label={t("Склад")} value={warehouseFilter === "all" ? "" : warehouseFilter} onChange={(value) => { setWarehouseFilter(value || "all"); paging.setPage(1) }} options={warehouseOptions} />
       <FilterSelect label={t("Товар")} value={productFilter} onChange={(value) => { setProductFilter(value); paging.setPage(1) }} options={productOptions} />
       <FilterSelect label={t("Организация")} value={organizationFilter} onChange={(value) => { setOrganizationFilter(value); paging.setPage(1) }} options={organizationOptions} />
       <FilterSelect label={t("Тип оплаты")} value={paymentFilter} onChange={(value) => { setPaymentFilter(value); paging.setPage(1) }} options={[...paymentTypes]} />
-      <FilterSelect label={t("Статус")} value={statusFilter === "all" ? "" : statusFilter} onChange={(value) => { setStatusFilter((value || "all") as "all" | Status); paging.setPage(1) }} options={["принят", "ожидает", "отменен"]} />
-      <FilterText label={t("Номер договора")} value={contractFilter} onChange={(value) => { setContractFilter(value); paging.setPage(1) }} />
-      <FilterText label={t("Номер счет фактуры")} value={invoiceFilter} onChange={(value) => { setInvoiceFilter(value); paging.setPage(1) }} />
-      <FilterDate label={t("Дата счет фактуры")} begin={invoiceDateFilter.begin} end={invoiceDateFilter.end} onChange={(begin, end) => { setInvoiceDateFilter({ begin, end }); paging.setPage(1) }} />
-      <FilterDate label={t("Дата поставки")} begin={supplyDateFilter.begin} end={supplyDateFilter.end} onChange={(begin, end) => { setSupplyDateFilter({ begin, end }); paging.setPage(1) }} />
-      <FilterDate label={t("Период передачи со склада")} begin={acceptedFilter.begin} end={acceptedFilter.end} onChange={(begin, end) => { setAcceptedFilter({ begin, end }); paging.setPage(1) }} />
-      <FilterDate label={t("Дата создания")} begin={createdFilter.begin} end={createdFilter.end} onChange={(begin, end) => { setCreatedFilter({ begin, end }); paging.setPage(1) }} />
-      <FilterCheck compact label={t("Исключить отмененные поставки")} checked={excludeCancelled} onChange={(value) => { setExcludeCancelled(value); paging.setPage(1) }} className="mt-[14px]" />
-      <FilterCheck compact label={t("Исключить инвентаризации")} checked={excludeInventory} onChange={(value) => { setExcludeInventory(value); paging.setPage(1) }} className="mt-[10px]" />
+      <FilterSelect label={t("Тип")} value={statusFilter === "all" ? "" : statusFilter} onChange={(value) => { setStatusFilter(value || "all"); paging.setPage(1) }} options={["Ожидает", "В процессе", "Принят", "Отменен"]} />
+      <FilterTextMui className="mt-[1px]" label={t("Номер договора")} value={contractFilter} onChange={(value) => { setContractFilter(value); paging.setPage(1) }} />
+      <FilterTextMui label="Номер счет фактуры" value={invoiceFilter} onChange={(value) => { setInvoiceFilter(value); paging.setPage(1) }} />
+      <FilterDate mui label={t("Дата счет фактуры")} begin={invoiceDateFilter.begin} end={invoiceDateFilter.end} onChange={(begin, end) => { setInvoiceDateFilter({ begin, end }); paging.setPage(1) }} />
+      <FilterDate mui label={t("Дата поставки")} begin={supplyDateFilter.begin} end={supplyDateFilter.end} onChange={(begin, end) => { setSupplyDateFilter({ begin, end }); paging.setPage(1) }} />
+      <FilterDate mui tall label={t("Период передачи со склада")} begin={acceptedFilter.begin} end={acceptedFilter.end} onChange={(begin, end) => { setAcceptedFilter({ begin, end }); paging.setPage(1) }} />
+      <FilterDate mui label={t("Дата создания")} begin={createdFilter.begin} end={createdFilter.end} onChange={(begin, end) => { setCreatedFilter({ begin, end }); paging.setPage(1) }} />
+      <FilterCheck compact label={t("Исключить отмененные поставки")} checked={excludeCancelled} onChange={(value) => { setExcludeCancelled(value); paging.setPage(1) }} className="mt-[10px] w-[235.5px]" />
+      <FilterCheck compact label="Исключить инвентаризации" checked={excludeInventory} onChange={(value) => { setExcludeInventory(value); paging.setPage(1) }} className="mt-[10px]" />
     </RefFilterPanel>
   )
 
@@ -739,7 +747,7 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
                             )}
                             {row.status !== "отменен" && (
                               <SupplyAction onClick={() => setMarkupTarget(row)} icon="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1.41 16.09V20h-2.67v-1.93c-1.71-.36-3.16-1.46-3.27-3.4h1.96c.1 1.05.82 1.87 2.65 1.87 1.96 0 2.4-.98 2.4-1.59 0-.83-.44-1.61-2.67-2.14-2.48-.6-4.18-1.62-4.18-3.67 0-1.72 1.39-2.84 3.11-3.21V4h2.67v1.95c1.86.45 2.79 1.86 2.85 3.39H14.3c-.05-1.11-.64-1.87-2.22-1.87-1.5 0-2.4.68-2.4 1.64 0 .84.65 1.39 2.67 1.91s4.18 1.39 4.18 3.91c-.01 1.83-1.38 2.83-3.12 3.16z">
-                                {t("Наценка")}
+                                <span data-no-translate>Наценка</span>
                               </SupplyAction>
                             )}
                             {row.status !== "отменен" && (
@@ -757,7 +765,7 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
                             )}
                             {row.status === "принят" && (
                               <SupplyAction width={173} disabled={busy} color="#fa8072" onClick={() => changeStatus(row, "unaccept")} icon="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm5 11H7v-2h10v2z">
-                                {t("Отменить приёмку")}
+                                <span data-no-translate className="whitespace-nowrap">Отменит приёмку</span>
                               </SupplyAction>
                             )}
                             <RefTip text={t("Распечатать")} side="left" gap={24} className="ml-[10px]">
@@ -825,7 +833,7 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
                               <InfoRow label={`${t("Склад")}:`} value={row.warehouse} />
                               <InfoRow label={`${t("Статус")}:`} value={row.status === "принят" ? t("Завершен") : row.status === "ожидает" ? t("Ожидает") : t("Отменен")} valueClass={row.status === "принят" ? "text-[#81c784]" : row.status === "ожидает" ? "text-[#f5a623]" : "text-[#e57373]"} />
                               <InfoRow label={`${t("Принимать на склад")}:`} value={row.status === "отменен" ? t("Нельзя") : t("Можно")} valueClass={row.status === "отменен" ? "text-[#999]" : "text-[#81c784]"} />
-                              <InfoRow label={`${t("Время приемки")}:`} value={row.acceptedAt ? `${formatTimestamp(row.acceptedAt)}${row.acceptedBy ? ` (${row.acceptedBy})` : ""}` : t("Не начался")} />
+                              <InfoRow label={`${t("Время приемки")}:`} value={row.acceptedAt ? <span data-no-translate>{formatAcceptedAt(row.acceptedAt)}{row.acceptedBy ? ` (${row.acceptedBy})` : ""}</span> : t("Не начался")} />
                               <InfoRow label={`${t("Дата поставки")}:`} value={shortDate(row.date)} />
                               <InfoRow label={`${t("Комментарии")}:`} value={row.comment || t("Не указан")} />
                               <InfoRow label={`${t("Счет фактура")}:`} value={row.invoiceNumber || t("Не указан")} />
@@ -847,21 +855,21 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
                         </div>
 
                         {detailTab === "items" && (
-                          <div className="mt-px text-[13px] text-[#333]">
-                            <div className="grid min-h-[35px] grid-cols-[170fr_272fr_151fr_133fr_143fr_73fr_122fr_185fr_165fr] items-center bg-[#f0f4f7]">
+                          <div className="-mt-px text-[13px] text-[#333]">
+                            <div className="grid min-h-[36px] grid-cols-[minmax(0,147fr)_minmax(0,231fr)_minmax(0,150fr)_minmax(0,86fr)_minmax(0,123fr)_minmax(0,73fr)_minmax(0,122fr)_minmax(0,139fr)_minmax(0,138fr)] items-center bg-[#f0f4f7]">
                               <div className="pl-[19px]">{t("№")}</div>
                               <SortHead>{t("Товар")}</SortHead>
-                              <SortHead>{t("Срок годности")}</SortHead>
+                              <SortHead><span data-no-translate>Срок годности</span></SortHead>
                               <SortHead>{t("Количество")}</SortHead>
                               <SortHead>{t("Блок")}</SortHead>
-                              <SortHead>{t("Кг.")}</SortHead>
-                              <SortHead>{t("Вес нетто.")}</SortHead>
+                              <SortHead><span data-no-translate>Кг.</span></SortHead>
+                              <SortHead><span data-no-translate>Вес нетто.</span></SortHead>
                               <SortHead>{t("Стоимость")}</SortHead>
                               <SortHead>{t("Итог")}</SortHead>
                             </div>
                             <div className="border-b border-l border-[#e0e0e0]">
                               {row.items.map((item) => (
-                                <div key={item.id} className="grid min-h-[55px] grid-cols-[170fr_272fr_151fr_133fr_143fr_73fr_122fr_185fr_165fr] items-center border-t border-[#e0e0e0] first:border-t-0 [&>*]:self-stretch [&>*]:border-r [&>*]:border-[#e0e0e0]">
+                                <div key={item.id} className="grid min-h-[55px] grid-cols-[minmax(0,147fr)_minmax(0,231fr)_minmax(0,150fr)_minmax(0,86fr)_minmax(0,123fr)_minmax(0,73fr)_minmax(0,122fr)_minmax(0,139fr)_minmax(0,138fr)] items-center border-t border-[#e0e0e0] first:border-t-0 [&>*]:self-stretch [&>*]:border-r [&>*]:border-[#e0e0e0]">
                                   <div className="relative flex items-center pl-[19px]">
                                     <span>{item.id}</span>
                                     <svg viewBox="0 0 24 24" className="absolute left-[58px] top-1/2 h-5 w-5 -translate-y-1/2 fill-[#333]"><path d="M3 11h8V3H3v8zm2-6h4v4H5V5zm8-2v8h8V3h-8zm6 6h-4V5h4v4zM3 21h8v-8H3v8zm2-6h4v4H5v-4zm13-2h-2v3h-3v2h3v3h2v-3h3v-2h-3v-3z" /></svg>
@@ -872,17 +880,17 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
                                     {productInfo[item.product]?.barcode && productInfo[item.product].barcode !== "не установлен" && <span className="text-[#4f71dc]">{productInfo[item.product].barcode}</span>}
                                   </div>
                                   <div className="flex items-center pl-[18px]">{item.expiry}</div>
-                                  <div className="flex items-center pl-[17px]">{item.qty.toLocaleString("ru-RU")} {productUnits[item.product] ?? ""}</div>
-                                  <div className="flex items-center pl-[17px] pr-[6px] leading-[19px]">{blockLabel(item.qty, productBoxes[item.product], productUnits[item.product] ?? "")}</div>
+                                  <div className="flex items-center px-[18px] py-[8px]">{item.qty.toLocaleString("ru-RU")} {productUnits[item.product] ?? ""}</div>
+                                  <div className="flex items-center px-[18px] py-[8px] leading-[19px]">{blockLabel(item.qty, productBoxes[item.product], productUnits[item.product] ?? "")}</div>
                                   <div className="flex items-center pl-[18px]">{item.kg}</div>
                                   <div className="flex items-center pl-[18px]">{item.netWeight}</div>
                                   <div className="flex items-center justify-end pr-[18px]">{formatMoney(item.cost, row.currency)}</div>
                                   <div className="flex items-center justify-end pr-[18px]">{formatMoney(item.total, row.currency)}</div>
                                 </div>
                               ))}
-                              <div className="grid min-h-[62px] grid-cols-[170fr_272fr_151fr_133fr_143fr_73fr_122fr_185fr_165fr] items-center border-t border-[#e0e0e0] text-[16px] font-bold [&>*]:self-stretch [&>*]:border-r [&>*]:border-[#e0e0e0]">
+                              <div className="grid min-h-[62px] grid-cols-[minmax(0,147fr)_minmax(0,231fr)_minmax(0,150fr)_minmax(0,86fr)_minmax(0,123fr)_minmax(0,73fr)_minmax(0,122fr)_minmax(0,139fr)_minmax(0,138fr)] items-center border-t border-[#e0e0e0] text-[16px] font-bold [&>*]:self-stretch [&>*]:border-r [&>*]:border-[#e0e0e0]">
                                 <div className="col-span-3 flex items-center pl-[19px]">{t("Итого")}:</div>
-                                <div className="flex items-center pl-[17px] leading-[24px]">{row.items.reduce((sum, item) => sum + item.qty, 0).toLocaleString("ru-RU")} {singleUnit(row.items, productUnits)}</div>
+                                <div className="flex items-center px-[18px] py-[6px] leading-[24px]">{row.items.reduce((sum, item) => sum + item.qty, 0).toLocaleString("ru-RU")} {singleUnit(row.items, productUnits)}</div>
                                 <div className="flex items-center pl-[17px]" />
                                 <div className="flex items-center pl-[18px]">{row.items.reduce((sum, item) => sum + item.kg, 0)}</div>
                                 <div className="flex items-center pl-[18px]">{row.items.reduce((sum, item) => sum + item.netWeight, 0)}</div>
