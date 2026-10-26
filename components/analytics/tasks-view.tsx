@@ -18,7 +18,7 @@ const IMPORT_HEADER_ALIASES: Record<string, string> = {
 }
 
 function emptyDraft() {
-  return { responsible: responsibles[0], store: stores[0], description: "" }
+  return { responsible: "", store: "", description: "" }
 }
 
 export function TasksView() {
@@ -106,7 +106,7 @@ export function TasksView() {
       const response = await fetch("/api/tasks", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ responsible: draft.responsible, store: draft.store, description: draft.description.trim(), status: "in_progress" }),
+        body: JSON.stringify({ responsible: draft.responsible || responsibles[0], store: draft.store || stores[0], description: draft.description.trim(), status: "in_progress" }),
       })
       if (!response.ok) {
         const data = await response.json().catch(() => ({}))
@@ -270,12 +270,12 @@ export function TasksView() {
       </RefCard>
 
       {editing === "new" && (
-        <Modal title="Добавить задачу" onClose={() => setEditing(null)} footer={<SaveButton disabled={saving} onClick={() => void save({ preventDefault() {} } as FormEvent)}>{saving ? "Сохранение..." : "Сохранить"}</SaveButton>}>
+        <Modal title="Добавить задачу" width={400} bodyClassName="px-[30px] pb-[30px] pt-[49px]" onClose={() => setEditing(null)} footer={<SaveButton disabled={saving} onClick={() => void save({ preventDefault() {} } as FormEvent)}>{saving ? "Сохранение..." : "Сохранить"}</SaveButton>}>
           <LineField label="Описание" required autoFocus value={draft.description} onChange={(value) => setDraft((current) => ({ ...current, description: value }))} />
-          <div className="mt-[10px]"><LineSelect label="Магазин" required value={draft.store} onChange={(value) => setDraft((current) => ({ ...current, store: value }))} options={stores} /></div>
-          <div className="mt-[10px]"><LineSelect label="Ответственный пользователь" required value={draft.responsible} onChange={(value) => setDraft((current) => ({ ...current, responsible: value }))} options={responsibles} /></div>
-          <div className="mt-[10px]"><LineField label="Дата задачи" required value={taskDate} onChange={setTaskDate} /></div>
-          <div className="mt-[18px]"><CheckBox checked={repeatPlan} onChange={setRepeatPlan} label="Повторить план" /></div>
+          <div className="mt-[26px]"><LineSelect label="Магазин" required value={draft.store} onChange={(value) => setDraft((current) => ({ ...current, store: value }))} options={stores} /></div>
+          <div className="mt-[22px]"><LineSelect label="Ответственный пользователь" required value={draft.responsible} onChange={(value) => setDraft((current) => ({ ...current, responsible: value }))} options={responsibles} /></div>
+          <div className="mt-[18px]"><LineField label="Дата задачи" required value={taskDate} onChange={setTaskDate} /></div>
+          <div className="mt-[3px]"><CheckBox checked={repeatPlan} onChange={setRepeatPlan} label="Повторить план" /></div>
         </Modal>
       )}
 

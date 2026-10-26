@@ -23,8 +23,8 @@ export function recordDate(value: string, language: string): string {
 }
 
 /** "Анализ баланса: ✅ | Анализ отрицательного баланса: ❌ | …" (demo row tooltip). */
-export function checksTitle(checks: NetCostCheck[], t: Translate): string {
-  return checks.map((check) => `${t(check.name)}: ${check.isCorrect ? "✅" : "❌"}`).join(" | ")
+export function checksTitle(checks: NetCostCheck[], t?: Translate): string {
+  return checks.map((check) => `${t ? t(check.name) : check.name}: ${check.isCorrect ? "✅" : "❌"}`).join(" | ")
 }
 
 export function CheckIcon({ ok, title }: { ok: boolean; title?: string }) {

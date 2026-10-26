@@ -181,7 +181,7 @@ export function FavoritesButton({ className = "flex items-center gap-2 text-[#4f
           </button>
         </header>
         {items.length === 0 && <div className="p-[10px] text-[13px] leading-[16.25px] text-[#333]">{t("По вашему запросу ничего не найдено...")}</div>}
-        <ul className="m-0 mb-20 list-none p-0">
+        <ul data-no-translate="" className="m-0 mb-20 list-none p-0">
           {items.map((item, index) => {
             const isHovered = hovered === index
             const isActive = item.href === pathname

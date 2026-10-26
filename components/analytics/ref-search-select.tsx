@@ -90,7 +90,7 @@ export function RefSearchSelect({
         )}
       </button>
       {selected.length > 0 && (
-        <button type="button" aria-label={t("Очистить")} onClick={() => onChange([])} className={`absolute text-[18px] leading-[18px] text-[#999] ${dense ? "right-[29px] top-[31px]" : "right-[26px] top-[28px]"}`}>
+        <button type="button" aria-label={t("Очистить")} title="Clear value" data-native-tip="" onClick={() => onChange([])} className={`absolute text-[18px] leading-[18px] text-[#999] ${dense ? "right-[29px] top-[31px]" : "right-[26px] top-[28px]"}`}>
           ×
         </button>
       )}

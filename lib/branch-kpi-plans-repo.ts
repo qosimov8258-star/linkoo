@@ -347,7 +347,9 @@ export async function listBranchKpi(query: BranchKpiListQuery): Promise<BranchKp
   // The reference lists the branches by name, ignoring case, spaces and punctuation, when no ordering is chosen.
   const nameCollator = new Intl.Collator("en", { sensitivity: "base", ignorePunctuation: true })
   if (!query.ordering) {
-    rows.sort((a, b) => nameCollator.compare(a.name, b.name) || a.id - b.id)
+    // Equal keys: the name without punctuation first, then lower case before upper case (as in the reference).
+    const caseCollator = new Intl.Collator("en", { caseFirst: "lower" })
+    rows.sort((a, b) => nameCollator.compare(a.name, b.name) || a.name.length - b.name.length || caseCollator.compare(a.name, b.name) || a.id - b.id)
   } else if (query.ordering.endsWith("name")) {
     rows.sort((a, b) => direction * a.name.localeCompare(b.name, "ru") || a.id - b.id)
   } else if (query.ordering.endsWith("salary")) {

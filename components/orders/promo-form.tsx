@@ -102,9 +102,9 @@ function Radio({ checked, onChange, label, small, info }: { checked: boolean; on
 
 function InfoDot({ className = "" }: { className?: string }) {
   return (
-    <span className={`inline-flex h-[20px] w-[20px] items-center justify-center rounded-full bg-[#5c7ae0] text-[13px] font-bold italic text-white shadow-[0_0_0_3px_rgba(92,122,224,0.25)] ${className}`} aria-hidden>
-      i
-    </span>
+    <svg viewBox="0 0 24 24" className={`inline-block h-[22px] w-[22px] shrink-0 rounded-full fill-[#5c7ae0] shadow-[0_0_0_2px_rgba(92,122,224,0.25)] ${className}`} aria-hidden>
+      <path fill="#fff" d="M11 7h2v2h-2zm0 4h2v6h-2z" />
+    </svg>
   )
 }
 
@@ -151,7 +151,7 @@ function ProductTable({ title, withQty }: { title: string; withQty?: boolean }) 
         <b className="text-[13px] font-semibold">{t(title)}</b>
         <span className="text-[12px] text-[#2a6df4]">⇪ {t("Импортировать с Excel")}</span>
       </div>
-      <div className="mt-[10px] flex items-end gap-[12px] rounded-[6px] bg-[#f4f6f9] px-[12px] pb-[18px] pt-[22px]">
+      <div className="mt-[7px] flex items-end gap-[12px] rounded-[6px] bg-[#f4f6f9] px-[12px] pb-[22px] pt-[18px]">
         <div className="flex-1">
           <LineSelect label={t("Наименование")} value="" onChange={() => {}} options={[]} />
         </div>
@@ -261,7 +261,7 @@ export function PromoForm({
 
           {c.type !== "Балл" && (
             <>
-              <Heading>{t("Действует для клиентов:")}</Heading>
+              <Heading mt={15} mb={17}>{t("Действует для клиентов:")}</Heading>
               {audiences.map((item) => (
                 <div key={item} className="flex items-center justify-between">
                   <Radio checked={c.audience === item} onChange={() => setConfig({ audience: item })} label={t(c.type === "Бонус" && item === "Выбранным клиентам" ? "Выбраанным клиентам" : item)} />
@@ -298,10 +298,7 @@ export function PromoForm({
                 <div>
                   <p className="text-[11px] font-bold uppercase tracking-[0.5px] text-[#7b8190]">{t("Условия закупа")}</p>
                   <div className="mt-[12px] space-y-[10px]">
-                    <div className="flex items-start justify-between gap-[10px]">
-                      <CheckBox checked={c.purchase.bonusSame} onChange={(next) => setConfig({ purchase: { ...c.purchase, bonusSame: next } })} label={t("В качестве бонуса давать только тот продукт, который купили.")} />
-                      <InfoDot className="mr-[16px] mt-[8px]" />
-                    </div>
+                    <SoftCheck checked={c.purchase.bonusSame} onChange={(next) => setConfig({ purchase: { ...c.purchase, bonusSame: next } })} label={t("В качестве бонуса давать только тот продукт, который купили.")} info />
                     <CheckBox checked={c.purchase.block} onChange={(next) => setConfig({ purchase: { ...c.purchase, block: next } })} label={t("Считать в блоке")} />
                     <SoftCheck checked={c.purchase.combo} onChange={(next) => setConfig({ purchase: { ...c.purchase, combo: next } })} label={t("При полном наборе выбранного списка (КОМБО, СЕТ)")} info />
                     <CheckBox checked={c.purchase.perItem} onChange={(next) => setConfig({ purchase: { ...c.purchase, perItem: next } })} label={t("Указать кол-во для каждой позиции закупа")} />

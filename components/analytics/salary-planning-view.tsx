@@ -1,85 +1,137 @@
 "use client"
 
 import Image from "next/image"
-import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react"
-import { Copy, FileText, X } from "lucide-react"
-import { FilterSelect, RI, RefButton, RefCard, RefHeader, RefPage, RefTable, RefTabs } from "@/components/ref/list-kit"
+import { useEffect, useMemo, useState } from "react"
+import { Copy } from "lucide-react"
+import { FilterSelect, RI, RefButton, RefCard, RefHeader, RefImportDialog, RefPage, RefTabs } from "@/components/ref/list-kit"
 import { RefPager } from "@/components/ref/pager-controls"
 import { RefTip } from "@/components/ref/ref-tip"
 import { SalaryAddDialog } from "@/components/analytics/salary-add-dialog"
+import { SalaryCopyDialog } from "@/components/analytics/salary-copy-dialog"
+import { SalaryMonthSelect, SalaryYearField } from "@/components/analytics/salary-fields"
+import { SalaryPlansDialog, type PlanSavePayload, type SalaryKpi } from "@/components/analytics/salary-plans-dialog"
 
 import { downloadExcelTable } from "@/lib/excel-export"
 import { mapHeaderColumns, readExcelRows } from "@/lib/excel-import"
+import { useLanguage } from "@/lib/i18n/language-context"
 import { notify } from "@/lib/notify"
+import { refDateTime } from "@/lib/ref-date"
 
-const months = ["Январь", "Февраль", "Март", "Апрель", "Май", "Июнь", "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"]
-
-const IMPORT_HEADER_ALIASES: Record<string, string> = {
-  "сотрудник": "employee",
-  "зарплата": "salary",
-  "kpi": "kpi",
-}
-
-type SalaryRow = {
+type Indicator = { id: number; name: string; plan: number; planType: string }
+type CurrencyTotal = { name: string; totalBonus: number; totalSalary: number }
+type SalaryRecord = {
   id: number
-  employee: string
+  userId: number
+  name: string
+  position: string
+  month: number
+  year: number
   salary: number
-  bonus: number
-  kpi: number
-  credited: boolean
-  period?: string
+  currency: string
+  currencies: CurrencyTotal[]
+  totalBonus: number
+  totalSalary: number
+  isApproved: boolean
+  indicators: Indicator[]
+}
+type ListResult = { count: number; results: SalaryRecord[]; lastDate: string | null }
+type KpiTask = { id: number; name: string; planType: string; active: boolean; tillDate?: string | null }
+type Employee = { id: number; login: string; firstName: string; lastName: string; active?: boolean }
+
+const TABS = ["Не зачислено", "Зачислено", "Все"]
+const TAB_PARAM: Record<string, string> = { "Не зачислено": "false", "Зачислено": "true", "Все": "all" }
+
+/** "22 501 020 100", "352,543": groups of three, comma decimals (up to three), like the reference. */
+function fmt(value: number) {
+  return new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 3 }).format(value).replace(/ | /g, " ")
 }
 
-function download(filename: string, content: string) {
-  const url = URL.createObjectURL(new Blob([`\uFEFF${content}`], { type: "text/csv;charset=utf-8" }))
-  const anchor = document.createElement("a")
-  anchor.href = url
-  anchor.download = filename
-  anchor.click()
-  URL.revokeObjectURL(url)
+/** Names compare without spaces and case, code point by code point (the order of the reference's KPI lists). */
+function kpiOrder(a: string, b: string) {
+  const x = a.replace(/\s/g, "").toLowerCase()
+  const y = b.replace(/\s/g, "").toLowerCase()
+  return x < y ? -1 : x > y ? 1 : 0
+}
+
+function isActiveKpi(task: KpiTask) {
+  if (!task.active) return false
+  return !task.tillDate || task.tillDate >= new Date().toISOString().slice(0, 10)
+}
+
+const SELECT_ALL = "M3 5h2V3c-1.1 0-2 .9-2 2zm0 8h2v-2H3v2zm4 8h2v-2H7v2zM3 9h2V7H3v2zm10-6h-2v2h2V3zm6 0v2h2c0-1.1-.9-2-2-2zM5 21v-2H3c0 1.1.9 2 2 2zm-2-4h2v-2H3v2zM9 3H7v2h2V3zm2 18h2v-2h-2v2zm8-8h2v-2h-2v2zm0 8c1.1 0 2-.9 2-2h-2v2zm0-12h2V7h-2v2zm0 8h2v-2h-2v2zm-4 4h2v-2h-2v2zm0-16h2V3h-2v2zM7 17h10V7H7v10zm2-8h6v6H9V9z"
+const EYE_OFF = RI.eyeOff
+const MINUS_BOX = "M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-2 10H7v-2h10v2z"
+const SEARCH = "M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"
+
+function Box({ checked, onClick, label }: { checked: boolean; onClick: () => void; label: string }) {
+  return (
+    <button type="button" aria-label={label} aria-pressed={checked} onClick={onClick} className="flex h-6 w-6 items-center justify-center">
+      <span className={`flex h-[18px] w-[18px] items-center justify-center border-2 ${checked ? "border-[#5d6474] bg-[#5d6474]" : "border-[#5d6474]"}`}>
+        {checked && <svg viewBox="0 0 24 24" className="h-4 w-4 fill-white"><path d="M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4L9 16.2z" /></svg>}
+      </span>
+    </button>
+  )
+}
+
+/** One value per currency on its own line ("39 600 SUM" / "0,486 USD"). */
+function Money({ lines }: { lines: Array<{ value: number; currency: string }> }) {
+  return (
+    <div>
+      {lines.map((line) => <div key={line.currency} className="leading-[16px]">{fmt(line.value)} {line.currency}</div>)}
+    </div>
+  )
 }
 
 export function SalaryPlanningView() {
+  const { t } = useLanguage()
   const today = new Date()
-  const fileRef = useRef<HTMLInputElement>(null)
-  const [rows, setRows] = useState<SalaryRow[]>([])
-  const [selected, setSelected] = useState<number[]>([])
-  const [tab, setTab] = useState("Все")
-  const [month, setMonth] = useState(today.getMonth())
+  const [month, setMonth] = useState<number | null>(today.getMonth())
   const [year, setYear] = useState(today.getFullYear())
+  const [tab, setTab] = useState("Все")
   const [query, setQuery] = useState("")
+  const [debounced, setDebounced] = useState("")
   const [pageSize, setPageSize] = useState(25)
   const [page, setPage] = useState(1)
+  const [data, setData] = useState<ListResult>({ count: 0, results: [], lastDate: null })
+  const [loaded, setLoaded] = useState(false)
+  const [reload, setReload] = useState(0)
+  const [selectMode, setSelectMode] = useState(false)
+  const [selected, setSelected] = useState<number[]>([])
   const [addOpen, setAddOpen] = useState(false)
   const [plansOpen, setPlansOpen] = useState(false)
-  const [recalculating, setRecalculating] = useState(false)
-  const [message, setMessage] = useState("")
+  const [copyOpen, setCopyOpen] = useState(false)
   const [importOpen, setImportOpen] = useState(false)
-  const [impMonth, setImpMonth] = useState(today.getMonth())
+  const [kpis, setKpis] = useState<SalaryKpi[]>([])
+  // The Excel template lists every KPI flagged active (the reference's template also has the ones whose period has ended).
+  const [templateKpis, setTemplateKpis] = useState<SalaryKpi[]>([])
+  const [currencies, setCurrencies] = useState<string[]>([])
+  const [orgOptions, setOrgOptions] = useState<string[]>([])
+  const [impMonth, setImpMonth] = useState<number | null>(today.getMonth())
   const [impYear, setImpYear] = useState(today.getFullYear())
   const [impOrg, setImpOrg] = useState("")
   const [impCur, setImpCur] = useState("")
-  const [orgOptions, setOrgOptions] = useState<string[]>([])
-  const [curOptions, setCurOptions] = useState<string[]>([])
   const [importFile, setImportFile] = useState<File | null>(null)
   const [importSaving, setImportSaving] = useState(false)
-  const importInputRef = useRef<HTMLInputElement>(null)
+
+  const effMonth = (month ?? today.getMonth()) + 1
 
   useEffect(() => {
-    if (!importOpen || orgOptions.length) return
-    fetch("/api/organizations").then((response) => (response.ok ? response.json() : [])).then((data: Array<{ name?: string }>) => setOrgOptions([...new Set(data.map((item) => item.name ?? "").filter(Boolean))])).catch(() => {})
-    fetch("/api/currencies").then((response) => (response.ok ? response.json() : [])).then((data: Array<{ name?: string }>) => setCurOptions(data.map((item) => item.name ?? "").filter(Boolean))).catch(() => {})
-  }, [importOpen, orgOptions.length])
+    const timer = window.setTimeout(() => setDebounced(query), 300)
+    return () => window.clearTimeout(timer)
+  }, [query])
 
   useEffect(() => {
     let cancelled = false
-    fetch("/api/salary-plans")
+    const params = new URLSearchParams({ month: String(effMonth), year: String(year), tab: TAB_PARAM[tab], search: debounced, page: String(page), pageSize: String(pageSize) })
+    fetch(`/api/salary-records?${params}`)
       .then(async (response) => {
-        if (!response.ok) throw new Error("Не удалось загрузить зарплаты")
-        return (await response.json()) as SalaryRow[]
+        if (!response.ok) throw new Error("load")
+        return (await response.json()) as ListResult
       })
-      .then((data) => {
-        if (!cancelled) setRows(data)
+      .then((result) => {
+        if (cancelled) return
+        setData(result)
+        setLoaded(true)
       })
       .catch(() => {
         if (!cancelled) notify("Не удалось загрузить зарплаты с сервера")
@@ -87,195 +139,146 @@ export function SalaryPlanningView() {
     return () => {
       cancelled = true
     }
+  }, [effMonth, year, tab, debounced, page, pageSize, reload])
+
+  // Active KPIs and currencies are needed by the "Изменить планы" step and by the Excel template.
+  useEffect(() => {
+    fetch("/api/kpi-tasks")
+      .then((response) => (response.ok ? response.json() : []))
+      .then((rows: KpiTask[]) => {
+        const toKpi = (row: KpiTask) => ({ id: row.id, name: row.name, planType: row.planType })
+        setKpis(rows.filter(isActiveKpi).map(toKpi).sort((a, b) => kpiOrder(a.name, b.name)))
+        setTemplateKpis(rows.filter((row) => row.active).map(toKpi).sort((a, b) => kpiOrder(a.name, b.name)))
+      })
+      .catch(() => {})
+    fetch("/api/currencies")
+      .then((response) => (response.ok ? response.json() : []))
+      .then((rows: Array<{ name?: string }>) => setCurrencies(rows.map((row) => row.name ?? "").filter(Boolean)))
+      .catch(() => {})
   }, [])
 
-  const filtered = useMemo(
-    () =>
-      rows.filter(
-        (row) =>
-          (!row.period || row.period === `${year}-${String(month + 1).padStart(2, "0")}`) &&
-          (tab === "Все" || (tab === "Зачислено" ? row.credited : !row.credited)) &&
-          row.employee.toLowerCase().includes(query.toLowerCase()),
-      ),
-    [rows, tab, query, month, year],
-  )
-  const pages = Math.max(1, Math.ceil(filtered.length / pageSize))
-  const shown = filtered.slice((page - 1) * pageSize, page * pageSize)
+  useEffect(() => {
+    if (!importOpen || orgOptions.length) return
+    fetch("/api/organizations")
+      .then((response) => (response.ok ? response.json() : []))
+      .then((rows: Array<{ name?: string }>) => setOrgOptions([...new Set(rows.map((item) => item.name ?? "").filter(Boolean))]))
+      .catch(() => {})
+  }, [importOpen, orgOptions.length])
 
-  function toggleSelected(id: number) {
-    setSelected((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id])
-  }
+  const pageCount = Math.max(1, Math.ceil(data.count / pageSize))
+  const rows = data.results
+  const selectedRows = rows.filter((row) => selected.includes(row.userId))
+  const hasSelection = selected.length > 0
+  const allOnPage = rows.length > 0 && rows.every((row) => selected.includes(row.userId))
 
-  async function setCredited(credited: boolean) {
-    const targets = rows.filter((row) => selected.includes(row.id))
-    if (!targets.length) return
-    const updated: SalaryRow[] = []
-    let failed = 0
-    for (const row of targets) {
-      try {
-        const response = await fetch(`/api/salary-plans/${row.id}`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ employee: row.employee, salary: row.salary, bonus: row.bonus, kpi: row.kpi, credited }),
-        })
-        if (response.ok) updated.push((await response.json()) as SalaryRow)
-        else failed += 1
-      } catch {
-        failed += 1
-      }
+  const refresh = () => setReload((current) => current + 1)
+
+  function changeFilter<T>(setter: (value: T) => void) {
+    return (value: T) => {
+      setter(value)
+      setPage(1)
     }
-    if (updated.length) setRows((current) => current.map((row) => updated.find((item) => item.id === row.id) ?? row))
-    if (failed) notify(`Не удалось обновить записей: ${failed}`)
-    setMessage(credited ? "Зарплата зачислена" : "Зачисление отменено")
   }
 
-  async function recalcKpi() {
-    setRecalculating(true)
+  function toggleRow(userId: number) {
+    setSelected((current) => (current.includes(userId) ? current.filter((id) => id !== userId) : [...current, userId]))
+  }
+
+  function toggleAll() {
+    const ids = rows.map((row) => row.userId)
+    setSelected((current) => (allOnPage ? current.filter((id) => !ids.includes(id)) : [...new Set([...current, ...ids])]))
+  }
+
+  async function post(url: string, body: unknown, failure: string): Promise<boolean> {
     try {
-      const updated: SalaryRow[] = []
-      let failed = 0
-      for (const row of rows) {
-        const bonus = Math.round((row.salary * row.kpi) / 100)
-        try {
-          const response = await fetch(`/api/salary-plans/${row.id}`, {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ employee: row.employee, salary: row.salary, bonus, kpi: row.kpi, credited: row.credited }),
-          })
-          if (response.ok) updated.push((await response.json()) as SalaryRow)
-          else failed += 1
-        } catch {
-          failed += 1
-        }
-      }
-      if (updated.length) setRows((current) => current.map((row) => updated.find((item) => item.id === row.id) ?? row))
-      if (failed) notify(`Не удалось пересчитать записей: ${failed}`)
-      setMessage("KPI пересчитан")
-    } finally {
-      setRecalculating(false)
+      const response = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
+      if (response.ok) return true
+      const payload = (await response.json().catch(() => null)) as { error?: string } | null
+      notify(payload?.error ?? failure)
+    } catch {
+      notify(failure)
     }
+    return false
   }
 
-  async function addSalaries(entries: Array<{ employee: string; salary: number }>) {
-    const created: SalaryRow[] = []
-    let failed = 0
-    for (const entry of entries) {
-      try {
-        const response = await fetch("/api/salary-plans", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ employee: entry.employee, salary: entry.salary, bonus: 0, kpi: 0, credited: false, period: `${year}-${String(month + 1).padStart(2, "0")}` }),
-        })
-        if (response.ok) created.push((await response.json()) as SalaryRow)
-        else failed += 1
-      } catch {
-        failed += 1
-      }
-    }
-    if (created.length) setRows((current) => [...current, ...created])
-    if (failed) notify(`Не удалось добавить записей: ${failed}`)
-    else if (created.length) setMessage(`Добавлено сотрудников: ${created.length}`)
+  async function setApproved(approved: boolean) {
+    if (!hasSelection) return
+    if (await post("/api/salary-records/change-approve", { month: effMonth, year, users: selected, is_approved: approved }, "Не удалось обновить записи")) refresh()
+  }
+
+  async function recalc() {
+    if (await post("/api/salary-records/recalculate", { month: effMonth, year }, "Не удалось пересчитать KPI")) refresh()
+  }
+
+  async function addSalaries(entries: Array<{ userId: number; salary: number }>, currency: string) {
+    if (entries.length && (await post("/api/salary-records", { month: effMonth, year, currency, salaries: entries.map((entry) => ({ user: entry.userId, salary: entry.salary })) }, "Не удалось добавить зарплату"))) refresh()
     setAddOpen(false)
   }
 
-
-  async function updatePlans(salary: number, kpi: number) {
-    const targets = rows.filter((row) => selected.includes(row.id))
-    const updated: SalaryRow[] = []
-    let failed = 0
-    for (const row of targets) {
-      try {
-        const response = await fetch(`/api/salary-plans/${row.id}`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ employee: row.employee, salary, bonus: row.bonus, kpi, credited: row.credited }),
-        })
-        if (response.ok) updated.push((await response.json()) as SalaryRow)
-        else failed += 1
-      } catch {
-        failed += 1
-      }
-    }
-    if (updated.length) setRows((current) => current.map((row) => updated.find((item) => item.id === row.id) ?? row))
+  async function savePlans(payload: PlanSavePayload) {
+    const ok = await post("/api/salary-records/bulk-plans", { month: payload.month, year: payload.year, users: payload.users.map((user) => ({ user: user.userId, plans: user.plans })) }, "Не удалось сохранить планы")
+    if (!ok) return
     setPlansOpen(false)
-    setMessage("Планы обновлены")
-    if (failed) notify(`Не удалось обновить записей: ${failed}`)
+    refresh()
   }
 
-  async function duplicateSelected() {
-    if (!selected.length) return
-    const targets = rows.filter((row) => selected.includes(row.id))
-    const created: SalaryRow[] = []
-    let failed = 0
-    for (const row of targets) {
-      try {
-        const response = await fetch("/api/salary-plans", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ employee: `${row.employee} — копия`, salary: row.salary, bonus: row.bonus, kpi: row.kpi, credited: row.credited }),
-        })
-        if (response.ok) created.push((await response.json()) as SalaryRow)
-        else failed += 1
-      } catch {
-        failed += 1
-      }
+  async function saveSalary(salary: number, currency: string) {
+    if (!(await post("/api/salary-records/bulk-salary", { month: effMonth, year, users: selected, salary, currency }, "Не удалось сохранить зарплату"))) return
+    setPlansOpen(false)
+    refresh()
+  }
+
+  async function copyMonth(to: { month: number; year: number }, options: { copyKpi: boolean; copySalary: boolean }) {
+    const ok = await post("/api/salary-records/copy", { from_month: effMonth, from_year: year, to_month: to.month, to_year: to.year, users: selected, copy_indicator: options.copyKpi, copy_salary: options.copySalary }, "Не удалось дублировать")
+    if (!ok) return
+    setCopyOpen(false)
+    refresh()
+  }
+
+  async function monthRecords(m: number, y: number) {
+    const response = await fetch(`/api/salary-records?month=${m}&year=${y}&all=1`)
+    return response.ok ? (((await response.json()) as { results: SalaryRecord[] }).results) : []
+  }
+
+  /** "Скачать EXCEL": the reference's KPI statistics sheet (plan columns per KPI; facts are not stored here, so they stay empty). */
+  async function exportExcel() {
+    const records = await monthRecords(effMonth, year)
+    const names = [...new Set(records.flatMap((record) => record.indicators.map((item) => item.name)))].sort(kpiOrder)
+    const groupHead = ["План", "Продажа", "Возврат", "Факт", "% выполнения", "Уровень", "Сумма Бонуса"].map((label) => t(label))
+    const head1: (string | number)[] = ["№", t("КПИ / Сотрудник"), t("Фиксированный оклад"), t("Рабочие дни"), t("Отработанные дни"), t("Зарплата")]
+    const head2: (string | number)[] = ["", "", "", "", "", ""]
+    for (const name of names) {
+      head1.push(name, "", "", "", "", "", "")
+      head2.push(...groupHead)
     }
-    if (created.length) setRows((current) => [...current, ...created])
-    setMessage("Выбранные строки скопированы")
-    if (failed) notify(`Не удалось скопировать записей: ${failed}`)
-  }
-
-  function exportCsv() {
-    const header = "Сотрудник;Зарплата;Сумма бонусов;Итоговая зарплата;KPI;Зачислено"
-    const body = rows.map((row) => `${row.employee};${row.salary};${row.bonus};${row.salary + row.bonus};${row.kpi};${row.credited ? "Да" : "Нет"}`)
-    download("salary-plans.csv", [header, ...body].join("\n"))
-  }
-
-  async function importCsv(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0]
-    if (!file) return
-    const text = await file.text()
-    const imported = text.split(/\r?\n/).slice(1).filter(Boolean).map((line, index) => {
-      const [employee, salary, bonus, , kpi, credited] = line.split(";")
-      return { employee: employee || `Сотрудник ${index + 1}`, salary: Number(salary) || 0, bonus: Number(bonus) || 0, kpi: Number(kpi) || 0, credited: credited === "Да" }
+    head1.push(t("Итоговая сумма"))
+    head2.push("")
+    const body = records.map((record, index) => {
+      const line: (string | number)[] = [index + 1, record.name, record.salary || "", "", "", ""]
+      for (const name of names) {
+        const plan = record.indicators.find((item) => item.name === name)?.plan
+        line.push(plan ?? "", "", "", "", "", "", "")
+      }
+      line.push(record.totalSalary)
+      return line
     })
-    event.target.value = ""
-    if (!imported.length) return
-
-    // "Обновить с excel" replaces the whole plan list: clear existing rows, then recreate from the file
-    for (const row of rows) {
-      try {
-        await fetch(`/api/salary-plans/${row.id}`, { method: "DELETE" })
-      } catch {
-        // best effort — continue even if one delete fails
-      }
-    }
-    const created: SalaryRow[] = []
-    let failed = 0
-    for (const item of imported) {
-      try {
-        const response = await fetch("/api/salary-plans", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(item),
-        })
-        if (response.ok) created.push((await response.json()) as SalaryRow)
-        else failed += 1
-      } catch {
-        failed += 1
-      }
-    }
-    setRows(created)
-    setMessage(`Импортировано сотрудников: ${created.length}`)
-    if (failed) notify(`Не удалось импортировать записей: ${failed}`)
+    downloadExcelTable("kpi", [head1, head2, ...body])
   }
 
-  function downloadTemplate() {
-    downloadExcelTable("salary-template", [["Сотрудник", "Зарплата", "KPI"]])
+  async function activeEmployees(): Promise<Employee[]> {
+    const response = await fetch("/api/employees")
+    return response.ok ? ((await response.json()) as Employee[]).filter((row) => row.active !== false) : []
   }
 
-  function pickImportFile(event: ChangeEvent<HTMLInputElement>) {
-    setImportFile(event.target.files?.[0] ?? null)
+  /** "1. Скачать шаблон": logins with the current salary and one plan column per active KPI. */
+  async function downloadTemplate() {
+    const [people, records] = await Promise.all([activeEmployees(), monthRecords((impMonth ?? today.getMonth()) + 1, impYear)])
+    const head = [t("Логин"), t("Имя"), t("Фамилия"), t("Зарплата"), ...templateKpis.map((kpi) => kpi.name)]
+    const body = people.map((person) => {
+      const record = records.find((item) => item.userId === person.id)
+      return [person.login, person.firstName, person.lastName, record?.salary || "", ...templateKpis.map((kpi) => record?.indicators.find((item) => item.id === kpi.id)?.plan ?? "")]
+    })
+    downloadExcelTable("SalaryExcel", [head, ...body])
   }
 
   async function saveImport() {
@@ -283,185 +286,225 @@ export function SalaryPlanningView() {
     setImportSaving(true)
     try {
       const excelRows = await readExcelRows(importFile)
-      if (!excelRows.length) {
+      const headerIndex = excelRows.findIndex((row) => row.some((cell) => cell.trim().toLowerCase() === t("Логин").toLowerCase() || cell.trim().toLowerCase() === "логин"))
+      if (headerIndex < 0) {
         notify("Не удалось найти данные для импорта в выбранном файле")
         return
       }
-      const fieldByIndex = mapHeaderColumns(excelRows[0], IMPORT_HEADER_ALIASES)
-      const hasHeader = Array.from(fieldByIndex.values()).includes("employee")
-      const dataRows = hasHeader ? excelRows.slice(1) : excelRows
-
-      const parsed: { employee: string; salary: number; kpi: number }[] = []
-      for (const row of dataRows) {
-        const record: Record<string, string> = {}
-        if (hasHeader) {
-          row.forEach((cell, index) => {
-            const field = fieldByIndex.get(index)
-            if (field) record[field] = cell
-          })
-        } else {
-          record.employee = row[0] ?? ""
-          record.salary = row[1] ?? ""
-          record.kpi = row[2] ?? ""
-        }
-        if (!record.employee) continue
-        parsed.push({ employee: record.employee.trim(), salary: Number(record.salary) || 0, kpi: Number(record.kpi) || 0 })
+      const header = excelRows[headerIndex].map((cell) => cell.trim())
+      const columns = mapHeaderColumns(header, { логин: "login", login: "login", зарплата: "salary", salary: "salary" })
+      const loginCol = [...columns.entries()].find(([, field]) => field === "login")?.[0] ?? 0
+      const salaryCol = [...columns.entries()].find(([, field]) => field === "salary")?.[0] ?? 3
+      const kpiCols = header.map((name, index) => ({ index, kpi: templateKpis.find((kpi) => kpi.name === name) })).filter((item) => item.kpi)
+      const people = await activeEmployees()
+      const m = (impMonth ?? today.getMonth()) + 1
+      const salaries: Array<{ user: number; salary: number }> = []
+      const planUsers: Array<{ user: number; plans: Array<{ id: number; name: string; planType: string; plan: number }> }> = []
+      for (const row of excelRows.slice(headerIndex + 1)) {
+        const person = people.find((item) => item.login === (row[loginCol] ?? "").trim())
+        if (!person) continue
+        const salary = Number((row[salaryCol] ?? "").replace(/\s/g, "").replace(",", "."))
+        if (salary > 0) salaries.push({ user: person.id, salary })
+        const plans = kpiCols
+          .map(({ index, kpi }) => ({ id: kpi!.id, name: kpi!.name, planType: kpi!.planType, plan: Number((row[index] ?? "").replace(/\s/g, "").replace(",", ".")) || 0 }))
+          .filter((item) => item.plan > 0)
+        if (plans.length) planUsers.push({ user: person.id, plans })
       }
-
-      if (!parsed.length) {
+      if (!salaries.length && !planUsers.length) {
         notify("Не удалось найти данные для импорта в выбранном файле")
         return
       }
-
-      const created: SalaryRow[] = []
-      let failed = 0
-      for (const item of parsed) {
-        try {
-          const response = await fetch("/api/salary-plans", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ employee: item.employee, salary: item.salary, bonus: 0, kpi: item.kpi, credited: false, period: `${impYear}-${String(impMonth + 1).padStart(2, "0")}` }),
-          })
-          if (response.ok) created.push((await response.json()) as SalaryRow)
-          else failed += 1
-        } catch {
-          failed += 1
-        }
-      }
-      if (created.length) setRows((current) => [...current, ...created])
-      setMessage(`Импортировано сотрудников: ${created.length}`)
-      if (failed) notify(`Не удалось импортировать записей: ${failed}`)
-    } finally {
-      setImportSaving(false)
+      if (salaries.length && !(await post("/api/salary-records", { month: m, year: impYear, currency: impCur, salaries }, "Не удалось импортировать"))) return
+      if (planUsers.length && !(await post("/api/salary-records/bulk-plans", { month: m, year: impYear, users: planUsers }, "Не удалось импортировать"))) return
       setImportOpen(false)
       setImportFile(null)
+      refresh()
+    } finally {
+      setImportSaving(false)
     }
   }
 
+  // Totals of the selected rows (the green bar), per currency.
+  const sums = useMemo(() => {
+    const sum = (pick: (row: SalaryRecord) => Array<{ currency: string; value: number }>) => {
+      const map = new Map<string, number>()
+      for (const row of selectedRows) for (const item of pick(row)) map.set(item.currency, (map.get(item.currency) ?? 0) + item.value)
+      const parts = [...map.entries()].map(([currency, value]) => `${fmt(value)} ${currency}`)
+      return parts.length ? parts.join(", ") : "0 SUM"
+    }
+    return {
+      salary: sum((row) => [{ currency: row.currency, value: row.salary }]),
+      bonus: sum((row) => row.currencies.map((item) => ({ currency: item.name, value: item.totalBonus }))),
+      total: sum((row) => row.currencies.map((item) => ({ currency: item.name, value: item.totalSalary }))),
+    }
+  }, [selectedRows])
+
+  const planTargets = selectedRows.length
+    ? selectedRows.map((row) => ({ userId: row.userId, name: row.name, plans: Object.fromEntries(row.indicators.map((item) => [item.id, item.plan])) as Record<number, number> }))
+    : []
+
+  const tip = t("Выберите хотя бы один сотрудник !")
+  const inSelection = selectMode && hasSelection
+  const actionButtons = (
+    <>
+      <RefTip text={hasSelection ? "" : tip} side="left" gap={12.5}><RefButton exact green label={t("Зачислить")} onClick={() => void setApproved(true)} /></RefTip>
+      <RefTip text={hasSelection ? "" : tip} side="left" gap={12.5}><RefButton exact red label={t("Отменить зачисление")} onClick={() => void setApproved(false)} /></RefTip>
+      <RefTip text={hasSelection ? "" : tip} side="left" gap={12.5}><RefButton exact icon={RI.edit} label={t("Изменить планы")} onClick={() => hasSelection && setPlansOpen(true)} /></RefTip>
+      <RefTip text={t("Дублировать")} side="left" gap={12.5}>
+        <button type="button" aria-label={t("Дублировать")} onClick={() => setCopyOpen(true)} className="flex h-12 w-12 items-center justify-center text-[#5d6474]"><Copy className="h-6 w-6" /></button>
+      </RefTip>
+    </>
+  )
+  const pager = (
+    <RefPager
+      pageSize={pageSize}
+      onPageSize={(size) => { setPageSize(size); setPage(1) }}
+      from={data.count ? (page - 1) * pageSize + 1 : 1}
+      to={Math.min(page * pageSize, data.count)}
+      total={data.count}
+      page={page}
+      pageCount={pageCount}
+      onPage={setPage}
+    />
+  )
+
   return (
     <RefPage>
-      <input ref={fileRef} type="file" accept=".csv" onChange={importCsv} className="hidden" />
-      <RefHeader title="Зарплата и установка планов">
-        <div className="mr-[9px] flex items-center gap-[33px]">
-          <RefButton exact green label="Перерасчет KPI" onClick={() => void recalcKpi()} />
-          <RefButton exact icon={RI.sync} label="Обновить с excel" onClick={() => setImportOpen(true)} />
-          <RefButton exact icon={RI.download} green label="Скачать EXCEL" onClick={exportCsv} />
-          <RefButton exact icon={RI.add} green label="Добавить зарплату" onClick={() => setAddOpen(true)} />
+      <RefHeader title={t("Зарплата и установка планов")}>
+        <div className="mr-[9px] flex items-center">
+          {data.lastDate && <span className="mr-[10px] whitespace-nowrap text-[13px] font-semibold text-black"><span className="uppercase">{t("Данные за")}</span> {refDateTime(data.lastDate)}</span>}
+          <span className={data.lastDate ? "flex w-[130px] justify-center [&>button]:px-[15px]" : ""}><RefButton exact green label={t("Перерасчет KPI")} onClick={() => void recalc()} /></span>
+          <span className={data.lastDate ? "ml-[25px]" : "ml-[33px]"}><RefButton exact icon={RI.sync} label={t("Обновить с excel")} onClick={() => setImportOpen(true)} /></span>
+          <span className="ml-[15px]"><RefButton exact icon={RI.download} green label={t("Скачать EXCEL")} onClick={() => void exportExcel()} /></span>
+          <span className="ml-[10px]"><RefButton exact icon={RI.add} green label={t("Добавить зарплату")} onClick={() => setAddOpen(true)} /></span>
         </div>
       </RefHeader>
 
       <RefCard className="bg-white">
-        <RefTabs labels={["Не зачислено", "Зачислено", "Все"]} value={tab} onChange={(value) => { setTab(value); setPage(1) }} />
-        <div className="relative flex h-[50px] items-center whitespace-nowrap px-[5px]">
-          <label className="absolute left-[5px] top-0 block h-[50px] w-[200px]">
-            <span className="absolute left-0 top-[5px] text-[10px] font-bold leading-[12px] text-black">Месяц</span>
-            <select value={month} onChange={(event) => setMonth(Number(event.target.value))} className="absolute left-0 top-[27px] h-[26px] w-full appearance-none bg-transparent pr-[40px] text-[13px] text-black outline-none">
-              {months.map((item, index) => <option key={item} value={index}>{item}</option>)}
-            </select>
-            <svg viewBox="0 0 24 24" className="pointer-events-none absolute right-[26px] top-[29px] h-5 w-5 fill-black/30"><path d={RI.close} /></svg>
-            <svg viewBox="0 0 24 24" className="pointer-events-none absolute right-0 top-[27px] h-6 w-6 fill-black/30"><path d="M7 10l5 5 5-5z" /></svg>
-          </label>
-          <label className="absolute left-[205px] top-0 block h-[50px] w-[100px]">
-            <span className="absolute left-0 top-[11px] text-[10px] font-bold leading-[12px] text-black">Год</span>
-            <select value={year} onChange={(event) => setYear(Number(event.target.value))} className="absolute left-0 top-[29px] h-[26px] w-full appearance-none bg-transparent text-[13px] text-black outline-none">
-              {[2025, 2026, 2027].map((item) => <option key={item}>{item}</option>)}
-            </select>
-          </label>
-          <div className="absolute left-[377.5px] top-0 flex h-12 w-[300px] items-center border-b border-[#e0e0e0] focus-within:border-[#5d6474]">
-            <input
-              value={query}
-              onChange={(event) => { setQuery(event.target.value); setPage(1) }}
-              placeholder="Поиск"
-              className="h-12 w-[262px] bg-transparent text-[13px] outline-none placeholder:text-black/30"
-            />
-            <svg viewBox="0 0 24 24" className="ml-[12px] h-6 w-6 shrink-0 fill-[#ccc]"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z" /></svg>
+        <RefTabs labels={TABS} value={tab} onChange={(value) => { setTab(value); setPage(1) }} />
+        {inSelection && (
+          <div className="flex h-[30px] items-center justify-between bg-[#09890f] pl-[5px] pr-[33px] text-[13px] font-semibold text-white">
+            <span>{t("Зарплата:")} {sums.salary}</span>
+            <span>{t("Сумма бонусов:")} {sums.bonus}</span>
+            <span>{t("Итоговая зарплата:")} {sums.total}</span>
           </div>
-          <div className="relative z-10 ml-auto flex shrink-0 items-center text-[#5d6474]">
-            <RefPager
-              pageSize={pageSize}
-              onPageSize={(size) => { setPageSize(size); setPage(1) }}
-              from={filtered.length ? (page - 1) * pageSize + 1 : 1}
-              to={Math.min(page * pageSize, filtered.length)}
-              total={filtered.length}
-              page={page}
-              pageCount={pages}
-              onPage={setPage}
-            />
-            <RefTip text={"Выбрать из списка"} side="left" gap={12.5} className="ml-5 shrink-0"><span className="flex h-12 w-12 items-center justify-center"><svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#5d6474]"><path d={RI.checklist} /></svg></span></RefTip>
-            <div className="flex shrink-0 items-center gap-[18px]">
-              <RefTip text={selected.length ? "" : "Выберите хотя бы один сотрудник !"} side="left" gap={12.5}><RefButton exact green label="Зачислить" onClick={() => void setCredited(true)} /></RefTip>
-              <RefTip text={selected.length ? "" : "Выберите хотя бы один сотрудник !"} side="left" gap={12.5}><RefButton exact red label="Отменить зачисление" onClick={() => void setCredited(false)} /></RefTip>
-              <RefTip text={selected.length ? "" : "Выберите хотя бы один сотрудник !"} side="left" gap={12.5}><RefButton exact icon={RI.edit} label="Изменить планы" onClick={() => setPlansOpen(true)} /></RefTip>
-              <button type="button" aria-label="Дублировать" onClick={() => void duplicateSelected()} className="flex h-12 w-12 items-center justify-center text-[#5d6474]"><Copy className="h-6 w-6" /></button>
+        )}
+        {inSelection ? (
+          <div className="flex h-[50px] items-center bg-[#f2f5f8] px-[5px]">
+            <strong className="font-semibold">{t("Выбрано")}: {selected.length}</strong>
+            <div className="ml-auto flex items-center text-[#5d6474]">
+              {pager}
+              <div className="ml-5 flex shrink-0 items-center gap-[10px]">{actionButtons}</div>
+              <RefTip text={t("Снять выделение")} side="left" gap={12.5}>
+                <button type="button" aria-label={t("Снять выделение")} onClick={() => setSelected([])} className="flex h-12 w-12 items-center justify-center"><svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#666]"><path d={MINUS_BOX} /></svg></button>
+              </RefTip>
             </div>
           </div>
+        ) : (
+          <div className="relative flex h-[50px] items-center whitespace-nowrap px-[5px]">
+            <div className="absolute left-[5px] top-0 w-[200px]"><SalaryMonthSelect bare value={month} onChange={changeFilter(setMonth)} /></div>
+            <div className="absolute left-[205px] top-0 w-[100px]"><SalaryYearField bare value={year} onChange={changeFilter(setYear)} /></div>
+            <div className="absolute left-[377.5px] top-0 flex h-12 w-[300px] items-center border-b border-[#e0e0e0] focus-within:border-[#5d6474]">
+              <input
+                value={query}
+                onChange={(event) => { setQuery(event.target.value); setPage(1) }}
+                placeholder={t("Поиск")}
+                className="h-12 w-[262px] bg-transparent text-[13px] outline-none placeholder:text-black/30"
+              />
+              <svg viewBox="0 0 24 24" className="ml-[12px] h-6 w-6 shrink-0 fill-[#ccc]"><path d={SEARCH} /></svg>
+            </div>
+            <div className="relative z-10 ml-auto flex shrink-0 items-center text-[#5d6474]">
+              {pager}
+              <RefTip text={t("Выбрать из списка")} side="left" gap={12.5} className="ml-5 shrink-0">
+                <button type="button" aria-label={t("Выбрать из списка")} onClick={() => { setSelectMode((current) => !current); setSelected([]) }} className="flex h-12 w-12 items-center justify-center">
+                  <svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#5d6474]"><path d={selectMode ? EYE_OFF : RI.checklist} /></svg>
+                </button>
+              </RefTip>
+              <div className="flex shrink-0 items-center gap-[18px]">{actionButtons}</div>
+            </div>
+          </div>
+        )}
+
+        <div className="overflow-x-auto bg-white">
+          <div style={{ minWidth: 1100 }}>
+            <div className={`grid h-[50px] grid-cols-[1fr_1fr_1fr_1fr_2fr] items-center bg-[#5d6474] pr-[30px] font-semibold text-white ${selectMode ? "pl-[50px]" : "pl-[30px]"}`}>
+              <div className="relative leading-[16px]">
+                {selectMode && (
+                  <button type="button" aria-label={t("Выбрать все")} onClick={toggleAll} className="absolute -left-[30px] top-[-4px] flex h-6 w-6 items-center justify-center">
+                    <svg viewBox="0 0 24 24" className="h-6 w-6 fill-white"><path d={SELECT_ALL} /></svg>
+                  </button>
+                )}
+                {t("Сотрудник")}
+              </div>
+              <div className="pr-2 text-right leading-[16px]">{t("Зарплата")}</div>
+              <div className="pr-2 text-right leading-[16px]">{t("Сумма бонусов")}</div>
+              <div className="pr-2 text-right leading-[16px]">{t("Итоговая зарплата")}</div>
+              <div className="pl-2 leading-[16px]">KPI</div>
+            </div>
+            {rows.length === 0 ? (
+              loaded && (
+                <div className="flex min-h-[276px] flex-col items-center justify-center gap-[26px] pt-[34px]">
+                  <Image src="/robot-empty.png" alt={t("Робот-помощник")} width={150} height={150} priority className="h-36 w-36 object-contain" />
+                  <p className="text-[13px] text-[#666]">{t("По вашему запросу ничего не найдено")}</p>
+                </div>
+              )
+            ) : (
+              rows.map((row) => {
+                const checked = selected.includes(row.userId)
+                return (
+                  <div key={row.id} className={`relative grid min-h-[50px] grid-cols-[1fr_1fr_1fr_1fr_2fr] items-center border-b border-dotted border-[#d7dee3] text-[#333] ${selectMode ? "pl-[55px] pr-[80px]" : "pl-[30px] pr-[30px]"} ${checked ? "bg-[#f2f5f8]" : ""}`}>
+                    {selectMode && <div className="absolute left-[20px] top-1/2 -translate-y-1/2"><Box checked={checked} label={row.name} onClick={() => toggleRow(row.userId)} /></div>}
+                    <div className="px-2 leading-[16px]">{row.name}</div>
+                    <div className="px-2 text-right leading-[16px]">{fmt(row.salary)} {row.currency}</div>
+                    <div className="px-2 text-right"><Money lines={row.currencies.map((item) => ({ value: item.totalBonus, currency: item.name }))} /></div>
+                    <div className="px-2 text-right"><Money lines={row.currencies.map((item) => ({ value: item.totalSalary, currency: item.name }))} /></div>
+                    <div className="flex flex-wrap pl-2">
+                      {row.indicators.map((item) => (
+                        <div key={item.id} className="my-[5px] mr-[10px] ml-0 flex h-[28px] items-center rounded-[2px] bg-[#e9ecef] px-[10px]">
+                          {item.name}:<span className="ml-1 font-semibold text-[#4f71dc]">{fmt(item.plan)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )
+              })
+            )}
+          </div>
         </div>
-        {message && <div className="flex justify-between bg-blue-50 px-5 py-2 text-blue-700">{message}<button type="button" onClick={() => setMessage("")}>×</button></div>}
-        <RefTable
-          cols="391px 193px 205px 141px minmax(0,1fr)"
-          headPad={1}
-          heads={["Сотрудник", "Зарплата", "Сумма бонусов", "Итоговая зарплата", "KPI"]}
-          rows={shown}
-          rowKey={(row) => row.id}
-          empty={
-            <div className="flex min-h-[276px] flex-col items-center justify-center gap-4">
-              <Image src="/robot-empty.png" alt="Робот-помощник" width={150} height={150} priority className="h-36 w-36 object-contain" />
-              <p className="text-[13px] text-[#666]">По вашему запросу ничего не найдено</p>
+      </RefCard>
+
+      {addOpen && <SalaryAddDialog month={effMonth - 1} year={year} onClose={() => setAddOpen(false)} onSave={addSalaries} />}
+      {plansOpen && (
+        <SalaryPlansDialog
+          month={effMonth - 1}
+          year={year}
+          targets={planTargets}
+          kpis={kpis}
+          currencies={currencies}
+          onClose={() => setPlansOpen(false)}
+          onSavePlans={savePlans}
+          onSaveSalary={saveSalary}
+        />
+      )}
+      {copyOpen && <SalaryCopyDialog month={effMonth - 1} year={year} onClose={() => setCopyOpen(false)} onSave={copyMonth} />}
+      {importOpen && (
+        <RefImportDialog
+          file={importFile}
+          onFile={setImportFile}
+          onTemplate={() => void downloadTemplate()}
+          onSave={() => void saveImport()}
+          onClose={() => { setImportOpen(false); setImportFile(null) }}
+          saving={importSaving}
+          top={
+            <div className="h-[273px]">
+              <SalaryMonthSelect className="-mt-[5px]" value={impMonth} onChange={setImpMonth} />
+              <SalaryYearField className="mt-[20px]" value={impYear} onChange={setImpYear} />
+              <FilterSelect className="mt-[19px]" label={t("Организация")} value={impOrg} onChange={setImpOrg} options={orgOptions} />
+              <FilterSelect className="mt-[4px]" label={t("Валюта")} value={impCur} onChange={setImpCur} options={currencies} />
             </div>
           }
-          render={(row) => [
-            <label key="e" className="flex items-center gap-3"><input type="checkbox" checked={selected.includes(row.id)} onChange={() => toggleSelected(row.id)} />{row.employee}</label>,
-            row.salary.toLocaleString("ru-RU"),
-            row.bonus.toLocaleString("ru-RU"),
-            (row.salary + row.bonus).toLocaleString("ru-RU"),
-            `${row.kpi}%`,
-          ]}
         />
-      </RefCard>
-      {addOpen && <SalaryAddDialog month={month} year={year} onClose={() => setAddOpen(false)} onSave={addSalaries} />}
-      {plansOpen && <PlansModal onClose={() => setPlansOpen(false)} onSave={(salary, kpi) => void updatePlans(salary, kpi)} />}
-      {importOpen && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/45 p-4">
-          <div className="w-full max-w-[400px] rounded bg-white">
-            <header className="flex items-center justify-between border-b p-6">
-              <b className="uppercase">Импорт с Excel</b>
-              <button type="button" onClick={() => { setImportOpen(false); setImportFile(null) }} aria-label="Закрыть">
-                <X className="h-5 w-5" />
-              </button>
-            </header>
-            <div className="p-8">
-              <FilterSelect label="Месяц" value={months[impMonth]} onChange={(value) => setImpMonth(Math.max(0, months.indexOf(value)))} options={months} />
-              <FilterSelect label="Год" value={String(impYear)} onChange={(value) => setImpYear(Number(value) || impYear)} options={["2025", "2026", "2027"]} />
-              <FilterSelect label="Организация" value={impOrg} onChange={setImpOrg} options={orgOptions} />
-              <FilterSelect label="Валюта" value={impCur} onChange={setImpCur} options={curOptions} />
-              <button type="button" onClick={downloadTemplate} className="mb-4 font-semibold text-[#5470e8] hover:underline">
-                1. Скачать шаблон
-              </button>
-              <input ref={importInputRef} type="file" accept=".csv,.xls,.xlsx" onChange={pickImportFile} className="hidden" />
-              <button
-                type="button"
-                onClick={() => importInputRef.current?.click()}
-                className="flex w-full flex-col items-center justify-center gap-3 rounded border-2 border-dashed border-slate-300 py-10 text-slate-500 hover:border-[#5470e8] hover:text-[#5470e8]"
-              >
-                <FileText className="h-8 w-8" />
-                {importFile ? importFile.name : "Добавьте файл Excel или нажмите для выбора"}
-              </button>
-            </div>
-            <footer className="flex justify-end border-t p-5">
-              <button type="button" disabled={!importFile || importSaving} onClick={saveImport} className="inline-flex items-center h-[30px] rounded-[5px] bg-[#71ce87] px-4 text-[13px] font-semibold text-white hover:brightness-95 disabled:opacity-40">
-                {importSaving ? "Импорт..." : "Сохранить"}
-              </button>
-            </footer>
-          </div>
-        </div>
       )}
     </RefPage>
   )
-}
-
-
-function PlansModal({ onClose, onSave }: { onClose: () => void; onSave: (salary: number, kpi: number) => void }) {
-  const [salary, setSalary] = useState("0")
-  const [kpi, setKpi] = useState("0")
-  return <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/55 p-4"><form onSubmit={(event) => { event.preventDefault(); onSave(Number(salary), Number(kpi)) }} className="w-full max-w-lg bg-white"><header className="flex justify-between border-b px-7 py-5"><h2 className="font-bold">ИЗМЕНИТЬ ПЛАНЫ</h2><button type="button" onClick={onClose}><X /></button></header><div className="space-y-5 p-7"><input type="number" min="0" value={salary} onChange={(event) => setSalary(event.target.value)} placeholder="Зарплата" className="w-full border-b py-3" /><input type="number" min="0" max="100" value={kpi} onChange={(event) => setKpi(event.target.value)} placeholder="KPI, %" className="w-full border-b py-3" /></div><footer className="flex justify-end border-t px-7 py-5"><button className="font-bold uppercase text-sky-500">Сохранить</button></footer></form></div>
 }

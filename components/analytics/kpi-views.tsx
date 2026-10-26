@@ -328,7 +328,7 @@ export function KpiTasksView() {
             </div>
           }
           render={(task) => [
-            task.id,
+            <span key="id" className="pl-2">{task.id}</span>,
             <span key="n">{task.name}</span>,
             t(planLabel(task.planType)),
             t(clientLabel(task.clientType)),
@@ -338,7 +338,7 @@ export function KpiTasksView() {
               type="button"
               onClick={(event) => { event.stopPropagation(); void toggleTaskActive(task) }}
               aria-label={t("Изменить активность")}
-              className={`mx-auto block h-[10px] w-[10px] rounded-full ${isCurrentlyActive(task) ? "bg-[#81c784]" : "bg-[#fa8072]"}`}
+              className={`relative -left-[3.5px] mx-auto block h-[10px] w-[10px] rounded-full ${isCurrentlyActive(task) ? "bg-[#81c784]" : "bg-[#fa8072]"}`}
             />,
           ]}
           expanded={(task) =>
@@ -410,17 +410,18 @@ function KpiTaskDetail({
   const { t } = useLanguage()
   const detail = task.detail ?? {}
   const active = isCurrentlyActive(task)
-  const icon = "h-5 w-5 fill-[#5d6474]"
+  const icon = "h-5 w-5 fill-[#666]"
   const pills = (items: Array<{ name: string }> | undefined, empty: string) =>
     (items?.length ? items.map((item) => item.name) : [empty]).map((name, index) => (
-      <span key={`${name}-${index}`} className="mr-[6px] inline-block rounded-[16px] bg-[#eceff1] px-[12px] py-[5px] text-[13px] leading-[18px] text-[#333]">{t(name)}</span>
+      <span key={`${name}-${index}`} className="mr-[6px] inline-block rounded-[16px] bg-[#e9ecef] px-[5px] py-[5px] text-[13px] leading-[16.3px] text-[#333]">{t(name)}</span>
     ))
-  const row = "flex items-center border-b border-[#eceff1] py-[18px] text-[13px]"
+  const row = "flex items-center border-t border-[#eceff1] py-[15.5px] text-[13px] leading-[25px]"
+  const levelCols = "grid-cols-[163.8px_81.9px_163.8px_163.8px_163.8px_1fr]"
   return (
     <div className="-mx-[15px] my-[20px] flex min-h-[566px] flex-col bg-white shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
-      <div className="flex h-[66px] items-center justify-between px-[30px]">
-        <h2 className="text-[18px] font-normal text-[#333]">{task.name}</h2>
-        <div className="mr-[12px] flex items-center gap-[28px]">
+      <div className="flex h-[65px] items-center justify-between px-[30px]">
+        <h2 className="text-[18px] font-semibold leading-[22.5px] text-[#333]">{task.name}</h2>
+        <div className="relative -top-[2px] mr-[14px] flex items-center gap-[28px]">
           <button type="button" onClick={onToggleActive} aria-label={t("Изменить статус")}><svg viewBox="0 0 24 24" className={icon}><path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2z" /></svg></button>
           <button type="button" onClick={onEdit} aria-label={t("Изменить")}><svg viewBox="0 0 24 24" className={icon}><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z" /></svg></button>
           <button type="button" onClick={onCopy} aria-label={t("Дублировать")}><svg viewBox="0 0 24 24" className={icon}><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z" /></svg></button>
@@ -429,29 +430,29 @@ function KpiTaskDetail({
       </div>
       <div className="flex flex-1 border-t border-[#eceff1]">
         <div className="w-[441px] shrink-0 border-r border-[#eceff1]">
-          <div className="space-y-[7px] px-[30px] py-[20px] text-[13px] leading-[18px] text-[#555]">
+          <div className="space-y-0 px-[30px] pb-[18.5px] pt-[14px] text-[13px] leading-[25px] text-[#333]">
             <div className="flex justify-between gap-[20px]"><span>{t("Тип плана:")}</span><b className="max-w-[268px] text-right font-semibold text-[#333]">{t(planLabel(task.planType))}</b></div>
             <div className="flex justify-between gap-[8px] whitespace-nowrap"><span>{t("Дополнительные условия:")}</span><b className="font-semibold text-[#333]">{t(detail.is_order_status && detail.order_status?.length ? "Выбранные статусы заказов" : "Нет дополнительных условий")}</b></div>
             {detail.currency && (
               <div className="flex items-center justify-between"><span>{t("Валюта:")}</span><b className="flex items-center font-semibold text-[#333]">{detail.currency.name}<svg viewBox="0 0 24 24" className="ml-[6px] h-6 w-6 fill-[#4f71dc]"><path d="M11 7h2v2h-2zm0 4h2v6h-2zm1-9C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z" /></svg></b></div>
             )}
-            <div className={`font-semibold ${active ? "text-[#43a047]" : "text-[#e57373]"}`}>{t(active ? "Активный" : "Не активный")}</div>
+            <div className={`mt-[3px] font-semibold leading-[18px] ${active ? "text-[#48a34b]" : "text-[#e57373]"}`}>{t(active ? "Активный" : "Не активный")}</div>
           </div>
-          <div className={`${row} mx-0 px-[30px]`}><span className="flex-1 text-[#555]">{t("Заказы по дате:")}</span><b className="font-semibold text-[#333]">{t(dateLabels[detail.order_date_type ?? "created_date"] ?? "Создания")}</b></div>
-          <div className={`${row} mx-0 px-[30px]`}><span className="flex-1 text-[#555]">{t("Возвраты по дате:")}</span><b className="font-semibold text-[#333]">{t(dateLabels[detail.order_return_date_type ?? "created_date"] ?? "Создания")}</b></div>
+          <div className={`${row} mx-0 px-[30px]`}><span className="flex-1">{t("Заказы по дате:")}</span><b className="font-semibold text-[#333]">{t(dateLabels[detail.order_date_type ?? "created_date"] ?? "Создания")}</b></div>
+          <div className={`${row} mx-0 px-[30px]`}><span className="flex-1">{t("Возвраты по дате:")}</span><b className="font-semibold text-[#333]">{t(dateLabels[detail.order_return_date_type ?? "created_date"] ?? "Создания")}</b></div>
         </div>
-        <div className="min-w-0 flex-1 px-[30px] py-[20px] text-[13px]">
-          <p className="mb-[16px] font-bold text-[#333]">{t("Уровень вознаграждения")}</p>
-          <div className="grid grid-cols-[209px_161px_140px_1fr_auto_246px] border-b border-dotted border-[#cfd8dc] pb-[14px] pl-[5px] font-semibold text-[#333]">
-            <span>№</span><span>{t("От")}</span><span>{t("До")}</span><span>{t("Бонус")}</span><span className="text-right">{t("Тип расчета")}</span><span className="text-right">{t("Обнуление предыдущих уровней")}</span>
+        <div className="min-w-0 flex-1 pl-[28.2px] pr-[30px] pt-[19px] text-[13px]">
+          <p className="mb-[8.1px] ml-[3px] font-bold leading-[16.3px] text-[#333]">{t("Уровень вознаграждения")}</p>
+          <div className="grid h-[49px] grid-cols-[161.1px_80.6px_161.1px_161.1px_161.1px_241.7px] items-center border-b border-dotted border-[#cfd8dc] font-semibold text-[#333]">
+            <span className="px-2">№</span><span className="px-2 text-right">{t("От")}</span><span className="px-2 text-right">{t("До")}</span><span className="px-2 text-right">{t("Бонус")}</span><span className="px-2 text-right">{t("Тип расчета")}</span><span className="px-2 text-right">{t("Обнуление предыдущих уровней")}</span>
           </div>
           {(detail.levels ?? []).map((level, index) => (
-            <div key={index} className="grid grid-cols-[209px_161px_140px_1fr_auto_246px] items-center border-b border-dotted border-[#cfd8dc] py-[22px] pl-[5px] text-[#333]">
-              <span>{index + 1}</span><span>{amount(level.from_amount)} %</span><span>{amount(level.to_amount)} %</span><span>{amount(level.bonus_amount)}</span><span className="text-right">{t(calcLabels[level.calculation_type] ?? level.calculation_type)}</span>
-              <b className="text-right font-semibold">{t(level.exclude_low_level ? "Включено" : "Отключено")}</b>
+            <div key={index} className={`grid min-h-[60px] ${levelCols} items-center border-b border-dotted border-[#cfd8dc] text-[#333]`}>
+              <span className="px-2">{index + 1}</span><span className="px-2 text-right">{amount(level.from_amount)} %</span><span className="px-2 text-right">{amount(level.to_amount)} %</span><span className="px-2 text-right">{amount(level.bonus_amount)}</span><span className="px-2 text-right">{t(calcLabels[level.calculation_type] ?? level.calculation_type)}</span>
+              <b className="pl-2 text-right font-bold">{t(level.exclude_low_level ? "Включено" : "Отключено")}</b>
             </div>
           ))}
-          <div className="mt-[10px]">
+          <div className="ml-[3px]">
             {[
               ["Выбранные бренды", detail.brands, "Нет связанных бренд"],
               ["Прайс листы:", detail.price_lists, "Нет связанных прайс листов"],

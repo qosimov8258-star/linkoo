@@ -6,7 +6,7 @@ import { Download, Loader2, MoreVertical, Search } from "lucide-react"
 import { BalanceTable, type BalanceColumnGroup } from "@/components/analytics/balance/balance-table"
 import { balanceListExcelRows } from "@/components/analytics/balance/excel"
 import { ExpandedOverlay, ExpandedViewButton } from "@/components/analytics/balance/expanded-view"
-import { BalanceFilterChip, BalanceFilterDialog } from "@/components/analytics/balance/filter-bar"
+import { BalanceFilterChip, BalanceFilterDialog, FilterVariant } from "@/components/analytics/balance/filter-bar"
 import { BalancePagination } from "@/components/analytics/balance/pagination"
 import { BalanceSummaryCards, type SummaryBox } from "@/components/analytics/balance/summary-cards"
 import { buildBalanceQuery, useBalanceList, useFinanceCurrencies, useLookup, type BalanceQuery } from "@/components/analytics/balance/use-balance"
@@ -405,6 +405,7 @@ export function EmployeeBalanceView() {
       )}
 
       <BalanceFilterDialog
+        variant="card"
         open={filterOpen}
         onClose={() => setFilterOpen(false)}
         from={period.from}
@@ -416,22 +417,45 @@ export function EmployeeBalanceView() {
           update({ period: unchanged ? null : next, users: draftUsers, page: 1 })
         }}
       >
-        <label className="flex flex-col gap-1 md:col-span-2">
-          <span className="text-sm text-[#586174]">{t("Должность")}</span>
-          <select
-            value={draftJob}
-            onChange={(event) => {
-              setDraftJob(event.target.value)
-              setDraftUsers([])
-            }}
-            className="h-10 rounded-md border border-[#dbe0e8] bg-white px-3 text-[#17233b]"
-          >
-            <option value="">{t("Выберите...")}</option>
-            {[...new Set(employees.map((item) => item.job).filter((job): job is string => !!job))].sort((a, b) => a.localeCompare(b, "ru")).map((job) => (
-              <option key={job} value={job}>{job}</option>
-            ))}
-          </select>
-        </label>
+        <FilterVariant
+          plain={
+          <label className="flex flex-col gap-1 md:col-span-2">
+            <span className="text-sm text-[#586174]">{t("Должность")}</span>
+            <select
+              value={draftJob}
+              onChange={(event) => {
+                setDraftJob(event.target.value)
+                setDraftUsers([])
+              }}
+              className="h-10 rounded-md border border-[#dbe0e8] bg-white px-3 text-[#17233b]"
+            >
+              <option value="">{t("Выберите...")}</option>
+              {[...new Set(employees.map((item) => item.job).filter((job): job is string => !!job))].sort((a, b) => a.localeCompare(b, "ru")).map((job) => (
+                <option key={job} value={job}>{job}</option>
+              ))}
+            </select>
+          </label>
+          }
+          card={
+            <label className="relative block h-[40px] border-b border-[#d5dae1]">
+              <span className={`pointer-events-none absolute left-0 ${draftJob ? "top-0 text-[10px] font-semibold leading-3" : "top-[18px] text-[13px] font-bold leading-4"}`}>{t("Должность")}</span>
+              <select
+                value={draftJob}
+                onChange={(event) => {
+                  setDraftJob(event.target.value)
+                  setDraftUsers([])
+                }}
+                className="absolute inset-x-0 bottom-0 h-[26px] w-full appearance-none bg-transparent text-[13px] outline-none"
+              >
+                <option value=""></option>
+                {[...new Set(employees.map((item) => item.job).filter((job): job is string => !!job))].sort((a, b) => a.localeCompare(b, "ru")).map((job) => (
+                  <option key={job} value={job}>{job}</option>
+                ))}
+              </select>
+              <svg viewBox="0 0 10 5" className="pointer-events-none absolute bottom-[10px] right-[2px] h-[5px] w-[10px] fill-[#757575]" aria-hidden><path d="M0 0h10L5 5z" /></svg>
+            </label>
+          }
+        />
         <EmployeeUsersSelect options={draftJob ? employees.filter((item) => item.job === draftJob) : employees} value={draftUsers} onChange={setDraftUsers} />
       </BalanceFilterDialog>
 

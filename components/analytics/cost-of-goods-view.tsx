@@ -359,8 +359,8 @@ export function CostOfGoodsView({ embedded = false }: { embedded?: boolean }) {
               <span key="cost" className="block text-right">{fmtCost(row.cost)}</span>,
               <span key="real" className="block text-right">{fmtCost(row.realCost)}</span>,
               <span key="rev" className="block text-right">{row.revaluation === null ? t("Не указано") : fmtCost(row.revaluation)}</span>,
-              <span key="check" className="flex justify-center" title={checksTitle(row.checkData, t)}>
-                <CheckIcon ok={row.isCorrect} title={checksTitle(row.checkData, t)} />
+              <span key="check" className="flex justify-center" data-no-translate="" title={checksTitle(row.checkData)}>
+                <CheckIcon ok={row.isCorrect} title={checksTitle(row.checkData)} />
               </span>,
             ]}
             expanded={(row) =>

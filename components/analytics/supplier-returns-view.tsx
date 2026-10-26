@@ -1,9 +1,11 @@
 "use client"
 
 import { askAction, askCancel, askDelete } from "@/lib/ask-confirm"
-import { FileSpreadsheet, ListPlus, Plus, Upload, X } from "lucide-react"
+import { ShoppingBag, X } from "lucide-react"
 import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react"
 
+import { CashModal, FormField, SearchSelect, inputClass, type PickOption } from "@/components/analytics/cash-management-shared"
+import { MaterialDate } from "@/components/analytics/cash-material"
 import { FilterToggle } from "@/components/analytics/internal-transfers-filter"
 import { FilterDate, FilterSelect, RI, RefButton, RefCard, RefFilterPanel, RefHeader, RefPage, RefTable, RefToolbar, usePaging } from "@/components/ref/list-kit"
 import { downloadExcelTable } from "@/lib/excel-export"
@@ -107,6 +109,8 @@ function StatusChips({ value, onChange }: { value: Status[]; onChange: (next: St
 
 type DraftItem = { id: number; product: string; qty: number; series: string; price: number }
 
+const pickOptions = (values: string[]): PickOption[] => values.map((value) => ({ value, label: value }))
+
 function formatToday() {
   const date = new Date()
   return date.toLocaleDateString("ru-RU", { day: "2-digit", month: "long", year: "numeric" })
@@ -118,12 +122,18 @@ function emptyDraft() {
     warehouse: "",
     organization: "",
     branch: "",
-    currency: "SUM",
+    currency: "",
     priceList: "",
-    paymentType: paymentTypes[0],
-    date: formatToday(),
+    paymentType: "",
+    date: "",
     comment: "",
   }
+}
+
+/** ISO yyyy-mm-dd → "26 октября 2026 г." (the format the returns are stored with). */
+function longDate(iso: string) {
+  const parsed = new Date(`${iso}T12:00:00`)
+  return Number.isNaN(parsed.getTime()) ? formatToday() : parsed.toLocaleDateString("ru-RU", { day: "2-digit", month: "long", year: "numeric" })
 }
 
 export function SupplierReturnsView({ embedded = false }: { embedded?: boolean }) {
@@ -149,6 +159,7 @@ export function SupplierReturnsView({ embedded = false }: { embedded?: boolean }
   const [modalOpen, setModalOpen] = useState(false)
   const [editingId, setEditingId] = useState<number | null>(null)
   const [draft, setDraft] = useState(emptyDraft)
+  const [tried, setTried] = useState(false)
   const [draftItems, setDraftItems] = useState<DraftItem[]>([])
   const [pickerOpen, setPickerOpen] = useState(false)
   const [pickerQuery, setPickerQuery] = useState("")
@@ -265,6 +276,7 @@ export function SupplierReturnsView({ embedded = false }: { embedded?: boolean }
   }
 
   function openCreate() {
+    setTried(false)
     setDraft(emptyDraft())
     setDraftItems([])
     setEditingId(null)
@@ -272,6 +284,7 @@ export function SupplierReturnsView({ embedded = false }: { embedded?: boolean }
   }
 
   function openEdit(row: SupplierReturn) {
+    setTried(false)
     setDraft({
       supplier: row.fromWhom,
       warehouse: row.warehouse,
@@ -280,7 +293,7 @@ export function SupplierReturnsView({ embedded = false }: { embedded?: boolean }
       currency: row.currency || "SUM",
       priceList: row.priceList,
       paymentType: row.paymentType,
-      date: row.date,
+      date: toIsoDate(row.date),
       comment: row.reason,
     })
     setDraftItems(row.items.map((item) => ({ id: item.id, product: item.product, qty: item.qty, series: item.series, price: item.price })))
@@ -385,9 +398,14 @@ export function SupplierReturnsView({ embedded = false }: { embedded?: boolean }
   const draftTotalCost = draftItems.reduce((sum, item) => sum + item.qty * item.price, 0)
   const draftTotalQty = draftItems.reduce((sum, item) => sum + item.qty, 0)
 
-  async function save(event: FormEvent) {
-    event.preventDefault()
-    if (!draft.supplier || !draft.warehouse || !draftItems.length) return
+  async function save(event?: FormEvent) {
+    event?.preventDefault()
+    setTried(true)
+    if (!draft.supplier || !draft.warehouse) return
+    if (!draftItems.length) {
+      notify(t("Вы еще не выбрали ни одного товара."))
+      return
+    }
     const items = draftItems.map((item) => ({
       id: item.id,
       product: item.product,
@@ -400,10 +418,10 @@ export function SupplierReturnsView({ embedded = false }: { embedded?: boolean }
       warehouse: draft.warehouse,
       organization: draft.organization,
       branch: draft.branch,
-      currency: draft.currency,
+      currency: draft.currency || "SUM",
       priceList: draft.priceList,
-      paymentType: draft.paymentType,
-      date: draft.date,
+      paymentType: draft.paymentType || paymentTypes[0],
+      date: draft.date ? longDate(draft.date) : formatToday(),
       comment: draft.comment,
       items,
     }
@@ -625,129 +643,71 @@ export function SupplierReturnsView({ embedded = false }: { embedded?: boolean }
       </RefCard>
 
       {modalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
-          <form onSubmit={save} className="flex max-h-[90vh] w-full max-w-4xl flex-col rounded bg-white">
-            <header className="flex items-center justify-between border-b p-6">
-              <b className="uppercase">{editingId !== null ? `${t("Изменить возврат №")}${editingId}` : t("Возврат поставщика")}</b>
-              <button type="button" onClick={() => setModalOpen(false)} aria-label={t("Закрыть")}><X className="h-5 w-5" /></button>
-            </header>
+        <CashModal
+          size="screen"
+          zIndex={110}
+          title={editingId !== null ? `${t("Изменить возврат №")}${editingId}` : t("Возврат поставщика")}
+          onClose={() => setModalOpen(false)}
+          footer={
+            <>
+              <span className="flex items-center gap-[26px] pl-[20px] text-[13px] text-black">
+                <span>{t("Общая стоимость:")} <b className="font-bold text-[#129fdd]">{draftTotalCost.toLocaleString("ru-RU")}</b></span>
+                <span>{t("Общее кол-во:")} <b className="font-bold text-[#129fdd]">{draftTotalQty} {t("ед")}</b></span>
+              </span>
+              <button type="button" onClick={() => void save()} className="h-9 min-w-[56px] px-4 text-[13px] font-semibold uppercase text-[#129fdd] hover:underline">
+                {t("Оформить возврат")}
+              </button>
+            </>
+          }
+        >
+          <div className="w-[449px] shrink-0 overflow-y-auto border-r border-[#efefef] px-[30px] pb-6 pt-[18px]">
+            <div className="grid content-start gap-[12px]">
+              <FormField label={t("Поставщик")} required showRequired error={tried && !draft.supplier ? t("Обязательное поле") : undefined}>
+                <SearchSelect variant="underline" value={draft.supplier} options={pickOptions(supplierOptions)} invalid={tried && !draft.supplier} onChange={(supplier) => setDraft((value) => ({ ...value, supplier }))} />
+              </FormField>
+              <FormField label={t("Склад назначения")} required showRequired error={tried && !draft.warehouse ? t("Обязательное поле") : undefined}>
+                <SearchSelect variant="underline" value={draft.warehouse} options={pickOptions(warehouseOptions)} invalid={tried && !draft.warehouse} onChange={(warehouse) => setDraft((value) => ({ ...value, warehouse }))} />
+              </FormField>
+              <FormField label={t("Организация")} required showRequired>
+                <SearchSelect variant="underline" value={draft.organization} options={pickOptions(organizationOptions)} onChange={(organization) => setDraft((value) => ({ ...value, organization }))} />
+              </FormField>
+              <FormField label={t("Филиал")} required showRequired>
+                <SearchSelect variant="underline" value={draft.branch} options={pickOptions(draft.branch && !branchOptions.includes(draft.branch) ? [draft.branch, ...branchOptions] : branchOptions)} onChange={(branch) => setDraft((value) => ({ ...value, branch }))} />
+              </FormField>
+              <FormField label={t("Валюта")} required showRequired>
+                <SearchSelect variant="underline" value={draft.currency} options={pickOptions(["SUM", "USD"])} onChange={(currency) => setDraft((value) => ({ ...value, currency }))} />
+              </FormField>
+              <FormField label={t("Прайс лист")} required showRequired>
+                <SearchSelect variant="underline" value={draft.priceList} options={pickOptions(priceListOptions)} onChange={(priceList) => setDraft((value) => ({ ...value, priceList }))} />
+              </FormField>
+              <FormField label={t("Тип оплаты")} required showRequired>
+                <SearchSelect variant="underline" value={draft.paymentType} options={paymentTypes.map((item) => ({ value: item, label: t(item) }))} onChange={(paymentType) => setDraft((value) => ({ ...value, paymentType }))} />
+              </FormField>
+              <MaterialDate label={t("Дата создания")} required value={draft.date} display={draft.date ? longDate(draft.date) : undefined} onChange={(date) => setDraft((value) => ({ ...value, date }))} />
+              <FormField label={t("Оставить комментарий...")} className="!min-h-[40px]">
+                <input value={draft.comment} onChange={(event) => setDraft((value) => ({ ...value, comment: event.target.value }))} className={inputClass} />
+              </FormField>
+            </div>
+          </div>
 
-            <div className="flex-1 overflow-y-auto p-8">
-              <div className="grid gap-8 sm:grid-cols-[1fr_1.4fr]">
-                <div className="space-y-4">
-                  <div className="flex items-end justify-between gap-3 border-b border-slate-200 pb-2">
-                    <label className="block flex-1 font-medium">
-                      {t("Поставщик")} *
-                      <select value={draft.supplier} onChange={(event) => setDraft((value) => ({ ...value, supplier: event.target.value }))} className="mt-2 block w-full bg-white outline-none">
-                        <option value="">{t("Выберите...")}</option>
-                        {supplierOptions.map((item, optIndex) => <option key={`${item}-${optIndex}`}>{item}</option>)}
-                      </select>
-                    </label>
-                    <button type="button" onClick={() => setQuickAddSupplierOpen(true)} className="whitespace-nowrap pb-2 text-sm font-semibold text-[#4f70e7] hover:underline">
-                      {t("+добавить")}
-                    </button>
-                  </div>
-                  {supplierOptions.length === 0 && <p className="text-xs text-amber-600">{t("Нет поставщиков — нажмите «+добавить»")}</p>}
-                  <div className="flex items-end justify-between gap-3 border-b border-slate-200 pb-2">
-                    <label className="block flex-1 font-medium">
-                      {t("Склад назначения")} *
-                      <select value={draft.warehouse} onChange={(event) => setDraft((value) => ({ ...value, warehouse: event.target.value }))} className="mt-2 block w-full bg-white outline-none">
-                        <option value="">{t("Выберите...")}</option>
-                        {warehouseOptions.map((item, optIndex) => <option key={`${item}-${optIndex}`}>{item}</option>)}
-                      </select>
-                    </label>
-                    <button type="button" onClick={() => setQuickAddWarehouseOpen(true)} className="whitespace-nowrap pb-2 text-sm font-semibold text-[#4f70e7] hover:underline">
-                      {t("+добавить")}
-                    </button>
-                  </div>
-                  {warehouseOptions.length === 0 && <p className="text-xs text-amber-600">{t("Нет складов — нажмите «+добавить»")}</p>}
-                  <div className="flex items-end justify-between gap-3 border-b border-slate-200 pb-2">
-                    <label className="block flex-1 font-medium">
-                      {t("Организация")} *
-                      <select value={draft.organization} onChange={(event) => setDraft((value) => ({ ...value, organization: event.target.value }))} className="mt-2 block w-full bg-white outline-none">
-                        <option value="">{t("Выберите...")}</option>
-                        {organizationOptions.map((item, optIndex) => <option key={`${item}-${optIndex}`}>{item}</option>)}
-                      </select>
-                    </label>
-                    <button type="button" onClick={() => setQuickAddOrganizationOpen(true)} className="whitespace-nowrap pb-2 text-sm font-semibold text-[#4f70e7] hover:underline">
-                      {t("+добавить")}
-                    </button>
-                  </div>
-                  {organizationOptions.length === 0 && <p className="text-xs text-amber-600">{t("Нет организаций — нажмите «+добавить»")}</p>}
-                  <label className="block border-b border-slate-200 pb-2 font-medium">
-                    {t("Филиал")} *
-                    <select value={draft.branch} onChange={(event) => setDraft((value) => ({ ...value, branch: event.target.value }))} className="mt-2 block w-full bg-white outline-none">
-                      <option value="">{t("Не указано")}</option>
-                      {draft.branch && !branchOptions.includes(draft.branch) && <option>{draft.branch}</option>}
-                      {branchOptions.map((item, optIndex) => <option key={`${item}-${optIndex}`}>{item}</option>)}
-                    </select>
-                  </label>
-                  <label className="block border-b border-slate-200 pb-2 font-medium">
-                    {t("Валюта")} *
-                    <select value={draft.currency} onChange={(event) => setDraft((value) => ({ ...value, currency: event.target.value }))} className="mt-2 block w-full bg-white outline-none">
-                      <option>SUM</option>
-                      <option>USD</option>
-                    </select>
-                  </label>
-                  <label className="block border-b border-slate-200 pb-2 font-medium">
-                    {t("Прайс лист")}
-                    <select value={draft.priceList} onChange={(event) => setDraft((value) => ({ ...value, priceList: event.target.value }))} className="mt-2 block w-full bg-white outline-none">
-                      <option value="">{t("Выберите...")}</option>
-                      {priceListOptions.map((item, optIndex) => <option key={`${item}-${optIndex}`}>{item}</option>)}
-                    </select>
-                  </label>
-                  <label className="block border-b border-slate-200 pb-2 font-medium">
-                    {t("Тип оплаты")} *
-                    <select value={draft.paymentType} onChange={(event) => setDraft((value) => ({ ...value, paymentType: event.target.value }))} className="mt-2 block w-full bg-white outline-none">
-                      {paymentTypes.map((item, optIndex) => <option key={`${item}-${optIndex}`} value={item}>{t(item)}</option>)}
-                    </select>
-                  </label>
-                  <label className="block border-b border-slate-200 pb-2 font-medium">
-                    {t("Дата создания")} *
-                    <input value={draft.date} onChange={(event) => setDraft((value) => ({ ...value, date: event.target.value }))} className="mt-2 block w-full outline-none" />
-                  </label>
-                  <label className="block font-medium">
-                    {t("Оставить комментарий...")}
-                    <textarea value={draft.comment} onChange={(event) => setDraft((value) => ({ ...value, comment: event.target.value }))} rows={2} className="mt-2 block w-full resize-none border-b border-slate-200 outline-none" />
-                  </label>
-                </div>
-
-                <div>
-                  <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-                    <p className="font-medium text-slate-800">{t("Список товаров")}</p>
-                    {draft.supplier && (
-                      <div className="flex items-center gap-4 text-sm">
-                        <button type="button" onClick={addBlankItem} className="inline-flex items-center gap-1 text-[#4f70e7] hover:underline">
-                          <Plus className="h-4 w-4" /> {t("добавить товар")}
-                        </button>
-                        <button type="button" onClick={() => { setPickerQuery(""); setPickerOpen(true) }} className="inline-flex items-center gap-1 text-[#4f70e7] hover:underline">
-                          <ListPlus className="h-4 w-4" /> {t("добавить из списка")}
-                        </button>
-                        <button type="button" onClick={() => importInputRef.current?.click()} className="inline-flex items-center gap-1 rounded bg-slate-100 px-3 py-1.5 text-[#4f70e7] hover:bg-slate-200">
-                          <Upload className="h-4 w-4" /> {t("импортировать с excel")}
-                        </button>
-                        <input ref={importInputRef} type="file" accept=".csv,.xls,.xlsx,text/csv" onChange={importFromExcel} className="hidden" />
-                      </div>
-                    )}
-                  </div>
-
-                  {!draft.supplier ? (
-                    <div className="flex flex-col items-center justify-center gap-3 rounded border border-dashed border-slate-200 py-16 text-slate-400">
-                      <FileSpreadsheet className="h-12 w-12" />
-                      <p>{t("Для добавления товаров выберите клиента.")}</p>
-                    </div>
-                  ) : draftItems.length === 0 ? (
-                    <div className="flex flex-col items-center justify-center gap-3 rounded border border-dashed border-slate-200 py-16 text-slate-400">
-                      <FileSpreadsheet className="h-12 w-12" />
-                      <p>
-                        {t("Вы еще не выбрали ни одного товара.")}{" "}
-                        <button type="button" onClick={addBlankItem} className="text-[#4f70e7] hover:underline">
-                          {t("Добавить товар?")}
-                        </button>
-                      </p>
-                    </div>
-                  ) : (
-                    <table className="w-full text-left text-sm">
+          <div className="flex min-w-0 flex-1 flex-col overflow-y-auto">
+            <div className="flex shrink-0 items-center justify-between px-[30px] pt-[14px]">
+              <p className="text-[13px] font-semibold text-[#333]">{t("Список товаров")}</p>
+              <div className="flex items-center gap-[10px] text-[13px] text-[#333]">
+                <button type="button" disabled={!draft.supplier} onClick={addBlankItem} className="h-9 px-[10px] hover:underline">+ {t("Добавить товар").toLowerCase()}</button>
+                <button type="button" disabled={!draft.supplier} onClick={() => { setPickerQuery(""); setPickerOpen(true) }} className="h-9 px-[10px] hover:underline">+ {t("добавить из списка")}</button>
+                <button type="button" disabled={!draft.supplier} onClick={() => importInputRef.current?.click()} className="h-9 bg-[rgba(153,153,153,0.2)] px-[10px] hover:bg-[rgba(153,153,153,0.3)]">+ <span data-no-translate>импортировать с excel</span></button>
+                <input ref={importInputRef} type="file" accept=".csv,.xls,.xlsx,text/csv" onChange={importFromExcel} className="hidden" />
+              </div>
+            </div>
+            {draftItems.length === 0 ? (
+              <div className="flex flex-1 flex-col items-center justify-center gap-2 pb-24 text-center text-[#bdbdbd]">
+                <ShoppingBag className="h-[72px] w-[72px]" strokeWidth={1} />
+                <p className="max-w-[160px] text-[12px] leading-[15px]">{draft.supplier ? t("Вы еще не выбрали ни одного товара.") : t("Для добавления товаров выберите клиента.")}</p>
+              </div>
+            ) : (
+              <div className="px-[30px] pt-3">
+                <table className="w-full text-left text-sm">
                       <thead>
                         <tr className="text-slate-500">
                           <th className="py-2 pr-4">{t("Товар")}</th>
@@ -787,21 +747,10 @@ export function SupplierReturnsView({ embedded = false }: { embedded?: boolean }
                         ))}
                       </tbody>
                     </table>
-                  )}
-                </div>
               </div>
-            </div>
-
-            <footer className="flex items-center justify-between border-t p-5">
-              <div className="text-sm text-slate-600">
-                {t("Общая стоимость:")} <b>{draftTotalCost.toLocaleString("ru-RU")}</b> &nbsp; {t("Общее кол-во:")} <b>{draftTotalQty} {t("ед")}</b>
-              </div>
-              <button type="submit" className="font-bold uppercase text-sky-500">
-                {t("Оформить")}
-              </button>
-            </footer>
-          </form>
-        </div>
+            )}
+          </div>
+        </CashModal>
       )}
 
       {pickerOpen && (

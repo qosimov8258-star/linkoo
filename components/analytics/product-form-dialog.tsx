@@ -304,7 +304,7 @@ function Field({ label, value, onChange, required, numeric, autoFocus }: { label
   return (
     <div className="relative h-[40px] border-b border-[#d5dae1]">
       <span className={`pointer-events-none absolute left-0 transition-all ${floating ? "top-0 text-[10px] font-semibold leading-3" : "top-[18px] text-[13px] font-bold leading-4"}`}>
-        {label}{required && <span className="text-red-500"> *</span>}
+        {label}{required && <span className="text-red-500">{"\u00a0*"}</span>}
       </span>
       <input
         type={numeric ? "number" : "text"}
@@ -335,7 +335,7 @@ function Select({ label, value, onChange, options, onClear, required }: { label:
     <div ref={rootRef} className="relative">
       <button type="button" onClick={() => setOpen((current) => !current)} className="relative block h-[40px] w-full border-b border-[#d5dae1] text-left">
         <span className={`absolute left-0 ${value ? "top-0 text-[10px] font-semibold leading-3" : "top-[18px] text-[13px] font-bold leading-4"}`}>
-          {label}{required && <span className="text-red-500"> *</span>}
+          {label}{required && <span className="text-red-500">{"\u00a0*"}</span>}
         </span>
         {value && <span className="absolute inset-x-0 bottom-[6px] truncate pr-12 text-[13px]">{value}</span>}
         <span className="absolute bottom-[8px] right-0 flex items-center gap-[10px] text-slate-500">

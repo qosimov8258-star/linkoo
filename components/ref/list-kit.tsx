@@ -801,6 +801,7 @@ export function RefImportDialog({
   title,
   saving,
   error,
+  top,
 }: {
   file: File | null
   onFile: (file: File | null) => void
@@ -811,6 +812,8 @@ export function RefImportDialog({
   saving?: boolean
   /** Server / validation messages printed under the drop area. */
   error?: ReactNode
+  /** Extra fields above the template / drop area (the reference's salary import asks for month, year, organisation, currency). */
+  top?: ReactNode
 }) {
   const { t } = useLanguage()
   return (
@@ -823,6 +826,7 @@ export function RefImportDialog({
           </button>
         </header>
         <div className="pb-5 pl-[31px] pr-[30px] pt-[30px]">
+          {top}
           <div className="h-[273px] border border-[#efefef] pt-[5px]">
             <button type="button" onClick={onTemplate} className="block h-9 w-full pt-[3px] text-center text-[13px] uppercase text-black hover:text-[#4f71dc]">
               1. {t("Скачать шаблон")}

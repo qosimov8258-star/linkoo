@@ -122,9 +122,9 @@ export function PositionsView({ embedded = false }: { embedded?: boolean }) {
         }}
       />
       <div className={kitHead} style={{ gridTemplateColumns: COLUMNS }}>
-        <span className="pl-[30px]"><SortHead label="Id" field="id" ordering={ordering} onSort={(field) => setOrdering(toggleOrdering(ordering, field))} /></span>
+        <span className="pl-[30px]"><SortHead className="!font-semibold" label="Id" field="id" ordering={ordering} onSort={(field) => setOrdering(toggleOrdering(ordering, field))} /></span>
         <span>{t("Наименование")}</span>
-        <SortHead label={t("Дата создания")} field="created_date" ordering={ordering} onSort={(field) => setOrdering(toggleOrdering(ordering, field))} />
+        <SortHead className="!font-semibold" label={t("Дата создания")} field="created_date" ordering={ordering} onSort={(field) => setOrdering(toggleOrdering(ordering, field))} />
       </div>
       {paged.rows.map((position) => (
         <div key={position.id} className={kitRow} style={{ gridTemplateColumns: COLUMNS }}>

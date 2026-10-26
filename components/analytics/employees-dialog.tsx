@@ -1,6 +1,5 @@
 "use client"
 
-import { Image as ImageIcon } from "lucide-react"
 import { useEffect, useMemo, useState, type ReactNode } from "react"
 import { createPortal } from "react-dom"
 import { X } from "lucide-react"
@@ -92,7 +91,7 @@ function CheckGrid({ items, value, onChange, columns = 3 }: { items: Option[]; v
             className="min-w-0"
             checked={set.has(item.value)}
             onChange={(checked) => onChange(checked ? [...value, item.value] : value.filter((id) => id !== item.value))}
-            label={<span className="truncate" title={item.label}>{item.label}</span>}
+            label={<span className="block max-w-[170px] truncate" title={item.label}>{item.label}</span>}
           />
         </div>
       ))}
@@ -251,16 +250,16 @@ export function EmployeeDialog({
               </div>
               <Field error={errors.branchIds}><div className="-mt-[6px]"><MultiSelectField label={t("Филиалы")} required options={branchOptions} value={draft.branchIds} onChange={(branchIds) => patch({ branchIds })} /></div></Field>
             </div>
-            <div className="mt-[12px] flex h-[145px] w-[150px] shrink-0 flex-col items-center justify-center gap-[8px] border border-dashed border-[#ccc] text-[13px] text-[#555]">
-              <ImageIcon className="h-6 w-6" />
+            <div className="mt-[16px] flex h-[145px] w-[150px] shrink-0 flex-col items-center justify-center gap-[3px] border border-dashed border-[#ddd] text-[13px] text-[#555]">
+              <svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#bdbdbd]"><path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z" /></svg>
               {t("Добавьте фото")}
             </div>
           </div>
 
-          <div className="mt-[15px] flex items-center justify-between">
-            <Check checked={draft.systemAccess} onChange={(systemAccess) => patch({ systemAccess })} label={t("Доступ к системе")} />
-            <Check checked={draft.showInTracking} onChange={(showInTracking) => patch({ showInTracking })} label={t("Показывать в отслеживании")} />
-            <Check checked={draft.twoStepCheck} onChange={(twoStepCheck) => patch({ twoStepCheck })} label={t("Двухэтапная проверка")} />
+          <div className="mt-[15px] flex w-[692px] max-w-full items-center justify-between">
+            <Check className="!pr-[10px]" checked={draft.systemAccess} onChange={(systemAccess) => patch({ systemAccess })} label={t("Доступ к системе")} />
+            <Check className="!pr-[10px]" checked={draft.showInTracking} onChange={(showInTracking) => patch({ showInTracking })} label={t("Показывать в отслеживании")} />
+            <Check className="!pr-[10px]" checked={draft.twoStepCheck} onChange={(twoStepCheck) => patch({ twoStepCheck })} label={t("Двухэтапная проверка")} />
           </div>
           <div className="mt-[26px]">
             <Check checked={draft.sessionLimit} onChange={(sessionLimit) => patch({ sessionLimit })} label={t("Поставить ограничения на сессию (может работать только на одном устройстве)")} />

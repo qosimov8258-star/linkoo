@@ -244,7 +244,7 @@ export function SubscriptionsView() {
             <div className="flex items-center gap-[16px]">
               {hint && !hasSelection && <span className="flex h-[30px] items-center rounded-[3px] bg-[#4a4a4a] px-[20px] text-[13px] font-semibold text-white">{t("Выберите пользователя")}</span>}
               {/* reference: hovering the button without a selection shows "Выберите пользователя" to its left */}
-              <RefTip text={hasSelection || hint ? "" : t("Выберите пользователя")} side="left">
+              <RefTip text={hasSelection || hint ? "" : "Выберите пользователя"} raw side="left">
                 <button
                   type="button"
                   onClick={() => (hasSelection ? setDialog("prolong") : requireSelection(() => undefined))}
@@ -293,7 +293,7 @@ export function SubscriptionsView() {
                 </RefTip>
                 <button type="button" onClick={() => openAttach()} className="ml-[22px] h-[30px] rounded-[3px] bg-[#4f71dc] px-[16px] text-[13px] font-semibold text-white hover:brightness-95">{t("Прикрепить")}</button>
                 {tab === "with" && selectMode && (
-                  <RefTip text={t("Открепить все выделенные подписки")} side="top" className="ml-[18px]">
+                  <RefTip text="Открепить все выделенные подписки" raw side="top" className="ml-[18px]">
                     <button type="button" onClick={() => requireSelection(() => setDialog("detach"))} className="h-[30px] rounded-[3px] bg-[#fa8072] px-[16px] text-[13px] font-semibold text-white hover:brightness-95">{t("Открепить")}</button>
                   </RefTip>
                 )}

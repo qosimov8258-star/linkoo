@@ -66,8 +66,8 @@ export function KpiMonthYearFilter({
   return (
     <div className={`flex h-[50px] items-start gap-[8px] ${className}`}>
       <label className="relative block h-[50px] w-[192px] border-b border-[#e0e0e0] focus-within:border-[#4f71dc]">
-        <span className="absolute left-0 top-[2px] text-[10px] font-bold leading-3 text-black">{t("Месяц")}</span>
-        <span className="absolute left-0 top-[26px] text-[13px] font-semibold leading-4 text-[#333]">{t(BRANCH_KPI_MONTHS[month - 1] ?? "")}</span>
+        <span className="absolute left-0 top-[2.5px] text-[10px] font-bold leading-3 text-black">{t("Месяц")}</span>
+        <span className="absolute left-0 top-[28.5px] text-[13px] font-semibold leading-[18px] text-[#333]">{t(BRANCH_KPI_MONTHS[month - 1] ?? "")}</span>
         <select value={month} onChange={(event) => onChange({ month: Number(event.target.value), year })} aria-label={t("Месяц")} className="absolute inset-0 h-full w-full cursor-pointer opacity-0">
           {BRANCH_KPI_MONTHS.map((name, index) => (
             <option key={name} value={index + 1}>
@@ -78,9 +78,10 @@ export function KpiMonthYearFilter({
         <button
           type="button"
           aria-label={t("Очистить")}
-          title={t("Очистить")}
+          title="Clear value"
+          data-native-tip=""
           onClick={() => onChange({ month: now.getMonth() + 1, year })}
-          className="absolute left-[158px] top-[22px] z-10 text-[18px] leading-[18px] text-[#999] hover:text-[#666]"
+          className="absolute left-[156.3px] top-[29.4px] z-10 text-[18px] leading-[18px] text-[#999] hover:text-[#666]"
         >
           ×
         </button>
@@ -110,7 +111,7 @@ function KpiYearField({ year, label, onApply }: { year: number; label: string; o
         onBlur={() => {
           if (draft.length !== 4) setDraft(String(year))
         }}
-        className="absolute inset-x-0 bottom-0 h-[30px] w-full bg-transparent text-[13px] font-semibold text-[#333] outline-none"
+        className="absolute inset-x-0 top-[25px] h-[30px] w-full bg-transparent text-[13px] font-semibold text-[#333] outline-none"
       />
     </label>
   )

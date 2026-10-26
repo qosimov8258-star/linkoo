@@ -6,7 +6,6 @@ import { X } from "lucide-react"
 import * as echarts from "echarts"
 import { ReportPage, ReportSelectField, WidgetHeader, WidgetUserCard } from "@/components/ref/report-kit"
 import { DateRangePicker } from "@/components/dashboard/date-range-picker"
-import { RefTip } from "@/components/ref/ref-tip"
 import { formatRangeLabel, parseISODate } from "@/lib/dashboard-date-range"
 import { useLanguage } from "@/lib/i18n/language-context"
 
@@ -291,9 +290,9 @@ export function CoverageAnalysisView() {
               ))}
               <th className="whitespace-nowrap border-l border-white px-[17.5px] font-semibold">{t("Тендения акб")}</th>
               <th className="border-l border-white text-center">
-                <RefTip text={t("Скачать Excel")} side="left" className="-my-[1px] h-12 w-12 items-center justify-center">
+                <span className="-my-[1px] inline-flex h-12 w-12 items-center justify-center">
                   <button type="button" onClick={download} aria-label={t("Скачать Excel")} className="inline-flex"><svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#555]"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z" /></svg></button>
-                </RefTip>
+                </span>
               </th>
             </tr>
           </thead>

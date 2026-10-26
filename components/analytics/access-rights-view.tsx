@@ -35,7 +35,7 @@ function PermissionList({ items, onPick, selected }: { items: Permission[]; onPi
       {items.map((item) => (
         <div key={item.id} className="flex min-h-[36px] items-center justify-between border-b border-[#e0e0e0] px-[8px] py-[2px] text-[12px] font-semibold leading-[15px]">
           <span className="pr-4">{item.label}</span>
-          <button type="button" onClick={() => onPick(item.id)} aria-label={selected ? t("Убрать") : t("Добавить")} className="flex h-6 w-6 shrink-0 items-center justify-center text-[#4f71dc]">
+          <button type="button" onClick={() => onPick(item.id)} aria-label={selected ? t("Убрать") : t("Добавить")} className="mr-[2px] flex h-6 w-6 shrink-0 items-center justify-center text-[#4f71dc]">
             {selected ? (
               <X className="h-[22px] w-[22px]" />
             ) : (
@@ -145,11 +145,11 @@ function CapabilityDialog({
 
   return (
     <div className="fixed inset-0 z-[110] flex flex-col bg-white text-[13px] text-[#333]">
-      <header className="flex h-[60px] shrink-0 items-center justify-between border-b border-[#e8ebf0] pl-[30px] pr-[28px]">
+      <header className="flex h-[60px] shrink-0 items-center justify-between border-b border-[#e8ebf0] pl-[30px] pr-[32px]">
         <h3 className="text-[15px] font-bold uppercase">{capability ? t("Изменить возможность") : t("Создать возможности")}</h3>
         <button type="button" onClick={onClose} aria-label={t("Закрыть")}><X className="h-6 w-6 text-slate-500" /></button>
       </header>
-      <div className="flex min-h-0 flex-1 flex-col px-[20px] pt-[2px]">
+      <div className="flex min-h-0 flex-1 flex-col px-[20px] pt-[4px]">
         <LineField label={t("Наименование")} required value={name} onChange={setName} />
         <div className="mt-[26px] grid min-h-0 flex-1 grid-cols-2 gap-[17px]">
           <div className="flex min-h-0 flex-col">
@@ -215,16 +215,16 @@ function AccessRightDialog({
       width={1000}
       anchorTop={50}
       onClose={onClose}
-      bodyClassName="flex h-[643px] flex-col px-[20px] pt-[6px]"
+      bodyClassName="flex h-[643px] flex-col px-[20px] pt-[4px]"
       headerClassName="pl-[30px]"
       footer={<SaveButton disabled={saving || !name.trim()} onClick={() => void save()}>{t("Сохранить")}</SaveButton>}
     >
       <LineField label={t("Наименование")} required value={name} onChange={setName} />
-      <div className="mt-[6px] grid min-h-0 flex-1 grid-cols-2 content-start overflow-y-auto">
+      <div className="mt-[9px] grid min-h-0 flex-1 grid-cols-2 content-start overflow-y-auto">
         {capabilities.map((capability) => (
           <div key={capability.id} className="relative flex h-[40px] items-center">
-            <Check className="!gap-[4px]" checked={ids.includes(capability.id)} onChange={(checked) => setIds((current) => (checked ? [...current, capability.id] : current.filter((id) => id !== capability.id)))} label={capability.name} />
-            <button type="button" onClick={() => onEditCapability(capability)} aria-label={`${t("Изменить")} ${capability.name}`} className="absolute right-[44px] top-1/2 -translate-y-1/2 text-[#555] hover:text-[#222]">
+            <Check className="!gap-[4px] -ml-[2px]" checked={ids.includes(capability.id)} onChange={(checked) => setIds((current) => (checked ? [...current, capability.id] : current.filter((id) => id !== capability.id)))} label={capability.name} />
+            <button type="button" onClick={() => onEditCapability(capability)} aria-label={`${t("Изменить")} ${capability.name}`} className="absolute right-[46px] top-1/2 -translate-y-1/2 text-[#555] hover:text-[#222]">
               <svg viewBox="0 0 24 24" className="h-5 w-5 fill-current"><path d={PENCIL} /></svg>
             </button>
           </div>
@@ -243,7 +243,7 @@ export function AccessRightsView({ embedded = false }: { embedded?: boolean }) {
   const [dialog, setDialog] = useState<{ role: AccessRight | null } | null>(null)
   const [capabilityDialog, setCapabilityDialog] = useState<{ capability: Capability | null } | null>(null)
   const [deleting, setDeleting] = useState<AccessRight | null>(null)
-  const controls = useListControls(100)
+  const controls = useListControls()
 
   const load = useCallback(async () => {
     try {
@@ -323,12 +323,12 @@ export function AccessRightsView({ embedded = false }: { embedded?: boolean }) {
         <span>{t("Возможности")}</span>
       </div>
       {paged.rows.map((role) => (
-        <div key={role.id} className={`${kitRow} !min-h-[50px] py-[4.5px]`} style={{ gridTemplateColumns: COLUMNS }}>
+        <div key={role.id} className={`${kitRow} !min-h-[50px] py-[5px]`} style={{ gridTemplateColumns: COLUMNS }}>
           <span className="pl-[30px] pr-2">{role.name}</span>
-          <div className="flex flex-wrap gap-x-[9px] gap-y-[10px] pr-[120px]">
+          <div className="flex flex-wrap gap-x-[10px] gap-y-[10px] pr-[133.5px]">
             {role.capabilityIds.map((id) => {
               const capability = capabilityById.get(id)
-              return capability ? <span key={id} className="bg-[#ebedf0] px-[10px] py-[5px] text-[13px] leading-[18px] text-black">{capability.name}</span> : null
+              return capability ? <span key={id} className="bg-[#e9ecef] px-[10px] py-[5px] text-[13px] leading-[18px] text-[#333]">{capability.name}</span> : null
             })}
           </div>
           <RowActions right={60} gap={6} onEdit={() => setDialog({ role })} onDelete={() => setDeleting(role)} />

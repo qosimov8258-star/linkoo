@@ -437,12 +437,12 @@ export function OrdersView({ initialOrderId }: { initialOrderId?: number } = {})
   const actionDefs = {
     select: { key: "select", path: selectMode ? ICON.visibilityOff : ICON.checklist, title: t("Выбрать из списка"), color: "#5d6474", onClick: () => setSelectMode((value) => !value) },
     sync: { key: "sync", path: ICON.sync, title: t("Обновить список"), color: "#5d6474", onClick: reloadOrders },
-    print: { key: "print", path: ICON.print, title: t("Распечатать выбранное"), color: "#666", onClick: () => requireSelection("print", () => window.print()) },
+    print: { key: "print", raw: true, path: ICON.print, title: "Распечатать выбранное", color: "#666", onClick: () => requireSelection("print", () => window.print()) },
     download: { key: "download", path: ICON.download, title: t("Скачать"), color: "#666", onClick: exportCsv },
     edit: { key: "edit", path: ICON.edit, title: t("Изменить выбранные заказы"), color: "#666", onClick: () => requireSelection("edit", () => setBulkEditOpen(true)) },
-    series: { key: "series", path: ICON.history, title: t("Авто распределение по сериям"), color: "#666", onClick: () => requireSelection("series", () => setSeriesOpen(true)) },
-    invoice: { key: "invoice", path: ICON.textA, title: t("Нумерация счет фактуры"), color: "#666", onClick: () => requireSelection("invoice", () => setInvoiceNumOpen(true)) },
-    edo: { key: "edo", path: ICON.send, title: t("Отправить EDO"), color: "#666", onClick: () => requireSelection("edo", () => setEdoOpen((value) => !value)) },
+    series: { key: "series", raw: true, path: ICON.history, title: "Авто распределение по сериям", color: "#666", onClick: () => requireSelection("series", () => setSeriesOpen(true)) },
+    invoice: { key: "invoice", raw: true, path: ICON.textA, title: "Нумерация счет фактуры", color: "#666", onClick: () => requireSelection("invoice", () => setInvoiceNumOpen(true)) },
+    edo: { key: "edo", raw: true, path: ICON.send, title: "Отправить EDO", color: "#666", onClick: () => requireSelection("edo", () => setEdoOpen((value) => !value)) },
     more: { key: "more", path: ICON.more, title: "", color: "#5d6474", onClick: () => setMoreOpen((value) => !value) },
     clear: { key: "clear", path: ICON.minusBox, title: t("Снять выделение"), color: "#333", onClick: () => { setCheckedIds([]); setMoreOpen(false) } },
   }
@@ -603,8 +603,8 @@ export function OrdersView({ initialOrderId }: { initialOrderId?: number } = {})
                 <svg viewBox="0 0 24 24" className={`h-6 w-6 ${page >= pageCount ? "fill-black/30" : "fill-black/55"}`}><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm-1-12l5 4-5 4V8z" /></svg>
               </button>
               {toolbarActions.map((action, index) => (
-                <Tip key={action.key} text={action.title} side="left" className={index === 0 ? "ml-5" : ""}>
-                  <button type="button" aria-label={action.title} onClick={action.onClick} className="flex h-12 w-12 items-center justify-center">
+                <Tip key={action.key} text={action.title} side="left" raw={"raw" in action} className={index === 0 ? "ml-5" : ""}>
+                  <button type="button" aria-label={action.title} {...("raw" in action ? { "data-no-translate": "" } : {})} onClick={action.onClick} className="flex h-12 w-12 items-center justify-center">
                     <svg viewBox="0 0 24 24" className="h-6 w-6" style={{ fill: action.color }}><path d={action.path} /></svg>
                   </button>
                   {noSelection === action.key && <NoSelectionPopover onClose={() => setNoSelection(null)} />}
@@ -993,11 +993,13 @@ function OrderRow({ row, selectMode, checked, onToggle, onOpen }: { row: Order; 
 }
 
 /** Reference-style dark tooltip (react-tooltip look) shown on hover. */
-function Tip({ text, side, className = "", children }: { text: string; side: "left" | "right"; className?: string; children: React.ReactNode }) {
+function Tip({ text, side, raw = false, className = "", children }: { text: string; side: "left" | "right"; /** The reference leaves some hints in Russian in every language. */ raw?: boolean; className?: string; children: React.ReactNode }) {
   return (
     <span className={`group/tip relative inline-flex ${className}`}>
       {children}
       {text && <span
+        role="tooltip"
+        {...(raw ? { "data-no-translate": "" } : {})}
         className={`pointer-events-none absolute top-1/2 z-50 hidden -translate-y-1/2 whitespace-nowrap rounded-[2px] bg-[#2d3037] px-[21px] py-[8px] text-[13px] font-normal leading-[17px] text-white opacity-90 group-hover/tip:block ${side === "left" ? "right-full mr-[12px]" : "left-full ml-[5px]"}`}
       >
         {text}

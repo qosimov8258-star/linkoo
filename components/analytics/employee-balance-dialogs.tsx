@@ -1,5 +1,6 @@
 "use client"
 
+import { FilterCardSelect, useFilterCard } from "@/components/analytics/balance/filter-bar"
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import { Check, ChevronDown, Search, X } from "lucide-react"
 
@@ -330,6 +331,7 @@ export function EmployeeActPeriodDialog({
 /** "Пользователи" multi-select of the filter popup (searchable checkbox list). */
 export function EmployeeUsersSelect({ options, value, onChange }: { options: EmployeeOption[]; value: string[]; onChange: (next: string[]) => void }) {
   const { t } = useLanguage()
+  const card = useFilterCard()
   const [query, setQuery] = useState("")
   const [open, setOpen] = useState(false)
   const selected = new Set(value)
@@ -340,22 +342,28 @@ export function EmployeeUsersSelect({ options, value, onChange }: { options: Emp
   const toggle = (id: string) => onChange(selected.has(id) ? value.filter((item) => item !== id) : [...value, id])
   return (
     <div className="flex flex-col gap-1 md:col-span-2">
-      <span className="text-sm text-[#586174]">{t("Пользователи")}</span>
-      <div className="flex min-h-10 items-center justify-between gap-2 rounded-md border border-[#dbe0e8] px-3 py-2">
-        <button type="button" onClick={() => setOpen((current) => !current)} className={`flex-1 text-left ${names.length ? "text-[#17233b]" : "text-[#9aa3b6]"}`}>
-          {names.length ? names.join(", ") : t("Выберите...")}
-        </button>
-        <span className="flex items-center gap-1 text-[#9aa3b6]">
-          {value.length > 0 && (
-            <button type="button" aria-label={t("Очистить")} onClick={() => onChange([])}>
-              <X className="h-4 w-4" />
-            </button>
-          )}
-          <button type="button" aria-label={t("Пользователи")} onClick={() => setOpen((current) => !current)}>
-            <ChevronDown className={`h-4 w-4 transition ${open ? "rotate-180" : ""}`} />
+      {card ? (
+        <FilterCardSelect label={t("Пользователи")} text={names.join(", ")} onClick={() => setOpen((current) => !current)} />
+      ) : (
+        <>
+        <span className="text-sm text-[#586174]">{t("Пользователи")}</span>
+        <div className="flex min-h-10 items-center justify-between gap-2 rounded-md border border-[#dbe0e8] px-3 py-2">
+          <button type="button" onClick={() => setOpen((current) => !current)} className={`flex-1 text-left ${names.length ? "text-[#17233b]" : "text-[#9aa3b6]"}`}>
+            {names.length ? names.join(", ") : t("Выберите...")}
           </button>
-        </span>
-      </div>
+          <span className="flex items-center gap-1 text-[#9aa3b6]">
+            {value.length > 0 && (
+              <button type="button" aria-label={t("Очистить")} onClick={() => onChange([])}>
+                <X className="h-4 w-4" />
+              </button>
+            )}
+            <button type="button" aria-label={t("Пользователи")} onClick={() => setOpen((current) => !current)}>
+              <ChevronDown className={`h-4 w-4 transition ${open ? "rotate-180" : ""}`} />
+            </button>
+          </span>
+        </div>
+        </>
+      )}
       {open && (
         <div className="rounded-md border border-[#dbe0e8] bg-white">
           <label className="flex items-center gap-2 border-b border-[#efefef] px-3 py-2">

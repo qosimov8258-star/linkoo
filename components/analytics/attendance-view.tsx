@@ -4,6 +4,7 @@ import { RefTip } from "@/components/ref/ref-tip"
 import { useEffect, useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
 import { RI, RefButton, RefHeader } from "@/components/ref/list-kit"
+import { downloadExcelTable } from "@/lib/excel-export"
 import { useLanguage } from "@/lib/i18n/language-context"
 import { ReportPage } from "@/components/ref/report-kit"
 import {
@@ -24,6 +25,37 @@ const WEEK_UZ_CYRILLIC: Record<string, string> = { вс: "Як", пн: "Ду", �
 function sundaysInMonth(year: number, month: number) {
   const daysInMonth = new Date(year, month + 1, 0).getDate()
   return Array.from({ length: daysInMonth }, (_, index) => index + 1).filter((day) => new Date(year, month, day).getDay() === 0)
+}
+
+/** The reference's "ИМПОРТ С EXCEL" dialog of the attendance page: template download + drop area + green "Сохранить". */
+function ExcelImportModal({ onClose, onDone, days }: { onClose: () => void; onDone: () => void; days: number[] }) {
+  const { t } = useLanguage()
+  const [file, setFile] = useState<File | null>(null)
+  return (
+    <div className="fixed inset-0 z-[1000] bg-black/50" onMouseDown={onClose}>
+      <section role="dialog" aria-label={t("Импорт с Excel")} onMouseDown={(event) => event.stopPropagation()} className="absolute left-1/2 top-1/2 w-[400px] -translate-x-1/2 -translate-y-1/2 bg-white shadow-[0_11px_15px_-7px_rgba(0,0,0,0.2),0_24px_38px_3px_rgba(0,0,0,0.14),0_9px_46px_8px_rgba(0,0,0,0.12)]">
+        <header className="flex h-[60px] items-center justify-between border-b border-[#e0e0e0] px-[30px]">
+          <h2 className="text-[13px] font-bold uppercase text-[#333]"><span data-no-translate>ИМПОРТ С EXCEL</span></h2>
+          <button type="button" onClick={onClose} aria-label={t("Закрыть")}><X className="h-6 w-6 text-[#333]" /></button>
+        </header>
+        <div className="px-[30px] pb-[21px] pt-[30px]">
+          <div className="border border-[#e0e0e0] px-[20px] pb-[27px] pt-[16px] shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
+            <button type="button" onClick={() => downloadExcelTable("shablon_posesheniy", [["Агент", ...days.map(String)]])} className="block h-5 w-full text-center text-[13px] uppercase text-[#333] hover:underline">
+              1. {t("Скачать шаблон")}
+            </button>
+            <label className="mt-[12px] flex h-[200px] cursor-pointer flex-col items-center justify-center gap-[8px] border border-dashed border-[#d0d0d0] px-[8px] text-center text-[12px] text-[#333]">
+              <svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#555]" aria-hidden><path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm-1 7V3.5L18.5 9H13z" /></svg>
+              {file ? file.name : t("Нажмите, чтобы добавить или выбрать excel файл")}
+              <input type="file" accept=".xls,.xlsx,.csv" className="hidden" onChange={(event) => setFile(event.target.files?.[0] ?? null)} />
+            </label>
+          </div>
+        </div>
+        <footer className="flex h-[56px] items-center justify-end border-t border-[#e0e0e0] px-[10px]">
+          <button type="button" onClick={() => { if (file) onDone(); onClose() }} className="h-9 rounded-[3px] bg-[#71ce87] px-[16px] text-[13px] font-semibold uppercase text-white">{t("Сохранить")}</button>
+        </footer>
+      </section>
+    </div>
+  )
 }
 
 function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
@@ -144,6 +176,7 @@ export function AttendanceView() {
   const [filterOpen, setFilterOpen] = useState(false)
   const [branch, setBranch] = useState("")
   const [workingOpen, setWorkingOpen] = useState(false)
+  const [excelOpen, setExcelOpen] = useState(false)
   const [weekendOpen, setWeekendOpen] = useState(false)
   const [weekends, setWeekends] = useState<number[]>(() => sundaysInMonth(today.getFullYear(), today.getMonth()))
 
@@ -258,7 +291,7 @@ export function AttendanceView() {
         <RefHeader title="Посещаемость">
           <RefButton icon={RI.add} green label="Добавить выходные дни" onClick={() => setWeekendOpen(true)} />
           <RefButton icon={RI.clock} label="Рабочее время" onClick={() => setWorkingOpen(true)} />
-          <RefButton icon={RI.sync} label="Обновить с excel" onClick={() => flash("Данные обновлены")} />
+          <RefButton icon={RI.sync} label="Обновить с excel" onClick={() => setExcelOpen(true)} />
           <RefButton icon={RI.chart} green label="Скачать" onClick={download} />
         </RefHeader>
       </div>
@@ -290,6 +323,7 @@ export function AttendanceView() {
           </table>
         </div>
       </section>
+      {excelOpen && <ExcelImportModal days={days} onClose={() => setExcelOpen(false)} onDone={() => flash("Данные обновлены")} />}
       {workingOpen && <WorkingTimeModal onClose={() => setWorkingOpen(false)} />}
       {weekendOpen && <WeekendModal onClose={() => setWeekendOpen(false)} selected={weekends} setSelected={setWeekends} year={year} month={month} />}
       {selectedAgent && <AgentDrawer name={selectedAgent} onClose={() => setSelectedAgent(null)} />}

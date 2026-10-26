@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import { ChevronDown, Filter, Info } from "lucide-react"
 
+import { FilterCardSelect, useFilterCard } from "@/components/analytics/balance/filter-bar"
 import { BALANCE_PAGE_SIZES } from "@/components/analytics/balance/pagination"
 import type { BalanceQuery } from "@/components/analytics/balance/use-balance"
 import { defaultBalancePeriod, formatDotDate, isIsoDay } from "@/lib/finance/dates"
@@ -341,8 +342,9 @@ function Field({ label, children, wide = false }: { label: string; children: Rea
 type Option = { value: string; label: string }
 
 /** Multi-select with search (demo *MultiSearchField). */
-export function MultiSelect({ value, options, onChange, disabled = false }: { value: string[]; options: Option[]; onChange: (next: string[]) => void; disabled?: boolean }) {
+export function MultiSelect({ value, options, onChange, disabled = false, label = "" }: { value: string[]; options: Option[]; onChange: (next: string[]) => void; disabled?: boolean; label?: string }) {
   const { t } = useLanguage()
+  const card = useFilterCard()
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState("")
   const ref = useRef<HTMLDivElement>(null)
@@ -359,17 +361,21 @@ export function MultiSelect({ value, options, onChange, disabled = false }: { va
   const toggle = (item: string) => onChange(value.includes(item) ? value.filter((entry) => entry !== item) : [...value, item])
   return (
     <div ref={ref} className="relative">
-      <button
-        type="button"
-        disabled={disabled}
-        onClick={() => setOpen((current) => !current)}
-        className={`${fieldClass} flex items-center justify-between gap-2 text-left disabled:bg-[#f2f5f8] disabled:text-[#9aa3b6]`}
-      >
-        <span className={`truncate ${value.length ? "" : "text-[#9aa3b6]"}`}>
-          {value.length ? value.map((item) => labels.get(item) ?? item).join(", ") : disabled ? t("Нет данных") : t("Все")}
-        </span>
-        <ChevronDown className="h-4 w-4 shrink-0 text-[#9aa3b6]" />
-      </button>
+      {card ? (
+        <FilterCardSelect label={t(label)} text={value.map((item) => labels.get(item) ?? item).join(", ")} onClick={() => !disabled && setOpen((current) => !current)} />
+      ) : (
+        <button
+          type="button"
+          disabled={disabled}
+          onClick={() => setOpen((current) => !current)}
+          className={`${fieldClass} flex items-center justify-between gap-2 text-left disabled:bg-[#f2f5f8] disabled:text-[#9aa3b6]`}
+        >
+          <span className={`truncate ${value.length ? "" : "text-[#9aa3b6]"}`}>
+            {value.length ? value.map((item) => labels.get(item) ?? item).join(", ") : disabled ? t("Нет данных") : t("Все")}
+          </span>
+          <ChevronDown className="h-4 w-4 shrink-0 text-[#9aa3b6]" />
+        </button>
+      )}
       {open && (
         <div className="absolute left-0 right-0 z-[110] mt-1 max-h-72 overflow-hidden rounded-md border border-[#e1e5eb] bg-white shadow-lg">
           <input

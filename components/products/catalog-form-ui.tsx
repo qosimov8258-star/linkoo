@@ -134,7 +134,7 @@ function Caption({ label, required, floated }: { label: ReactNode; required?: bo
       className={`pointer-events-none absolute left-0 z-[1] whitespace-nowrap font-semibold text-black transition-all duration-[450ms] ease-[cubic-bezier(0.23,1,0.32,1)] ${floated ? "top-[9px] text-[10px] leading-4" : "top-[27px] text-[13px] leading-[22px]"}`}
     >
       {label}
-      {required && <span className="ml-1 text-[#e57373]">*</span>}
+      {required && <span className="text-[#e57373]">{"\u00a0*"}</span>}
     </span>
   )
 }
@@ -257,7 +257,7 @@ export function SelectField({
         className={`pointer-events-none absolute left-0 z-[1] whitespace-nowrap font-semibold text-black transition-all duration-[450ms] ease-[cubic-bezier(0.23,1,0.32,1)] ${floated ? "top-[-14px] text-[10px] leading-4" : "top-[12px] text-[13px] leading-[17px]"}`}
       >
         {label}
-        {required && <span className="ml-1 text-[#e57373]">*</span>}
+        {required && <span className="text-[#e57373]">{"\u00a0*"}</span>}
       </span>
       <div
         onClick={() => (open ? setOpen(false) : openMenu())}

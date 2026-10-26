@@ -186,7 +186,7 @@ export function BranchesView() {
         searchPos={{ left: 335, top: 9 }}
         pageSize={pageSize}
         onPageSize={(size) => { setPageSize(size); setPage(1) }}
-        from={filtered.length ? start + 1 : 0}
+        from={start + 1}
         to={Math.min(start + pageSize, filtered.length)}
         total={filtered.length}
         onPrev={safePage > 1 ? () => setPage(safePage - 1) : undefined}

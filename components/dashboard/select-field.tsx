@@ -42,6 +42,8 @@ export function SelectField({ label, options, value, onChange, placeholder = "В
             role="button"
             tabIndex={0}
             aria-label={t("Очистить")}
+            title="Clear value"
+            data-native-tip=""
             onClick={(e) => {
               e.stopPropagation()
               onChange("")

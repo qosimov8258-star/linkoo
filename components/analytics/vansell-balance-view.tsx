@@ -348,6 +348,7 @@ export function VansellBalanceView() {
       </ExpandedOverlay>
 
       <BalanceFilterDialog
+        variant="card"
         open={filterOpen}
         onClose={() => setFilterOpen(false)}
         from={period.from}

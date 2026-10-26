@@ -211,7 +211,8 @@ function PriceListsGrid() {
                   extra={
                     <RowIcon
                       path={ROW_ICONS.dollar}
-                      label={t("Установить цену")}
+                      label="Установить цену"
+                      raw
                       onClick={() => router.push(`/analytics/repricing?openCreateDialog=true&priceListId=${row.id}&currency=${encodeURIComponent(row.currency)}`)}
                     />
                   }

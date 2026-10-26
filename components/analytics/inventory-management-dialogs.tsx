@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react"
 import Image from "next/image"
-import { ImagePlus, PlusCircle, Trash2 } from "lucide-react"
+import { PlusCircle, Trash2 } from "lucide-react"
 
 import { buildCashQuery, cashMutate, useCashJson, type CashQuery } from "@/components/analytics/cash/use-cash"
 import { MaterialDate } from "@/components/analytics/cash-material"
@@ -142,7 +142,7 @@ function PhotoField({ value, stored, onChange }: { value: string | undefined; st
       >
         {shown ? <Image src={shown} alt="" fill unoptimized className="object-cover" /> : (
           <>
-            <ImagePlus className="h-10 w-10" />
+            <svg viewBox="0 0 24 24" className="h-12 w-12 fill-[#bdbdbd]" aria-hidden><path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z" /></svg>
             <span className="text-[13px] text-[#555]">{t("Добавьте фото")}</span>
           </>
         )}
@@ -177,13 +177,13 @@ export function ItemFormDialog({
   const [draft, setDraft] = useState({
     warehouse: item?.warehouse ?? (options?.warehouses.length === 1 ? options.warehouses[0].name : ""),
     productId: item?.product.id ? String(item.product.id) : "",
-    condition: item?.condition ?? "Новый",
+    condition: item?.condition ?? "",
     responsible: item?.responsible ?? "",
     clientId: "",
     clientLabel: "",
     serialNumber: item?.serialNumber ?? "",
     stockNumber: item?.stockNumber ?? "",
-    date: item?.date || todayIso(),
+    date: item?.date || "",
     comment: item?.comment ?? "",
   })
   const [photo, setPhoto] = useState<string | undefined>(undefined)
@@ -203,6 +203,7 @@ export function ItemFormDialog({
   const submit = async () => {
     const missing: Errors = {}
     for (const key of ["warehouse", "productId", "condition", "responsible", "serialNumber", "stockNumber", "date"] as const) if (!draft[key].trim()) missing[key] = t(REQUIRED)
+    if (!item && !inStock && !draft.clientId) missing.clientId = t(REQUIRED)
     setErrors(missing)
     if (Object.keys(missing).length) return
     setBusy(true)
@@ -245,39 +246,39 @@ export function ItemFormDialog({
         </>
       }
     >
-      <div className="grid gap-5 md:grid-cols-[minmax(0,1fr)_250px]">
-        <div className="grid gap-3">
+      <div className="grid min-h-[618px] content-start gap-5 md:grid-cols-[minmax(0,1fr)_250px]">
+        <div className="grid content-start gap-3">
           {item && (
             <div>
               <ReadonlyField label={t("Текущий Клиент")} value={item.client?.name ?? t("На складе")} />
             </div>
           )}
-          <FormField label={t("Склад")} required error={errors.warehouse}>
+          <FormField label={t("Склад")} required showRequired error={errors.warehouse}>
             <SearchSelect value={draft.warehouse} options={(options?.warehouses ?? []).map((row) => ({ value: row.name, label: row.name, hint: row.branch || undefined }))} invalid={Boolean(errors.warehouse)} onChange={(warehouse) => set({ warehouse })} />
           </FormField>
-          <FormField label={t("Продукт")} required error={errors.productId}>
+          <FormField label={t("Продукт")} required showRequired error={errors.productId}>
             <SearchSelect value={draft.productId} selectedLabel={item?.product.name} options={productOptions} loading={products.loading} invalid={Boolean(errors.productId)} onChange={(productId) => set({ productId })} />
-            {products.data && !products.data.length && <span className="text-[12px] text-[#9aa3b6]">{t("Нет продуктов, отмеченных как инвентарь")}</span>}
           </FormField>
-          <FormField label={t("Состояние")} required error={errors.condition}>
+          {products.data && !products.data.length && <span className="-mt-2 text-[12px] text-[#9aa3b6]">{t("Нет продуктов, отмеченных как инвентарь")}</span>}
+          <FormField label={t("Состояние")} required showRequired error={errors.condition}>
             <SearchSelect value={draft.condition} options={conditions.map((value) => ({ value, label: t(value) }))} invalid={Boolean(errors.condition)} onChange={(condition) => set({ condition })} />
           </FormField>
-          <FormField label={t("Ответственный")} required error={errors.responsible}>
+          <FormField label={t("Ответственный")} required showRequired error={errors.responsible}>
             <SearchSelect value={draft.responsible} options={named(options?.responsibles ?? [])} invalid={Boolean(errors.responsible)} onChange={(responsible) => set({ responsible })} />
           </FormField>
           {!item && !inStock && (
-            <FormField label={t("Клиент")} error={errors.clientId}>
+            <FormField label={t("Клиент")} required showRequired error={errors.clientId}>
               <ClientPicker value={draft.clientId} label={draft.clientLabel} invalid={Boolean(errors.clientId)} onChange={(clientId, clientLabel) => set({ clientId, clientLabel })} />
             </FormField>
           )}
-          <FormField label={t("Серийный номер")} required error={errors.serialNumber}>
+          <FormField label={t("Серийный номер")} required showRequired error={errors.serialNumber} className="!min-h-[40px]">
             <input value={draft.serialNumber} maxLength={200} onChange={(event) => set({ serialNumber: event.target.value })} className={inputClass} />
           </FormField>
-          <FormField label={t("Инвентарный номер")} required error={errors.stockNumber}>
+          <FormField label={t("Инвентарный номер")} required showRequired error={errors.stockNumber} className="!min-h-[40px]">
             <input value={draft.stockNumber} maxLength={200} onChange={(event) => set({ stockNumber: event.target.value })} className={inputClass} />
           </FormField>
           <MaterialDate label={t("Дата")} required value={draft.date} onChange={(date) => set({ date })} error={errors.date} />
-          <FormField label={`${t("Комментарий")}...`}>
+          <FormField label={`${t("Комментарий")}...`} className="!min-h-[40px]">
             <input value={draft.comment} maxLength={2000} onChange={(event) => set({ comment: event.target.value })} className={inputClass} />
           </FormField>
         </div>
@@ -375,7 +376,7 @@ export function ChangeDialog({ item, options, onClose, onSaved }: { item: Invent
         <FormField label={t("Состояние")} error={errors.condition}>
           <SearchSelect value={draft.condition} allowClear={false} options={conditions.map((value) => ({ value, label: t(value) }))} onChange={(condition) => set({ condition })} />
         </FormField>
-        <FormField label={`${t("Комментарий")}...`}>
+        <FormField label={`${t("Комментарий")}...`} className="!min-h-[40px]">
           <textarea value={draft.comment} maxLength={2000} rows={2} onChange={(event) => set({ comment: event.target.value })} className={`${inputClass} h-auto py-2`} />
         </FormField>
       </div>
@@ -534,7 +535,7 @@ export function RequestFormDialog({ options, onClose, onSaved }: { options: Inve
             )}
           </FormField>
         )}
-        <FormField label={`${t("Комментарий")}...`}>
+        <FormField label={`${t("Комментарий")}...`} className="!min-h-[40px]">
           <textarea value={draft.comment} maxLength={2000} rows={2} onChange={(event) => set({ comment: event.target.value })} className={`${inputClass} h-auto py-2`} />
         </FormField>
       </div>

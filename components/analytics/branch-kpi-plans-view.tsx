@@ -170,11 +170,11 @@ export function BranchKpiPlansView() {
     <RefPage>
       <RefHeader title={t("KPI план филиалов")}>
         {data?.lastDate && (
-          <div className="font-semibold text-[#5d6474]">
-            {t("ДАННЫЕ ЗА")} <span className="font-normal">{formatKpiDate(data.lastDate, language)}</span>
+          <div className="font-semibold text-[#333]">
+            {t("ДАННЫЕ ЗА")} <span>{formatKpiDate(data.lastDate, language)}</span>
           </div>
         )}
-        <div className="mr-[34px]">
+        <div className={data?.lastDate ? "mr-[23px]" : "mr-[33px]"}>
           <button
             type="button"
             onClick={() => void recalc()}
@@ -192,7 +192,7 @@ export function BranchKpiPlansView() {
           hideFilter
           leftSlot={
             selected.length === 0 ? (
-              <KpiMonthYearFilter className="pl-[5px]" month={state.month} year={state.year} onChange={({ month, year }) => update({ month, year, page: 1 })} />
+              <KpiMonthYearFilter month={state.month} year={state.year} onChange={({ month, year }) => update({ month, year, page: 1 })} />
             ) : (
               <strong className="pl-[10px] text-[#333]">
                 {t("Выбрано")}: {selected.length}
@@ -280,7 +280,7 @@ export function BranchKpiPlansView() {
               kpiNumber(row.totalBonus),
               <div key="kpi" className="flex flex-wrap items-center">
                 {row.performanceIndicators.map((item) => (
-                  <div key={item.id} className="my-[5px] mr-2.5 inline-flex h-7 items-center rounded-sm bg-[#e9ecef] px-2.5 leading-none">
+                  <div key={item.id} className="my-[4px] mr-2.5 inline-flex h-7 items-center rounded-sm bg-[#e9ecef] px-2.5 leading-none">
                     {item.name}: <span className="ml-1 font-semibold text-[#4f71dc]">{kpiNumber(item.plan)}</span>
                   </div>
                 ))}

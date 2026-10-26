@@ -274,7 +274,7 @@ export function SelectBox({ label, value, options, onChange }: { label: string; 
         />
       </div>
       {value.length > 0 && (
-        <button type="button" aria-label={t("Очистить")} onClick={() => onChange([])} className="absolute bottom-[3px] right-[24px] text-[18px] leading-[18px] text-[#999]">×</button>
+        <button type="button" aria-label={t("Очистить")} title="Clear value" data-native-tip="" onClick={() => onChange([])} className="absolute bottom-[3px] right-[24px] text-[18px] leading-[18px] text-[#999]">×</button>
       )}
       <svg viewBox="0 0 24 24" className={`pointer-events-none absolute bottom-0 right-0 h-6 w-6 fill-black/30 ${open ? "rotate-180" : ""}`}><path d="M7 10l5 5 5-5z" /></svg>
       {open && (

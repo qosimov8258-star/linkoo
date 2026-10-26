@@ -244,11 +244,12 @@ export function StoreReconciliationBotView({ variant = "client" }: { variant?: R
   const columnCount = 7 + columnCurrencies.length * 2
   const head = refGrid ? "border border-[#efefef] px-2 py-2 text-center text-[13px] font-semibold leading-[18px] whitespace-normal break-words" : "border border-[#6b87e3] px-4 py-3 text-left font-semibold"
 
-  const actionButton = (title: string, icon: ReactNode, onClick: () => void) => (
+  const actionButton = (title: string, icon: ReactNode, onClick: () => void, raw = false) => (
     <button
       type="button"
-      title={t(title)}
-      aria-label={t(title)}
+      title={raw ? title : t(title)}
+      aria-label={raw ? title : t(title)}
+      {...(raw ? { "data-no-translate": "" } : {})}
       onClick={(event) => {
         event.stopPropagation()
         onClick()
@@ -399,7 +400,7 @@ export function StoreReconciliationBotView({ variant = "client" }: { variant?: R
                         {user.canEdit && (
                           <div className="absolute inset-y-0 right-0 flex items-center gap-0.5 bg-gradient-to-r from-transparent to-[#F4F8FB] pl-6 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
 
-                            {actionButton("Изменить срок долга", <CalendarClock className="h-5 w-5 text-[rgb(93,100,116)]" />, () => setDialog({ kind: "deadline", row }))}
+                            {actionButton("Изменить срок долга", <CalendarClock className="h-5 w-5 text-[rgb(93,100,116)]" />, () => setDialog({ kind: "deadline", row }), true)}
                             {actionButton("Телеграм", <Send className="h-5 w-5 text-[rgb(93,100,116)]" />, () => setDialog({ kind: "telegram", row }))}
                             {actionButton("Списать", <MinusCircle className="h-5 w-5 text-[#ff584b]" />, () => setDialog({ kind: "expense", row }))}
                             {actionButton("Добавить", <PlusCircle className="h-5 w-5 text-[#8dc572]" />, () => setDialog({ kind: "income", row }))}

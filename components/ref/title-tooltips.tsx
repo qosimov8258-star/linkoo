@@ -16,6 +16,9 @@ const ICON_HINTS = new Set(["Изменить", "Удалить", "Отмени�
 // The reference hints its green toolbar «Добавить» button with a page-specific text (measured on each page's own hover bubble).
 const BOTTOM_HINTS = ["Дублировать", "Авто распределение по сериям"]
 
+// Pages whose add-button hint the reference leaves in Russian in every language.
+const RAW_ADD_TIPS = new Set(["/analytics/inventory-management"])
+
 const ADD_TIPS: Record<string, string> = {
   "/clients": "Добавить клиента",
   "/clients/territory": "Добавить зону",
@@ -56,9 +59,11 @@ export function TitleTooltips() {
     const onOver = (event: MouseEvent) => {
       const target = event.target as Element | null
       const found = target?.closest?.("[title]") as HTMLElement | null
+      if (found?.hasAttribute("data-native-tip")) return
       // icon controls only: a button / link, or a wrapper around an icon / button without text of its own (text cells keep the native hint)
       let element = found && (found.matches("button, a, [role=button]") || (found.querySelector("svg, button") && !found.textContent?.trim())) ? found : null
       let text = element?.getAttribute("title") ?? ""
+      let raw = element?.hasAttribute("data-no-translate") || !!element?.closest("[data-no-translate]")
       const translate = tRef.current
       const hints = new Set([...ICON_HINTS, ...[...ICON_HINTS].map((hint) => translate(hint))])
       if (!element) {
@@ -79,7 +84,8 @@ export function TitleTooltips() {
           const label = (button.textContent ?? "").replace(/^\s*\+\s*/, "").trim()
           if (rect.left > 440 && rect.top < 130 && (label === "Добавить" || label === translate("Добавить"))) {
             element = button
-            text = translate(key)
+            text = RAW_ADD_TIPS.has(pathRef.current ?? "") ? key : translate(key)
+            raw = RAW_ADD_TIPS.has(pathRef.current ?? "")
           }
         }
       }
@@ -92,6 +98,7 @@ export function TitleTooltips() {
       tip = document.createElement("div")
       tip.textContent = text
       tip.setAttribute("role", "tooltip")
+      if (raw) tip.setAttribute("data-no-translate", "")
       Object.assign(tip.style, {
         position: "fixed",
         zIndex: "2147483647",

@@ -110,7 +110,7 @@ export function EmployeesView() {
   const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize))
   const safePage = Math.min(page, pageCount)
   const rows = filtered.slice((safePage - 1) * pageSize, safePage * pageSize)
-  const from = filtered.length ? (safePage - 1) * pageSize + 1 : 0
+  const from = filtered.length ? (safePage - 1) * pageSize + 1 : 1
   const to = Math.min(safePage * pageSize, filtered.length)
   const filterCount = Object.values(filters).filter(Boolean).length
   const selectedSet = useMemo(() => new Set(selected), [selected])
@@ -183,7 +183,7 @@ export function EmployeesView() {
   const head = (label: string) => <span>{t(label)}</span>
 
   return (
-    <main className="min-w-0 flex-1 bg-white text-[13px] text-[#333]">
+    <div className="min-w-0 flex-1 bg-white text-[13px] text-[#333]">
       <div className="flex h-[72px] items-center justify-between border-b border-[#efefef] pl-[20px] pr-[61px] pt-[3px]">
         <button type="button" onClick={() => setDialog({ employee: null })} className="flex h-[30px] items-center rounded-[3px] bg-[#4f71dc] pl-[14px] pr-[16px] text-[13px] font-semibold text-white hover:brightness-95">
           <svg viewBox="0 0 24 24" className="mr-[12px] h-[18px] w-[18px] fill-white"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z" /></svg>
@@ -341,6 +341,6 @@ export function EmployeesView() {
       )}
       {dialogs === "bulk" && options && <BulkChangeDialog ids={selected} options={options} onClose={() => setDialogs(null)} onDone={() => { setDialogs(null); setSelected([]); void load() }} />}
       {dialogs === "block" && <BlockAllDialog onClose={() => setDialogs(null)} onDone={() => { setDialogs(null); void load() }} />}
-    </main>
+    </div>
   )
 }

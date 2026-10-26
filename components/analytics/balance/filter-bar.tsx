@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, type ReactNode } from "react"
+import { createContext, useContext, useEffect, useState, type ReactNode } from "react"
 import { CalendarDays, Pencil, X, XCircle } from "lucide-react"
 
 import { DateRangePicker } from "@/components/dashboard/date-range-picker"
@@ -82,6 +82,29 @@ export function BalanceFilterChip({ count, onOpen, onClear }: { count: number; o
   )
 }
 
+/** True inside the reference's small "Filter" card (van-sell / branch / employee balance, recommended stock). */
+export const FilterCardContext = createContext(false)
+export const useFilterCard = () => useContext(FilterCardContext)
+
+/** Material "floating label" select used in the card: bold label as the placeholder, small label above a chosen value. */
+export function FilterCardSelect({ label, text, onClick, children }: { label: string; text: string; onClick: () => void; children?: ReactNode }) {
+  return (
+    <div className="relative">
+      <button type="button" onClick={onClick} className="relative block h-[40px] w-full border-b border-[#d5dae1] text-left">
+        <span className={`absolute left-0 ${text ? "top-0 text-[10px] font-semibold leading-3" : "top-[18px] text-[13px] font-bold leading-4"}`}>{label}</span>
+        {text && <span className="absolute inset-x-0 bottom-[6px] truncate pr-8 text-[13px] text-black">{text}</span>}
+        <svg viewBox="0 0 10 5" className="absolute bottom-[10px] right-[2px] h-[5px] w-[10px] fill-[#757575]" aria-hidden><path d="M0 0h10L5 5z" /></svg>
+      </button>
+      {children}
+    </div>
+  )
+}
+
+/** Renders `card` inside the small filter card and `plain` inside the full-width panel. */
+export function FilterVariant({ card, plain }: { card: ReactNode; plain: ReactNode }) {
+  return <>{useFilterCard() ? card : plain}</>
+}
+
 export function BalanceFilterDialog({
   open,
   onClose,
@@ -90,6 +113,8 @@ export function BalanceFilterDialog({
   onApply,
   dateLabel = "Диапазон дат",
   title = "Фильтр",
+  variant = "panel",
+  hideDate = false,
   children,
 }: {
   open: boolean
@@ -102,6 +127,9 @@ export function BalanceFilterDialog({
   /** "Диапазон дат" / "Период создания" / "Период реализации" … */
   dateLabel?: string
   title?: string
+  /** "card": the reference's small anchored card (310px, dark "Применить") instead of the full-width panel. */
+  variant?: "panel" | "card"
+  hideDate?: boolean
   /** Page-specific fields (selects, checkboxes). */
   children?: ReactNode
 }) {
@@ -109,6 +137,13 @@ export function BalanceFilterDialog({
   const [draft, setDraft] = useState({ from, to })
   const [lastOpen, setLastOpen] = useState(open)
   const [pickerOpen, setPickerOpen] = useState(false)
+  const [anchor, setAnchor] = useState<{ left: number; top: number }>({ left: 10, top: 110 })
+  useEffect(() => {
+    if (!open || variant !== "card") return
+    const trigger = document.activeElement
+    const rect = trigger instanceof HTMLElement && trigger !== document.body ? trigger.getBoundingClientRect() : null
+    if (rect && rect.top > 60) setAnchor({ left: Math.max(0, Math.round(rect.left)), top: Math.max(60, Math.round(rect.top - 24)) })
+  }, [open, variant])
   if (open !== lastOpen) {
     // Re-seed the draft each time the dialog opens.
     setLastOpen(open)
@@ -119,6 +154,47 @@ export function BalanceFilterDialog({
     const period = draft.from <= draft.to ? draft : { from: draft.to, to: draft.from }
     onApply(period)
     onClose()
+  }
+  if (variant === "card") {
+    return (
+      <div className="fixed inset-0 z-[100]" onClick={onClose}>
+        <div
+          style={{ left: anchor.left, top: anchor.top }}
+          className="absolute max-h-[calc(100vh-80px)] w-[310px] overflow-y-auto bg-white px-[20px] pb-[10px] pt-[20px] shadow-[0_3px_10px_rgba(0,0,0,0.16),0_3px_10px_rgba(0,0,0,0.23)]"
+          onClick={(event) => event.stopPropagation()}
+        >
+          <div className="flex h-[30px] items-center justify-between">
+            <h2 className="text-[15px] font-normal text-[#777]">{t(title)}</h2>
+            <button type="button" onClick={onClose} aria-label={t("Закрыть")} className="text-[#555]">
+              <XCircle className="h-6 w-6" strokeWidth={1.5} />
+            </button>
+          </div>
+          <div className="mt-[10px] grid gap-[22px]">
+            {!hideDate && (
+              <div className="relative">
+                <span className="text-[10px] font-semibold text-black">{t(dateLabel)}</span>
+                <button type="button" onClick={() => setPickerOpen((value) => !value)} className="flex h-[34px] w-full items-center justify-between border-b border-[#d5dae1] text-left text-[13px] text-black">
+                  <span>{rangeLabel(draft.from)} - {rangeLabel(draft.to)}</span>
+                  <CalendarDays className="h-4 w-4 text-[#bdbdbd]" />
+                </button>
+                {pickerOpen && (
+                  <DateRangePicker begin={draft.from} end={draft.to} onClose={() => setPickerOpen(false)} onApply={(begin, end) => { setDraft({ from: begin, to: end }); setPickerOpen(false) }} />
+                )}
+              </div>
+            )}
+            <FilterCardContext.Provider value>{children}</FilterCardContext.Provider>
+          </div>
+          <button
+            type="button"
+            onClick={apply}
+            disabled={!draft.from || !draft.to}
+            className="mt-[22px] h-9 rounded-[3px] bg-[#5d6474] px-[16px] text-[13px] font-semibold uppercase text-white shadow-[0_1px_3px_rgba(0,0,0,0.3)] disabled:opacity-50"
+          >
+            {t("Применить")}
+          </button>
+        </div>
+      </div>
+    )
   }
   // Reference look: a full-width panel dropping from the top (30px side gutters) over a light overlay, ⊗ to close,
   // stacked fields and a full-width green "Применить".

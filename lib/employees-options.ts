@@ -11,6 +11,10 @@ const byName = (a: NamedId, b: NamedId) => {
   return x < y ? -1 : x > y ? 1 : a.id - b.id
 }
 
+/** The reference lists organizations in the server's collation order: case-insensitive, spaces and punctuation ignored. */
+const orgCollator = new Intl.Collator("en", { ignorePunctuation: true })
+const byOrgName = (a: NamedId, b: NamedId) => orgCollator.compare(a.name, b.name) || a.id - b.id
+
 async function names(sql: string): Promise<NamedId[]> {
   return (await getDb().prepare(sql).all()) as NamedId[]
 }
@@ -50,7 +54,7 @@ export async function getEmployeeOptions(): Promise<EmployeeOptions> {
     jobs,
     accessRights,
     branches: branches.sort(byName),
-    organizations: organizations.sort(byName),
+    organizations: organizations.sort(byOrgName),
     warehouses: warehouses.sort(byName),
     priceLists,
     currencies: currencies.sort(byName),

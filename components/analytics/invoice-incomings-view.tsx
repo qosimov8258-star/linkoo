@@ -356,7 +356,7 @@ export function InvoiceIncomingsView() {
           </label>
           <div className="ml-auto flex flex-wrap items-center gap-3">
             <BalancePagination page={state.page} pageSize={state.pageSize} count={data?.count ?? 0} sizes={PAGE_SIZES} onChange={({ page, pageSize }) => update({ page, pageSize })} />
-            <button type="button" onClick={() => void downloadList()} disabled={!data} title={t("Скачать Excel")} aria-label={t("Скачать Excel")} className="flex h-9 w-9 items-center justify-center rounded-full text-[#666] hover:bg-[#f2f5f8] disabled:opacity-40">
+            <button type="button" onClick={() => void downloadList()} disabled={!data} aria-label={t("Скачать Excel")} className="flex h-9 w-9 items-center justify-center rounded-full text-[#666] hover:bg-[#f2f5f8] disabled:opacity-40">
               <FileSpreadsheet className="h-5 w-5" />
             </button>
           </div>

@@ -24,7 +24,7 @@ export function SalaryAddDialog({
   month: number
   year: number
   onClose: () => void
-  onSave: (entries: Array<{ employee: string; salary: number }>) => Promise<void>
+  onSave: (entries: Array<{ userId: number; salary: number }>, currency: string) => Promise<void>
 }) {
   const { t } = useLanguage()
   const [people, setPeople] = useState<Person[]>([])
@@ -70,10 +70,10 @@ export function SalaryAddDialog({
   async function save() {
     const entries = people
       .filter((person) => Number(amounts[person.id]) > 0)
-      .map((person) => ({ employee: person.name, salary: Number(amounts[person.id]) }))
+      .map((person) => ({ userId: person.id, salary: Number(amounts[person.id]) }))
     setSaving(true)
     try {
-      await onSave(entries)
+      await onSave(entries, currency)
     } finally {
       setSaving(false)
     }
@@ -83,7 +83,7 @@ export function SalaryAddDialog({
   return createPortal(
     <div className="fixed inset-0 z-[1400] flex flex-col bg-white font-sans text-[13px] text-[#333]">
       <div className="flex h-[60px] shrink-0 items-center justify-between border-b border-[#eee] pl-[30px] pr-[18px]">
-        <span className="text-[13px] font-bold uppercase text-[#333]">{t("Добавить зарплату сотрудника на")} {MONTHS_UPPER[month]} {year}</span>
+        <span className="text-[13px] font-bold uppercase text-[#333]">{t("Добавить зарплату сотрудника на")} <span data-no-translate>{MONTHS_UPPER[month]} {year}</span></span>
         <button type="button" onClick={onClose} aria-label={t("Закрыть")} className="flex h-12 w-12 items-center justify-center">
           <svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#333]"><path d={RI.close} /></svg>
         </button>
@@ -117,9 +117,9 @@ export function SalaryAddDialog({
         {shown.map((person) => (
           <div key={person.id} className="grid h-[50px] grid-cols-[485px_238px_1fr] items-center border-b border-[#f1f1f1] pl-[30px] pr-[30px]">
             <span className="truncate">{person.name}</span>
-            <span className="pl-[4px]">{t(person.job)}</span>
+            <span data-no-translate className="pl-[4px]">{person.job}</span>
             <div className="grid grid-cols-[244px_1fr] items-center">
-              <span className="pl-[0px]">{t(person.accessRight)}</span>
+              <span data-no-translate className="pl-[0px]">{person.accessRight}</span>
               <input
                 value={amounts[person.id] ?? ""}
                 onChange={(event) => setAmounts((current) => ({ ...current, [person.id]: event.target.value.replace(/[^\d.]/g, "") }))}

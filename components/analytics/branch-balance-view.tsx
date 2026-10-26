@@ -7,7 +7,7 @@ import { FileSpreadsheet, MinusCircle, PlusCircle, Search, X } from "lucide-reac
 import { BalanceTable } from "@/components/analytics/balance/balance-table"
 import { balanceListExcelRows } from "@/components/analytics/balance/excel"
 import { ExpandedOverlay, ExpandedViewButton } from "@/components/analytics/balance/expanded-view"
-import { BalanceFilterChip, BalanceFilterDialog, countActiveFilters } from "@/components/analytics/balance/filter-bar"
+import { BalanceFilterChip, BalanceFilterDialog, FilterCardSelect, FilterVariant, countActiveFilters } from "@/components/analytics/balance/filter-bar"
 import { BALANCE_PAGE_SIZES, BalancePagination } from "@/components/analytics/balance/pagination"
 import { BalanceSummaryCards, type SummaryBox } from "@/components/analytics/balance/summary-cards"
 import { buildBalanceQuery, useBalanceList, useLookup } from "@/components/analytics/balance/use-balance"
@@ -145,6 +145,7 @@ export function BranchBalanceView() {
   const [paging, setPaging] = useState({ page: initial.page, pageSize: initial.pageSize })
   const [ordering, setOrdering] = useState<string[]>(initial.ordering)
   const [filterOpen, setFilterOpen] = useState(false)
+  const [branchListOpen, setBranchListOpen] = useState(false)
   const [expanded, setExpanded] = useState(false)
   const [detail, setDetail] = useState<{ key: string; name: string } | null>(initial.detail ? { key: initial.detail, name: "" } : null)
   const [create, setCreate] = useState<{ kind: "add" | "expense"; branchId: number } | null>(initial.create)
@@ -357,6 +358,7 @@ export function BranchBalanceView() {
       </ExpandedOverlay>
 
       <BalanceFilterDialog
+        variant="card"
         open={filterOpen}
         onClose={() => setFilterOpen(false)}
         from={period.from}
@@ -369,25 +371,48 @@ export function BranchBalanceView() {
           setPaging((current) => ({ ...current, page: 1 }))
         }}
       >
-        <div className="flex flex-col gap-1 md:col-span-2">
-          <span className="flex items-center justify-between text-sm text-[#586174]">
-            {t("Филиалы")}
-            {draftBranchIds.length > 0 && (
-              <button type="button" onClick={() => setDraftBranchIds([])} className="flex items-center gap-1 text-[#4f70e7]">
-                <X className="h-3.5 w-3.5" /> {t("Очистить")}
-              </button>
-            )}
-          </span>
-          <div className="max-h-[240px] overflow-y-auto rounded-md border border-[#dbe0e8] p-2">
-            {branchOptions.map((branch) => (
-              <label key={branch.id} className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 hover:bg-[#f2f5f8]">
-                <input type="checkbox" checked={draftBranchIds.includes(String(branch.id))} onChange={() => toggleDraftBranch(String(branch.id))} className="h-4 w-4 accent-[#4f70e7]" />
-                {branch.name}
-              </label>
-            ))}
-            {!branchOptions.length && <p className="px-2 py-1.5 text-[#9aa3b6]">{t("Нет данных")}</p>}
+        <FilterVariant
+          plain={
+          <div className="flex flex-col gap-1 md:col-span-2">
+            <span className="flex items-center justify-between text-sm text-[#586174]">
+              {t("Филиалы")}
+              {draftBranchIds.length > 0 && (
+                <button type="button" onClick={() => setDraftBranchIds([])} className="flex items-center gap-1 text-[#4f70e7]">
+                  <X className="h-3.5 w-3.5" /> {t("Очистить")}
+                </button>
+              )}
+            </span>
+            <div className="max-h-[240px] overflow-y-auto rounded-md border border-[#dbe0e8] p-2">
+              {branchOptions.map((branch) => (
+                <label key={branch.id} className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 hover:bg-[#f2f5f8]">
+                  <input type="checkbox" checked={draftBranchIds.includes(String(branch.id))} onChange={() => toggleDraftBranch(String(branch.id))} className="h-4 w-4 accent-[#4f70e7]" />
+                  {branch.name}
+                </label>
+              ))}
+              {!branchOptions.length && <p className="px-2 py-1.5 text-[#9aa3b6]">{t("Нет данных")}</p>}
+            </div>
           </div>
-        </div>
+          }
+          card={
+            <div className="relative">
+              <FilterCardSelect
+                label={t("Филиалы")}
+                text={branchOptions.filter((branch) => draftBranchIds.includes(String(branch.id))).map((branch) => branch.name).join(", ")}
+                onClick={() => setBranchListOpen((value) => !value)}
+              />
+              {branchListOpen && (
+                <div className="mt-1 max-h-[200px] overflow-y-auto border border-[#e0e0e0] bg-white p-1">
+                  {branchOptions.map((branch) => (
+                    <label key={branch.id} className="flex cursor-pointer items-center gap-2 px-2 py-1.5 text-[13px] hover:bg-[#f2f5f8]">
+                      <input type="checkbox" checked={draftBranchIds.includes(String(branch.id))} onChange={() => toggleDraftBranch(String(branch.id))} className="h-4 w-4 accent-[#4f70e7]" />
+                      {branch.name}
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
+          }
+        />
       </BalanceFilterDialog>
 
       {detail && <BranchDetailDialog entityKey={detail.key} name={detail.name} onClose={() => setDetail(null)} />}
