@@ -47,7 +47,7 @@ export function Modal({ title, onClose, footer, children, width = 500, bodyClass
     <div className={`fixed inset-0 z-[100] flex justify-center bg-black/50 ${anchorTop ? "items-start overflow-y-auto" : "items-center"}`} style={anchorTop ? { paddingTop: typeof anchorTop === "number" ? anchorTop : 64 } : undefined}>
       {/* scrollAll: like the reference's long dialogs (Настройка EXCEL): the whole card scrolls (max 100vh − 128px), the title stays, the footer sits at the end of the content */}
       <div style={{ width }} className={`max-w-full bg-white text-[13px] text-black shadow-xl ${scrollAll ? "max-h-[calc(100vh-128px)] overflow-y-auto" : ""}`}>
-        <header className={`flex h-[60px] items-center justify-between border-b border-[#e8ebf0] ${headerClassName} pr-[15px] ${scrollAll ? "sticky top-0 z-[1] bg-white" : ""}`}>
+        <header className={`flex h-[60px] items-center justify-between border-b border-[#e8ebf0] ${headerClassName} pr-[10px] ${scrollAll ? "sticky top-0 z-[1] bg-white" : ""}`}>
           <h3 className={`${titleClassName} font-bold uppercase text-[#333]`}>{title}</h3>
           <button type="button" onClick={onClose} aria-label={t("Закрыть")} className="flex h-12 w-12 items-center justify-center text-[#333] hover:opacity-70"><X className="h-6 w-6" strokeWidth={1.6} /></button>
         </header>
@@ -61,7 +61,7 @@ export function Modal({ title, onClose, footer, children, width = 500, bodyClass
 
 export function SaveButton({ disabled, onClick, children }: { disabled?: boolean; onClick?: () => void; children: ReactNode }) {
   return (
-    <button type={onClick ? "button" : "submit"} onClick={onClick} disabled={disabled} className="h-9 min-w-[111px] rounded-[3px] bg-[#71ce87] px-[16px] text-[13px] font-semibold uppercase text-white hover:brightness-95 disabled:bg-[#ade3b9]">
+    <button type={onClick ? "button" : "submit"} onClick={onClick} disabled={disabled} className="h-9 min-w-[111px] rounded-[3px] bg-[#71ce87] px-[16px] text-[13px] font-semibold uppercase text-white hover:brightness-95 disabled:cursor-default">
       {children}
     </button>
   )
@@ -221,7 +221,7 @@ export function ListToolbar({
       {extra}
       {onQuery && (
         <label style={{ left: searchPos?.left ?? 360, top: searchPos?.top ?? 15 }} className="absolute w-[300px]">
-          <input value={query ?? ""} onChange={(event) => onQuery(event.target.value)} placeholder={t("Поиск")} className="h-[30px] w-full border-b border-[#dfe3ea] bg-transparent pr-8 text-[13px] outline-none placeholder:text-[#b9c0cc] focus:border-[#4c6dd4]" />
+          <input value={query ?? ""} onChange={(event) => onQuery(event.target.value)} placeholder={t("Поиск")} className="h-[30px] w-full border-b border-[#e0e0e0] bg-transparent pr-8 text-[13px] outline-none placeholder:text-[#b9c0cc] focus:border-[#5d6474] focus:shadow-[inset_0_-1px_0_#5d6474]" />
           <svg viewBox="0 0 24 24" className="absolute right-2 top-1.5 h-[18px] w-[18px] fill-[#c4cad4]"><path d="M15.5 14h-.79l-.28-.27A6.47 6.47 0 0016 9.5 6.5 6.5 0 109.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z" /></svg>
         </label>
       )}
@@ -262,8 +262,8 @@ export function HoverActions({ onEdit, onDelete, offset = 34 }: { onEdit: () => 
   const { t } = useLanguage()
   return (
     <span style={{ right: offset }} className="absolute top-1/2 hidden -translate-y-1/2 items-center gap-[10px] text-[#666] group-hover:flex">
-      <button type="button" onClick={(event) => { event.stopPropagation(); onEdit() }} aria-label={t("Изменить")} className="hover:text-[#333]"><svg viewBox="0 0 24 24" className="h-5 w-5 fill-current"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a.996.996 0 000-1.41l-2.34-2.34a.996.996 0 00-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z" /></svg></button>
-      {onDelete && <button type="button" onClick={(event) => { event.stopPropagation(); onDelete() }} aria-label={t("Удалить")} className="hover:text-[#333]"><svg viewBox="0 0 24 24" className="h-5 w-5 fill-current"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z" /></svg></button>}
+      <button type="button" onClick={(event) => { event.stopPropagation(); onEdit() }} aria-label={t("Изменить")} className="-mx-[5px] flex h-[25px] w-[30px] items-start justify-center hover:text-[#333]"><svg viewBox="0 0 24 24" className="h-[22px] w-[22px] fill-current"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a.996.996 0 000-1.41l-2.34-2.34a.996.996 0 00-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z" /></svg></button>
+      {onDelete && <button type="button" onClick={(event) => { event.stopPropagation(); onDelete() }} aria-label={t("Удалить")} className="-mx-[5px] flex h-[25px] w-[30px] items-start justify-center hover:text-[#333]"><svg viewBox="0 0 24 24" className="h-[22px] w-[22px] fill-current"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z" /></svg></button>}
     </span>
   )
 }

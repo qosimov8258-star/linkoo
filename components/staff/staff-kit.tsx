@@ -79,7 +79,7 @@ export function MultiSelectField({
   return (
     <div ref={ref} className="relative min-h-[56px]">
       <div onClick={() => setOpen(true)} className="relative min-h-[56px] cursor-pointer border-b border-[#d5dae1] pb-[6px] pr-[50px] pt-[16px]">
-        <span className={`absolute left-0 ${selected.length || placeholder ? "top-0 text-[10px] font-semibold leading-3" : "top-[33px] text-[13px] font-bold leading-4"}`}>
+        <span className={`absolute left-0 ${selected.length || placeholder ? "top-0 text-[10px] font-semibold leading-3" : "top-[33px] text-[13px] font-semibold leading-4"}`}>
           {label}{required && <span className="text-[#f44336]"> *</span>}
         </span>
         {placeholder && selected.length === 0 && !open && <span className="absolute left-0 top-[26px] text-[13px] text-[#999]">{placeholder}</span>}
@@ -94,9 +94,9 @@ export function MultiSelectField({
             <input autoFocus value={search} onChange={(event) => setSearch(event.target.value)} className="h-[24px] min-w-[80px] flex-1 bg-transparent text-[13px] outline-none" />
           )}
         </div>
-        <span className="absolute bottom-[8px] right-0 flex items-center gap-[10px] text-[#999]">
+        <span className="absolute bottom-[10px] right-[10px] flex items-center gap-[10px] text-[#999]">
           {selected.length > 0 && <button type="button" aria-label="clear" onClick={(event) => { event.stopPropagation(); onChange([]) }}><X className="h-3.5 w-3.5" /></button>}
-          <svg viewBox="0 0 10 7" className="h-[7px] w-[10px] fill-[#888]"><path d="M0 0l5 5.5L10 0z" /></svg>
+          <svg viewBox="0 0 10 5" className="h-[5px] w-[10px] fill-[#999]"><path d="M0 0l5 5 5-5z" /></svg>
         </span>
       </div>
       {error && <span className="mt-[2px] block text-[12px] text-[#e57373]">{error}</span>}
@@ -117,9 +117,9 @@ export function MultiSelectField({
 /** Square checkbox of the reference (grey frame, dark tick). */
 export function Check({ checked, onChange, label, className = "" }: { checked: boolean; onChange: (value: boolean) => void; label?: ReactNode; className?: string }) {
   return (
-    <label className={`flex cursor-pointer items-center gap-[8px] text-[13px] font-semibold ${className}`}>
-      <button type="button" role="checkbox" aria-checked={checked} onClick={() => onChange(!checked)} className="flex h-6 w-6 shrink-0 items-center justify-center">
-        <svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#555]">
+    <label className={`flex cursor-pointer items-center gap-[6px] text-[13px] font-semibold ${className}`}>
+      <button type="button" role="checkbox" aria-checked={checked} onClick={() => onChange(!checked)} className="flex h-5 w-5 shrink-0 items-center justify-center">
+        <svg viewBox="0 0 24 24" className="h-5 w-5 fill-[#666]">
           <path d={checked ? "M19 3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.11 0 2-.9 2-2V5c0-1.1-.89-2-2-2zm-9 14l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z" : "M19 5v14H5V5h14m0-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2z"} />
         </svg>
       </button>
@@ -149,8 +149,8 @@ export function StaffTabs({ labels, value, onChange, height = 40 }: { labels: st
 
 function PickCaret() {
   return (
-    <svg viewBox="0 0 10 7" className="pointer-events-none absolute right-[14px] top-[36px] h-[7px] w-[10px] fill-[#888]">
-      <path d="M0 0l5 5.5L10 0z" />
+    <svg viewBox="0 0 10 5" className="pointer-events-none absolute right-[10px] top-[39.4px] h-[5px] w-[10px] fill-[#999]">
+      <path d="M0 0l5 5 5-5z" />
     </svg>
   )
 }

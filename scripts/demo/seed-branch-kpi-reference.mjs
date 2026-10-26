@@ -29,6 +29,7 @@ const DATA = {
   "2026-04": { lastDate: "2026-04-25T14:47:36.644513", branches: [{ id: 7, name: "777", total: 555555, plans: { 53: 1222 } }] },
 }
 
+const BALANCES = JSON.parse(fs.readFileSync(path.join(here, "data/branch-kpi-balances.json"), "utf8"))
 const client = new pg.Client({ connectionString: process.env.DATABASE_URL ?? match?.[1].trim() })
 await client.connect()
 const counts = { plans: 0, balances: 0, recalcs: 0 }
@@ -49,8 +50,8 @@ try {
       if (res.rowCount) { counts.plans++; await register("branch_kpi_plans", res.rows[0].id) }
       if (b.total !== null) {
         const bal = await client.query(
-          `INSERT INTO branch_kpi_balances (period, branch_id, branch_name, total_bonus, balances, calculated_at) VALUES ($1,$2,$3,$4,'[]',$5) ON CONFLICT (period, branch_id) DO NOTHING RETURNING id`,
-          [period, b.id, b.name, b.total, month.lastDate ?? ""],
+          `INSERT INTO branch_kpi_balances (period, branch_id, branch_name, total_bonus, balances, calculated_at) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (period, branch_id) DO NOTHING RETURNING id`,
+          [period, b.id, b.name, b.total, JSON.stringify(BALANCES.find((item) => item.branchId === b.id && item.year === Number(period.slice(0, 4)) && item.month === Number(period.slice(5, 7)))?.balances ?? []), month.lastDate ?? ""],
         )
         if (bal.rowCount) { counts.balances++; await register("branch_kpi_balances", bal.rows[0].id) }
       }

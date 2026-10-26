@@ -78,7 +78,7 @@ export function DashboardSettingsView() {
       <section className="min-w-0 flex-1 bg-white text-[13px] text-[#333]">
         <div className="relative h-[60px]">
           <label className="absolute left-[15px] top-[19px] w-[300px]">
-            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("Поиск")} className="h-[30px] w-full border-b border-[#dfe3ea] bg-transparent pr-8 text-[13px] outline-none placeholder:text-[#b9c0cc] focus:border-[#4c6dd4]" />
+            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("Поиск")} className="h-[30px] w-full border-b border-[#e0e0e0] bg-transparent pr-8 text-[13px] outline-none placeholder:text-[#b9c0cc] focus:border-[#5d6474] focus:shadow-[inset_0_-1px_0_#5d6474]" />
             <svg viewBox="0 0 24 24" className="absolute right-2 top-1.5 h-[18px] w-[18px] fill-[#c4cad4]"><path d="M15.5 14h-.79l-.28-.27A6.47 6.47 0 0016 9.5 6.5 6.5 0 109.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z" /></svg>
           </label>
           <button type="button" onClick={() => setDialog({ kind: "form" })} className="absolute right-[44px] top-[22px] text-[13px] text-[#4f71dc] hover:underline">+ {t("добавить дашборд")}</button>

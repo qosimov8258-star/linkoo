@@ -60,7 +60,7 @@ export function PageSizeSelect({ value, onChange }: { value: number; onChange: (
         <ul className="absolute -left-[1px] -top-[15px] z-30 w-[96px] rounded-[2px] bg-white py-[6px] shadow-[0_2px_10px_rgba(0,0,0,0.2)]">
           {PAGE_SIZES.map((size) => (
             <li key={size}>
-              <button type="button" onClick={() => { onChange(size); setOpen(false) }} className={`block h-[32px] w-full pl-[29px] text-left text-[13px] hover:bg-[#f2f5f8] ${size === value ? "font-semibold" : ""}`}>{size}</button>
+              <button type="button" onClick={() => { onChange(size); setOpen(false) }} className={`block h-[32px] w-full pl-[29px] text-left text-[13px] hover:bg-[#f2f5f8] ${size === value ? "text-[#5d6474]" : ""}`}>{size}</button>
             </li>
           ))}
         </ul>
@@ -108,7 +108,7 @@ export function SettingsToolbar({
     <div className={`relative flex items-center whitespace-nowrap text-[13px] text-[#333] ${className}`}>
       {left}
       <label style={{ width: searchWidth }} className={`absolute ${searchClassName}`}>
-        <input value={query} onChange={(event) => onQuery(event.target.value)} placeholder={t("Поиск")} className="h-[30px] w-full border-b border-[#dfe3ea] bg-transparent pr-8 text-[13px] outline-none placeholder:text-[#b9c0cc] focus:border-[#4c6dd4]" />
+        <input value={query} onChange={(event) => onQuery(event.target.value)} placeholder={t("Поиск")} className="h-[30px] w-full border-b border-[#e0e0e0] bg-transparent pr-8 text-[13px] outline-none placeholder:text-[#b9c0cc] focus:border-[#5d6474] focus:shadow-[inset_0_-1px_0_#5d6474]" />
         <svg viewBox="0 0 24 24" className="absolute right-1 top-1.5 h-[20px] w-[20px] fill-[#c4cad4]"><path d="M15.5 14h-.79l-.28-.27A6.47 6.47 0 0016 9.5 6.5 6.5 0 109.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z" /></svg>
       </label>
       <div className="ml-auto flex items-center pr-[4px]">
@@ -169,8 +169,8 @@ const TRASH = "M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1
 export function RowIcon({ path, label, onClick, raw = false }: { path: string; label: string; onClick: () => void; /** Hint stays Russian in every language, like the reference. */ raw?: boolean }) {
   return (
     <span className="group/icon relative" {...(raw ? { "data-no-translate": "" } : {})}>
-      <button type="button" aria-label={label} onClick={(event) => { event.stopPropagation(); onClick() }} className="flex h-[24px] w-[24px] items-center justify-center text-[#666]">
-        <svg viewBox="0 0 24 24" className="h-[20px] w-[20px] fill-current"><path d={path} /></svg>
+      <button type="button" aria-label={label} onClick={(event) => { event.stopPropagation(); onClick() }} className="-mx-[3px] flex h-[25px] w-[30px] items-start justify-center text-[#666]">
+        <svg viewBox="0 0 24 24" className="h-[22px] w-[22px] fill-current"><path d={path} /></svg>
       </button>
       <span className="pointer-events-none absolute left-1/2 top-[34px] z-20 hidden -translate-x-1/2 whitespace-nowrap rounded-[2px] bg-[#616161]/90 px-[14px] py-[7px] text-[13px] font-semibold text-white group-hover/icon:block">{label}</span>
     </span>
@@ -252,13 +252,13 @@ export function LinePick({
   return (
     <div ref={rootRef} className="relative">
       <button type="button" onClick={() => setOpen((current) => !current)} className={`relative block h-[40px] w-full border-b text-left ${error ? "border-[#e57373]" : "border-[#d5dae1]"}`}>
-        <span className={`absolute left-0 ${selected ? "-top-[8px] text-[10px] font-semibold leading-3" : "top-[18px] text-[13px] font-bold leading-4"}`}>
+        <span className={`absolute left-0 ${selected ? "-top-[8px] text-[10px] font-semibold leading-3" : "top-[18px] text-[13px] font-semibold leading-4"}`}>
           {label}{required && <span className="text-red-500"> *</span>}
         </span>
         {selected && <span className="absolute inset-x-0 bottom-[3px] truncate pr-12 text-[13px]">{selected.label}</span>}
-        <span className="absolute bottom-[8px] right-0 flex items-center gap-[10px] text-[#999]">
+        <span className="absolute bottom-[10px] right-[10px] flex items-center gap-[10px] text-[#999]">
           {selected && clearable && <span role="button" aria-label="clear" onClick={(event) => { event.stopPropagation(); onChange("") }}><X className="h-3.5 w-3.5" /></span>}
-          <ChevronDown className="h-4 w-4 fill-current" />
+          <svg viewBox="0 0 10 5" className="h-[5px] w-[10px] fill-[#999]"><path d="M0 0l5 5 5-5z" /></svg>
         </span>
       </button>
       {error && <span className="mt-[2px] block text-[12px] text-[#e57373]">{error}</span>}

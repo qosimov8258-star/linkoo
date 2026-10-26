@@ -121,7 +121,11 @@ const navItems: NavItem[] = [
 const analyticsTabPaths = ["/analytics/pnl", "/analytics/flexible-dashboard", "/analytics/order-debts", "/analytics/client-debts", "/analytics/quick-report"]
 
 /** Section shown in the reference's title tooltip per page (it does not always follow the top-nav grouping). */
-const PAGE_SECTION: Record<string, string> = {
+const PAGE_SECTION: Record<string, string | null> = {
+  "/analytics/management-balance": null,
+  "/analytics/kpi-performance": null,
+  "/analytics/balance-tab": null,
+  "/analytics/kpi-tab": null,
   "/": "Аналитика",
   "/analytics/abc-analysis": "Аналитика",
   "/analytics/account-debts": "Финансы",

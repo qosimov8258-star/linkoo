@@ -257,9 +257,9 @@ export function EmployeeDialog({
           </div>
 
           <div className="mt-[15px] flex w-[692px] max-w-full items-center justify-between">
-            <Check className="!pr-[10px]" checked={draft.systemAccess} onChange={(systemAccess) => patch({ systemAccess })} label={t("Доступ к системе")} />
-            <Check className="!pr-[10px]" checked={draft.showInTracking} onChange={(showInTracking) => patch({ showInTracking })} label={t("Показывать в отслеживании")} />
-            <Check className="!pr-[10px]" checked={draft.twoStepCheck} onChange={(twoStepCheck) => patch({ twoStepCheck })} label={t("Двухэтапная проверка")} />
+            <Check className="!pr-[14px]" checked={draft.systemAccess} onChange={(systemAccess) => patch({ systemAccess })} label={t("Доступ к системе")} />
+            <Check className="!pr-[14px]" checked={draft.showInTracking} onChange={(showInTracking) => patch({ showInTracking })} label={t("Показывать в отслеживании")} />
+            <Check className="!pr-[14px]" checked={draft.twoStepCheck} onChange={(twoStepCheck) => patch({ twoStepCheck })} label={t("Двухэтапная проверка")} />
           </div>
           <div className="mt-[26px]">
             <Check checked={draft.sessionLimit} onChange={(sessionLimit) => patch({ sessionLimit })} label={t("Поставить ограничения на сессию (может работать только на одном устройстве)")} />

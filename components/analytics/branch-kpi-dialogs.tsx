@@ -150,7 +150,7 @@ export function BranchKpiBulkDialog({
   if (!next) {
     const filtered = active.filter((item) => item.name.toLowerCase().includes(kpiSearch.trim().toLowerCase()))
     return (
-      <KpiDialogFrame title={title} width={600} onClose={onClose} footer={<KpiDialogAction label={t("Далее")} onClick={goNext} disabled={!indicators} />}>
+      <KpiDialogFrame title={title} width={600} onClose={onClose} footerPadRight={17} footer={<KpiDialogAction label={t("Далее")} onClick={goNext} disabled={!indicators} />}>
         <div className="min-h-[214px] space-y-4 px-[32px] pt-[27px] text-[13px] text-[#333]">
           {loadError && <p className="text-[#e57373]">{t(loadError)}</p>}
           {!indicators && !loadError && <p className="text-[#999]">{t("Загрузка...")}</p>}
@@ -212,7 +212,7 @@ export function BranchKpiBulkDialog({
       onClose={() => setNext(false)}
       title={
         <>
-          <button type="button" onClick={() => setNext(false)} aria-label={t("Назад")} className="ml-[4px] mr-[10px] flex h-[38px] w-[38px] items-center justify-center text-[#666]">
+          <button type="button" onClick={() => setNext(false)} aria-label={t("Назад")} className="ml-[4px] -mr-[2px] flex h-[38px] w-[38px] items-center justify-center text-[#666]">
             <ArrowLeft className="h-6 w-6" />
           </button>
           <span className="truncate">{title}</span>
@@ -220,8 +220,8 @@ export function BranchKpiBulkDialog({
       }
       titleActions={<KpiDialogAction label={saving ? t("Сохранение...") : t("Сохранить")} onClick={() => void save()} disabled={saving || !values} />}
     >
-      <div className="flex shrink-0 flex-wrap items-end gap-6 px-[15px] py-3">
-        <KpiMonthYearFilter month={month} year={year} onChange={onPeriodChange} />
+      <div className="flex shrink-0 flex-wrap items-end gap-6 px-[15px] pb-3 pt-[10px]">
+        <KpiMonthYearFilter month={month} year={year} onChange={onPeriodChange} monthWidth={200} yearWidth={151} gap={10} />
         {error && <span className="pb-1 text-[13px] text-[#e57373]">{error}</span>}
       </div>
       <div className="min-h-0 flex-1 overflow-auto px-[10px] pb-10 text-[13px] text-[#333]">
@@ -245,6 +245,8 @@ export function BranchKpiBulkDialog({
                   <td className="sticky left-0 bg-inherit pr-3 font-semibold">{row.name}</td>
                   {kpis.map((item) => (
                     <td key={item.id} className="pr-[16px]">
+                      <div className="relative">
+                      {(values[row.id]?.[item.id] ?? "") !== "" && <span className="pointer-events-none absolute -top-[4px] left-0 text-[10px] font-semibold leading-3 text-black">{t("Количество")}</span>}
                       <input
                         value={values[row.id]?.[item.id] ?? ""}
                         onChange={(event) => setCell(row.id, item.id, event.target.value)}
@@ -253,6 +255,7 @@ export function BranchKpiBulkDialog({
                         inputMode="decimal"
                         className="h-9 w-full border-b border-[#e0e0e0] bg-transparent text-[13px] font-semibold outline-none placeholder:font-semibold placeholder:text-black focus:border-[#4f71dc]"
                       />
+                      </div>
                     </td>
                   ))}
                 </tr>
@@ -317,18 +320,19 @@ export function BranchKpiDuplicateDialog({
       title={`${t("Дублировать с месяца")} ${monthName(month)}  ${year}`}
       width={450}
       onClose={onClose}
+      footerInset={30}
       footer={<KpiDialogAction label={saving ? t("Сохранение...") : t("Сохранить")} onClick={() => void save()} disabled={saving} />}
     >
       <form
-        className="min-h-[243px] px-[30px] pt-[4px] text-[13px]"
+        className="min-h-[243px] px-[30px] text-[13px]"
         onSubmit={(event) => {
           event.preventDefault()
           void save()
         }}
       >
-        <label className="relative block h-[50px] border-b border-[#e0e0e0] focus-within:border-[#4f71dc]">
-          <span className="absolute left-0 top-[2px] text-[10px] font-bold leading-3 text-black">{t("Месяц")}</span>
-          <span className="absolute left-0 top-[26px] text-[13px] font-semibold leading-4 text-[#333]">{t(BRANCH_KPI_MONTHS[toMonth - 1] ?? "")}</span>
+        <label className="relative block h-[58px] border-b border-[#e0e0e0] focus-within:border-[#4f71dc]">
+          <span className="absolute left-0 top-[10px] text-[10px] font-bold leading-3 text-black">{t("Месяц")}</span>
+          <span className="absolute left-0 top-[36px] text-[13px] font-semibold leading-[18px] text-[#333]">{t(BRANCH_KPI_MONTHS[toMonth - 1] ?? "")}</span>
           <select value={toMonth} onChange={(event) => setToMonth(Number(event.target.value))} aria-label={t("Месяц")} className="absolute inset-0 h-full w-full cursor-pointer opacity-0">
             {BRANCH_KPI_MONTHS.map((name, index) => (
               <option key={name} value={index + 1}>
@@ -336,16 +340,17 @@ export function BranchKpiDuplicateDialog({
               </option>
             ))}
           </select>
-          <svg viewBox="0 0 10 7" className="pointer-events-none absolute right-[8px] top-[33px] h-[7px] w-[10px] fill-[#888]"><path d="M0 0l5 5.5L10 0z" /></svg>
+          <span className="pointer-events-none absolute right-[28.7px] top-[36.9px] text-[18px] leading-[18px] text-[#999]">×</span>
+          <svg viewBox="0 0 10 7" className="pointer-events-none absolute right-[8px] top-[43px] h-[7px] w-[10px] fill-[#888]"><path d="M0 0l5 5.5L10 0z" /></svg>
         </label>
-        <label className="relative mt-[27px] block h-[50px] border-b border-[#e0e0e0] focus-within:border-[#4f71dc]">
-          <span className="absolute left-0 top-[2px] text-[10px] font-bold leading-3 text-black">{t("Год")}</span>
+        <label className="relative mt-[23px] block h-[49px] border-b border-[#e0e0e0] focus-within:border-[#4f71dc]">
+          <span className="absolute left-0 top-[4.5px] text-[10px] font-bold leading-3 text-black">{t("Год")}</span>
           <input
             value={toYear}
             inputMode="numeric"
             maxLength={4}
             onChange={(event) => setToYear(event.target.value.replace(/\D/g, ""))}
-            className="absolute inset-x-0 bottom-0 h-[30px] bg-transparent text-[13px] font-semibold text-[#333] outline-none"
+            className="absolute inset-x-0 bottom-0 h-[27px] bg-transparent text-[13px] font-semibold text-[#333] outline-none"
           />
         </label>
         {selected.length > 0 && <p className="mt-3 text-[12px] text-[#999]">{`${t("Выбрано")}: ${selected.length}`}</p>}

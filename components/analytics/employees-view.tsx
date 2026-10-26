@@ -216,7 +216,7 @@ export function EmployeesView() {
                 <FilterLink onClick={() => { setDraft(filters); setFilterOpen((open) => !open) }} />
               )}
             </div>
-            <label className="relative w-[295px] border-b border-[#dfe3ea]">
+            <label className="relative w-[295px] border-b border-[#e0e0e0] focus-within:border-[#5d6474] focus-within:shadow-[0_1px_0_#5d6474]">
               <input value={query} onChange={(event) => { setQuery(event.target.value); setPage(1) }} placeholder={t("Поиск")} className="h-[30px] w-full bg-transparent pr-8 text-[13px] outline-none placeholder:text-[#b9c0cc]" />
               <svg viewBox="0 0 24 24" className="absolute right-1 top-[4px] h-[20px] w-[20px] fill-[#c4cad4]"><path d="M15.5 14h-.79l-.28-.27A6.47 6.47 0 0016 9.5 6.5 6.5 0 109.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z" /></svg>
             </label>

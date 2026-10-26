@@ -77,6 +77,11 @@ function listQuery(state: ViewState): string {
 
 type Dialog = { kind: "bulk" } | { kind: "duplicate" } | { kind: "levels"; indicatorId: number } | null
 
+const COPY_ICON = "M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"
+const CLEAR_SELECTION_ICON = "M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-2 10H7v-2h10v2z"
+const EYE_OFF_ICON = "M12 7c2.76 0 5 2.24 5 5 0 .65-.13 1.26-.36 1.83l2.92 2.92c1.51-1.26 2.7-2.89 3.43-4.75-1.73-4.39-6-7.5-11-7.5-1.4 0-2.74.25-3.98.7l2.16 2.16C10.74 7.13 11.35 7 12 7zM2 4.27l2.28 2.28.46.46C3.08 8.3 1.78 10.02 1 12c1.73 4.39 6 7.5 11 7.5 1.55 0 3.03-.3 4.38-.84l.42.42L19.73 22 21 20.73 3.27 3 2 4.27zM7.53 9.8l1.55 1.55c-.05.21-.08.43-.08.65 0 1.66 1.34 3 3 3 .22 0 .44-.03.65-.08l1.55 1.55c-.67.33-1.41.53-2.2.53-2.76 0-5-2.24-5-5 0-.79.2-1.53.53-2.2zm4.31-.78l3.15 3.15.02-.16c0-1.66-1.34-3-3-3l-.17.01z"
+const SELECT_ALL_ICON = "M3 5h2V3c-1.1 0-2 .9-2 2zm0 8h2v-2H3v2zm4 8h2v-2H7v2zM3 9h2V7H3v2zm10-6h-2v2h2V3zm6 0v2h2c0-1.1-.9-2-2-2zM5 21v-2H3c0 1.1.9 2 2 2zM3 17h2v-2H3v2zM9 3H7v2h2V3zm2 18h2v-2h-2v2zm8-8h2v-2h-2v2zm0 8c1.1 0 2-.9 2-2h-2v2zm0-12h2V7h-2v2zm0 8h2v-2h-2v2zm-4 4h2v-2h-2v2zm0-16h2V3h-2v2zM7 17h10V7H7v10zm2-8h6v6H9V9z"
+
 export function BranchKpiPlansView() {
   const { t, language } = useLanguage()
   const searchParams = useSearchParams()
@@ -164,7 +169,10 @@ export function BranchKpiPlansView() {
   const checkbox = (checked: boolean, onChange: () => void, label: string) => (
     <input type="checkbox" checked={checked} onChange={onChange} aria-label={label} className="block h-[18px] w-[18px] accent-[#333]" />
   )
-  const cols = state.showCheckboxes ? "26px 463px 227px 1fr" : "469.3px 230.7px 1fr"
+  const selecting = selected.length > 0
+  const headCols = state.showCheckboxes ? "26px 463px 227px 1fr" : undefined
+  // the reference lays the rows out narrower than the header bar in checkbox mode
+  const cols = state.showCheckboxes ? "26px 449.3px 217.7px 1fr" : "469.3px 230.7px 1fr"
 
   return (
     <RefPage>
@@ -187,15 +195,17 @@ export function BranchKpiPlansView() {
         </div>
       </RefHeader>
 
-      <RefCard className="bg-white">
+      <RefCard className={selecting ? "" : "bg-white"}>
         <RefToolbar
           hideFilter
+          hideSearch={selecting}
+          plain={selecting}
           leftSlot={
-            selected.length === 0 ? (
+            !selecting ? (
               <KpiMonthYearFilter month={state.month} year={state.year} onChange={({ month, year }) => update({ month, year, page: 1 })} />
             ) : (
-              <strong className="pl-[10px] text-[#333]">
-                {t("Выбрано")}: {selected.length}
+              <strong className="font-semibold text-[#333]">
+                {t("Выбрано")} : {selected.length}
               </strong>
             )
           }
@@ -210,21 +220,11 @@ export function BranchKpiPlansView() {
           pageCount={pageCount}
           onPage={(page) => update({ page })}
           icons={
-            <>
-              <RefIconButton
-                tipSide="left"
-                path={RI.checklist}
-                label={state.showCheckboxes ? t("Спрятать флажки") : t("Выбрать из списка")}
-                color="#5d6474"
-                onClick={() => {
-                  if (state.showCheckboxes) setSelected([])
-                  update({ showCheckboxes: !state.showCheckboxes })
-                }}
-              />
-              <RefTip text={selected.length ? "" : t("Выберите хотя бы один сотрудник !")} side="left" gap={12.5}>
+            selecting ? (
+              <>
                 <button
                   type="button"
-                  disabled={!selected.length || !canEdit}
+                  disabled={!canEdit}
                   onClick={() => setDialog({ kind: "bulk" })}
                   className="flex h-[30px] items-center whitespace-nowrap rounded-[5px] pl-3 text-[13px] font-semibold text-white"
                   style={{ backgroundColor: KPI_COLORS.blue }}
@@ -232,11 +232,39 @@ export function BranchKpiPlansView() {
                   <svg viewBox="0 0 24 24" className="h-[18px] w-[18px] fill-white"><path d={RI.edit} /></svg>
                   <span className="pl-2 pr-4">{t("Изменить планы")}</span>
                 </button>
-              </RefTip>
-              <span className="ml-[18px]">
-                <RefIconButton path="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z" label={t("Дублировать")} color="#5d6474" onClick={() => canEdit && setDialog({ kind: "duplicate" })} />
-              </span>
-            </>
+                <span className="ml-[18px] flex">
+                  <RefIconButton path={COPY_ICON} label={t("Дублировать")} color="#333" onClick={() => canEdit && setDialog({ kind: "duplicate" })} />
+                  <RefIconButton tipSide="left" path={CLEAR_SELECTION_ICON} label={t("Снять выделение")} color="#333" onClick={() => setSelected([])} />
+                </span>
+              </>
+            ) : (
+              <>
+                <RefIconButton
+                  tipSide="left"
+                  path={state.showCheckboxes ? EYE_OFF_ICON : RI.checklist}
+                  label={state.showCheckboxes ? t("Спрятать флажки") : t("Выбрать из списка")}
+                  color="#5d6474"
+                  onClick={() => {
+                    if (state.showCheckboxes) setSelected([])
+                    update({ showCheckboxes: !state.showCheckboxes })
+                  }}
+                />
+                <RefTip text={t("Выберите хотя бы один сотрудник !")} side="left" gap={12.5}>
+                  <button
+                    type="button"
+                    disabled
+                    className="flex h-[30px] items-center whitespace-nowrap rounded-[5px] pl-3 text-[13px] font-semibold text-white"
+                    style={{ backgroundColor: KPI_COLORS.blue }}
+                  >
+                    <svg viewBox="0 0 24 24" className="h-[18px] w-[18px] fill-white"><path d={RI.edit} /></svg>
+                    <span className="pl-2 pr-4">{t("Изменить планы")}</span>
+                  </button>
+                </RefTip>
+                <span className="ml-[18px]">
+                  <RefIconButton path={COPY_ICON} label={t("Дублировать")} color="#5d6474" onClick={() => canEdit && setDialog({ kind: "duplicate" })} />
+                </span>
+              </>
+            )
           }
         />
 
@@ -254,11 +282,18 @@ export function BranchKpiPlansView() {
         <div className={loading ? "opacity-60" : undefined}>
           <ListBTable
             cols={cols}
+            headCols={headCols}
             minWidth={900}
             cellPad={0}
             inset={state.showCheckboxes ? 24 : 30}
             heads={[
-              ...(state.showCheckboxes ? [checkbox(allChecked, () => setSelected((current) => (allChecked ? current.filter((id) => !pageIds.includes(id)) : [...new Set([...current, ...pageIds])])), t("Выбрать все"))] : []),
+              ...(state.showCheckboxes
+                ? [
+                    <button key="all" type="button" aria-label={t("Выбрать все")} onClick={() => setSelected((current) => (allChecked ? current.filter((id) => !pageIds.includes(id)) : [...new Set([...current, ...pageIds])]))} className="-ml-1 block h-6 w-6">
+                      <svg viewBox="0 0 24 24" className="h-6 w-6 fill-white"><path d={SELECT_ALL_ICON} /></svg>
+                    </button>,
+                  ]
+                : []),
               sortHead("name", t("Филиал")),
               sortHead("salary", t("Сумма бонусов")),
               "KPI",
@@ -286,18 +321,17 @@ export function BranchKpiPlansView() {
                 ))}
               </div>,
             ]}
+            replaceRow={(row) => state.id === row.id}
             expanded={(row) =>
               state.id === row.id ? (
-                <div className="border-b-2 border-[#dbe0e8]">
-                  <BranchKpiDetailPanel
-                    branchId={row.id}
-                    month={state.month}
-                    year={state.year}
-                    version={version}
-                    onClose={() => update({ id: null })}
-                    onOpenIndicator={(indicatorId) => setDialog({ kind: "levels", indicatorId })}
-                  />
-                </div>
+                <BranchKpiDetailPanel
+                  branchId={row.id}
+                  month={state.month}
+                  year={state.year}
+                  version={version}
+                  onClose={() => update({ id: null })}
+                  onOpenIndicator={(indicatorId) => setDialog({ kind: "levels", indicatorId })}
+                />
               ) : null
             }
           />

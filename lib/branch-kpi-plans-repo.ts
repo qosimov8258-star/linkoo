@@ -131,7 +131,10 @@ export async function listBranchKpiIndicators(): Promise<BranchKpiIndicator[]> {
     >,
   ])
   const byId = new Map(rules.map((rule) => [Number(rule.indicator_id), rule]))
-  return tasks.map((task) => {
+  const today = new Date().toISOString().slice(0, 10)
+  // the reference lists the KPIs (is_active=true: the flag set and the validity not over) by name
+  const nameCollator = new Intl.Collator("en", { sensitivity: "base", ignorePunctuation: true })
+  return [...tasks].sort((a, b) => nameCollator.compare(a.name, b.name) || a.id - b.id).map((task) => {
     const type = branchKpiPlanType(task.planType)
     const rule = byId.get(task.id)
     return {
@@ -141,7 +144,7 @@ export async function listBranchKpiIndicators(): Promise<BranchKpiIndicator[]> {
       planKey: type?.key ?? null,
       unit: type?.unit ?? "count",
       supported: Boolean(type?.supported),
-      active: task.active,
+      active: task.active && !(task.tillDate && task.tillDate < today),
       bonusFund: finite(rule?.bonus_fund),
       levels: normalizeLevels(rule?.levels ?? "[]"),
     }

@@ -55,17 +55,23 @@ export function KpiMonthYearFilter({
   year,
   onChange,
   className = "",
+  monthWidth = 192,
+  yearWidth = 120,
+  gap = 8,
 }: {
   month: number
   year: number
   onChange: (next: { month: number; year: number }) => void
   className?: string
+  monthWidth?: number
+  yearWidth?: number
+  gap?: number
 }) {
   const { t } = useLanguage()
   const now = new Date()
   return (
-    <div className={`flex h-[50px] items-start gap-[8px] ${className}`}>
-      <label className="relative block h-[50px] w-[192px] border-b border-[#e0e0e0] focus-within:border-[#4f71dc]">
+    <div className={`flex h-[50px] items-start ${className}`} style={{ gap }}>
+      <label className="relative block h-[50px] border-b border-[#e0e0e0] focus-within:border-[#4f71dc]" style={{ width: monthWidth }}>
         <span className="absolute left-0 top-[2.5px] text-[10px] font-bold leading-3 text-black">{t("Месяц")}</span>
         <span className="absolute left-0 top-[28.5px] text-[13px] font-semibold leading-[18px] text-[#333]">{t(BRANCH_KPI_MONTHS[month - 1] ?? "")}</span>
         <select value={month} onChange={(event) => onChange({ month: Number(event.target.value), year })} aria-label={t("Месяц")} className="absolute inset-0 h-full w-full cursor-pointer opacity-0">
@@ -87,16 +93,16 @@ export function KpiMonthYearFilter({
         </button>
         <svg viewBox="0 0 10 7" className="pointer-events-none absolute right-[8px] top-[33px] h-[7px] w-[10px] fill-[#888]"><path d="M0 0l5 5.5L10 0z" /></svg>
       </label>
-      <KpiYearField key={year} year={year} label={t("Год")} onApply={(value) => onChange({ month, year: value })} />
+      <KpiYearField key={year} year={year} label={t("Год")} width={yearWidth} onApply={(value) => onChange({ month, year: value })} />
     </div>
   )
 }
 
 /** "Год" text field: applies a complete 4-digit year (2000…2100); remounted (key) when the year changes outside. */
-function KpiYearField({ year, label, onApply }: { year: number; label: string; onApply: (year: number) => void }) {
+function KpiYearField({ year, label, onApply, width = 120 }: { year: number; label: string; onApply: (year: number) => void; width?: number }) {
   const [draft, setDraft] = useState(String(year))
   return (
-    <label className="relative block h-[50px] w-[120px] border-b border-[#e0e0e0] focus-within:border-[#4f71dc]">
+    <label className="relative block h-[50px] border-b border-[#e0e0e0] focus-within:border-[#4f71dc]" style={{ width }}>
       <span className="absolute left-0 top-[8px] text-[10px] font-bold leading-3 text-black">{label}</span>
       <input
         value={draft}
@@ -126,6 +132,8 @@ export function KpiDialogFrame({
   footer,
   titleActions,
   fullScreen = false,
+  footerInset = 0,
+  footerPadRight = 10,
 }: {
   title: ReactNode
   width?: number | string
@@ -135,6 +143,10 @@ export function KpiDialogFrame({
   /** Replaces the close X (full-screen step of "Изменить планы"). */
   titleActions?: ReactNode
   fullScreen?: boolean
+  /** Side margin of the footer's top line (the reference's "Дублировать" dialog insets it). */
+  footerInset?: number
+  /** Right padding of the footer actions. */
+  footerPadRight?: number
 }) {
   const { t } = useLanguage()
   useEffect(() => {
@@ -152,16 +164,16 @@ export function KpiDialogFrame({
       style={fullScreen ? undefined : { maxWidth: width ?? 450 }}
       onClick={(event) => event.stopPropagation()}
     >
-      <div className="flex min-h-[60px] shrink-0 items-center justify-between gap-4 border-b border-[#efefef] pl-[30px] pr-[10px]">
+      <div className={`flex min-h-[60px] shrink-0 items-center justify-between gap-4 border-b border-[#efefef] pl-[30px] ${titleActions ? "pr-[10px]" : "pr-[15px]"}`}>
         <h2 className="flex min-w-0 items-center gap-2 py-2 text-[13px] font-bold uppercase leading-snug text-[#333]">{title}</h2>
         {titleActions ?? (
-          <button type="button" onClick={onClose} aria-label={t("Закрыть")} className="flex h-[38px] w-[38px] shrink-0 items-center justify-center text-[#666]">
+          <button type="button" onClick={onClose} aria-label={t("Закрыть")} className="flex h-[38px] w-[38px] shrink-0 items-center justify-center text-[#333]">
             <X className="h-6 w-6" />
           </button>
         )}
       </div>
       {children}
-      {footer && <div className="flex shrink-0 justify-end border-t border-[#efefef] p-[10px]">{footer}</div>}
+      {footer && <div className="flex shrink-0 justify-end border-t border-[#efefef] py-[10px]" style={{ marginLeft: footerInset, marginRight: footerInset, paddingRight: footerPadRight, paddingLeft: 10 }}>{footer}</div>}
     </div>
   )
   if (fullScreen) return <div className="fixed inset-0 z-[110] bg-white">{frame}</div>

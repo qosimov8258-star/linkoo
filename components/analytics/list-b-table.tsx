@@ -23,6 +23,7 @@ export function ListBTable<T>({
   expanded,
   rowMinHeight = 50,
   replaceRow,
+  headCols,
 }: {
   cols: string
   heads: ReactNode[]
@@ -39,13 +40,15 @@ export function ListBTable<T>({
   rowMinHeight?: number
   /** When it returns true the row is replaced by its expanded panel (the reference hides the clicked row). */
   replaceRow?: (row: T) => boolean
+  /** Column template of the header bar when it differs from the rows' (the reference's checkbox mode). */
+  headCols?: string
 }) {
   const pad = { paddingLeft: inset, paddingRight: inset }
   const cell = { paddingLeft: cellPad, paddingRight: cellPad }
   return (
     <div className={expanded ? "bg-white" : "overflow-x-auto bg-white"}>
       <div style={{ minWidth }}>
-        <div className="grid h-[50px] items-center bg-[#5d6474] font-semibold text-white" style={{ gridTemplateColumns: cols, ...pad }}>
+        <div className="grid h-[50px] items-center bg-[#5d6474] font-semibold text-white" style={{ gridTemplateColumns: headCols ?? cols, ...pad }}>
           {heads.map((head, index) => (
             <div key={index} className="leading-[16px]" style={cell}>
               {head}

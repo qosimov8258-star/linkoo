@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
-import { ChevronDown, ChevronsUpDown, ChevronUp, FileSpreadsheet } from "lucide-react"
+import { ChevronDown, ChevronsUpDown, ChevronUp } from "lucide-react"
 
 import { BRANCH_KPI_API, fetchJson, kpiNumber, useMonthName } from "@/components/analytics/branch-kpi-shared"
 import type { BranchKpiBalance, BranchKpiDetail } from "@/lib/branch-kpi-types"
@@ -18,17 +18,17 @@ type SortKey = "discounts" | "levels" | "plan" | "totalSales" | "orderReturnFact
 type Line = BranchKpiBalance & { levelText: string; factPercent: number; forecastPercent: number }
 
 const COLUMNS: Array<{ key: SortKey; label: string; width: string }> = [
-  { key: "discounts", label: "KPI", width: "10%" },
-  { key: "levels", label: "Уровень", width: "10%" },
-  { key: "plan", label: "План", width: "10%" },
-  { key: "totalSales", label: "Продажи", width: "10%" },
-  { key: "orderReturnFact", label: "Возврат", width: "10%" },
-  { key: "fact", label: "Факт", width: "10%" },
-  { key: "factPercent", label: "%", width: "5%" },
-  { key: "planFact", label: "Дневной план", width: "10%" },
-  { key: "forecast", label: "Прогноз", width: "10%" },
-  { key: "forecastPercent", label: "%", width: "5%" },
-  { key: "bonus", label: "Бонус", width: "10%" },
+  { key: "discounts", label: "KPI", width: "9.85%" },
+  { key: "levels", label: "Уровень", width: "9.85%" },
+  { key: "plan", label: "План", width: "9.85%" },
+  { key: "totalSales", label: "Продажи", width: "9.85%" },
+  { key: "orderReturnFact", label: "Возврат", width: "9.85%" },
+  { key: "fact", label: "Факт", width: "9.85%" },
+  { key: "factPercent", label: "%", width: "5.75%" },
+  { key: "planFact", label: "Дневной план", width: "9.85%" },
+  { key: "forecast", label: "Прогноз", width: "9.85%" },
+  { key: "forecastPercent", label: "%", width: "5.75%" },
+  { key: "bonus", label: "Бонус", width: "9.85%" },
 ]
 
 function sortValue(line: Line, key: SortKey): number | string {
@@ -132,7 +132,8 @@ export function BranchKpiDetailPanel({
   const currency = data?.currency ?? "SUM"
   const salary = data?.salary ?? 0
   const bonuses = lines.reduce((sum, line) => sum + (Number(line.bonusAmount) || 0), 0)
-  const total = salary + bonuses
+  // the reference's "Итог зарплата" is the fixed salary only (bonuses are listed separately)
+  const total = salary
 
   const downloadExcel = () => {
     if (!data) return
@@ -156,7 +157,7 @@ export function BranchKpiDetailPanel({
   }
 
   const sortIcon = (key: SortKey) => {
-    if (sort?.key !== key) return <ChevronsUpDown className="h-3.5 w-3.5 opacity-70" />
+    if (sort?.key !== key) return <ChevronsUpDown className="h-[15px] w-[15px] opacity-70" />
     return sort.desc ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronUp className="h-3.5 w-3.5" />
   }
 
@@ -170,48 +171,42 @@ export function BranchKpiDetailPanel({
   if (!data) return null
 
   const dash = <span className="text-[#999]">—</span>
+  const head = "h-[30px] bg-[#4f71dc] px-1 font-bold text-white"
+  const cell = "h-[30px] bg-[#d7e0ff] px-1 font-bold text-[#666]"
   return (
-    <div className={`w-full text-[#333] ${loading ? "opacity-60" : ""}`}>
-      <div className="relative flex h-[60px] items-center justify-between border-b border-[#efefef] px-[30px]">
+    <div className="bg-[#f1f5f8] py-[20px]">
+    <div className={`-mx-[15px] bg-white text-[#333] shadow-[0_3px_10px_rgba(0,0,0,0.16),0_3px_10px_rgba(0,0,0,0.23)] ${loading ? "opacity-60" : ""}`}>
+      <div className="relative flex h-[60px] items-center justify-between border-b border-[#efefef] pl-[30px] pr-[42px]">
         <button type="button" onClick={onClose} className="absolute inset-y-0 left-0 right-[100px] cursor-pointer" aria-label={t("Закрыть")} />
         <span className="text-[18px] font-semibold">{data.name}</span>
-        <button
-          type="button"
-          onClick={downloadExcel}
-          title={t("Скачать Excel")}
-          aria-label={t("Скачать Excel")}
-          className="relative z-[1] flex h-[30px] items-center gap-1.5 rounded px-3 text-[13px] font-semibold text-white"
-          style={{ backgroundColor: "#71ce87" }}
-        >
-          <FileSpreadsheet className="h-4 w-4" /> Excel
+        <button type="button" onClick={downloadExcel} title={t("Скачать Excel")} aria-label={t("Скачать Excel")} className="relative z-[1] flex h-6 w-6 items-center justify-center">
+          <svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#333]"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z" /></svg>
         </button>
       </div>
-      <div className="flex h-[60px] items-center justify-between border-b border-[#efefef] px-[30px] text-[#666]">
+      <div className="flex h-[60px] items-center justify-between px-[30px] text-[#666]">
         <div>
-          <span className="block">{t("Фикс. зарплата")}</span>
-          <div className="text-[16px] font-semibold text-[#333]">{kpiNumber(salary, currency)}</div>
+          <span className="block leading-[16.3px]">{t("Фикс. зарплата")}</span>
+          <div className="text-[16px] font-semibold leading-[20px] text-[#333]">{kpiNumber(salary, currency)}</div>
         </div>
         <div>
-          <span className="block">{t("Бонусы")}</span>
-          <div className="text-[16px] font-semibold text-[#333]">{kpiNumber(bonuses, currency)}</div>
+          <span className="block leading-[16.3px]">{t("Бонусы")}</span>
+          <div className="text-[16px] font-semibold leading-[20px] text-[#333]">{kpiNumber(bonuses, currency)}</div>
         </div>
         <div className="text-right">
-          <span className="block">{t("Итог зарплата")}</span>
-          <div className="text-[16px] font-semibold" style={{ color: total > 0 ? "#48a34b" : total < 0 ? "#E27676" : undefined }}>
-            {kpiNumber(total, currency)}
-          </div>
+          <span className="block leading-[16.3px]">{t("Итог зарплата")}</span>
+          <div className="text-[16px] leading-[22px] text-black">{kpiNumber(total, currency)}</div>
         </div>
       </div>
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[1000px] border-collapse text-center text-[13px]">
+        <table className="w-full min-w-[1000px] table-fixed border-separate border-spacing-[2px] text-center text-[13px]">
           <thead>
-            <tr className="h-[45px] bg-[#4f71dc] font-bold text-white">
+            <tr>
               {COLUMNS.map((column) => (
-                <th key={column.key} style={{ width: column.width }} className="px-2 font-bold">
+                <th key={column.key} style={{ width: column.width }} className={head}>
                   <button
                     type="button"
                     onClick={() => setSort((current) => (current?.key === column.key ? (current.desc ? null : { key: column.key, desc: true }) : { key: column.key, desc: false }))}
-                    className="inline-flex items-center gap-1"
+                    className="inline-flex items-center gap-1 leading-[20px]"
                   >
                     {column.label === "KPI" ? "KPI" : t(column.label)} {sortIcon(column.key)}
                   </button>
@@ -225,29 +220,29 @@ export function BranchKpiDetailPanel({
               const factStyle = supported ? { background: percentColor(line.factPercent), color: "#fff" } : undefined
               const forecastStyle = supported ? { background: percentColor(line.forecastPercent), color: "#fff" } : undefined
               return (
-                <tr key={line.performanceIndicator.id} className="h-[45px] border-b border-white bg-[#d7e0ff] font-bold text-[#666]">
-                  <td className="cursor-pointer px-2 hover:underline" onClick={() => onOpenIndicator(line.performanceIndicator.id)} title={t(line.performanceIndicator.planType)}>
+                <tr key={line.performanceIndicator.id}>
+                  <td className={`${cell} cursor-pointer hover:underline`} onClick={() => onOpenIndicator(line.performanceIndicator.id)} title={t(line.performanceIndicator.planType)}>
                     {line.performanceIndicator.name}
                     {!supported && <span className="block text-[11px] font-normal text-[#999]">{t("нет данных в системе")}</span>}
                   </td>
-                  <td className="px-2">{line.levelText}</td>
-                  <td className="px-2">{kpiNumber(line.planAmount)}</td>
-                  <td className="px-2">{supported ? kpiNumber(line.salesAmount) : dash}</td>
-                  <td className="px-2">{supported ? kpiNumber(line.returnAmount) : dash}</td>
-                  <td className="whitespace-nowrap px-2" style={factStyle}>
+                  <td className={cell}>{line.levelText}</td>
+                  <td className={cell}>{kpiNumber(line.planAmount)}</td>
+                  <td className={cell}>{supported ? kpiNumber(line.salesAmount) : dash}</td>
+                  <td className={cell}>{supported ? kpiNumber(line.returnAmount) : dash}</td>
+                  <td className={`${cell} whitespace-nowrap`} style={factStyle}>
                     {supported ? kpiNumber(line.factAmount) : dash}
                   </td>
-                  <td className="whitespace-nowrap px-2" style={factStyle}>
+                  <td className={`${cell} whitespace-nowrap`} style={factStyle}>
                     {supported ? kpiNumber(line.factPercent, "%", 1) : dash}
                   </td>
-                  <td className="px-2">{supported ? kpiNumber(line.dailyPlan, undefined, 0) : dash}</td>
-                  <td className="whitespace-nowrap px-2" style={forecastStyle}>
+                  <td className={cell}>{supported ? kpiNumber(line.dailyPlan, undefined, 0) : dash}</td>
+                  <td className={`${cell} whitespace-nowrap`} style={forecastStyle}>
                     {supported ? kpiNumber(line.planForecast, undefined, 0) : dash}
                   </td>
-                  <td className="whitespace-nowrap px-2" style={forecastStyle}>
+                  <td className={`${cell} whitespace-nowrap`} style={forecastStyle}>
                     {supported ? kpiNumber(line.forecastPercent, "%", 0) : dash}
                   </td>
-                  <td className="px-2">{kpiNumber(line.bonusAmount, undefined, 0)}</td>
+                  <td className={cell}>{kpiNumber(line.bonusAmount, undefined, 0)}</td>
                 </tr>
               )
             })}
@@ -261,6 +256,7 @@ export function BranchKpiDetailPanel({
           </tbody>
         </table>
       </div>
+    </div>
     </div>
   )
 }

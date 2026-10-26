@@ -154,6 +154,8 @@ export function RefToolbar({
   leftSlot,
   filterWidth = 355,
   searchWidth,
+  hideSearch,
+  plain,
 }: {
   filterOpen?: boolean
   onToggleFilter?: () => void
@@ -178,10 +180,14 @@ export function RefToolbar({
   filterWidth?: number
   /** Width of the search field in px (default 300 / 182). */
   searchWidth?: number
+  /** No search field (the reference's "Выбрано: N" mode). */
+  hideSearch?: boolean
+  /** Transparent bar instead of the white one. */
+  plain?: boolean
 }) {
   const { t } = useLanguage()
   return (
-    <div className="relative flex h-[50px] items-center bg-white px-[5px]">
+    <div className={`relative flex h-[50px] items-center px-[5px] ${plain ? "" : "bg-white"}`}>
       <div className={leftSlot || !hideFilter ? "shrink-0" : "hidden"} style={{ width: leftSlot || !hideFilter ? filterWidth : undefined }}>
         {leftSlot}
         {!leftSlot && !hideFilter && (
@@ -198,7 +204,7 @@ export function RefToolbar({
         )}
       </div>
       {filterOpen && <div className="absolute left-0 top-0 z-30 w-full">{filterPanel}</div>}
-      <div className={`relative flex ${linkFilter === "flush" ? "h-[40px] items-start" : "items-center"} border-b border-[#e0e0e0] focus-within:border-[#5d6474] ${leftSlot || !hideFilter ? "ml-[18px] w-[300px]" : "ml-[10px] w-[182px]"}`} style={searchWidth ? { width: searchWidth } : undefined}>
+      <div className={`relative ${hideSearch ? "hidden" : "flex"} ${linkFilter === "flush" ? "h-[40px] items-start" : "items-center"} border-b border-[#e0e0e0] focus-within:border-[#5d6474] ${leftSlot || !hideFilter ? "ml-[18px] w-[300px]" : "ml-[10px] w-[182px]"}`} style={searchWidth ? { width: searchWidth } : undefined}>
         <input
           value={query}
           onChange={(event) => onQuery(event.target.value)}
@@ -560,8 +566,8 @@ export function RefFilterPanel({
 
 function FieldCaret({ compact }: { compact?: boolean }) {
   return (
-    <svg viewBox="0 0 10 7" className={`pointer-events-none absolute right-[14px] h-[7px] w-[10px] fill-[#888] ${compact ? "top-[32px]" : "top-[36px]"}`}>
-      <path d="M0 0l5 5.5L10 0z" />
+    <svg viewBox="0 0 10 5" className={`pointer-events-none absolute right-[10px] h-[5px] w-[10px] fill-[#999] ${compact ? "top-[35.4px]" : "top-[39.4px]"}`}>
+      <path d="M0 0l5 5 5-5z" />
     </svg>
   )
 }
