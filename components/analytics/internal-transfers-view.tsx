@@ -210,7 +210,7 @@ export function InternalTransfersView() {
   return (
     <RefPage>
       <RefHeader title={t("Передачи между складами")}>
-        {canEdit && <RefButton green icon={RI.add} label={t("Добавить")} onClick={() => setForm(null)} />}
+        {canEdit && <span className="mr-[8px] flex"><RefButton green icon={RI.add} label={t("Добавить")} onClick={() => setForm(null)} /></span>}
       </RefHeader>
 
       <RefCard>

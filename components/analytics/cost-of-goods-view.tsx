@@ -340,11 +340,11 @@ export function CostOfGoodsView({ embedded = false }: { embedded?: boolean }) {
             heads={[
               sortHead("product__name", t("Наименование")),
               sortHead("stock", t("Склад")),
-              sortHead("created_date", t("Дата")),
-              sortHead("cost", t("Уср. Себестоимость"), true),
-              sortHead("real_cost", t("Себестоимость"), true),
-              <span key="rev" className="block text-right">{t("Сумма переоценки")}</span>,
-              <span key="check" className="block text-center">{t("Проверка")}</span>,
+              sortHead("created_date", t("Дата"), false, "-ml-[3px]"),
+              sortHead("cost", t("Уср. Себестоимость"), true, "!w-auto ml-auto mr-[7px] max-w-[100px]"),
+              sortHead("real_cost", t("Себестоимость"), true, "!w-auto ml-auto mr-[8px]"),
+              <span key="rev" className="mr-[10px] block text-right">{t("Сумма переоценки")}</span>,
+              <span key="check" className="-ml-[10px] block text-center">{t("Проверка")}</span>,
             ]}
             rows={rows}
             rowKey={(row) => row.id}
