@@ -44,8 +44,16 @@ export function docDate(value: string, language: string, withTime = false): stri
 const RU_SHORT_MONTHS = ["янв.", "февр.", "мар.", "апр.", "мая", "июня", "июля", "авг.", "сент.", "окт.", "нояб.", "дек."]
 
 /** Status with the demo dot; `title` = the capitalised detail label. */
-export function TransferStatusLabel({ status, title = false }: { status: TransferStatus; title?: boolean }) {
+export function TransferStatusLabel({ status, title = false, wrap = false }: { status: TransferStatus; title?: boolean; wrap?: boolean }) {
   const { t } = useLanguage()
+  // The list prints the dot inline so that a long status wraps under it, like the reference.
+  if (wrap) {
+    return (
+      <span>
+        <i className="mr-[6px] inline-block h-[7px] w-[7px] rounded-full" style={{ background: TRANSFER_STATUS_COLORS[status] }} /> {t(title ? TRANSFER_STATUS_TITLES[status] : status)}
+      </span>
+    )
+  }
   return (
     <span className="inline-flex items-center whitespace-nowrap">
       <span className="mr-2 inline-block h-[7px] w-[7px] shrink-0 rounded-full" style={{ background: TRANSFER_STATUS_COLORS[status] }} />

@@ -121,21 +121,20 @@ function TotalsTable({ totals, loading }: { totals: NetCostTotals | null; loadin
   const rows = totals?.rows ?? []
   const visible = expanded ? rows : rows.slice(0, 3)
   const currency = totals?.currency ?? ""
-  const th = "whitespace-nowrap bg-[#fafafa] py-[7px] text-[14px] font-semibold leading-[16px] text-[#333]"
-  const td = "border-b border-[#f0f0f0] py-[7px] text-[14px] leading-[16px] text-[#333]"
+  const th = "whitespace-nowrap bg-[#fafafa] px-[10px] py-[7px] text-[14px] font-semibold leading-[16px] text-[#333]"
+  const td = "border-b border-[#f0f0f0] px-[10px] py-[7px] text-[14px] leading-[16px] text-[#333]"
   return (
-    <section className={`mb-[17px] mt-4 overflow-x-auto rounded-[10px] bg-white px-3 pb-[14px] pt-4 shadow-[0_2px_8px_rgba(0,0,0,0.05)] ${loading && !totals ? "opacity-60" : ""}`}>
+    <section className={`mb-[17px] mt-4 overflow-x-auto rounded-[10px] bg-white pb-[14px] pl-4 pr-12 pt-4 shadow-[0_2px_8px_rgba(0,0,0,0.05)] ${loading && !totals ? "opacity-60" : ""}`}>
       <table className="w-full min-w-[900px] table-fixed border-collapse text-left">
         <colgroup>
-          <col style={{ width: 290 }} />
-          <col style={{ width: 369 }} />
-          <col style={{ width: 507 }} />
-          <col style={{ width: 204 }} />
-          <col />
+          <col style={{ width: "15.32%" }} />
+          <col style={{ width: "34.93%" }} />
+          <col style={{ width: "38.29%" }} />
+          <col style={{ width: "11.46%" }} />
         </colgroup>
         <thead>
           <tr>
-            <th className={`${th} pl-[14px]`}>{t("Склад")}</th>
+            <th className={th}>{t("Склад")}</th>
             <th className={`${th} text-right`}>
               {t("Накопленная себестоимость")} {currency}
             </th>
@@ -145,24 +144,22 @@ function TotalsTable({ totals, loading }: { totals: NetCostTotals | null; loadin
             <th className={`${th} text-right`}>
               {t("Разница")} {currency}
             </th>
-            <th className={th} />
           </tr>
         </thead>
         <tbody>
           {visible.map((row) => (
             <tr key={row.stock ?? COMMON} className="hover:bg-[#e6f0ff]">
-              <td className={`${td} pl-[14px] font-semibold`}>{row.stock ?? t("Общий")}</td>
+              <td className={`${td} font-semibold`}>{row.stock ?? t("Общий")}</td>
               <td className={`${td} text-right`}>{fmtSum(row.cumulativeCost)}</td>
               <td className={`${td} text-right`}>{fmtSum(row.lastCost)}</td>
               <td className={`${td} text-right`} style={{ color: row.isCorrect ? "green" : "red" }}>
                 {fmtSum(row.fault)}
               </td>
-              <td className={td} />
             </tr>
           ))}
           {!visible.length && (
             <tr>
-              <td colSpan={5} className="px-3 py-6 text-center text-[#9aa3b6]">
+              <td colSpan={4} className="px-3 py-6 text-center text-[#9aa3b6]">
                 {loading ? t("Загрузка...") : t("Нет данных")}
               </td>
             </tr>
@@ -264,8 +261,8 @@ export function CostOfGoodsView({ embedded = false }: { embedded?: boolean }) {
   const pageCount = Math.max(1, Math.ceil((data?.count ?? 0) / Math.max(1, state.pageSize)))
   const from = data && data.count > 0 ? (state.page - 1) * state.pageSize + 1 : 0
   const to = data ? Math.min(data.count, state.page * state.pageSize) : 0
-  const sortHead = (key: string, label: string, right = false) => (
-    <button type="button" onClick={() => sort(key)} className={`font-semibold hover:opacity-80 ${right ? "block w-full text-right" : "text-left"}`}>
+  const sortHead = (key: string, label: string, right = false, extra = "") => (
+    <button type="button" onClick={() => sort(key)} className={`font-semibold hover:opacity-80 ${right ? "block w-full text-right" : "text-left"} ${extra}`}>
       {label}
       {state.ordering === key ? <span className="ml-1 text-[10px]">▲</span> : state.ordering === `-${key}` ? <span className="ml-1 text-[10px]">▼</span> : null}
     </button>
@@ -281,6 +278,7 @@ export function CostOfGoodsView({ embedded = false }: { embedded?: boolean }) {
 
       <RefCard className="bg-white">
         <RefToolbar
+          linkFilter="flush"
           filterOpen={filterOpen}
           filterPanel={
             <NetCostFilter
@@ -295,8 +293,9 @@ export function CostOfGoodsView({ embedded = false }: { embedded?: boolean }) {
           }
           leftSlot={
             filterCount === 0 ? (
-              <button type="button" onClick={() => setFilterOpen((open) => !open)} className="text-[13px] text-[#4f71dc]">
-                {t("Показать фильтр")} ⌄
+              <button type="button" onClick={() => setFilterOpen((open) => !open)} className="flex h-[16.3px] w-fit items-center text-[13px] text-[#4f71dc]">
+                {t("Показать фильтр")}
+                <svg viewBox="6 2 12 20" className="ml-px h-5 w-[13px] translate-y-[1.9px] fill-[#4f71dc]"><path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z" /></svg>
               </button>
             ) : (
               <FilterToggle
@@ -334,9 +333,9 @@ export function CostOfGoodsView({ embedded = false }: { embedded?: boolean }) {
           </div>
         )}
 
-        <div className={list.loading ? "opacity-60" : undefined}>
+        <div className={`-mt-px ${list.loading ? "opacity-60" : ""}`}>
           <ListBTable
-            cols="343px 137px 152px 259px 206px 206px 81px"
+            cols="minmax(0,289.3fr) minmax(0,119.5fr) minmax(0,175.2fr) minmax(0,175.2fr) minmax(0,175.2fr) minmax(0,175.2fr) minmax(0,70.4fr)"
             minWidth={1100}
             heads={[
               sortHead("product__name", t("Наименование")),

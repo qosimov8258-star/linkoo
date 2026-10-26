@@ -297,8 +297,12 @@ export function InternalTransfersView() {
         )}
 
         <div className={`${state.detailId ? "" : "overflow-x-auto"} ${list.loading ? "opacity-60" : ""}`}>
-          <table className="w-full min-w-[1080px] border-collapse text-[13px]">
-            <thead className="bg-[#5d6474] text-white">
+          <table className="w-full min-w-[1080px] table-fixed border-collapse text-[13px]">
+            <colgroup>
+              {selectMode && <col style={{ width: 40 }} />}
+              {[10.35, 15.86, 15.86, 15.86, 7.93, 7.93, 15.86, 10.35].map((width, index) => <col key={index} style={{ width: `${width}%` }} />)}
+            </colgroup>
+            <thead className="bg-[#5d6474] text-[13px] font-semibold text-[#fff]">
               <tr className="h-[50px]">
                 {selectMode && <th className="w-10 pl-[30px]">
                   <input
@@ -315,14 +319,14 @@ export function InternalTransfersView() {
                     className="h-4 w-4 accent-[rgb(79,113,220)]"
                   />
                 </th>}
-                <th className={`${th} w-[7%]`}><span className="ml-[22px] inline-block">{sortHeader("id", "№")}</span></th>
-                <th className={`${th} w-[15%]`}>{t("Со склада")}</th>
-                <th className={`${th} w-[15%]`}>{t("На склад")}</th>
-                <th className={`${th} w-[13%]`}>{sortHeader("created_by", t("Создал"))}</th>
-                <th className={`${th} w-[11%] !whitespace-normal`}>{sortHeader("created_date", t("Дата создания"))}</th>
-                <th className={`${th} w-[11%] !whitespace-normal`}>{sortHeader("date_delivery", t("Дата доставки"))}</th>
-                <th className={`${th} w-[13%]`}>{sortHeader("total_price", t("Сумма"))}</th>
-                <th className={`${th} pr-6`}>{sortHeader("status", t("Статус"))}</th>
+                <th className={`${th} w-[10.35%]`}><span className="ml-[22px] inline-block">{sortHeader("id", "№")}</span></th>
+                <th className={`${th} w-[15.86%]`}>{t("Со склада")}</th>
+                <th className={`${th} w-[15.86%]`}>{t("На склад")}</th>
+                <th className={`${th} w-[15.86%]`}>{sortHeader("created_by", t("Создал"))}</th>
+                <th className={`${th} w-[7.93%] !whitespace-normal leading-[18px] [&>*]:block [&>*]:max-h-[36px] [&>*]:overflow-hidden`}>{sortHeader("created_date", t("Дата создания"))}</th>
+                <th className={`${th} w-[7.93%] !whitespace-normal leading-[18px] [&>*]:block [&>*]:max-h-[36px] [&>*]:overflow-hidden`}>{sortHeader("date_delivery", t("Дата доставки"))}</th>
+                <th className={`${th} w-[15.86%]`}>{sortHeader("total_price", t("Сумма"))}</th>
+                <th className={`${th} w-[10.35%]`}>{sortHeader("status", t("Статус"))}</th>
               </tr>
             </thead>
             <tbody>
@@ -331,13 +335,13 @@ export function InternalTransfersView() {
                 return (
                   <Fragment key={row.id}>
                     {!open && (
-                      <tr onClick={() => update({ detailId: open ? null : row.id })} className={`min-h-[50px] cursor-pointer border-b-2 border-dotted border-[#d9e0e5] ${open ? "bg-[#eef2ff]" : "hover:bg-[#f2f5f8]"}`}>
+                      <tr onClick={() => update({ detailId: open ? null : row.id })} className={`h-[50px] cursor-pointer bg-[linear-gradient(to_right,#d5d5d5_2px,transparent_2px)] bg-[length:8px_2px] bg-[position:0_100%] bg-repeat-x ${open ? "bg-[#eef2ff]" : "hover:bg-[#f2f5f8]"}`}>
                         {selectMode && <td className="pl-6" onClick={(event) => event.stopPropagation()}>
                           <input type="checkbox" checked={selected.has(row.id)} onChange={() => toggle(row.id)} aria-label={`№ ${row.id}`} className="h-4 w-4 accent-[rgb(79,113,220)]" />
                         </td>}
-                        <td className={td}><span className="ml-[22px]">{row.id}</span></td>
-                        <td className={td}>{row.fromWarehouse}</td>
-                        <td className={td}>{row.toWarehouse}</td>
+                        <td className={td}><span className="ml-[30px]">{row.id}</span></td>
+                        <td className={td}><span data-no-translate>{row.fromWarehouse}</span></td>
+                        <td className={td}><span data-no-translate>{row.toWarehouse}</span></td>
                         <td className={td}>{row.createdBy || t("Не указано")}</td>
                         <td className={`${td} whitespace-nowrap`}>{docDate(row.createdAt, language)}</td>
                         <td className={`${td} whitespace-nowrap`}>{docDate(row.deliveredAt, language)}</td>
@@ -345,8 +349,8 @@ export function InternalTransfersView() {
                           {formatSum(row.amount)}
                           <span className="block text-[#4f71dc]">{formatWeight(row.weight, t("кг"))}</span>
                         </td>
-                        <td className={`${td} pr-6`}>
-                          <TransferStatusLabel status={row.status} />
+                        <td className={`${td} pr-[38px]`}>
+                          <TransferStatusLabel status={row.status} wrap />
                         </td>
                       </tr>
                     )}
