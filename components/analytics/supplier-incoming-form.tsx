@@ -50,7 +50,7 @@ const CLOSE = "M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 
 const PLUS = "M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"
 
 const LINE = "absolute inset-x-0 h-px bg-[#e0e0e0]"
-const DOTTED = "absolute inset-x-0 border-t border-dotted border-[#9e9e9e]"
+const DOTTED = "absolute inset-x-0 -mt-[2px] border-t-2 border-dotted border-black/30"
 
 function Star() {
   return <span className="text-[#e57373]"> *</span>
@@ -323,7 +323,7 @@ export function SupplierIncomingForm({
 
         <div className="min-h-0 flex-1 overflow-y-auto">
           {banner}
-          <div className="grid grid-cols-[442fr_411fr_443fr] border-b border-[#e0e0e0]">
+          <div className="grid grid-cols-[443fr_411fr_442fr] border-b border-[#e0e0e0]">
             <div className="relative h-[330px] border-r border-[#e0e0e0]">
               <SelectField top={58} left={30} width={460} label={t("Поставщик")} required value={draft.supplier} options={plain(supplierOptions)} onChange={(value) => set({ supplier: value })} addLabel={t("+добавить")} onAdd={onQuickAddSupplier} addWidth={78} />
               <SelectField top={125} left={30} width={460} label={t("Филиал")} required value={draft.branch} options={plain(branchOptions)} onChange={(value) => set({ branch: value })} />
