@@ -199,7 +199,7 @@ export function SupplierProductPicker({
           const qty = number(state.qty)
           const price = number(state.price)
           const info = stock[item.name]
-          const field = "h-[40px] min-w-0 flex-1 rounded-[2px] bg-[#f0f4f7] px-[10px] text-right text-[13px] text-[#333] outline-none"
+          const field = "relative -top-[1px] h-[40px] min-w-0 flex-1 rounded-[2px] bg-[#f0f4f7] px-[10px] text-right text-[13px] text-[#333] outline-none"
           return (
             <div key={item.name} className={`grid min-h-[53px] ${GRID} items-center px-[30px] ${index % 2 === 1 ? "bg-[#f7f9fb]" : ""}`}>
               <span className="truncate pr-[8px] leading-[16px]">{item.name}</span>

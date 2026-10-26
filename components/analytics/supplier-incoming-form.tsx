@@ -331,7 +331,7 @@ export function SupplierIncomingForm({
 
         <div className="min-h-0 flex-1 overflow-y-auto">
           {banner}
-          <div className="grid grid-cols-[443fr_411fr_442fr] border-b border-[#e0e0e0]">
+          <div className="grid grid-cols-[442fr_412fr_442fr] border-b border-[#e0e0e0]">
             <div className="relative h-[330px] border-r border-[#e0e0e0]">
               <SelectField top={58} left={30} width={460} label={t("Поставщик")} required value={draft.supplier} options={plain(supplierOptions)} onChange={(value) => set({ supplier: value })} addLabel={t("+добавить")} onAdd={onQuickAddSupplier} addWidth={78} />
               <SelectField top={125} left={30} width={460} label={t("Филиал")} required value={draft.branch} options={plain(branchOptions)} onChange={(value) => set({ branch: value })} />
