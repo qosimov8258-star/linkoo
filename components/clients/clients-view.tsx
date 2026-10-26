@@ -999,8 +999,8 @@ export function ClientsView() {
               <button
                 type="button"
                 onClick={() => setColumnsOpen(true)}
-                aria-label={t("Настройка таблицы")}
-                title={t("Настройка таблицы")}
+                aria-label={t("Вкл/Выкл колонки")}
+                title={t("Вкл/Выкл колонки")}
                 className="ml-[10px] flex h-10 w-10 items-center justify-center"
               >
                 <svg viewBox="0 0 24 24" className="h-[22px] w-[22px] fill-[#666]"><path d={CI.align} /></svg>

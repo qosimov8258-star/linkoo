@@ -12,7 +12,7 @@ import { ensureFinanceSchema } from "@/lib/finance/schema"
 //   because several of them are created lazily by their own repos (the
 //   stock inventory tables by the "Инвентаризация" module).
 
-const STOCK_SCHEMA_VERSION = 2
+const STOCK_SCHEMA_VERSION = 3
 
 /** Every table the stock ledger reads. */
 export const STOCK_TABLES = [
@@ -34,6 +34,8 @@ export const STOCK_TABLES = [
   "stock_inventory_items",
   "receive_task_reference_rows",
   "stock_opening_balances",
+  "stock_reserved_adjustments",
+  "transfer_reference_items",
   "ref_records",
 ] as const
 
@@ -58,6 +60,9 @@ async function install(): Promise<void> {
   // Additive per warehouse starting quantities (the reference's real stock the local documents do not reproduce), made by
   // scripts/demo/apply-parity-stock.mjs; counted as 'opening' movements without any value, so costs are untouched.
   await db.exec("CREATE TABLE IF NOT EXISTS stock_opening_balances (id SERIAL PRIMARY KEY, warehouse TEXT NOT NULL, item_key TEXT NOT NULL, qty DOUBLE PRECISION NOT NULL)")
+  // Additive per warehouse reserved quantities the reference shows beyond its documents (items it holds back that the local
+  // documents do not reproduce), made by scripts/demo/apply-stock-cols.mjs; counted as "Бронь" only, never as stock movements.
+  await db.exec("CREATE TABLE IF NOT EXISTS stock_reserved_adjustments (id SERIAL PRIMARY KEY, warehouse TEXT NOT NULL, item_key TEXT NOT NULL, qty DOUBLE PRECISION NOT NULL)")
   // Additive list of the reference's "Приемка" tasks (customer returns / transfers), filled by scripts/demo/seed-listb-extra.mjs.
   await db.exec(
     "CREATE TABLE IF NOT EXISTS receive_task_reference_rows (id INTEGER PRIMARY KEY, type TEXT NOT NULL, by_name TEXT NOT NULL DEFAULT '', stock_name TEXT NOT NULL DEFAULT '', task_date TEXT NOT NULL DEFAULT '', order_id INTEGER, status TEXT NOT NULL DEFAULT '0')",

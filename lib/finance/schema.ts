@@ -297,6 +297,10 @@ const LEDGER_TABLES = [
   // client balance corrections ("Сверка магазина через бот": Списать / Добавить,
   // "Установить долг с Excel"; lib/finance-store-reconciliation.ts)
   "client_balance_corrections",
+  // The reference's own cash transactions (scripts/demo/apply-final-cash-list.mjs): the cashbox ledger reads them instead of the
+  // demo/legacy rows at or below the cut-off ids of the real tables (lib/finance/sources.ts cashboxSources).
+  "cash_reference_rows",
+  "cash_list_cutoff",
 ]
 
 export type FinanceSchema = {

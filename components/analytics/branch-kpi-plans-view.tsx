@@ -1,5 +1,6 @@
 "use client"
 
+import { RefTip } from "@/components/ref/ref-tip"
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { useSearchParams } from "next/navigation"
 
@@ -211,6 +212,7 @@ export function BranchKpiPlansView() {
           icons={
             <>
               <RefIconButton
+                tipSide="left"
                 path={RI.checklist}
                 label={state.showCheckboxes ? t("Спрятать флажки") : t("Выбрать из списка")}
                 color="#5d6474"
@@ -219,12 +221,7 @@ export function BranchKpiPlansView() {
                   update({ showCheckboxes: !state.showCheckboxes })
                 }}
               />
-              <span className="group relative">
-                {!selected.length && (
-                  <span className="pointer-events-none absolute left-0 top-[36px] z-50 hidden whitespace-nowrap rounded-[2px] bg-[#2d3037] px-[21px] py-[8px] text-[13px] font-bold leading-[17px] text-white opacity-90 group-hover:block">
-                    {t("Выберите хотя бы один сотрудник !")}
-                  </span>
-                )}
+              <RefTip text={selected.length ? "" : t("Выберите хотя бы один сотрудник !")} side="left" gap={12.5}>
                 <button
                   type="button"
                   disabled={!selected.length || !canEdit}
@@ -235,7 +232,7 @@ export function BranchKpiPlansView() {
                   <svg viewBox="0 0 24 24" className="h-[18px] w-[18px] fill-white"><path d={RI.edit} /></svg>
                   <span className="pl-2 pr-4">{t("Изменить планы")}</span>
                 </button>
-              </span>
+              </RefTip>
               <span className="ml-[18px]">
                 <RefIconButton path="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z" label={t("Дублировать")} color="#5d6474" onClick={() => canEdit && setDialog({ kind: "duplicate" })} />
               </span>

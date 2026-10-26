@@ -112,7 +112,11 @@ export function TitleTooltips() {
       let top = rect.bottom + (rect.height <= 28 ? 10.5 : 9.5)
       if (top + height > window.innerHeight - 4) top = rect.top - 9.5 - height
       // react-tooltip moves a bubble that would leave the window to the side of the icon (12px gap, vertically centered).
-      if (centered + width > window.innerWidth) {
+      // Some toolbars (e.g. the plan pages) pin it to the left of the icon in the reference (`data-tip-side="left"`).
+      if (element.getAttribute("data-tip-side") === "left") {
+        left = rect.left - 12.5 - width
+        top = rect.top + rect.height / 2 - height / 2
+      } else if (centered + width > window.innerWidth) {
         left = rect.left - 12 - width
         top = rect.top + rect.height / 2 - height / 2
       } else if (centered < 0) {

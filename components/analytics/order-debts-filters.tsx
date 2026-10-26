@@ -287,7 +287,7 @@ export function OrderDebtFilterDialog({
           <input type="checkbox" checked={draft.withWrongDebt} onChange={(event) => set("withWrongDebt", event.target.checked)} className="mr-[10px] h-[16px] w-[16px] accent-[#5d6474]" />
           {t("Требуется перерасчет")}
         </label>
-        <button type="submit" className="absolute left-[30px] right-[30px] top-[371px] h-9 rounded-[3px] bg-[#71ce87] text-[13px] font-semibold text-white">
+        <button type="submit" className="absolute left-[30px] right-[30px] top-[371px] h-9 rounded-[3px] bg-[#71ce87] text-[13px] font-semibold uppercase text-white">
           {t("Применить")}
         </button>
       </form>

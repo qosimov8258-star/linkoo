@@ -6,6 +6,10 @@ const dry = process.argv.includes('--dry')
 const ref = JSON.parse(fs.readFileSync(new URL('./demo/data/reference-i18n-dicts.json', import.meta.url), 'utf8'))
 const targets = [['uz', 0], ['en', 1]]
 const ph = (v) => (v.match(/\{[^{}]*\}|%[sd]|\$\{[^}]*\}|\{\{[^}]*\}\}/g) ?? []).sort().join('|')
+// Our keys often carry a suffix the reference keeps outside its dictionary ("Зона:" / "Оставить комментарий..." / "Фильтр *"):
+// when the bare key is in the reference dictionary, use the reference value + the same suffix.
+const SUFFIX = /([\s.:*!…?]+)$/
+const SKIP_SUFFIX_KEYS = new Set(['шт.', 'Списание...'])
 const lineRe = /^(\s*)("(?:[^"\\]|\\.)*")(\s*:\s*)("(?:[^"\\]|\\.)*")(,?\s*)$/
 for (const [lang, idx] of targets) {
   const file = new URL(`../lib/i18n/dictionaries/${lang}.ts`, import.meta.url)

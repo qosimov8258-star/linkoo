@@ -164,6 +164,10 @@
     "IS NOT NULL AND o.status IN ('В пути', 'Доставлено')",
     "FROM supplier_incomings i WHERE i.status = 'принят' AND NOT EXISTS (SELECT 1 FROM demo_seed_rows d WHERE d.table_name = 'supplier_incomings' AND d.row_id = i.id::text AND d.domain <> 'catalog-warehouse')",
     "WHEN sp.real_amount IS NOT NULL THEN sp.real_amount::float8 ELSE NULL END AS cash_amount, COALESCE(cb.cur, fin_cur(NULLIF(sp.real_currency, ''))) AS cash_cur, sp.category, CASE WHEN sp.comment = 'Не указано' THEN '' ELSE sp.comment END AS comment, sp.supply_id, sp.money_request_id, (sp.is_verified <> 0) AS verified FROM supplier_payments sp LEFT JOIN cbk ON sp.cashbox_id IS NULL AND cbk.k = fin_key(sp.kassa) LEFT JOIN cbx cb ON cb.id = COALESCE(sp.cashbox_id, cbk.id) LEFT JOIN suppliers s ON s.id = sp.supplier_id LEFT JOIN sk ON sp.supplier_id IS NULL AND sk.k = fin_key(sp.supplier) WHERE sp.is_deleted = 0 AND COALESCE(sp.op_type, 5) <> 4",
-    "WHERE i.status = 'принят' AND fin_key(i.supplier) <> '' AND fin_key(i.supplier) <> fin_key('Инвенторизация') AND"
+    "WHERE i.status = 'принят' AND fin_key(i.supplier) <> '' AND fin_key(i.supplier) <> fin_key('Инвенторизация') AND",
+    "CASE r.op WHEN 1 THEN 'Перевод с кассы' WHEN 2 THEN 'Перевод на кассу' WHEN 5 THEN 'Расход' WHEN 7 THEN 'Снято со счета клиента' WHEN 9 THEN 'Доп. расход на поставку' WHEN 10 THEN 'Расход на поставку' WHEN 22 THEN 'Выдача денег для кэшбека' WHEN 8 THEN 'Принято денег' WHEN 3 THEN 'Оплата заказа' ELSE 'Приход' END",
+    "IS NOT NULL AND o.status IN ('Есть на складе', 'Не подтвержден')",
+    "WHERE tr.status IN ('ожидает', 'потвержден') AND fin_key(i.product) <> ''",
+    "WHERE tr.status IN ('ожидает', 'потвержден') AND fin_key(l.j ->> 'product') <> ''"
   ]
 }

@@ -111,7 +111,7 @@ export function StockFilterDialog({
           <button type="button" onClick={() => setDraft(emptyStockFilters())} className="h-10 rounded-md border border-[#dbe0e8] px-5 font-semibold text-[#586174]">
             {t("Очистить")}
           </button>
-          <button type="button" onClick={apply} className="h-10 rounded-md bg-[#4f70e7] px-6 font-semibold text-white">
+          <button type="button" onClick={apply} className="h-10 rounded-md bg-[#4f70e7] px-6 font-semibold uppercase text-white">
             {t("Применить")}
           </button>
         </div>

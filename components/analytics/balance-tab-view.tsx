@@ -253,7 +253,7 @@ export function BalanceTabView() {
         <button
           type="button"
           onClick={() => setAppliedOrganization(organization)}
-          className="ml-auto mr-[18px] mt-[6px] h-[30px] rounded-[3px] bg-[#4f71dc] px-[15px] text-[13px] font-semibold text-white hover:brightness-95"
+          className="ml-auto mr-[18px] mt-[6px] h-[30px] rounded-[3px] bg-[#4f71dc] px-[15px] text-[13px] font-semibold uppercase text-white hover:brightness-95"
         >
           {t("Применить")}
         </button>

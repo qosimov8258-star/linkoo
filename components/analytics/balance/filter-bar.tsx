@@ -162,7 +162,7 @@ export function BalanceFilterDialog({
           type="button"
           onClick={apply}
           disabled={!draft.from || !draft.to}
-          className="mt-[10px] h-9 w-full rounded-[3px] bg-[#71ce87] text-[13px] font-semibold text-white disabled:opacity-50"
+          className="mt-[10px] h-9 w-full rounded-[3px] bg-[#71ce87] text-[13px] font-semibold uppercase text-white disabled:opacity-50"
         >
           {t("Применить")}
         </button>

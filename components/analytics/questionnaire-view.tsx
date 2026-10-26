@@ -284,7 +284,7 @@ export function QuestionnaireView() {
                   ))}
                 </select>
               </label>
-              <button type="button" onClick={() => setFilterOpen(false)} className="rounded bg-[#4f71dc] px-5 py-2.5 font-semibold text-white hover:brightness-95">
+              <button type="button" onClick={() => setFilterOpen(false)} className="rounded bg-[#4f71dc] px-5 py-2.5 font-semibold uppercase text-white hover:brightness-95">
                 {t("Применить")}
               </button>
             </div>

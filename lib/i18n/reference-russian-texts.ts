@@ -81,7 +81,9 @@ export const REFERENCE_RUSSIAN_TEXTS: Record<"uz" | "en", Record<string, string[
       "Товары есть в наличии"
     ],
     "/analytics/subscriptions": [
-      "Агент"
+      "Агент",
+      "Открепить все выделенные подписки",
+      "Изменить подписку"
     ],
     "/analytics/product-attributes": [
       "из"

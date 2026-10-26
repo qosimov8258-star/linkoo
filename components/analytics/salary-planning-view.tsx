@@ -5,6 +5,7 @@ import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react"
 import { Copy, FileText, X } from "lucide-react"
 import { FilterSelect, RI, RefButton, RefCard, RefHeader, RefPage, RefTable, RefTabs } from "@/components/ref/list-kit"
 import { RefPager } from "@/components/ref/pager-controls"
+import { RefTip } from "@/components/ref/ref-tip"
 import { SalaryAddDialog } from "@/components/analytics/salary-add-dialog"
 
 import { downloadExcelTable } from "@/lib/excel-export"
@@ -386,12 +387,12 @@ export function SalaryPlanningView() {
               pageCount={pages}
               onPage={setPage}
             />
-            <span className="ml-5 flex h-12 w-12 shrink-0 items-center justify-center"><svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#5d6474]"><path d={RI.checklist} /></svg></span>
+            <RefTip text={"Выбрать из списка"} side="left" gap={12.5} className="ml-5 shrink-0"><span className="flex h-12 w-12 items-center justify-center"><svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#5d6474]"><path d={RI.checklist} /></svg></span></RefTip>
             <div className="flex shrink-0 items-center gap-[18px]">
-              <RefButton exact green label="Зачислить" onClick={() => void setCredited(true)} />
-              <RefButton exact red label="Отменить зачисление" onClick={() => void setCredited(false)} />
-              <RefButton exact icon={RI.edit} label="Изменить планы" onClick={() => setPlansOpen(true)} />
-              <button type="button" aria-label="Копировать выбранные" onClick={() => void duplicateSelected()} className="flex h-12 w-12 items-center justify-center text-[#5d6474]"><Copy className="h-6 w-6" /></button>
+              <RefTip text={selected.length ? "" : "Выберите хотя бы один сотрудник !"} side="left" gap={12.5}><RefButton exact green label="Зачислить" onClick={() => void setCredited(true)} /></RefTip>
+              <RefTip text={selected.length ? "" : "Выберите хотя бы один сотрудник !"} side="left" gap={12.5}><RefButton exact red label="Отменить зачисление" onClick={() => void setCredited(false)} /></RefTip>
+              <RefTip text={selected.length ? "" : "Выберите хотя бы один сотрудник !"} side="left" gap={12.5}><RefButton exact icon={RI.edit} label="Изменить планы" onClick={() => setPlansOpen(true)} /></RefTip>
+              <button type="button" aria-label="Дублировать" onClick={() => void duplicateSelected()} className="flex h-12 w-12 items-center justify-center text-[#5d6474]"><Copy className="h-6 w-6" /></button>
             </div>
           </div>
         </div>

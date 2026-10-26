@@ -390,7 +390,7 @@ export function ReconciliationFilterDialog({
           </Field>
         </div>
         <div className="flex justify-end border-t border-[#e1e5eb] px-6 py-4">
-          <button type="button" onClick={apply} className="h-10 rounded-md bg-[#4f70e7] px-6 font-semibold text-white">
+          <button type="button" onClick={apply} className="h-10 rounded-md bg-[#4f70e7] px-6 font-semibold uppercase text-white">
             {t("Применить")}
           </button>
         </div>

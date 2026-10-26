@@ -318,7 +318,23 @@ export function buildPendingSql(t: StockTables): string {
     const key = KEY_OF("n", name)
     parts.push(`SELECT (${orderWarehouse(t)})::text AS warehouse, (${key})::text AS item_key, COALESCE(oi.quantity, 0)::double precision AS reserved, 0::double precision AS transit
       FROM orders o JOIN order_items oi ON oi.order_id = o.id ${KEY_JOIN("n", name)}
-      WHERE ${orderWarehouse(t)} IS NOT NULL AND o.status = 'Есть на складе'`)
+      WHERE ${orderWarehouse(t)} IS NOT NULL AND o.status IN ('Есть на складе', 'Не подтвержден')`)
+  }
+  // Передачи: goods of a transfer that is waiting ("ожидает") or confirmed ("потвержден") are held back at the source warehouse
+  // (the reference counts them as "Бронь"); the lines are the transfer's own items or the reference snapshot of them.
+  if (t.has("internal_transfers")) {
+    parts.push(`SELECT tr.from_warehouse::text, (${KEY_OF("n", "l.j ->> 'product'")})::text, ${jsonNum("l.j", "quantity")}, 0::double precision
+      FROM internal_transfers tr CROSS JOIN LATERAL jsonb_array_elements(${jsonLines("tr.items")}) AS l(j)
+      ${KEY_JOIN("n", "l.j ->> 'product'")}
+      WHERE tr.status IN ('ожидает', 'потвержден') AND fin_key(l.j ->> 'product') <> ''`)
+    if (t.has("transfer_reference_items")) {
+      parts.push(`SELECT tr.from_warehouse::text, (${KEY_OF("n", "i.product")})::text, COALESCE(i.quantity, 0)::double precision, 0::double precision
+        FROM internal_transfers tr JOIN transfer_reference_items i ON i.transfer_id = tr.id ${KEY_JOIN("n", "i.product")}
+        WHERE tr.status IN ('ожидает', 'потвержден') AND fin_key(i.product) <> ''`)
+    }
+  }
+  if (t.has("stock_reserved_adjustments")) {
+    parts.push("SELECT a.warehouse::text, a.item_key::text, a.qty::double precision AS reserved, 0::double precision AS transit FROM stock_reserved_adjustments a")
   }
   if (t.has("internal_transfers")) {
     parts.push(`SELECT tr.to_warehouse::text, (${KEY_OF("n", "l.j ->> 'product'")})::text, 0::double precision, ${jsonNum("l.j", "quantity")}

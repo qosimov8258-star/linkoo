@@ -94,9 +94,9 @@ export function RefButton({
   )
 }
 
-export function RefIconButton({ path, label, onClick, color = "#666", active }: { path: string; label: string; onClick?: () => void; color?: string; active?: boolean }) {
+export function RefIconButton({ path, label, onClick, color = "#666", active, tipSide }: { path: string; label: string; onClick?: () => void; color?: string; active?: boolean; /** Pin the hover hint to the left of the icon (reference plan toolbars). */ tipSide?: "left" }) {
   return (
-    <button type="button" title={label} aria-label={label} onClick={onClick} className={`flex h-12 w-12 items-center justify-center ${active ? "bg-[#e8efff]" : ""}`}>
+    <button type="button" title={label} aria-label={label} data-tip-side={tipSide} onClick={onClick} className={`flex h-12 w-12 items-center justify-center ${active ? "bg-[#e8efff]" : ""}`}>
       <svg viewBox="0 0 24 24" className="h-6 w-6" style={{ fill: color }}>
         <path d={path} />
       </svg>

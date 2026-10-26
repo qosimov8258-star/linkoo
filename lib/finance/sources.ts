@@ -196,6 +196,11 @@ const ts = (...exprs: string[]) => `COALESCE(${exprs.join(", ")})`
 function cashboxSources(ctx: SourceContext): string[] {
   const out: string[] = []
   const cbCur = "COALESCE(fin_cur(cb.currency), @base)"
+  // With the reference copy of the cash transactions present, the cashbox ledger is: those rows + the operations made afterwards
+  // (ids above the cut-off of each real table) — the same rule the cash list uses. Older real rows (demo, legacy, corrections)
+  // never move a cashbox report any more.
+  const refRows = ctx.s.has("cash_reference_rows") && ctx.s.has("cash_list_cutoff")
+  const above = (src: string, alias: string) => (refRows ? ` AND ${alias}.id > COALESCE((SELECT max_id FROM cash_list_cutoff WHERE src = '${src}'), 0)` : "")
   if (ctx.s.has(CME)) {
     const op = entryOp(ctx)
     out.push(
@@ -227,7 +232,37 @@ function cashboxSources(ctx: SourceContext): string[] {
           cby: col(ctx, "e", CME, "created_by", "''"),
           href: "'/analytics/cash-management'",
         },
-        `FROM cash_management_entries e JOIN cashboxes cb ON cb.id = e.cashbox_id WHERE ${entryCounts(ctx)}`,
+        `FROM cash_management_entries e JOIN cashboxes cb ON cb.id = e.cashbox_id WHERE ${entryCounts(ctx)}${above("cash", "e")}`,
+      ),
+    )
+  }
+  if (refRows) {
+    out.push(
+      select(
+        ctx,
+        {
+          ek: "cb.id",
+          cur: cbCur,
+          ts: "r.ts",
+          col: "CASE WHEN r.op = 2 THEN 'transfer_income' WHEN r.op = 1 THEN 'transfer_expense' WHEN r.amount >= 0 THEN 'income' ELSE 'expenses' END",
+          amt: "r.amount",
+          org: "fin_place(r.organization)",
+          pt: "fin_pt(cb.payment_type)",
+          src: "'cash_reference'",
+          src_id: "r.id",
+          title: `CASE r.op WHEN 1 THEN 'Перевод с кассы' WHEN 2 THEN 'Перевод на кассу' WHEN 5 THEN 'Расход' WHEN 7 THEN 'Снято со счета клиента'
+                  WHEN 9 THEN 'Доп. расход на поставку' WHEN 10 THEN 'Расход на поставку' WHEN 22 THEN 'Выдача денег для кэшбека'
+                  WHEN 8 THEN 'Принято денег' WHEN 3 THEN 'Оплата заказа' ELSE 'Приход' END`,
+          descr: "r.category_name",
+          cmt: "r.comment",
+          cat: "CASE WHEN r.op IN (1, 2) THEN '' ELSE r.category_name END",
+          cp: "CASE WHEN r.client_name <> '' THEN r.client_name ELSE r.supplier_name END",
+          br: "fin_place(r.branch)",
+          cb: "cb.name",
+          cby: "r.cby",
+          href: "'/analytics/cash-management'",
+        },
+        "FROM cash_reference_rows r JOIN cashboxes cb ON cb.id = r.cashbox_id WHERE r.verified = 1",
       ),
     )
   }
@@ -272,7 +307,7 @@ function cashboxSources(ctx: SourceContext): string[] {
         href: "'/analytics/customer-payments'",
       },
       `FROM customer_payments p LEFT JOIN cashbox_keys ckb ON ckb.k = fin_key(p.kassa) JOIN cashboxes cb ON cb.id = ${cpCashbox}
-       WHERE p.accepted = 1 AND ${alive(ctx, "p", CP)}`,
+       WHERE p.accepted = 1 AND ${alive(ctx, "p", CP)}${above("customer", "p")}`,
     ),
   )
   // Supplier payments leave their cashbox_id (legacy: the cashbox named by
@@ -304,7 +339,7 @@ function cashboxSources(ctx: SourceContext): string[] {
         href: "'/analytics/supplier-payments'",
       },
       `FROM supplier_payments sp LEFT JOIN cashbox_keys ckb ON ckb.k = fin_key(sp.kassa) JOIN cashboxes cb ON cb.id = ${spCashbox}
-       WHERE ${alive(ctx, "sp", SP)} AND ${verified(ctx, "sp", SP)}`,
+       WHERE ${alive(ctx, "sp", SP)} AND ${verified(ctx, "sp", SP)}${above("supplier", "sp")}`,
     ),
   )
   return out
