@@ -256,7 +256,7 @@ export function LinePick({
           {label}{required && <span className="text-red-500"> *</span>}
         </span>
         {selected && <span className="absolute inset-x-0 bottom-[3px] truncate pr-12 text-[13px]">{selected.label}</span>}
-        <span className="absolute bottom-[10px] right-[10px] flex items-center gap-[10px] text-[#999]">
+        <span className="absolute bottom-[8.6px] right-[10px] flex items-center gap-[10px] text-[#999]">
           {selected && clearable && <span role="button" aria-label="clear" onClick={(event) => { event.stopPropagation(); onChange("") }}><X className="h-3.5 w-3.5" /></span>}
           <svg viewBox="0 0 10 5" className="h-[5px] w-[10px] fill-[#999]"><path d="M0 0l5 5 5-5z" /></svg>
         </span>

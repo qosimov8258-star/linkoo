@@ -40,7 +40,8 @@ export function MonthField({ label, value, onChange, className = "", padLeft = 0
   useEscape(open, () => setOpen(false))
   const now = new Date()
   const [year, setYear] = useState(() => Number(value?.slice(0, 4)) || now.getFullYear())
-  const text = value ? t(`${MONTHS_GENITIVE[Number(value.slice(5, 7)) - 1]} ${value.slice(0, 4)} г.`) : ""
+  // the reference leaves the chosen month in Russian in every language
+  const text = value ? `${MONTHS_GENITIVE[Number(value.slice(5, 7)) - 1]} ${value.slice(0, 4)} г.` : ""
   const current = value ? (Number(value.slice(0, 4)) === year ? Number(value.slice(5, 7)) - 1 : -1) : year === now.getFullYear() ? now.getMonth() : -1
   const choose = (month: number) => {
     onChange(`${year}-${String(month + 1).padStart(2, "0")}`)
@@ -50,7 +51,7 @@ export function MonthField({ label, value, onChange, className = "", padLeft = 0
     <div className={`relative ${className}`}>
       <button type="button" onClick={() => setOpen((state) => !state)} className="relative block h-[50px] w-full border-b border-[#e0e0e0] text-left">
         <span className="absolute top-[12px] text-[11px] leading-[13.8px] text-[#333]" style={{ left: padLeft }}>{label}</span>
-        <span className={`absolute top-[28.8px] text-[13px] leading-[16.3px] ${text ? "text-black" : "text-[#bdbdbd]"}`} style={{ left: padLeft }}>{text || <span data-no-translate>Выберите месяц</span>}</span>
+        <span className={`absolute top-[28.8px] text-[13px] leading-[16.3px] ${text ? "text-black" : "text-[#bdbdbd]"}`} style={{ left: padLeft }}><span data-no-translate>{text || "Выберите месяц"}</span></span>
         <svg viewBox="0 0 24 24" className="absolute right-[0.5px] top-[14px] h-5 w-5 fill-[#ccc]"><path d="M19 4h-1V2h-2v2H8V2H6v2H5c-1.11 0-1.99.9-1.99 2L3 20c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 16H5V9h14v11z" /></svg>
       </button>
       {open && (

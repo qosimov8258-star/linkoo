@@ -94,7 +94,7 @@ export function MultiSelectField({
             <input autoFocus value={search} onChange={(event) => setSearch(event.target.value)} className="h-[24px] min-w-[80px] flex-1 bg-transparent text-[13px] outline-none" />
           )}
         </div>
-        <span className="absolute bottom-[10px] right-[10px] flex items-center gap-[10px] text-[#999]">
+        <span className="absolute bottom-[8.6px] right-[10px] flex items-center gap-[10px] text-[#999]">
           {selected.length > 0 && <button type="button" aria-label="clear" onClick={(event) => { event.stopPropagation(); onChange([]) }}><X className="h-3.5 w-3.5" /></button>}
           <svg viewBox="0 0 10 5" className="h-[5px] w-[10px] fill-[#999]"><path d="M0 0l5 5 5-5z" /></svg>
         </span>

@@ -152,8 +152,8 @@ export function RefToolbar({
   hideFilter,
   linkFilter,
   leftSlot,
-  filterWidth = 355,
-  searchWidth,
+  filterWidth: filterWidthProp,
+  searchWidth: searchWidthProp,
   hideSearch,
   plain,
 }: {
@@ -186,14 +186,22 @@ export function RefToolbar({
   plain?: boolean
 }) {
   const { t } = useLanguage()
+  // The reference's link-style toolbar ("Показать фильтр ⌄" + 285.5px search at x=354.5) is the default for "flush".
+  const filterWidth = filterWidthProp ?? (linkFilter === "flush" ? 303.5 : 355)
+  const searchWidth = searchWidthProp ?? (linkFilter === "flush" ? 285.5 : undefined)
   return (
     <div className={`relative flex h-[50px] items-center px-[5px] ${plain ? "" : "bg-white"}`}>
       <div className={leftSlot || !hideFilter ? "shrink-0" : "hidden"} style={{ width: leftSlot || !hideFilter ? filterWidth : undefined }}>
         {leftSlot}
         {!leftSlot && !hideFilter && (
           linkFilter ? (
-            <button type="button" onClick={onToggleFilter} className={`${linkFilter === "flush" ? "" : "pl-[5px] "}text-[13px] text-[#4f71dc]`}>
-              {filterOpen ? t("Скрыть фильтр") : t("Показать фильтр")} ⌄
+            <button type="button" onClick={onToggleFilter} className={`${linkFilter === "flush" ? "flex h-[16.3px] w-fit items-center " : "pl-[5px] "}text-[13px] text-[#4f71dc]`}>
+              {filterOpen ? t("Скрыть фильтр") : t("Показать фильтр")}
+              {linkFilter === "flush" ? (
+                <svg viewBox="6 2 12 20" className="ml-px h-5 w-[13px] translate-y-[1.9px] fill-[#4f71dc]"><path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z" /></svg>
+              ) : (
+                " ⌄"
+              )}
             </button>
           ) : (
           <button type="button" onClick={onToggleFilter} className="flex h-[30px] items-center rounded-[5px] bg-[#4f71dc] pl-3 text-[13px] font-semibold text-white hover:brightness-95">
@@ -204,14 +212,14 @@ export function RefToolbar({
         )}
       </div>
       {filterOpen && <div className="absolute left-0 top-0 z-30 w-full">{filterPanel}</div>}
-      <div className={`relative ${hideSearch ? "hidden" : "flex"} ${linkFilter === "flush" ? "h-[40px] items-start" : "items-center"} border-b border-[#e0e0e0] focus-within:border-[#5d6474] ${leftSlot || !hideFilter ? "ml-[18px] w-[300px]" : "ml-[10px] w-[182px]"}`} style={searchWidth ? { width: searchWidth } : undefined}>
+      <div className={`relative ${hideSearch ? "hidden" : "flex"} ${linkFilter === "flush" ? "h-[40px] items-start self-start" : "items-center"} border-b border-[#e0e0e0] focus-within:border-[#5d6474] ${leftSlot || !hideFilter ? "ml-[18px] w-[300px]" : "ml-[10px] w-[182px]"}`} style={searchWidth ? { width: searchWidth } : undefined}>
         <input
           value={query}
           onChange={(event) => onQuery(event.target.value)}
           placeholder={t("Поиск")}
           className="h-12 min-w-0 flex-1 bg-transparent text-[13px] outline-none placeholder:text-black/30"
         />
-        <svg viewBox="0 0 24 24" className={`h-6 w-6 shrink-0 fill-[#ccc] ${linkFilter === "flush" ? "mt-[12px]" : ""}`}>
+        <svg viewBox="0 0 24 24" className={`h-6 w-6 shrink-0 fill-[#ccc] ${linkFilter === "flush" ? "mr-[2px] mt-[12px]" : ""}`}>
           <path d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z" />
         </svg>
       </div>

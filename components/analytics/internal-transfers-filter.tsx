@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useState, type ReactNode } from "react"
-import { ChevronDown, X } from "lucide-react"
+import { X } from "lucide-react"
 
 import { FormField, MultiPick, inputClass } from "@/components/analytics/cash-management-shared"
 import { useLanguage } from "@/lib/i18n/language-context"
@@ -71,8 +71,11 @@ export function FilterToggle({ count, open, onOpen, onClose, onClear }: { count:
       </div>
     )
   return (
-    <button type="button" onClick={open ? onClose : onOpen} className="flex items-center gap-1 whitespace-nowrap font-medium text-[rgb(79,113,220)]">
-      {t("Показать фильтр")} <ChevronDown className={`h-4 w-4 transition ${open ? "rotate-180" : ""}`} />
+    <button type="button" onClick={open ? onClose : onOpen} className="flex h-[16.3px] w-fit items-center whitespace-nowrap text-[13px] text-[#4f71dc]">
+      {t("Показать фильтр")}
+      <svg viewBox="6 2 12 20" className={`ml-px h-5 w-[13px] translate-y-[1.9px] fill-[#4f71dc] transition ${open ? "rotate-180" : ""}`}>
+        <path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z" />
+      </svg>
     </button>
   )
 }

@@ -83,7 +83,7 @@ const statusStyles: Record<Status, string> = {
   отменен: "text-rose-500",
 }
 const statusDots: Record<Status, string> = {
-  принят: "bg-emerald-500",
+  принят: "bg-[#81c784]",
   ожидает: "bg-amber-500",
   отменен: "bg-rose-500",
 }
@@ -720,8 +720,8 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
             t(row.paymentType),
             row.contractNumber,
             formatMoney(row.amount, row.currency),
-            <span key="status" className="inline-flex items-center gap-[10px]">
-              <span className={`h-[7px] w-[7px] rounded-full ${statusDots[row.status]}`} /> {t(row.status)}
+            <span key="status">
+              <i className={`mr-[6px] inline-block h-[7px] w-[7px] rounded-full ${statusDots[row.status]}`} /> {t(row.status)}
             </span>,
             row.invoiceNumber,
           ]}

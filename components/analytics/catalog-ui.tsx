@@ -30,7 +30,7 @@ export function CatalogHeader({ addLabel, onAdd, from, to, total, onPrev, onNext
 
 export const dottedRow = "border-b-2 border-dotted border-[#d9e0e5]"
 
-export function Modal({ title, onClose, footer, children, width = 500, bodyClassName = "px-[30px] pb-[24px] pt-[24px]", titleClassName = "text-[13px]", headerClassName = "pl-[30px]", anchorTop = false, scrollAll = false }: { title: string; onClose: () => void; footer: ReactNode; children: ReactNode; width?: number; bodyClassName?: string; titleClassName?: string; headerClassName?: string; anchorTop?: boolean | number; scrollAll?: boolean }) {
+export function Modal({ title, onClose, footer, children, width = 500, bodyClassName = "px-[30px] pb-[24px] pt-[24px]", titleClassName = "text-[13px]", headerClassName = "pl-[30px]", anchorTop = false, scrollAll = false, closeInset = "pr-[15px]" }: { closeInset?: string; title: string; onClose: () => void; footer: ReactNode; children: ReactNode; width?: number; bodyClassName?: string; titleClassName?: string; headerClassName?: string; anchorTop?: boolean | number; scrollAll?: boolean }) {
   const { t } = useLanguage()
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
@@ -47,7 +47,7 @@ export function Modal({ title, onClose, footer, children, width = 500, bodyClass
     <div className={`fixed inset-0 z-[100] flex justify-center bg-black/50 ${anchorTop ? "items-start overflow-y-auto" : "items-center"}`} style={anchorTop ? { paddingTop: typeof anchorTop === "number" ? anchorTop : 64 } : undefined}>
       {/* scrollAll: like the reference's long dialogs (Настройка EXCEL): the whole card scrolls (max 100vh − 128px), the title stays, the footer sits at the end of the content */}
       <div style={{ width }} className={`max-w-full bg-white text-[13px] text-black shadow-xl ${scrollAll ? "max-h-[calc(100vh-128px)] overflow-y-auto" : ""}`}>
-        <header className={`flex h-[60px] items-center justify-between border-b border-[#e8ebf0] ${headerClassName} pr-[10px] ${scrollAll ? "sticky top-0 z-[1] bg-white" : ""}`}>
+        <header className={`flex h-[60px] items-center justify-between border-b border-[#e8ebf0] ${headerClassName} ${closeInset} ${scrollAll ? "sticky top-0 z-[1] bg-white" : ""}`}>
           <h3 className={`${titleClassName} font-bold uppercase text-[#333]`}>{title}</h3>
           <button type="button" onClick={onClose} aria-label={t("Закрыть")} className="flex h-12 w-12 items-center justify-center text-[#333] hover:opacity-70"><X className="h-6 w-6" strokeWidth={1.6} /></button>
         </header>

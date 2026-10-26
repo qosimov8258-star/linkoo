@@ -59,6 +59,7 @@ function PositionDialog({ position, onClose, onSaved }: { position: Position | n
     <Modal
       title={position ? t("Изменить должность") : t("Добавить должность")}
       titleClassName="text-[15px]"
+      closeInset="pr-[10px]"
       onClose={onClose}
       bodyClassName="px-[30px] pb-[42px] pt-[18px]"
       footer={<SaveButton disabled={saving || !name.trim()} onClick={() => void save()}>{t("Сохранить")}</SaveButton>}
