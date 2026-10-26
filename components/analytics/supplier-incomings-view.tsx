@@ -255,6 +255,8 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
   const [fromInvoice, setFromInvoice] = useState<InvoiceSupplyDraft | null>(null)
   const invoiceHandled = useRef<string | null>(null)
   const importInputRef = useRef<HTMLInputElement>(null)
+  // "excel'dan import qilish": 1. sample, 2. the filled file (staged here), 3. confirm adds the staged rows.
+  const [importStaged, setImportStaged] = useState<DraftItem[]>([])
   useEffect(() => {
     let cancelled = false
     setLoading(true)
@@ -572,8 +574,18 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
         if (!product || /^(товар|product|наименование|название)$/i.test(product)) continue
         parsed.push({ id: nextId++, product, qty: Number(record.qty) || 1, cost: Number(record.cost) || 0 })
       }
-      if (parsed.length) setDraftItems((current) => [...current, ...parsed])
+      if (parsed.length) setImportStaged(parsed)
     })()
+  }
+
+  function confirmImport() {
+    if (!importStaged.length) return
+    setDraftItems((current) => [...current, ...importStaged])
+    setImportStaged([])
+  }
+
+  function downloadImportTemplate() {
+    downloadExcelTable("namuna", [[t("Наименование"), t("Количество"), t("Цена")], [productOptions[0] ?? "", 1, 1000]])
   }
 
   const draftTotalCost = draftItems.reduce((sum, item) => sum + item.qty * item.cost, 0)
@@ -1071,6 +1083,9 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
           onRemoveItem={removeDraftItem}
           onOpenPicker={() => { setPickerQuery(""); setPickerOpen(true) }}
           onImportClick={() => importInputRef.current?.click()}
+          onImportTemplate={downloadImportTemplate}
+          onImportConfirm={confirmImport}
+          importStaged={importStaged.length}
           importInput={<input ref={importInputRef} type="file" accept=".csv,.xls,.xlsx,text/csv" onChange={importFromExcel} className="hidden" />}
         />
       )}

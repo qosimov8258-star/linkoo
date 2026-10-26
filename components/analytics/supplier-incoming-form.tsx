@@ -225,6 +225,9 @@ export function SupplierIncomingForm({
   onOpenPicker,
   onImportClick,
   importInput,
+  onImportTemplate,
+  onImportConfirm,
+  importStaged,
 }: {
   title: string
   banner?: ReactNode
@@ -255,10 +258,15 @@ export function SupplierIncomingForm({
   onOpenPicker: () => void
   onImportClick: () => void
   importInput: ReactNode
+  onImportTemplate: () => void
+  onImportConfirm: () => void
+  /** Rows of the uploaded file waiting for "Подтвердить". */
+  importStaged: number
 }) {
   const { t, language } = useLanguage()
   const uz = language === "uz"
   const [stripOpen, setStripOpen] = useState(false)
+  const [importOpen, setImportOpen] = useState(false)
   const [stripProduct, setStripProduct] = useState("")
   const [stripQty, setStripQty] = useState("")
   const [stripCost, setStripCost] = useState("")
@@ -349,13 +357,13 @@ export function SupplierIncomingForm({
             <div className="flex h-[55px] items-start justify-between">
               <span className="pl-[30px] pt-[22px] text-[13px] font-semibold leading-[16px] text-[#333]">{t("Список товаров")}</span>
               <div className="flex items-start pr-[30px] pt-[12px]">
-                <button type="button" onClick={() => setStripOpen((open) => !open)} className={`h-9 rounded-[2px] px-[16px] pt-[3px] text-[13px] text-black hover:bg-[#eee] ${stripOpen ? "bg-[#eee]" : ""}`}>
+                <button type="button" onClick={() => { setStripOpen((open) => !open); setImportOpen(false) }} className={`h-9 rounded-[2px] px-[16px] pt-[3px] text-[13px] text-black hover:bg-[#eee] ${stripOpen ? "bg-[#eee]" : ""}`}>
                   {uz ? "mahsulot qo'shish" : t("добавить товар")}
                 </button>
                 <button type="button" onClick={onOpenPicker} className="h-9 rounded-[2px] px-[16px] pt-[3px] text-[13px] text-black hover:bg-[#eee]">
                   {t("добавить из списка")}
                 </button>
-                <button type="button" onClick={onImportClick} className="h-9 rounded-[2px] px-[16px] pt-[3px] text-[13px] text-black hover:bg-[#eee]">
+                <button type="button" onClick={() => { setImportOpen((open) => !open); setStripOpen(false) }} className={`h-9 rounded-[2px] px-[16px] pt-[3px] text-[13px] text-black hover:bg-[#eee] ${importOpen ? "bg-[#eee]" : ""}`}>
                   {uz ? "excel’dan import qilish" : t("импортировать с excel")}
                 </button>
                 {importInput}
@@ -408,7 +416,15 @@ export function SupplierIncomingForm({
               </div>
             )}
 
-            {items.length === 0 ? (
+            {importOpen && (
+              <div className="mx-[30px] mt-[5px] flex h-[47px] items-center justify-between border border-[#e0e0e0] px-[16px] text-[13px] uppercase leading-[16px] text-[#333]">
+                <button type="button" onClick={onImportTemplate} className="uppercase">1. {t("Загрузить шаблон")}</button>
+                <button type="button" onClick={onImportClick} className="-translate-x-[7px] uppercase">2. {t("Заполните excel и загрузите")}</button>
+                <button type="button" onClick={onImportConfirm} disabled={importStaged === 0} className={`uppercase ${importStaged ? "font-semibold text-[#129fdd]" : ""}`}>3. {t("Подтвердить")}</button>
+              </div>
+            )}
+
+            {items.length === 0 ? (importOpen ? null : (
               <div className={`pointer-events-none absolute inset-x-0 bottom-0 top-[55px] flex flex-col items-center justify-center pb-[46px] text-center text-[13px] leading-[16px] text-[#adadad] ${stripOpen ? "pt-[132px]" : ""}`}>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src="/empty-basket.svg" alt="" className="h-[72px] w-[72px]" />
@@ -421,7 +437,7 @@ export function SupplierIncomingForm({
                   {t("товар")}?
                 </div>
               </div>
-            ) : (
+            )) : (
               <div className="px-[22px] text-[13px] text-[#333]">
                 <div className={`grid h-[55px] grid-cols-[364px_243px_121px_121px_121px_243px_1fr] items-center border-b border-dotted border-[#bdbdbd] ${stripOpen ? "" : ""}`}>
                   <div className="pl-[8px]">{t("Наименование")}</div>
