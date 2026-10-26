@@ -69,8 +69,14 @@ function Label({ top, text, required, floating, regular }: { top: number; text: 
 }
 
 /** A column slot: `left`/`width` position it, `top` is the underline's y inside the column. */
-function Slot({ top, left, width, children, offset = 1 }: { top: number; left: number; width: number; children: ReactNode; offset?: number }) {
-  return <div style={{ left, width, top: offset, height: top + 1 }} className="absolute">{children}</div>
+function Slot({ top, left, width, children, offset = 1 }: { top: number; left: number; width: number | string; children: ReactNode; offset?: number }) {
+  return <div style={{ left, width: typeof width === "number" ? colWidth(left, width) : width, top: offset, height: top + 1 }} className="absolute">{children}</div>
+}
+
+/** The design width of a field, shrunk so that it keeps the column's right gutter on narrower viewports. */
+function colWidth(left: number, width: number, reserve = 0) {
+  const gutter = left === 20 ? 30 : left === 21 ? 21 : 20
+  return `min(${width - reserve}px, calc(100% - ${left + gutter + reserve}px))`
 }
 
 function SelectField({
@@ -101,10 +107,10 @@ function SelectField({
   addWidth?: number
 }) {
   const shown = value ? (options.find((option) => option.value === value)?.label ?? value) : ""
-  const fieldWidth = onAdd ? width - addWidth : width
+  const gutter = left === 20 ? 30 : left === 21 ? 21 : 20
   return (
     <>
-      <Slot top={top} left={left} width={fieldWidth} offset={0}>
+      <Slot top={top} left={left} width={colWidth(left, width, onAdd ? addWidth : 0)} offset={0}>
         <Label top={top} text={label} required={required} floating={Boolean(shown)} />
         {shown && (
           <span style={{ top: top - 22 }} className="absolute left-0 right-[44px] truncate text-[13px] font-semibold leading-[18px] text-[#333]">
@@ -133,7 +139,7 @@ function SelectField({
         <button
           type="button"
           onClick={onAdd}
-          style={{ left: left + fieldWidth + 10, top: top - 15, width: addWidth - 10 }}
+          style={{ right: gutter, top: top - 15, width: addWidth - 10 }}
           className="absolute whitespace-nowrap text-right text-[13px] leading-[18px] text-[#4f71dc] hover:underline"
         >
           {addLabel}
@@ -154,7 +160,7 @@ function DateField({ top, left, width, label, required, value, onChange, primary
             {label}
             {required && <Star />}
           </span>
-          <span style={{ top: top - 19 }} className="absolute left-0 right-[30px] truncate text-[13px] leading-[18px] text-black">{shown}</span>
+          <span data-no-translate style={{ top: top - 19 }} className="absolute left-0 right-[30px] truncate text-[13px] leading-[18px] text-black">{shown}</span>
         </>
       ) : (
         <>
@@ -163,7 +169,7 @@ function DateField({ top, left, width, label, required, value, onChange, primary
           ) : (
             <Label top={top} text={label} floating={false} regular />
           )}
-          {shown && <span style={{ top: top - 19 }} className="absolute left-0 right-[30px] truncate text-[13px] leading-[18px] text-black">{shown}</span>}
+          {shown && <span data-no-translate style={{ top: top - 19 }} className="absolute left-0 right-[30px] truncate text-[13px] leading-[18px] text-black">{shown}</span>}
         </>
       )}
       <svg viewBox="0 0 24 24" style={{ top: top - 25 }} className="pointer-events-none absolute right-0 h-5 w-5" aria-hidden>
@@ -247,7 +253,8 @@ export function SupplierIncomingForm({
   onImportClick: () => void
   importInput: ReactNode
 }) {
-  const { t } = useLanguage()
+  const { t, language } = useLanguage()
+  const uz = language === "uz"
   const [stripOpen, setStripOpen] = useState(false)
   const [stripProduct, setStripProduct] = useState("")
   const [stripQty, setStripQty] = useState("")
@@ -313,7 +320,7 @@ export function SupplierIncomingForm({
 
         <div className="min-h-0 flex-1 overflow-y-auto">
           {banner}
-          <div className="grid grid-cols-[510fr_480fr_510fr] border-b border-[#e0e0e0]">
+          <div className="grid grid-cols-[442fr_411fr_443fr] border-b border-[#e0e0e0]">
             <div className="relative h-[330px] border-r border-[#e0e0e0]">
               <SelectField top={58} left={30} width={460} label={t("Поставщик")} required value={draft.supplier} options={plain(supplierOptions)} onChange={(value) => set({ supplier: value })} addLabel={t("+добавить")} onAdd={onQuickAddSupplier} addWidth={78} />
               <SelectField top={125} left={30} width={460} label={t("Филиал")} required value={draft.branch} options={plain(branchOptions)} onChange={(value) => set({ branch: value })} />
@@ -335,18 +342,18 @@ export function SupplierIncomingForm({
             </div>
           </div>
 
-          <div className="relative min-h-[452px]">
+          <div className="relative min-h-[calc(100vh-448px)]">
             <div className="flex h-[55px] items-start justify-between">
               <span className="pl-[30px] pt-[22px] text-[13px] font-semibold leading-[16px] text-[#333]">{t("Список товаров")}</span>
               <div className="flex items-start pr-[30px] pt-[12px]">
                 <button type="button" onClick={() => setStripOpen((open) => !open)} className={`h-9 rounded-[2px] px-[16px] pt-[3px] text-[13px] text-black hover:bg-[#eee] ${stripOpen ? "bg-[#eee]" : ""}`}>
-                  {t("добавить товар")}
+                  {uz ? "mahsulot qo'shish" : t("добавить товар")}
                 </button>
                 <button type="button" onClick={onOpenPicker} className="h-9 rounded-[2px] px-[16px] pt-[3px] text-[13px] text-black hover:bg-[#eee]">
                   {t("добавить из списка")}
                 </button>
                 <button type="button" onClick={onImportClick} className="h-9 rounded-[2px] px-[16px] pt-[3px] text-[13px] text-black hover:bg-[#eee]">
-                  {t("импортировать с excel")}
+                  {uz ? "excel’dan import qilish" : t("импортировать с excel")}
                 </button>
                 {importInput}
               </div>
@@ -403,9 +410,9 @@ export function SupplierIncomingForm({
             )}
 
             {items.length === 0 ? (
-              <div className="flex flex-col items-center pt-[108px] text-center text-[13px] leading-[16px] text-[#adadad]">
+              <div className="absolute inset-x-0 bottom-0 top-[55px] flex flex-col items-center justify-center pb-[46px] text-center text-[13px] leading-[16px] text-[#adadad]">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src="/empty-basket.svg" alt="" className="h-[70px] w-[56px] object-contain" />
+                <img src="/empty-basket.svg" alt="" className="h-[72px] w-[72px]" />
                 <div className="mt-[22px]">
                   {t("Вы еще не выбрали ни одного товара")}.
                   <br />
@@ -476,7 +483,7 @@ export function SupplierIncomingForm({
             <span className="ml-[26px]">{t("Общее кол-во")}:&nbsp;</span>
             <span className="text-[16px] font-semibold leading-[22px] text-[#129fdd]">{qtyLabel}</span>
           </div>
-          <button type="submit" className="relative top-[2px] mr-[2px] h-9 w-[111px] text-[13px] font-semibold uppercase text-[#129fdd]">
+          <button type="submit" className="relative top-[2px] -mr-[3px] h-9 w-[111px] text-[13px] font-semibold uppercase text-[#129fdd]">
             {t("Сохранить")}
           </button>
         </footer>
