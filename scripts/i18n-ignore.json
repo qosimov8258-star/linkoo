@@ -169,6 +169,8 @@
     "IS NOT NULL AND o.status IN ('Есть на складе', 'Не подтвержден')",
     "WHERE tr.status IN ('ожидает', 'потвержден') AND fin_key(i.product) <> ''",
     "WHERE tr.status IN ('ожидает', 'потвержден') AND fin_key(l.j ->> 'product') <> ''",
-    "Пришел вовремя / Опоздал (время опоздания) / Не пришел / Всего"
+    "Пришел вовремя / Опоздал (время опоздания) / Не пришел / Всего",
+    "WHEN 'monthly' THEN 'Зарплата' WHEN 'performance_bonus' THEN 'Зачислено KPI' ELSE 'Нет типа' END",
+    "(Штрих:"
   ]
 }

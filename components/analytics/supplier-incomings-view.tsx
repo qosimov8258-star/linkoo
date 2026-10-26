@@ -242,6 +242,7 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
   const [branchOptions, setBranchOptions] = useState<string[]>([])
   const [productOptions, setProductOptions] = useState<string[]>([])
   const [productUnits, setProductUnits] = useState<Record<string, string>>({})
+  const [productExpiry, setProductExpiry] = useState<Record<string, boolean>>({})
   const [productInfo, setProductInfo] = useState<Record<string, { stock: number; barcode: string }>>({})
   const [productBoxes, setProductBoxes] = useState<Record<string, { unit: string; amount: number }>>({})
   const [pickerQuery, setPickerQuery] = useState("")
@@ -307,12 +308,13 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
         setBranchOptions(Array.from(new Set(data.map((item) => item.name))))
       }
       // Raw materials are received from suppliers too (production stock).
-      const catalog: { name: string; unit: string; boxUnit?: string; boxAmount?: number }[] = []
+      const catalog: { name: string; unit: string; boxUnit?: string; boxAmount?: number; trackExpiry?: boolean }[] = []
       // Soft-deleted products ("Удалённые") are not offered.
-      if (productsRes?.ok) catalog.push(...((await productsRes.json()) as { name: string; unit: string; boxUnit?: string; boxAmount?: number; deleted?: boolean }[]).filter((item) => !item.deleted))
+      if (productsRes?.ok) catalog.push(...((await productsRes.json()) as { name: string; unit: string; boxUnit?: string; boxAmount?: number; trackExpiry?: boolean; deleted?: boolean }[]).filter((item) => !item.deleted))
       if (rawMaterialsRes?.ok) catalog.push(...((await rawMaterialsRes.json()) as { name: string; unit: string }[]))
       setProductOptions(Array.from(new Set(catalog.map((item) => item.name))).sort((a, b) => a.localeCompare(b, "ru")))
       setProductUnits(Object.fromEntries(catalog.map((item) => [item.name, item.unit])))
+      setProductExpiry(Object.fromEntries(catalog.map((item) => [item.name, Boolean(item.trackExpiry)])))
       setProductBoxes(Object.fromEntries(catalog.filter((item) => item.boxUnit && (item.boxAmount ?? 0) > 0).map((item) => [item.name, { unit: item.boxUnit as string, amount: item.boxAmount as number }])))
       setOptionsLoaded(true)
       // "В наличии" and the barcode shown in the product search of the reference's form.
@@ -1059,6 +1061,7 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
           productUnits={productUnits}
           productBoxes={productBoxes}
           productInfo={productInfo}
+          productExpiry={productExpiry}
           onClose={() => setModalOpen(false)}
           onSubmit={save}
           onQuickAddSupplier={() => setQuickAddSupplierOpen(true)}

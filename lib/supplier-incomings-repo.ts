@@ -30,6 +30,7 @@ async function ensureSchema(db: PgDb) {
         ALTER TABLE supplier_incomings ADD COLUMN IF NOT EXISTS accepted_at TEXT NOT NULL DEFAULT '';
         ALTER TABLE supplier_incomings ADD COLUMN IF NOT EXISTS accepted_by TEXT NOT NULL DEFAULT '';
         ALTER TABLE supplier_incomings ADD COLUMN IF NOT EXISTS invoice_id INTEGER;
+        ALTER TABLE supplier_incomings ADD COLUMN IF NOT EXISTS ref_items TEXT NOT NULL DEFAULT '[]';
         ALTER TABLE products ADD COLUMN IF NOT EXISTS initial_cost REAL;
 
         CREATE TABLE IF NOT EXISTS supplier_incoming_expenses (
@@ -94,6 +95,8 @@ type Row = {
   time: string
   comment: string
   items: string
+  /** Lines of the reference's own supplies, shown in the detail card only: the stock ledger reads `items`, and the reference stock is already in its balance rows. */
+  ref_items?: string
   currency: string
   invoice_date: string
   accepted_at: string
@@ -130,7 +133,7 @@ function rowToIncoming(row: Row): Incoming {
     paid: row.paid,
     time: row.time,
     comment: row.comment,
-    items: parseItems(row.items),
+    items: parseItems(row.items).length ? parseItems(row.items) : parseItems(row.ref_items ?? "[]"),
     currency: row.currency || "SUM",
     invoiceDate: row.invoice_date,
     acceptedAt: row.accepted_at,

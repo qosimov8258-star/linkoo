@@ -17,6 +17,9 @@ const SEARCH = "M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09
 const PREV = "M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm1-12l-5 4 5 4V8z"
 const NEXT = "M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm-1-12v8l5-4-5-4z"
 
+/** The reference grid: 12 units = Наименование 2, Группа 2, Кол-во 2, Цена 2, Сумма 1, Код 2, В наличии 1. */
+const GRID = "grid-cols-[minmax(0,2fr)_minmax(0,2fr)_minmax(0,2fr)_minmax(0,2fr)_minmax(0,1fr)_minmax(0,2fr)_minmax(0,1fr)]"
+
 const number = (value: string) => Number(value.replace(/\s/g, "").replace(",", ".")) || 0
 const fmt = (value: number, digits = 3) => (Math.round(value * 10 ** digits) / 10 ** digits).toLocaleString("ru-RU", { maximumFractionDigits: digits })
 
@@ -27,7 +30,7 @@ function group(value: string) {
   return rest.length ? `${grouped},${rest.join("")}` : clean.match(/[.,]$/) ? `${grouped},` : grouped
 }
 
-function HeaderSelect({ left, width, label, value, options, onChange }: { left: number; width: number; label: string; value: string; options: string[]; onChange: (value: string) => void }) {
+function HeaderSelect({ left, width, label, value, options, onChange }: { left: number | string; width: number; label: string; value: string; options: string[]; onChange: (value: string) => void }) {
   return (
     <div style={{ left, width }} className="absolute top-[26px] h-[33px]">
       <span className="pointer-events-none absolute left-0 top-[8px] text-[13px] font-semibold uppercase leading-[18px] text-black">{value || label}</span>
@@ -69,6 +72,21 @@ export function SupplierProductPicker({
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(25)
   const [rows, setRows] = useState<Record<string, RowState>>({})
+  // The reference lists the catalogue in its own "all balances" sequence (product_reference_order).
+  const [order, setOrder] = useState<Map<string, { seq: number; price: number | null }>>(new Map())
+
+  useEffect(() => {
+    let cancelled = false
+    void fetch("/api/products/reference-order")
+      .then((response) => (response.ok ? response.json() : []))
+      .then((entries: { name: string; price: number | null }[]) => {
+        if (!cancelled) setOrder(new Map(entries.map((entry, index) => [entry.name, { seq: index, price: entry.price }])))
+      })
+      .catch(() => undefined)
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -98,13 +116,15 @@ export function SupplierProductPicker({
   const brandOptions = useMemo(() => Array.from(new Set(products.map((item) => item.brand).filter(Boolean))).sort((a, b) => a.localeCompare(b, "ru")), [products])
   const filtered = useMemo(() => {
     const term = query.trim().toLowerCase()
-    return products.filter((item) => (!type || item.type === type) && (!brand || item.brand === brand) && (!term || item.name.toLowerCase().includes(term) || item.barcode.toLowerCase().includes(term)))
-  }, [products, type, brand, query])
+    const list = products.filter((item) => (!type || item.type === type) && (!brand || item.brand === brand) && (!term || item.name.toLowerCase().includes(term) || item.barcode.toLowerCase().includes(term)))
+    if (order.size === 0) return list
+    return [...list].sort((a, b) => (order.get(a.name)?.seq ?? Infinity) - (order.get(b.name)?.seq ?? Infinity))
+  }, [products, type, brand, query, order])
   const pages = Math.max(1, Math.ceil(filtered.length / pageSize))
   const current = Math.min(page, pages)
   const visible = filtered.slice((current - 1) * pageSize, current * pageSize)
 
-  const stateOf = (item: PickerProduct): RowState => rows[item.name] ?? { box: "", qty: "", price: item.cost ? group(String(item.cost).replace(".", ",")) : "" }
+  const stateOf = (item: PickerProduct): RowState => rows[item.name] ?? { box: "", qty: "", price: group(String(order.get(item.name)?.price ?? 0).replace(".", ",")) }
   const patch = (item: PickerProduct, next: Partial<RowState>) => setRows((all) => ({ ...all, [item.name]: { ...stateOf(item), ...next } }))
 
   const chosen = products.flatMap((item) => {
@@ -119,8 +139,8 @@ export function SupplierProductPicker({
     <div className="fixed inset-0 z-[1500] flex flex-col bg-white text-[13px] text-[#333]">
       <div className="relative h-[68px] shrink-0 border-b border-[#e0e0e0]">
         <span className="absolute left-[30px] top-[25px] text-[13px] font-bold uppercase leading-[16px] text-[#333]">{t("Добавление продуктов")}</span>
-        <HeaderSelect left={469} width={221} label={t("Тип товара")} value={type} options={typeOptions} onChange={(value) => { setType(value); setPage(1) }} />
-        <HeaderSelect left={709} width={231} label={t("Бренд")} value={brand} options={brandOptions} onChange={(value) => { setBrand(value); setPage(1) }} />
+        <HeaderSelect left="calc(50% - 287px)" width={227} label={t("Тип товара")} value={type} options={typeOptions} onChange={(value) => { setType(value); setPage(1) }} />
+        <HeaderSelect left="calc(50% - 47px)" width={230} label={t("Бренд")} value={brand} options={brandOptions} onChange={(value) => { setBrand(value); setPage(1) }} />
         <button type="button" onClick={onClose} aria-label={t("Закрыть")} className="absolute right-[22px] top-[22px] h-6 w-6">
           <svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#333]">
             <path d={CLOSE} />
@@ -164,14 +184,14 @@ export function SupplierProductPicker({
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="sticky top-0 z-10 flex h-[50px] items-center border-b border-[#e0e0e0] bg-white font-semibold">
-          <span className="absolute left-[30px]">{t("Наименование")}</span>
-          <span className="absolute right-[998px] w-[100px] text-right">{t("Группа")}</span>
-          <span className="absolute right-[758px] w-[100px] text-right">{t("Кол-во")}</span>
-          <span className="absolute right-[518px] w-[100px] text-right">{t("Цена")}</span>
-          <span className="absolute right-[398px] w-[100px] text-right">{t("Сумма")}</span>
-          <span className="absolute right-[158px] w-[100px] text-right">{t("Код")}</span>
-          <span className="absolute right-[30px] w-[100px] text-right">{t("В наличии")}</span>
+        <div className={`sticky top-0 z-10 grid h-[49px] pt-[2px] ${GRID} items-center border-b border-[#e0e0e0] bg-white px-[30px] font-semibold`}>
+          <span>{t("Наименование")}</span>
+          <span className="pr-[8px] text-right">{t("Группа")}</span>
+          <span className="pr-[8px] text-right">{t("Кол-во")}</span>
+          <span className="pr-[8px] text-right">{t("Цена")}</span>
+          <span className="pr-[8px] text-right">{t("Сумма")}</span>
+          <span className="pr-[8px] text-right">{t("Код")}</span>
+          <span className="text-right">{t("В наличии")}</span>
         </div>
         {loading && <div className="px-[30px] py-6 text-[#999]">{t("Загрузка…")}</div>}
         {visible.map((item, index) => {
@@ -179,51 +199,51 @@ export function SupplierProductPicker({
           const qty = number(state.qty)
           const price = number(state.price)
           const info = stock[item.name]
-          const barcode = item.barcode && item.barcode !== "не установлен" ? item.barcode : "-"
+          const field = "h-[40px] min-w-0 flex-1 rounded-[2px] bg-[#f0f4f7] px-[10px] text-right text-[13px] text-[#333] outline-none"
           return (
-            <div key={item.name} className={`relative h-[53px] ${index % 2 === 1 ? "bg-[#f7f9fb]" : ""}`}>
-              <span className="absolute left-[30px] top-[18px] max-w-[240px] truncate leading-[16px]">{item.name}</span>
-              {item.boxAmount > 0 && item.boxUnit && (
-                <>
-                  <input
-                    value={state.box}
-                    onChange={(event) => {
-                      const grouped = group(event.target.value)
-                      const boxes = number(grouped)
-                      patch(item, { box: grouped, qty: boxes > 0 ? group(String(Math.round(boxes * item.boxAmount * 1000) / 1000).replace(".", ",")) : "" })
-                    }}
-                    inputMode="decimal"
-                    style={{ width: 142 }}
-                    className="absolute left-[278px] top-[5px] h-[42px] rounded-[2px] bg-[#f0f4f7] px-[10px] text-right text-[13px] text-[#333] outline-none"
-                  />
-                  <span className="absolute right-[998px] top-[18px] w-[110px] text-right leading-[16px]">
-                    {item.boxUnit} ({item.boxAmount} {item.unit})
-                  </span>
-                </>
-              )}
-              <input
-                value={state.qty}
-                onChange={(event) => {
-                  const grouped = group(event.target.value)
-                  const value = number(grouped)
-                  patch(item, { qty: grouped, box: item.boxAmount > 0 && value > 0 ? fmt(value / item.boxAmount).replace(/\s/g, "") : "" })
-                }}
-                inputMode="decimal"
-                className="absolute left-[518px] top-[5px] h-[42px] w-[182px] rounded-[2px] bg-[#f0f4f7] px-[10px] text-right text-[13px] text-[#333] outline-none"
-              />
-              <span className="absolute left-[711px] top-[18px] w-[44px] truncate leading-[16px]">{item.unit}</span>
-              <input
-                value={state.price}
-                onChange={(event) => patch(item, { price: group(event.target.value) })}
-                inputMode="decimal"
-                className="absolute left-[758px] top-[5px] h-[42px] w-[175px] rounded-[2px] bg-[#f0f4f7] px-[10px] text-right text-[13px] text-[#333] outline-none"
-              />
-              <span className="absolute left-[954px] top-[18px] leading-[16px]">{currency}</span>
-              <span className="absolute right-[398px] top-[18px] w-[150px] text-right font-semibold leading-[16px]">
+            <div key={item.name} className={`grid min-h-[53px] ${GRID} items-center px-[30px] ${index % 2 === 1 ? "bg-[#f7f9fb]" : ""}`}>
+              <span className="truncate pr-[8px] leading-[16px]">{item.name}</span>
+              <div className="flex items-center pl-[9px] pr-[8px]">
+                {item.boxAmount > 0 && item.boxUnit && (
+                  <>
+                    <input
+                      value={state.box}
+                      onChange={(event) => {
+                        const grouped = group(event.target.value)
+                        const boxes = number(grouped)
+                        patch(item, { box: grouped, qty: boxes > 0 ? group(String(Math.round(boxes * item.boxAmount * 1000) / 1000).replace(".", ",")) : "" })
+                      }}
+                      inputMode="decimal"
+                      className={field}
+                    />
+                    <span className="ml-[11px] shrink-0 text-right leading-[16px]">
+                      {`${item.boxUnit} (${item.boxAmount} ${item.unit})`}
+                    </span>
+                  </>
+                )}
+              </div>
+              <div className="flex items-center pl-[9px] pr-[8px]">
+                <input
+                  value={state.qty}
+                  onChange={(event) => {
+                    const grouped = group(event.target.value)
+                    const value = number(grouped)
+                    patch(item, { qty: grouped, box: item.boxAmount > 0 && value > 0 ? fmt(value / item.boxAmount).replace(/\s/g, "") : "" })
+                  }}
+                  inputMode="decimal"
+                  className={field}
+                />
+                <span className="ml-[11px] shrink-0 leading-[16px]">{item.unit}</span>
+              </div>
+              <div className="flex items-center pl-[9px] pr-[8px]">
+                <input value={state.price} onChange={(event) => patch(item, { price: group(event.target.value) })} inputMode="decimal" className={field} />
+                <span className="ml-[11px] shrink-0 leading-[16px]">{currency}</span>
+              </div>
+              <span className="pr-[8px] text-right font-semibold leading-[16px]">
                 {fmt(qty * price)} {currency}
               </span>
-              <span className="absolute right-[158px] top-[18px] w-[120px] text-right leading-[16px]">{barcode}</span>
-              <span className="absolute right-[30px] top-[18px] w-[140px] text-right leading-[16px]">{info ? `${info.stock.toLocaleString("ru-RU")} ${item.unit}` : `0 ${item.unit}`}</span>
+              <span className="pr-[8px] text-right leading-[16px]">-</span>
+              <span className="text-right leading-[16px]">{info ? `${info.stock.toLocaleString("ru-RU")} ${item.unit}` : `0 ${item.unit}`}</span>
             </div>
           )
         })}

@@ -214,6 +214,7 @@ export function SupplierIncomingForm({
   productUnits,
   productBoxes,
   productInfo,
+  productExpiry,
   onClose,
   onSubmit,
   onQuickAddSupplier,
@@ -242,6 +243,8 @@ export function SupplierIncomingForm({
   productUnits: Record<string, string>
   productBoxes: Record<string, { unit: string; amount: number }>
   productInfo: Record<string, { stock: number; barcode: string }>
+  /** Products that track an expiry date: only they get the strip's "Срок годности" field. */
+  productExpiry: Record<string, boolean>
   onClose: () => void
   onSubmit: (event: FormEvent) => void
   onQuickAddSupplier: () => void
@@ -298,7 +301,7 @@ export function SupplierIncomingForm({
   const optionLabel = (name: string) => {
     const info = productInfo[name]
     const unitName = productUnits[name] ?? ""
-    const barcode = info?.barcode && info.barcode !== "не установлен" ? ` (${t("Штрих")}: ${info.barcode})` : ""
+    const barcode = info?.barcode && info.barcode !== "не установлен" ? ` (Штрих: ${info.barcode})` : ""
     return info ? `${name} (${info.stock.toLocaleString("ru-RU")} ${unitName})${barcode}` : name
   }
   const money = (value: number) => `${(Math.round(value * 1000) / 1000).toLocaleString("ru-RU")} ${currency}`
@@ -360,23 +363,21 @@ export function SupplierIncomingForm({
             </div>
 
             {stripOpen && (
-              <div className="relative h-[87px] bg-[#f0f4f7]">
-                <StripProductSelect width={stripProduct ? 229 : 354} label={t("Наименование")} notFound={t("Не найдено")} value={stripProduct} options={productOptions} labelOf={optionLabel} onChange={(value) => { setStripProduct(value); setStripBox("") }} onClear={resetStrip} />
-                {stripProduct && (
-                  <div style={{ left: 266, width: 118 }} className="absolute top-0 h-[87px]">
+              <div className="relative flex h-[87px] bg-[#f0f4f7] pl-[18px]">
+                <StripProductSelect label={t("Наименование")} notFound={t("Не найдено")} value={stripProduct} options={productOptions} labelOf={optionLabel} onChange={(value) => { setStripProduct(value); setStripBox("") }} onClear={resetStrip} />
+                {stripProduct && productExpiry[stripProduct] && (
+                  <StripCell pitch="calc(8.333% + 11.5px)" gap={16}>
                     <span className="pointer-events-none absolute left-0 top-[46px] whitespace-nowrap text-[13px] leading-[18px] text-[#333]">
                       {stripExpiry ? isoToRuDate(ruDateToIso(stripExpiry)) : t("Выбрать дату")}
                     </span>
                     <input type="date" value={ruDateToIso(stripExpiry)} onChange={(event) => setStripExpiry(event.target.value ? isoToRuDate(event.target.value) : "")} className="absolute inset-x-0 top-[36px] h-[34px] cursor-pointer opacity-0" />
                     <span style={{ top: 69 }} className={LINE} />
-                  </div>
+                  </StripCell>
                 )}
                 {stripProduct && box && (
                   <StripInput
-                    left={398}
                     label={`${box.unit} (${box.amount} ${unit})`}
                     value={stripBox}
-                    forceFloat
                     onChange={(value) => {
                       const grouped = groupDigits(value)
                       setStripBox(grouped)
@@ -386,11 +387,9 @@ export function SupplierIncomingForm({
                   />
                 )}
                 <StripInput
-                  left={stripProduct ? (box ? 645 : 398) : 388}
                   label={t("Кол-во")}
                   value={stripQty}
                   unit={stripProduct ? unit : undefined}
-                  forceFloat={Boolean(stripProduct)}
                   onChange={(value) => {
                     const grouped = groupDigits(value)
                     setStripQty(grouped)
@@ -400,8 +399,8 @@ export function SupplierIncomingForm({
                     }
                   }}
                 />
-                <StripInput left={stripProduct ? (box ? 901 : 654) : 635} label={t("Сумма за ед")} value={stripCost} forceFloat={Boolean(stripProduct)} onChange={(value) => setStripCost(groupDigits(value))} />
-                <button type="button" onClick={addFromStrip} aria-label={t("добавить товар")} style={{ left: stripProduct ? (box ? 1160 : 913) : 893 }} className="absolute top-[41px] h-6 w-6">
+                <StripInput label={t("Сумма за ед")} value={stripCost} onChange={(value) => setStripCost(groupDigits(value))} />
+                <button type="button" onClick={addFromStrip} aria-label={t("добавить товар")} className="-ml-px mt-[29px] flex h-12 w-12 shrink-0 items-center justify-center">
                   <svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#4f71dc]">
                     <path d={PLUS} />
                   </svg>
@@ -410,13 +409,13 @@ export function SupplierIncomingForm({
             )}
 
             {items.length === 0 ? (
-              <div className="absolute inset-x-0 bottom-0 top-[55px] flex flex-col items-center justify-center pb-[46px] text-center text-[13px] leading-[16px] text-[#adadad]">
+              <div className={`pointer-events-none absolute inset-x-0 bottom-0 top-[55px] flex flex-col items-center justify-center pb-[46px] text-center text-[13px] leading-[16px] text-[#adadad] ${stripOpen ? "pt-[132px]" : ""}`}>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src="/empty-basket.svg" alt="" className="h-[72px] w-[72px]" />
                 <div className="mt-[22px]">
                   {t("Вы еще не выбрали ни одного товара")}.
                   <br />
-                  <button type="button" onClick={() => setStripOpen(true)} className="text-[#129fdd]">
+                  <button type="button" onClick={() => setStripOpen(true)} className="pointer-events-auto text-[#129fdd]">
                     {t("Добавить")}
                   </button>{" "}
                   {t("товар")}?
@@ -492,17 +491,29 @@ export function SupplierIncomingForm({
   )
 }
 
-function StripInput({ left, label, value, onChange, unit, forceFloat }: { left: number; label: string; value: string; onChange: (value: string) => void; unit?: string; forceFloat?: boolean }) {
-  const floating = Boolean(value) || forceFloat
+/** A strip column: `pitch` is its CSS width in the row (the reference's strip is fluid), `gap` is the space after the field. */
+function StripCell({ pitch, gap, children }: { pitch: string; gap: number; children: ReactNode }) {
   return (
-    <div style={{ left, width: 231 }} className="absolute top-0 h-[87px]">
+    <div style={{ width: pitch }} className="relative h-[87px] shrink-0">
+      <div style={{ width: `calc(100% - ${gap}px)` }} className="absolute left-0 top-0 h-full">{children}</div>
+    </div>
+  )
+}
+
+const STRIP_STD = "16.667%"
+const STRIP_QTY_UNIT = "calc(16.667% + 9px)"
+
+function StripInput({ label, value, onChange, unit }: { label: string; value: string; onChange: (value: string) => void; unit?: string }) {
+  const floating = Boolean(value)
+  return (
+    <StripCell pitch={unit ? STRIP_QTY_UNIT : STRIP_STD} gap={unit ? 67 : 16}>
       <span style={{ top: floating ? 26 : 45 }} className={`pointer-events-none absolute left-0 whitespace-nowrap font-semibold text-black ${floating ? "text-[9.75px] leading-[12px]" : "text-[13px] leading-[18px]"}`}>
         {label}
       </span>
       <input value={value} onChange={(event) => onChange(event.target.value)} inputMode="decimal" style={{ top: 43, height: 26 }} className="absolute inset-x-0 bg-transparent text-[13px] font-semibold leading-[18px] text-black outline-none" />
-      {unit && <span className="pointer-events-none absolute right-[1px] top-[47px] text-[13px] leading-[18px] text-[#333]">{unit}</span>}
+      {unit && <span className="pointer-events-none absolute left-full top-[31px] w-[45px] text-[13px] leading-[16px] text-[#333]">{unit}</span>}
       <span style={{ top: 69 }} className={LINE} />
-    </div>
+    </StripCell>
   )
 }
 
@@ -516,7 +527,7 @@ function groupDigits(value: string) {
 }
 
 /** The strip's "Наименование": a search-as-you-type select (the reference lists nothing until something is typed). */
-function StripProductSelect({ label, notFound, value, options, labelOf, onChange, onClear, width }: { label: string; notFound: string; value: string; options: string[]; labelOf: (name: string) => string; onChange: (value: string) => void; onClear: () => void; width: number }) {
+function StripProductSelect({ label, notFound, value, options, labelOf, onChange, onClear }: { label: string; notFound: string; value: string; options: string[]; labelOf: (name: string) => string; onChange: (value: string) => void; onClear: () => void }) {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState("")
   const term = query.trim().toLowerCase()
@@ -545,9 +556,9 @@ function StripProductSelect({ label, notFound, value, options, labelOf, onChange
     }
   }
   return (
-    <div style={{ left: 18, width }} className="absolute top-0 h-[87px]">
-      <span className={`pointer-events-none absolute left-0 whitespace-nowrap font-semibold text-black ${value ? "top-[26px] text-[9.75px] leading-[12px]" : "top-[45px] text-[13px] leading-[18px]"}`}>{label}</span>
-      {value && !open && <span className="pointer-events-none absolute left-0 right-[24px] top-[47px] truncate text-[13px] font-semibold leading-[18px] text-[#333]">{labelOf(value)}</span>}
+    <StripCell pitch="calc(25% - 0.5px)" gap={17}>
+      <span className={`pointer-events-none absolute left-0 whitespace-nowrap font-semibold text-black ${value || query ? "top-[26px] text-[9.75px] leading-[12px]" : "top-[45px] text-[13px] leading-[18px]"}`}>{label}</span>
+      {value && !open && <span data-no-translate className="pointer-events-none absolute left-0 right-[24px] top-[47px] truncate text-[13px] font-semibold leading-[18px] text-[#333]">{labelOf(value)}</span>}
       <input
         value={query}
         onKeyDown={onKeyDown}
@@ -576,13 +587,13 @@ function StripProductSelect({ label, notFound, value, options, labelOf, onChange
             <div className="px-[10px] py-[9px] text-[13px] leading-[14px] text-[#999]">{notFound}</div>
           ) : (
             matches.map((option, index) => (
-              <div key={option} onMouseDown={(event) => event.preventDefault()} onMouseEnter={() => setActive(index)} onClick={() => choose(option)} className={`cursor-pointer px-[10px] py-[9px] text-[13px] font-semibold leading-[14px] text-[#333] ${index === active ? "bg-[#e6f2ff]" : ""}`}>
+              <div key={option} onMouseDown={(event) => event.preventDefault()} onMouseEnter={() => setActive(index)} onClick={() => choose(option)} data-no-translate className={`cursor-pointer px-[10px] py-[9px] text-[13px] font-semibold leading-[14px] ${index === active ? "bg-[#e6f2ff] text-[#333]" : "text-[#757575]"}`}>
                 {labelOf(option)}
               </div>
             ))
           )}
         </div>
       )}
-    </div>
+    </StripCell>
   )
 }
