@@ -15,7 +15,7 @@ function Label({ label, required, floating, plain }: { label: string; required?:
   return (
     <span className={`${LABEL} ${floating ? "top-0 text-[9.75px] leading-[12.2px]" : "top-[25px] text-[13px] leading-[16.3px]"} ${!floating && plain ? "!font-normal" : ""}`}>
       {label}
-      {required && <span className="text-[#e57373]"> *</span>}
+      {required && <span className="font-normal text-[#e57373]"> *</span>}
     </span>
   )
 }
@@ -96,7 +96,7 @@ export function RefDate({
   return (
     <div style={{ height }} className={`relative ${className}`}>
       <Label label={label} required={required} floating={Boolean(display) || Boolean(compact)} plain />
-      <span className={`absolute left-0 right-[30px] truncate text-[13px] font-semibold leading-[18px] text-[#333] ${compact ? "top-[15px]" : "top-[26px]"}`}>{display}</span>
+      <span className={`absolute left-0 right-[30px] truncate text-[13px] font-semibold leading-[18px] text-[#333] ${compact ? "top-[15px]" : "top-[26px]"}`} data-no-translate>{display}</span>
       <svg viewBox="0 0 24 24" className={`pointer-events-none absolute right-[2.5px] h-5 w-5 ${compact ? "top-[14.6px]" : "top-[27px]"}`} aria-hidden>
         <path d={CALENDAR} fill="#ccc" />
       </svg>

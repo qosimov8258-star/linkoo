@@ -74,7 +74,7 @@ export function AddOrderDialog({
   edit?: { order: Order; items: LineItem[] }
   onSaved?: (patch: Partial<Order>) => void
 }) {
-  const { t } = useLanguage()
+  const { t, language } = useLanguage()
   const today = useMemo(() => new Date(), [])
   const tomorrow = useMemo(() => new Date(today.getTime() + 24 * 60 * 60 * 1000), [today])
 
@@ -382,7 +382,7 @@ export function AddOrderDialog({
               <label key={value} className="flex h-6 cursor-pointer items-center text-[13px] font-semibold text-black">
                 <svg viewBox="0 0 24 24" className="ml-[2px] h-5 w-5 shrink-0" aria-hidden>
                   <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8z" fill="#666" />
-                  {terms === value && <path d="M12 7c-2.76 0-5 2.24-5 5s2.24 5 5 5 5-2.24 5-5-2.24-5-5-5z" fill="#129fdd" />}
+                  {terms === value && <path d="M12 7c-2.76 0-5 2.24-5 5s2.24 5 5 5 5-2.24 5-5-2.24-5-5-5z" fill="#5d6474" />}
                 </svg>
                 <input type="radio" name="terms" checked={terms === value} onChange={() => setTerms(value)} className="sr-only" />
                 <span className="ml-[18px] font-normal">{t(label)}</span>
@@ -430,7 +430,7 @@ export function AddOrderDialog({
             <h3 className="text-[13px] font-semibold leading-[16.3px]">{t("Список товаров")}</h3>
             <div className="flex items-center">
               <button type="button" disabled={!ready} onClick={() => setInlineOpen(true)} className={`h-9 px-4 ${ready ? link : "text-[13px] text-slate-800"}`}>
-                {ready ? "" : "+ "}{t("добавить товар")}
+                {ready ? "" : "+ "}{language === "uz" ? "mahsulot qo'shish" : t("добавить товар")}
               </button>
               {ready && <button type="button" onClick={() => setPickerOpen(true)} className={`h-9 px-4 ${link}`}>{t("добавить из списка")}</button>}
               <input ref={importRef} type="file" accept=".csv,.xls,.xlsx" onChange={importItems} className="hidden" />
