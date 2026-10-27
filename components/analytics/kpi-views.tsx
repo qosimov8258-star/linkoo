@@ -148,9 +148,9 @@ export function KpiPerformanceView({ variant = "page" }: { variant?: "page" | "t
               <div className="flex gap-[22px]">{actionButtons}</div>
             </RefHeader>
           </div>
-          <section className="mx-[30px] -mt-[2px] flex h-[84px] gap-[29px] bg-white px-[28px] pt-[5px] shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
-            <div className="w-[255px]"><ReportSelectField label="Месяц" value={MONTHS[month]} onChange={(value) => value && setMonth(MONTHS.indexOf(value))} options={MONTHS} /></div>
-            <div className="w-[255px]"><ReportSelectField label="Год" value={String(year)} onChange={(value) => value && setYear(Number(value))} options={["2024", "2025", "2026", "2027"]} /></div>
+          <section className="mx-[28px] flex h-[77px] gap-[15px] bg-white px-[30px] pt-[12px] shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
+            <div className="w-[269px] [&>label>span:first-child]:!top-px"><ReportSelectField label="Месяц" value={MONTHS[month]} onChange={(value) => value && setMonth(MONTHS.indexOf(value))} options={MONTHS} /></div>
+            <div className="w-[269px] [&>label>span:first-child]:!top-px"><ReportSelectField label="Год" value={String(year)} onChange={(value) => value && setYear(Number(value))} options={["2024", "2025", "2026", "2027"]} /></div>
           </section>
         </>
       ) : (
@@ -175,15 +175,15 @@ export function KpiPerformanceView({ variant = "page" }: { variant?: "page" | "t
           }}
         />
       )}
-      <section className={`mx-[30px] ${standalone ? "mt-[18px]" : "mt-[10px]"} grid gap-x-[28px] md:grid-cols-[250px_1fr]`}>
+      <section className={`${standalone ? "mx-[28px] mt-[27px]" : "mx-[30px] mt-[10px]"} grid gap-x-[28px] md:grid-cols-[250px_1fr]`}>
         <div>
-          <div className="mb-[10px] flex h-[30px] items-center px-[5px]"><h2 className="text-[13px] font-semibold leading-4">KPI</h2></div>
+          <div className={`${standalone ? "mb-[3px]" : "mb-[10px]"} flex h-[30px] items-center px-[5px]`}><h2 className="text-[13px] font-semibold leading-4">KPI</h2></div>
           <div className="min-h-[720px] bg-white p-px shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
-            <button type="button" aria-current="true" onClick={recalc} className="h-[44.3px] w-full bg-[#f2f5f8] px-[17px] pt-[8px] text-left text-[13px] text-[#2c2c2c]">{t("Общий объем во всех кпэ")}</button>
+            <button type="button" aria-current="true" onClick={recalc} className="h-[44.3px] w-full bg-[#f2f5f8] px-[17px] pt-[8px] text-left text-[13px] text-[#2c2c2c]">{t("Общий объем")} <span data-no-translate>во всех кпэ</span></button>
           </div>
         </div>
         <div>
-          <div className="mb-[10px] flex h-[30px] items-center justify-between px-[5px]">
+          <div className={`${standalone ? "mb-[3px]" : "mb-[10px]"} flex h-[30px] items-center justify-between px-[5px]`}>
             <h2 className="text-[13px] font-semibold leading-4">{t("Общий объем")}</h2>
             <div className="-mr-[5px] flex items-center gap-[10px] text-[13px] font-semibold">
               {standalone ? (
@@ -195,7 +195,7 @@ export function KpiPerformanceView({ variant = "page" }: { variant?: "page" | "t
               <button type="button" onClick={recalc} className={`ml-[5px] text-[#71ce87] ${recalculating ? "opacity-60" : ""}`}>{t("Перерасчет")}</button>
             </div>
           </div>
-          <div className="bg-white shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]"><ReportEmpty className="pb-[46px] pt-[54px]" /></div>
+          <div className="bg-white shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]"><ReportEmpty className="pb-[46px] pt-[54px]" text={t("По вашему запросу ничего не найдено...")} /></div>
         </div>
       </section>
     </ReportPage>
