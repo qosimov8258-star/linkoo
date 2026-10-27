@@ -289,7 +289,7 @@ export function EmployeeBalanceView() {
             const rect = event.currentTarget.getBoundingClientRect()
             setMenu((current) => (current?.employeeId === row.id ? null : { employeeId: row.id!, top: rect.bottom + 4, left: rect.left }))
           }}
-          className="shrink-0 rounded-full p-0.5 text-[#333] hover:bg-[#f2f5f8]"
+          className="mr-[13px] shrink-0 rounded-full p-0.5 text-[#333] hover:bg-[#f2f5f8]"
         >
           <MoreVertical className="h-5 w-5" />
         </button>
@@ -372,6 +372,7 @@ export function EmployeeBalanceView() {
 
         <section className="bg-white pb-10">
           <BalanceTable
+            rowPad={9}
           fixedWidth={100}
             rows={rows}
             groups={GROUPS}
