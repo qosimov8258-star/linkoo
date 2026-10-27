@@ -625,8 +625,11 @@ export function ReportFilterPanel({
   onApply,
   onReset,
   normalCase = false,
+  outline = false,
   children,
 }: {
+  /** The stock pages' card: regular grey title, outlined close icon and a taller button gap. */
+  outline?: boolean
   title?: string
   tabs?: ReactNode
   onClose: () => void
@@ -645,15 +648,15 @@ export function ReportFilterPanel({
   return (
     <div className="fixed inset-x-0 bottom-0 top-[50px] z-[100] bg-black/[0.13]" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
       <form onSubmit={submit} className="mx-[30px] mt-[81px] bg-white px-[30px] pb-[18px] pt-[20px] font-sans text-[13px] text-[#333] shadow-[0_3px_10px_rgba(0,0,0,0.16),0_3px_10px_rgba(0,0,0,0.23)]">
-        <div className="flex items-center justify-between">
-          <h2 className="text-[14px] font-semibold leading-[18px]">{t(title)}</h2>
+        <div className={`flex items-center justify-between ${outline ? "-mt-[2px]" : ""}`}>
+          <h2 className={`text-[14px] leading-[18px] ${outline ? "font-normal text-[#666]" : "font-semibold"}`}>{t(title)}</h2>
           <button type="button" onClick={onClose} aria-label={t("Закрыть")} className="flex h-6 w-6 items-center justify-center">
-            <svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#555]"><path d="M12 2C6.47 2 2 6.47 2 12s4.47 10 10 10 10-4.47 10-10S17.53 2 12 2zm5 13.59L15.59 17 12 13.41 8.41 17 7 15.59 10.59 12 7 8.41 8.41 7 12 10.59 15.59 7 17 8.41 13.41 12 17 15.59z" /></svg>
+            <svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#555]"><path d={outline ? "M14.59 8L12 10.59 9.41 8 8 9.41 10.59 12 8 14.59 9.41 16 12 13.41 14.59 16 16 14.59 13.41 12 16 9.41 14.59 8zM12 2C6.47 2 2 6.47 2 12s4.47 10 10 10 10-4.47 10-10S17.53 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z" : "M12 2C6.47 2 2 6.47 2 12s4.47 10 10 10 10-4.47 10-10S17.53 2 12 2zm5 13.59L15.59 17 12 13.41 8.41 17 7 15.59 10.59 12 7 8.41 8.41 7 12 10.59 15.59 7 17 8.41 13.41 12 17 15.59z"} /></svg>
           </button>
         </div>
         {tabs && <div className="-mx-[25px] mt-[6px]">{tabs}</div>}
-        <div className={`${tabs ? "mt-[20px]" : "mt-[18px]"} grid grid-cols-1 gap-x-[10.67px] gap-y-[13px] sm:grid-cols-2 lg:grid-cols-4`}>{children}</div>
-        <div className="mt-[12px] flex gap-[10px]">
+        <div className={`${tabs ? "mt-[20px]" : outline ? "mt-[22px]" : "mt-[18px]"} grid grid-cols-1 gap-x-[10.67px] gap-y-[13px] sm:grid-cols-2 lg:grid-cols-4`}>{children}</div>
+        <div className={`${outline ? "mt-[22px]" : "mt-[12px]"} flex gap-[10px]`}>
           {onReset && (
             <button type="button" onClick={onReset} className="flex h-9 flex-1 items-center justify-center gap-[8px] rounded-[5px] bg-[#fbe9e9] text-[13px] font-semibold text-[#f06c6c] transition-[filter] hover:brightness-95">
               <svg viewBox="0 0 24 24" className="h-[18px] w-[18px] fill-[#f06c6c]" aria-hidden><path d="M17.65 6.35A7.958 7.958 0 0012 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08A5.99 5.99 0 0112 18c-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z" /></svg>
