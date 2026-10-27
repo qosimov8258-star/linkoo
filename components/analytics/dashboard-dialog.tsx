@@ -169,7 +169,7 @@ export function DashboardDialog({
           <X className="h-5 w-5" />
         </button>
       </header>
-      <div className="flex-1 overflow-y-auto px-[60px] pb-[30px] pt-[35px]">
+      <div className="flex-1 overflow-y-auto px-[60px] pb-[30px] pt-[30px]">
         <fieldset>
           {[
             ["all", "Все"],
@@ -177,7 +177,7 @@ export function DashboardDialog({
             ["access", "Выбранным доступам"],
           ].map(([value, label]) => (
             <label key={value} className="flex h-[34px] cursor-pointer items-center text-[13px] text-[#333]">
-              <span className={`mr-[18px] flex h-[20px] w-[20px] shrink-0 items-center justify-center rounded-full border-2 ${visibility === value ? "border-[#9aa0aa]" : "border-[#222]"}`}>
+              <span className={`ml-[2px] mr-[18px] flex h-[20px] w-[20px] shrink-0 items-center justify-center rounded-full border-2 ${visibility === value ? "border-[#5d6474]" : "border-[#222]"}`}>
                 {visibility === value && <span className="h-[10px] w-[10px] rounded-full bg-[#5d6474]" />}
               </span>
               <input type="radio" checked={visibility === value} onChange={() => setVisibility(value)} className="sr-only" />
@@ -241,8 +241,8 @@ export function DashboardDialog({
         </div>
         )}
 
-        <label className="relative mt-[27px] block h-[40px] border-b border-[#d5dae1]">
-          <span className={`pointer-events-none absolute left-0 ${picked ? "top-0 text-[10px] font-semibold leading-3" : "top-[18px] text-[13px] font-bold leading-4"}`} data-no-translate>Дашборд</span>
+        <label className="relative mt-[24px] block h-[40px] border-b border-[#d5dae1]">
+          <span className={`pointer-events-none absolute left-0 ${picked ? "top-0 text-[10px] font-semibold leading-3" : "top-[15px] text-[13px] font-bold leading-4"}`} data-no-translate>Дашборд</span>
           <select
             value={dashboard}
             onChange={(event) => {
@@ -255,10 +255,10 @@ export function DashboardDialog({
               <option key={name} data-no-translate className="text-black">{name}</option>
             ))}
           </select>
-          <svg viewBox="0 0 10 5" className="pointer-events-none absolute bottom-[10px] right-[2px] h-[5px] w-[10px] fill-[#757575]" aria-hidden><path d="M0 0h10L5 5z" /></svg>
+          <svg viewBox="0 0 10 5" className="pointer-events-none absolute bottom-[10px] right-[11px] h-[5px] w-[10px] fill-[#757575]" aria-hidden><path d="M0 0h10L5 5z" /></svg>
         </label>
       </div>
-      <footer className="flex h-[57px] shrink-0 items-center justify-end border-t border-[#e0e0e0] px-[30px]">
+      <footer className="flex h-[57px] shrink-0 items-center justify-end border-t border-[#e0e0e0] pl-[30px] pr-[26px]">
         <button
           type="button"
           disabled={saving}
