@@ -321,14 +321,14 @@ export function VisitBuilderView({ variant = "visits" }: { variant?: "visits" | 
 
       <section className="mx-7 bg-white shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
         <div className="flex h-[60px] flex-wrap items-center gap-[15px] px-[30px]">
-          <button type="button" onClick={saveReport} className="flex h-[38px] items-center rounded-[3px] bg-[#4f71dc] px-[15px] text-[13px] font-semibold text-white hover:brightness-95">
-            <Bookmark className="mr-3 h-[18px] w-[18px] fill-white" /> {t("Сохранить")}
+          <button type="button" onClick={saveReport} className="flex h-[36px] items-center rounded-[5px] bg-[#4f71dc] px-[15px] text-[13px] font-normal text-white hover:brightness-95">
+            <Bookmark className="mr-[7px] h-[18px] w-[18px] fill-white" /> {t("Сохранить")}
           </button>
-          <button type="button" onClick={() => setReportsOpen(true)} className="flex h-[38px] items-center rounded-[3px] bg-[#ff8a6f] px-[15px] text-[13px] font-semibold text-white hover:brightness-95">
-            <FileBox className="mr-3 h-[18px] w-[18px] fill-white" /> {t("Отчеты")}
+          <button type="button" onClick={() => setReportsOpen(true)} className="flex h-[36px] items-center rounded-[5px] bg-[#ff8a6f] px-[15px] text-[13px] font-normal text-white hover:brightness-95">
+            <FileBox className="mr-[7px] h-[18px] w-[18px] fill-white" /> {t("Отчеты")}
           </button>
-          <button type="button" onClick={downloadReport} className="flex h-[38px] items-center rounded-[3px] bg-[#4db6ac] px-[15px] text-[13px] font-semibold text-white hover:brightness-95">
-            <Download className="mr-3 h-[18px] w-[18px]" /> {t("Скачать")}
+          <button type="button" onClick={downloadReport} className="flex h-[36px] items-center rounded-[5px] bg-[#4db6ac] px-[15px] text-[13px] font-normal text-white hover:brightness-95">
+            <Download className="mr-[7px] h-[18px] w-[18px]" /> {t("Скачать")}
           </button>
           <div className="ml-auto flex flex-wrap items-center gap-[19px]">
             <span className="relative text-[12px] font-bold text-[#4f71dc]">
@@ -356,9 +356,9 @@ export function VisitBuilderView({ variant = "visits" }: { variant?: "visits" | 
             <OptionColumn title="Колонки" placeholder="Поиск колонки..." query={columnQuery} onQuery={setColumnQuery} items={shownColumns} selected={selectedColumns} onToggle={(item) => toggle(item, setSelectedColumns)} info />
             <OptionColumn title="Вертикальная группировка" placeholder="Поиск вертикальных группировки..." query={verticalQuery} onQuery={setVerticalQuery} items={shownVertical} selected={verticalGroups} onToggle={(item) => toggle(item, setVerticalGroups)} info />
             <OptionColumn title="Горизонтальная группировка" placeholder="Поиск горизонтальных группировки..." query={horizontalQuery} onQuery={setHorizontalQuery} items={shownHorizontal} selected={horizontalGroups} onToggle={(item) => toggle(item, setHorizontalGroups)} info />
-            <div className="px-[20px] pb-[20px] pt-[20px]">
-              <h2 className="text-[15px] font-bold leading-[18px]">{t("Фильтр")}</h2>
-              <label className="mt-[11px] flex cursor-pointer items-center gap-[9px] text-[13px] font-medium">
+            <div className="pb-[20px] pl-[23px] pr-[17px] pt-[20px]">
+              <h2 className="text-[15px] font-semibold leading-[18.75px]">{t("Фильтр")}</h2>
+              <label className="mt-[11px] flex cursor-pointer items-center gap-[9px] text-[13px] font-semibold leading-5 text-black">
                 <input type="checkbox" checked={showTotals} onChange={(event) => setShowTotals(event.target.checked)} className={CHECKBOX} />
                 {t("Показать итоги")}
               </label>
@@ -483,7 +483,7 @@ function OptionColumn({ title, placeholder, query, onQuery, items, selected, onT
   const { t } = useLanguage()
   return (
     <div className="px-[20px] pb-[30px] pt-[18px]">
-      <h2 className="text-[15px] font-bold leading-[18px]">{t(title)}</h2>
+      <h2 className="text-[15px] font-semibold leading-[18.75px]">{t(title)}</h2>
       <label className="relative mt-[11px] block">
         <input value={query} onChange={(event) => onQuery(event.target.value)} placeholder={t(placeholder)} className="h-[42px] w-full rounded-[3px] bg-[#f2f5f8] px-[11px] pr-10 text-[12px] outline-none placeholder:text-[#999]" />
         <Search className="absolute right-3 top-1/2 h-5 w-5 -translate-y-1/2" />
