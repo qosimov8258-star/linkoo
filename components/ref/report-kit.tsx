@@ -86,7 +86,7 @@ export function ReportFilters({
       <button
         type="submit"
         disabled={applyDisabled}
-        className="mt-2 block h-9 w-full rounded-[5px] bg-[#71ce87] text-[13px] font-semibold text-white transition-[filter] hover:brightness-95 disabled:opacity-60 uppercase"
+        className="mt-2 block h-9 w-full rounded-[5px] bg-[#71ce87] text-[13px] font-semibold text-white transition-[filter] hover:brightness-95 disabled:opacity-60"
       >
         {t("Применить")}
       </button>
