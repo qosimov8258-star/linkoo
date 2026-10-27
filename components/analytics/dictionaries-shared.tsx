@@ -120,7 +120,7 @@ export function DictionaryPage({ children }: { children: ReactNode }) {
 }
 
 /** Table header bar (50 px, 30 px inset) and body row with the reference's dotted separator. */
-export const DICT_HEAD = "grid h-[50px] items-center bg-[#5d6474] px-[30px] font-semibold text-white"
+export const DICT_HEAD = "grid h-[50px] items-center bg-[#5d6474] px-[30px] pt-[2px] font-semibold text-white"
 export const DICT_ROW =
   "group relative grid min-h-[50px] items-center px-[30px] after:pointer-events-none after:absolute after:inset-x-0 after:bottom-0 after:h-[2px] after:bg-[linear-gradient(to_right,#d9e0e5_2px,transparent_2px)] after:bg-[length:8px_2px] after:content-[''] hover:bg-[#f2f5f8]"
 

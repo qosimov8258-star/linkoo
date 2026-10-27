@@ -79,14 +79,14 @@ function BrandsGrid() {
             ) : (
               rows.map((brand) => (
                 <div key={brand.id} className={`${DICT_ROW} ${cols}`}>
-                  <div className="py-2 pr-4">{brand.id}</div>
-                  <div className="py-2 pr-4">
+                  <div className="pb-[7px] pt-[9px] pr-4">{brand.id}</div>
+                  <div className="pb-[7px] pt-[9px] pr-4">
                     {/* eslint-disable-next-line @next/next/no-img-element -- private API pictures */}
                     {brand.photoUrl && <img src={brand.photoUrl} alt="" className="h-5 w-10 object-contain" />}
                   </div>
-                  <div className="break-words py-2 pr-4">{brand.name}</div>
-                  <div className="break-words py-2 pr-4">{brand.organization || t("Не указано")}</div>
-                  <div className="whitespace-nowrap py-2 pr-4">{created(brand)}</div>
+                  <div className="break-words pb-[7px] pt-[9px] pr-4">{brand.name}</div>
+                  <div className="break-words pb-[7px] pt-[9px] pr-4">{brand.organization || t("Не указано")}</div>
+                  <div className="whitespace-nowrap pb-[7px] pt-[9px] pr-4">{created(brand)}</div>
                   <div className="absolute right-[36px] top-[7px]">
                     {canEdit && (
                       <RowMenu
