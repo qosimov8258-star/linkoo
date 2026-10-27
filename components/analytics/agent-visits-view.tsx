@@ -172,7 +172,7 @@ export function AgentVisitsView({ supervisorMode = false }: { supervisorMode?: b
       const ordered = [...rows].map((row) => ({ name: row.name, values: flat(row) })).sort(compare)
       return [
         ...ordered.map((row) => ({ key: row.name, cells: [row.name, ...fmt(row.values)] })),
-        { key: "total", tone: "total" as const, cells: [t("Итого"), ...fmt(sum(ordered.map((row) => row.values)))] },
+        { key: "total", tone: "total" as const, cells: [<span key="t" data-no-translate>Итого</span>, ...fmt(sum(ordered.map((row) => row.values)))] },
       ]
     }
 
@@ -205,7 +205,7 @@ export function AgentVisitsView({ supervisorMode = false }: { supervisorMode?: b
         for (const agent of [...group.agents].sort(compare)) out.push({ key: `a-${agent.name}`, tone: "sub", cells: [agent.name, ...fmt(agent.values)] })
       }
     }
-    out.push({ key: "total", tone: "dark", cells: [t("Итого"), ...fmt(sum(orderedGroups.map((group) => group.values)))] })
+    out.push({ key: "total", tone: "dark", cells: [<span key="t" data-no-translate>Итого</span>, ...fmt(sum(orderedGroups.map((group) => group.values)))] })
     return out
   }, [rows, sort, supervisorMode, supervisors, collapsed, t])
 
