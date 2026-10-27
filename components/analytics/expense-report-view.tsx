@@ -219,7 +219,7 @@ function ExpenseReportContent({ config }: { config: ExpenseReportConfig }) {
 
   return (
     <main className="ref-white min-h-screen bg-white text-[#333]">
-      <header className="flex min-h-[60px] items-center px-[28px]">
+      <header className="flex min-h-[60px] items-center pl-[30px] pr-[28px]">
         <div className="flex min-w-0 flex-wrap items-center">
           <FavoritesButton className="flex items-center gap-[5px] text-[18px] font-bold text-[#4f71dc]" />
           <span className="mx-[11px] h-[21px] w-[2px] bg-[#5d6474]" />

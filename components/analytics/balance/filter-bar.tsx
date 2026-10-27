@@ -48,11 +48,12 @@ export function BalanceFilterButton({
 }) {
   const { t } = useLanguage()
   return (
-    <div className="flex flex-wrap items-center gap-[10px]">
-      <button type="button" onClick={onOpen} className="flex h-[34px] items-center gap-2 rounded-[3px] bg-[#4f71dc] pl-3 pr-4 text-[13px] font-semibold text-white">
-        <svg viewBox="0 0 24 24" className="h-[18px] w-[18px] fill-white" aria-hidden><path d={RI.filter} /></svg> {t("Фильтр")}{count ? ` / ${count}` : ""}
+    <div className="flex flex-wrap items-center">
+      <button type="button" onClick={onOpen} className="flex h-[34px] items-center rounded-[5px] bg-[#4f71dc] pl-[12.8px] pr-[17px] text-[13px] font-semibold text-white hover:brightness-95">
+        <svg viewBox="0 0 24 24" className="h-[18px] w-[18px] shrink-0 fill-white" aria-hidden><path d={RI.filter} /></svg>
+        <span className="pl-2">{t("Фильтр")}{count ? ` / ${count}` : ""}</span>
       </button>
-      <span className="text-[13px] font-semibold text-[#4f71dc]">
+      <span className="ml-[14px] text-[13px] font-semibold text-[#4f71dc]">
         {hidePeriod ? "" : `${formatDotDate(from)} - ${formatDotDate(to)} `}{scope.length ? scope.join(", ") : t("Во всей организации")}
       </span>
       {extra}
