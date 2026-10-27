@@ -83,6 +83,9 @@ const STATIC_OPTIONS: Record<string, string[]> = {
 
 // Fields backed by order data filter for real; the rest keep the original layout
 // and become selectable once the backend exposes those attributes.
+// The reference prints these labels in Russian in every language (kept by DomTranslator's route list).
+const RAW_LABELS = new Set(["Финансовый счет", "ИНН магазина", "Маркетинговая акция", "Исключить полный возврат", "Заказы с возвратами", "Показать дату реализации, не равную дате доставки"])
+
 const SELECT_FIELDS: SelectField[] = [
   { key: "overdue", label: "Просроченность долга" },
   { key: "financeAccount", label: "Финансовый счет" },
@@ -345,7 +348,7 @@ export function OrderFilterPanel({ orders, filters, onChange, onApply, onClose }
   const setSelect = (key: string, value: string[]) => onChange({ ...filters, select: { ...filters.select, [key]: value } })
 
   const renderSelect = (field: SelectField) => (
-    <SelectBox key={field.key} label={t(field.label)} value={filters.select[field.key] ?? []} options={optionsFor(field)} onChange={(value) => setSelect(field.key, value)} />
+    <SelectBox key={field.key} label={RAW_LABELS.has(field.label) ? field.label : t(field.label)} value={filters.select[field.key] ?? []} options={optionsFor(field)} onChange={(value) => setSelect(field.key, value)} />
   )
 
   return (
@@ -368,7 +371,7 @@ export function OrderFilterPanel({ orders, filters, onChange, onApply, onClose }
         ))}
         <DateField label={DATE_FIELDS[4].label} value={{ from: "", to: "" }} onChange={() => {}} />
         {SELECT_FIELDS.map(renderSelect)}
-        <TextBox label={t("Долг клиента больше")} value={filters.debtMin} onChange={(value) => onChange({ ...filters, debtMin: value.replace(/[^\d]/g, "") })} />
+        <TextBox label="Долг клиента больше" value={filters.debtMin} onChange={(value) => onChange({ ...filters, debtMin: value.replace(/[^\d]/g, "") })} />
         <TextBox label={t("Номер счет фактура")} value={filters.invoiceNumber} onChange={(value) => onChange({ ...filters, invoiceNumber: value })} />
         {SELECT_FIELDS_AFTER_DEBT.map(renderSelect)}
       </div>
@@ -383,7 +386,7 @@ export function OrderFilterPanel({ orders, filters, onChange, onApply, onClose }
               onChange={(event) => onChange({ ...filters, checks: { ...filters.checks, [check.key]: event.target.checked } })}
               className="mt-[2px] h-[15px] w-[15px] shrink-0 accent-[#5d6474]"
             />
-            {t(check.label)}
+            {RAW_LABELS.has(check.label) ? check.label : t(check.label)}
           </label>
         ))}
       </div>

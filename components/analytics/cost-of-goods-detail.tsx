@@ -20,9 +20,9 @@ import { NET_COST_API, NET_COST_SOURCE_LABELS, type NetCostDetail, type NetCostD
 
 function Item({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <li className="flex flex-wrap gap-x-1.5 leading-[25px]">
-      <span className="text-[#586174]">{label}:</span>
-      <span className="font-semibold text-[#17233b]">{children}</span>
+    <li className="flex h-[25px] items-center gap-x-[5.1px] leading-[25px]">
+      <span>{label}:</span>
+      <span className="font-semibold">{children}</span>
     </li>
   )
 }
@@ -82,69 +82,60 @@ export function NetCostDetailPanel({
   if (error || !data) return <ErrorBlock error={error || "Себестоимость не найдена"} onRetry={reload} />
 
   const source = data.sourceType === "manual" ? null : data.sourceType
+  // The reference card: 1270px wide (15px beyond the list), 66px title block, then three columns of 25px lines.
   return (
-    <div className="rounded-md bg-white shadow-sm">
-      <div className="flex min-h-[65px] items-center justify-between gap-3 border-b border-[#efefef] px-5 md:px-8">
-        <button type="button" onClick={onClose} className="min-w-0 flex-1 text-left">
-          <span className="block text-[16px] font-bold text-[#333]">
-            {t("Себестоимость")} №{data.id}
-          </span>
-          <span className="block truncate text-[13px] text-[#666]">{data.itemName}</span>
-        </button>
+    <div className="-mx-[15px] mb-[20px] mt-[20px] bg-white text-[13px] text-[#333] [box-shadow:0_3px_10px_rgba(0,0,0,0.16),0_3px_10px_rgba(0,0,0,0.23)]">
+      <div role="button" tabIndex={0} onClick={onClose} onKeyDown={(event) => event.key === "Enter" && onClose()} className="h-[66px] w-full cursor-pointer border-b border-[#efefef] px-[30px] pt-[13.5px] text-left">
+        <span className="block text-[16px] font-bold leading-[18.4px]">
+          {t("Себестоимость")} №{data.id}
+        </span>
+        <span className="mt-[4.6px] block truncate text-[13px] font-bold leading-[15px] text-[#666]">{data.itemName}</span>
       </div>
 
-      <div className="grid gap-6 px-5 py-5 text-[14px] md:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,1fr)] md:px-8">
-        <ul>
+      <div className="flex h-[196px] pl-[30px] pr-[30px]">
+        <ul className="w-[403px] shrink-0 pt-[40px]">
           {source ? (
             <li className="leading-[25px]">
-              <span className="text-[#586174]">{t(NET_COST_SOURCE_LABELS[source] ?? source)} №: </span>
+              <span>{t(NET_COST_SOURCE_LABELS[source] ?? source)} №: </span>
               <DocumentLink docType={source} docId={data.sourceId} />
             </li>
           ) : (
-            <li className="font-semibold leading-[25px] text-[#17233b]">{t("Произвольная себестоимость")}</li>
+            <li className="leading-[25px]">Произвольная себестоимость</li>
           )}
           <Item label={t("Склад")}>{data.stock || t("Не указано")}</Item>
           {data.warehouse && data.warehouse !== data.stock && <Item label={t("Склад документа")}>{data.warehouse}</Item>}
           <Item label={t("Дата")}>{recordDate(data.date, language)}</Item>
           {!data.isManual && <Item label={t("Количество")}>{formatMoney(data.qty, 3)}</Item>}
-          <Item label={t("Уср. Себестоимость")}>{fmtCost(data.cost)}</Item>
+          <Item label="Уср. Себестоимость">{fmtCost(data.cost)}</Item>
           <Item label={t("Себестоимость")}>{fmtCost(data.realCost)}</Item>
           {data.comment && <Item label={t("Комментарий")}>{data.comment}</Item>}
         </ul>
-        <ul>
+        <ul className="w-[342.5px] shrink-0 pt-[40px]">
           {data.checkData.map((check) => (
-            <li key={check.key} className="flex items-center gap-2 leading-[30px]">
+            <li key={check.key} className="flex h-[25px] items-center leading-[25px]">
               {!check.isCorrect && check.key === "is_negative_balance_correct" && data.negativeTransactions.length ? (
                 <button type="button" onClick={() => setFactOpen(true)} className="text-left font-semibold text-[#4f71dc] hover:underline">
-                  {t(check.name)}:
+                  {check.name}:
                 </button>
               ) : (
-                <span className="text-[#586174]">{t(check.name)}:</span>
+                <span>{check.name}:</span>
               )}
-              <CheckIcon ok={check.isCorrect} />
+              <span className="ml-[3.3px] flex h-5 w-5 items-center justify-center [&_svg]:h-5 [&_svg]:w-5">
+                <CheckIcon ok={check.isCorrect} />
+              </span>
             </li>
           ))}
         </ul>
-        <div>
-          <p className="font-bold text-[#17233b]">{t("Характеристика")}:</p>
-          <ul className="mt-1">
-            <Item label={t("Рассчитанный баланс")}>{formatMoney(data.balance, 3)}</Item>
-            <Item label={t("Сумма переоценки")}>{data.revaluation === null ? "0" : fmtCost(data.revaluation)}</Item>
-            <Item label={t("Общая сумма переоценки")}>{data.totalRevaluation === null ? "0" : fmtSum(data.totalRevaluation)}</Item>
-            <Item label={t("Последнее время проверки")}>{data.lastCheckTime ? docDate(data.lastCheckTime, language, true) : "—"}</Item>
+        <div className="min-w-0 flex-1 pt-[26px]">
+          <p className="h-[25px] font-bold leading-[25px]">{t("Характеристика")}:</p>
+          <ul className="mt-[5.3px]">
+            <Item label="Рассчитанный баланс">{formatMoney(data.balance, 3)}</Item>
+            <Item label="Сумма переоценки">{data.revaluation === null ? "0" : fmtCost(data.revaluation)}</Item>
+            <Item label="Общая сумма переоценки">{data.totalRevaluation === null ? "0" : fmtSum(data.totalRevaluation)}</Item>
+            <Item label="Последнее время проверки">{data.lastCheckTime ? docDate(data.lastCheckTime, language, true) : "—"}</Item>
           </ul>
         </div>
       </div>
-
-      {data.documents.length > 0 && (
-        <div className="border-t border-[#efefef] px-5 py-4 md:px-8">
-          <p className="mb-2 text-[13px] font-semibold text-[#8a90a2]">
-            {t("Документы")} ({data.documents.length})
-            {data.nextDate ? ` · ${t("до")} ${docDate(data.nextDate, language)}` : ""}
-          </p>
-          <DocumentsTable rows={data.documents} />
-        </div>
-      )}
 
       {factOpen && (
         <CashModal title={t("Причины отрицательного баланса")} onClose={() => setFactOpen(false)} size="lg">

@@ -108,7 +108,7 @@ function NetCostFilter({ filters, options, onClose, onApply }: { filters: Filter
           <RefSearchSelect multi label={t("Склад")} items={warehouses} selected={pick(warehouses, draft.stocks)} onChange={(next) => set({ stocks: next.map((item) => item.value) })} />
           <RefSearchSelect label={t("Статус")} items={statuses} selected={pick(statuses, draft.isCorrect ? [draft.isCorrect] : [])} onChange={(next) => set({ isCorrect: (next[0]?.value ?? "") as Filters["isCorrect"] })} />
           <FilterDate label={t("Период создания")} begin={draft.fromDate} end={draft.toDate} onChange={(fromDate, toDate) => set({ fromDate, toDate })} />
-          <RefSearchSelect multi label={t("Ошибки")} items={faults} selected={pick(faults, draft.faults)} onChange={(next) => set({ faults: next.map((item) => item.value) as NetCostCheckKey[] })} />
+          <RefSearchSelect multi label="Ошибки" items={faults} selected={pick(faults, draft.faults)} onChange={(next) => set({ faults: next.map((item) => item.value) as NetCostCheckKey[] })} />
         </RefFilterPanel>
       </div>
     </>
@@ -362,18 +362,17 @@ export function CostOfGoodsView({ embedded = false }: { embedded?: boolean }) {
                 <CheckIcon ok={row.isCorrect} title={checksTitle(row.checkData)} />
               </span>,
             ]}
+            replaceRow={(row) => state.detailId === row.id}
             expanded={(row) =>
               state.detailId === row.id ? (
-                <div className="bg-[#f2f5f8] px-2 py-3 md:px-4">
-                  <NetCostDetailPanel
-                    key={`${row.id}-${detailVersion}`}
-                    id={row.id}
-                    canEdit={canEdit}
-                    onClose={() => update({ detailId: null })}
-                    onEdit={(detail) => setDialog({ kind: "entry", record: detail })}
-                    onDelete={(detail) => setDialog({ kind: "delete", record: detail })}
-                  />
-                </div>
+                <NetCostDetailPanel
+                  key={`${row.id}-${detailVersion}`}
+                  id={row.id}
+                  canEdit={canEdit}
+                  onClose={() => update({ detailId: null })}
+                  onEdit={(detail) => setDialog({ kind: "entry", record: detail })}
+                  onDelete={(detail) => setDialog({ kind: "delete", record: detail })}
+                />
               ) : null
             }
           />

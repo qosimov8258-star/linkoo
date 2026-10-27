@@ -94,6 +94,8 @@ export type TransferItem = {
   /** Weight of one unit, kg. */
   weight: number
   series: string
+  /** "100 block": the line's quantity in the product's box unit (reference display data). */
+  boxLabel?: string
 }
 
 export type Transfer = {

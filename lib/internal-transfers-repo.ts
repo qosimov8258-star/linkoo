@@ -77,6 +77,7 @@ export async function ensureTransfersSchema(): Promise<void> {
           series TEXT NOT NULL DEFAULT ''
         );
         CREATE INDEX IF NOT EXISTS transfer_reference_items_transfer_idx ON transfer_reference_items (transfer_id);
+        ALTER TABLE transfer_reference_items ADD COLUMN IF NOT EXISTS box_label TEXT NOT NULL DEFAULT '';
       `)
     })().catch((error) => {
       globalThis.__linkoTransfersSchemaV2 = undefined
@@ -184,8 +185,8 @@ export async function getTransfer(id: number, db?: PgDb): Promise<Transfer | nul
 export async function getTransferReferenceItems(id: number): Promise<TransferItem[]> {
   await ensureTransfersSchema()
   const rows = (await getDb()
-    .prepare("SELECT product, article, unit, quantity, weight, price, series FROM transfer_reference_items WHERE transfer_id = @id ORDER BY position, id")
-    .all({ id })) as Array<{ product: string; article: string; unit: string; quantity: number; weight: number; price: number; series: string }>
+    .prepare("SELECT product, article, unit, quantity, weight, price, series, box_label FROM transfer_reference_items WHERE transfer_id = @id ORDER BY position, id")
+    .all({ id })) as Array<{ product: string; article: string; unit: string; quantity: number; weight: number; price: number; series: string; box_label: string }>
   return rows.map((row, index) => ({
     id: index + 1,
     key: "",
@@ -197,6 +198,7 @@ export async function getTransferReferenceItems(id: number): Promise<TransferIte
     // `weight` of a line is its total weight; TransferItem keeps the weight of one unit
     weight: Number(row.quantity) ? (Number(row.weight) || 0) / Number(row.quantity) : 0,
     series: row.series,
+    boxLabel: row.box_label || undefined,
   }))
 }
 

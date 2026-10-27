@@ -7,7 +7,7 @@ import { ArrowDown, ArrowUp } from "lucide-react"
 import { buildCashQuery, useCashJson, type CashQuery } from "@/components/analytics/cash/use-cash"
 import { CashSnackbar, useCanWrite, type SnackbarMessage } from "@/components/analytics/cash-management-shared"
 import { TransferDetailPanel } from "@/components/analytics/internal-transfers-detail"
-import { EMPTY_TRANSFER_FILTERS, TransferFilterBar, type TransferFilters } from "@/components/analytics/internal-transfers-filter"
+import { EMPTY_TRANSFER_FILTERS, FilterToggle, TransferFilterPanel, transferFilterCount, type TransferFilters } from "@/components/analytics/internal-transfers-filter"
 import { TransferFormDialog } from "@/components/analytics/internal-transfers-form"
 import { TransferInvoices } from "@/components/analytics/internal-transfers-print"
 import { TransferStatusLabel, docDate, formatSum, formatWeight, transfersListSheet } from "@/components/analytics/internal-transfers-shared"
@@ -157,7 +157,7 @@ export function InternalTransfersView() {
 
   const sort = (key: string) => update({ ordering: state.ordering === key ? `-${key}` : state.ordering === `-${key}` ? "" : key, page: 1 })
   const sortHeader = (key: string, label: ReactNode) => (
-    <button type="button" onClick={() => sort(key)} className="inline-flex items-center gap-1 font-semibold">
+    <button type="button" onClick={() => sort(key)} className="inline-flex items-center gap-1 text-left font-semibold">
       {label}
       <SortIcon ordering={state.ordering} sortKey={key} />
     </button>
@@ -216,9 +216,21 @@ export function InternalTransfersView() {
       <RefCard>
         <RefToolbar
           linkFilter="flush"
-          leftSlot={
-            <TransferFilterBar
+          filterOpen={filterOpen}
+          filterPanel={
+            <TransferFilterPanel
               filters={state.filters}
+              warehouses={warehouseNames}
+              onClose={() => setFilterOpen(false)}
+              onApply={(filters) => {
+                setFilterOpen(false)
+                update({ filters, page: 1, detailId: null })
+              }}
+            />
+          }
+          leftSlot={
+            <FilterToggle
+              count={transferFilterCount(state.filters)}
               open={filterOpen}
               onOpen={() => setFilterOpen(true)}
               onClose={() => setFilterOpen(false)}
@@ -226,11 +238,6 @@ export function InternalTransfersView() {
                 setFilterOpen(false)
                 update({ filters: { ...EMPTY_TRANSFER_FILTERS }, page: 1, detailId: null })
               }}
-              onApply={(filters) => {
-                setFilterOpen(false)
-                update({ filters, page: 1, detailId: null })
-              }}
-              warehouses={warehouseNames}
             />
           }
           query={searchDraft}
@@ -324,7 +331,7 @@ export function InternalTransfersView() {
                 <th className={`${th} w-[15.86%]`}>{t("На склад")}</th>
                 <th className={`${th} w-[15.86%]`}>{sortHeader("created_by", t("Создал"))}</th>
                 <th className={`${th} w-[7.93%] !whitespace-normal leading-[18px] [&>*]:block [&>*]:max-h-[36px] [&>*]:overflow-hidden`}>{sortHeader("created_date", t("Дата создания"))}</th>
-                <th className={`${th} w-[7.93%] !whitespace-normal leading-[18px] [&>*]:block [&>*]:max-h-[36px] [&>*]:overflow-hidden`}>{sortHeader("date_delivery", t("Дата доставки"))}</th>
+                <th className={`${th} w-[7.93%] !whitespace-normal leading-[18px] [&>*]:relative [&>*]:-top-[1.6px] [&>*]:block [&>*]:max-h-[36px] [&>*]:overflow-hidden`}>{sortHeader("date_delivery", t("Дата доставки"))}</th>
                 <th className={`${th} w-[15.86%]`}>{sortHeader("total_price", t("Сумма"))}</th>
                 <th className={`${th} w-[10.35%]`}>{sortHeader("status", t("Статус"))}</th>
               </tr>
@@ -356,7 +363,7 @@ export function InternalTransfersView() {
                     )}
                     {open && (
                       <tr>
-                        <td colSpan={selectMode ? 9 : 8} className="bg-[#f2f5f8] px-2 py-3 md:px-4">
+                        <td colSpan={selectMode ? 9 : 8} className="bg-[#f2f5f8] p-0">
                           <TransferDetailPanel
                             key={`${row.id}-${detailVersion}`}
                             id={row.id}

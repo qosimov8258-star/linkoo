@@ -4,6 +4,7 @@ import { useEffect, useState, type ReactNode } from "react"
 import { X } from "lucide-react"
 
 import { FormField, MultiPick, inputClass } from "@/components/analytics/cash-management-shared"
+import { FilterCheck, FilterDate, FilterSelect, RefFilterPanel } from "@/components/ref/list-kit"
 import { useLanguage } from "@/lib/i18n/language-context"
 
 // Demo StockTransfersFilter (c7 module 4340): "Показать фильтр" → popup with
@@ -176,11 +177,34 @@ function TransferFilterPopup({ filters, warehouses, onClose, onApply }: { filter
       <MultiPick label={t("На склад")} options={options} value={draft.toWarehouses} onChange={(toWarehouses) => set({ toWarehouses })} />
       <PeriodField label={t("Период создания")} from={draft.createdFrom} to={draft.createdTo} onChange={(createdFrom, createdTo) => set({ createdFrom, createdTo })} />
       <PeriodField label={t("Период доставки")} from={draft.deliveryFrom} to={draft.deliveryTo} onChange={(deliveryFrom, deliveryTo) => set({ deliveryFrom, deliveryTo })} />
-      <PeriodField label={t("Период приемки")} from={draft.acceptedFrom} to={draft.acceptedTo} onChange={(acceptedFrom, acceptedTo) => set({ acceptedFrom, acceptedTo })} />
+      <PeriodField label="Период приемки" from={draft.acceptedFrom} to={draft.acceptedTo} onChange={(acceptedFrom, acceptedTo) => set({ acceptedFrom, acceptedTo })} />
       <label className="flex items-center gap-2 text-[14px] text-[#17233b]">
         <input type="checkbox" checked={draft.withCancelled} onChange={(event) => set({ withCancelled: event.target.checked })} className="h-4 w-4 accent-[rgb(79,113,220)]" />
         {t("Показать отмененные передачи")}
       </label>
     </FilterPopup>
+  )
+}
+
+/** The reference's 300px "Фильтр" drawer of the transfers list (rendered through RefToolbar's `filterPanel`). */
+export function TransferFilterPanel({ filters, warehouses, onClose, onApply }: { filters: TransferFilters; warehouses: string[]; onClose: () => void; onApply: (filters: TransferFilters) => void }) {
+  const { t } = useLanguage()
+  const [draft, setDraft] = useState<TransferFilters>(filters)
+  const set = (patch: Partial<TransferFilters>) => setDraft((current) => ({ ...current, ...patch }))
+  const submit = () => {
+    const [createdFrom, createdTo] = orderedPeriod(draft.createdFrom, draft.createdTo)
+    const [deliveryFrom, deliveryTo] = orderedPeriod(draft.deliveryFrom, draft.deliveryTo)
+    const [acceptedFrom, acceptedTo] = orderedPeriod(draft.acceptedFrom, draft.acceptedTo)
+    onApply({ ...draft, createdFrom, createdTo, deliveryFrom, deliveryTo, acceptedFrom, acceptedTo })
+  }
+  return (
+    <RefFilterPanel className="!w-[300px]" applyClassName="mt-[25px]" onClose={onClose} onApply={submit}>
+      <FilterSelect label={t("Со склада")} value={draft.fromWarehouses[0] ?? ""} onChange={(value) => set({ fromWarehouses: value ? [value] : [] })} options={warehouses} />
+      <FilterSelect label={t("На склад")} value={draft.toWarehouses[0] ?? ""} onChange={(value) => set({ toWarehouses: value ? [value] : [] })} options={warehouses} />
+      <FilterDate mui label={t("Период создания")} begin={draft.createdFrom} end={draft.createdTo} onChange={(createdFrom, createdTo) => set({ createdFrom, createdTo })} />
+      <FilterDate mui label={t("Период доставки")} begin={draft.deliveryFrom} end={draft.deliveryTo} onChange={(deliveryFrom, deliveryTo) => set({ deliveryFrom, deliveryTo })} />
+      <FilterDate mui label={t("Период приемки")} begin={draft.acceptedFrom} end={draft.acceptedTo} onChange={(acceptedFrom, acceptedTo) => set({ acceptedFrom, acceptedTo })} />
+      <FilterCheck compact label="Показать отмененные передачи" checked={draft.withCancelled} onChange={(withCancelled) => set({ withCancelled })} className="mt-[10px]" />
+    </RefFilterPanel>
   )
 }
