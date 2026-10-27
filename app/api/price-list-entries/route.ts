@@ -2,15 +2,16 @@ import { NextResponse } from "next/server"
 import { z } from "zod"
 
 import { getCurrentUser } from "@/lib/current-user"
+import { INVALID_PRICE, MAX_PRICE } from "@/lib/item-prices"
 import { requireRole } from "@/lib/rbac"
 import { parseJsonBody } from "@/lib/validation"
 import { createPriceListEntry, listPriceListEntries } from "@/lib/price-list-entries-repo"
 
 const priceListEntrySchema = z.object({
-  priceList: z.string().trim().min(1),
-  product: z.string().trim().min(1),
-  cash: z.coerce.number().min(0).optional(),
-  nonCash: z.coerce.number().min(0).optional(),
+  priceList: z.string().trim().min(1).max(255),
+  product: z.string().trim().min(1).max(255),
+  cash: z.coerce.number({ error: INVALID_PRICE }).min(0, INVALID_PRICE).max(MAX_PRICE, INVALID_PRICE).optional(),
+  nonCash: z.coerce.number({ error: INVALID_PRICE }).min(0, INVALID_PRICE).max(MAX_PRICE, INVALID_PRICE).optional(),
 })
 
 // GET /api/price-list-entries — [{id, priceList, product, cash, nonCash}] derived from the item

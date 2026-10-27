@@ -7,7 +7,7 @@ import { parseJsonBody } from "@/lib/validation"
 import { createKnowledgeBaseArticle, listKnowledgeBaseArticles } from "@/lib/knowledge-base-repo"
 
 const knowledgeBaseArticleSchema = z.object({
-  name: z.string().trim().min(1),
+  name: z.string().trim().min(1).max(255, "Не более 255 символов"),
   text: z.string().optional(),
   active: z.boolean().optional(),
   roles: z.array(z.string()).optional(),

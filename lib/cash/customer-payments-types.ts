@@ -125,6 +125,11 @@ export type CustomerPaymentRow = {
   /** Collector (agent / delivery man). */
   agent: string
   deliveryMan: string
+  /** Soft-deleted ("Удалить транзакцию"); lists never return deleted rows, GET by id does. */
+  isDeleted: boolean
+  /** Local "YYYY-MM-DDTHH:mm:ss" of the deletion, "" while live. */
+  deletedAt: string
+  deletedBy: string
 }
 
 export type CustomerPaymentsResult = {
@@ -250,7 +255,10 @@ export type ExpectedOrderRow = {
   paymentType: "cash" | "bank"
   currency: string
   total: number
+  /** Paid towards the order: linked payments + its share of the client's other credits. */
   paid: number
+  /** FIFO share of the client's unlinked payments / advances (included in paid). */
+  allocated: number
   remaining: number
 }
 
@@ -280,7 +288,8 @@ export type ExpectedOrderDetail = {
   paymentType: "cash" | "bank"
   createdAt: string
   status: string
-  currencies: Array<{ currency: string; total: number; paid: number; remaining: number }>
+  /** paid = linked + allocated (FIFO share of the client's other credits); remaining = what a payment may cover. */
+  currencies: Array<{ currency: string; total: number; paid: number; linked: number; allocated: number; remaining: number }>
   /** Contracts of the client (only offered for bank orders). */
   contracts: Array<{ id: number; label: string }>
 }

@@ -19,7 +19,8 @@ import type { DictionaryUsage } from "@/components/analytics/dictionaries-data"
 //   items point at the type id).
 // Ед.измерения:
 //   products / raw_materials .unit and .product_group (group unit) by name, .sub_unit
-//   ("6 шт", legacy "Блок 10 шт") by the exact unit token; document lines: any text column
+//   ("6 шт", legacy "Блок 10 шт") by the exact unit token, the "unit" of every
+//   .box_sizes entry ("ДОП. параметры": [{unit, height, width, length}]); document lines: any text column
 //   `unit` (order_items, production_movements, production_recipes, production_recipe_items,
 //   stock_inventory_items, …) and the "unit" field of JSON line arrays (items / lines /
 //   products: write_offs, internal_transfers, repricings, production_inventories, …).
@@ -65,7 +66,7 @@ async function baseColumns(db: PgDb): Promise<Columns> {
          FROM information_schema.columns c
          JOIN information_schema.tables t ON t.table_schema = c.table_schema AND t.table_name = c.table_name
         WHERE c.table_schema = current_schema() AND t.table_type = 'BASE TABLE'
-          AND c.column_name IN ('type', 'subcategory', 'item_type', 'item_kind', 'item_id', 'unit', 'product_group', 'sub_unit', 'brand', 'items', 'lines', 'products')
+          AND c.column_name IN ('type', 'subcategory', 'item_type', 'item_kind', 'item_id', 'unit', 'product_group', 'sub_unit', 'box_sizes', 'brand', 'items', 'lines', 'products')
         ORDER BY c.table_name, c.column_name`,
     )
     .all()) as Array<{ table_name: string; column_name: string; data_type: string }>
@@ -198,6 +199,20 @@ function unitDocumentRefs(columns: Columns): UnitRefs {
 
 const UNIT_ELEMENT = `(jsonb_typeof(e) = 'object' AND jsonb_typeof(e -> 'unit') = 'string' AND fin_key(e ->> 'unit') = fin_key(@old))`
 
+/** Rows of a JSON line column that have an element with the unit. */
+function unitJsonCondition(column: string): string {
+  return `EXISTS (SELECT 1 FROM jsonb_array_elements(${jsonArray(column)}) AS x(e) WHERE ${UNIT_ELEMENT})`
+}
+
+/** UPDATE of a JSON line column: every element with the old unit gets the new name (element order kept). */
+function unitJsonRename(table: string, column: string): string {
+  return `UPDATE ${table} SET ${column} = (
+           SELECT jsonb_agg(CASE WHEN ${UNIT_ELEMENT} THEN jsonb_set(e, '{unit}', to_jsonb(@new::text)) ELSE e END ORDER BY o)
+             FROM jsonb_array_elements(${jsonArray(column)}) WITH ORDINALITY AS x(e, o)
+         )::text
+         WHERE EXISTS (SELECT 1 FROM jsonb_array_elements(${jsonArray(column)}) AS x(e) WHERE ${UNIT_ELEMENT} AND (e ->> 'unit') IS DISTINCT FROM @new::text)`
+}
+
 export async function unitUsage(db: PgDb, unit: { id: number; name: string }): Promise<DictionaryUsage[]> {
   const columns = await baseColumns(db)
   const usage = new Map<string, number>()
@@ -207,6 +222,7 @@ export async function unitUsage(db: PgDb, unit: { id: number; name: string }): P
       has(columns, table, "unit") ? "fin_key(unit) = fin_key(@old)" : "",
       has(columns, table, "product_group") ? "fin_key(product_group) = fin_key(@old)" : "",
       has(columns, table, "sub_unit") ? "sub_unit ~* @pattern" : "",
+      has(columns, table, "box_sizes") ? unitJsonCondition("box_sizes") : "",
     ].filter(Boolean)
     if (conditions.length) addUsage(usage, table, await count(db, `SELECT COUNT(*) AS n FROM ${table} WHERE ${conditions.join(" OR ")}`, params))
   }
@@ -217,7 +233,7 @@ export async function unitUsage(db: PgDb, unit: { id: number; name: string }): P
   }
   for (const ref of refs.json) {
     if (isHistory(ref.table)) continue
-    const sql = `SELECT COUNT(*) AS n FROM ${q(ref.table)} WHERE EXISTS (SELECT 1 FROM jsonb_array_elements(${jsonArray(q(ref.column))}) AS x(e) WHERE ${UNIT_ELEMENT})`
+    const sql = `SELECT COUNT(*) AS n FROM ${q(ref.table)} WHERE ${unitJsonCondition(q(ref.column))}`
     addUsage(usage, ref.table, await count(db, sql, params))
   }
   addUsage(usage, "units_of_measure", await count(db, "SELECT COUNT(*) AS n FROM units_of_measure WHERE parent_id = @id", { id: unit.id }))
@@ -249,6 +265,10 @@ export async function cascadeUnitRename(db: PgDb, oldName: string, newName: stri
         .run(params)
       record(table, "sub_unit", result.changes)
     }
+    if (has(columns, table, "box_sizes")) {
+      const result = await db.prepare(unitJsonRename(table, "box_sizes")).run(params)
+      record(table, "box_sizes[].unit", result.changes)
+    }
   }
   const refs = unitDocumentRefs(columns)
   for (const ref of refs.text) {
@@ -257,16 +277,7 @@ export async function cascadeUnitRename(db: PgDb, oldName: string, newName: stri
     record(ref.table, ref.column, result.changes)
   }
   for (const ref of refs.json) {
-    const column = q(ref.column)
-    const result = await db
-      .prepare(
-        `UPDATE ${q(ref.table)} SET ${column} = (
-           SELECT jsonb_agg(CASE WHEN ${UNIT_ELEMENT} THEN jsonb_set(e, '{unit}', to_jsonb(@new::text)) ELSE e END ORDER BY o)
-             FROM jsonb_array_elements(${jsonArray(column)}) WITH ORDINALITY AS x(e, o)
-         )::text
-         WHERE EXISTS (SELECT 1 FROM jsonb_array_elements(${jsonArray(column)}) AS x(e) WHERE ${UNIT_ELEMENT} AND (e ->> 'unit') IS DISTINCT FROM @new::text)`,
-      )
-      .run(params)
+    const result = await db.prepare(unitJsonRename(q(ref.table), q(ref.column))).run(params)
     record(ref.table, `${ref.column}[].unit`, result.changes)
   }
   return changes

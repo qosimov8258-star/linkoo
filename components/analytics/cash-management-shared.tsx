@@ -1,6 +1,6 @@
 "use client"
 
-import { Children, cloneElement, isValidElement, useEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from "react"
+import { Children, cloneElement, isValidElement, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactElement, type ReactNode } from "react"
 import { Check, ChevronDown, CircleAlert, Loader2, Search, SearchX, X } from "lucide-react"
 
 import { useFinanceCurrencies } from "@/components/analytics/balance/use-balance"
@@ -48,6 +48,15 @@ export function formatCashDate(iso: string, language: string, withTime = true): 
 }
 
 /** "YYYY.MM.DD" / "HH:mm" of a local ISO date-time (Excel export). */
+/** System prefixes the cash core writes in front of a user comment ("Запрос на снятие кэшбэка № 12 · …"). */
+const SYSTEM_COMMENT_PREFIX = /^Запрос на снятие кэшбэка № \d+$/
+
+/** Comment of an operation in the UI language: a system prefix is translated, the user's own text stays as typed. */
+export function cashCommentText(comment: string, t: (text: string) => string): string {
+  const [head, ...rest] = comment.split(" · ")
+  return SYSTEM_COMMENT_PREFIX.test(head.trim()) ? [t(head.trim()), ...rest].join(" · ") : comment
+}
+
 export function excelDay(iso: string): string {
   return iso ? iso.slice(0, 10).replace(/-/g, ".") : ""
 }
@@ -301,7 +310,8 @@ export function SecondaryButton({ children, onClick, disabled }: { children: Rea
 
 // --- selects ----------------------------------------------------------------------------
 
-export type PickOption = { value: string; label: string; hint?: string }
+/** depth: nesting level of a tree option (sub-categories are indented under their parent). */
+export type PickOption = { value: string; label: string; hint?: string; depth?: number }
 
 function useOutside(open: boolean, close: () => void) {
   const ref = useRef<HTMLDivElement>(null)
@@ -350,15 +360,38 @@ export function SearchSelect({
   const underline = variant === "underline"
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState("")
+  const [active, setActive] = useState(0)
   // a search typed and abandoned (closed with the arrow or a click outside) must not greet the next opening
   const ref = useOutside(open, () => {
     setOpen(false)
     setQuery("")
+    setActive(0)
   })
   const selected = options.find((option) => option.value === value)
   const label = selected?.label ?? (value ? selectedLabel || value : "")
   const needle = query.trim().toLowerCase()
   const visible = (onSearch || !needle ? options : options.filter((option) => `${option.label} ${option.hint ?? ""}`.toLowerCase().includes(needle))).slice(0, 200)
+  const pick = (option: PickOption) => {
+    onChange(option.value, option)
+    setOpen(false)
+    setQuery("")
+    setActive(0)
+  }
+  // Keyboard: ↑/↓ move the highlight, Enter picks it (the first match by default), Escape closes.
+  const onSearchKey = (event: ReactKeyboardEvent<HTMLInputElement>) => {
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault()
+      if (!visible.length) return
+      setActive((current) => (current + (event.key === "ArrowDown" ? 1 : visible.length - 1)) % visible.length)
+    } else if (event.key === "Enter") {
+      event.preventDefault()
+      const option = visible[Math.min(active, visible.length - 1)]
+      if (option) pick(option)
+    } else if (event.key === "Escape") {
+      event.stopPropagation()
+      setOpen(false)
+    }
+  }
   return (
     <div ref={ref} className="relative min-w-0">
       <button
@@ -389,8 +422,10 @@ export function SearchSelect({
               value={query}
               onChange={(event) => {
                 setQuery(event.target.value)
+                setActive(0)
                 onSearch?.(event.target.value)
               }}
+              onKeyDown={onSearchKey}
               placeholder={t("Поиск")}
               className="h-9 w-full min-w-0 text-[14px] outline-none"
             />
@@ -398,16 +433,14 @@ export function SearchSelect({
           </div>
           <div className="max-h-64 overflow-y-auto py-1">
             {!visible.length && <p className="px-3 py-2 text-[13px] text-[#9aa3b6]">{loading ? t("Загрузка...") : t("Ничего не найдено")}</p>}
-            {visible.map((option, optionIndex) => (
+            {visible.map((option, index) => (
               <button
-                key={`${option.value}:${optionIndex}`}
+                key={`${option.value}:${index}`}
                 type="button"
-                onClick={() => {
-                  onChange(option.value, option)
-                  setOpen(false)
-                  setQuery("")
-                }}
-                className={`flex w-full flex-col px-3 py-2 text-left text-[14px] hover:bg-[#f2f5f8] ${option.value === value ? "bg-[#f2f5f8] font-semibold" : ""}`}
+                onClick={() => pick(option)}
+                onMouseEnter={() => setActive(index)}
+                style={option.depth ? { paddingLeft: 12 + option.depth * 18 } : undefined}
+                className={`flex w-full flex-col px-3 py-2 text-left text-[14px] hover:bg-[#f2f5f8] ${option.value === value ? "font-semibold" : ""} ${option.value === value || index === active ? "bg-[#f2f5f8]" : ""}`}
               >
                 <span className="truncate">{option.label}</span>
                 {option.hint && <span className="truncate text-[12px] text-[#9aa3b6]">{option.hint}</span>}
@@ -446,8 +479,8 @@ export function MultiPick({ label, options, value, onChange }: { label: string; 
           </div>
           <div className="max-h-64 overflow-y-auto py-1">
             {!visible.length && <p className="px-3 py-2 text-[13px] text-[#9aa3b6]">{t("Ничего не найдено")}</p>}
-            {visible.map((option, optionIndex) => (
-              <button key={`${option.value}:${optionIndex}`} type="button" onClick={() => toggle(option.value)} className="flex w-full items-center gap-2 px-3 py-2 text-left text-[14px] hover:bg-[#f2f5f8]">
+            {visible.map((option, index) => (
+              <button key={`${option.value}:${index}`} type="button" onClick={() => toggle(option.value)} className="flex w-full items-center gap-2 px-3 py-2 text-left text-[14px] hover:bg-[#f2f5f8]">
                 <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${value.includes(option.value) ? "border-[#4f70e7] bg-[#4f70e7] text-white" : "border-[#c4cbd6]"}`}>
                   {value.includes(option.value) && <Check className="h-3 w-3" />}
                 </span>

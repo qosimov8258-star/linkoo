@@ -82,13 +82,37 @@ export async function getCatalogImage(kind: CatalogKind, id: number, imageId: nu
   return match ? { type: match[1], data: Buffer.from(match[2], "base64") } : null
 }
 
-/** "Добавление лимита": sets the amount of every agent on every selected item. */
+export const AGENT_NOT_FOUND = "Сотрудник не найден"
+
+/**
+ * Agent names → the employees' "Имя Фамилия" as stored (fin_key match; active employees win).
+ * 400 "Сотрудник не найден" (+ `missing` names in the field error) when one is not an employee.
+ */
+async function resolveAgents(tx: PgDb, agents: string[]): Promise<string[]> {
+  const wanted = [...new Map(agents.map((agent) => [catalogKey(agent), agent.trim()])).values()].filter(Boolean)
+  // Matched in SQL (fin_key on both sides), so JS and Postgres case rules never disagree.
+  const rows = (await tx
+    .prepare(
+      `SELECT w.name AS wanted,
+              (SELECT btrim(COALESCE(e.first_name, '') || ' ' || COALESCE(e.last_name, '')) FROM employees e
+                WHERE fin_key(COALESCE(e.first_name, '') || ' ' || COALESCE(e.last_name, '')) = fin_key(w.name)
+                ORDER BY (COALESCE(e.active, 1) <> 0) DESC, e.id LIMIT 1) AS employee
+         FROM unnest(@names::text[]) WITH ORDINALITY AS w(name, position)
+        ORDER BY w.position`,
+    )
+    .all({ names: wanted })) as Array<{ wanted: string; employee: string | null }>
+  const missing = rows.filter((row) => !row.employee).map((row) => row.wanted)
+  if (missing.length) throw new CatalogError(AGENT_NOT_FOUND, 400, { agents: `${AGENT_NOT_FOUND}: ${missing.join(", ")}` })
+  return [...new Set(rows.map((row) => row.employee!))]
+}
+
+/** "Добавление лимита": sets the amount of every agent (an employee) on every selected item. */
 export async function addCatalogLimits(kind: CatalogKind, ids: number[], agents: string[], amount: number, userName: string): Promise<number> {
   await catalogDb()
   return withTransaction(async (tx) => {
     await lockCatalog(tx)
     let count = 0
-    const names = [...new Map(agents.map((agent) => [catalogKey(agent), agent.trim()])).values()].filter(Boolean)
+    const names = await resolveAgents(tx, agents)
     for (const id of [...new Set(ids)]) {
       if (!(await readCatalogRow(tx, kind, id, true))) continue
       for (const agent of names) {

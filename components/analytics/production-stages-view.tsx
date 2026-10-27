@@ -123,7 +123,8 @@ function StageDialog({ stage, onClose, onSaved }: { stage: Stage | null; onClose
     event.preventDefault()
     setSaving(true)
     try {
-      onSaved(await api<Stage>(stage ? `/api/production/stages/${stage.id}` : "/api/production/stages", { method: stage ? "PUT" : "POST", body: { name, warehouse, responsible } }))
+      const responsibleId = employees.find((entry) => entry.name === responsible)?.id ?? (responsible !== "" && responsible === stage?.responsible ? (stage?.responsibleId ?? null) : null)
+      onSaved(await api<Stage>(stage ? `/api/production/stages/${stage.id}` : "/api/production/stages", { method: stage ? "PUT" : "POST", body: { name, warehouse, responsible, responsibleId } }))
     } catch (error) {
       notify((error as Error).message)
     } finally {
@@ -154,7 +155,7 @@ function StageDialog({ stage, onClose, onSaved }: { stage: Stage | null; onClose
       }
     >
       <div className="space-y-5">
-        <Field label="Наименование" required><input required value={name} onChange={(event) => setName(event.target.value)} className={inputClass} /></Field>
+        <Field label="Наименование" required><input required maxLength={255} value={name} onChange={(event) => setName(event.target.value)} className={inputClass} /></Field>
         <Field label="Склад" required>
           <select required value={warehouse} onChange={(event) => setWarehouse(event.target.value)} className={inputClass}>
             <option value="">—</option>

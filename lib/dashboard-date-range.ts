@@ -63,8 +63,16 @@ export function formatRangeLabel(begin: Date, end: Date): string {
   return `${formatDateAbbr(begin)} - ${formatDateAbbr(end)}`
 }
 
-export function formatStatTitle(prefix: string, begin: Date, end: Date): string {
-  if (toISODate(begin) === toISODate(end)) return `${prefix} на ${formatDateGenitive(begin)}`
+/** "Продажи на 20 октября" / "Продажи с 1 октября по 20 октября". `translate` (any UI language
+ * but Russian) gives the language-neutral form "Sotuvlar — 20 Oktabr" / "Sotuvlar: 1 Oktabr – 20 Oktabr",
+ * so no Russian preposition is left in a translated title. */
+export function formatStatTitle(prefix: string, begin: Date, end: Date, translate?: (text: string) => string): string {
+  const same = toISODate(begin) === toISODate(end)
+  if (translate) {
+    const day = (date: Date) => translate(formatDateGenitive(date))
+    return same ? `${prefix} — ${day(begin)}` : `${prefix}: ${day(begin)} – ${day(end)}`
+  }
+  if (same) return `${prefix} на ${formatDateGenitive(begin)}`
   return `${prefix} с ${formatDateGenitive(begin)} по ${formatDateGenitive(end)}`
 }
 

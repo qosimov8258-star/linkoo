@@ -1,16 +1,19 @@
 import "server-only"
 
 import { getDb, type PgDb } from "@/lib/db"
-import { getStockAverageCosts } from "@/lib/stock/balances"
+import { costsInWarehouse, getWarehouseItemCosts, previousDay } from "@/lib/stock/costs"
 import { stockOrphanNames } from "@/lib/stock/level"
 import { getStockBalances, getStockCatalog } from "@/lib/stock/ledger"
 import type { StockCatalogItem } from "@/lib/stock/types"
 import type { StockInventoryBalanceRow, StockInventoryBalances } from "@/lib/stock-inventories-types"
 
-// System balances for "Инвентаризация", from the stock core only
+// System balances for "Инвентаризация", from the stock core
 // (getStockBalances + getStockCatalog): the create dialog's list (demo
 // stock/all_balances/?stock&date&for_day_end) and the "Баланс (до)" / cost of
-// every counted line (live while pending, frozen on confirm).
+// every counted line (live while pending, frozen on confirm). The cost is the
+// cost of goods (lib/stock/costs.ts) at the inventory moment: the end of the
+// day, or the end of the previous day for "на начало дня" (the warehouse's own
+// when it is its own cost scope).
 
 /** JS twin of fin_key(): lower-cased, trimmed, inner whitespace collapsed. */
 export function textKey(value: string | null | undefined): string {
@@ -70,14 +73,15 @@ export async function warehouseBalances(moment: BalanceMoment, db: PgDb = getDb(
   return byKey
 }
 
-/** Unit cost of a line: average cost at the moment (the warehouse's balance, else the
- * item's global average when it never moved in this warehouse), else the catalog cost. */
+/** Unit cost of a line: the cost of goods at the moment, else the catalog cost. */
 export function unitCost(balance: WarehouseBalance | undefined, item: StockCatalogItem | undefined, average?: number): number {
-  return round6(balance?.cost || average || item?.fallbackCost || 0)
+  return round6(average ?? (balance?.cost || item?.fallbackCost || 0))
 }
 
-function averageCosts(moment: BalanceMoment, db: PgDb, catalog: StockCatalogItem[]) {
-  return getStockAverageCosts({ date: moment.date, startOfDay: !moment.forDayEnd }, db, catalog)
+/** Cost of goods per item at the inventory moment, in the inventory's warehouse (its own
+ * cost scope's when it has one). */
+async function averageCosts(moment: BalanceMoment, db: PgDb): Promise<Map<string, number>> {
+  return costsInWarehouse(await getWarehouseItemCosts({ date: moment.forDayEnd ? moment.date : previousDay(moment.date) }, db), moment.warehouse)
 }
 
 /** Every catalog item with its system balance (0 when nothing moved) plus the
@@ -85,7 +89,7 @@ function averageCosts(moment: BalanceMoment, db: PgDb, catalog: StockCatalogItem
 export async function getInventoryBalances(moment: BalanceMoment): Promise<StockInventoryBalances> {
   const db = getDb()
   const [catalog, balances] = await Promise.all([getStockCatalog(db), warehouseBalances(moment, db)])
-  const averages = await averageCosts(moment, db, catalog)
+  const averages = await averageCosts(moment, db)
   const rows: StockInventoryBalanceRow[] = catalog.map((item) => {
     const balance = balances.get(item.key)
     return {
@@ -105,7 +109,7 @@ export async function getInventoryBalances(moment: BalanceMoment): Promise<Stock
   const orphans = await stockOrphanNames([...balances.keys()].filter((key) => !known.has(key)), db)
   for (const [key, balance] of balances) {
     if (known.has(key) || !round6(balance.qty)) continue
-    rows.push({ key, name: orphans.get(key)?.name ?? nameFromKey(key), article: "", type: "", brand: "", unit: "", qty: round6(balance.qty), cost: unitCost(balance, undefined), defects: round6(balance.defects), inCatalog: false })
+    rows.push({ key, name: orphans.get(key)?.name ?? nameFromKey(key), article: "", type: "", brand: "", unit: "", qty: round6(balance.qty), cost: unitCost(balance, undefined, averages.get(key)), defects: round6(balance.defects), inCatalog: false })
   }
   rows.sort((a, b) => a.name.localeCompare(b.name, "ru") || a.key.localeCompare(b.key))
   return { warehouse: moment.warehouse, date: moment.date, forDayEnd: moment.forDayEnd, rows }
@@ -119,8 +123,7 @@ export async function snapshotLines(
   lines: Array<{ key: string; amount: number }>,
   db: PgDb = getDb(),
 ): Promise<LineSnapshot[]> {
-  const [catalog, balances] = await Promise.all([loadCatalogMap(db), warehouseBalances(moment, db)])
-  const averages = lines.some((line) => !balances.get(line.key)?.cost) ? await averageCosts(moment, db, [...catalog.values()]) : new Map<string, number>()
+  const [catalog, balances, averages] = await Promise.all([loadCatalogMap(db), warehouseBalances(moment, db), averageCosts(moment, db)])
   return lines.map((line) => {
     const balance = balances.get(line.key)
     const balanceAmount = round6(balance?.qty ?? 0)

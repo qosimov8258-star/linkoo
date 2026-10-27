@@ -289,7 +289,7 @@ export function ProductFormDialog(props: Props) {
 
       <footer className="flex h-[57px] shrink-0 items-center justify-end border-t border-[#e8ebf0] pr-[10px]">
         <button type="submit" disabled={props.saving || !props.canSubmit} className="h-9 min-w-[196px] rounded-[3px] bg-[#71ce87] px-[16px] text-[12px] font-bold uppercase text-white hover:brightness-95 disabled:bg-[#ade3b9] disabled:hover:brightness-100">
-          {props.saving ? t("Сохранение...") : t("Сохранить изменение")}
+          {props.saving ? t("Сохранение...") : t(props.editing ? "Сохранить изменение" : "Сохранить")}
         </button>
       </footer>
     </form>,

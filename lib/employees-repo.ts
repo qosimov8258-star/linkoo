@@ -2,8 +2,17 @@ import { selectedBranchName } from "@/lib/selected-branch"
 import "server-only"
 
 import { hashPassword } from "@/lib/auth"
-import { getDb } from "@/lib/db"
+import { getDb, withTransaction, type PgDb } from "@/lib/db"
 import { ensureEmployeesSchema } from "@/lib/employees-schema"
+import {
+  cascadeNameRename,
+  existingReferences,
+  keySql,
+  nameKey,
+  quoteIdent,
+  usageOf,
+  type Usage,
+} from "@/lib/platform-refs"
 import { detachSubscriptions } from "@/lib/subscriptions-repo"
 import type { Employee, EmployeeInput } from "@/components/analytics/employees-data"
 
@@ -98,6 +107,119 @@ function rowToEmployee(row: Row): Employee {
     requestCashboxIds: details.requestCashboxIds ?? [],
     accesses: (details.accesses ?? []).map((item) => item.name),
     position: accessRight || job ? `${accessRight}|${job}` : "",
+  }
+}
+
+/** "First Last" — the form documents store the employee under. */
+function fullName(row: { first_name: string; last_name: string }): string {
+  return `${(row.first_name ?? "").trim()} ${(row.last_name ?? "").trim()}`.trim()
+}
+
+export type EmployeeUsage = Usage
+
+// --- references -----------------------------------------------------------------
+// By id (block a delete; the companion name column, if any, follows a rename):
+const ID_REFERENCES: ReadonlyArray<{ table: string; column: string; nameColumn?: string }> = [
+  { table: "cashboxes", column: "cashier_id", nameColumn: "cashier" },
+  { table: "warehouses", column: "manager_id", nameColumn: "manager" },
+  { table: "contracts", column: "agent_id", nameColumn: "agent" },
+  { table: "cash_acceptances", column: "agent_id", nameColumn: "agent" },
+  { table: "cash_management_entries", column: "employee_id", nameColumn: "employee_name" },
+  { table: "production_staff", column: "employee_id", nameColumn: "employee_name" },
+  { table: "production_stages", column: "responsible_id", nameColumn: "responsible" },
+  { table: "cash_entry_staff", column: "employee_id" },
+  { table: "employee_balance_transactions", column: "employee_id" },
+  { table: "deliverer_balance_transactions", column: "employee_id" },
+  { table: "vansell_transactions", column: "employee_id" },
+  { table: "vansell_debt_limits", column: "employee_id" },
+]
+
+// By "First Last" name only (block a delete while the name is unambiguous; renamed by key):
+const NAME_REFERENCES: ReadonlyArray<{ table: string; column: string }> = [
+  { table: "clients", column: "agent" },
+  { table: "clients", column: "zone_agent" },
+  { table: "clients", column: "deliverer" },
+  { table: "clients", column: "collector" },
+  { table: "orders", column: "agent" },
+  { table: "customer_payments", column: "agent" },
+  { table: "salary_plans", column: "employee" },
+  { table: "debt_limits", column: "agent" },
+  { table: "debt_limits", column: "collector" },
+  { table: "debt_limits", column: "courier" },
+  { table: "agent_routes", column: "agent" },
+  { table: "financial_accounts", column: "agent" },
+  { table: "product_restrictions", column: "employee" },
+  { table: "product_limits", column: "agent" },
+  { table: "survey_plans", column: "employee" },
+  { table: "tasks", column: "responsible" },
+  { table: "inventory_items", column: "responsible" },
+  { table: "production_stages", column: "responsible" },
+  { table: "production_movements", column: "worker" },
+  { table: "internal_transfers", column: "driver" },
+  { table: "transport_vehicles", column: "driver" },
+]
+
+async function employeeReferences(db: PgDb) {
+  const idRefs = await existingReferences(
+    db,
+    ID_REFERENCES.map((ref) => ({ table: ref.table, column: ref.column, kind: "id" as const })),
+  )
+  const companions = await existingReferences(
+    db,
+    ID_REFERENCES.filter((ref) => ref.nameColumn).map((ref) => ({ table: ref.table, column: ref.nameColumn!, kind: "name" as const })),
+  )
+  const nameRefs = await existingReferences(
+    db,
+    NAME_REFERENCES.map((ref) => ({ ...ref, kind: "name" as const })),
+  )
+  return { idRefs, companions, nameRefs }
+}
+
+/** True when another employee has the same "First Last" name (names then say nothing). */
+async function nameIsShared(db: PgDb, id: number, name: string): Promise<boolean> {
+  if (!nameKey(name)) return true
+  const twin = await db
+    .prepare(
+      `SELECT 1 FROM employees WHERE id <> @id
+          AND ${keySql("btrim(coalesce(first_name, '')) || ' ' || btrim(coalesce(last_name, ''))")} = ${keySql("@name::text")} LIMIT 1`,
+    )
+    .get({ id, name })
+  return Boolean(twin)
+}
+
+/** Where the employee is referenced (cashboxes, warehouses, clients, documents …). */
+export async function employeeUsage(db: PgDb, row: Row): Promise<EmployeeUsage[]> {
+  const { idRefs, nameRefs } = await employeeReferences(db)
+  const name = fullName(row)
+  const skipNames = await nameIsShared(db, row.id, name)
+  return usageOf(db, [...idRefs, ...nameRefs], { id: row.id, name, skipNames })
+}
+
+/** Carries a rename into every record that stores the employee's name. */
+async function cascadeEmployeeRename(db: PgDb, id: number, oldName: string, newName: string) {
+  if (oldName === newName) return
+  const { companions, nameRefs } = await employeeReferences(db)
+  const shared = await nameIsShared(db, id, oldName)
+  for (const ref of companions) {
+    const idColumn = ID_REFERENCES.find((known) => known.table === ref.table && known.nameColumn === ref.column)!.column
+    const name = quoteIdent(ref.column)
+    // Rows linked by id always follow; legacy rows without the id only while the old name is unambiguous.
+    const byLegacyName = shared ? "" : ` OR (${quoteIdent(idColumn)} IS NULL AND ${keySql(name)} = ${keySql("@oldName::text")})`
+    await db
+      .prepare(
+        `UPDATE ${quoteIdent(ref.table)} SET ${name} = @newName
+          WHERE (${quoteIdent(idColumn)} = @id${byLegacyName}) AND ${name} IS DISTINCT FROM @newName`,
+      )
+      .run({ id, oldName, newName })
+  }
+  if (!shared) await cascadeNameRename(db, nameRefs, oldName, newName)
+}
+
+/** Thrown when a record still refers to the employee (409 with the usage list). */
+export class EmployeeInUseError extends Error {
+  readonly status = 409
+  constructor(readonly usage: EmployeeUsage[]) {
+    super("Удаление невозможно из-за связи с другими данными")
   }
 }
 
@@ -219,12 +341,18 @@ export async function createEmployee(input: EmployeeInput): Promise<{ employee: 
 
 export async function updateEmployee(id: number, input: EmployeeInput): Promise<{ employee: Employee } | { error: EmployeeError } | null> {
   await ensureEmployeesSchema()
-  const existing = (await getDb().prepare("SELECT details FROM employees WHERE id = ?").get(id)) as { details: string } | undefined
-  if (!existing) return null
+  const preliminary = await getDb().prepare("SELECT 1 FROM employees WHERE id = ?").get(id)
+  if (!preliminary) return null
   const error = await checkReferences(input, id)
   if (error) return { error }
   const composed = await composedFields(input)
-  await getDb()
+  const passwordHash = input.password ? await hashPassword(input.password) : null
+  // A changed name is carried into every record that stores it (cashboxes, warehouses, clients' agent /
+  // deliverer / collector, orders, payments, contracts, production staff …) in the same transaction.
+  const found = await withTransaction(async (tx) => {
+    const current = (await tx.prepare("SELECT * FROM employees WHERE id = ? FOR UPDATE").get(id)) as Row | undefined
+    if (!current) return false
+    await tx
     .prepare(
       `UPDATE employees SET
         first_name = @firstName, last_name = @lastName, login = @login, phone = @phone, integration_code = @integrationCode,
@@ -255,9 +383,13 @@ export async function updateEmployee(id: number, input: EmployeeInput): Promise<
       jobId: input.jobId,
       branchIds: JSON.stringify(input.branchIds),
       organizationIds: JSON.stringify(input.organizationIds),
-      details: JSON.stringify(toDetails(input, parse<Details>(existing.details, {}))),
-      passwordHash: input.password ? await hashPassword(input.password) : null,
+      details: JSON.stringify(toDetails(input, parse<Details>(current.details, {}))),
+      passwordHash,
     })
+    await cascadeEmployeeRename(tx, id, fullName(current), fullName({ first_name: input.firstName, last_name: input.lastName }))
+    return true
+  })
+  if (!found) return null
   await syncCashierName(id)
   return { employee: (await getEmployee(id))! }
 }
@@ -265,8 +397,11 @@ export async function updateEmployee(id: number, input: EmployeeInput): Promise<
 /** Trash icon in the "Удаленные" tab: removes the record for good (only employees that are already deleted). */
 export async function purgeEmployee(id: number): Promise<boolean> {
   await ensureEmployeesSchema()
-  const gone = (await getDb().prepare("SELECT 1 FROM employees WHERE id = @id AND active = 0").get({ id })) !== undefined
-  if (!gone) return false
+  const row = (await getDb().prepare("SELECT * FROM employees WHERE id = @id AND active = 0").get({ id })) as Row | undefined
+  if (!row) return false
+  // Refused (409 with the usage list) while a cashbox, warehouse, client, document or production record refers to the employee.
+  const usage = await employeeUsage(getDb(), row)
+  if (usage.length) throw new EmployeeInUseError(usage)
   await detachSubscriptions([id])
   const result = await getDb().prepare("DELETE FROM employees WHERE id = @id AND active = 0").run({ id })
   return result.changes > 0
@@ -352,3 +487,4 @@ export async function blockAllEmployees(block: boolean): Promise<number> {
     .run({ access: block ? 0 : 1 })
   return result.changes
 }
+

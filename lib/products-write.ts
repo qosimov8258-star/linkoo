@@ -2,17 +2,24 @@ import "server-only"
 
 import { withTransaction, type PgDb } from "@/lib/db"
 import { cascadeCatalogRename, catalogUsage, type CatalogRenameChange } from "@/lib/catalog-refs"
-import { priceDateLabel, priceListKey, setItemPrices, type ItemPriceChange } from "@/lib/item-prices"
+import { INVALID_PRICE, priceDateLabel, priceListKey, setItemPrices, type ItemPriceChange } from "@/lib/item-prices"
 import { readCatalogRow, rowToItem } from "@/lib/products-catalog"
 import { CATALOG_TABLE, KIND_COLUMNS, catalogDb } from "@/lib/products-schema"
 import type { CatalogBulkChanges, CatalogItem, CatalogKind, CatalogPrice, CatalogUsage } from "@/lib/products-types"
+import { codeConflicts, resolveCatalogRefs } from "@/lib/products-validate"
+import { getStockBalances } from "@/lib/stock/ledger"
 import { lockWarehouseNames } from "@/lib/warehouses-refs"
 
 // Write side of the catalog pages: create / edit (with the rename cascade and the price
 // writer of lib/item-prices.ts), soft delete ("Удалённые"), restore, hard delete (only when
 // unused) and the multi edit. Every write runs in one transaction serialised by the
 // "linko-catalog" advisory lock (unique names across live products and raw materials,
-// because documents and the stock core reference items by name).
+// because documents and the stock core reference items by name). References to the
+// dictionaries, price lists and currencies are checked and codes kept unique by
+// lib/products-validate.ts; an item that still has stock cannot be deleted.
+
+/** Stock that blocks a delete: quantity per warehouse. */
+export type CatalogStockLine = { warehouse: string; qty: number }
 
 export class CatalogError extends Error {
   constructor(
@@ -20,6 +27,7 @@ export class CatalogError extends Error {
     readonly status = 400,
     readonly fields?: Record<string, string>,
     readonly usage?: CatalogUsage[],
+    readonly stock?: CatalogStockLine[],
   ) {
     super(message)
   }
@@ -76,6 +84,7 @@ export type CatalogPatch = Partial<Pick<CatalogItem, EditableField>>
 
 const REQUIRED_FOR_MARK = "Это поле обязательно для работы маркировки"
 export const DUPLICATE_NAME = "Продукт с таким наименованием уже существует"
+export const IN_STOCK = "Нельзя удалить: товар есть на складе"
 export const NOT_FOUND: Record<CatalogKind, string> = { product: "Товар не найден", raw_material: "Сырьё не найдено" }
 
 function blankItem(kind: CatalogKind): CatalogItem {
@@ -163,6 +172,14 @@ function validate(kind: CatalogKind, item: CatalogItem): void {
   }
   for (const entry of item.priceLists) if (!entry.name.trim()) fields.priceLists = "Не указан прайс-лист"
   if (Object.keys(fields).length) throw new CatalogError(Object.values(fields)[0], 400, fields)
+}
+
+/** Dictionary / price-list / currency references (400) and unique codes (409); see lib/products-validate.ts. */
+async function validateRefs(tx: PgDb, kind: CatalogKind, item: CatalogItem, current: CatalogItem | null): Promise<void> {
+  const fields = await resolveCatalogRefs(tx, item, current)
+  if (Object.keys(fields).length) throw new CatalogError(Object.values(fields)[0], 400, fields)
+  const codes = await codeConflicts(tx, kind, item, current)
+  if (Object.keys(codes).length) throw new CatalogError(Object.values(codes)[0], 409, codes)
 }
 
 const plain = (value: number) => String(Math.round(value * 1e6) / 1e6)
@@ -264,7 +281,7 @@ async function writePrices(tx: PgDb, kind: CatalogKind, id: number, wanted: Cata
   try {
     await setItemPrices(tx, kind, id, changes)
   } catch (error) {
-    if (error instanceof RangeError) throw new CatalogError(error.message, 400, { priceLists: error.message })
+    if (error instanceof RangeError) throw new CatalogError(INVALID_PRICE, 400, { priceLists: INVALID_PRICE })
     throw error
   }
   // The single legacy price of old raw materials now lives in the JSON.
@@ -285,6 +302,7 @@ export async function createCatalogItemTx(tx: PgDb, kind: CatalogKind, patch: Ca
   const item = applyPatch(blankItem(kind), patch)
   validate(kind, item)
   await assertNameAvailable(tx, kind, 0, item.name)
+  await validateRefs(tx, kind, item, null)
   const values = { ...storedColumns(kind, item), created_date: priceDateLabel(), price_lists: "[]" }
   const columns = Object.keys(values)
   const result = await tx.prepare(`INSERT INTO ${CATALOG_TABLE[kind]} (${columns.join(", ")}) VALUES (${columns.map((column) => `@c_${column}`).join(", ")})`).run(prefixed(values))
@@ -310,6 +328,7 @@ export async function updateCatalogItemTx(tx: PgDb, kind: CatalogKind, id: numbe
   const current = rowToItem(kind, row)
   const item = applyPatch(current, patch)
   validate(kind, item)
+  await validateRefs(tx, kind, item, current)
   let renamed: CatalogRenameChange[] = []
   if (item.name !== current.name) {
     await assertNameAvailable(tx, kind, id, item.name)
@@ -330,12 +349,38 @@ export async function updateCatalogItem(kind: CatalogKind, id: number, patch: Ca
   })
 }
 
-async function setDeleted(tx: PgDb, kind: CatalogKind, id: number, deleted: boolean, userName: string): Promise<boolean> {
+/** Quantity per warehouse of every item that has stock now (non-zero), computed once per write. */
+type StockIndex = () => Promise<Map<string, CatalogStockLine[]>>
+
+function stockIndex(tx: PgDb): StockIndex {
+  let index: Promise<Map<string, CatalogStockLine[]>> | null = null
+  return () =>
+    (index ??= (async () => {
+      // Stock documents being written right now finish first (they lock their warehouses).
+      await lockStockWrites(tx)
+      const byKey = new Map<string, CatalogStockLine[]>()
+      for (const balance of await getStockBalances({}, tx)) {
+        if (Math.abs(balance.qty) < 1e-9) continue
+        byKey.set(balance.key, [...(byKey.get(balance.key) ?? []), { warehouse: balance.warehouse, qty: balance.qty }])
+      }
+      return byKey
+    })())
+}
+
+async function setDeleted(tx: PgDb, kind: CatalogKind, id: number, deleted: boolean, userName: string, stock: StockIndex = stockIndex(tx)): Promise<boolean> {
   const row = await readCatalogRow(tx, kind, id, true)
   if (!row) return false
   const item = rowToItem(kind, row)
   if (item.deleted === deleted) return true
-  if (!deleted) await assertNameAvailable(tx, kind, id, item.name)
+  if (deleted) {
+    // The goods are physically there: a deleted item's stock would become a nameless line.
+    const lines = (await stock()).get(`${kind}:${id}`)
+    if (lines?.length) throw new CatalogError(IN_STOCK, 409, undefined, undefined, lines)
+  } else {
+    await assertNameAvailable(tx, kind, id, item.name)
+    const codes = await codeConflicts(tx, kind, item, null, true)
+    if (Object.keys(codes).length) throw new CatalogError(Object.values(codes)[0], 409, codes)
+  }
   await tx
     .prepare(`UPDATE ${CATALOG_TABLE[kind]} SET deleted = @deleted, deleted_at = @at, deleted_by = @by, updated_at = datetime('now') WHERE id = @id`)
     .run({ deleted: deleted ? 1 : 0, at: deleted ? new Date().toISOString() : "", by: deleted ? userName : "", id })
@@ -426,13 +471,14 @@ export async function bulkUpdateCatalog(kind: CatalogKind, ids: number[], change
       if (changes[field] !== undefined) (patch as Record<string, unknown>)[field] = changes[field]
     }
     if (changes.type !== undefined) patch.subcategory = ""
+    const stock = stockIndex(tx)
     let count = 0
     for (const id of [...new Set(ids)]) {
       if (Object.keys(patch).length) {
         const result = await updateCatalogItemTx(tx, kind, id, patch)
         if (!result) continue
       }
-      if (changes.deleted !== undefined && !(await setDeleted(tx, kind, id, changes.deleted, userName))) continue
+      if (changes.deleted !== undefined && !(await setDeleted(tx, kind, id, changes.deleted, userName, stock))) continue
       if (changes.moveTo !== undefined && changes.moveTo !== kind && !(await moveCatalogItem(tx, kind, id, changes.moveTo, userName))) continue
       count += 1
     }

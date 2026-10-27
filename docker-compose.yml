@@ -28,6 +28,10 @@ services:
       DATABASE_URL: postgres://${POSTGRES_USER:-linko}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-linko}
       AUTH_SECRET: ${AUTH_SECRET:?set AUTH_SECRET in .env}
       ALLOWED_ORIGIN: ${ALLOWED_ORIGIN:-http://localhost:3000}
+      # First admin password on a fresh database (empty = one-time password in the app log).
+      ADMIN_INITIAL_PASSWORD: ${ADMIN_INITIAL_PASSWORD:-}
+      # Proxies that append to X-Forwarded-For (1 = the bundled nginx).
+      TRUSTED_PROXY_HOPS: ${TRUSTED_PROXY_HOPS:-1}
       NODE_ENV: production
     expose:
       - "3000"

@@ -2,15 +2,16 @@ import { NextResponse } from "next/server"
 
 import { getCurrentUser } from "@/lib/current-user"
 import { requireRole } from "@/lib/rbac"
-import { parseJsonBody } from "@/lib/validation"
+import { parseIdSegment, parseJsonBody } from "@/lib/validation"
 import { cashErrorResponse, moneyRequestUpdateSchema } from "@/lib/cash/api"
 import { getMoneyRequest, updateMoneyRequest } from "@/lib/cash/money-requests"
+import { isDbId } from "@/lib/cash/common"
 
 type Params = { params: Promise<{ id: string }> }
 
 function parseId(value: string): number | null {
-  const id = Number(value)
-  return Number.isInteger(id) && id > 0 ? id : null
+  const id = parseIdSegment(value) ?? 0
+  return isDbId(id) ? id : null
 }
 
 // GET   /api/cash/money-requests/[id] → MoneyRequest (with logs).

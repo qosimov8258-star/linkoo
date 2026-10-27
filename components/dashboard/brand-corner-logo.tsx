@@ -2,7 +2,9 @@ export function BrandCornerLogo() {
   return (
     <div
       aria-label="Linko"
-      className="fixed bottom-2 left-2 z-[100] flex h-7 w-7 items-center justify-center rounded-[7px] border border-slate-200 bg-white shadow-md"
+      // Decorative only: it must never swallow clicks meant for the page under it
+      // (e.g. the checkbox of the last table row).
+      className="pointer-events-none fixed bottom-2 left-2 z-[100] flex h-7 w-7 select-none items-center justify-center rounded-[7px] border border-slate-200 bg-white opacity-90 shadow-md print:hidden"
     >
       <svg viewBox="0 0 24 24" className="h-6 w-6" aria-hidden="true">
         <rect width="24" height="24" rx="6" fill="#fff" />

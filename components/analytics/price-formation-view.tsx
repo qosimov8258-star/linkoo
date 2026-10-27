@@ -7,6 +7,7 @@ import { downloadExcelTable } from "@/lib/excel-export"
 import { mapHeaderColumns, readExcelRows } from "@/lib/excel-import"
 import { FilterCheck, FilterSelect, RI, RefButton, RefCard, RefFilterPanel, RefHeader, RefIconButton, RefPage, RefTable, RefToolbar, REF_SHADOW, usePaging } from "@/components/ref/list-kit"
 import { ReportMultiChipField } from "@/components/ref/report-kit"
+import { formatStatementDate, parseAnyDay } from "@/lib/finance/dates"
 import { useLanguage } from "@/lib/i18n/language-context"
 
 const PRICE_IMPORT_HEADER_ALIASES: Record<string, string> = {
@@ -18,13 +19,23 @@ import { notify } from "@/lib/notify"
 
 const currencies = ["SUM", "USD"]
 
+/** A stored day (YYYY-MM-DD, legacy "19 октября 2026") in the page language. */
+function formatDay(value: string, language: string) {
+  const day = parseAnyDay(value)
+  return day ? formatStatementDate(day, language, false).replace(/\s*г\.$/, "") : value
+}
+
 function formatMoney(value: number, currency = "SUM") {
   return `${(Math.round(value * 1000) / 1000).toLocaleString("ru-RU")} ${currency}`
 }
 
+/** Accepted supplies of the product in the base currency (GET /api/products/[id]/cost). */
 type SupplyHistoryLine = { incomingId: number; date: string; acceptedAt: string; qty: number; unitCost: number; averageCost: number }
 type SupplyLine = { incomingId: number; date: string; qty: number; onStock: number; unitCost: number; averageCost: number | null; accepted: boolean }
-type CostInfo = { initialCost: number; currentCost: number; history: SupplyHistoryLine[]; lines?: SupplyLine[] }
+/** currentCost = the one cost of goods (lib/stock/costs.ts), base currency. */
+type CostInfo = { initialCost: number; currentCost: number; history: SupplyHistoryLine[]; lines?: SupplyLine[]; baseCurrency?: string }
+/** GET /api/supplier-incomings/product-costs. */
+type ProductCosts = { baseCurrency: string; costs: Record<string, number> }
 
 const PRICE_ICON = "M11.8 10.9c-2.27-.59-3-1.2-3-2.15 0-1.09 1.01-1.85 2.7-1.85 1.78 0 2.44.85 2.5 2.1h2.21c-.07-1.72-1.12-3.3-3.21-3.81V3h-3v2.16c-1.94.42-3.5 1.68-3.5 3.61 0 2.31 1.91 3.46 4.7 4.13 2.5.6 3 1.48 3 2.41 0 .69-.49 1.79-2.7 1.79-2.06 0-2.87-.92-2.98-2.1h-2.2c.12 2.19 1.76 3.42 3.68 3.83V21h3v-2.15c1.95-.37 3.5-1.5 3.5-3.55 0-2.84-2.43-3.81-4.7-4.4z"
 const EDIT_ICON = "M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"
@@ -36,28 +47,22 @@ function notSet(value: string) {
 }
 
 
+/** Min / max of a product's own price lists (display fallback; the server stores priceMin / priceMax in the base currency). */
+function priceBounds(entries: PriceListEntry[]) {
+  const values = entries.flatMap((entry) => [entry.cash, entry.nonCash]).filter((value) => value > 0)
+  return { priceMin: values.length ? Math.min(...values) : 0, priceMax: values.length ? Math.max(...values) : 0 }
+}
+
 /** Every price list with this product's price in it (0 when not set). */
 function withAllPriceLists(entries: PriceListEntry[], names: string[]): PriceListEntry[] {
   const merged = names.map((name) => entries.find((entry) => entry.name === name) ?? { name, cash: 0, nonCash: 0, min: 0, max: 0 })
   return names.length ? merged : entries
 }
 
-function priceBounds(entries: PriceListEntry[]) {
-  const values = entries.flatMap((entry) => [entry.cash, entry.nonCash]).filter((value) => value > 0)
-  return { priceMin: values.length ? Math.min(...values) : 0, priceMax: values.length ? Math.max(...values) : 0 }
-}
-
-const todayLabel = () => new Date().toLocaleDateString("ru-RU", { day: "2-digit", month: "short", year: "numeric" }).replace(" г.", "")
-
 type AddStage = "pick" | "currency" | "amount" | null
 
-function toProductInput(product: Product): Omit<Product, "id" | "createdDate"> {
-  const { id: _id, createdDate: _createdDate, ...rest } = product
-  return rest
-}
-
 export function PriceFormationView({ embedded = false }: { embedded?: boolean }) {
-  const { t } = useLanguage()
+  const { t, language } = useLanguage()
   const [rows, setRows] = useState<Product[]>([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState("")
@@ -86,6 +91,7 @@ export function PriceFormationView({ embedded = false }: { embedded?: boolean })
   const [selectedPriceLists, setSelectedPriceLists] = useState<string[]>([])
   const [priceInputs, setPriceInputs] = useState<Record<string, { cash: string; nonCash: string }>>({})
   const [costInfo, setCostInfo] = useState<CostInfo | null>(null)
+  const [baseCurrency, setBaseCurrency] = useState(currencies[0])
   const [selectedCurrency, setSelectedCurrency] = useState("")
   const [importMode, setImportMode] = useState<"manual" | "excel">("manual")
   const [separateTransferPrice, setSeparateTransferPrice] = useState(false)
@@ -95,14 +101,25 @@ export function PriceFormationView({ embedded = false }: { embedded?: boolean })
   useEffect(() => {
     let cancelled = false
     setLoading(true)
-    fetch("/api/products")
-      .then(async (response) => {
+    Promise.all([
+      fetch("/api/products").then(async (response) => {
         if (!response.ok) throw new Error("Не удалось загрузить продукты")
         return (await response.json()) as Product[]
-      })
-      .then((data) => {
+      }),
+      // "Себестоимость" = the one cost of goods (base currency, today); products.cost is only its cache.
+      fetch("/api/supplier-incomings/product-costs")
+        .then((response) => (response.ok ? (response.json() as Promise<ProductCosts>) : null))
+        .catch(() => null),
+    ])
+      .then(([data, live]) => {
         if (cancelled) return
-        setRows(data.filter((product) => !product.deleted && !product.isInventory).sort((a, b) => b.id - a.id))
+        if (live?.baseCurrency) setBaseCurrency(live.baseCurrency)
+        setRows(
+          data
+            .filter((product) => !product.deleted && !product.isInventory)
+            .map((product) => ({ ...product, cost: live?.costs?.[String(product.id)] ?? product.cost }))
+            .sort((a, b) => b.id - a.id),
+        )
         setLoadError("")
       })
       .catch(() => {
@@ -150,7 +167,12 @@ export function PriceFormationView({ embedded = false }: { embedded?: boolean })
     setCostInfo(null)
     fetch(`/api/products/${expandedId}/cost`)
       .then((response) => (response.ok ? response.json() : null))
-      .then((data: CostInfo | null) => !cancelled && setCostInfo(data))
+      .then((data: CostInfo | null) => {
+        if (cancelled) return
+        setCostInfo(data)
+        // Keep the list in step with the detail (both read the cost of goods).
+        if (data) setRows((current) => current.map((row) => (row.id === expandedId && row.cost !== data.currentCost ? { ...row, cost: data.currentCost } : row)))
+      })
       .catch(() => {})
     return () => {
       cancelled = true
@@ -210,15 +232,15 @@ export function PriceFormationView({ embedded = false }: { embedded?: boolean })
     setExpandedId(match ? Number(match[1]) : null)
   }, [pathname, embedded])
 
-  async function patchProduct(id: number, patch: Partial<Product>): Promise<Product | null> {
-    const current = rows.find((row) => row.id === id)
-    if (!current) return null
-    const merged: Product = { ...current, ...patch }
+  /** PUT only the price lists: the catalog keeps every omitted field, and the server
+   * computes priceMin / priceMax (base currency) and priceUpdatedDate. */
+  async function patchProduct(id: number, patch: Pick<Product, "priceLists">): Promise<Product | null> {
+    if (!rows.some((row) => row.id === id)) return null
     try {
       const response = await fetch(`/api/products/${id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(toProductInput(merged)),
+        body: JSON.stringify({ priceLists: patch.priceLists }),
       })
       if (!response.ok) {
         const data = await response.json().catch(() => ({}))
@@ -226,7 +248,8 @@ export function PriceFormationView({ embedded = false }: { embedded?: boolean })
         return null
       }
       const saved = (await response.json()) as Product
-      setRows((curr) => curr.map((row) => (row.id === id ? saved : row)))
+      // The list keeps the cost of goods; the saved product carries only its cached copy.
+      setRows((curr) => curr.map((row) => (row.id === id ? { ...saved, cost: row.cost } : row)))
       return saved
     } catch {
       notify(t("Сервер недоступен, попробуйте ещё раз"))
@@ -280,7 +303,7 @@ export function PriceFormationView({ embedded = false }: { embedded?: boolean })
     if (!expanded) return
     // Price lists that were never set and are still empty stay out of the product.
     const priceLists = priceDraft.filter((entry) => entry.cash || entry.nonCash || expanded.priceLists.some((existing) => existing.name === entry.name))
-    await patchProduct(expanded.id, { priceLists, ...priceBounds(priceLists), priceUpdatedDate: todayLabel() })
+    await patchProduct(expanded.id, { priceLists })
     setEditingPrices(false)
   }
 
@@ -359,7 +382,7 @@ export function PriceFormationView({ embedded = false }: { embedded?: boolean })
         const target = rows.find((item) => item.barcode === barcode)
         if (!target || !selectedPriceLists.length) continue
         const updatedPrices = withPrices(target, price, price)
-        await patchProduct(target.id, { priceLists: updatedPrices, ...priceBounds(updatedPrices), priceUpdatedDate: todayLabel() })
+        await patchProduct(target.id, { priceLists: updatedPrices })
       }
       event.target.value = ""
       setAddStage(null)
@@ -382,7 +405,7 @@ export function PriceFormationView({ embedded = false }: { embedded?: boolean })
         updatedPrices = updatedPrices.some((item) => item.name === name) ? updatedPrices.map((item) => (item.name === name ? { ...item, ...entry } : item)) : [...updatedPrices, { name, min: 0, max: 0, ...entry }]
         changed = true
       }
-      if (changed) await patchProduct(target.id, { priceLists: updatedPrices, ...priceBounds(updatedPrices), priceUpdatedDate: todayLabel() })
+      if (changed) await patchProduct(target.id, { priceLists: updatedPrices })
     }
     setAddStage(null)
   }
@@ -456,7 +479,7 @@ export function PriceFormationView({ embedded = false }: { embedded?: boolean })
           render={(row) => [
             row.name,
             t(notSet(row.barcode)),
-            formatMoney(costOf(row)),
+            formatMoney(costOf(row), baseCurrency),
             <div key="min" className="text-right">{formatMoney(row.priceMin || priceBounds(row.priceLists).priceMin)}</div>,
             <div key="max" className="text-center">{formatMoney(row.priceMax || priceBounds(row.priceLists).priceMax)}</div>,
             t(row.priceUpdatedDate),
@@ -484,7 +507,7 @@ export function PriceFormationView({ embedded = false }: { embedded?: boolean })
                   </form>
                 ) : (
                   <span className="flex items-center">
-                    {formatMoney(costInfo?.initialCost ?? expanded.cost)}
+                    {formatMoney(costInfo?.initialCost ?? expanded.cost, baseCurrency)}
                     <button type="button" onClick={startEditDefaultCost} aria-label={t("Изменить себестоимость")} className="flex h-10 w-10 items-center justify-center">
                       <svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#333]"><path d={EDIT_ICON} /></svg>
                     </button>
@@ -498,17 +521,17 @@ export function PriceFormationView({ embedded = false }: { embedded?: boolean })
                 {supplyLines.map((line) => (
                   <div key={line.incomingId} className={`relative grid h-[40px] grid-cols-[64.3px_169px_112.7px_112.6px_minmax(0,1fr)_auto] items-center ${DOTTED}`}>
                     <a href={`/analytics/supplier-incomings/${line.incomingId}`} className="text-[#129fdd]">{line.incomingId}</a>
-                    <span>{line.date}</span>
+                    <span>{formatDay(line.date, language)}</span>
                     <span>{line.qty.toLocaleString("ru-RU")}</span>
                     <span>{line.onStock.toLocaleString("ru-RU")}</span>
-                    <span>{formatMoney(line.unitCost)}</span>
-                    <span className="text-right">{line.averageCost === null ? t("Не принято") : formatMoney(line.averageCost)}</span>
+                    <span>{formatMoney(line.unitCost, baseCurrency)}</span>
+                    <span className="text-right">{line.averageCost === null ? t("Не принято") : formatMoney(line.averageCost, baseCurrency)}</span>
                   </div>
                 ))}
                 {costInfo && !supplyLines.length && <div className="h-[40px] leading-[40px] text-[#999]">{t("Принятых поставок нет")}</div>}
                 <div className="mt-2 flex h-[40px] items-center justify-end text-[13px] font-semibold">
                   <span>{t("Текущая себестоимость")}:</span>
-                  <span className="ml-5">{formatMoney(costInfo?.currentCost ?? expanded.cost)}</span>
+                  <span className="ml-5">{formatMoney(costInfo?.currentCost ?? expanded.cost, baseCurrency)}</span>
                 </div>
               </div>
             </div>

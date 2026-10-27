@@ -44,7 +44,8 @@ export function ClientActDialog({
   const [paymentType, setPaymentType] = useState<"" | "cash" | "bank">("")
   const [details, setDetails] = useState(false)
 
-  const { data, loading, error } = useBalanceStatement(kind, entityKey, {
+  const [actionError, setActionError] = useState("")
+  const { data, loading, error, reload } = useBalanceStatement(kind, entityKey, {
     from,
     to,
     mode,
@@ -56,11 +57,33 @@ export function ClientActDialog({
   const codes = data ? (currency ? [currency] : data.visibleCurrencies) : []
   const deliverer = String(data?.entity.info.deliverer ?? "")
 
+  // Manual corrections ("Списать" / "Добавить", Excel debt lines) can be undone here.
+  const removeCorrection = async (id: number | null) => {
+    if (id === null || !window.confirm(t("Удалить корректировку?"))) return
+    setActionError("")
+    const response = await fetch(`/api/store-reconciliation/corrections/${id}`, { method: "DELETE" }).catch(() => null)
+    if (!response?.ok) {
+      const body = (await response?.json().catch(() => null)) as { error?: string } | null
+      setActionError(body?.error ? t(body.error) : t("Не удалось удалить"))
+      return
+    }
+    reload()
+  }
+
   const columns: ActColumn[] = [
     { label: "Комментарий", render: (row) => <StatementComment row={row} />, excel: (row) => describeStatementRow(row, t) },
     { label: "Доставщик", render: (row) => (row.source === "order" ? deliverer : ""), excel: (row) => (row.source === "order" ? deliverer : "") },
     { label: "Организация", render: (row) => row.organization, excel: (row) => row.organization },
     { label: "Тип оплаты", render: (row) => t(paymentTypeLabel(row.paymentType)), excel: (row) => t(paymentTypeLabel(row.paymentType)) },
+    {
+      label: "",
+      render: (row) =>
+        row.source === "client_correction" ? (
+          <button type="button" onClick={() => void removeCorrection(row.sourceId)} className="text-[#e57373] hover:underline">
+            {t("Удалить")}
+          </button>
+        ) : null,
+    },
   ]
   // The prop name is empty when the act is opened from a URL (?openClient) before the list loaded.
   const title = data?.entity.name || name
@@ -148,7 +171,7 @@ export function ClientActDialog({
             <BalanceDownloadMenu
               disabled={!data}
               items={[
-                { label: "Акт сверки", onClick: () => data && downloadExcelTable(fileName, actExcelRows(data, columns, t, language, codes)) },
+                { label: "Акт сверки", onClick: () => data && downloadExcelTable(fileName, actExcelRows(data, columns.filter((column) => column.label), t, language, codes)) },
                 { label: "Бухгалтерский акт сверки", onClick: () => data && downloadExcelTable(`${fileName} (2)`, accountingActExcelRows(data, t, language, codes)) },
               ]}
             />
@@ -157,6 +180,7 @@ export function ClientActDialog({
 
         <div className={`px-6 pb-6 ${loading ? "opacity-60" : ""}`}>
           {error && <p className="py-6 text-center text-[#e57373]">{error}</p>}
+          {actionError && <p className="py-2 text-center text-[#e57373]">{actionError}</p>}
           {!data && !error && <p className="py-10 text-center text-[#9aa3b6]">{t("Загрузка...")}</p>}
           {data && <BalanceActTable statement={data} currencies={codes} columns={columns} />}
         </div>

@@ -1,10 +1,11 @@
 import "server-only"
 
 import { withTransaction } from "@/lib/db"
+import { lockWarehouseStock } from "@/lib/internal-transfers-stock"
 import { insertMovements, MOVEMENT_SELECT, toMovement, type MovementItemInput, type MovementRow, type ProductionMovement } from "@/lib/production-batches-repo"
-import { getProductionDb, nowIso, round } from "@/lib/production-schema"
-import { averageCost, getWarehouseStock, listWarehouseItems, nameKey } from "@/lib/production-stock"
-import { getStage, listRecipes } from "@/lib/production-stages-repo"
+import { getProductionDb, itemKey, nowIso, ProductionError, round, textKey, type ItemKind } from "@/lib/production-schema"
+import { assertMovementDay, itemCosts, requireCatalogItem, warehouseOnHand } from "@/lib/production-stock"
+import { getStage, listRecipes, requireStageEquipment } from "@/lib/production-stages-repo"
 
 export type ActivityFilters = { from: string; to: string; shift?: string; equipmentId?: number; worker?: string }
 
@@ -82,32 +83,40 @@ export type ActivityInput = {
 
 /** Shift entries ("Добавить продукт" / "Добавить сырье" on the activity tab)
  * are not part of a batch; products made this way are costed by their
- * recipe norms at the warehouse's current average costs. */
-export async function addActivity(stageId: number, input: ActivityInput, userName: string): Promise<number | null> {
+ * recipe norms at the components' cost of goods of that day. Raw use must fit
+ * the stage warehouse's available stock (409 otherwise). */
+export async function addActivity(stageId: number, input: ActivityInput, userName: string): Promise<number | "stage_not_found"> {
   const stage = await getStage(stageId)
-  if (!stage) return null
-  const db = await getProductionDb()
+  if (!stage) return "stage_not_found"
+  assertMovementDay(input.date)
   const recipes = input.direction === "made" ? await listRecipes(stageId) : []
-  const stock = input.direction === "made" ? await getWarehouseStock(db, stage.warehouse) : null
-  return withTransaction((tx) => insertMovements(
-    tx,
-    { stageId, partyId: null, warehouse: stage.warehouse, date: input.date, userName, shift: input.shift, equipmentId: input.equipmentId, worker: input.worker },
-    input.direction,
-    input.items,
-    async (item) => {
-      const recipe = recipes.find((entry) => entry.kind === item.kind && entry.itemId === item.id)
-      if (!recipe || !(recipe.amount > 0)) return 0
-      const total = recipe.components.reduce((sum, component) => sum + component.amount * averageCost(stock?.get(nameKey(component.name))), 0)
-      return total / recipe.amount
-    },
-  ))
+  await getProductionDb()
+  return withTransaction(async (tx) => {
+    await requireStageEquipment(tx, input.equipmentId, stageId)
+    let costs: Map<string, number> | null = null
+    return insertMovements(
+      tx,
+      { stageId, partyId: null, warehouse: stage.warehouse, date: input.date, userName, shift: input.shift, equipmentId: input.equipmentId, worker: input.worker },
+      input.direction,
+      input.items,
+      async (item) => {
+        const recipe = recipes.find((entry) => entry.kind === item.kind && entry.itemId === item.id)
+        if (!recipe || !(recipe.amount > 0)) return 0
+        costs ??= await itemCosts(tx, input.date)
+        const total = recipe.components.reduce((sum, component) => sum + component.amount * (costs?.get(component.key) ?? 0), 0)
+        return total / recipe.amount
+      },
+    )
+  })
 }
 
 // ---------------------------------------------------------------------------
 // Inventory ("Сверить" / "Инвентаризация")
 // ---------------------------------------------------------------------------
 
-export type InventoryLine = { key: string; name: string; unit: string; expected: number; actual: number; difference: number }
+/** expected = on hand at the end of the inventory day, defective units
+ * included (what a physical count finds); defects = the brak inside it. */
+export type InventoryLine = { key: string; name: string; unit: string; expected: number; defects?: number; actual: number; difference: number }
 export type ProductionInventory = { id: number; stageId: number; warehouse: string; date: string; comment: string; userName: string; lines: InventoryLine[]; createdAt: string }
 
 type InventoryRow = { id: number; stage_id: number; warehouse: string; date: string; comment: string; user_name: string; lines: string; created_at: string }
@@ -131,36 +140,55 @@ export async function listInventories(stageId: number, from: string, to: string)
 }
 
 /** Records the counted quantities and books the differences as stock
- * adjustments so the warehouse balance matches the count afterwards. */
+ * adjustments (linked to the inventory) so the warehouse balance on that day
+ * matches the count afterwards. The count is compared with everything on
+ * hand, brak included, so counting defective units never turns them into
+ * good stock; a shortfall larger than the good stock is refused (409). */
 export async function createInventory(
   stageId: number,
-  input: { date: string; comment: string; lines: Array<{ key: string; actual: number }> },
+  input: { date: string; comment: string; lines: Array<{ kind: ItemKind; id: number; actual: number }> },
   userName: string,
-): Promise<ProductionInventory | null> {
+): Promise<ProductionInventory | "stage_not_found" | "empty"> {
   const stage = await getStage(stageId)
-  if (!stage) return null
+  if (!stage) return "stage_not_found"
+  assertMovementDay(input.date)
+  if (!textKey(stage.warehouse)) throw new ProductionError(400, "У этапа не указан склад")
+  const seen = new Set<string>()
+  for (const line of input.lines) {
+    const key = itemKey(line.kind, line.id)
+    if (seen.has(key)) throw new ProductionError(400, "Товар указан в сверке дважды", { key })
+    seen.add(key)
+  }
   await getProductionDb()
   // Count, adjustments and the inventory record land together or not at all.
   const row = await withTransaction(async (db) => {
-    const items = new Map((await listWarehouseItems(db, stage.warehouse)).map((item) => [item.key, item]))
+    await lockWarehouseStock(db, [stage.warehouse])
+    const onHand = await warehouseOnHand(db, stage.warehouse, input.date)
     const lines: InventoryLine[] = []
     const adjustments: MovementItemInput[] = []
     for (const counted of input.lines) {
-      const item = items.get(counted.key)
-      if (!item) continue
-      const difference = round(counted.actual - item.available)
-      lines.push({ key: item.key, name: item.name, unit: item.unit, expected: round(item.available), actual: counted.actual, difference })
+      const item = await requireCatalogItem(db, counted.kind, counted.id)
+      const stock = onHand.get(item.key) ?? { qty: 0, defects: 0 }
+      const difference = round(counted.actual - stock.qty)
+      lines.push({ key: item.key, name: item.name, unit: item.unit, expected: round(stock.qty), defects: round(stock.defects), actual: counted.actual, difference })
       if (difference !== 0) adjustments.push({ kind: item.kind, id: item.id, amount: difference })
     }
     if (!lines.length) return null
-    if (adjustments.length) {
-      await insertMovements(db, { stageId, partyId: null, warehouse: stage.warehouse, date: input.date, userName }, "adjust", adjustments)
-    }
     const result = await db
       .prepare("INSERT INTO production_inventories (stage_id, warehouse, date, comment, user_name, lines, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
       .run(stageId, stage.warehouse, input.date, input.comment, userName, JSON.stringify(lines), nowIso())
+    if (adjustments.length) {
+      await insertMovements(
+        db,
+        { stageId, partyId: null, warehouse: stage.warehouse, date: input.date, userName, inventoryId: result.lastInsertRowid },
+        "adjust",
+        adjustments,
+        undefined,
+        "Не возможно провести сверку. ",
+      )
+    }
     return (await db.prepare("SELECT * FROM production_inventories WHERE id = ?").get(result.lastInsertRowid)) as InventoryRow
   })
-  if (!row) return null
+  if (!row) return "empty"
   return toInventory(row)
 }

@@ -3,9 +3,11 @@ import "server-only"
 import { NextResponse } from "next/server"
 import { z } from "zod"
 
+import { MAX_PRICE } from "@/lib/item-prices"
 import type { CatalogListQuery } from "@/lib/products-catalog"
 import { CATALOG_ORDERINGS, EMPTY_CATALOG_FILTERS, cleanText, leadingNumber, type CatalogBoxSize, type CatalogKind, type CatalogPrice, type CatalogTab } from "@/lib/products-types"
 import { CatalogError, type CatalogPatch } from "@/lib/products-write"
+import { parseIdSegment } from "@/lib/validation"
 
 // Request schemas and parsers of /api/products/** and /api/raw-materials/**.
 // The item body accepts the new field names and the old payload of the previous forms /
@@ -16,8 +18,9 @@ import { CatalogError, type CatalogPatch } from "@/lib/products-write"
 const MAX_INT = 2_147_483_647
 
 export function parseCatalogId(value: string): number | null {
-  const id = Number(value)
-  return Number.isInteger(id) && id > 0 && id <= MAX_INT ? id : null
+  // Canonical digits only ("0x10" / "1e1" never resolve to another record).
+  const id = parseIdSegment(value)
+  return id !== null && id <= MAX_INT ? id : null
 }
 
 const text = (max: number) => z.string().max(max, `Не более ${max} символов`)
@@ -35,7 +38,8 @@ const days = z.union([z.number(), z.string().max(16), z.null()]).transform((valu
   }
   return parsed
 })
-const price = z.number().finite().min(0).max(1e15)
+/** Money contract: 0 ≤ price ≤ 1e13 (the same bound as the price grid and repricing). */
+const price = z.number({ error: "Некорректная цена" }).min(0, "Некорректная цена").max(MAX_PRICE, "Некорректная цена")
 
 const priceEntrySchema = z.object({
   name: text(255),
@@ -250,7 +254,7 @@ export const bulkSchema = z.object({
 export const limitsSchema = z.object({
   ids,
   agents: z.array(z.string().trim().min(1).max(255)).min(1, "Выберите агентов").max(200),
-  amount: z.number().finite().min(0).max(1e12),
+  amount: z.number().finite().min(0).max(1e9, "Слишком большое значение"),
 })
 
 export const imageSchema = z.object({
@@ -271,10 +275,13 @@ export const importSchema = z.object({
 
 // --- errors ----------------------------------------------------------------------------
 
-/** JSON response of a CatalogError ({error, fields?, usage?}); null for other errors. */
+/** JSON response of a CatalogError ({error, fields?, usage?, stock?}); null for other errors. */
 export function catalogErrorResponse(error: unknown): NextResponse | null {
   if (!(error instanceof CatalogError)) return null
-  return NextResponse.json({ error: error.message, ...(error.fields ? { fields: error.fields } : {}), ...(error.usage ? { usage: error.usage } : {}) }, { status: error.status })
+  return NextResponse.json(
+    { error: error.message, ...(error.fields ? { fields: error.fields } : {}), ...(error.usage ? { usage: error.usage } : {}), ...(error.stock ? { stock: error.stock } : {}) },
+    { status: error.status },
+  )
 }
 
 /** Runs a write and turns a CatalogError into its JSON response. */

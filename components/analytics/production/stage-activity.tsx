@@ -34,7 +34,7 @@ type Activity = {
   logs: LogRow[]
   shifts: Array<{ date: string; shift: string; worker: string; made: number; raw: number }>
 }
-type Inventory = { id: number; date: string; comment: string; userName: string; createdAt: string; lines: Array<{ key: string; name: string; unit: string; expected: number; actual: number; difference: number }> }
+type Inventory = { id: number; date: string; comment: string; userName: string; createdAt: string; lines: Array<{ key: string; name: string; unit: string; expected: number; defects?: number; actual: number; difference: number }> }
 type SubTab = "overview" | "logs" | "shifts" | "inventory"
 type Filters = { shift: string; equipmentId: string; worker: string }
 
@@ -278,6 +278,7 @@ function InventoryList({ inventories }: { inventories: Inventory[] }) {
                   <tr className="text-left text-slate-600">
                     <th className="px-3 py-2">{t("Наименование")}</th>
                     <th className="px-3 py-2 text-right">{t("Ожидалось")}</th>
+                    <th className="px-3 py-2 text-right">{t("в т.ч. брак")}</th>
                     <th className="px-3 py-2 text-right">{t("Фактически")}</th>
                     <th className="px-3 py-2 text-right">{t("Разница")}</th>
                   </tr>
@@ -287,6 +288,7 @@ function InventoryList({ inventories }: { inventories: Inventory[] }) {
                     <tr key={line.key} className="border-t border-slate-200">
                       <td className="px-3 py-2">{line.name}</td>
                       <td className="px-3 py-2 text-right">{formatAmount(line.expected, line.unit)}</td>
+                      <td className="px-3 py-2 text-right">{line.defects === undefined ? "-" : formatAmount(line.defects, line.unit)}</td>
                       <td className="px-3 py-2 text-right">{formatAmount(line.actual, line.unit)}</td>
                       <td className={`px-3 py-2 text-right ${line.difference < 0 ? "text-red-500" : line.difference > 0 ? "text-emerald-600" : ""}`}>{formatAmount(line.difference, line.unit)}</td>
                     </tr>
@@ -352,7 +354,7 @@ function ActivityDialog({
     <Modal title={t(direction === "made" ? "Добавление продукта" : "Добавление сырья")} tall onClose={onClose} onSubmit={save} width="max-w-[1000px]" footer={<SaveButton saving={saving} disabled={!lines.length} />}>
       <div className="-mx-[30px] -mb-[20px] -mt-[16px] flex min-h-[400px]">
         <div className="w-[250px] shrink-0 space-y-[20px] border-r border-[#efefef] px-[30px] pt-[30px]">
-          <Field label="Дата использования" required><input required type="date" value={date} onChange={(event) => setDate(event.target.value)} className={inputClass} /></Field>
+          <Field label="Дата использования" required><input required type="date" value={date} max={todayIso()} onChange={(event) => setDate(event.target.value)} className={inputClass} /></Field>
           <Field label="Смена">
             <input list="production-shifts" value={shift} onChange={(event) => setShift(event.target.value)} className={inputClass} />
             <datalist id="production-shifts">{shifts.map((value) => <option key={value} value={value} />)}</datalist>
@@ -389,19 +391,22 @@ function ActivityDialog({
   )
 }
 
+/** A count compares with everything on hand at the end of the day, brak
+ * included (the server books the difference as a stock adjustment). */
 function ReconcileDialog({ stage, onClose, onSaved }: { stage: Stage; onClose: () => void; onSaved: () => void }) {
   const { t } = useLanguage()
-  const { data: stock, loading } = useApiData<StockItem[]>(`/api/production/items?stageId=${stage.id}`, [])
   const [date, setDate] = useState(todayIso())
+  const { data: stock, loading } = useApiData<StockItem[]>(date ? `/api/production/items?stageId=${stage.id}&date=${date}` : null, [])
   const [comment, setComment] = useState("")
   const [showAll, setShowAll] = useState(false)
   const [counts, setCounts] = useState<Record<string, string>>({})
   const [saving, setSaving] = useState(false)
-  const rows = stock.filter((item) => showAll || item.available !== 0 || counts[item.key] !== undefined)
+  const onHand = (item: StockItem) => item.onHand ?? item.available
+  const rows = stock.filter((item) => showAll || onHand(item) !== 0 || counts[item.key] !== undefined)
 
   async function save(event: FormEvent) {
     event.preventDefault()
-    const lines = rows.map((item) => ({ key: item.key, actual: Number((counts[item.key] ?? String(item.available)).replace(",", ".")) })).filter((line) => Number.isFinite(line.actual) && line.actual >= 0)
+    const lines = rows.map((item) => ({ key: item.key, actual: Number((counts[item.key] ?? String(Math.max(0, onHand(item)))).replace(",", ".")) })).filter((line) => Number.isFinite(line.actual) && line.actual >= 0)
     if (!lines.length) return
     setSaving(true)
     try {
@@ -417,7 +422,7 @@ function ReconcileDialog({ stage, onClose, onSaved }: { stage: Stage; onClose: (
   return (
     <Modal title={t("Сверить")} onClose={onClose} onSubmit={save} width="max-w-3xl" footer={<SaveButton saving={saving} disabled={!rows.length} />}>
       <div className="mb-4 grid gap-5 sm:grid-cols-2">
-        <Field label="Дата" required><input required type="date" value={date} onChange={(event) => setDate(event.target.value)} className={inputClass} /></Field>
+        <Field label="Дата" required><input required type="date" value={date} max={todayIso()} onChange={(event) => setDate(event.target.value)} className={inputClass} /></Field>
         <Field label="Склад"><input value={stage.warehouse || t("Не указано")} disabled className={`${inputClass} text-slate-500`} /></Field>
       </div>
       <label className="mb-2 flex items-center gap-2 text-sm">
@@ -431,6 +436,7 @@ function ReconcileDialog({ stage, onClose, onSaved }: { stage: Stage; onClose: (
             <tr className="border-b border-dashed border-slate-300 text-left">
               <th className="py-2">{t("Наименование")}</th>
               <th className="py-2 text-right">{t("Ожидалось")}</th>
+              <th className="py-2 text-right">{t("в т.ч. брак")}</th>
               <th className="py-2 text-right">{t("Фактически")}</th>
             </tr>
           </thead>
@@ -438,10 +444,11 @@ function ReconcileDialog({ stage, onClose, onSaved }: { stage: Stage; onClose: (
             {rows.map((item) => (
               <tr key={item.key} className="border-b border-dashed border-slate-200">
                 <td className="py-2">{item.name}</td>
-                <td className="py-2 text-right">{formatAmount(item.available, item.unit)}</td>
+                <td className="py-2 text-right">{formatAmount(onHand(item), item.unit)}</td>
+                <td className="py-2 text-right">{formatAmount(item.stockDefects ?? 0, item.unit)}</td>
                 <td className="py-2 text-right">
                   <input
-                    value={counts[item.key] ?? String(Math.max(0, item.available))}
+                    value={counts[item.key] ?? String(Math.max(0, onHand(item)))}
                     onChange={(event) => setCounts({ ...counts, [item.key]: event.target.value })}
                     inputMode="decimal"
                     className="w-28 border-b border-slate-300 text-right outline-none focus:border-blue-600"

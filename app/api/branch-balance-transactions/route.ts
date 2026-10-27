@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 
 import { getCurrentUser } from "@/lib/current-user"
+import { routeId } from "@/lib/finance/api"
 import { requireRole } from "@/lib/rbac"
 import { parseJsonBody } from "@/lib/validation"
 import { branchBalanceTransactionSchema, createBranchBalanceTransaction, listBranchBalanceTransactions } from "@/lib/branch-balance-repo"
@@ -11,8 +12,8 @@ import { branchBalanceTransactionSchema, createBranchBalanceTransaction, listBra
 export async function GET(request: Request) {
   const user = await getCurrentUser()
   if (!user) return NextResponse.json({ error: "Tizimga kirilmagan" }, { status: 401 })
-  const branchId = Number(new URL(request.url).searchParams.get("branchId"))
-  return NextResponse.json(await listBranchBalanceTransactions(Number.isInteger(branchId) && branchId > 0 ? branchId : undefined))
+  const branchId = routeId(new URL(request.url).searchParams.get("branchId") ?? "")
+  return NextResponse.json(await listBranchBalanceTransactions(branchId ?? undefined))
 }
 
 export async function POST(request: Request) {
@@ -23,6 +24,7 @@ export async function POST(request: Request) {
   if (parsed.error) return parsed.error
 
   const transaction = await createBranchBalanceTransaction(parsed.data, auth.user.displayName || auth.user.username)
-  if (!transaction) return NextResponse.json({ error: "Филиал не найден" }, { status: 404 })
+  if (transaction === "branch_not_found") return NextResponse.json({ error: "Филиал не найден" }, { status: 404 })
+  if (transaction === "currency_not_found") return NextResponse.json({ error: "Валюта не найдена" }, { status: 400 })
   return NextResponse.json(transaction, { status: 201 })
 }

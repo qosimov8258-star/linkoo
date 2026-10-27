@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect } from "react"
+import { useLayoutEffect } from "react"
 
 import { useLanguage } from "./language-context"
 import { usePathname } from "next/navigation"
@@ -82,7 +82,9 @@ export function DomTranslator() {
   const { language } = useLanguage()
   const pathname = usePathname() ?? ""
 
-  useEffect(() => {
+  // A layout effect: the first pass runs right after hydration, before the
+  // browser paints again, so hydrated screens never flash their Russian literals.
+  useLayoutEffect(() => {
     currentLanguage = language
     setKeepRussianMonths(language === "uz" && REFERENCE_RU_DATE_ROUTES.some((route) => pathname === route || pathname.startsWith(`${route}/`)))
     patchDialogs()

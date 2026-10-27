@@ -1,24 +1,19 @@
 import { NextResponse } from "next/server"
-import { z } from "zod"
 
 import { getCurrentUser } from "@/lib/current-user"
 import { requireRole } from "@/lib/rbac"
 import { parseJsonBody } from "@/lib/validation"
-import { createSalaryPlan, listSalaryPlans, parseSalaryPlanInput } from "@/lib/salary-plans-repo"
+import { createSalaryPlan, listSalaryPlans, salaryPlanListQuery, salaryPlanSchema, SalaryPlanError } from "@/lib/salary-plans-repo"
 
-const salaryPlanSchema = z.object({
-  employee: z.string().trim().min(1),
-  salary: z.coerce.number().finite().nonnegative(),
-  bonus: z.coerce.number().finite().optional(),
-  kpi: z.coerce.number().finite().optional(),
-  credited: z.boolean().optional(),
-  period: z.string().regex(/^\d{4}-\d{2}$/).optional(),
-})
-
-export async function GET() {
+// GET  /api/salary-plans[?year=YYYY&month=M] → plans of one month (all without a period).
+// POST /api/salary-plans (manager+) → "Добавить зарплату": one plan per employee and month.
+export async function GET(request: Request) {
   const user = await getCurrentUser()
   if (!user) return NextResponse.json({ error: "Вы не вошли в систему" }, { status: 401 })
-  return NextResponse.json((await listSalaryPlans()))
+  const params = new URL(request.url).searchParams
+  const query = salaryPlanListQuery.safeParse({ year: params.get("year") || undefined, month: params.get("month") || undefined })
+  if (!query.success) return NextResponse.json({ error: "Неверный период", details: query.error.flatten() }, { status: 400 })
+  return NextResponse.json(await listSalaryPlans(query.data))
 }
 
 export async function POST(request: Request) {
@@ -28,9 +23,10 @@ export async function POST(request: Request) {
   const parsed = await parseJsonBody(request, salaryPlanSchema)
   if (parsed.error) return parsed.error
 
-  const input = parseSalaryPlanInput(parsed.data)
-  if (!input) return NextResponse.json({ error: "Обязательные поля не заполнены" }, { status: 400 })
-
-  const plan = (await createSalaryPlan(input))
-  return NextResponse.json(plan, { status: 201 })
+  try {
+    return NextResponse.json(await createSalaryPlan(parsed.data), { status: 201 })
+  } catch (error) {
+    if (error instanceof SalaryPlanError) return NextResponse.json({ error: error.message }, { status: error.status })
+    throw error
+  }
 }

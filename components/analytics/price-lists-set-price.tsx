@@ -250,7 +250,9 @@ function PriceGrid({ lists, mode, setup, onClose, onSaved }: { lists: GridList[]
     const result = await mutateJson<PriceGridSaveResult>("POST", `${PRICE_LISTS_API}/prices`, body)
     setBusy(false)
     if (!result.ok) return setError(t(mutationMessage(result)))
-    onSaved(t("Успешно сохранено"))
+    // Items deleted (or removed) meanwhile are not priced: say so instead of a silent success.
+    const skipped = result.data.skipped?.length ?? 0
+    onSaved(skipped ? `${t("Успешно сохранено")}. ${t("Пропущено удалённых товаров")}: ${skipped}` : t("Успешно сохранено"))
   }
 
   const input = (value: string, onChange: (value: string) => void, label: string, width = "w-[100px]") => (

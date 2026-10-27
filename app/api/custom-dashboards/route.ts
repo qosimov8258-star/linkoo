@@ -7,7 +7,7 @@ import { parseJsonBody } from "@/lib/validation"
 import { createCustomDashboard, listCustomDashboards } from "@/lib/custom-dashboards-repo"
 
 const customDashboardSchema = z.object({
-  name: z.string().trim().min(1),
+  name: z.string().trim().min(1).max(255, "Не более 255 символов"),
 })
 
 export async function GET() {

@@ -36,8 +36,14 @@ export type Incoming = {
   invoiceDate: string
   acceptedAt: string
   acceptedBy: string
-  /** Additional costs of the supply (delivery, customs, ...), summed. */
+  /** Additional costs of the supply (delivery, customs, ...), converted into
+   * the supply currency (each expense at its own rate snapshot, else the live rate). */
   expensesTotal: number
+  /** The same additional costs in the base currency. */
+  expensesBase: number
+  /** Base-currency units per 1 unit of the supply currency, frozen at acceptance
+   * (contract rate_to_base); null while not accepted / for legacy rows. */
+  rateToBase: number | null
 }
 
 export type IncomingExpense = {
@@ -50,6 +56,8 @@ export type IncomingExpense = {
   paymentType: string
   createdBy: string
   createdAt: string
+  /** Rate of the expense currency to the base currency at its creation (null = legacy row). */
+  rateToBase?: number | null
 }
 
 export type IncomingLog = { id: number; action: string; details: string; userName: string; createdAt: string }
@@ -58,8 +66,9 @@ export const incomingPaymentTypes: IncomingPaymentType[] = ["Банковски�
 
 export type CostLine = { product: string; qty: number; purchasePrice: number; expensePerUnit: number; unitCost: number; total: number }
 
-/** Unit cost of every line with the supply's additional costs spread over
- * the lines in proportion to their value. */
+/** Unit cost of every line, in the supply currency, with the supply's additional
+ * costs (`expensesTotal`, already converted into the supply currency) spread over
+ * the lines in proportion to their value (as the stock ledger books them). */
 export function supplyCostLines(incoming: Pick<Incoming, "items" | "expensesTotal">): CostLine[] {
   const value = incoming.items.reduce((sum, item) => sum + item.qty * item.cost, 0)
   const totalQty = incoming.items.reduce((sum, item) => sum + item.qty, 0)

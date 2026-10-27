@@ -3,7 +3,7 @@ import "server-only"
 import { getDb, type PgDb } from "@/lib/db"
 import { roundMoney } from "@/lib/finance/currency"
 import { nameKey } from "@/lib/finance/entities"
-import { currencyContext, loadCategories, num, numOrNull, type CategoryInfo } from "@/lib/cash/common"
+import { currencyContext, isDbId, loadCategories, num, numOrNull, pageOf, type CategoryInfo } from "@/lib/cash/common"
 import { ensureCashSchema } from "@/lib/cash/schema"
 import {
   CASH_OP_LABELS,
@@ -227,7 +227,7 @@ function orderBy(ordering: string | undefined): string {
 type Params = Record<string, unknown>
 
 function ids(values: number[] | undefined): number[] {
-  return (values ?? []).map(Number).filter((value) => Number.isInteger(value) && value > 0)
+  return (values ?? []).map(Number).filter(isDbId)
 }
 
 /** Bind values of OPS_CTE for a query. */
@@ -433,13 +433,26 @@ export async function listCashOperations(query: CashListQuery, db: PgDb = getDb(
   const cc = await currencyContext(db)
   const { list, map } = await categoryMap(db)
   const params = buildParams({ ...query, listMode: true }, cc.base, list)
-  const pageSize = query.pageSize === 0 ? 0 : Math.min(Math.max(1, Math.floor(query.pageSize ?? 25)), 5000)
-  const page = Math.max(1, Math.floor(query.page ?? 1))
+  const { page, pageSize } = pageOf(query.page, query.pageSize)
   const countRow = (await db.prepare(`${OPS_CTE} SELECT count(*)::int AS n FROM f`).get(params)) as { n: number }
   const paging = pageSize ? ` LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}` : ""
   const rows = (await db.prepare(`${OPS_CTE} ${PAGE_SELECT} ORDER BY ${orderBy(query.ordering)}${paging}`).all(params)) as OpRow[]
   const transfers = await transferInfo(db, rows)
   return { baseCurrency: cc.base, count: num(countRow.n), page, pageSize, rows: rows.map((row) => toOperation(row, cc.base, map, transfers)) }
+}
+
+/** All-time balance of the given cashboxes in their own currency: Σ live, verified
+ * operations of the read model (= the cash page totals = Баланс кассы end balance).
+ * Cashboxes without operations are 0. */
+export async function cashboxBalances(db: PgDb, cashboxIds: number[], base: string): Promise<Map<number, number>> {
+  const list = ids(cashboxIds)
+  const out = new Map<number, number>(list.map((id) => [id, 0]))
+  if (!list.length) return out
+  const rows = (await db
+    .prepare(`${OPS_CTE} SELECT o.cashbox_id, COALESCE(SUM(o.amount), 0) AS total FROM f o WHERE NOT o.deleted AND o.verified GROUP BY 1`)
+    .all(buildParams({ cashboxIds: list }, base, []))) as Array<{ cashbox_id: number; total: number }>
+  for (const row of rows) out.set(Number(row.cashbox_id), roundMoney(num(row.total), 5))
+  return out
 }
 
 /** Number of unverified (not deleted) operations — the clock badge. */

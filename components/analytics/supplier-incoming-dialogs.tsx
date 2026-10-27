@@ -132,6 +132,7 @@ export function IncomingRepriceDialog({ incoming, units, onClose, onSaved }: { i
   const { t } = useLanguage()
   const [priceLists, setPriceLists] = useState<PriceList[]>([])
   const [averages, setAverages] = useState<Record<string, number>>({})
+  const [baseCurrency, setBaseCurrency] = useState("SUM")
   const [productNames, setProductNames] = useState<Set<string> | null>(null)
   const [priceListId, setPriceListId] = useState("")
   const [currency, setCurrency] = useState(incoming.currency || "SUM")
@@ -146,12 +147,19 @@ export function IncomingRepriceDialog({ incoming, units, onClose, onSaved }: { i
 
   useEffect(() => {
     let cancelled = false
-    Promise.all([fetch("/api/price-lists").then((response) => (response.ok ? response.json() : [])), fetch("/api/products").then((response) => (response.ok ? response.json() : []))])
-      .then(([lists, products]) => {
+    Promise.all([
+      fetch("/api/price-lists").then((response) => (response.ok ? response.json() : [])),
+      fetch("/api/products").then((response) => (response.ok ? response.json() : [])),
+      // "Усред. Себ." = the one cost of goods (base currency), not a supply average.
+      fetch("/api/supplier-incomings/product-costs").then((response) => (response.ok ? response.json() : null)),
+    ])
+      .then(([lists, products, costs]) => {
         if (cancelled) return
         setPriceLists(lists as PriceList[])
-        const catalog = products as Array<{ name: string; cost: number }>
-        setAverages(Object.fromEntries(catalog.map((product) => [product.name, product.cost])))
+        const catalog = products as Array<{ id: number; name: string; cost: number }>
+        const live = costs as { baseCurrency: string; costs: Record<string, number> } | null
+        if (live?.baseCurrency) setBaseCurrency(live.baseCurrency)
+        setAverages(Object.fromEntries(catalog.map((product) => [product.name, live?.costs?.[String(product.id)] ?? product.cost])))
         setProductNames(new Set(catalog.map((product) => product.name)))
       })
       .catch(() => {})
@@ -314,7 +322,7 @@ export function IncomingRepriceDialog({ incoming, units, onClose, onSaved }: { i
                   <td className="py-2 pr-3">{row.product} <span className="text-slate-400">{units[row.product]}</span></td>
                   <td className="py-2 pr-3">{money(row.purchasePrice)}</td>
                   <td className="py-2 pr-3">{money(row.unitCost)}</td>
-                  <td className="py-2 pr-3">{money(row.averageCost)}</td>
+                  <td className="py-2 pr-3">{`${(Math.round(row.averageCost * 100) / 100).toLocaleString("ru-RU")} ${baseCurrency}`}</td>
                   {perProduct && (
                     <td className="py-2 pr-3">
                       <input inputMode="decimal" value={row.markup} onChange={(event) => updateRow(row.product, { markup: event.target.value })} className="w-20 border-b border-slate-300 outline-none" />

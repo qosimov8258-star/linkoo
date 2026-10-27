@@ -17,12 +17,14 @@ import type { StockPickResult, StockPickRow, Transfer, TransferOptions } from "@
 // "Добавить / Изменить передачу товаров". Left "Условия передачи товара": Со
 // склада, На склад, Дата доставки, Дата создания, Прайс лист, Валюта,
 // Организация, Номер накладной, Номер транспорта, Водитель, comment,
-// "Подтвержденный", "Сразу передать товары без потверждения". Right "Список
+// "Подтвержденный", "Сразу передать товары без подтверждения". Right "Список
 // товаров": "добавить из списка" (source balances), "Импортировать c Excel",
 // an add row (Наименование (available) / Кол-во / Цена) and the lines; footer
-// Сумма / Общее кол-во / Вес and "Добавить".
+// Сумма / Общее кол-во / Вес and "Добавить". Without a price list the lines are
+// valued at the cost of goods (server; shown here, not editable). "Брак" on a
+// line moves defective units (up to the defects on hand).
 
-type Line = { key: string; name: string; unit: string; article: string; weight: number; quantity: string; price: string }
+type Line = { key: string; name: string; unit: string; article: string; weight: number; quantity: string; price: string; defect: boolean }
 
 const lineFromRow = (row: StockPickRow, quantity: string, price: string): Line => ({
   key: row.key,
@@ -32,6 +34,7 @@ const lineFromRow = (row: StockPickRow, quantity: string, price: string): Line =
   weight: row.weight,
   quantity,
   price,
+  defect: row.available <= 0 && row.defectsAvailable > 0,
 })
 
 export function TransferFormDialog({
@@ -71,6 +74,7 @@ export function TransferFormDialog({
         weight: item.weight,
         quantity: String(item.quantity),
         price: String(item.price),
+        defect: Boolean(item.defect),
       })) ?? [],
   )
   const [pickerOpen, setPickerOpen] = useState(false)
@@ -127,15 +131,22 @@ export function TransferFormDialog({
     setAddPrice("")
   }
 
+  const atCost = !priceList
+  /** Unit price of a line: the price list's (editable), else the cost of goods (Брак: none). */
+  const priceOf = (line: Line) => (atCost ? (line.defect ? 0 : (rowMap.get(line.key)?.cost ?? parseAmount(line.price))) : parseAmount(line.price))
   const totals = lines.reduce(
     (sum, line) => {
       const qty = parseAmount(line.quantity)
-      return { amount: sum.amount + qty * parseAmount(line.price), qty: sum.qty + qty, weight: sum.weight + qty * line.weight }
+      return { amount: sum.amount + qty * priceOf(line), qty: sum.qty + qty, weight: sum.weight + qty * line.weight }
     },
     { amount: 0, qty: 0, weight: 0 },
   )
+  // The total's unit only when every line shares it (never "ед" over kg and pieces).
+  const lineUnits = new Set(lines.map((line) => line.unit.trim().toLowerCase()))
+  const totalUnit = lineUnits.size === 1 && lines[0]?.unit.trim() ? t(lines[0].unit.trim()) : ""
   // Editable transfers have no stock effect yet, so the source's available quantity applies as is.
-  const over = (line: Line) => parseAmount(line.quantity) > (rowMap.get(line.key)?.available ?? 0) + 1e-9
+  const availableOf = (line: Line) => (line.defect ? rowMap.get(line.key)?.defectsAvailable : rowMap.get(line.key)?.available) ?? 0
+  const over = (line: Line) => parseAmount(line.quantity) > availableOf(line) + 1e-9
 
   const submit = async () => {
     setShowErrors(true)
@@ -159,7 +170,13 @@ export function TransferFormDialog({
       comment,
       isConfirmed: confirmed,
       autoAccept: !editing && autoAccept,
-      items: lines.map((line) => ({ key: line.key || undefined, product: line.name, quantity: parseAmount(line.quantity), price: parseAmount(line.price) })),
+      items: lines.map((line) => ({
+        key: line.key || undefined,
+        product: line.name,
+        quantity: parseAmount(line.quantity),
+        price: atCost ? 0 : parseAmount(line.price),
+        ...(line.defect ? { defect: true } : {}),
+      })),
     }
     const result = editing ? await cashMutate<Transfer>("PUT", `/api/internal-transfers/${transfer.id}`, body) : await cashMutate<Transfer>("POST", "/api/internal-transfers", body)
     setBusy(false)
@@ -180,7 +197,7 @@ export function TransferFormDialog({
               {t("Сумма")}: <b className="text-[16px] font-semibold text-[#129fdd]">{lines.length ? formatSum(totals.amount, shownCurrency) : "0"}</b>
             </li>
             <li>
-              {t("Общее кол-во:")} <b className="text-[16px] font-semibold text-[#129fdd]">{formatQty(totals.qty, t("ед"))}</b>
+              {t("Общее кол-во:")} <b className="text-[16px] font-semibold text-[#129fdd]">{formatQty(totals.qty, totalUnit)}</b>
             </li>
           </ul>
           {error && <span className="ml-auto mr-4 text-[13px] text-[#f44336]">{error}</span>}
@@ -267,7 +284,12 @@ export function TransferFormDialog({
                 width={264}
                 label={t("Наименование")}
                 value={addKey}
-                options={rows.filter((row) => row.available > 0).map((row) => ({ value: row.key, label: `${row.name} (${formatQty(row.available, row.unit)})` }))}
+                options={rows
+                  .filter((row) => row.available > 0 || row.defectsAvailable > 0)
+                  .map((row) => ({
+                    value: row.key,
+                    label: `${row.name} (${formatQty(Math.max(0, row.available), row.unit)}${row.defectsAvailable > 0 ? `; ${t("Брак")}: ${formatQty(row.defectsAvailable, row.unit)}` : ""})`,
+                  }))}
                 onChange={(value) => {
                   setAddKey(value)
                   setAddPrice(String(rowMap.get(value)?.price || ""))
@@ -275,7 +297,7 @@ export function TransferFormDialog({
                 onClear={() => setAddKey("")}
               />
               <TextField top={52} left={320} width={180} label={t("Кол-во")} value={addQty} onChange={setAddQty} />
-              <TextField top={52} left={532} width={109} label={t("Цена")} value={addPrice} onChange={setAddPrice} />
+              <TextField top={52} left={532} width={109} label={atCost ? t("Себестоимость") : t("Цена")} value={atCost ? String(rowMap.get(addKey)?.cost ?? "") : addPrice} onChange={atCost ? () => {} : setAddPrice} />
               <button type="button" onClick={addRow} disabled={!addKey || !validQty(addQty)} aria-label={t("Добавить")} className="absolute left-[686px] top-[27px] flex h-6 w-6 items-center justify-center disabled:opacity-100">
                 <svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#4f71dc]" aria-hidden><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" /></svg>
               </button>
@@ -289,7 +311,7 @@ export function TransferFormDialog({
                   <tr className="border-b border-[#e1e5eb] text-left font-semibold">
                     <th className="py-2 pr-3">{t("Наименование")}</th>
                     <th className="py-2 pr-3">{t("Кол-во")}</th>
-                    <th className="py-2 pr-3">{t("Цена")}</th>
+                    <th className="py-2 pr-3">{atCost ? t("Себестоимость") : t("Цена")}</th>
                     <th className="py-2 pr-3 text-right">{t("Сумма")}</th>
                     <th className="py-2 pr-3 text-right">{t("Вес")}</th>
                     <th className="w-10" />
@@ -306,8 +328,14 @@ export function TransferFormDialog({
                         <td className="py-2 pr-3">
                           {line.name}
                           <span className={`block text-[12px] ${over(line) ? "text-[#e57373]" : "text-[#9aa3b6]"}`}>
-                            {t("Доступно")}: {formatQty(row?.available ?? 0, line.unit)}
+                            {line.defect ? t("Брак") : t("Доступно")}: {formatQty(Math.max(0, availableOf(line)), line.unit)}
                           </span>
+                          {(line.defect || (row?.defectsAvailable ?? 0) > 0) && (
+                            <label className="mt-1 flex items-center gap-1.5 text-[12px] text-[#586174]">
+                              <input type="checkbox" checked={line.defect} onChange={(event) => update({ defect: event.target.checked })} className="h-3.5 w-3.5 accent-[rgb(79,113,220)]" />
+                              {t("Брак")}
+                            </label>
+                          )}
                         </td>
                         <td className="py-2 pr-3">
                           <span className="flex items-center gap-1.5">
@@ -316,9 +344,13 @@ export function TransferFormDialog({
                           </span>
                         </td>
                         <td className="py-2 pr-3">
-                          <input value={line.price} inputMode="decimal" aria-label={`${t("Цена")}: ${line.name}`} onChange={(event) => update({ price: event.target.value })} className="h-9 w-[110px] border-b border-[#5d6474] bg-transparent px-1 outline-none" />
+                          {atCost ? (
+                            <span className="text-[#586174]">{formatSum(priceOf(line))}</span>
+                          ) : (
+                            <input value={line.price} inputMode="decimal" aria-label={`${t("Цена")}: ${line.name}`} onChange={(event) => update({ price: event.target.value })} className="h-9 w-[110px] border-b border-[#5d6474] bg-transparent px-1 outline-none" />
+                          )}
                         </td>
-                        <td className="whitespace-nowrap py-2 pr-3 text-right">{formatSum(qty * parseAmount(line.price))}</td>
+                        <td className="whitespace-nowrap py-2 pr-3 text-right">{formatSum(qty * priceOf(line))}</td>
                         <td className="whitespace-nowrap py-2 pr-3 text-right">{formatWeight(qty * line.weight, t("кг"))}</td>
                         <td className="py-2 text-right">
                           <button type="button" onClick={() => setLines((current) => current.filter((_, i) => i !== index))} aria-label={t("Удалить")} className="text-[#9aa3b6] hover:text-[#e57373]">

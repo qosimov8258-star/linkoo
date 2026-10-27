@@ -3,13 +3,13 @@ import { NextResponse } from "next/server"
 import { getCurrentUser } from "@/lib/current-user"
 import { deleteDelivererCorrection, getDelivererCorrection } from "@/lib/finance-deliverer-debts"
 import { requireRole } from "@/lib/rbac"
+import { parseIdSegment } from "@/lib/validation"
 
 // One "Корректировка" of a deliverer: GET / DELETE (the statement marks these
 // rows editable, source "deliverer_manual", sourceId = id).
 
 function parseId(value: string): number | null {
-  const id = Number(value)
-  return Number.isInteger(id) && id > 0 ? id : null
+  return parseIdSegment(value)
 }
 
 export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {

@@ -1,22 +1,24 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { downloadExcelTable } from "@/lib/excel-export"
 import { DashboardDialog } from "./dashboard-dialog"
 import { ReportBand, ReportDateField, ReportEmpty, ReportFilters, ReportHeader, ReportPage, ReportSelectField } from "@/components/ref/report-kit"
+import { useDirectoryNames } from "@/components/clients/use-directory"
+import { currencyLabel } from "@/lib/finance/currency"
+import type { BalanceListResult } from "@/lib/finance/types"
+import { useLanguage } from "@/lib/i18n/language-context"
 
-const sourceRows: { store: string; sale: number; saleCost: number; returned: number; returnCost: number; payment: number; discount: number }[] = []
+// "Продажа и оплата по магазинам": per store, the sales, returns and payments of
+// the period from the client ledger (GET /api/balances/client — the same numbers
+// as Баланс клиентов), in the base currency. The filters are the factory's own
+// directories and are sent to the ledger as real filters.
 
-const filterOptions = {
-  responsible: ["Samandar Abdurahmonov", "Хайрулло Доставщик"],
-  organization: ["Linko", "Time3 Distribution"],
-  storeType: ["horeca", "market", "market100"],
-  zone: ["Andijon shaharchasi", "Arslan", "chilonzor"],
-  branch: ["777", "878", "Andijon", "AURUM samarqand"],
-  column: ["Продажа", "Оплата", "Возврат"],
-}
+type StoreRow = { store: string; sale: number; returned: number; payment: number }
 
-type FilterKey = keyof typeof filterOptions
+const COLUMNS = ["Продажа", "Оплата", "Возврат"] as const
+type FilterKey = "responsible" | "organization" | "storeType" | "zone" | "branch" | "column"
+const EMPTY_FILTERS: Record<FilterKey, string> = { responsible: "", organization: "", storeType: "", zone: "", branch: "", column: "" }
 
 function iso(date: Date) {
   const pad = (value: number) => String(value).padStart(2, "0")
@@ -24,83 +26,125 @@ function iso(date: Date) {
 }
 
 export function ClientSalesPaymentsView() {
+  const { t } = useLanguage()
   const now = useMemo(() => new Date(), [])
   const [from, setFrom] = useState(() => iso(new Date(now.getFullYear(), now.getMonth(), 1)))
   const [to, setTo] = useState(() => iso(now))
-  const [filters, setFilters] = useState<Record<FilterKey, string>>(
-    Object.fromEntries(Object.entries(filterOptions).map(([key, value]) => [key, ""])) as Record<FilterKey, string>,
-  )
+  const [filters, setFilters] = useState<Record<FilterKey, string>>(EMPTY_FILTERS)
+  const [applied, setApplied] = useState(() => ({ from, to, ...EMPTY_FILTERS }))
+  const [data, setData] = useState<BalanceListResult | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState("")
   const [dashboardOpen, setDashboardOpen] = useState(false)
   const [saved, setSaved] = useState(false)
   const [visibility, setVisibility] = useState("all")
   const [dashboard, setDashboard] = useState("Основной дашборд")
 
-  const rows = useMemo(
-    () => sourceRows.filter((row) => filters.responsible === "" || row.store === "Doston market"),
-    [filters.responsible],
-  )
-  const totals = rows.reduce(
-    (sum, row) => ({
-      sale: sum.sale + row.sale,
-      saleCost: sum.saleCost + row.saleCost,
-      returned: sum.returned + row.returned,
-      returnCost: sum.returnCost + row.returnCost,
-      payment: sum.payment + row.payment,
-      discount: sum.discount + row.discount,
-    }),
-    { sale: 0, saleCost: 0, returned: 0, returnCost: 0, payment: 0, discount: 0 },
-  )
+  const options: Record<FilterKey, string[]> = {
+    responsible: useDirectoryNames("employees"),
+    organization: useDirectoryNames("organizations"),
+    storeType: useDirectoryNames("clientTypes"),
+    zone: useDirectoryNames("zones"),
+    branch: useDirectoryNames("branches"),
+    column: [...COLUMNS],
+  }
+
+  useEffect(() => {
+    const params = new URLSearchParams({ from: applied.from, to: applied.to, pageSize: "0" })
+    const sent: Array<[string, string]> = [
+      ["agent", applied.responsible],
+      ["organization", applied.organization],
+      ["clientType", applied.storeType],
+      ["zone", applied.zone],
+      ["branch", applied.branch],
+    ]
+    for (const [name, value] of sent) if (value) params.append(name, value)
+    const controller = new AbortController()
+    setLoading(true)
+    setError("")
+    fetch(`/api/balances/client?${params.toString()}`, { signal: controller.signal, cache: "no-store" })
+      .then(async (response) => {
+        const body = (await response.json().catch(() => null)) as (BalanceListResult & { error?: string }) | null
+        if (!response.ok || !body) throw new Error(body?.error || "Не удалось загрузить данные")
+        setData(body)
+      })
+      .catch((reason: unknown) => {
+        if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : String(reason))
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoading(false)
+      })
+    return () => controller.abort()
+  }, [applied])
+
+  const base = data?.baseCurrency ?? ""
+  const rows = useMemo<StoreRow[]>(() => {
+    const list = (data?.rows ?? []).map((row) => {
+      const money = row.currencies[base] ?? ({} as Record<string, number>)
+      // order is booked negative (the client owes), returns / payments positive.
+      return { store: row.name, sale: -(Number(money.order) || 0), returned: Number(money.order_return) || 0, payment: Number(money.payment) || 0 }
+    })
+    const column = applied.column
+    return list
+      .filter((row) => (column === "Продажа" ? row.sale : column === "Оплата" ? row.payment : column === "Возврат" ? row.returned : row.sale || row.returned || row.payment))
+      .sort((a, b) => b.sale - a.sale || a.store.localeCompare(b.store, "ru"))
+  }, [data, base, applied.column])
+
+  const totals = rows.reduce((sum, row) => ({ sale: sum.sale + row.sale, returned: sum.returned + row.returned, payment: sum.payment + row.payment }), { sale: 0, returned: 0, payment: 0 })
+  const heads = ["Магазин", "Продажа", "Возврат", "Факт продаж", "Оплата"].map((title) => t(title))
+  const cells = (row: Omit<StoreRow, "store">) => [row.sale, row.returned, row.sale - row.returned, row.payment]
 
   function setFilter(key: FilterKey, value: string) {
     setFilters((current) => ({ ...current, [key]: value }))
   }
   function download() {
-    downloadExcelTable("client-sales-payments.xls", [
-      ["Магазин", "Продажа", "Себестоимость продаж", "Возврат", "Себестоимость возврата", "Факт продаж", "Себестоимость факт", "Оплата", "Сумма скидок"],
-      ...rows.map((row) => [row.store, row.sale, row.saleCost, row.returned, row.returnCost, row.sale - row.returned, row.saleCost - row.returnCost, row.payment, row.discount]),
-    ])
+    downloadExcelTable("client-sales-payments.xls", [heads, ...rows.map((row) => [row.store, ...cells(row)]), [t("Итого"), ...cells(totals)]])
   }
 
-  const heads = ["Магазин", "Продажа", "Себестоимость продаж", "Возврат", "Себестоимость возврата", "Факт продаж", "Себестоимость факт", "Оплата", "Сумма скидок"]
   return (
     <ReportPage>
-      <ReportHeader title="Продажа и оплата по магазинам" onExcel={download} onDashboard={() => setDashboardOpen(true)} inDashboard={saved} />
+      <ReportHeader title={t("Продажа и оплата по магазинам")} onExcel={rows.length ? download : undefined} onDashboard={() => setDashboardOpen(true)} inDashboard={saved} />
 
       <ReportBand>
-        <ReportFilters applyDisabled={from > to}>
+        <ReportFilters applyDisabled={from > to} onApply={() => from <= to && setApplied({ from, to, ...filters })}>
           <ReportDateField label="Дата от" value={from} max={to} onChange={setFrom} />
           <ReportDateField label="Дата до" value={to} min={from} onChange={setTo} />
-          {(Object.keys(filterOptions) as FilterKey[]).map((key) => (
-            <ReportSelectField key={key} label={labels[key]} value={filters[key]} onChange={(value) => setFilter(key, value)} options={filterOptions[key]} />
+          {(Object.keys(labels) as FilterKey[]).map((key) => (
+            <ReportSelectField key={key} label={labels[key]} value={filters[key]} onChange={(value) => setFilter(key, value)} options={options[key]} />
           ))}
         </ReportFilters>
+        <p className="mt-[8px] text-[12px] text-[#666]">
+          {base ? `${t("Суммы в основной валюте")}: ${currencyLabel(base)}` : ""}
+          {loading ? ` · ${t("Загрузка...")}` : ""}
+          {error ? ` · ${t(error)}` : ""}
+        </p>
 
         {rows.length === 0 ? (
-          <ReportEmpty />
+          <ReportEmpty text={loading ? t("Загрузка...") : undefined} />
         ) : (
-        <section className="mt-5 overflow-x-auto bg-white">
-          <table className="w-full min-w-[1500px] border-collapse">
-            <thead className="bg-[#5d6474] text-white">
-              <tr>{heads.map((title) => <th key={title} className="text-left">{title}</th>)}</tr>
-            </thead>
-            <tbody>
-              {rows.map((row) => (
-                <tr key={row.store}>
-                  <td>{row.store}</td>
-                  {[row.sale, row.saleCost, row.returned, row.returnCost, row.sale - row.returned, row.saleCost - row.returnCost, row.payment, row.discount].map((value, index) => <td key={index}>{format(value)}</td>)}
+          <section className="mt-5 overflow-x-auto bg-white">
+            <table className="w-full min-w-[900px] border-collapse text-[13px]">
+              <thead className="bg-[#5d6474] text-white">
+                <tr>{heads.map((title, index) => <th key={title} className={`px-[10px] py-[10px] ${index ? "text-right" : "text-left"}`}>{title}</th>)}</tr>
+              </thead>
+              <tbody>
+                {rows.map((row) => (
+                  <tr key={row.store} className="border-t border-[#efefef]">
+                    <td className="px-[10px] py-[8px]">{row.store}</td>
+                    {cells(row).map((value, index) => <td key={index} className="px-[10px] py-[8px] text-right">{format(value)}</td>)}
+                  </tr>
+                ))}
+                <tr className="border-t border-[#d9d9d9] font-bold">
+                  <td className="px-[10px] py-[8px]">{t("Итого")}</td>
+                  {cells(totals).map((value, index) => <td key={index} className="px-[10px] py-[8px] text-right">{format(value)}</td>)}
                 </tr>
-              ))}
-              <tr className="font-bold">
-                <td>Итого</td>
-                {[totals.sale, totals.saleCost, totals.returned, totals.returnCost, totals.sale - totals.returned, totals.saleCost - totals.returnCost, totals.payment, totals.discount].map((value, index) => <td key={index}>{format(value)}</td>)}
-              </tr>
-            </tbody>
-          </table>
-        </section>
+              </tbody>
+            </table>
+          </section>
         )}
       </ReportBand>
 
-      {dashboardOpen && <button type="button" aria-label="Закрыть" onClick={() => setDashboardOpen(false)} className="fixed inset-0 z-[90] bg-black/55" />}
+      {dashboardOpen && <button type="button" aria-label={t("Закрыть")} onClick={() => setDashboardOpen(false)} className="fixed inset-0 z-[90] bg-black/55" />}
       {dashboardOpen && (
         <DashboardDialog
           reportSlug="client-sales-payments"
@@ -118,4 +162,6 @@ export function ClientSalesPaymentsView() {
 }
 
 const labels: Record<FilterKey, string> = { responsible: "Отв.агент магазина", organization: "Организация", storeType: "Тип магазина", zone: "Зона", branch: "Филиал", column: "Колонка" }
-function format(value: number) { return value.toLocaleString("ru-RU", { maximumFractionDigits: 2 }) }
+function format(value: number) {
+  return value.toLocaleString("ru-RU", { maximumFractionDigits: 2 })
+}

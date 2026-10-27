@@ -5,38 +5,14 @@ import { Copy, ListChecks, Pencil, PlusCircle, RefreshCw, Trash2, X } from "luci
 
 import { RefCard, RefHeader, RefPage, RefTable, RefToolbar } from "@/components/ref/list-kit"
 import { readExcelRows } from "@/lib/excel-import"
+import { useDirectoryNames } from "@/components/clients/use-directory"
+import { useLanguage } from "@/lib/i18n/language-context"
 import { notify } from "@/lib/notify"
 
 type PlanEntry = { employee: string; survey: string }
 
 const months = ["Январь", "Февраль", "Март", "Апрель", "Май", "Июнь", "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"]
 const years = ["2024", "2025", "2026", "2027"]
-
-const employees = [
-  "Zaynillo Sadullayev",
-  "Salohiddin Agent Tashkent",
-  "Islom Toirjonov",
-  "Maykl Jekson",
-  "Admin Ritm",
-  "Samandar Abdurahmonov",
-  "Fozil Agent",
-  "Пулатов Аббос",
-]
-
-const surveyOptions = [
-  "distr",
-  "oprosnik taski",
-  "so'rovnoma 1",
-  "narxlar royxat",
-  "ebferbfhjbf1",
-  "salom GG",
-  "test yangi",
-  "mijozlar fikri",
-  "Клиент | Обратная связь",
-  "qayta test",
-  "demo oprosnik",
-  "Агент | Функции",
-]
 
 function periodKey(month: string, year: string) {
   return `${month}-${year}`
@@ -63,6 +39,23 @@ function parseImportedRows(rows: string[][]) {
 }
 
 export function SurveyPlanView() {
+  const { t } = useLanguage()
+  // The factory's own employees and surveys (never another tenant's names).
+  const employees = useDirectoryNames("employees")
+  const [surveyOptions, setSurveyOptions] = useState<string[]>([])
+  useEffect(() => {
+    let cancelled = false
+    fetch("/api/surveys")
+      .then((response) => (response.ok ? response.json() : []))
+      .then((rows: unknown) => {
+        if (cancelled || !Array.isArray(rows)) return
+        setSurveyOptions([...new Set(rows.map((row) => String((row as { name?: unknown }).name ?? "").trim()).filter(Boolean))])
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [])
   const [month, setMonth] = useState(currentMonthName)
   const [year, setYear] = useState(currentYear)
   const [query, setQuery] = useState("")
@@ -137,7 +130,7 @@ export function SurveyPlanView() {
   }
 
   function addDraftRow() {
-    setDraft((rows) => [...rows, { employee: employees[0], survey: surveyOptions[0] }])
+    setDraft((rows) => [...rows, { employee: employees[0] ?? "", survey: surveyOptions[0] ?? "" }])
   }
 
   function updateDraftRow(index: number, patch: Partial<PlanEntry>) {
@@ -172,11 +165,11 @@ export function SurveyPlanView() {
 
   return (
     <RefPage>
-      <RefHeader title="План опроса">
+      <RefHeader title={t("План опроса")}>
         <input ref={fileInputRef} type="file" accept=".csv,.xls,.xlsx,text/csv" onChange={handleImport} className="hidden" />
         <button type="button" onClick={() => fileInputRef.current?.click()} className="mr-[15px] flex h-[30px] items-center gap-2 rounded-[5px] bg-[#4f71dc] px-4 text-[13px] font-semibold text-white hover:brightness-95">
           <RefreshCw className="h-4 w-4" />
-          Установить с EXCEL
+          {t("Установить с EXCEL")}
         </button>
       </RefHeader>
 
@@ -279,9 +272,9 @@ export function SurveyPlanView() {
           <div className="flex max-h-[85vh] w-full max-w-2xl flex-col rounded bg-white">
             <header className="flex items-center justify-between border-b p-6">
               <b className="uppercase">
-                План опроса — {month} {year}
+                {t("План опроса")} — {t(month)} {year}
               </b>
-              <button type="button" onClick={() => setEditing(false)} aria-label="Закрыть">
+              <button type="button" onClick={() => setEditing(false)} aria-label={t("Закрыть")}>
                 <X className="h-5 w-5" />
               </button>
             </header>
@@ -289,31 +282,31 @@ export function SurveyPlanView() {
               {draft.map((row, index) => (
                 <div key={index} className="flex items-center gap-3">
                   <select value={row.employee} onChange={(event) => updateDraftRow(index, { employee: event.target.value })} className="flex-1 border-b border-slate-300 bg-white py-2 outline-none">
-                    {employees.map((item) => (
+                    {[...new Set([...employees, row.employee].filter(Boolean))].map((item) => (
                       <option key={item}>{item}</option>
                     ))}
                   </select>
                   <select value={row.survey} onChange={(event) => updateDraftRow(index, { survey: event.target.value })} className="flex-1 border-b border-slate-300 bg-white py-2 outline-none">
-                    {surveyOptions.map((item) => (
+                    {[...new Set([...surveyOptions, row.survey].filter(Boolean))].map((item) => (
                       <option key={item}>{item}</option>
                     ))}
                   </select>
-                  <button type="button" onClick={() => removeDraftRow(index)} aria-label="Удалить строку" className="text-slate-400 hover:text-red-500">
+                  <button type="button" onClick={() => removeDraftRow(index)} aria-label={t("Удалить строку")} className="text-slate-400 hover:text-red-500">
                     <Trash2 className="h-5 w-5" />
                   </button>
                 </div>
               ))}
               <button type="button" onClick={addDraftRow} className="flex items-center gap-2 text-[#4f71dc] hover:underline">
                 <PlusCircle className="h-5 w-5" />
-                Добавить сотрудника
+                {t("Добавить сотрудника")}
               </button>
             </div>
             <footer className="flex justify-end gap-3 border-t p-5">
               <button type="button" onClick={() => setEditing(false)} className="rounded border border-slate-300 px-5 py-2.5 font-semibold text-slate-600">
-                Отмена
+                {t("Отмена")}
               </button>
               <button type="button" onClick={saveEdit} className="rounded bg-[#71ce87] px-5 py-2.5 font-semibold text-white hover:brightness-95">
-                Сохранить
+                {t("Сохранить")}
               </button>
             </footer>
           </div>

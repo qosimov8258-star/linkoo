@@ -7,7 +7,7 @@ import { parseJsonBody } from "@/lib/validation"
 import { createKpiTask, listKpiTasks } from "@/lib/kpi-tasks-repo"
 
 const kpiTaskSchema = z.object({
-  name: z.string().trim().min(1),
+  name: z.string().trim().min(1).max(255, "Не более 255 символов"),
   planType: z.string().optional(),
   clientType: z.string().trim().optional(),
   comment: z.string().optional(),

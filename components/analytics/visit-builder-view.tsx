@@ -18,6 +18,7 @@ import { ReportPage } from "@/components/ref/report-kit"
 import { useLanguage } from "@/lib/i18n/language-context"
 import { downloadExcelTable } from "@/lib/excel-export"
 import type { BuilderResult } from "@/lib/report-builder-repo"
+import { useDirectoryNames } from "@/components/clients/use-directory"
 
 const columns = [
   "План визитов",
@@ -92,7 +93,6 @@ const salesFilters = [
 ]
 
 const statuses = ["В процессе", "Выполнено", "Невыполнено"]
-const zones = ["Andijon shaharchasi", "Arslan", "Arslan", "chilonzor", "chilonzor", "Chilonzor zonasi 2"]
 
 type SavedReport = {
   id: number
@@ -175,6 +175,8 @@ export function VisitBuilderView({ variant = "visits" }: { variant?: "visits" | 
   const [editingReportId, setEditingReportId] = useState<number | null>(null)
   const [message, setMessage] = useState("")
   const [users, setUsers] = useState<string[]>([])
+  // Zones of the factory's own clients (never another tenant's names).
+  const zones = useDirectoryNames("zones")
 
   useEffect(() => {
     let cancelled = false

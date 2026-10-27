@@ -130,12 +130,15 @@ export function PricesEditor({
   onChange,
   priceLists,
   currencies,
+  savedNames = [],
   error,
 }: {
   value: PriceDraft[]
   onChange: (value: PriceDraft[]) => void
   priceLists: Array<{ name: string; currency: string }>
   currencies: string[]
+  /** Price lists the item already has a stored price in ("Удалить цену" instead of "Удалить новую цену"). */
+  savedNames?: string[]
   error?: string
 }) {
   const { t } = useLanguage()
@@ -155,7 +158,7 @@ export function PricesEditor({
                   <BlueButton onClick={() => onChange([...value, emptyPrice("", "")])}>{t("Добавить новую цену")}</BlueButton>
                 ) : (
                   <BlueButton minus onClick={() => onChange(value.filter((_, i) => i !== index))}>
-                    {t("Удалить новую цену")}
+                    {t(entry.name && savedNames.includes(entry.name) ? "Удалить цену" : "Удалить новую цену")}
                   </BlueButton>
                 )}
               </span>

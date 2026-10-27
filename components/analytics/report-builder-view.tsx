@@ -6,6 +6,7 @@ import { RefHeader } from "@/components/ref/list-kit"
 import { ReportPage, monthRangeLabel } from "@/components/ref/report-kit"
 import { CHECKBOX } from "./visit-builder-view"
 import { downloadExcelTable } from "@/lib/excel-export"
+import { useLanguage } from "@/lib/i18n/language-context"
 
 type Row = {
   product: string
@@ -79,15 +80,17 @@ function CheckboxColumn({
   selected: Set<string>
   onToggle: (key: string) => void
 }) {
-  const filtered = options.filter(([, label]) => label.toLocaleLowerCase("ru").includes(search.trim().toLocaleLowerCase("ru")))
+  const { t } = useLanguage()
+  const needle = search.trim().toLocaleLowerCase()
+  const filtered = options.filter(([, label]) => label.toLocaleLowerCase("ru").includes(needle) || t(label).toLocaleLowerCase().includes(needle))
   return (
     <div className="min-w-0 border-r border-[#ececec] px-[20px] pb-[30px] pt-[20px] last:border-0">
-      <h3 className="text-[15px] font-bold leading-[18px]">{title}</h3>
+      <h3 className="text-[15px] font-bold leading-[18px]">{t(title)}</h3>
       <label className="relative mt-[11px] block">
         <input
           value={search}
           onChange={(event) => onSearch(event.target.value)}
-          placeholder={`Поиск ${title.toLocaleLowerCase("ru").startsWith("колон") ? "колонки" : title.toLocaleLowerCase("ru").includes("вертик") ? "вертикальных группировки" : "горизонтальных группировки"}...`}
+          placeholder={t(`Поиск ${title.toLocaleLowerCase("ru").startsWith("колон") ? "колонки" : title.toLocaleLowerCase("ru").includes("вертик") ? "вертикальных группировки" : "горизонтальных группировки"}...`)}
           className="h-[42px] w-full rounded-[3px] bg-[#f2f5f8] px-[11px] pr-10 text-[12px] outline-none placeholder:text-[#999]"
         />
         <Search className="absolute right-3 top-1/2 h-5 w-5 -translate-y-1/2" />
@@ -96,10 +99,10 @@ function CheckboxColumn({
         {filtered.map(([key, label]) => (
           <label key={key} className="flex min-h-[30px] cursor-pointer items-center gap-[9px] text-[13px] font-medium">
             <input type="checkbox" checked={selected.has(key)} onChange={() => onToggle(key)} className={CHECKBOX} />
-            {label}
+            {t(label)}
           </label>
         ))}
-        {filtered.length === 0 && <p className="text-[13px] text-[#999]">Ничего не найдено</p>}
+        {filtered.length === 0 && <p className="text-[13px] text-[#999]">{t("Ничего не найдено")}</p>}
       </div>
     </div>
   )
@@ -113,6 +116,7 @@ function toggleInSet<T>(set: Set<T>, value: T) {
 }
 
 export function ReportBuilderView() {
+  const { t } = useLanguage()
   const [mode, setMode] = useState<"stock" | "warehouse">("stock")
   const [settingsOpen, setSettingsOpen] = useState(true)
   const [dateRange, setDateRange] = useState(() => monthRangeLabel())
@@ -258,7 +262,7 @@ export function ReportBuilderView() {
         <RefHeader title="Конструктор">
           <div className="flex overflow-hidden rounded-[3px] shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
             {([["stock", "ТЕКУЩИЙ ОСТАТОК"], ["warehouse", "СКЛАД"]] as const).map(([key, label]) => (
-              <button key={key} onClick={() => setMode(key)} className={`h-[30px] px-4 text-[13px] font-medium ${mode === key ? "bg-[#2bcd53] text-white" : "bg-white text-black"}`}>{label}</button>
+              <button key={key} onClick={() => setMode(key)} className={`h-[30px] px-4 text-[13px] font-medium ${mode === key ? "bg-[#2bcd53] text-white" : "bg-white text-black"}`}>{t(label)}</button>
             ))}
           </div>
         </RefHeader>
@@ -267,16 +271,16 @@ export function ReportBuilderView() {
       <div className="mx-7 bg-white shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
       <section className="flex h-[60px] flex-wrap items-center gap-[15px] px-[30px]">
         <button onClick={() => void saveReport()} disabled={saving} className="flex h-[38px] items-center rounded-[3px] bg-[#4f71dc] px-[15px] text-[13px] font-semibold text-white hover:brightness-95 disabled:opacity-60">
-          <Bookmark className="mr-3 h-[18px] w-[18px] fill-white" /> {savedFlash ? "Сохранено ✓" : saving ? "Сохранение..." : "Сохранить"}
+          <Bookmark className="mr-3 h-[18px] w-[18px] fill-white" /> {savedFlash ? t("Сохранено ✓") : saving ? t("Сохранение...") : t("Сохранить")}
         </button>
 
         <div className="relative">
           <button onClick={() => setReportsOpen((value) => !value)} className="flex h-[38px] items-center rounded-[3px] bg-[#ff8a6f] px-[15px] text-[13px] font-semibold text-white hover:brightness-95">
-            <FolderOpen className="mr-3 h-[18px] w-[18px] fill-white" /> Отчеты
+            <FolderOpen className="mr-3 h-[18px] w-[18px] fill-white" /> {t("Отчеты")}
           </button>
           {reportsOpen && (
             <div className="absolute left-0 top-[42px] z-30 w-64 border border-[#e8e8e8] bg-white p-3 shadow-xl">
-              {savedReports.length === 0 && <p className="px-2 py-3 text-[13px] text-[#999]">Пока нет сохранённых отчётов</p>}
+              {savedReports.length === 0 && <p className="px-2 py-3 text-[13px] text-[#999]">{t("Пока нет сохранённых отчётов")}</p>}
               {savedReports.map((saved) => (
                 <button key={saved.id} onClick={() => { setReportsOpen(false); generateReport() }} className="block w-full rounded px-2 py-2 text-left text-[13px] hover:bg-[#f2f5f8]">{saved.name}</button>
               ))}
@@ -285,7 +289,7 @@ export function ReportBuilderView() {
         </div>
 
         <button onClick={exportReport} className="flex h-[38px] items-center rounded-[3px] bg-[#4db6ac] px-[15px] text-[13px] font-semibold text-white hover:brightness-95">
-          <Download className="mr-3 h-[18px] w-[18px]" /> Скачать
+          <Download className="mr-3 h-[18px] w-[18px]" /> {t("Скачать")}
         </button>
 
         <div className="ml-auto flex items-center gap-[19px]">
@@ -294,7 +298,7 @@ export function ReportBuilderView() {
             <span data-no-translate>{settingsOpen ? "Скрыть настройки ▲" : "Показать настройки ▼"}</span>
           </button>
           <button onClick={generateReport} className="h-[38px] w-[195px] rounded-[3px] bg-[#2bcd53] text-[13px] font-medium uppercase text-white shadow-[0_2px_5px_rgba(0,0,0,0.2)] hover:brightness-95">
-            Сформировать отчет
+            {t("Сформировать отчет")}
           </button>
         </div>
       </section>
@@ -306,10 +310,10 @@ export function ReportBuilderView() {
           <CheckboxColumn title="Горизонтальная группировка" search={horizontalSearch} onSearch={setHorizontalSearch} options={groupFields} selected={horizontalGroups} onToggle={(key) => setHorizontalGroups((current) => toggleInSet(current, key as GroupKey))} />
 
           <div className="min-w-0 px-[20px] pb-[20px] pt-[20px]">
-            <h3 className="text-[15px] font-bold leading-[18px]">Фильтр</h3>
+            <h3 className="text-[15px] font-bold leading-[18px]">{t("Фильтр")}</h3>
             <label className="mb-[8px] mt-[11px] flex cursor-pointer items-center gap-[9px] text-[13px] font-medium">
               <input type="checkbox" checked={showTotals} onChange={(event) => setShowTotals(event.target.checked)} className={CHECKBOX} />
-              Показать итоги
+              {t("Показать итоги")}
             </label>
 
             {(
@@ -322,9 +326,9 @@ export function ReportBuilderView() {
               ] as const
             ).map(([label, value, setter, options]) => (
               <label key={label} className="relative mt-[22px] block h-[45px] border-b border-[#e0e0e0]">
-                <span className="absolute inset-x-0 top-[18px] text-[13px] leading-[18px]">{value && !value.startsWith("Все") ? value : label}</span>
+                <span className="absolute inset-x-0 top-[18px] text-[13px] leading-[18px]">{value && !value.startsWith("Все") ? value : t(label)}</span>
                 <select value={value} onChange={(event) => setter(event.target.value)} className="absolute inset-0 h-full w-full cursor-pointer appearance-none opacity-0">
-                  {options.map((option) => <option key={option}>{option}</option>)}
+                  {options.map((option) => <option key={option} value={option}>{option.startsWith("Все") ? t(option) : option}</option>)}
                 </select>
                 <ChevronDown className="pointer-events-none absolute bottom-[8px] right-0 h-4 w-4 text-[#999]" />
               </label>
@@ -334,16 +338,16 @@ export function ReportBuilderView() {
               <div key={filter.id} className="mb-4 flex items-end gap-2">
                 <label className="block flex-1 border-b border-[#dbe0e8] pb-2 text-[13px] font-medium">
                   <select value={filter.field} onChange={(event) => setCustomFilters((current) => current.map((item) => item.id === filter.id ? { ...item, field: event.target.value as GroupKey } : item))} className="block w-full bg-transparent text-[14px] outline-none">
-                    {groupFields.map(([key, label]) => <option key={key} value={key}>{label}</option>)}
+                    {groupFields.map(([key, label]) => <option key={key} value={key}>{t(label)}</option>)}
                   </select>
                   <input
                     value={filter.value}
                     onChange={(event) => setCustomFilters((current) => current.map((item) => item.id === filter.id ? { ...item, value: event.target.value } : item))}
-                    placeholder="Значение..."
+                    placeholder={t("Значение...")}
                     className="mt-1 block w-full bg-transparent text-[14px] outline-none placeholder:text-[#9aa3b6]"
                   />
                 </label>
-                <button aria-label="Удалить фильтр" onClick={() => setCustomFilters((current) => current.filter((item) => item.id !== filter.id))} className="mb-2 text-[#9aa3b6] hover:text-[#e5484d]">
+                <button aria-label={t("Удалить фильтр")} onClick={() => setCustomFilters((current) => current.filter((item) => item.id !== filter.id))} className="mb-2 text-[#9aa3b6] hover:text-[#e5484d]">
                   <X className="h-4 w-4" />
                 </button>
               </div>
@@ -363,10 +367,10 @@ export function ReportBuilderView() {
             <thead className="bg-[#edf2f7] text-[#253653]">
               <tr>
                 {generated.vertical.map((key) => (
-                  <th key={key} className="border border-[#e1e5eb] px-4 py-3 text-left font-semibold">{groupFields.find(([k]) => k === key)?.[1]}</th>
+                  <th key={key} className="border border-[#e1e5eb] px-4 py-3 text-left font-semibold">{t(groupFields.find(([k]) => k === key)?.[1] ?? "")}</th>
                 ))}
                 {generated.columns.map((key) => (
-                  <th key={key} className="border border-[#e1e5eb] px-4 py-3 text-right font-semibold">{columnFields.find(([k]) => k === key)?.[1]}</th>
+                  <th key={key} className="border border-[#e1e5eb] px-4 py-3 text-right font-semibold">{t(columnFields.find(([k]) => k === key)?.[1] ?? "")}</th>
                 ))}
               </tr>
             </thead>
@@ -383,7 +387,7 @@ export function ReportBuilderView() {
               ))}
               {showTotals && generated.groups.length > 0 && (
                 <tr className="bg-[#edf2f7] font-semibold">
-                  <td className="border border-[#e1e5eb] px-4 py-2.5" colSpan={generated.vertical.length}>Итого</td>
+                  <td className="border border-[#e1e5eb] px-4 py-2.5" colSpan={generated.vertical.length}>{t("Итого")}</td>
                   {generated.columns.map((key) => (
                     <td key={key} className="border border-[#e1e5eb] px-4 py-2.5 text-right">
                       {number(generated.groups.reduce((sum, group) => sum + group.rows.reduce((rowSum, row) => rowSum + fieldValue(row, key), 0), 0))}
@@ -392,7 +396,7 @@ export function ReportBuilderView() {
                 </tr>
               )}
               {generated.groups.length === 0 && (
-                <tr><td colSpan={generated.vertical.length + generated.columns.length} className="border border-[#e1e5eb] px-4 py-10 text-center text-[#9aa3b6]">По заданным фильтрам ничего не найдено</td></tr>
+                <tr><td colSpan={generated.vertical.length + generated.columns.length} className="border border-[#e1e5eb] px-4 py-10 text-center text-[#9aa3b6]">{t("По заданным фильтрам ничего не найдено")}</td></tr>
               )}
             </tbody>
           </table>

@@ -6,6 +6,7 @@ import { z } from "zod"
 import type { PgDb } from "@/lib/db"
 import { catalogDb } from "@/lib/products-schema"
 import { dictionaryKey, type DictionaryUsage } from "@/components/analytics/dictionaries-data"
+import { parseIdSegment } from "@/lib/validation"
 
 // Shared server plumbing of the three catalog dictionaries (Типы продуктов, Ед.измерения,
 // Бренд): the lazy schema additions, errors, list-query parsing and pictures.
@@ -93,8 +94,8 @@ export function fieldError(field: string, message: string, status = 400): Dictio
 }
 
 export function parseDictionaryId(value: string): number | null {
-  const id = Number(value)
-  return Number.isInteger(id) && id > 0 && id <= 2_147_483_647 ? id : null
+  // Canonical digits only ("0x10" / "1e1" never resolve to another record).
+  return parseIdSegment(value)
 }
 
 /** Organizations exist → the dialog requires one (like the warehouse branch / manager). */
@@ -103,12 +104,47 @@ export async function organizationRequired(db: PgDb): Promise<boolean> {
   return Boolean(row)
 }
 
+export const ORGANIZATION_NOT_FOUND = "Организация не найдена"
+
+/** The stored spelling of an organization (organizations.name by fin_key), null when there is none. */
+export async function findOrganizationName(db: PgDb, name: string): Promise<string | null> {
+  if (!name.trim()) return null
+  const row = (await db.prepare("SELECT name FROM organizations WHERE fin_key(name) = fin_key(@name) ORDER BY id LIMIT 1").get({ name })) as { name: string } | undefined
+  return row?.name ?? null
+}
+
+/**
+ * "Организация" of a dictionary row: "" stays "" (required once organizations exist), any other
+ * value must be an organization (400 "Организация не найдена") and is stored in its own spelling.
+ * `current` = the stored value of the edited row: an unchanged legacy value is kept as is.
+ */
+export async function resolveOrganization(db: PgDb, organization: string, current?: string | null): Promise<string> {
+  const value = organization.trim()
+  if (!value) {
+    if (await organizationRequired(db)) throw fieldError("organization", REQUIRED)
+    return ""
+  }
+  if (current !== undefined && current !== null && dictionaryKey(current) === dictionaryKey(value)) return current.trim()
+  const found = await findOrganizationName(db, value)
+  if (!found) throw fieldError("organization", ORGANIZATION_NOT_FOUND)
+  return found
+}
+
 // ---------------------------------------------------------------------------
 // Body fields
 // ---------------------------------------------------------------------------
 
 export const nameSchema = z.string({ error: REQUIRED }).trim().min(1, REQUIRED).max(255, "Не более 255 символов")
-export const optionalId = z.preprocess((value) => (value === "" || value === 0 ? null : value), z.coerce.number().int().positive().max(2_147_483_647).nullable()).optional()
+/** A positive int4 id as a number or a digits-only string; "" / 0 / null = none. No coercion of
+ * booleans or arrays (parentId: true is a 400, never parent 1). */
+export const optionalId = z
+  .preprocess(
+    (value) => (value === "" || value === 0 ? null : value),
+    z
+      .union([z.number(), z.string().trim().regex(/^\d+$/, "Неверный идентификатор").transform(Number), z.null()], { error: "Неверный идентификатор" })
+      .pipe(z.number().int("Неверный идентификатор").positive("Неверный идентификатор").max(2_147_483_647, "Неверный идентификатор").nullable()),
+  )
+  .optional()
 /** Demo serializers send {value} objects from the search fields. */
 export const idOrObject = z.union([optionalId, z.object({ value: optionalId }).transform((value) => value.value ?? null)]).optional()
 export const organizationSchema = z

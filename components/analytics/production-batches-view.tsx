@@ -274,8 +274,9 @@ function CreatePartyDialog({ stages, onClose, onCreated }: { stages: Stage[]; on
   return (
     <MaterialDialog title={t("Добавление партии")} onClose={onClose} width={700} top={64} onSubmit={() => void save()} footer={<MaterialFooter label={t("Сохранить")} busy={saving} disabled={!stageId} />}>
       <MaterialBody className="pb-[40px] pt-[40px]">
+        {!stages.length && <p className="mb-2 text-sm text-amber-600">{t("Сначала создайте этап в разделе «Этапы производства».")}</p>}
         <FilterSelect compact label={`${t("Этап производства")} *`} value={stageName} onChange={setStageName} options={stages.map((stage) => stage.name)} />
-        <MaterialDate label={t("Дата партии")} required value={date} onChange={setDate} />
+        <MaterialDate label={t("Дата партии")} required value={date} max={todayIso()} onChange={setDate} />
         <MaterialInput placeholderLabel label={`${t("Комментарий")}...`} value={comment} onChange={setComment} className="mt-[10px]" />
       </MaterialBody>
     </MaterialDialog>

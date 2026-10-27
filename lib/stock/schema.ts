@@ -37,6 +37,9 @@ export const STOCK_TABLES = [
   "stock_reserved_adjustments",
   "transfer_reference_items",
   "ref_records",
+  // Client returns (SALES, contract 5): created lazily, read only when present.
+  "client_returns",
+  "client_return_items",
 ] as const
 
 export type StockTables = {

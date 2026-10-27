@@ -66,7 +66,7 @@ export function CoverageAnalysisView() {
 
   useEffect(() => {
     let cancelled = false
-    fetch("/api/clients")
+    fetch("/api/clients?balances=0")
       .then((response) => (response.ok ? (response.json() as Promise<ClientRecord[]>) : Promise.reject()))
       .then((data) => {
         if (!cancelled) setClients(data)
@@ -81,7 +81,7 @@ export function CoverageAnalysisView() {
 
   useEffect(() => {
     let cancelled = false
-    fetch("/api/orders")
+    fetch("/api/orders?balances=0")
       .then((response) => (response.ok ? (response.json() as Promise<OrderRecord[]>) : Promise.reject()))
       .then((data) => {
         if (!cancelled) setOrders(data)
@@ -261,7 +261,7 @@ export function CoverageAnalysisView() {
       <div className="mx-[30px]">
       <form onSubmit={apply} className={`${card} mt-[20px] flex h-[77px] items-center gap-[10px] px-[30px] pb-[12px]`}>
         <div className="w-[250px]"><ReportSelectField label="Тип клиента" value={clientType} onChange={setClientType} options={clientTypes.filter((item) => item !== ALL_CLIENT_TYPES && item !== "Все типы клиентов")} /></div>
-        <button className="mt-[2px] h-[30px] rounded-[3px] bg-[#4f71dc] px-[15px] text-[13px] font-semibold text-white hover:brightness-95">Применить</button>
+        <button className="mt-[2px] h-[30px] rounded-[3px] bg-[#4f71dc] px-[15px] text-[13px] font-semibold text-white hover:brightness-95">{t("Применить")}</button>
       </form>
 
       <section className={`${card} mt-[10px] grid items-center rounded-t-[10px] lg:h-[178.7px] lg:grid-cols-[289px_1fr_227px]`}>
@@ -339,21 +339,21 @@ export function CoverageAnalysisView() {
             className="w-[500px] max-w-full bg-white text-[13px] text-[#333] shadow-[0_10px_30px_rgba(0,0,0,0.3)]"
           >
             <header className="flex h-[60px] items-center justify-between border-b border-[#efefef] pl-[30px] pr-[28px]">
-              <b className="uppercase">Изменить дни</b>
-              <button type="button" onClick={() => setDaysOpen(false)} aria-label="Закрыть"><X className="h-6 w-6" /></button>
+              <b className="uppercase">{t("Изменить дни")}</b>
+              <button type="button" onClick={() => setDaysOpen(false)} aria-label={t("Закрыть")}><X className="h-6 w-6" /></button>
             </header>
             <div className="px-[30px] pb-[16px] pt-[16px]">
               <label className="relative block h-[67px] border-b border-[#e0e0e0]">
-                <span className="absolute left-0 top-[12px] text-[10px] font-bold leading-3">Количество дней для активных клиентов</span>
+                <span className="absolute left-0 top-[12px] text-[10px] font-bold leading-3">{t("Количество дней для активных клиентов")}</span>
                 <input value={activeDays} onChange={(event) => setActiveDays(event.target.value)} className="absolute inset-x-0 bottom-0 h-[34px] bg-transparent text-[13px] font-semibold outline-none" />
               </label>
               <label className="relative mt-[0px] block h-[67px] border-b border-[#e0e0e0]">
-                <span className="absolute left-0 top-[12px] text-[10px] font-bold leading-3">Количество дней для неактивных клиентов</span>
+                <span className="absolute left-0 top-[12px] text-[10px] font-bold leading-3">{t("Количество дней для неактивных клиентов")}</span>
                 <input value={inactiveDays} onChange={(event) => setInactiveDays(event.target.value)} className="absolute inset-x-0 bottom-0 h-[34px] bg-transparent text-[13px] font-semibold outline-none" />
               </label>
             </div>
             <footer className="flex h-[57px] items-center justify-end border-t border-[#efefef] pr-[10px]">
-              <button type="submit" className="h-9 rounded-[3px] bg-[#71ce87] px-[16px] text-[13px] font-bold uppercase text-white hover:brightness-95">Сохранить</button>
+              <button type="submit" className="h-9 rounded-[3px] bg-[#71ce87] px-[16px] text-[13px] font-bold uppercase text-white hover:brightness-95">{t("Сохранить")}</button>
             </footer>
           </form>
         </div>
@@ -367,6 +367,7 @@ export function CoverageAnalysisView() {
 // from blue (where it starts) to green (where it ends).
 let ringId = 0
 function Ring({ value, label }: { value: number; label: string }) {
+  const { t } = useLanguage()
   const shown = Math.max(0, Math.min(100, value))
   const [gradientId] = useState(() => `coverage-ring-${++ringId}`)
   const radius = 63.5
@@ -400,16 +401,17 @@ function Ring({ value, label }: { value: number; label: string }) {
       )}
       <div className="relative flex h-[100px] w-[100px] flex-col items-center justify-center rounded-full bg-white text-center">
         <strong className="text-[24px] font-bold leading-[30px] text-[#333]">{percentLabel(value)} %</strong>
-        <small className="text-[10px] font-semibold uppercase leading-[12.5px] text-[#675c5c]">{label}</small>
+        <small className="text-[10px] font-semibold uppercase leading-[12.5px] text-[#675c5c]">{t(label)}</small>
       </div>
     </div>
   )
 }
 function Metric({ value, label, red, green }: { value: number; label: string; red?: boolean; green?: boolean }) {
+  const { t } = useLanguage()
   return (
     <div className="flex min-h-[77.3px] flex-col items-center justify-start border-b border-r border-[#efefef] px-[26px] py-[15px] text-center [&:nth-child(5n)]:border-r-0 [&:nth-child(n+6)]:min-h-[95px] [&:nth-last-child(-n+5)]:border-b-0">
       <strong className={`text-[22px] font-semibold leading-[27.5px] ${red ? "text-[#e57373]" : green ? "text-[#71ce87]" : "text-[#129fdd]"}`}>{format(value)}</strong>
-      <p className="m-0 text-[15px] font-semibold leading-5 text-[#666]">{label}</p>
+      <p className="m-0 text-[15px] font-semibold leading-5 text-[#666]">{t(label)}</p>
     </div>
   )
 }
@@ -475,7 +477,7 @@ function CoverageChart({ rows }: { rows: ZoneRow[] }) {
     </section>
   )
 }
-function TerritoryDialog({ zones, selected, onChange, onClose }: { zones: ZoneRow[]; selected: string[]; onChange: (value: string[]) => void; onClose: () => void }) { return <Modal title="Изменить территории" onClose={onClose}><label className="mb-4 flex gap-3 font-bold"><input type="checkbox" checked={selected.length === zones.length} onChange={(event) => onChange(event.target.checked ? zones.map((row) => row.zone) : [])} />Выбрать все</label><div className="grid max-h-[430px] gap-2 overflow-y-auto sm:grid-cols-2">{zones.map((row) => <label key={row.zone} className="flex gap-3 border-b py-2"><input type="checkbox" checked={selected.includes(row.zone)} onChange={() => onChange(selected.includes(row.zone) ? selected.filter((item) => item !== row.zone) : [...selected, row.zone])} />{row.zone}</label>)}</div><button type="button" onClick={onClose} className="mt-5 w-full rounded bg-[#5470e8] py-3 font-bold text-white">Применить</button></Modal> }
-function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) { return <><button type="button" aria-label="Закрыть" onClick={onClose} className="fixed inset-0 z-[90] bg-black/50" /><section role="dialog" className="fixed left-1/2 top-1/2 z-[100] w-[min(720px,calc(100vw-32px))] -translate-x-1/2 -translate-y-1/2 bg-white p-7 shadow-2xl"><header className="mb-6 flex justify-between text-xl font-bold">{title}<button type="button" onClick={onClose}><X /></button></header>{children}</section></> }
+function TerritoryDialog({ zones, selected, onChange, onClose }: { zones: ZoneRow[]; selected: string[]; onChange: (value: string[]) => void; onClose: () => void }) { const { t } = useLanguage(); return <Modal title={t("Изменить территории")} onClose={onClose}><label className="mb-4 flex gap-3 font-bold"><input type="checkbox" checked={selected.length === zones.length} onChange={(event) => onChange(event.target.checked ? zones.map((row) => row.zone) : [])} />{t("Выбрать все")}</label><div className="grid max-h-[430px] gap-2 overflow-y-auto sm:grid-cols-2">{zones.map((row) => <label key={row.zone} className="flex gap-3 border-b py-2"><input type="checkbox" checked={selected.includes(row.zone)} onChange={() => onChange(selected.includes(row.zone) ? selected.filter((item) => item !== row.zone) : [...selected, row.zone])} />{row.zone}</label>)}</div><button type="button" onClick={onClose} className="mt-5 w-full rounded bg-[#5470e8] py-3 font-bold text-white">{t("Применить")}</button></Modal> }
+function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) { const { t } = useLanguage(); return <><button type="button" aria-label={t("Закрыть")} onClick={onClose} className="fixed inset-0 z-[90] bg-black/50" /><section role="dialog" className="fixed left-1/2 top-1/2 z-[100] w-[min(720px,calc(100vw-32px))] -translate-x-1/2 -translate-y-1/2 bg-white p-7 shadow-2xl"><header className="mb-6 flex justify-between text-xl font-bold">{title}<button type="button" onClick={onClose}><X /></button></header>{children}</section></> }
 function percentLabel(value: number) { return (Math.round(value * 10) / 10).toString().replace(".", ",") }
 function format(value: number) { return value.toLocaleString("ru-RU") }

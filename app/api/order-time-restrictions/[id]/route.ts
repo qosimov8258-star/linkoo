@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 import { z } from "zod"
 
 import { requireRole } from "@/lib/rbac"
-import { parseJsonBody } from "@/lib/validation"
+import { invalidIdResponse, parseIdSegment, parseJsonBody } from "@/lib/validation"
 import { updateOrderTimeRestriction } from "@/lib/order-time-restrictions-repo"
 
 const timeSchema = z.string().trim().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Неверное время").nullable().optional()
@@ -22,7 +22,8 @@ export async function PATCH(request: Request, { params }: RouteParams) {
   const auth = await requireRole("manager")
   if ("error" in auth) return auth.error
 
-  const id = Number((await params).id)
+  const id = parseIdSegment((await params).id)
+  if (id === null) return invalidIdResponse()
   const parsed = await parseJsonBody(request, schema)
   if (parsed.error) return parsed.error
 

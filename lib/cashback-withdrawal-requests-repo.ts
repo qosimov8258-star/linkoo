@@ -4,7 +4,8 @@ import { z } from "zod"
 
 import { getDb, withTransaction, type PgDb } from "@/lib/db"
 import { listCashboxesWithBalances } from "@/lib/cash/cashboxes"
-import { CashError, loadClient } from "@/lib/cash/common"
+import { assertCashbackAvailable, CashError, clientCashbackBalance, loadClient, lockClientCashback, MAX_DB_ID, MAX_MONEY } from "@/lib/cash/common"
+import { guardCashboxBalances } from "@/lib/cash/guard"
 import { ensureCashSchema } from "@/lib/cash/schema"
 import { insertCashbackPayout } from "@/lib/cashback-requests-payout"
 import {
@@ -42,7 +43,7 @@ const DDL = `
 CREATE TABLE IF NOT EXISTS cashback_withdrawal_requests (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   client TEXT NOT NULL,
-  amount REAL NOT NULL DEFAULT 0,
+  amount DOUBLE PRECISION NOT NULL DEFAULT 0,
   currency TEXT NOT NULL DEFAULT 'SUM',
   status TEXT NOT NULL DEFAULT 'pending',
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -116,8 +117,8 @@ export type CashbackRequestListQuery = z.infer<typeof cashbackRequestListQuerySc
 
 /** POST — creation path for the Telegram bot (the demo page has no create UI). */
 export const cashbackRequestCreateSchema = z.object({
-  clientId: z.coerce.number().int().positive(),
-  amount: z.coerce.number().finite().positive().max(1e13),
+  clientId: z.coerce.number().int().positive().max(MAX_DB_ID),
+  amount: z.coerce.number().finite().positive().max(MAX_MONEY),
   currency: z.string().trim().min(1).max(16),
   comment: z.string().trim().max(500).optional(),
   /** Where the request came from (telegram, manager, …). */
@@ -134,7 +135,7 @@ export const cashbackRequestDecisionSchema = z.preprocess(
     return { ...body, cashboxId: body.cashboxId ?? cashbox }
   },
   z.discriminatedUnion("status", [
-    z.object({ status: z.literal("confirmed"), cashboxId: z.coerce.number({ error: "Укажите кассу" }).int().positive({ error: "Укажите кассу" }) }),
+    z.object({ status: z.literal("confirmed"), cashboxId: z.coerce.number({ error: "Укажите кассу" }).int().positive({ error: "Укажите кассу" }).max(MAX_DB_ID, { error: "Касса не найдена" }) }),
     z.object({ status: z.literal("rejected") }),
   ]),
 )
@@ -324,13 +325,7 @@ async function loadRequestRow(db: PgDb, id: number, base: string): Promise<BaseR
 
 /** The client's cashback balance in `cur` (same expression as "Накопительная карта"). */
 async function cashbackBalance(db: PgDb, clientId: number, cur: string, base: string): Promise<number> {
-  const row = (await db
-    .prepare(
-      `SELECT COALESCE(SUM(amount::double precision), 0) AS amount FROM loyalty_card_transactions
-       WHERE client_id = @clientId::int AND COALESCE(is_deleted, 0) = 0 AND COALESCE(fin_cur(currency), @base::text) = @cur::text`,
-    )
-    .get({ clientId, cur, base })) as { amount: number | string }
-  return roundMoney(Number(row.amount ?? 0), 5)
+  return clientCashbackBalance(db, clientId, cur, base)
 }
 
 /** Σ amount of the client's effectively pending requests in `cur`, except `excludeId`. */
@@ -374,11 +369,10 @@ export async function getCashbackRequestDetail(id: number): Promise<CashbackRequ
 // Writes
 // ---------------------------------------------------------------------------
 
-const CLIENT_LOCK = 72120903
-
-/** Serialises cashback checks of one client (balance read → payout / reservation). */
+/** Serialises cashback checks of one client (balance read → payout / reservation);
+ * the same lock as the loyalty page and the cash core's cashback payouts. */
 async function lockClient(tx: PgDb, clientId: number): Promise<void> {
-  await tx.prepare("SELECT pg_advisory_xact_lock(@key::int, @clientId::int)").get({ key: CLIENT_LOCK, clientId })
+  await lockClientCashback(tx, clientId)
 }
 
 /** POST /api/cashback-withdrawal-requests — a new pending request (Telegram bot / API).
@@ -436,30 +430,36 @@ export async function decideCashbackRequest(id: number, decision: CashbackReques
     const clientId = Number(row.c_id)
     const amount = roundMoney(Number(row.amount ?? 0), 5)
     if (!(amount > 0)) throw new CashError("Укажите сумму", 400, "amount")
-    await lockClient(tx, clientId)
-    const balance = await cashbackBalance(tx, clientId, row.cur, cc.base)
-    if (amount > balance) throw new CashError("Недостаточно кэшбэка у клиента", 400)
-
-    const payout = await insertCashbackPayout(
+    // Lock order: request → cashbox (overdraft guard) → client cashback (as the cash core does).
+    await guardCashboxBalances(
       tx,
-      {
-        cashboxId: decision.cashboxId,
-        clientId,
-        amount,
-        currency: row.cur,
-        comment: [`Запрос на снятие кэшбэка № ${id}`, String(row.comment ?? "").trim()].filter(Boolean).join(" · "),
-        user,
+      [decision.cashboxId],
+      cc.base,
+      async () => {
+        await assertCashbackAvailable(tx, { clientId, amount, currency: row.cur, base: cc.base, field: "amount" })
+        const payout = await insertCashbackPayout(
+          tx,
+          {
+            cashboxId: decision.cashboxId,
+            clientId,
+            amount,
+            currency: row.cur,
+            comment: [`Запрос на снятие кэшбэка № ${id}`, String(row.comment ?? "").trim()].filter(Boolean).join(" · "),
+            user,
+          },
+          cc,
+        )
+        await tx
+          .prepare(
+            `UPDATE cashback_withdrawal_requests
+             SET status = 'confirmed', client_id = @clientId, cashbox_id = @cashboxId, cash_entry_id = @entryId, cash_doc_no = @docNo,
+                 decided_at = @now, decided_by = @user, updated_at = datetime('now')
+             WHERE id = @id::int`,
+          )
+          .run({ id, clientId, cashboxId: payout.cashbox.id, entryId: payout.entryId, docNo: payout.docNo, now, user })
       },
-      cc,
+      "cashbox",
     )
-    await tx
-      .prepare(
-        `UPDATE cashback_withdrawal_requests
-         SET status = 'confirmed', client_id = @clientId, cashbox_id = @cashboxId, cash_entry_id = @entryId, cash_doc_no = @docNo,
-             decided_at = @now, decided_by = @user, updated_at = datetime('now')
-         WHERE id = @id::int`,
-      )
-      .run({ id, clientId, cashboxId: payout.cashbox.id, entryId: payout.entryId, docNo: payout.docNo, now, user })
   })
   return (await getCashbackRequestDetail(id)).request
 }

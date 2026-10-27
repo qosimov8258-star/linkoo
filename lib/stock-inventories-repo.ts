@@ -296,17 +296,42 @@ async function resolveHeader(db: PgDb, input: Omit<StockInventoryInput, "items">
   return { type, warehouse, invDate, forDayEnd: input.forDayEnd ?? false, comment }
 }
 
-async function resolveLines(items: StockInventoryInput["items"], catalog: Map<string, StockCatalogItem>, db: PgDb): Promise<Line[]> {
+/** "name:<name>" → the ledger's key of that name ('name:' + fin_key). */
+const orphanKey = (key: string) => `name:${textKey(key.slice(5))}`
+
+/** The non-catalog ("name:") keys that may be counted in `warehouse`: those its ledger
+ * already has (document names that match no catalog item), plus the lines of the
+ * inventory being edited. Anything else would create stock out of nothing. */
+async function countableOrphans(db: PgDb, warehouse: string, currentId?: number): Promise<Set<string>> {
+  const allowed = new Set<string>()
+  const wanted = textKey(warehouse)
+  for (const row of await getStockBalances({ warehouses: [warehouse] }, db)) {
+    if (row.key.startsWith("name:") && textKey(row.warehouse) === wanted) allowed.add(row.key)
+  }
+  if (currentId) {
+    const rows = (await db.prepare("SELECT item_key FROM stock_inventory_items WHERE inventory_id = ?").all(currentId)) as Array<{ item_key: string }>
+    for (const row of rows) if (row.item_key.startsWith("name:")) allowed.add(orphanKey(row.item_key))
+  }
+  return allowed
+}
+
+async function resolveLines(items: StockInventoryInput["items"], catalog: Map<string, StockCatalogItem>, db: PgDb, warehouse: string, currentId?: number): Promise<Line[]> {
   if (!items.length) throw new StockInventoryError("Вы еще не выбрали ни одного товара", 400, "items")
   const seen = new Set<string>()
-  // "name:<key>" lines (document names no catalog item matches) keep their original spelling.
-  const orphans = await stockOrphanNames(items.map((item) => item.key.trim()).filter((key) => key.startsWith("name:") && !catalog.has(key)), db)
-  return items.map((item, index) => {
+  const keys = items.map((item) => {
     const key = item.key.trim()
+    return key.startsWith("name:") && !catalog.has(key) ? orphanKey(key) : key
+  })
+  const orphanKeys = keys.filter((key) => key.startsWith("name:") && !catalog.has(key))
+  const allowed = orphanKeys.length ? await countableOrphans(db, warehouse, currentId) : new Set<string>()
+  // "name:<key>" lines (document names no catalog item matches) keep their original spelling.
+  const orphans = await stockOrphanNames(orphanKeys, db)
+  return items.map((item, index) => {
+    const key = keys[index]
     if (seen.has(key)) throw new StockInventoryError("Товар повторяется в списке", 400, `items.${index}.key`)
     seen.add(key)
     const product = catalog.get(key)
-    if (!product && !(key.startsWith("name:") && key.length > 5)) throw new StockInventoryError("Товар не найден", 400, `items.${index}.key`)
+    if (!product && !(key.startsWith("name:") && key.length > 5 && allowed.has(key))) throw new StockInventoryError("Товар не найден", 400, `items.${index}.key`)
     return { key, name: product?.name ?? orphans.get(key)?.name ?? nameFromKey(key), unit: product?.unit ?? "", amount: round6(item.amount), series: (item.series ?? "").trim(), position: index }
   })
 }
@@ -351,7 +376,7 @@ export async function createStockInventory(input: StockInventoryInput, user: { d
   await ensureStockInventoriesSchema()
   const db = getDb()
   const header = await resolveHeader(db, input)
-  const lines = await resolveLines(input.items, await catalogOrFail(db), db)
+  const lines = await resolveLines(input.items, await catalogOrFail(db), db, header.warehouse)
   const snapshot = await trySnapshot({ warehouse: header.warehouse, date: header.invDate, forDayEnd: header.forDayEnd }, lines)
   const currency = (await loadCurrencyContext(db)).base
   const id = await withTransaction(async (tx) => {
@@ -375,7 +400,7 @@ export async function updateStockInventory(id: number, input: StockInventoryInpu
   if (!current) throw new StockInventoryError(NOT_FOUND, 404)
   if (asStatus(current.status) !== "pending") throw new StockInventoryError("Изменять можно только инвентаризацию в ожидании", 409)
   const header = await resolveHeader(db, input, current)
-  const lines = await resolveLines(input.items, await catalogOrFail(db), db)
+  const lines = await resolveLines(input.items, await catalogOrFail(db), db, header.warehouse, id)
   const snapshot = await trySnapshot({ warehouse: header.warehouse, date: header.invDate, forDayEnd: header.forDayEnd }, lines)
   await withTransaction(async (tx) => {
     const locked = await lockRow(tx, id)
@@ -497,7 +522,7 @@ export async function importStockInventory(input: StockInventoryImportInput, use
     if (raw === null || raw === undefined || raw === "") return
     const amount = Number(raw)
     const line = row.line ?? index + 2
-    if (!Number.isFinite(amount) || amount < 0 || amount > 1e12) {
+    if (!Number.isFinite(amount) || amount < 0 || amount > 1e9) {
       badLines.push(line)
       return
     }

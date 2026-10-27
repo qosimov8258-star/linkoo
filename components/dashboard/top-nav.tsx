@@ -6,7 +6,10 @@ import {
   BarChart3,
   Bell,
   BriefcaseBusiness,
+  ChevronDown,
   Factory,
+  KeyRound,
+  LogOut,
   Menu,
   Settings,
   UserRound,
@@ -20,7 +23,7 @@ import {
 import { analyticsReports } from "@/lib/analytics-catalog"
 import { useLanguage } from "@/lib/i18n/language-context"
 
-import { AccountDropdown } from "./account-dropdown"
+import { AccountDropdown, ChangePasswordDialog, ROLE_LABELS, type AccountUser } from "./account-dropdown"
 import { AnalyticsMenu } from "./analytics-menu"
 import { BrandMenu, type CustomServer, type WorkspaceId } from "./brand-menu"
 import { ClientsMenu } from "./clients-menu"
@@ -40,6 +43,7 @@ type MenuProps = {
 
 type NavItem = {
   label: string
+  /** Landing page of the tab (used where there is no hover menu, e.g. on phones). */
   href: string
   icon: LucideIcon
   matches: (pathname: string) => boolean
@@ -97,14 +101,14 @@ const navItems: NavItem[] = [
   },
   {
     label: "Склад",
-    href: "/analytics/warehouse-logistics",
+    href: "/analytics/stock-level",
     icon: Warehouse,
     matches: (pathname) => matchesHrefs(pathname, warehouseHrefs),
     menu: WarehouseMenu,
   },
   {
     label: "Финансы",
-    href: "/analytics/finance-cash",
+    href: "/analytics/cash-management",
     icon: BriefcaseBusiness,
     matches: (pathname) => matchesHrefs(pathname, financeHrefs),
     menu: FinanceMenu,
@@ -262,6 +266,7 @@ export function TopNav() {
     const saved = readBranchName()
     if (saved) setBranch(saved)
   }, [])
+  const [mobileSection, setMobileSection] = useState<string | null>(null)
   const [brandMenuOpen, setBrandMenuOpen] = useState(false)
   const [workspace, setWorkspace] = useState<string>("distribution" satisfies WorkspaceId)
   const [customServers, setCustomServers] = useState<CustomServer[]>([])
@@ -270,7 +275,10 @@ export function TopNav() {
   const [notificationsOpen, setNotificationsOpen] = useState(false)
   const [notificationsBadge, setNotificationsBadge] = useState(0)
   const [settingsOpen, setSettingsOpen] = useState(false)
-  const [displayName, setDisplayName] = useState("admin")
+  const [account, setAccount] = useState<AccountUser | null>(null)
+  const [signingOut, setSigningOut] = useState(false)
+  const [passwordOpen, setPasswordOpen] = useState(false)
+  const [passwordRequired, setPasswordRequired] = useState(false)
   const accountRef = useRef<HTMLDivElement>(null)
   const brandRef = useRef<HTMLDivElement>(null)
   const notificationsRef = useRef<HTMLDivElement>(null)
@@ -363,10 +371,19 @@ export function TopNav() {
 
   useEffect(() => {
     let cancelled = false
+    // Also the session probe on every navigation: a 401 here (session revoked or
+    // expired) sends the browser to the login page (lib/session-guard.tsx).
     fetch("/api/auth/me")
       .then((response) => (response.ok ? response.json() : null))
-      .then((data: { displayName?: string } | null) => {
-        if (!cancelled && data?.displayName) setDisplayName(data.displayName)
+      .then((data: (Partial<AccountUser> & { mustChangePassword?: boolean }) | null) => {
+        if (cancelled || !data?.username) return
+        const role = data.role === "admin" || data.role === "manager" ? data.role : "viewer"
+        setAccount({ displayName: data.displayName || data.username, username: data.username, role })
+        // A password set by an administrator, the first (seeded) password or a
+        // legacy weak one must be replaced before working on: the dialog opens
+        // by itself and cannot be dismissed until the password is changed.
+        setPasswordRequired(data.mustChangePassword === true)
+        if (data.mustChangePassword) setPasswordOpen(true)
       })
       .catch(() => {})
     return () => {
@@ -390,6 +407,29 @@ export function TopNav() {
     setOpenMenu(null)
     setMobileOpen(false)
     router.push(href)
+  }
+
+  // Signing out revokes the session on the server; only then is the browser
+  // sent (with a full page load, so no screen keeps the old account's data)
+  // to the login page. A failure is shown instead of silently bouncing back.
+  async function signOut() {
+    if (signingOut) return
+    setSigningOut(true)
+    try {
+      const response = await fetch("/api/auth/logout", { method: "POST" })
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}))
+        window.alert(data.error ? t(data.error) : t("Не удалось выйти из системы. Попробуйте ещё раз."))
+        return
+      }
+      setAccountOpen(false)
+      setMobileOpen(false)
+      window.location.assign("/login")
+    } catch {
+      window.alert(t("Сервер недоступен, попробуйте ещё раз"))
+    } finally {
+      setSigningOut(false)
+    }
   }
 
   if (pathname === "/login" || pathname.startsWith("/login/")) return null
@@ -547,7 +587,7 @@ export function TopNav() {
               <img src="/nav/user.svg" alt="" className="h-6 w-[25px]" />
             </span>
             <span className="hidden w-[146px] flex-col xl:flex">
-              <span className="text-[14px] font-medium leading-[18px]">{displayName}</span>
+              <span className="truncate text-[14px] font-medium leading-[18px]">{account?.displayName ?? ""}</span>
               <span className="truncate text-[12px] font-normal leading-[18px]">{t(branch)}</span>
             </span>
             {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -565,16 +605,21 @@ export function TopNav() {
                 router.push("/")
                 router.refresh()
               }}
+              user={account}
+              signingOut={signingOut}
               onSignOut={() => {
                 setBranch("Все филиалы")
                 writeBranchCookies(undefined, "Все филиалы")
-                setAccountOpen(false)
-                fetch("/api/auth/logout", { method: "POST" }).finally(() => {
-                  router.push("/login")
-                  router.refresh()
-                })
+                void signOut()
               }}
-              onAddAccount={() => navigate("/login/add-account")}
+              onAddAccount={() => {
+                setAccountOpen(false)
+                navigate("/login/add-account")
+              }}
+              onChangePassword={() => {
+                setAccountOpen(false)
+                setPasswordOpen(true)
+              }}
             />
           )}
         </div>
@@ -596,21 +641,42 @@ export function TopNav() {
           id="mobile-navigation"
           className="absolute left-0 right-0 top-full max-h-[calc(100vh-4rem)] overflow-y-auto border-t border-white/10 bg-[#2d2a84] p-3 shadow-2xl lg:hidden"
         >
-          <div className="grid gap-1 sm:grid-cols-2">
-            {navItems.map(({ label, href, icon: Icon }) => (
-              <button
-                key={label}
-                type="button"
-                onClick={() => navigate(href)}
-                className={`flex items-center gap-3 rounded-lg px-4 py-3 text-left font-semibold transition-colors ${
-                  activeItem?.label === label ? "bg-[#5c6df3]" : "hover:bg-white/10"
-                } focus-visible:outline-2 focus-visible:outline-white`}
-              >
-                <Icon className="h-5 w-5" />
-                {t(label)}
-              </button>
-            ))}
+          {/* Phones and tablets have no hover menus: each tab expands into its
+              own menu (the same links as on the desktop), so every page — Остаток,
+              Передачи, Кассы, Управления кассой … — is reachable. */}
+          <div className="grid gap-1">
+            {navItems.map(({ label, icon: Icon, menu: SubMenu }) => {
+              const expanded = mobileSection === label
+              return (
+                <div key={label}>
+                  <button
+                    type="button"
+                    onClick={() => setMobileSection((current) => (current === label ? null : label))}
+                    aria-expanded={expanded}
+                    className={`flex w-full items-center gap-3 rounded-lg px-4 py-3 text-left font-semibold transition-colors ${
+                      activeItem?.label === label ? "bg-[#5c6df3]" : "hover:bg-white/10"
+                    } focus-visible:outline-2 focus-visible:outline-white`}
+                  >
+                    <Icon className="h-5 w-5" />
+                    <span className="flex-1">{t(label)}</span>
+                    <ChevronDown className={`h-5 w-5 transition-transform ${expanded ? "rotate-180" : ""}`} />
+                  </button>
+                  {expanded && (
+                    <div className="mt-1 overflow-hidden rounded-lg text-[#333] [&>div]:!w-full [&>div>div]:!mt-0 [&>div>div]:!w-full [&>div>div]:!max-w-full [&>div>div]:!flex-col [&>div>div]:!grid-cols-1 [&_section]:!border-l-0 [&>div>div>div]:!border-l-0">
+                      <SubMenu onSelect={() => setMobileOpen(false)} />
+                    </div>
+                  )}
+                </div>
+              )
+            })}
           </div>
+
+          {account && (
+            <div className="mt-3 border-t border-white/10 px-4 pt-3 text-sm">
+              <p className="truncate font-semibold">{account.displayName}</p>
+              <p className="truncate text-white/70">{t(ROLE_LABELS[account.role])}</p>
+            </div>
+          )}
 
           <div className="mt-3 grid grid-cols-2 gap-2 border-t border-white/10 pt-3">
             <button
@@ -629,8 +695,38 @@ export function TopNav() {
               <Settings className="h-5 w-5" />
               {t("Настройки")}
             </button>
+            <button
+              type="button"
+              onClick={() => {
+                setMobileOpen(false)
+                setPasswordOpen(true)
+              }}
+              className="flex items-center justify-center gap-2 rounded-lg bg-white/10 px-3 py-3 font-semibold hover:bg-white/15"
+            >
+              <KeyRound className="h-5 w-5" />
+              {t("Сменить пароль")}
+            </button>
+            <button
+              type="button"
+              onClick={() => void signOut()}
+              disabled={signingOut}
+              className="flex items-center justify-center gap-2 rounded-lg bg-white/10 px-3 py-3 font-semibold text-[#ffb4b9] hover:bg-white/15 disabled:opacity-50"
+            >
+              <LogOut className="h-5 w-5" />
+              {t("Выйти")}
+            </button>
           </div>
         </nav>
+      )}
+
+      {passwordOpen && (
+        <ChangePasswordDialog
+          username={account?.username ?? ""}
+          required={passwordRequired}
+          onChanged={() => setPasswordRequired(false)}
+          onSignOut={() => void signOut()}
+          onClose={() => setPasswordOpen(false)}
+        />
       )}
 
       {createServerOpen && (

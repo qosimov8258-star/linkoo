@@ -7,7 +7,7 @@ import { parseJsonBody } from "@/lib/validation"
 import { createAgentRoute, listAgentRoutes } from "@/lib/agent-routes-repo"
 
 const agentRouteSchema = z.object({
-  agent: z.string().trim().min(1),
+  agent: z.string().trim().min(1).max(255, "Не более 255 символов"),
   routeDate: z.string().trim().optional(),
   planVisits: z.coerce.number().finite().optional(),
   routeVisited: z.coerce.number().finite().optional(),

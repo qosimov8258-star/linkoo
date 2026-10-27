@@ -245,9 +245,8 @@ export function OrdersView({ initialOrderId }: { initialOrderId?: number } = {})
 
   function exportCsv() {
     const rows = checkedIds.length ? filtered.filter((row) => checkedIds.includes(row.id)) : filtered
-    const cell = (value: string | number) => `"${String(value).replace(/"/g, '""')}"`
-    const csv = [["№", "Клиент", "Тип", "Дата создания", "Дата доставки", "Агент", "Сумма заказа", "Баланс", "Статус"].join(";")]
-      .concat(rows.map((row) => [row.id, row.client, row.type, row.created, row.delivery, row.agent, row.amount, row.balance, row.status].map(cell).join(";")))
+    const csv = [["№", "Клиент", "Тип", "Дата создания", "Доставщик", "Дата доставки", "Агент", "Сумма заказа", "Баланс", "Статус"].map(csvCell).join(";")]
+      .concat(rows.map((row) => [row.id, row.client, row.type, row.created, delivererOf(row), row.delivery, row.agent, row.amount, row.balance, row.status].map(csvCell).join(";")))
       .join("\n")
     const url = URL.createObjectURL(new Blob(["\ufeff" + csv], { type: "text/csv;charset=utf-8" }))
     const link = document.createElement("a")
@@ -323,39 +322,51 @@ export function OrdersView({ initialOrderId }: { initialOrderId?: number } = {})
 
   async function passToDelivery() {
     const ids = [...checkedIds]
-    setOrders((current) => current.map((row) => (ids.includes(row.id) ? { ...row, status: "В пути" } : row)))
     setCheckedIds([])
-    flash(`${ids.length} ${t("заказ(ов) передано в доставку")}`)
-    try {
-      await Promise.all(
-        ids.map((id) =>
-          fetch(`/api/orders/${id}`, {
+    // The server checks each transition and the stock; only what it accepted changes here.
+    const results = await Promise.all(
+      ids.map(async (id) => {
+        try {
+          const response = await fetch(`/api/orders/${id}`, {
             method: "PATCH",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ status: "В пути" }),
-          }),
-        ),
-      )
-    } catch {
-      flash(t("Не удалось сохранить часть изменений на сервере"))
-    }
+          })
+          const body = (await response.json().catch(() => null)) as (Order & { error?: string }) | null
+          return response.ok && body ? { id, order: body } : { id, error: body?.error ?? "Не удалось сохранить изменения на сервере" }
+        } catch {
+          return { id, error: "Не удалось сохранить изменения на сервере" }
+        }
+      }),
+    )
+    const updated = results.flatMap((result) => ("order" in result && result.order ? [result.order] : []))
+    setOrders((current) => current.map((row) => updated.find((order) => order.id === row.id) ?? row))
+    const failed = results.filter((result) => "error" in result && result.error)
+    flash(
+      failed.length
+        ? `${updated.length} ${t("заказ(ов) передано в доставку")}. №${failed[0].id}: ${t(String((failed[0] as { error: string }).error))}`
+        : `${updated.length} ${t("заказ(ов) передано в доставку")}`,
+    )
   }
 
-  async function updateOrder(id: number, patch: Partial<Order>) {
-    setOrders((current) => current.map((row) => (row.id === id ? { ...row, ...patch } : row)))
-    setSelected((current) => (current && current.id === id ? { ...current, ...patch } : current))
+  async function updateOrder(id: number, patch: Partial<Order>): Promise<boolean> {
     try {
       const response = await fetch(`/api/orders/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(patch),
       })
-      if (!response.ok) throw new Error("update failed")
-      const updated = (await response.json()) as Order
-      setOrders((current) => current.map((row) => (row.id === id ? updated : row)))
-      setSelected((current) => (current && current.id === id ? updated : current))
+      const body = (await response.json().catch(() => null)) as (Order & { error?: string }) | null
+      if (!response.ok || !body) {
+        flash(body?.error ? t(body.error) : t("Не удалось сохранить изменения на сервере"))
+        return false
+      }
+      setOrders((current) => current.map((row) => (row.id === id ? body : row)))
+      setSelected((current) => (current && current.id === id ? body : current))
+      return true
     } catch {
       flash(t("Не удалось сохранить изменения на сервере"))
+      return false
     }
   }
 
@@ -380,25 +391,30 @@ export function OrdersView({ initialOrderId }: { initialOrderId?: number } = {})
   function importFromExcel(file: File) {
     void (async () => {
       const rows = await readExcelRows(file)
+      // Imported rows (client, amount) become unconfirmed orders without lines;
+      // the server validates the client and the amount of each.
       const parsed = rows
         .filter(([client]) => client && !/^(клиент|client)$/i.test(client))
-        .map(([client, amount]) => ({ client, amount: amount || "0 SUM" }))
+        .map(([client, amount]) => ({ client, amount: amount || "0", status: "Не подтвержден" }))
       if (!parsed.length) return
-      try {
-        const created = await Promise.all(
-          parsed.map((row) =>
-            fetch("/api/orders", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify(row),
-            }).then((response) => response.json() as Promise<Order>),
-          ),
-        )
-        setOrders((current) => [...created, ...current])
-        flash(`${t("Импортировано заказов:")} ${created.length}`)
-      } catch {
-        flash(t("Не удалось импортировать заказы"))
+      const created: Order[] = []
+      const errors: string[] = []
+      for (const row of parsed) {
+        try {
+          const response = await fetch("/api/orders", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(row),
+          })
+          const body = (await response.json().catch(() => null)) as (Order & { error?: string }) | null
+          if (response.ok && body) created.push(body)
+          else errors.push(`${row.client}: ${t(body?.error ?? "Не удалось импортировать заказы")}`)
+        } catch {
+          errors.push(`${row.client}: ${t("Не удалось импортировать заказы")}`)
+        }
       }
+      setOrders((current) => [...created, ...current])
+      flash(errors.length ? `${t("Импортировано заказов:")} ${created.length}. ${t("Ошибки")}: ${errors.slice(0, 3).join("; ")}` : `${t("Импортировано заказов:")} ${created.length}`)
     })()
   }
 
@@ -1030,4 +1046,26 @@ function sumByCurrency(rows: Order[], pick: (row: Order) => number) {
       {formatNumber(number)} {currency}{index < all.length - 1 ? " ," : ""}
     </span>
   ))
+}
+
+/** The order's deliverer, else the client's ("Ответственный доставщик"). */
+function delivererOf(row: Order): string {
+  if (row.deliveryMan) return row.deliveryMan
+  return row.clientDeliverer && row.clientDeliverer !== "Не указано" ? row.clientDeliverer : ""
+}
+
+const SHORT_MONTHS = ["янв.", "февр.", "мар.", "апр.", "мая", "июня", "июля", "авг.", "сент.", "окт.", "нояб.", "дек."]
+
+/** "2026-10-21" → "21 окт. 2026"; other texts as they are. */
+export function displayDay(value: string): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value ?? "")
+  return match ? `${match[3]} ${SHORT_MONTHS[Number(match[2]) - 1] ?? ""} ${match[1]}` : value
+}
+
+/** A CSV cell; texts that a spreadsheet would run as a formula (= + - @, tab, CR) are
+ * prefixed with an apostrophe (plain numbers stay numbers). */
+export function csvCell(value: string | number): string {
+  let text = String(value ?? "")
+  if (/^[=+\-@\t\r]/.test(text) && !/^-?\d+([.,]\d+)?$/.test(text)) text = `'${text}`
+  return `"${text.replace(/"/g, '""')}"`
 }

@@ -6,11 +6,13 @@ import { normCurrency, roundMoney } from "@/lib/finance/currency"
 import { customerPaymentColumns, insertCustomerPayment, russianDateTime, type CustomerPaymentValues } from "@/lib/finance/customer-payment"
 import { nowLocalIso } from "@/lib/finance/dates"
 import {
+  assertCashbackAvailable,
   CashError,
   currencyContext,
   findClientByName,
   findSupplierByName,
   isoDayOrEmpty,
+  defaultExpenseCategory,
   loadCashbox,
   loadCategory,
   loadClient,
@@ -25,13 +27,16 @@ import {
   num,
   numOrNull,
   pickRate,
+  resolveOrganization,
   type CashboxInfo,
   type CategoryInfo,
+  type OrganizationHints,
 } from "@/lib/cash/common"
-import { liveAcceptanceAmount } from "@/lib/cash/accept"
-import { orderDue } from "@/lib/cash/orders"
+import { detachPaymentTx, liveAcceptanceAmount } from "@/lib/cash/accept"
+import { guardCashboxBalances } from "@/lib/cash/guard"
+import { allocatedOrderDue } from "@/lib/cash/orders"
 import { claimFundRequest, lockFundRequest, releaseFundRequest } from "@/lib/cash/request-links"
-import { ensureCashSchema } from "@/lib/cash/schema"
+import { ensureCashSchema, ensureSupplyExpenseLink } from "@/lib/cash/schema"
 import {
   CASH_OP,
   CASH_OP_LABELS,
@@ -56,6 +61,12 @@ import {
 //   staff_expense / staff_income              → cash entry op 5 / 4 + cash_entry_staff
 //   anything else (detalization, amortization) → cash entry op 4 / 5 (+ cash_entry_children)
 // All writes run in one DB transaction; deletes are soft (is_deleted = 1).
+// Checks: a cashbox never goes below zero (lib/cash/guard.ts), a cashback payout
+// never exceeds the client's cashback, an order / supply payment never exceeds
+// what is still due, a money request is paid with its own amount, and the
+// supplier / client is credited with the money actually paid (converted into the
+// debt currency). The organization defaults from the counterparty
+// (resolveOrganization) when the dialog leaves it empty.
 
 type CashValues = Record<string, unknown>
 
@@ -190,10 +201,34 @@ type PlanOptions = {
   forceClient?: boolean
 }
 
+/** Debt-side tolerance: rounding of the cash amount (0.01 of the cashbox currency) seen in the debt currency. */
+function debtTolerance(debt: { currency: string; debtRate: number | null }, common: Common): number {
+  if (debt.currency === common.cashbox.currency) return 0.01
+  return Math.max(0.01, common.cashRate && debt.debtRate ? (0.01 * common.cashRate) / debt.debtRate : 0.01)
+}
+
+/** Live payments already made for a supply, in the supply currency (all of them, verified or not, except `excludeId`). */
+async function supplyPaidElsewhere(db: PgDb, supplyId: number, supplyCurrency: string, cc: CurrencyContext, excludeId: number | null): Promise<number> {
+  const rows = (await db
+    .prepare("SELECT amount::float8 AS amount, currency FROM supplier_payments WHERE supply_id = @id AND is_deleted = 0 AND (@exclude::int IS NULL OR id <> @exclude::int)")
+    .all({ id: supplyId, exclude: excludeId })) as Array<{ amount: number; currency: string }>
+  let paid = 0
+  for (const row of rows) {
+    const cur = normCurrency(row.currency, cc.base)
+    if (cur === supplyCurrency) paid += num(row.amount)
+    else {
+      const from = pickRate(cur, cc)
+      const to = pickRate(supplyCurrency, cc)
+      paid += from && to ? (num(row.amount) * from) / to : num(row.amount)
+    }
+  }
+  return roundMoney(paid, 5)
+}
+
 async function resolvePlan(db: PgDb, input: CashOperationInput, user: string, cc: CurrencyContext, existing: OwnerRow | null, opts: PlanOptions = {}): Promise<Plan> {
   const kind = input.kind
   const cashbox = await loadCashbox(db, input.cashboxId, cc.base)
-  const category = input.categoryId ? await loadCategory(db, kind, input.categoryId) : null
+  let category = input.categoryId ? await loadCategory(db, kind, input.categoryId) : null
   // A category is required, except when paying a money request or an order (no "Заказ" income category yet).
   if (!category && !(kind === "expense" && input.moneyRequestId) && !(kind === "income" && (input.orderId || opts.forceClient))) {
     throw new CashError("Укажите категорию", 400, kind === "income" ? "incomeCategory" : "expenseCategory")
@@ -208,11 +243,15 @@ async function resolvePlan(db: PgDb, input: CashOperationInput, user: string, cc
     date: localDateTime(input.date),
     isVerified: input.isVerified !== false,
     comment: input.comment?.trim() ?? "",
-    organization: input.organization?.trim() ?? "",
+    organization: "",
     branch: input.branch?.trim() ?? "",
     rateType,
     cashRate: pickRate(cashbox.currency, cc, rateType === "custom" ? input.customRate : null),
     user,
+  }
+  /** Organization of the document: the dialog's choice (validated) or the counterparty's. */
+  const organize = async (hints: OrganizationHints) => {
+    common.organization = await resolveOrganization(db, input.organization, { ...hints, cashboxId: cashbox.id })
   }
 
   // The category's first option decides which counterparty the dialog must collect.
@@ -244,22 +283,34 @@ async function resolvePlan(db: PgDb, input: CashOperationInput, user: string, cc
     const paidByThis = existing?.source === "supplier" && request.payment_id === existing.id
     if (!paidByThis && request.status !== "approved") throw new CashError("Запрос должен быть подтвержден", 409, "moneyRequest")
     const supplier = await loadSupplier(db, request.supplier_id)
+    const supply = input.supplyId ? await loadSupply(db, input.supplyId, cc.base) : null
+    // Every payment has an expense category (the dialog may leave it empty here).
+    if (!category) {
+      category = await defaultExpenseCategory(db, supply ? ["supply", "provider"] : ["provider", "supply"])
+      common.category = category
+    }
     if (!cash) {
       const converted = request.currency === cashbox.currency ? request.amount : null
       if (converted !== null) cash = converted
       else {
-        const reqRate = pickRate(request.currency, cc)
+        // Same rates the debt side uses below (custom "Курс долга" when given).
+        const reqRate = pickRate(request.currency, cc, common.rateType === "custom" ? input.debtRate : null)
         if (!reqRate || !common.cashRate) throw new CashError("Курс валюты не задан", 400, "currencyRate")
         cash = roundMoney((request.amount * reqRate) / common.cashRate, 5)
       }
     }
-    const internal = common.cashRate ? cash * common.cashRate : null
-    const supply = input.supplyId ? await loadSupply(db, input.supplyId, cc.base) : null
+    // The supplier is credited with the cash actually paid, in the request currency;
+    // a request is paid in full by one payment (a different amount is refused).
+    const debt = debtSide(cash, common, cc, { ...input, debtCurrency: request.currency })
+    if (Math.abs(debt.amount - request.amount) > debtTolerance(debt, common)) {
+      throw new CashError("Сумма оплаты не совпадает с суммой запроса", 400, "amount")
+    }
+    await organize({ moneyRequestId: request.id, supplyId: supply?.id ?? null, supplierId: supplier.id })
     return supplierPlan(common, cc, {
       op: supply ? CASH_OP.OUTCOME_FOR_SUPPLY : CASH_OP.OUTCOME,
       supplier,
       cash,
-      debt: { amount: request.amount, currency: request.currency, internal, debtRate: pickRate(request.currency, cc) },
+      debt: { ...debt, amount: request.amount },
       moneyRequestId: request.id,
       supplyId: supply?.id ?? null,
     })
@@ -267,28 +318,44 @@ async function resolvePlan(db: PgDb, input: CashOperationInput, user: string, cc
   if (kind === "expense" && (has("supply") || has("provider")) && (input.supplyId || input.supplierId)) {
     if (!cash) throw new CashError("Укажите сумму", 400, "amount")
     let supplier = input.supplierId ? await loadSupplier(db, input.supplierId) : null
-    let supplyId: number | null = null
+    let supply: Awaited<ReturnType<typeof loadSupply>> | null = null
     if (input.supplyId) {
-      const supply = await loadSupply(db, input.supplyId, cc.base)
+      supply = await loadSupply(db, input.supplyId, cc.base)
       if (supply.status === "отменен") throw new CashError("Поставка отменена", 400, "supply")
       if (supplier && supplier.name.trim().toLowerCase() !== supply.supplier.trim().toLowerCase()) throw new CashError("Поставка другого поставщика", 400, "supply")
       supplier ??= await findSupplierByName(db, supply.supplier)
-      supplyId = supply.id
     }
     if (!supplier) throw new CashError("Укажите поставщика", 400, "provider")
+    // A payment of a supply settles it in the supply currency unless the dialog chose another one.
+    const debt = debtSide(cash, common, cc, input, supply?.currency)
+    if (supply) {
+      // Never more than the unpaid rest of the supply (an advance is a payment without a supply).
+      const toSupplyCurrency = (amount: number, currency: string) => {
+        if (currency === supply!.currency) return amount
+        const from = pickRate(currency, cc)
+        const to = pickRate(supply!.currency, cc)
+        return from && to ? (amount * from) / to : amount
+      }
+      const already = await supplyPaidElsewhere(db, supply.id, supply.currency, cc, existing?.source === "supplier" ? existing.id : null)
+      const rest = roundMoney(supply.amount - already, 5)
+      const tolerance = debt.currency === supply.currency ? debtTolerance(debt, common) : Math.max(0.01, toSupplyCurrency(debtTolerance(debt, common), debt.currency))
+      if (toSupplyCurrency(debt.amount, debt.currency) > rest + tolerance) throw new CashError("Сумма больше неоплаченного остатка поставки", 400, "amount")
+    }
+    await organize({ supplyId: supply?.id ?? null, supplierId: supplier.id })
     return supplierPlan(common, cc, {
-      op: supplyId ? CASH_OP.OUTCOME_FOR_SUPPLY : CASH_OP.OUTCOME,
+      op: supply ? CASH_OP.OUTCOME_FOR_SUPPLY : CASH_OP.OUTCOME,
       supplier,
       cash,
-      debt: debtSide(cash, common, cc, input),
+      debt,
       moneyRequestId: null,
-      supplyId,
+      supplyId: supply?.id ?? null,
     })
   }
   if (kind === "income" && has("provider") && input.supplierId) {
     if (!cash) throw new CashError("Укажите сумму", 400, "amount")
     const supplier = await loadSupplier(db, input.supplierId)
     const debt = debtSide(cash, common, cc, input)
+    await organize({ supplierId: supplier.id })
     return supplierPlan(common, cc, {
       op: CASH_OP.INCOME,
       supplier,
@@ -306,11 +373,13 @@ async function resolvePlan(db: PgDb, input: CashOperationInput, user: string, cc
     let client = input.clientId ? await loadClient(db, input.clientId) : null
     let orderId: number | null = null
     let orderCurrency: string | undefined
+    let due: Awaited<ReturnType<typeof allocatedOrderDue>> = null
     if (orderMode && input.orderId) {
-      const due = await orderDue(db, input.orderId, cc)
+      due = await allocatedOrderDue(db, input.orderId, cc)
       if (!due) throw new CashError("Заказ не найден", 404, "order")
       if (due.status === "Отменен") throw new CashError("Заказ отменен", 400, "order")
-      const orderClient = await findClientByName(db, due.client)
+      // Client by id (contract 6); legacy orders (or a client id that is gone) by name.
+      const orderClient = (due.clientId ? await loadClient(db, due.clientId, "order").catch(() => null) : null) ?? (await findClientByName(db, due.client))
       if (!orderClient) throw new CashError("Клиент заказа не найден", 404, "order")
       client = orderClient
       orderId = due.id
@@ -320,6 +389,14 @@ async function resolvePlan(db: PgDb, input: CashOperationInput, user: string, cc
     const contract = await loadContract(db, input.contractId)
     const responsible = input.responsibleId ? await loadEmployee(db, input.responsibleId) : null
     const debt = debtSide(cash, common, cc, input, orderCurrency)
+    if (due) {
+      // Never more than the order still owes (the excess belongs on the client's account).
+      const part = due.currencies.find((item) => item.currency === debt.currency)
+      const own = existing?.source === "customer" && numOrNull(existing.row.order_id) === due.id && normCurrency(String(existing.row.currency ?? ""), cc.base) === debt.currency
+      const remaining = roundMoney((part?.remaining ?? 0) + (own ? num(existing!.row.amount) : 0), 5)
+      if (debt.amount > remaining + debtTolerance(debt, common)) throw new CashError("Сумма больше остатка заказа", 400, "amount")
+    }
+    await organize({ orderId, contractId: contract?.id ?? null, clientId: client.id })
     return {
       owner: "customer",
       values: {
@@ -366,6 +443,18 @@ async function resolvePlan(db: PgDb, input: CashOperationInput, user: string, cc
     const client = await loadClient(db, input.clientId)
     const cashback = has("client_card_out") || has("client_contract")
     const op = cashback ? CASH_OP.CLIENT_CONTRACT_OUT : CASH_OP.OUTCOME_FROM_CLIENT
+    if (cashback) {
+      // A cashback payout never exceeds the client's cashback in the cashbox currency
+      // (the payout being edited does not count against itself).
+      await assertCashbackAvailable(db, {
+        clientId: client.id,
+        amount: cash,
+        currency: cashbox.currency,
+        base: cc.base,
+        excludeEntryId: existing?.source === "cash" ? existing.id : null,
+      })
+    }
+    await organize({ clientId: client.id, contractId: input.contractId ?? null })
     return {
       owner: "cash",
       values: cashEntryValues(common, op, signed, {
@@ -383,6 +472,7 @@ async function resolvePlan(db: PgDb, input: CashOperationInput, user: string, cc
   }
   if (kind === "expense" && has("supply_expense") && input.supplyExpenseId) {
     const expense = await loadSupplyExpense(db, input.supplyExpenseId, cc.base)
+    await organize({ supplyExpenseId: expense.id, supplyId: expense.incomingId })
     return {
       owner: "cash",
       values: cashEntryValues(common, CASH_OP.SUPPLY_EXPENSE, signed, {
@@ -398,6 +488,7 @@ async function resolvePlan(db: PgDb, input: CashOperationInput, user: string, cc
     }
   }
   if (staffMode && staff.length) await loadEmployees(db, staff.map((item) => item.employeeId))
+  await organize({ employeeName: responsible?.name ?? null })
   return {
     owner: "cash",
     values: cashEntryValues(common, kind === "income" ? CASH_OP.INCOME : CASH_OP.OUTCOME, signed, {
@@ -481,8 +572,10 @@ async function clearCashExtras(tx: PgDb, entryId: number): Promise<void> {
   await tx.prepare("DELETE FROM cash_entry_staff WHERE entry_id = @id").run({ id: entryId })
   await tx.prepare("DELETE FROM cash_entry_children WHERE entry_id = @id").run({ id: entryId })
   await tx.prepare("DELETE FROM loyalty_card_transactions WHERE transaction_id = @id").run({ id: entryId })
-  const exists = (await tx.prepare("SELECT to_regclass('supplier_incoming_expenses') IS NOT NULL AS ok").get()) as { ok: boolean }
-  if (exists.ok) await tx.prepare("UPDATE supplier_incoming_expenses SET transaction_id = NULL WHERE transaction_id = @id").run({ id: entryId })
+  // The supply-expense table (and its link column) may appear after the cash schema was installed.
+  if (await ensureSupplyExpenseLink(tx)) {
+    await tx.prepare("UPDATE supplier_incoming_expenses SET transaction_id = NULL WHERE transaction_id = @id").run({ id: entryId })
+  }
 }
 
 async function addCashExtras(tx: PgDb, entryId: number, docNo: number, plan: CashPlan, currency: string): Promise<void> {
@@ -503,6 +596,7 @@ async function addCashExtras(tx: PgDb, entryId: number, docNo: number, plan: Cas
       .run({ ...plan.loyalty, comment: `${CASH_OP_LABELS[22]} № ${docNo}`, entryId })
   }
   if (plan.supplyExpenseId) {
+    if (!(await ensureSupplyExpenseLink(tx))) throw new CashError("Доп. расход не найден", 404, "supplyExpense")
     await tx.prepare("UPDATE supplier_incoming_expenses SET transaction_id = @entryId WHERE id = @id").run({ entryId, id: plan.supplyExpenseId })
   }
 }
@@ -561,12 +655,15 @@ async function releaseOwner(tx: PgDb, owner: OwnerRow, user: string, keepRequest
 export async function createCashOperation(input: CashOperationInput, user: string): Promise<CashWriteResult> {
   await ensureCashSchema()
   const cc = await currencyContext(getDb())
-  return withTransaction(async (tx) => {
-    const plan = await resolvePlan(tx, input, user, cc, null)
-    const result = await insertPlan(tx, plan, user, null)
-    if (plan.owner === "supplier") await recomputeSupplyPaid(tx, [plan.supplyId], cc)
-    return result
-  })
+  return withTransaction(async (tx) =>
+    // An income only adds money; anything else must not overdraw the cashbox.
+    guardCashboxBalances(tx, input.kind === "expense" ? [input.cashboxId] : [], cc.base, async () => {
+      const plan = await resolvePlan(tx, input, user, cc, null)
+      const result = await insertPlan(tx, plan, user, null)
+      if (plan.owner === "supplier") await recomputeSupplyPaid(tx, [plan.supplyId], cc)
+      return result
+    }),
+  )
 }
 
 /** Several client incomes in one transaction ("Груповой приход" of the cash
@@ -600,35 +697,39 @@ export async function updateCashOperation(key: string, input: CashOperationInput
     const op = signedOpOf(owner)
     if (op === CASH_OP.FROM_TRANSFER || op === CASH_OP.TO_TRANSFER) throw new CashError("Перевод нельзя изменить", 409)
     if (owner.source === "customer" && owner.row.accept_id) throw new CashError("Оплата входит в приемку наличных — измените приемку", 409)
-
-    const plan = await resolvePlan(tx, input, user, cc, owner)
-    const keepRequest = plan.owner === "supplier" ? plan.moneyRequestId : null
-    await releaseOwner(tx, owner, user, owner.source === "supplier" && plan.owner === "supplier" ? keepRequest : null)
-    const oldSupply = owner.source === "supplier" ? numOrNull(owner.row.supply_id) : null
-
-    let result: CashWriteResult
-    if (plan.owner === owner.source) {
-      if (plan.owner === "customer") {
-        const values = customerPaymentColumns(plan.values)
-        // Keep who created it and the agent context.
-        delete values.agent
-        delete values.agent_cashbox_id
-        await updateRow(tx, "customer_payments", owner.id, values)
-      } else if (plan.owner === "supplier") {
-        await updateRow(tx, "supplier_payments", owner.id, plan.values)
-        if (plan.moneyRequestId) await claimFundRequest(tx, await lockFundRequest(tx, plan.moneyRequestId), owner.id, owner.docNo, user)
-      } else {
-        await updateRow(tx, "cash_management_entries", owner.id, plan.values)
-        await addCashExtras(tx, owner.id, owner.docNo, plan, String(plan.values.currency ?? ""))
-      }
-      result = { key: operationKey(owner.source, owner.id), source: owner.source, id: owner.id, docNo: owner.docNo }
-    } else {
-      await tx.prepare(`DELETE FROM ${TABLE[owner.source as Exclude<CashSource, "acceptance" | "reference">]} WHERE id = @id`).run({ id: owner.id })
-      result = await insertPlan(tx, plan, user, owner.docNo)
-    }
-    await recomputeSupplyPaid(tx, [oldSupply, plan.owner === "supplier" ? plan.supplyId : null], cc)
-    return result
+    // The old cashbox loses the old money, the new one gets the new: neither may end overdrawn.
+    return guardCashboxBalances(tx, [numOrNull(owner.row.cashbox_id), input.cashboxId], cc.base, () => applyUpdate(tx, owner, input, user, cc))
   })
+}
+
+async function applyUpdate(tx: PgDb, owner: OwnerRow, input: CashOperationInput, user: string, cc: CurrencyContext): Promise<CashWriteResult> {
+  const plan = await resolvePlan(tx, input, user, cc, owner)
+  const keepRequest = plan.owner === "supplier" ? plan.moneyRequestId : null
+  await releaseOwner(tx, owner, user, owner.source === "supplier" && plan.owner === "supplier" ? keepRequest : null)
+  const oldSupply = owner.source === "supplier" ? numOrNull(owner.row.supply_id) : null
+
+  let result: CashWriteResult
+  if (plan.owner === owner.source) {
+    if (plan.owner === "customer") {
+      const values = customerPaymentColumns(plan.values)
+      // Keep who created it and the agent context.
+      delete values.agent
+      delete values.agent_cashbox_id
+      await updateRow(tx, "customer_payments", owner.id, values)
+    } else if (plan.owner === "supplier") {
+      await updateRow(tx, "supplier_payments", owner.id, plan.values)
+      if (plan.moneyRequestId) await claimFundRequest(tx, await lockFundRequest(tx, plan.moneyRequestId), owner.id, owner.docNo, user)
+    } else {
+      await updateRow(tx, "cash_management_entries", owner.id, plan.values)
+      await addCashExtras(tx, owner.id, owner.docNo, plan, String(plan.values.currency ?? ""))
+    }
+    result = { key: operationKey(owner.source, owner.id), source: owner.source, id: owner.id, docNo: owner.docNo }
+  } else {
+    await tx.prepare(`DELETE FROM ${TABLE[owner.source as Exclude<CashSource, "acceptance" | "reference">]} WHERE id = @id`).run({ id: owner.id })
+    result = await insertPlan(tx, plan, user, owner.docNo)
+  }
+  await recomputeSupplyPaid(tx, [oldSupply, plan.owner === "supplier" ? plan.supplyId : null], cc)
+  return result
 }
 
 /** "Дублировать": a new operation with the same fields (date = `date` or now; a paid money request is not copied). */
@@ -641,46 +742,69 @@ export async function duplicateCashOperation(key: string, user: string, date?: s
 }
 
 /** "Удалить": soft delete (is_deleted = 1) of the owner row; a transfer leg deletes
- * the whole transfer; an acceptance returns its payments to "not accepted". */
+ * the whole transfer; an acceptance returns its payments to "not accepted".
+ * Deleting money that came INTO a cashbox (income, accepted payment, transfer
+ * target) must not leave that cashbox overdrawn (lib/cash/guard.ts). */
 export async function deleteCashOperation(key: string, user: string): Promise<{ key: string; deleted: string[] }> {
   await ensureCashSchema()
   const cc = await currencyContext(getDb())
   return withTransaction(async (tx) => {
     const owner = await lockOwner(tx, key)
     if (num(owner.row.is_deleted)) return { key, deleted: [] }
-    const stamp = { is_deleted: 1, deleted_at: nowLocalIso(), deleted_by: user }
-    const deleted: string[] = []
-    if (owner.source === "acceptance") {
-      await updateRow(tx, "cash_acceptances", owner.id, { ...stamp, amount: await liveAcceptanceAmount(tx, owner.id, cc.base) })
-      await tx
-        .prepare(
-          `UPDATE customer_payments SET accepted = 0, cashbox_id = NULL, kassa = '', accept_id = NULL, accepted_at = '', accepted_by = '',
-             updated_at = datetime('now') WHERE accept_id = @id`,
-        )
-        .run({ id: owner.id })
-      return { key, deleted: [key] }
-    }
     const op = signedOpOf(owner)
-    const transferId = owner.source === "cash" ? numOrNull(owner.row.transfer_id) : null
-    if ((op === CASH_OP.FROM_TRANSFER || op === CASH_OP.TO_TRANSFER) && transferId) {
-      const legs = (await tx.prepare("SELECT id FROM cash_management_entries WHERE transfer_id = @id FOR UPDATE").all({ id: transferId })) as Array<{ id: number }>
-      for (const leg of legs) {
-        await updateRow(tx, "cash_management_entries", leg.id, stamp)
-        deleted.push(operationKey("cash", leg.id))
-      }
-      await tx.prepare("UPDATE cash_transfers SET is_deleted = 1, deleted_at = @at, deleted_by = @by WHERE id = @id").run({ id: transferId, at: stamp.deleted_at, by: user })
-      return { key, deleted }
-    }
-    await releaseOwner(tx, owner, user)
-    if (owner.source === "cash") {
-      // Staff allocations and detalization stay (they follow the entry's is_deleted); the loyalty row was removed.
-      await updateRow(tx, "cash_management_entries", owner.id, stamp)
-    } else {
-      await updateRow(tx, TABLE[owner.source as Exclude<CashSource, "acceptance" | "reference">], owner.id, stamp)
-      if (owner.source === "supplier") await recomputeSupplyPaid(tx, [numOrNull(owner.row.supply_id)], cc)
-    }
-    return { key, deleted: [key] }
+    const transferId = owner.source === "cash" && (op === CASH_OP.FROM_TRANSFER || op === CASH_OP.TO_TRANSFER) ? numOrNull(owner.row.transfer_id) : null
+    const legs = transferId
+      ? ((await tx.prepare("SELECT id, cashbox_id FROM cash_management_entries WHERE transfer_id = @id ORDER BY id FOR UPDATE").all({ id: transferId })) as Array<{
+          id: number
+          cashbox_id: number | null
+        }>)
+      : []
+    const cashboxes = transferId ? legs.map((leg) => numOrNull(leg.cashbox_id)) : [numOrNull(owner.row.cashbox_id)]
+    return guardCashboxBalances(tx, cashboxes, cc.base, () => applyDelete(tx, key, owner, transferId, legs, user, cc))
   })
+}
+
+async function applyDelete(
+  tx: PgDb,
+  key: string,
+  owner: OwnerRow,
+  transferId: number | null,
+  legs: Array<{ id: number }>,
+  user: string,
+  cc: CurrencyContext,
+): Promise<{ key: string; deleted: string[] }> {
+  const stamp = { is_deleted: 1, deleted_at: nowLocalIso(), deleted_by: user }
+  if (owner.source === "acceptance") {
+    await updateRow(tx, "cash_acceptances", owner.id, { ...stamp, amount: await liveAcceptanceAmount(tx, owner.id, cc.base) })
+    await tx
+      .prepare(
+        `UPDATE customer_payments SET accepted = 0, cashbox_id = NULL, kassa = '', accept_id = NULL, accepted_at = '', accepted_by = '',
+           updated_at = datetime('now') WHERE accept_id = @id`,
+      )
+      .run({ id: owner.id })
+    return { key, deleted: [key] }
+  }
+  if (transferId) {
+    const deleted: string[] = []
+    for (const leg of legs) {
+      await updateRow(tx, "cash_management_entries", leg.id, stamp)
+      deleted.push(operationKey("cash", leg.id))
+    }
+    await tx.prepare("UPDATE cash_transfers SET is_deleted = 1, deleted_at = @at, deleted_by = @by WHERE id = @id").run({ id: transferId, at: stamp.deleted_at, by: user })
+    return { key, deleted }
+  }
+  await releaseOwner(tx, owner, user)
+  // A payment inside an agent-cash acceptance leaves it first (an emptied acceptance is removed).
+  const acceptId = owner.source === "customer" ? numOrNull(owner.row.accept_id) : null
+  if (acceptId) await detachPaymentTx(tx, acceptId, owner.id, user, cc.base)
+  if (owner.source === "cash") {
+    // Staff allocations and detalization stay (they follow the entry's is_deleted); the loyalty row was removed.
+    await updateRow(tx, "cash_management_entries", owner.id, stamp)
+  } else {
+    await updateRow(tx, TABLE[owner.source as Exclude<CashSource, "acceptance" | "reference">], owner.id, stamp)
+    if (owner.source === "supplier") await recomputeSupplyPaid(tx, [numOrNull(owner.row.supply_id)], cc)
+  }
+  return { key, deleted: [key] }
 }
 
 /** "Подтвердить" (clock dialog): counts the operation from now on; `verifyDate`
@@ -692,29 +816,9 @@ export async function verifyCashOperation(key: string, verifyDate: string | null
     const owner = await lockOwner(tx, key)
     if (owner.source === "acceptance") return { key: operationKey("acceptance", owner.id), source: owner.source, id: owner.id, docNo: owner.docNo }
     if (num(owner.row.is_deleted)) throw new CashError("Операция удалена", 409)
-    const date = verifyDate ? localDateTime(verifyDate, "verify_date") : null
-    const now = nowLocalIso()
-    if (owner.source === "cash") {
-      await updateRow(tx, "cash_management_entries", owner.id, { is_verified: 1, verified_at: now, verified_by: user, ...(date ? { entry_date: date } : {}) })
-    } else if (owner.source === "customer") {
-      if (!owner.row.cashbox_id && !owner.row.kassa) throw new CashError("Оплата не привязана к кассе — используйте «Принять деньги»", 409)
-      const when = date ?? (String(owner.row.payment_date || "") || now)
-      await updateRow(tx, "customer_payments", owner.id, {
-        accepted: 1,
-        accepted_at: russianDateTime(when),
-        accepted_by: user,
-        ...(date ? { payment_date: date, paid_at: russianDateTime(date) } : {}),
-      })
-    } else {
-      await updateRow(tx, "supplier_payments", owner.id, {
-        is_verified: 1,
-        verified_at: now,
-        verified_by: user,
-        ...(date ? { payment_date: date, paid_at: russianDateTime(date) } : {}),
-      })
-      await recomputeSupplyPaid(tx, [numOrNull(owner.row.supply_id)], cc)
-    }
-    return { key: operationKey(owner.source, owner.id), source: owner.source, id: owner.id, docNo: owner.docNo }
+    // Verifying an outflow (cash expense, supplier payment) takes the money out now.
+    const outflow = owner.source === "cash" ? num(owner.row.amount) < 0 : owner.source === "supplier" ? num(owner.row.amount) > 0 : false
+    return guardCashboxBalances(tx, outflow ? [numOrNull(owner.row.cashbox_id)] : [], cc.base, () => applyVerify(tx, owner, verifyDate, user, cc))
   })
 }
 
@@ -750,6 +854,32 @@ async function referenceOperationInput(id: number, db: PgDb): Promise<CashOperat
     supplierId: numOrNull(row.supplier_id) ?? undefined,
     children: extra.children?.map((item) => ({ name: item.name, amount: num(item.amount) })),
   }
+}
+
+async function applyVerify(tx: PgDb, owner: OwnerRow, verifyDate: string | null | undefined, user: string, cc: CurrencyContext): Promise<CashWriteResult> {
+  const date = verifyDate ? localDateTime(verifyDate, "verify_date") : null
+  const now = nowLocalIso()
+  if (owner.source === "cash") {
+    await updateRow(tx, "cash_management_entries", owner.id, { is_verified: 1, verified_at: now, verified_by: user, ...(date ? { entry_date: date } : {}) })
+  } else if (owner.source === "customer") {
+    if (!owner.row.cashbox_id && !owner.row.kassa) throw new CashError("Оплата не привязана к кассе — используйте «Принять деньги»", 409)
+    const when = date ?? (String(owner.row.payment_date || "") || now)
+    await updateRow(tx, "customer_payments", owner.id, {
+      accepted: 1,
+      accepted_at: russianDateTime(when),
+      accepted_by: user,
+      ...(date ? { payment_date: date, paid_at: russianDateTime(date) } : {}),
+    })
+  } else {
+    await updateRow(tx, "supplier_payments", owner.id, {
+      is_verified: 1,
+      verified_at: now,
+      verified_by: user,
+      ...(date ? { payment_date: date, paid_at: russianDateTime(date) } : {}),
+    })
+    await recomputeSupplyPaid(tx, [numOrNull(owner.row.supply_id)], cc)
+  }
+  return { key: operationKey(owner.source, owner.id), source: owner.source, id: owner.id, docNo: owner.docNo }
 }
 
 /** Form values of an operation (edit / duplicate prefill). null for unknown keys and acceptances. */

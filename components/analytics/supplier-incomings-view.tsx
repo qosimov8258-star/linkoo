@@ -27,7 +27,9 @@ import { FilterCheck, FilterDate, FilterSelect, FilterTextMui, RI, RefButton, Re
 
 import { downloadExcelTable } from "@/lib/excel-export"
 import { mapHeaderColumns, readExcelRows } from "@/lib/excel-import"
+import { formatStatementDate, parseAnyDate, parseAnyDay, todayIso } from "@/lib/finance/dates"
 import { useLanguage } from "@/lib/i18n/language-context"
+import { unitWeightKg } from "@/lib/internal-transfers-types"
 import type { InvoiceSupplyDraft } from "@/lib/invoice-incomings-types"
 import { RefTip } from "@/components/ref/ref-tip"
 import { ConfirmDialog } from "./cash-management-shared"
@@ -43,7 +45,7 @@ import {
   type IncomingStatus as Status,
 } from "./supplier-incomings-data"
 import { IncomingExpenseDialog, IncomingRepriceDialog, LOG_LABELS } from "./supplier-incoming-dialogs"
-import { SupplierIncomingForm } from "./supplier-incoming-form"
+import { SupplierIncomingForm, isoToRuDate, ruDateToIso } from "./supplier-incoming-form"
 import { SupplierProductPicker } from "./supplier-product-picker"
 import { SupplyPaymentsDialog } from "./supplier-payments-supply-dialog"
 import { WarehouseFormModal } from "./warehouse-form-modal"
@@ -59,22 +61,17 @@ function formatMoney(value: number, currency = "SUM") {
   return `${(Math.round(value * 1000) / 1000).toLocaleString("ru-RU")} ${currency}`
 }
 
-const RU_MONTHS = ["янв", "фев", "мар", "апр", "ма", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"]
-
-/** "06 июля 2026" / "24 авг. 2026" / "06.07.2026" → "2026-07-06" ("" when unreadable). */
-function isoFromRuDate(value: string) {
-  const dotted = value.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})/)
-  if (dotted) return `${dotted[3]}-${dotted[2].padStart(2, "0")}-${dotted[1].padStart(2, "0")}`
-  const words = value.match(/^(\d{1,2})\s+([а-я]+)\.?\s+(\d{4})/i)
-  const month = words ? RU_MONTHS.findIndex((name) => words[2].toLowerCase().startsWith(name)) : -1
-  return words && month >= 0 ? `${words[3]}-${String(month + 1).padStart(2, "0")}-${words[1].padStart(2, "0")}` : ""
+/** A stored timestamp (UTC ISO, local text, …) in the page language, Asia/Tashkent time. */
+function formatTimestamp(value: string, language: string) {
+  if (!value) return ""
+  const local = parseAnyDate(value)
+  return local ? formatStatementDate(local.slice(0, 16), language).replace(/\s*г\.,/, ",") : value
 }
 
-function formatTimestamp(value: string) {
-  if (!value) return ""
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return value
-  return `${formatDate(date)}, ${date.toTimeString().slice(0, 5)}`
+/** A stored day (YYYY-MM-DD, legacy "19 октября 2026") in the page language. */
+function formatDay(value: string, language: string) {
+  const day = parseAnyDay(value)
+  return day ? formatStatementDate(day, language, false).replace(/\s*г\.$/, "") : value
 }
 
 /** "Время приемки" is printed by the reference with the Russian short month in every language ("24 авг. 2026, 12:33"). */
@@ -100,20 +97,23 @@ const statusDots: Record<Status, string> = {
 type DraftItem = { id: number; product: string; qty: number; cost: number; expiry?: string; source?: { name: string; ikpu: string; unit: string } }
 type Tab = "items" | "cost" | "expenses" | "logs"
 
-const monthNames = ["января", "февраля", "марта", "апреля", "мая", "июня", "июля", "августа", "сентября", "октября", "ноября", "декабря"]
-function formatDate(date: Date) {
-  return `${String(date.getDate()).padStart(2, "0")} ${monthNames[date.getMonth()]} ${date.getFullYear()}`
-}
+/** A stored day as the value of an <input type="date"> ("" when it does not parse). */
+const isoDay = (value: string) => parseAnyDay(value) ?? ""
+/** A date of the form (Russian text "23 октября 2026" or ISO) as the ISO day the API stores. */
+const toIsoDay = (value: string) => ruDateToIso(value) || isoDay(value)
 
-function emptyDraft(supplierOptions: string[] = [], warehouseOptions: string[] = [], organizationOptions: string[] = [], branchOptions: string[] = []) {
+/** A new supply starts with nothing picked: the storekeeper must choose the supplier,
+ * branch, warehouse and organization (the lists are newest-first, so a preselected
+ * first option would be whatever was created last). Dates are ISO (date pickers). */
+function emptyDraft() {
   return {
     supplier: "",
     branch: "",
-    warehouse: warehouseOptions.find((name) => name === "Andijon skladi") ?? warehouseOptions.find((name) => !/^Ожидается синхронизация/.test(name)) ?? "",
+    warehouse: "",
     organization: "",
     currency: "SUM",
     paymentType: paymentTypes[0] as string,
-    date: formatDate(new Date()),
+    date: isoToRuDate(todayIso()),
     expectedFactoryExit: "",
     expectedCustomsArrival: "",
     contractNumber: "",
@@ -170,13 +170,12 @@ function SortHead({ children }: { children: ReactNode }) {
   )
 }
 
-/** "24 августа 2026" → "24 авг. 2026" (the card's compact date). */
+/** A stored day (YYYY-MM-DD or legacy "24 августа 2026") → "24 авг. 2026" (the card's compact date). */
 function shortDate(value: string) {
-  const match = value.match(/^(\d{1,2})\s+([а-я]+)\s+(\d{4})/i)
-  if (!match) return value
-  const index = monthNames.findIndex((name) => name === match[2].toLowerCase())
+  const day = parseAnyDay(value)
+  if (!day) return value
   const short = ["янв.", "февр.", "марта", "апр.", "мая", "июня", "июля", "авг.", "сент.", "окт.", "нояб.", "дек."]
-  return index >= 0 ? `${match[1]} ${short[index]} ${match[3]}` : value
+  return `${Number(day.slice(8, 10))} ${short[Number(day.slice(5, 7)) - 1]} ${day.slice(0, 4)}`
 }
 
 /** "0 новый шт (+11 новый шт)": whole boxes, then the loose units. */
@@ -192,9 +191,12 @@ function singleUnit(items: { product: string }[], units: Record<string, string>)
   const set = new Set(items.map((item) => units[item.product] ?? ""))
   return set.size === 1 ? Array.from(set)[0] : ""
 }
+type WarehouseOption = { name: string; branch: string; active: boolean }
+
+const sameName = (a: string, b: string) => a.replace(/\s+/g, " ").trim().toLowerCase() === b.replace(/\s+/g, " ").trim().toLowerCase()
 
 export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean }) {
-  const { t } = useLanguage()
+  const { t, language } = useLanguage()
   const [rows, setRows] = useState<Incoming[]>([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState("")
@@ -237,7 +239,7 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
   const [draftItems, setDraftItems] = useState<DraftItem[]>([])
   const [pickerOpen, setPickerOpen] = useState(false)
   const [supplierOptions, setSupplierOptions] = useState<string[]>([])
-  const [warehouseOptions, setWarehouseOptions] = useState<string[]>([])
+  const [warehouseRows, setWarehouseRows] = useState<WarehouseOption[]>([])
   const [organizationOptions, setOrganizationOptions] = useState<string[]>([])
   const [branchOptions, setBranchOptions] = useState<string[]>([])
   const [productOptions, setProductOptions] = useState<string[]>([])
@@ -245,6 +247,8 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
   const [productExpiry, setProductExpiry] = useState<Record<string, boolean>>({})
   const [productInfo, setProductInfo] = useState<Record<string, { stock: number; barcode: string }>>({})
   const [productBoxes, setProductBoxes] = useState<Record<string, { unit: string; amount: number }>>({})
+  /** Weight of one unit, kg (the item's mass, else what a weight unit implies), by item name. */
+  const [productUnitKg, setProductUnitKg] = useState<Record<string, number>>({})
   const [pickerQuery, setPickerQuery] = useState("")
   const [quickAddSupplierOpen, setQuickAddSupplierOpen] = useState(false)
   const [quickAddWarehouseOpen, setQuickAddWarehouseOpen] = useState(false)
@@ -257,6 +261,10 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
   const importInputRef = useRef<HTMLInputElement>(null)
   // "excel'dan import qilish": 1. sample, 2. the filled file (staged here), 3. confirm adds the staged rows.
   const [importStaged, setImportStaged] = useState<DraftItem[]>([])
+  /** "Кг." of a supply line: the weight typed on the line, else quantity × weight of one unit. */
+  const lineKg = (item: { product: string; qty: number; kg?: number }) =>
+    Number(item.kg) > 0 ? Number(item.kg) : Math.round(item.qty * (productUnitKg[item.product] ?? 0) * 1000) / 1000
+
   useEffect(() => {
     let cancelled = false
     setLoading(true)
@@ -298,8 +306,8 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
         setSupplierOptions(Array.from(new Set(data.map((item) => item.name))))
       }
       if (warehousesRes?.ok) {
-        const data = (await warehousesRes.json()) as { name: string }[]
-        setWarehouseOptions(Array.from(new Set(data.map((item) => item.name))))
+        const data = (await warehousesRes.json()) as Array<{ name: string; branch?: string; active?: boolean }>
+        setWarehouseRows(data.map((item) => ({ name: item.name, branch: item.branch ?? "", active: item.active !== false })))
       }
       if (organizationsRes?.ok) {
         const data = (await organizationsRes.json()) as { name: string }[]
@@ -310,12 +318,20 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
         setBranchOptions(Array.from(new Set(data.map((item) => item.name))))
       }
       // Raw materials are received from suppliers too (production stock).
-      const catalog: { name: string; unit: string; boxUnit?: string; boxAmount?: number; trackExpiry?: boolean }[] = []
+      const catalog: { name: string; unit: string; mass: number; boxUnit?: string; boxAmount?: number; trackExpiry?: boolean }[] = []
+      const massOf = (value: unknown) => Number(String(value ?? "").replace(",", ".")) || 0
       // Soft-deleted products ("Удалённые") are not offered.
-      if (productsRes?.ok) catalog.push(...((await productsRes.json()) as { name: string; unit: string; boxUnit?: string; boxAmount?: number; trackExpiry?: boolean; deleted?: boolean }[]).filter((item) => !item.deleted))
-      if (rawMaterialsRes?.ok) catalog.push(...((await rawMaterialsRes.json()) as { name: string; unit: string }[]))
+      if (productsRes?.ok) {
+        const data = (await productsRes.json()) as { name: string; unit: string; weight?: unknown; boxUnit?: string; boxAmount?: number; trackExpiry?: boolean; deleted?: boolean }[]
+        catalog.push(...data.filter((item) => !item.deleted).map((item) => ({ name: item.name, unit: item.unit, mass: massOf(item.weight), boxUnit: item.boxUnit, boxAmount: item.boxAmount, trackExpiry: item.trackExpiry })))
+      }
+      if (rawMaterialsRes?.ok) {
+        const data = (await rawMaterialsRes.json()) as { name: string; unit: string; mass?: unknown }[]
+        catalog.push(...data.map((item) => ({ name: item.name, unit: item.unit, mass: massOf(item.mass) })))
+      }
       setProductOptions(Array.from(new Set(catalog.map((item) => item.name))).sort((a, b) => a.localeCompare(b, "ru")))
       setProductUnits(Object.fromEntries(catalog.map((item) => [item.name, item.unit])))
+      setProductUnitKg(Object.fromEntries(catalog.map((item) => [item.name, unitWeightKg(item.unit, item.mass)])))
       setProductExpiry(Object.fromEntries(catalog.map((item) => [item.name, Boolean(item.trackExpiry)])))
       setProductBoxes(Object.fromEntries(catalog.filter((item) => item.boxUnit && (item.boxAmount ?? 0) > 0).map((item) => [item.name, { unit: item.boxUnit as string, amount: item.boxAmount as number }])))
       setOptionsLoaded(true)
@@ -337,6 +353,14 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
     }
   }, [])
 
+  /** Every warehouse (filters, legacy rows). */
+  const warehouseOptions = useMemo(() => warehouseRows.map((item) => item.name), [warehouseRows])
+  /** Warehouses a new supply may go to: active ones of the chosen branch (all branches when none is chosen). */
+  const draftWarehouseOptions = useMemo(
+    () => warehouseRows.filter((item) => item.active && (!draft.branch || !item.branch || sameName(item.branch, draft.branch))).map((item) => item.name),
+    [warehouseRows, draft.branch],
+  )
+
   // "Создать приход" of an accepted incoming e-invoice: the create dialog prefilled with
   // its supplier, organization, currency, contract / invoice number and date and the lines
   // (matched to our products / raw materials; unmatched lines stay empty to pick a product).
@@ -349,12 +373,12 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
     const url = new URL(window.location.href)
     url.searchParams.delete("openCreateDialog")
     window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}`)
-    setDraft(emptyDraft(supplierOptions, warehouseOptions, organizationOptions, branchOptions))
+    setDraft(emptyDraft())
     setDraftItems([])
     setEditingId(null)
     setFromInvoice(null)
     setModalOpen(true)
-  }, [plainCreate, optionsLoaded, supplierOptions, warehouseOptions, organizationOptions, branchOptions])
+  }, [plainCreate, optionsLoaded])
   useEffect(() => {
     if (!invoiceParam || !optionsLoaded || invoiceHandled.current === invoiceParam) return
     invoiceHandled.current = invoiceParam
@@ -369,7 +393,7 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
         return data as InvoiceSupplyDraft
       })
       .then((invoice) => {
-        const base = emptyDraft(supplierOptions, warehouseOptions, organizationOptions, branchOptions)
+        const base = emptyDraft()
         setDraft({
           ...base,
           supplier: invoice.supplier,
@@ -377,7 +401,7 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
           currency: invoice.currency,
           contractNumber: invoice.contractNumber,
           invoiceNumber: invoice.number,
-          invoiceDate: invoice.date ? formatDate(new Date(`${invoice.date}T00:00:00`)) : "",
+          invoiceDate: invoice.date ? isoToRuDate(isoDay(invoice.date)) : "",
         })
         setDraftItems(invoice.lines.map((line, index) => ({ id: index + 1, product: line.product, qty: line.quantity, cost: line.cost, source: { name: line.name, ikpu: line.ikpu, unit: line.unit } })))
         setEditingId(null)
@@ -385,7 +409,7 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
         setModalOpen(true)
       })
       .catch((reason: unknown) => notify(t(reason instanceof Error ? reason.message : String(reason))))
-  }, [invoiceParam, optionsLoaded, supplierOptions, warehouseOptions, organizationOptions, branchOptions, t])
+  }, [invoiceParam, optionsLoaded, t])
 
   const filtered = useMemo(() => {
     return rows.filter((row) => {
@@ -403,11 +427,11 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
       if (excludeInventory && /инвент?[ao]ризаци/i.test(row.supplier)) return false
       for (const [range, value] of [[invoiceDateFilter, row.invoiceDate], [acceptedFilter, row.acceptedAt], [createdFilter, row.date]] as const) {
         if (!range.begin && !range.end) continue
-        const iso = /^\d{4}-\d{2}-\d{2}/.test(value) ? value.slice(0, 10) : isoFromRuDate(value)
+        const iso = /^\d{4}-\d{2}-\d{2}/.test(value) ? value.slice(0, 10) : isoDay(value)
         if (!iso || (range.begin && iso < range.begin) || (range.end && iso > range.end)) return false
       }
       if (supplyDateFilter.begin || supplyDateFilter.end) {
-        const iso = isoFromRuDate(row.date)
+        const iso = isoDay(row.date)
         if (!iso || (supplyDateFilter.begin && iso < supplyDateFilter.begin) || (supplyDateFilter.end && iso > supplyDateFilter.end)) return false
       }
       return true
@@ -496,7 +520,7 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
   }, [pathname, embedded])
 
   function openCreate() {
-    setDraft(emptyDraft(supplierOptions, warehouseOptions, organizationOptions, branchOptions))
+    setDraft(emptyDraft())
     setDraftItems([])
     setEditingId(null)
     setFromInvoice(null)
@@ -511,12 +535,12 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
       organization: row.organization,
       currency: row.currency || "SUM",
       paymentType: row.paymentType,
-      date: row.date,
+      date: isoToRuDate(isoDay(row.date) || todayIso()),
       expectedFactoryExit: "",
       expectedCustomsArrival: "",
       contractNumber: row.contractNumber,
       invoiceNumber: row.invoiceNumber,
-      invoiceDate: row.invoiceDate,
+      invoiceDate: isoToRuDate(isoDay(row.invoiceDate)),
       comment: row.comment,
     })
     setDraftItems(row.items.map((item) => ({ id: item.id, product: item.product, qty: item.qty, cost: item.cost })))
@@ -526,7 +550,7 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
   }
 
   function addBlankItem() {
-    setDraftItems((current) => [...current, { id: Math.max(0, ...current.map((item) => item.id)) + 1, product: productOptions[0] ?? "", qty: 1, cost: 0 }])
+    setDraftItems((current) => [...current, { id: Math.max(0, ...current.map((item) => item.id)) + 1, product: "", qty: 1, cost: 0 }])
   }
 
   function addFromList(product: string) {
@@ -593,6 +617,22 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
   async function save(event: FormEvent) {
     event.preventDefault()
     if (!draftItems.length) return
+    if (!draft.supplier || !draft.warehouse || !draft.organization) {
+      notify(t("Заполните обязательные поля"))
+      return
+    }
+    if (draftItems.some((item) => !item.product.trim())) {
+      notify(t("Выберите товар"))
+      return
+    }
+    if (draftItems.some((item) => !(item.qty > 0))) {
+      notify(t("Количество должно быть больше 0"))
+      return
+    }
+    if (draftItems.some((item) => !(item.cost >= 0))) {
+      notify(t("Цена не может быть отрицательной"))
+      return
+    }
     if (fromInvoice && editingId === null) {
       if (!supplierOptions.includes(draft.supplier)) {
         notify(t("Выберите поставщика из справочника"))
@@ -627,10 +667,10 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
           organization: draft.organization,
           paymentType: draft.paymentType,
           currency: draft.currency,
-          date: draft.date,
+          date: toIsoDay(draft.date),
           contractNumber: draft.contractNumber,
           invoiceNumber: draft.invoiceNumber,
-          invoiceDate: draft.invoiceDate,
+          invoiceDate: toIsoDay(draft.invoiceDate),
           comment: draft.comment,
           items,
           ...(fromInvoice && !isEdit ? { invoiceId: fromInvoice.invoiceId } : {}),
@@ -738,7 +778,7 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
             row.id,
             row.supplier,
             row.warehouse,
-            row.date,
+            formatDay(row.date, language),
             t(row.paymentType),
             row.contractNumber,
             formatMoney(row.amount, row.currency),
@@ -896,7 +936,7 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
                                   <div className="flex items-center pl-[18px]">{item.expiry}</div>
                                   <div className="flex items-center px-[18px] py-[8px]">{item.qty.toLocaleString("ru-RU")} {productUnits[item.product] ?? ""}</div>
                                   <div className="flex items-center px-[18px] py-[8px] leading-[19px]">{blockLabel(item.qty, productBoxes[item.product], productUnits[item.product] ?? "")}</div>
-                                  <div className="flex items-center pl-[18px]">{item.kg}</div>
+                                  <div className="flex items-center pl-[18px]">{lineKg(item).toLocaleString("ru-RU")}</div>
                                   <div className="flex items-center pl-[18px]">{item.netWeight}</div>
                                   <div className="flex items-center justify-end pr-[18px]">{formatMoney(item.cost, row.currency)}</div>
                                   <div className="flex items-center justify-end pr-[18px]">{formatMoney(item.total, row.currency)}</div>
@@ -906,7 +946,7 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
                                 <div className="col-span-3 flex items-center pl-[19px]">{t("Итого")}:</div>
                                 <div className="flex items-center px-[18px] py-[6px] leading-[24px]">{row.items.reduce((sum, item) => sum + item.qty, 0).toLocaleString("ru-RU")} {singleUnit(row.items, productUnits)}</div>
                                 <div className="flex items-center pl-[17px]" />
-                                <div className="flex items-center pl-[18px]">{row.items.reduce((sum, item) => sum + item.kg, 0)}</div>
+                                <div className="flex items-center pl-[18px]">{(Math.round(row.items.reduce((sum, item) => sum + lineKg(item), 0) * 1000) / 1000).toLocaleString("ru-RU")}</div>
                                 <div className="flex items-center pl-[18px]">{row.items.reduce((sum, item) => sum + item.netWeight, 0)}</div>
                                 <div className="flex items-center justify-end pr-[18px]">{formatMoney(row.items.reduce((sum, item) => sum + item.cost, 0), row.currency)}</div>
                                 <div className="flex items-center justify-end pr-[18px]">{formatMoney(row.items.reduce((sum, item) => sum + item.total, 0), row.currency)}</div>
@@ -962,7 +1002,7 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
                               <tbody>
                                 {detailExpenses.map((expense) => (
                                   <tr key={expense.id} className="border-t border-slate-100">
-                                    <td className="py-2 pr-4">{expense.date}</td>
+                                    <td className="py-2 pr-4">{formatDay(expense.date, language)}</td>
                                     <td className="py-2 pr-4">{expense.description}</td>
                                     <td className="py-2 pr-4">{t(expense.paymentType)}</td>
                                     <td className="py-2 pr-4">{formatMoney(expense.amount, expense.currency)}</td>
@@ -985,7 +1025,7 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
                           <ul className="space-y-2 text-sm text-slate-600">
                             {detailLogs.map((log) => (
                               <li key={log.id} className="flex flex-wrap gap-x-2 border-b border-dashed border-slate-200 pb-2">
-                                <span className="text-slate-400">{formatTimestamp(log.createdAt)}</span>
+                                <span className="text-slate-400">{formatTimestamp(log.createdAt, language)}</span>
                                 <span className="font-medium text-slate-700">{t(LOG_LABELS[log.action] ?? log.action)}</span>
                                 {log.details && <span>— {log.details}</span>}
                                 <span className="text-slate-400">({log.userName})</span>
@@ -1051,7 +1091,7 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
             fromInvoice && editingId === null ? (
               <div className="space-y-1 border-b border-sky-200 bg-sky-50 px-[30px] py-3 text-sm text-sky-800">
                 <p>
-                  {t("Приход создается из счет-фактуры")} № <b>{fromInvoice.number}</b> {t("от")} {draft.invoiceDate} — {formatMoney(fromInvoice.total, fromInvoice.currency)}
+                  {t("Приход создается из счет-фактуры")} № <b>{fromInvoice.number}</b> {t("от")} {formatDay(draft.invoiceDate, language)} — {formatMoney(fromInvoice.total, fromInvoice.currency)}
                 </p>
                 {!supplierOptions.includes(draft.supplier) && <p className="text-amber-700">{t("Поставщик не найден в справочнике — выберите поставщика или добавьте его.")}</p>}
                 {draftItems.some((item) => !item.product) && <p className="text-amber-700">{t("Строки без товара в каталоге выделены — выберите товар или удалите строку.")}</p>}
@@ -1059,10 +1099,20 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
             ) : null
           }
           draft={draft}
-          setDraft={setDraft}
+          setDraft={(update) =>
+            setDraft((current) => {
+              const next = update(current)
+              // A warehouse of another branch is no longer offered: pick again.
+              if (next.branch !== current.branch && next.warehouse && next.warehouse === current.warehouse) {
+                const known = warehouseRows.find((item) => item.name === next.warehouse)
+                if (next.branch && known?.branch && !sameName(known.branch, next.branch)) return { ...next, warehouse: "" }
+              }
+              return next
+            })
+          }
           supplierOptions={supplierOptions}
           branchOptions={branchOptions}
-          warehouseOptions={warehouseOptions}
+          warehouseOptions={draftWarehouseOptions}
           organizationOptions={organizationOptions}
           currencyOptions={["SUM", "USD", ...(["SUM", "USD"].includes(draft.currency) || !draft.currency ? [] : [draft.currency])]}
           paymentTypeOptions={paymentTypes.map((item) => ({ value: item, label: t(item) }))}
@@ -1122,7 +1172,7 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
         <WarehouseFormModal
           onClose={() => setQuickAddWarehouseOpen(false)}
           onSaved={(created) => {
-            setWarehouseOptions((current) => (current.includes(created.name) ? current : [created.name, ...current]))
+            setWarehouseRows((current) => (current.some((item) => item.name === created.name) ? current : [{ name: created.name, branch: created.branch ?? "", active: created.active !== false }, ...current]))
             setDraft((value) => ({ ...value, warehouse: created.name }))
             setQuickAddWarehouseOpen(false)
           }}

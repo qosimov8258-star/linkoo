@@ -3,7 +3,10 @@
 import { FormEvent, useEffect, useMemo, useState } from "react"
 import { RefHeader } from "@/components/ref/list-kit"
 import { ReportCheckboxField, ReportEmpty, ReportFilterPanel, ReportPage, ReportRangeField, ReportSearchBar, ReportSelectField, ReportSummaryCard, ReportTopRow } from "@/components/ref/report-kit"
+import { useLanguage } from "@/lib/i18n/language-context"
 import type { OrderItemWithOrder } from "@/lib/order-items-repo"
+import { useDirectoryNames } from "@/components/clients/use-directory"
+import { ORDER_STATUSES } from "@/components/orders/orders-data"
 
 type AgentSale = {
   agent: string
@@ -75,13 +78,8 @@ function buildAgentRows(items: OrderItemWithOrder[]): AgentSale[] {
   return Array.from(map.values()).sort((a, b) => b.saleSum - a.saleSum)
 }
 
-const branches = ["777", "878", "Andijon", "AURUM samarqand"]
-const organizations = ["", "Linko", "Time3 Distribution"]
-const productTypes = ["Мыло", "Напитки", "Снеки"]
-const statuses = ["Завершено", "В процессе", "Отменено"]
-const clients = ["Doston market", "Markus Vitinha", "Usman Dembele"]
-const clientTypes = ["horeca", "market", "market100", "market101"]
-const agents = ["Admin Ritm"]
+// Filter choices come from the factory's own directories (never another tenant's names).
+const statuses: string[] = [...ORDER_STATUSES]
 
 function inputDate(date: Date) {
   const year = date.getFullYear()
@@ -96,6 +94,7 @@ function monthStart() {
 }
 
 export function SalesByAgentsView() {
+  const { t } = useLanguage()
   const today = useMemo(() => inputDate(new Date()), [])
   const [filterOpen, setFilterOpen] = useState(false)
   const [query, setQuery] = useState("")
@@ -147,10 +146,12 @@ export function SalesByAgentsView() {
 
   const rows = useMemo(() => {
     const dateFiltered = mode === "created" ? items.filter((item) => isWithinRange(item.orderCreated, from, to)) : items
-    return buildAgentRows(dateFiltered)
+    // Filters the order lines carry (client, status) apply to the loaded rows.
+    const same = (value: string, wanted: string) => !wanted || value.trim().toLowerCase() === wanted.trim().toLowerCase()
+    return buildAgentRows(dateFiltered.filter((item) => same(item.orderClient, client) && same(item.orderStatus, status)))
       .filter((row) => agent === "" || row.agent === agent)
       .filter((row) => row.agent.toLowerCase().includes(query.toLowerCase()))
-  }, [items, agent, query, mode, from, to])
+  }, [items, agent, client, status, query, mode, from, to])
 
   const totals = useMemo(
     () =>
@@ -190,7 +191,7 @@ export function SalesByAgentsView() {
 
   return (
     <ReportPage>
-      <div className="pl-[30px] pr-[38px]"><RefHeader title="Прибыль от агентов" /></div>
+      <div className="pl-[30px] pr-[38px]"><RefHeader title={t("Продажа по агентам")} /></div>
       <section className={`${fullscreen ? "fixed inset-0 z-[80] overflow-auto bg-white p-5" : "border-b border-[#d9d9d9] bg-white px-[30px] pb-[1px] pt-[21px]"}`}>
         <ReportTopRow
           filterLabel="Фильтр / 1"
@@ -198,7 +199,7 @@ export function SalesByAgentsView() {
           onFilter={() => setFilterOpen(true)}
           onDownload={downloadCsv}
         />
-        {fullscreen && <button type="button" onClick={() => setFullscreen(false)} className="absolute right-5 top-5 rounded border px-3 py-2">Закрыть</button>}
+        {fullscreen && <button type="button" onClick={() => setFullscreen(false)} className="absolute right-5 top-5 rounded border px-3 py-2">{t("Закрыть")}</button>}
         <div className="mt-[15px] grid gap-[14px] md:grid-cols-3">
           <ReportSummaryCard label="Сумма от продаж">{totals.saleSum.toLocaleString("ru-RU")} SUM<small className="ml-px text-[13px] font-medium">({totals.saleQty} шт)</small></ReportSummaryCard>
           <ReportSummaryCard label="Сумма возвратов">{totals.returnSum.toLocaleString("ru-RU")} SUM<small className="ml-px text-[13px] font-medium">({totals.returnQty} шт)</small></ReportSummaryCard>
@@ -229,7 +230,7 @@ export function SalesByAgentsView() {
           </div>
         </div>
         {itemsLoading ? (
-          <p className="px-3 py-16 text-center text-slate-400">Загрузка...</p>
+          <p className="px-3 py-16 text-center text-slate-400">{t("Загрузка...")}</p>
         ) : itemsError ? (
           <p className="px-3 py-16 text-center text-red-600">{itemsError}</p>
         ) : shown.length === 0 ? (
@@ -245,12 +246,18 @@ export function SalesByAgentsView() {
 
 type Setter = (value: string) => void
 function FilterDialog(props: { from: string; setFrom: Setter; to: string; setTo: Setter; warehouseFrom: string; setWarehouseFrom: Setter; warehouseTo: string; setWarehouseTo: Setter; branch: string; setBranch: Setter; organization: string; setOrganization: Setter; productType: string; setProductType: Setter; status: string; setStatus: Setter; client: string; setClient: Setter; agent: string; setAgent: Setter; clientType: string; setClientType: Setter; showBonus: boolean; setShowBonus: (value: boolean) => void; onClose: () => void; onSubmit: (event: FormEvent) => void }) {
+  const branches = useDirectoryNames("branches")
+  const organizations = useDirectoryNames("organizations")
+  const productTypes = useDirectoryNames("productTypes")
+  const clients = useDirectoryNames("clients")
+  const agents = useDirectoryNames("employees")
+  const clientTypes = useDirectoryNames("clientTypes")
   return (
     <ReportFilterPanel onClose={props.onClose} onApply={() => props.onSubmit({ preventDefault() {} } as FormEvent)}>
       <ReportRangeField label="Период создания" from={props.from} to={props.to} onFrom={props.setFrom} onTo={props.setTo} />
       <ReportRangeField label="Период передачи со склада" from={props.warehouseFrom} to={props.warehouseTo} onFrom={props.setWarehouseFrom} onTo={props.setWarehouseTo} />
       <ReportSelectField label="Филиалы" value={props.branch} onChange={props.setBranch} options={branches} clearable={false} />
-      <ReportSelectField label="Организация" value={props.organization} onChange={props.setOrganization} options={organizations.filter(Boolean)} clearable={false} />
+      <ReportSelectField label="Организация" value={props.organization} onChange={props.setOrganization} options={organizations} clearable={false} />
       <ReportSelectField label="Тип товара" value={props.productType} onChange={props.setProductType} options={productTypes} clearable={false} />
       <ReportSelectField label="Статус" value={props.status} onChange={props.setStatus} options={statuses} clearable={false} />
       <ReportSelectField label="Клиент" value={props.client} onChange={props.setClient} options={clients} clearable={false} />

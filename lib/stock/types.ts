@@ -60,7 +60,7 @@ export type StockCatalogItem = {
   prices: Record<string, number>
   minStock: number
   weight: number
-  /** Подкатегория (products only; always filled by getStockCatalog, '' when none). */
+  /** Подкатегория (products and raw materials; always filled by getStockCatalog, '' when none). */
   subcategory?: string
   /** Штрихкод / код (always filled by getStockCatalog, '' when none). */
   barcode?: string

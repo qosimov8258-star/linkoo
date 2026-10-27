@@ -4,13 +4,17 @@ import { NextResponse } from "next/server"
 import { z } from "zod"
 
 import { getDb } from "@/lib/db"
+import { MAX_ID, MAX_MONEY } from "@/lib/finance/api"
 import { parseAnyDate } from "@/lib/finance/dates"
 import { ensureFinanceSchema } from "@/lib/finance/schema"
 import type { SupplierBalanceResult } from "@/lib/supplier-balance-repo"
 
 // Request schemas, response mapping and filter options of the "Баланс
 // поставщиков" write API (/api/supplier-balance-transactions/**) and its
-// filter lookup (/api/balances/supplier-balance/options).
+// filter lookup (/api/balances/supplier-balance/options). The currency must
+// be one of the currencies table: the repo checks it with
+// resolveCurrencyCode (lib/finance/context.ts) and returns
+// "currency_not_found" → 400 "Валюта не найдена".
 
 const currencyCode = z
   .string()
@@ -28,10 +32,10 @@ const fundRequestStatus = z.enum(["pending", "approved", "rejected"])
 
 /** POST /api/supplier-balance-transactions — "Добавить приход/расход поставщику" (add / expense) and "Запрос средств" (fund_request). */
 export const supplierBalanceCreateSchema = z.object({
-  supplierId: z.coerce.number().int().positive(),
+  supplierId: z.coerce.number().int().positive().max(MAX_ID),
   kind: z.enum(["add", "expense", "fund_request"]),
   currency: currencyCode,
-  amount: z.coerce.number().finite().positive(),
+  amount: z.coerce.number().finite().positive().max(MAX_MONEY),
   paymentType,
   organization: name,
   branch: name,
@@ -44,7 +48,8 @@ export const supplierBalanceUpdateSchema = z.object({
   amount: z.coerce
     .number()
     .finite()
-    .refine((value) => value !== 0, "amount must not be 0"),
+    .refine((value) => value !== 0, "amount must not be 0")
+    .refine((value) => Math.abs(value) <= MAX_MONEY, "amount too large"),
   currency: currencyCode,
   paymentType,
   organization: name,
@@ -59,14 +64,14 @@ export const fundRequestStatusSchema = z.object({ status: fundRequestStatus })
 
 /** GET /api/supplier-balance-transactions?supplierId&kind */
 export const supplierBalanceListQuerySchema = z.object({
-  supplierId: z.coerce.number().int().positive().optional(),
+  supplierId: z.coerce.number().int().positive().max(MAX_ID).optional(),
   kind: z.enum(["add", "expense", "fund_request"]).optional(),
 })
 
 /** Route param → positive integer id, or null. */
 export function transactionId(value: string): number | null {
   const id = Number(value)
-  return Number.isInteger(id) && id > 0 ? id : null
+  return Number.isInteger(id) && id > 0 && id <= MAX_ID ? id : null
 }
 
 /** Repo result → JSON response (`status` for a success). */
@@ -74,6 +79,8 @@ export function supplierBalanceResponse(result: SupplierBalanceResult, status = 
   if (result.transaction) return NextResponse.json(result.transaction, { status })
   if (result.error === "supplier_not_found") return NextResponse.json({ error: "Поставщик не найден" }, { status: 404 })
   if (result.error === "not_found") return NextResponse.json({ error: "Запись не найдена" }, { status: 404 })
+  // The repo validates the currency against the currencies table (resolveCurrencyCode).
+  if (result.error === "currency_not_found") return NextResponse.json({ error: "Валюта не найдена" }, { status: 400 })
   return NextResponse.json({ error: "Ma'lumotlar noto'g'ri" }, { status: 400 })
 }
 

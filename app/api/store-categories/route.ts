@@ -7,7 +7,7 @@ import { parseJsonBody } from "@/lib/validation"
 import { createStoreCategory, listStoreCategories } from "@/lib/store-categories-repo"
 
 const schema = z.object({
-  name: z.string().trim().min(1),
+  name: z.string().trim().min(1).max(255, "Не более 255 символов"),
 })
 
 export async function GET() {

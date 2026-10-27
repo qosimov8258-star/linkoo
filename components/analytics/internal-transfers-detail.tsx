@@ -195,7 +195,7 @@ export function TransferDetailPanel({
           {canEdit && (
             <button
               type="button"
-              onClick={() => (editable ? onEdit(data) : notify(t("Изменять можно только передачу в статусе «ожидает» или «потвержден»"), true))}
+              onClick={() => (editable ? onEdit(data) : notify(t("Изменять можно только передачу в статусе «ожидает» или «подтвержден»"), true))}
               className={`${actionButton} ml-[7.5px] w-[118px] bg-[rgb(79,113,220)]`}
             >
               <Pencil className="h-[18px] w-[18px]" /> {t("Изменить")}
@@ -265,7 +265,7 @@ export function TransferDetailPanel({
             </colgroup>
             <thead>
               <tr className="h-[35.6px] bg-[#f0f4f9] text-left text-[13px] font-semibold text-[#374557]">
-                {([["product", t("Товар")], ["quantity", t("Количество")], ["weight", t("Вес")], ["price", t("Цена")], ["sum", t("Cумма")]] as Array<[SortKey, string]>).map(([key, label], index) => (
+                {([["product", t("Товар")], ["quantity", t("Количество")], ["weight", t("Вес")], ["price", t("Цена")], ["sum", t("Сумма")]] as Array<[SortKey, string]>).map(([key, label], index) => (
                   <th key={key} className="p-0 font-semibold" style={{ paddingLeft: index === 0 ? 17.5 : 17.5 }}>
                     <button type="button" onClick={() => toggleSort(key)} className="flex items-center gap-[4.9px] text-left">
                       {label}

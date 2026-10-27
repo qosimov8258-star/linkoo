@@ -2,12 +2,16 @@ import "server-only"
 
 import { z } from "zod"
 
+import { MAX_ID, MAX_MONEY } from "@/lib/finance/api"
 import { parseAnyDate } from "@/lib/finance/dates"
 
 // Request bodies of the "Баланс вансел" write routes
 // (app/api/vansell-transactions/**). Dates are local Asia/Tashkent
 // "YYYY-MM-DDTHH:mm" (datetime-local), "YYYY-MM-DD HH:mm" (demo payload) or a
 // plain "YYYY-MM-DD"; the repo stores them as "YYYY-MM-DDTHH:mm".
+// Writes must check the agent with isVansellAgent (lib/finance/entities.ts,
+// 404 "Вансел не найден") and the currency with resolveCurrencyCode
+// (lib/finance/context.ts, 400 "Валюта не найдена").
 
 const localDateTime = z
   .string()
@@ -17,7 +21,7 @@ const localDateTime = z
 /** A number or a numeric string (JSON bodies of older callers send ids / amounts as text). Booleans, arrays and null are rejected. */
 const numeric = z.union([z.number(), z.string().trim().min(1).transform(Number)])
 
-const employeeId = numeric.pipe(z.number().int().positive())
+const employeeId = numeric.pipe(z.number().int().positive().max(MAX_ID))
 const currency = z.string().trim().min(1).max(16)
 
 /** POST /api/vansell-transactions — "Добавить" (kind add, +amount) / "Добавить расход" (kind expense, −amount). */
@@ -27,7 +31,7 @@ export const vansellTransactionCreateSchema = z
     /** Legacy name of employeeId. */
     vanselId: employeeId.optional(),
     currency,
-    amount: numeric.pipe(z.number().finite().positive()),
+    amount: numeric.pipe(z.number().finite().positive().max(MAX_MONEY)),
     kind: z.enum(["add", "expense"]).default("add"),
     date: localDateTime.optional(),
     comment: z.string().trim().max(2000).optional(),
@@ -45,7 +49,8 @@ export const vansellTransactionUpdateSchema = z.object({
     z
       .number()
       .finite()
-      .refine((value) => value !== 0, "≠ 0"),
+      .refine((value) => value !== 0, "≠ 0")
+      .refine((value) => Math.abs(value) <= MAX_MONEY, "≤ 1e13"),
   ),
   date: localDateTime.optional(),
   comment: z.string().trim().max(2000).optional(),
@@ -57,7 +62,7 @@ export type VansellTransactionUpdateBody = z.infer<typeof vansellTransactionUpda
 const limit = z
   .union([z.number(), z.string(), z.null()])
   .transform((value) => (value === null || (typeof value === "string" && !value.trim()) ? 0 : Number(value)))
-  .pipe(z.number().finite().min(0))
+  .pipe(z.number().finite().min(0).max(MAX_MONEY))
 
 export const vansellLimitsSchema = z.array(z.object({ employeeId, limit })).min(1)
 

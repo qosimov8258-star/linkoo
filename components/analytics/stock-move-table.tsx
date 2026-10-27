@@ -1,6 +1,6 @@
 "use client"
 
-import { Fragment, useEffect, useRef, useState, type ReactNode } from "react"
+import { useEffect, useRef, useState, type ReactNode } from "react"
 import { ArrowDown, ArrowUp, ArrowUpDown, ChevronDown, Columns3 } from "lucide-react"
 
 import { nextOrdering } from "@/components/analytics/balance/balance-table"
@@ -97,11 +97,13 @@ export function StockMoveTable({
                 {columns.map((column) => {
                   const qty = shownMoveValue(column, row.qty[column.field])
                   const value = shownMoveValue(column, row.value?.[column.field] ?? 0)
-                  const linkable = clickableCells && column.field !== "begin" && column.field !== "end"
+                  const linkable = clickableCells && !column.valueOnly && column.field !== "begin" && column.field !== "end"
                   return (
                     <div key={column.field} style={subTemplate} className="grid">
                       <div className={`${cell} whitespace-nowrap ${background}`}>
-                        {linkable ? (
+                        {column.valueOnly ? (
+                          ""
+                        ) : linkable ? (
                           <button type="button" onClick={() => onCellClick(row, column.field)} className="text-[#129fdd] hover:underline">
                             {formatQty(qty)}
                           </button>

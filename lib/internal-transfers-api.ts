@@ -4,6 +4,7 @@ import { NextResponse } from "next/server"
 import { z } from "zod"
 
 import { isIsoDay } from "@/lib/finance/dates"
+import { parsePageParam } from "@/lib/stock/paging"
 import { TRANSFER_SORT_KEYS, type TransferListQuery } from "@/lib/internal-transfers-list"
 import { isTransferError, type TransferChange, type TransferInput } from "@/lib/internal-transfers-repo"
 import { TRANSFER_ACTIONS, TRANSFER_STATUSES, type TransferStatus } from "@/lib/internal-transfers-types"
@@ -23,6 +24,8 @@ const lineSchema = z.object({
   price: num,
   series: text(200),
   weight: num,
+  /** Defective units (Брак). */
+  defect: z.boolean().optional(),
 })
 
 export const transferBodySchema = z.object({
@@ -39,7 +42,7 @@ export const transferBodySchema = z.object({
   comment: text(2000),
   /** Demo "Подтвержденный" (default on). */
   isConfirmed: z.boolean().optional(),
-  /** Demo "Сразу передать товары без потверждения" (create only): give and accept at once. */
+  /** Demo "Сразу передать товары без подтверждения" (create only): give and accept at once. */
   autoAccept: z.boolean().optional(),
   status: z.string().optional(),
   items: z.array(lineSchema).max(2000).optional(),
@@ -47,9 +50,10 @@ export const transferBodySchema = z.object({
 
 export type TransferBody = z.infer<typeof transferBodySchema>
 
+/** A number field ("1 000,5" accepted); blank = 0; anything else unparseable = NaN (the repo refuses it). */
 const toNumber = (value: unknown) => {
-  const parsed = Number(String(value ?? "").replace(/\s/g, "").replace(",", "."))
-  return Number.isFinite(parsed) ? parsed : 0
+  if (value === undefined || value === null || String(value).trim() === "") return 0
+  return Number(String(value).replace(/\s/g, "").replace(",", "."))
 }
 
 /** Body → repo input. Status: autoAccept → 'принят'; else an explicit status;
@@ -76,6 +80,7 @@ export function toTransferInput(body: TransferBody): TransferInput {
       quantity: toNumber(line.quantity ?? line.amount),
       price: toNumber(line.price),
       series: line.series,
+      defect: line.defect === true,
     })),
   }
 }
@@ -91,7 +96,9 @@ export const transferActionSchema = z.object({
 })
 
 export function transferResponse(result: TransferChange, created = false) {
-  if (isTransferError(result)) return NextResponse.json({ error: result.error, ...(result.shortages ? { shortages: result.shortages } : {}) }, { status: result.status })
+  if (isTransferError(result)) {
+    return NextResponse.json({ error: result.error, ...(result.field ? { field: result.field } : {}), ...(result.shortages ? { shortages: result.shortages } : {}) }, { status: result.status })
+  }
   return NextResponse.json(result, { status: created ? 201 : 200 })
 }
 
@@ -107,7 +114,7 @@ export function parseTransferListQuery(url: string): TransferListQuery | null {
   return {
     search: (params.get("search") ?? "").slice(0, 200),
     ordering: TRANSFER_SORT_KEYS.includes(ordering.replace(/^-/, "")) ? ordering : "",
-    page: Math.max(1, Math.floor(Number(params.get("page")) || 1)),
+    page: parsePageParam(params.get("page")),
     pageSize: Number.isFinite(pageSize) && pageSize >= 0 ? Math.min(5000, Math.floor(pageSize)) : 25,
     fromWarehouse: list("fromWarehouse"),
     toWarehouse: list("toWarehouse"),

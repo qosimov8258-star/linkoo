@@ -6,6 +6,7 @@ import { normCurrency } from "@/lib/finance/currency"
 import { nameKey, placeName } from "@/lib/finance/entities"
 import { computeStockBalances, computeStockPending, movementsQuery, type StockBalanceRow } from "@/lib/stock/balances"
 import { loadStockCatalog } from "@/lib/stock/catalog"
+import { getWarehouseItemCosts } from "@/lib/stock/costs"
 import { stockTables, type StockTables } from "@/lib/stock/schema"
 import { jsonLines } from "@/lib/stock/sources"
 import type {
@@ -23,13 +24,19 @@ import type { StockCatalogItem, StockPending } from "@/lib/stock/types"
 // "Остаток" (demo #/statistics/remainder): current balance of EVERY catalog
 // item (zero rows included unless "Только продукты в наличии"), plus items
 // with stock that no longer / never matched the catalog. Reserved / В пути
-// come from getStockPending; values use the average cost (СЕБЕСТОИМОСТЬ) or
-// the selected price list (ПРАЙС ЛИСТ).
+// come from getStockPending; values use the cost of goods (СЕБЕСТОИМОСТЬ: the
+// moving average of lib/stock/costs.ts, per warehouse when a warehouse is its
+// own cost scope; Брак carries no value) or the selected price list (ПРАЙС ЛИСТ).
+// The cost column of a row is the item's "Общий" cost.
 
 const RECEIPT_KINDS = ["supply", "manufacture_in", "transfer_in", "inventory_in", "none_in", "return"]
 
 type Context = {
   catalog: StockCatalogItem[]
+  /** Cost of goods per item key (lib/stock/costs.ts), today. */
+  costs: Map<string, number>
+  /** Cost of an item in a warehouse (its own cost scope's when it has one), today. */
+  costIn: (key: string, warehouse: string) => number | undefined
   balances: StockBalanceRow[]
   pending: StockPending[]
   /** fin_key(warehouse) → branch. */
@@ -47,8 +54,9 @@ const round = (value: number, digits = 6) => {
 
 async function loadContext(db: PgDb): Promise<Context> {
   const tables = await stockTables(db)
-  const catalog = await loadStockCatalog(db, tables)
-  const [rawBalances, pending, cc] = await Promise.all([computeStockBalances({}, db, catalog), computeStockPending({}, db), loadCurrencyContext(db)])
+  const [catalog, itemCosts] = await Promise.all([loadStockCatalog(db, tables), getWarehouseItemCosts({}, db)])
+  const { costs, byWarehouse, costOf: costIn } = itemCosts
+  const [rawBalances, pending, cc] = await Promise.all([computeStockBalances({}, db, catalog, costs, byWarehouse), computeStockPending({}, db), loadCurrencyContext(db)])
   // The reference's "Остаток" never flags production defects separately (Брак is always 0 there and they stay in the total).
   const balances = rawBalances.map((row) => ({ ...row, defects: 0 }))
   const branchOf = new Map<string, string>()
@@ -62,7 +70,7 @@ async function loadContext(db: PgDb): Promise<Context> {
     const rows = (await db.prepare("SELECT name, currency FROM price_lists ORDER BY id").all()) as Array<{ name: string; currency: string | null }>
     for (const row of rows) if (row.name && !priceListCurrency.has(nameKey(row.name)) && row.currency) priceListCurrency.set(nameKey(row.name), normCurrency(row.currency, cc.base))
   }
-  return { catalog, balances, pending, branchOf, baseCurrency: cc.base, priceListCurrency, tables }
+  return { catalog, costs, costIn, balances, pending, branchOf, baseCurrency: cc.base, priceListCurrency, tables }
 }
 
 /** Original spelling (and unit) of item keys that are not in the catalog, for
@@ -154,7 +162,7 @@ async function buildStockLevel(query: StockLevelQuery, db: PgDb): Promise<Built>
   }
   for (const row of ctx.balances) {
     const item = entry(row.key)
-    item.cost = row.cost // global average: identical on every row of the item
+    item.cost = ctx.costs.get(row.key) ?? row.cost // "Общий" cost: identical on every row of the item
     if (!inScope(row.warehouseKey)) continue
     item.total += row.qty
     item.defects += row.defects
@@ -180,7 +188,8 @@ async function buildStockLevel(query: StockLevelQuery, db: PgDb): Promise<Built>
   const needle = nameKey(query.search)
 
   // Totals: counts in the display unit, money in the selected mode (amount
-  // mode: valued at cost, as the demo's balances_sum does).
+  // mode: valued at cost, as the demo's balances_sum does; at cost Брак has
+  // no value). The count's unit is shown only when every counted row shares it.
   const sum: StockLevelSum = {
     total: { count: 0, price: 0 },
     reserved: { count: 0, price: 0 },
@@ -188,7 +197,9 @@ async function buildStockLevel(query: StockLevelQuery, db: PgDb): Promise<Built>
     available: { count: 0, price: 0 },
     given: 0,
     currency,
+    unit: "",
   }
+  const units = new Set<string>()
   const rows: StockLevelRow[] = []
   // Inventory items (products.is_inventory, shown on their own pages) are not stock until they hold some; the reference's list leaves them out.
   const inventoryKeys = ctx.tables.col("products", "is_inventory")
@@ -208,17 +219,21 @@ async function buildStockLevel(query: StockLevelQuery, db: PgDb): Promise<Built>
     if (!matches(query.supplier, item?.supplier ?? "") || !matches(query.organization, item?.organization ?? "")) continue
     const data = acc.get(key)
     if (query.onlyHas && !((data?.total ?? 0) > 1e-9)) continue
-    const cost = data?.cost ?? item?.fallbackCost ?? 0
+    const cost = data?.cost ?? ctx.costs.get(key) ?? item?.fallbackCost ?? 0
     const price = query.mode === "price" && priceList ? (Object.entries(item?.prices ?? {}).find(([listName]) => nameKey(listName) === nameKey(priceList))?.[1] ?? 0) : null
-    const rate = query.mode === "net_cost" ? cost : query.mode === "price" ? (price ?? 0) : 0
+    const atCost = query.mode !== "price"
+    /** Money per unit of a warehouse line: its cost of goods (own scope) or the price. */
+    const moneyIn = (warehouse: string) => (atCost ? (ctx.costIn(key, warehouse) ?? cost) : (price ?? 0))
+    const rateIn = (warehouse: string) => (query.mode === "net_cost" || query.mode === "price" ? moneyIn(warehouse) : 0)
     const { factor, unit } = conversion(item, query.unit, orphan?.unit ?? "")
     const base = { total: data?.total ?? 0, reserved: data?.reserved ?? 0, transit: data?.transit ?? 0, defects: data?.defects ?? 0 }
-    const stocks: StockLevelStock[] = [...(data?.stocks.values() ?? [])]
+    const lines = [...(data?.stocks.values() ?? [])]
+    const stocks: StockLevelStock[] = lines
       .map((line) => ({
         warehouse: line.warehouse,
         branch: ctx.branchOf.get(nameKey(line.warehouse)) ?? "",
         ...qty(line, factor),
-        value: round((line.total - line.reserved - line.defects) * rate, 4),
+        value: round((line.total - line.reserved - line.defects) * rateIn(line.warehouse), 4),
       }))
       .sort((a, b) => a.warehouse.localeCompare(b.warehouse, "ru"))
     rows.push({
@@ -237,21 +252,25 @@ async function buildStockLevel(query: StockLevelQuery, db: PgDb): Promise<Built>
       ...qty(base, factor),
       cost: round(cost, 6),
       price,
-      value: round((base.total - base.reserved - base.defects) * rate, 4),
+      value: round(lines.reduce((total, line) => total + (line.total - line.reserved - line.defects) * rateIn(line.warehouse), 0), 4),
       stocks,
     })
     const row = rows[rows.length - 1]
-    const moneyRate = query.mode === "price" ? (price ?? 0) : cost
     sum.total.count += row.total
     sum.reserved.count += row.reserved
     sum.defected.count += row.defects
     sum.available.count += row.available
     sum.given += row.transit
-    sum.total.price += base.total * moneyRate
-    sum.reserved.price += base.reserved * moneyRate
-    sum.defected.price += base.defects * moneyRate
-    sum.available.price += (base.total - base.reserved - base.defects) * moneyRate
+    for (const line of lines) {
+      const money = moneyIn(line.warehouse)
+      sum.total.price += (line.total - (atCost ? line.defects : 0)) * money
+      sum.reserved.price += line.reserved * money
+      sum.defected.price += atCost ? 0 : line.defects * money
+      sum.available.price += (line.total - line.reserved - line.defects) * money
+    }
+    if (row.total || row.reserved || row.defects || row.transit) units.add(row.unit.trim().toLowerCase())
   }
+  if (units.size === 1) sum.unit = rows.find((row) => row.total || row.reserved || row.defects || row.transit)?.unit.trim() ?? ""
 
   sortRows(rows, query.ordering)
   for (const part of [sum.total, sum.reserved, sum.defected, sum.available]) {
@@ -315,7 +334,7 @@ export async function getStockItemDetail(key: string, query: Pick<StockLevelQuer
   const inScope = (warehouse: string) =>
     (!wantedWarehouses.size || wantedWarehouses.has(nameKey(warehouse))) && (!wantedBranches.size || wantedBranches.has(nameKey(ctx.branchOf.get(nameKey(warehouse)) ?? "")))
 
-  const cost = balances[0]?.cost ?? item?.fallbackCost ?? 0
+  const cost = ctx.costs.get(key) ?? balances[0]?.cost ?? item?.fallbackCost ?? 0
   const lines = new Map<string, { warehouse: string; total: number; defects: number; reserved: number; transit: number }>()
   const line = (warehouse: string) => {
     let value = lines.get(nameKey(warehouse))
@@ -335,7 +354,12 @@ export async function getStockItemDetail(key: string, query: Pick<StockLevelQuer
     value.transit += row.transit
   }
   const warehouses: StockLevelStock[] = [...lines.values()]
-    .map((value) => ({ warehouse: value.warehouse, branch: ctx.branchOf.get(nameKey(value.warehouse)) ?? "", ...qty(value, 1), value: round((value.total - value.reserved - value.defects) * cost, 4) }))
+    .map((value) => ({
+      warehouse: value.warehouse,
+      branch: ctx.branchOf.get(nameKey(value.warehouse)) ?? "",
+      ...qty(value, 1),
+      value: round((value.total - value.reserved - value.defects) * (ctx.costIn(key, value.warehouse) ?? cost), 4),
+    }))
     .sort((a, b) => a.warehouse.localeCompare(b.warehouse, "ru"))
   const total = qty(
     warehouses.reduce((sum, value) => ({ total: sum.total + value.total, reserved: sum.reserved + value.reserved, transit: sum.transit + value.transit, defects: sum.defects + value.defects }), { total: 0, reserved: 0, transit: 0, defects: 0 }),

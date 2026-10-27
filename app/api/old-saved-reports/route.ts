@@ -7,7 +7,7 @@ import { parseJsonBody } from "@/lib/validation"
 import { createOldSavedReport, listOldSavedReports } from "@/lib/old-saved-reports-repo"
 
 const oldSavedReportSchema = z.object({
-  name: z.string().trim().min(1),
+  name: z.string().trim().min(1).max(255, "Не более 255 символов"),
   config: z.unknown().optional(),
 })
 

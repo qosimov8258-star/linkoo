@@ -6,14 +6,13 @@ import {
   CREATED_ISO_SQL,
   DELETE_BLOCKED,
   DictionaryError,
-  REQUIRED,
   buildTree,
   createdDateLabel,
   dictionariesDb,
   fieldError,
   filterTree,
   lockDictionary,
-  organizationRequired,
+  resolveOrganization,
   storedImageUrl,
   type DictionaryListQuery,
 } from "@/lib/dictionaries-schema"
@@ -30,7 +29,8 @@ import type { ProductType, ProductTypeDetail, ProductTypeNode, ProductTypeTreeRe
 //     (lib/dictionaries-refs.ts), a delete is refused (409 + usage) while items use the type
 //     or it has children;
 //   * Организация is a name (organizations.name; the organizations page renames it
-//     everywhere), required as soon as organizations exist;
+//     everywhere), required as soon as organizations exist and it must be one of them
+//     (400 "Организация не найдена"; an unchanged legacy value of an edited type is kept);
 //   * the picture is a data URL in product_types.image, served by GET …/[id]/image.
 
 type Row = {
@@ -138,8 +138,8 @@ export type ProductTypeInput = {
 
 type Fields = { name: string; organization: string; parentId: number | null; showInBot: boolean; position: number; image: string | null | undefined }
 
-/** `legacyEmpty`: the stored type has no organization (demo data) and keeps none, so editing it stays possible. */
-async function validate(tx: PgDb, id: number | null, fields: Fields, legacyEmpty = false): Promise<string | null> {
+/** Checks the fields (and stores the organization in its own spelling); returns the parent's name. */
+async function validate(tx: PgDb, id: number | null, fields: Fields, currentOrganization?: string | null): Promise<string | null> {
   let parentName: string | null = null
   if (fields.parentId !== null) {
     if (fields.parentId === id) throw fieldError("parent", "Тип не может быть родителем самого себя")
@@ -158,7 +158,9 @@ async function validate(tx: PgDb, id: number | null, fields: Fields, legacyEmpty
     )
     .get({ name: fields.name, parentId: fields.parentId, exceptId: id })
   if (duplicate) throw fieldError("name", DUPLICATE)
-  if (!fields.organization && !legacyEmpty && (await organizationRequired(tx))) throw fieldError("organization", REQUIRED)
+  // A stored type without an organization (demo data) keeps none, so editing it stays possible.
+  const legacyEmpty = currentOrganization !== undefined && currentOrganization !== null && !currentOrganization.trim()
+  fields.organization = !fields.organization && legacyEmpty ? "" : await resolveOrganization(tx, fields.organization, currentOrganization)
   return parentName
 }
 
@@ -203,7 +205,7 @@ export async function updateProductType(id: number, input: ProductTypeInput): Pr
       position: input.position ?? Number(current.position ?? 0),
       image: input.image,
     }
-    const parentName = await validate(tx, id, fields, !cleanText(current.organization))
+    const parentName = await validate(tx, id, fields, cleanText(current.organization))
     const currentParent = current.parent_id === null ? null : await nameOf(tx, Number(current.parent_id))
     let renamed: DictionaryRenameChange[] = []
     if (current.name !== fields.name || currentParent !== parentName) {

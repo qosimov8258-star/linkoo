@@ -32,6 +32,7 @@ import {
   type InvoiceTab,
 } from "@/lib/invoice-incomings-types"
 import { ensureIncomingsSchema } from "@/lib/supplier-incomings-repo"
+import { MAX_MONEY, MAX_QTY } from "@/lib/supplier-refs"
 
 // "Входящие счет фактуры" — incoming e-invoices (ЭСФ) from suppliers, EDO-style
 // (spec: scratchpad extra/spec-invoice-incomings.md; storage: lib/invoice-incomings-schema.ts).
@@ -340,7 +341,9 @@ async function cleanInvoice(db: PgDb, input: InvoiceInput, excludeId: number | n
     const ikpu = line.ikpu.trim()
     if (ikpu && !IKPU_PATTERN.test(ikpu)) throw new InvoiceError("ИКПУ должен содержать 17 цифр", 400, `${field}.ikpu`)
     if (!(line.quantity > 0)) throw new InvoiceError("Количество должно быть больше нуля", 400, `${field}.quantity`)
+    if (!(line.quantity <= MAX_QTY)) throw new InvoiceError("Слишком большое количество", 400, `${field}.quantity`)
     if (!(line.price >= 0)) throw new InvoiceError("Неверная цена", 400, `${field}.price`)
+    if (!(line.price <= MAX_MONEY && line.quantity * line.price <= MAX_MONEY)) throw new InvoiceError("Слишком большая цена", 400, `${field}.price`)
     if (line.vatRate !== null && !(line.vatRate >= 0 && line.vatRate <= 100)) throw new InvoiceError("Неверная ставка НДС", 400, `${field}.vatRate`)
     if (line.match && !(await catalogExists(db, line.match))) throw new InvoiceError("Товар из каталога не найден", 400, `${field}.match`)
     lines.push({ ...line, name, ikpu, unit: line.unit.trim(), ...calcInvoiceLine(line.quantity, line.price, line.vatRate) })
@@ -654,7 +657,9 @@ export async function importInvoices(rows: Array<InvoiceImportRow & { row: numbe
       if (!name) lineIssue("name", "Укажите наименование товара")
       if (ikpu && !IKPU_PATTERN.test(ikpu)) lineIssue("ikpu", "ИКПУ должен содержать 17 цифр")
       if (quantity === null || !(quantity > 0)) lineIssue("quantity", "Количество должно быть больше нуля")
+      else if (!(quantity <= MAX_QTY)) lineIssue("quantity", "Слишком большое количество")
       if (price === null || !(price >= 0)) lineIssue("price", "Неверная цена")
+      else if (!(price <= MAX_MONEY && (quantity ?? 0) * price <= MAX_MONEY)) lineIssue("price", "Слишком большая цена")
       if (vatRate === undefined) lineIssue("vatRate", "Неверная ставка НДС")
       const rate = vatRate === undefined ? null : vatRate
       const item = (ikpu && catalog.byIkpu.get(ikpu)) || (name ? catalog.byName.get(nameKey(name)) : undefined)

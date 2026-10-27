@@ -3,7 +3,7 @@ import { NextResponse } from "next/server"
 import { getCurrentUser } from "@/lib/current-user"
 import { vansellTransactionCreateSchema } from "@/lib/finance-vansell-balance-api"
 import { requireRole } from "@/lib/rbac"
-import { parseJsonBody } from "@/lib/validation"
+import { parseIdSegment, parseJsonBody } from "@/lib/validation"
 import { createVansellTransaction, listVansellTransactions } from "@/lib/vansell-transactions-repo"
 
 // Manual van-sell movements ("Баланс вансел"). Balances / statements are
@@ -13,8 +13,11 @@ import { createVansellTransaction, listVansellTransactions } from "@/lib/vansell
 export async function GET(request: Request) {
   const user = await getCurrentUser()
   if (!user) return NextResponse.json({ error: "Tizimga kirilmagan" }, { status: 401 })
-  const employeeId = Number(new URL(request.url).searchParams.get("employeeId") ?? "")
-  return NextResponse.json(await listVansellTransactions(Number.isInteger(employeeId) && employeeId > 0 ? { employeeId } : {}))
+  const param = (new URL(request.url).searchParams.get("employeeId") ?? "").trim()
+  if (!param) return NextResponse.json(await listVansellTransactions({}))
+  // An id that is not a positive int4 matches no employee (never a 500).
+  const employeeId = parseIdSegment(param)
+  return NextResponse.json(employeeId ? await listVansellTransactions({ employeeId }) : [])
 }
 
 /** "Добавить" (kind add) / "Добавить расход" (kind expense). */

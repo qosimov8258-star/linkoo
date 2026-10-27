@@ -108,7 +108,7 @@ export type PriceGridRow = {
   type: string
   brand: string
   unit: string
-  /** Average cost (stock) or the catalog cost — base for "Наценка". */
+  /** The one cost of goods (lib/stock/costs.ts: moving average, base currency) — base for "Наценка". */
   cost: number
   /** Entry per requested price-list id (absent = no price yet). */
   prices: Record<string, PriceGridEntry>

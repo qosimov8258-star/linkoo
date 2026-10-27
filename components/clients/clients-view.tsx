@@ -1,7 +1,7 @@
 "use client"
 
 import { askDelete } from "@/lib/ask-confirm"
-import { useEffect, useId, useMemo, useRef, useState, type FormEvent } from "react"
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type FormEvent } from "react"
 import { useRouter } from "next/navigation"
 import { compareText, RefImportDialog } from "@/components/ref/list-kit"
 import dynamic from "next/dynamic"
@@ -24,6 +24,7 @@ import { AddOrderDialog } from "@/components/orders/add-order-dialog"
 
 import { clientTabs, type Client } from "./clients-data"
 import { ClientDebtLimits } from "./client-debt-limits"
+import { useDirectoryNames } from "./use-directory"
 import { MultiEditDialog, type MultiEditPatch } from "./multi-edit-dialog"
 import { applyClientFilters, ClientsFilterPanel, DEBT_LIMIT_TYPES, emptyClientFilters, type ClientFilters, type DebtLimitFilterContext } from "./clients-filter-panel"
 
@@ -457,6 +458,7 @@ export function ClientsView() {
   async function applyMultiEdit(patch: MultiEditPatch) {
     setMultiEditOpen(false)
     if (Object.keys(patch).length === 0) return
+    const errors: string[] = []
     const results = await Promise.all(
       selectedClients.map(async (client) => {
         try {
@@ -465,7 +467,9 @@ export function ClientsView() {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ ...client, ...patch }),
           })
-          return response.ok ? ((await response.json()) as Client) : null
+          const body = (await response.json().catch(() => null)) as (Client & { error?: string }) | null
+          if (!response.ok && body?.error) errors.push(`${client.name}: ${t(body.error)}`)
+          return response.ok ? body : null
         } catch {
           return null
         }
@@ -473,7 +477,10 @@ export function ClientsView() {
     )
     const updated = results.filter((client): client is Client => client !== null)
     setClients((current) => current.map((client) => updated.find((item) => item.id === client.id) ?? client))
-    setNotice({ tone: updated.length === selectedClients.length ? "success" : "info", message: `${t("Изменено клиентов")}: ${updated.length}` })
+    setNotice({
+      tone: updated.length === selectedClients.length ? "success" : "info",
+      message: `${t("Изменено клиентов")}: ${updated.length}${errors.length ? `. ${errors.slice(0, 2).join("; ")}` : ""}`,
+    })
   }
 
   function openAddModal() {
@@ -494,7 +501,13 @@ export function ClientsView() {
     if (!(await askDelete(client.name))) return
     try {
       const response = await fetch(`/api/clients/${client.id}`, { method: "DELETE" })
-      if (!response.ok) throw new Error("delete failed")
+      if (!response.ok) {
+        // 409: documents reference the client — say which.
+        const body = (await response.json().catch(() => null)) as { error?: string; usage?: Array<{ label: string; count: number }> } | null
+        const usage = body?.usage?.map((entry) => `${t(entry.label)}: ${entry.count}`).join(", ")
+        setNotice({ tone: "info", message: body?.error ? `${t(body.error)}${usage ? ` (${usage})` : ""}` : t("Не удалось удалить клиента") })
+        return
+      }
       setClients((current) => current.filter((item) => item.id !== client.id))
       setSelected((current) => current.filter((id) => id !== client.id))
       setDetailClient(null)
@@ -550,8 +563,9 @@ export function ClientsView() {
       return
     }
 
-    const parsedBalance = form.balance.trim() === "" ? undefined : Number(form.balance.replace(/\s/g, ""))
-    if (parsedBalance !== undefined && !Number.isFinite(parsedBalance)) {
+    // An emptied opening balance is cleared explicitly (null); undefined would keep it.
+    const parsedBalance = form.balance.trim() === "" ? (modalMode === "edit" ? null : undefined) : Number(form.balance.replace(/\s/g, "").replace(",", "."))
+    if (typeof parsedBalance === "number" && !Number.isFinite(parsedBalance)) {
       setFormError(t("Баланс должен быть числом"))
       return
     }
@@ -593,8 +607,9 @@ export function ClientsView() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(values),
         })
-        if (!response.ok) throw new Error("create failed")
-        const created = (await response.json()) as Client
+        const body = (await response.json().catch(() => null)) as (Client & { error?: string }) | null
+        if (!response.ok || !body) throw new Error(body?.error ? t(body.error) : "")
+        const created = body
         setClients((current) => [created, ...current])
         setSelected([created.id])
         setActiveTab("all")
@@ -606,14 +621,15 @@ export function ClientsView() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(values),
         })
-        if (!response.ok) throw new Error("update failed")
-        const updated = (await response.json()) as Client
+        const body = (await response.json().catch(() => null)) as (Client & { error?: string }) | null
+        if (!response.ok || !body) throw new Error(body?.error ? t(body.error) : "")
+        const updated = body
         setClients((current) => current.map((client) => (client.id === editingId ? updated : client)))
         setNotice({ tone: "success", message: `${t("Клиент")} «${name}» ${t("обновлён")}` })
       }
       setModalMode(null)
-    } catch {
-      setFormError(t("Не удалось сохранить клиента, попробуйте ещё раз"))
+    } catch (caught) {
+      setFormError(caught instanceof Error && caught.message ? caught.message : t("Не удалось сохранить клиента, попробуйте ещё раз"))
     } finally {
       setSaving(false)
     }
@@ -1342,9 +1358,11 @@ function ClientModal({
   const distinct = (pick: (client: Client) => string | undefined) =>
     [...new Set(allClients.map(pick).filter((value): value is string => Boolean(value) && value !== "Не указано"))].sort((a, b) => a.localeCompare(b, "ru"))
   const channelOptions = distinct((client) => client.salesChannel)
-  const delivererOptions = distinct((client) => client.deliverer)
-  const collectorOptions = distinct((client) => client.collector)
-  const agentOptions = distinct((client) => client.agent)
+  // People are employees (the API refuses other names).
+  const employeeNames = useDirectoryNames("employees")
+  const delivererOptions = employeeNames
+  const collectorOptions = employeeNames
+  const agentOptions = employeeNames
 
   useEffect(() => {
     let cancelled = false
@@ -1897,6 +1915,23 @@ function mergeFieldTasks(base: DetailTask[], visits: FieldVisit[], planned: Fiel
   return [...base, ...fromVisits, ...fromTasks].sort((a, b) => (b.time ?? 0) - (a.time ?? 0))
 }
 
+// The card's figures come from the client ledger (/api/clients/[id]/summary)
+// and its documents (orders, payments, returns); nothing here is invented.
+type ClientSummary = {
+  from: string
+  to: string
+  baseCurrency: string
+  currencies: Array<{ currency: string; begin: number; end: number; orders: number; actualSales: number; returns: number; payments: number }>
+  lastOrder: string | null
+  lastPayment: string | null
+  daysSinceLastOrder: number | null
+}
+
+function moneyLines(values: Array<{ currency: string; value: number }>, base: string) {
+  const lines = values.filter((entry) => entry.value).map((entry) => `${entry.value.toLocaleString("ru-RU", { maximumFractionDigits: 2 })} ${entry.currency}`)
+  return lines.length ? lines.join(", ") : `0 ${base}`
+}
+
 function formatDetailDate(date: Date) {
   return `${date.getDate()} ${SHORT_MONTHS[date.getMonth()]} ${date.getFullYear()}`
 }
@@ -1999,15 +2034,34 @@ export function ClientDetail({
   const [orderOpen, setOrderOpen] = useState(false)
   const [paymentOpen, setPaymentOpen] = useState(false)
   const [paymentAmount, setPaymentAmount] = useState("")
+  const [paymentComment, setPaymentComment] = useState("")
+  const [paymentDate, setPaymentDate] = useState(() => new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10))
+  const [paymentError, setPaymentError] = useState("")
+  const [paymentSaving, setPaymentSaving] = useState(false)
   const [paymentDone, setPaymentDone] = useState(false)
+  const [summary, setSummary] = useState<ClientSummary | null>(null)
   const primaryPhone = client.phone.split(",")[0]?.trim() ?? ""
   const hasPhone = primaryPhone !== "" && primaryPhone !== "-"
-  const balance = client.balance ?? 0
-  const balanceText = formatBalance(balance)
   const periodEnd = new Date()
   const periodStart = new Date(periodEnd)
   periodStart.setDate(periodStart.getDate() - 30)
   const hasLocation = client.locationLat !== undefined && client.locationLng !== undefined
+  const base = summary?.baseCurrency ?? "SUM"
+  const sumOf = (pick: "orders" | "actualSales" | "returns" | "begin" | "end") => moneyLines((summary?.currencies ?? []).map((entry) => ({ currency: entry.currency, value: entry[pick] })), base)
+  const beginNegative = (summary?.currencies ?? []).some((entry) => entry.begin < 0)
+  const endNegative = (summary?.currencies ?? []).some((entry) => entry.end < 0)
+  const hasBalance = summary ? summary.currencies.some((entry) => entry.begin !== 0 || entry.end !== 0) : (client.balance ?? 0) !== 0
+
+  const loadSummary = useCallback(() => {
+    fetch(`/api/clients/${client.id}/summary`)
+      .then((response) => (response.ok ? (response.json() as Promise<ClientSummary>) : null))
+      .then(setSummary)
+      .catch(() => setSummary(null))
+  }, [client.id])
+
+  useEffect(() => {
+    loadSummary()
+  }, [loadSummary])
 
   const actionButton = "flex h-[30px] items-center rounded-[5px] pl-3 text-[13px] font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
 
@@ -2063,17 +2117,21 @@ export function ClientDetail({
           <div className="p-5">
             <div>
               <DetailMetricRow
-                left={{ label: t("Фактические продажи (30 дней)"), value: "0 SUM" }}
-                right={{ label: t("Прошло дней с последнего заказа"), value: DAYS_SINCE_ANCHOR, red: true }}
+                left={{ label: t("Фактические продажи (30 дней)"), value: summary ? sumOf("actualSales") : "…" }}
+                right={{
+                  label: t("Прошло дней с последнего заказа"),
+                  value: summary ? (summary.daysSinceLastOrder === null ? DAYS_SINCE_ANCHOR : String(summary.daysSinceLastOrder)) : "…",
+                  red: summary ? (summary.daysSinceLastOrder ?? Infinity) > 30 : true,
+                }}
                 bordered
               />
               <DetailMetricRow
-                left={{ label: t("Сумма продаж за период (30 дней)"), value: "0 SUM" }}
+                left={{ label: t("Сумма продаж за период (30 дней)"), value: summary ? sumOf("orders") : "…" }}
                 right={{ label: t("Прошло дней с последнего визита"), value: DAYS_SINCE_ANCHOR, red: true }}
                 bordered
               />
               <DetailMetricRow
-                left={{ label: t("Сумма возврата с заказов за период (30 дней)"), value: "0 SUM" }}
+                left={{ label: t("Сумма возврата с заказов за период (30 дней)"), value: summary ? sumOf("returns") : "…" }}
                 right={{ label: t("Комментарий отказа"), value: t("Не указан") }}
               />
             </div>
@@ -2102,7 +2160,7 @@ export function ClientDetail({
                 </svg>
                 <span className="pl-2 pr-4">{t("Отказ")}</span>
               </button>
-              <button type="button" onClick={() => setPaymentOpen(true)} className={`${actionButton} bg-[#71ce87]`}>
+              <button type="button" onClick={() => (setPaymentError(""), setPaymentOpen(true))} className={`${actionButton} bg-[#71ce87]`}>
                 <svg viewBox="0 0 24 24" className="mb-1 h-[18px] w-[18px] fill-white">
                   <path d="M20 4H4c-1.11 0-1.99.89-1.99 2L2 18c0 1.11.89 2 2 2h16c1.11 0 2-.89 2-2V6c0-1.11-.89-2-2-2zm0 14H4v-6h16v6zm0-10H4V6h16v2z" />
                 </svg>
@@ -2119,6 +2177,12 @@ export function ClientDetail({
                 <form
                   onSubmit={async (event) => {
                     event.preventDefault()
+                    setPaymentError("")
+                    const amount = Number(paymentAmount.replace(/\s/g, "").replace(",", "."))
+                    if (!paymentAmount.trim() || !Number.isFinite(amount) || amount <= 0) return setPaymentError(t("Укажите сумму"))
+                    if (amount > 1e13) return setPaymentError(t("Сумма слишком большая"))
+                    if (!paymentDate) return setPaymentError(t("Укажите дату"))
+                    setPaymentSaving(true)
                     try {
                       const response = await fetch("/api/client-payments", {
                         method: "POST",
@@ -2126,18 +2190,27 @@ export function ClientDetail({
                         body: JSON.stringify({
                           clientId: client.id,
                           clientName: client.name,
-                          amount: Number(paymentAmount),
-                          comment: "",
-                          paymentDate: new Date().toISOString().slice(0, 10),
+                          amount,
+                          comment: paymentComment.trim(),
+                          paymentDate,
                         }),
                       })
-                      if (response.ok) {
-                        setPaymentDone(true)
-                        setPaymentOpen(false)
-                        setPaymentAmount("")
-                        window.setTimeout(() => setPaymentDone(false), 2000)
+                      const body = (await response.json().catch(() => null)) as { error?: string } | null
+                      if (!response.ok) {
+                        setPaymentError(body?.error ? t(body.error) : t("Не удалось добавить оплату"))
+                        return
                       }
-                    } catch {}
+                      setPaymentDone(true)
+                      setPaymentOpen(false)
+                      setPaymentAmount("")
+                      setPaymentComment("")
+                      loadSummary()
+                      window.setTimeout(() => setPaymentDone(false), 2500)
+                    } catch {
+                      setPaymentError(t("Не удалось добавить оплату"))
+                    } finally {
+                      setPaymentSaving(false)
+                    }
                   }}
                   className="w-full max-w-sm rounded-md bg-white p-6 shadow-xl"
                 >
@@ -2147,18 +2220,29 @@ export function ClientDetail({
                       <X className="h-5 w-5" />
                     </button>
                   </div>
-                  <label className="mb-5 block border-b border-slate-200 pb-2 text-[13px] font-medium text-slate-500">
-                    {t("Сумма")}
+                  <label className="mb-4 block border-b border-slate-200 pb-2 text-[13px] font-medium text-slate-500">
+                    {t("Сумма")} ({base}) *
                     <input
                       autoFocus
                       type="number"
                       min="0"
+                      step="any"
                       value={paymentAmount}
-                      onChange={(event) => setPaymentAmount(event.target.value)}
+                      onChange={(event) => (setPaymentAmount(event.target.value), setPaymentError(""))}
                       className="mt-1 block w-full bg-transparent text-[16px] font-semibold text-slate-900 outline-none"
                     />
                   </label>
-                  <button type="submit" className="w-full rounded-md bg-[#71ce87] py-3 font-semibold text-white">
+                  <label className="mb-4 block border-b border-slate-200 pb-2 text-[13px] font-medium text-slate-500">
+                    {t("Дата оплаты")} *
+                    <input type="date" value={paymentDate} onChange={(event) => setPaymentDate(event.target.value)} className="mt-1 block w-full bg-transparent text-[15px] font-semibold text-slate-900 outline-none" />
+                  </label>
+                  <label className="mb-4 block border-b border-slate-200 pb-2 text-[13px] font-medium text-slate-500">
+                    {t("Комментарий")}
+                    <input value={paymentComment} onChange={(event) => setPaymentComment(event.target.value)} className="mt-1 block w-full bg-transparent text-[15px] font-semibold text-slate-900 outline-none" />
+                  </label>
+                  <p className="mb-4 text-[12px] text-slate-500">{t("Оплата попадет в «Оплаты от клиентов» как непринятая; примите ее в кассу там.")}</p>
+                  {paymentError && <p className="mb-3 text-[13px] font-semibold text-[#e57373]">{paymentError}</p>}
+                  <button type="submit" disabled={paymentSaving} className="w-full rounded-md bg-[#71ce87] py-3 font-semibold text-white disabled:opacity-50">
                     {t("Добавить")}
                   </button>
                 </form>
@@ -2219,12 +2303,15 @@ export function ClientDetail({
                     {formatDetailDate(periodStart)} - {formatDetailDate(periodEnd)}
                   </span>
                 </div>
-                <div className={`grid grid-cols-2 gap-[15.5px] ${fromActivity && balance === 0 ? "hidden" : ""}`}>
-                  {[t("Баланс на начало периода"), t("Баланс на конец периода")].map((label) => (
-                    <div key={label} className="rounded-[10px] bg-[#f3f3f3] p-[10px]">
+                <div className={`grid grid-cols-2 gap-[15.5px] ${fromActivity && !hasBalance ? "hidden" : ""}`}>
+                  {[
+                    { label: t("Баланс на начало периода"), value: summary ? sumOf("begin") : "…", negative: beginNegative },
+                    { label: t("Баланс на конец периода"), value: summary ? sumOf("end") : "…", negative: endNegative },
+                  ].map((card) => (
+                    <div key={card.label} className="rounded-[10px] bg-[#f3f3f3] p-[10px]">
                       <div className="ml-[9px]">
-                        <div className="pb-1 text-[#8c8c8c]">{label}</div>
-                        <span className={`font-semibold ${balance < 0 ? "text-[#e57373]" : "text-[#48a34b]"}`}>{balanceText}</span>
+                        <div className="pb-1 text-[#8c8c8c]">{card.label}</div>
+                        <span className={`font-semibold ${card.negative ? "text-[#e57373]" : "text-[#48a34b]"}`}>{card.value}</span>
                       </div>
                     </div>
                   ))}
@@ -2246,38 +2333,48 @@ export function ClientDetail({
               {t("Создать задачу")}
             </button>
             <div className="relative pt-[10px]">
-              <span className="absolute bottom-0 left-[8px] top-0 w-[3px] bg-[#22a6c6]" />
-              {tasks.map((task, index) => (
-                <div key={index} className="relative mb-[10px] pl-[41px]">
-                  <span className="absolute left-0 top-[15px] h-4 w-4 rounded-full bg-[#22a6c6]" />
-                  <div className="relative mr-[10px] rounded-[2px] bg-white px-5 py-[15px] text-[#666] shadow-[0_1px_6px_rgba(0,0,0,0.25)]">
-                    <span className="absolute -left-[9px] top-[13px] h-0 w-0 border-y-[9px] border-r-[9px] border-y-transparent border-r-white" />
-                    <div className="flex justify-between">
-                      <h2 className="mb-[10px] text-base font-bold leading-[16px]">{task.by ?? "Admin Ritm"}</h2>
-                      {task.at && <p className="mb-[10px]">{task.at}</p>}
-                    </div>
-                    <div className={`flex items-center gap-[10px] font-semibold ${task.done ? "h-[25px]" : "h-[23px]"}`}>
-                      <svg viewBox="0 0 24 24" className={`h-5 w-5 ${task.done ? "fill-[#92ce95]" : "fill-[#f0ad4e]"}`}>
-                        {task.done ? (
-                          <path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-9 14l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z" />
-                        ) : (
-                          <path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z" />
-                        )}
-                      </svg>
-                      <span>
-                        {t(task.text)}
-                        {task.link && (
-                          <>
-                            {" ("}
-                            <a className="cursor-pointer text-[#129fdd]">{t("Просмотреть")}</a>
-                            {")"}
-                          </>
-                        )}
-                      </span>
+              {tasks.length === 0 ? (
+                <div className="flex flex-col items-center py-[30px] text-[#666]">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src="/robot-empty.png" alt="" className="w-[150px]" />
+                  <span className="mt-[20px]">{t("Задач по этому клиенту нет")}</span>
+                </div>
+              ) : (
+                <>
+                <span className="absolute bottom-0 left-[8px] top-0 w-[3px] bg-[#22a6c6]" />
+                {tasks.map((task, index) => (
+                  <div key={index} className="relative mb-[10px] pl-[41px]">
+                    <span className="absolute left-0 top-[15px] h-4 w-4 rounded-full bg-[#22a6c6]" />
+                    <div className="relative mr-[10px] rounded-[2px] bg-white px-5 py-[15px] text-[#666] shadow-[0_1px_6px_rgba(0,0,0,0.25)]">
+                      <span className="absolute -left-[9px] top-[13px] h-0 w-0 border-y-[9px] border-r-[9px] border-y-transparent border-r-white" />
+                      <div className="flex justify-between">
+                        <h2 className="mb-[10px] text-base font-bold leading-[16px]">{task.by ?? "Admin Ritm"}</h2>
+                        {task.at && <p className="mb-[10px]">{task.at}</p>}
+                      </div>
+                      <div className={`flex items-center gap-[10px] font-semibold ${task.done ? "h-[25px]" : "h-[23px]"}`}>
+                        <svg viewBox="0 0 24 24" className={`h-5 w-5 ${task.done ? "fill-[#92ce95]" : "fill-[#f0ad4e]"}`}>
+                          {task.done ? (
+                            <path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-9 14l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z" />
+                          ) : (
+                            <path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z" />
+                          )}
+                        </svg>
+                        <span>
+                          {t(task.text)}
+                          {task.link && (
+                            <>
+                              {" ("}
+                              <a className="cursor-pointer text-[#129fdd]">{t("Просмотреть")}</a>
+                              {")"}
+                            </>
+                          )}
+                        </span>
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))}
+                ))}
+                </>
+              )}
             </div>
           </div>
         )}
@@ -2314,7 +2411,7 @@ export function ClientDetail({
                 <DetailListRow label={t("Ответственный агент:")} value={client.agent} />
                 <DetailListRow label={t("Тип заведения:")} value={client.type} />
                 <DetailListRow label={t("Частота посещений:")} value="" />
-                <DetailListRow label={t("Создал:")} value="Admin Ritm" />
+                <DetailListRow label={t("Создал:")} value={client.createdBy || "Admin Ritm"} />
                 <DetailListRow label={t("Дата:")} value={createdDateText(client.createdAt)} />
                 <DetailListRow label={t("Зона:")} value={client.zone} />
                 <DetailListRow
@@ -2554,8 +2651,6 @@ function ClientRow({
         {client.inn ? (
           <>
             {t("ИНН")}: <b>{client.inn}</b>
-            <br />
-            PRICE_LIST_ID: <b>12</b>
           </>
         ) : (
           client.info ?? ""

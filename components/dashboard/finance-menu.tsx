@@ -81,6 +81,7 @@ const cashOperations: MenuItem[] = [
 ]
 
 const additional: MenuItem[] = [
+  // The page lists deliverer (доставщик) debts; supplier debts live on "Баланс поставщиков".
   { label: "Долги доставщиков", href: "/analytics/supplier-debts" },
   { label: "Долги с заказов", href: "/analytics/order-debts", query: () => "pageSize=25&toggle=client&withProfit=True" },
   { label: "Сверка магазина через бот", href: "/analytics/store-reconciliation-bot", query: () => "pageSize=25" },

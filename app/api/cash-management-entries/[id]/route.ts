@@ -1,55 +1,43 @@
 import { NextResponse } from "next/server"
-import { z } from "zod"
 
 import { requireRole } from "@/lib/rbac"
-import { parseJsonBody } from "@/lib/validation"
-import { deleteCashManagementEntry, updateCashManagementEntry } from "@/lib/cash-management-entries-repo"
-
-const cashManagementEntrySchema = z.object({
-  cashboxId: z.coerce.number().finite(),
-  description: z.string().optional(),
-  category: z.string().optional(),
-  clientName: z.string().optional(),
-  branch: z.string().optional(),
-  organization: z.string().optional(),
-  comment: z.string().optional(),
-  date: z.string().optional(),
-  amount: z.coerce.number().finite(),
-})
+import { parseIdSegment, parseJsonBody } from "@/lib/validation"
+import { cashErrorResponse } from "@/lib/cash/api"
+import { isDbId } from "@/lib/cash/common"
+import { cashManagementEntrySchema, deleteCashManagementEntry, updateCashManagementEntry } from "@/lib/cash-management-entries-repo"
 
 type RouteParams = { params: Promise<{ id: string }> }
 
+const NOT_FOUND = { error: "Запись не найдена", field: null }
+
+// PUT    /api/cash-management-entries/[id] (legacy shape) → { key, source, id, docNo, entry } — edit through the cash core.
+// DELETE /api/cash-management-entries/[id] → { ok, deleted: [keys] } — the cash core's soft delete.
 export async function PUT(request: Request, { params }: RouteParams) {
   const auth = await requireRole("manager")
   if ("error" in auth) return auth.error
 
-  const id = Number((await params).id)
-  if (!Number.isInteger(id)) return NextResponse.json({ error: "Запись не найдена" }, { status: 404 })
+  const id = (parseIdSegment((await params).id) ?? 0)
+  if (!isDbId(id)) return NextResponse.json(NOT_FOUND, { status: 404 })
   const parsed = await parseJsonBody(request, cashManagementEntrySchema)
   if (parsed.error) return parsed.error
-
-  const updated = await updateCashManagementEntry(id, {
-    cashboxId: parsed.data.cashboxId,
-    description: parsed.data.description ?? "",
-    category: parsed.data.category ?? "",
-    clientName: parsed.data.clientName ?? "",
-    branch: parsed.data.branch ?? "",
-    organization: parsed.data.organization ?? "",
-    comment: parsed.data.comment ?? "",
-    date: parsed.data.date || new Date().toISOString(),
-    amount: parsed.data.amount,
-  })
-  if (!updated) return NextResponse.json({ error: "Запись не найдена" }, { status: 404 })
-  return NextResponse.json(updated)
+  try {
+    return NextResponse.json(await updateCashManagementEntry(id, parsed.data, auth.user.displayName))
+  } catch (error) {
+    return cashErrorResponse(error)
+  }
 }
 
 export async function DELETE(_request: Request, { params }: RouteParams) {
   const auth = await requireRole("manager")
   if ("error" in auth) return auth.error
 
-  const id = Number((await params).id)
-  if (!Number.isInteger(id)) return NextResponse.json({ error: "Запись не найдена" }, { status: 404 })
-  const ok = (await deleteCashManagementEntry(id))
-  if (!ok) return NextResponse.json({ error: "Запись не найдена" }, { status: 404 })
-  return NextResponse.json({ ok: true })
+  const id = (parseIdSegment((await params).id) ?? 0)
+  if (!isDbId(id)) return NextResponse.json(NOT_FOUND, { status: 404 })
+  try {
+    const result = await deleteCashManagementEntry(id, auth.user.displayName)
+    if (!result.deleted.length) return NextResponse.json(NOT_FOUND, { status: 404 })
+    return NextResponse.json({ ok: true, deleted: result.deleted })
+  } catch (error) {
+    return cashErrorResponse(error)
+  }
 }

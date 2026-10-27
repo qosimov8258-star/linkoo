@@ -9,6 +9,7 @@ import { stockOrphanNames } from "@/lib/stock/level"
 import { getStockBalances, getStockCatalog, getStockPending, stockMovementsSql } from "@/lib/stock/ledger"
 import type { StockCatalogItem } from "@/lib/stock/types"
 import { convertRecommended, defaultRecommendedPeriod, parseMeasure, recommendedNumbers, type RecommendedNumbers } from "@/lib/stock-recommended-calc"
+import { parsePageParam } from "@/lib/stock/paging"
 
 // "Рекомендованный запас" (demo #/recommended-stock, API stock/recommended_balances):
 // per item with sales in the period —
@@ -197,7 +198,7 @@ export async function recommendedList(filters: RecommendedFilters, paging: { pag
 }
 
 export function parseRecommendedPaging(params: URLSearchParams): { page: number; pageSize: number; ordering: string } {
-  const page = Math.max(1, Math.floor(Number(params.get("page")) || 1))
+  const page = parsePageParam(params.get("page"))
   const sizeRaw = params.get("pageSize")
   const size = sizeRaw === null || sizeRaw === "" ? 25 : Math.floor(Number(sizeRaw))
   return { page, pageSize: Number.isFinite(size) && size >= 0 ? Math.min(size, 5000) : 25, ordering: (params.get("ordering") ?? "").trim() }

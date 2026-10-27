@@ -5,7 +5,7 @@ import type { ReactNode } from "react"
 import { formatCashDate } from "@/components/analytics/cash-management-shared"
 import { currencyLabel, formatMoney } from "@/lib/finance/currency"
 import { useLanguage } from "@/lib/i18n/language-context"
-import { TRANSFER_STATUS_COLORS, TRANSFER_STATUS_TITLES, type Transfer, type TransferStatus } from "@/lib/internal-transfers-types"
+import { TRANSFER_STATUS_COLORS, TRANSFER_STATUS_LABELS, TRANSFER_STATUS_TITLES, type Transfer, type TransferStatus } from "@/lib/internal-transfers-types"
 
 // Shared bits of "Передачи между складами" and "Списание": number / date
 // formatting as the demo prints it ("1 200 000", "0 кг", "160 587 шт"), the
@@ -57,7 +57,7 @@ export function TransferStatusLabel({ status, title = false, wrap = false }: { s
   return (
     <span className="inline-flex items-center whitespace-nowrap">
       <span className="mr-2 inline-block h-[7px] w-[7px] shrink-0 rounded-full" style={{ background: TRANSFER_STATUS_COLORS[status] }} />
-      {t(title ? TRANSFER_STATUS_TITLES[status] : status)}
+      {t(title ? TRANSFER_STATUS_TITLES[status] : (TRANSFER_STATUS_LABELS[status] ?? status))}
     </span>
   )
 }
@@ -85,7 +85,7 @@ export function transfersListSheet(rows: Transfer[], t: Translate, language: str
       docDate(row.deliveredAt, language),
       Math.round(row.amount * 100) / 100,
       row.weight,
-      t(row.status),
+      t(TRANSFER_STATUS_LABELS[row.status] ?? row.status),
     ]),
   ]
 }

@@ -103,8 +103,10 @@ export function PositionsView({ embedded = false }: { embedded?: boolean }) {
   async function remove(position: Position) {
     const response = await fetch(`/api/job-positions/${position.id}`, { method: "DELETE" })
     if (!response.ok) {
-      const data = (await response.json().catch(() => ({}))) as { error?: string }
-      notify(t(data.error || "Не удалось удалить должность"))
+      // 409 while other records use it: the usage list says where.
+      const data = (await response.json().catch(() => ({}))) as { error?: string; usage?: { label: string; count: number }[] }
+      const usage = data.usage?.map((item) => `${item.label}: ${item.count}`).join(", ")
+      notify(`${t(data.error || "Не удалось удалить должность")}${usage ? ` (${usage})` : ""}`)
       return
     }
     setDeleting(null)

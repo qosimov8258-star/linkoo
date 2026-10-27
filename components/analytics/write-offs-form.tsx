@@ -16,9 +16,10 @@ import type { WriteOff, WriteOffOptions } from "@/lib/write-offs-types"
 // товара" — left "С какого склада", "Выберите дату", "Оставить комментарий";
 // right "Список товаров" with "добавить товары" (the warehouse's available
 // balance; disabled with "Выберите склад" until one is chosen) and an add row;
-// footer "Общее кол-во" + "Списать". The cost is the average cost (server).
+// footer "Общее кол-во" + "Списать". The cost is the cost of goods (server).
+// "Брак" on a line writes off defective units (up to the defects on hand; no cost).
 
-type Line = { key: string; name: string; unit: string; article: string; cost: number; quantity: string; series: string }
+type Line = { key: string; name: string; unit: string; article: string; cost: number; quantity: string; series: string; defect: boolean }
 
 export function WriteOffFormDialog({ options, onClose, onSaved }: { options: WriteOffOptions | null; onClose: () => void; onSaved: (writeOff: WriteOff) => void }) {
   const { t } = useLanguage()
@@ -44,7 +45,7 @@ export function WriteOffFormDialog({ options, onClose, onSaved }: { options: Wri
       for (const { row, quantity } of entries) {
         const index = next.findIndex((line) => line.key === row.key)
         if (index >= 0) next[index] = { ...next[index], quantity }
-        else added.push({ key: row.key, name: row.name, unit: row.unit, article: row.article, cost: row.cost, quantity, series: "" })
+        else added.push({ key: row.key, name: row.name, unit: row.unit, article: row.article, cost: row.cost, quantity, series: "", defect: row.available <= 0 && row.defectsAvailable > 0 })
       }
       return [...added, ...next]
     })
@@ -58,9 +59,14 @@ export function WriteOffFormDialog({ options, onClose, onSaved }: { options: Wri
     setAddQty("")
   }
 
-  const over = (line: Line) => parseAmount(line.quantity) > (rowMap.get(line.key)?.available ?? 0) + 1e-9
+  const availableOf = (line: Line) => (line.defect ? rowMap.get(line.key)?.defectsAvailable : rowMap.get(line.key)?.available) ?? 0
+  const over = (line: Line) => parseAmount(line.quantity) > availableOf(line) + 1e-9
+  const costOf = (line: Line) => (line.defect ? 0 : line.cost)
   const qtyTotal = lines.reduce((sum, line) => sum + parseAmount(line.quantity), 0)
-  const sumTotal = lines.reduce((sum, line) => sum + parseAmount(line.quantity) * line.cost, 0)
+  const sumTotal = lines.reduce((sum, line) => sum + parseAmount(line.quantity) * costOf(line), 0)
+  // The total's unit only when every line shares it (never "ед" over kg and pieces).
+  const lineUnits = new Set(lines.map((line) => line.unit.trim().toLowerCase()))
+  const totalUnit = lineUnits.size === 1 && lines[0]?.unit.trim() ? t(lines[0].unit.trim()) : ""
 
   const submit = async () => {
     setShowErrors(true)
@@ -73,7 +79,7 @@ export function WriteOffFormDialog({ options, onClose, onSaved }: { options: Wri
       warehouse,
       date,
       comment,
-      items: lines.map((line) => ({ key: line.key, product: line.name, qty: parseAmount(line.quantity), series: line.series.trim() })),
+      items: lines.map((line) => ({ key: line.key, product: line.name, qty: parseAmount(line.quantity), series: line.series.trim(), ...(line.defect ? { defect: true } : {}) })),
     })
     setBusy(false)
     if (!result.ok) return setError(mutationError(result, t))
@@ -90,7 +96,7 @@ export function WriteOffFormDialog({ options, onClose, onSaved }: { options: Wri
         <>
           <ul className="mr-auto flex flex-wrap gap-x-6 gap-y-1 text-[14px] text-[#586174]">
             <li>
-              {t("Общее кол-во")}: <b className="text-[#17233b]">{formatQty(qtyTotal, t("ед"))}</b>
+              {t("Общее кол-во")}: <b className="text-[#17233b]">{formatQty(qtyTotal, totalUnit)}</b>
             </li>
             <li>
               {t("Сумма")}: <b className="text-[#17233b]">{formatSum(sumTotal)}</b>
@@ -138,7 +144,13 @@ export function WriteOffFormDialog({ options, onClose, onSaved }: { options: Wri
                 <SearchSelect
                   value={addKey}
                   loading={products.loading}
-                  options={rows.filter((row) => row.available > 0).map((row) => ({ value: row.key, label: `${row.name} (${formatQty(row.available, row.unit)})`, hint: row.article }))}
+                  options={rows
+                    .filter((row) => row.available > 0 || row.defectsAvailable > 0)
+                    .map((row) => ({
+                      value: row.key,
+                      label: `${row.name} (${formatQty(Math.max(0, row.available), row.unit)}${row.defectsAvailable > 0 ? `; ${t("Брак")}: ${formatQty(row.defectsAvailable, row.unit)}` : ""})`,
+                      hint: row.article,
+                    }))}
                   onChange={(value) => setAddKey(value)}
                 />
               </FormField>
@@ -167,13 +179,25 @@ export function WriteOffFormDialog({ options, onClose, onSaved }: { options: Wri
                 <tbody>
                   {lines.map((line, index) => {
                     const bad = !validQty(line.quantity) || over(line)
+                    const row = rowMap.get(line.key)
                     return (
                       <tr key={line.key} className="border-b border-dashed border-[#e1e5eb]">
                         <td className="py-2 pr-3">
                           {line.name}
                           <span className={`block text-[12px] ${over(line) ? "text-[#e57373]" : "text-[#9aa3b6]"}`}>
-                            {t("Доступно")}: {formatQty(rowMap.get(line.key)?.available ?? 0, line.unit)}
+                            {line.defect ? t("Брак") : t("Доступно")}: {formatQty(Math.max(0, availableOf(line)), line.unit)}
                           </span>
+                          {(line.defect || (row?.defectsAvailable ?? 0) > 0) && (
+                            <label className="mt-1 flex items-center gap-1.5 text-[12px] text-[#586174]">
+                              <input
+                                type="checkbox"
+                                checked={line.defect}
+                                onChange={(event) => setLines((current) => current.map((item, i) => (i === index ? { ...item, defect: event.target.checked } : item)))}
+                                className="h-3.5 w-3.5 accent-[rgb(79,113,220)]"
+                              />
+                              {t("Брак")}
+                            </label>
+                          )}
                         </td>
                         <td className="py-2 pr-3 text-[#586174]">{line.article || "-"}</td>
                         <td className="py-2 pr-3">
@@ -197,8 +221,8 @@ export function WriteOffFormDialog({ options, onClose, onSaved }: { options: Wri
                             <span className="text-[#586174]">{line.unit}</span>
                           </span>
                         </td>
-                        <td className="whitespace-nowrap py-2 pr-3 text-right">{formatSum(line.cost)}</td>
-                        <td className="whitespace-nowrap py-2 pr-3 text-right">{formatSum(parseAmount(line.quantity) * line.cost)}</td>
+                        <td className="whitespace-nowrap py-2 pr-3 text-right">{formatSum(costOf(line))}</td>
+                        <td className="whitespace-nowrap py-2 pr-3 text-right">{formatSum(parseAmount(line.quantity) * costOf(line))}</td>
                         <td className="py-2 text-right">
                           <button type="button" onClick={() => setLines((current) => current.filter((_, i) => i !== index))} aria-label={t("Удалить")} className="text-[#9aa3b6] hover:text-[#e57373]">
                             <Trash2 className="h-4 w-4" />

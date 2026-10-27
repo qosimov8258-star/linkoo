@@ -5,13 +5,12 @@ import { entryBodySchema, entryResponse, toEntryInput } from "@/lib/net-cost-api
 import { deleteNetCostEntry, updateNetCostEntry } from "@/lib/net-cost-entries"
 import { getNetCostDetail } from "@/lib/net-cost-repo"
 import { requireRole } from "@/lib/rbac"
-import { parseJsonBody } from "@/lib/validation"
+import { parseIdSegment, parseJsonBody } from "@/lib/validation"
 
 type RouteParams = { params: Promise<{ id: string }> }
 
 const recordId = async (params: RouteParams["params"]) => {
-  const id = Number((await params).id)
-  return Number.isInteger(id) && id > 0 ? id : null
+  return parseIdSegment((await params).id)
 }
 
 /** One cost record with its documents and the negative-balance transactions. */

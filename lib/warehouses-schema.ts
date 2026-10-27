@@ -15,10 +15,18 @@ const MAX_INT = 2_147_483_647
 const emptyToUndefined = (value: unknown) => (value === "" ? undefined : value)
 const emptyToNull = (value: unknown) => (value === "" ? null : value)
 
-const optionalId = z.preprocess(emptyToNull, z.coerce.number().int().positive().max(MAX_INT).nullable()).optional()
+const INVALID_ID = "Неверный идентификатор"
+/** A positive integer id: a number or a digits-only string. No coercion: `true` or `[1]`
+ * must not silently become id 1. */
+const idSchema = z
+  .union([z.number(), z.string().trim().regex(/^\d+$/, INVALID_ID).transform(Number)], { error: INVALID_ID })
+  .pipe(z.number().int(INVALID_ID).positive(INVALID_ID).max(MAX_INT, INVALID_ID))
+const optionalId = z.preprocess(emptyToNull, idSchema.nullable()).optional()
 const optionalText = (max: number) => z.string().trim().max(max, `Не более ${max} символов`).optional()
+/** A number or a numeric string (no booleans / arrays). */
+const numeric = (message: string) => z.union([z.number(), z.string().trim().regex(/^-?\d+(?:[.,]\d+)?$/, message).transform((value) => Number(value.replace(",", ".")))], { error: message })
 const optionalCoordinate = (limit: number) =>
-  z.preprocess(emptyToNull, z.coerce.number().min(-limit, "Неверная координата").max(limit, "Неверная координата").nullable()).optional()
+  z.preprocess(emptyToNull, numeric("Неверная координата").pipe(z.number().min(-limit, "Неверная координата").max(limit, "Неверная координата")).nullable()).optional()
 
 export const warehouseInputSchema = z.object({
   name: z.string({ error: REQUIRED }).trim().min(1, REQUIRED).max(255, "Не более 255 символов"),

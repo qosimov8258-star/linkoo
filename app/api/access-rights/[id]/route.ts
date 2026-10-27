@@ -1,41 +1,47 @@
 import { NextResponse } from "next/server"
-import { z } from "zod"
 
-import { getDb } from "@/lib/db"
-import { ensureEmployeesSchema } from "@/lib/employees-schema"
+import { AccessRightError, deleteAccessRight, updateAccessRight } from "@/lib/access-rights-repo"
+import { accessRightErrorResponse, accessRightSchema } from "@/app/api/access-rights/schema"
+import { parseBody, parseId } from "@/lib/auth-request"
 import { requireRole } from "@/lib/rbac"
-import { parseJsonBody } from "@/lib/validation"
-import { deleteAccessRight, updateAccessRight } from "@/lib/access-rights-repo"
-
-const accessRightSchema = z.object({
-  name: z.string().trim().min(1),
-  capabilityIds: z.array(z.number()).optional(),
-})
 
 type RouteParams = { params: Promise<{ id: string }> }
+
+const NOT_FOUND = { error: "Права доступа не найдены" }
 
 export async function PUT(request: Request, { params }: RouteParams) {
   const auth = await requireRole("admin")
   if ("error" in auth) return auth.error
 
-  const id = Number((await params).id)
-  const parsed = await parseJsonBody(request, accessRightSchema)
+  const id = parseId((await params).id)
+  if (!id) return NextResponse.json(NOT_FOUND, { status: 404 })
+  const parsed = await parseBody(request, accessRightSchema)
   if (parsed.error) return parsed.error
 
-  const accessRight = await updateAccessRight(id, { name: parsed.data.name, capabilityIds: parsed.data.capabilityIds ?? [] })
-  if (!accessRight) return NextResponse.json({ error: "Права доступа не найдены" }, { status: 404 })
-  return NextResponse.json(accessRight)
+  try {
+    const accessRight = await updateAccessRight(id, { name: parsed.data.name, capabilityIds: parsed.data.capabilityIds ?? [] })
+    if (!accessRight) return NextResponse.json(NOT_FOUND, { status: 404 })
+    return NextResponse.json(accessRight)
+  } catch (error) {
+    if (error instanceof AccessRightError) return accessRightErrorResponse(error)
+    throw error
+  }
 }
 
+// DELETE /api/access-rights/[id] — 409 {error, usage} while users or dashboard
+// widgets are linked to it.
 export async function DELETE(_request: Request, { params }: RouteParams) {
   const auth = await requireRole("admin")
   if ("error" in auth) return auth.error
 
-  const id = Number((await params).id)
-  await ensureEmployeesSchema()
-  const used = (await getDb().prepare("SELECT count(*)::int AS n FROM employees WHERE access_right_id = ?").get(id)) as { n: number }
-  if (used.n > 0) return NextResponse.json({ error: "Эти права доступа назначены сотрудникам, удаление невозможно" }, { status: 409 })
-  const ok = (await deleteAccessRight(id))
-  if (!ok) return NextResponse.json({ error: "Права доступа не найдены" }, { status: 404 })
-  return NextResponse.json({ ok: true })
+  const id = parseId((await params).id)
+  if (!id) return NextResponse.json(NOT_FOUND, { status: 404 })
+  try {
+    const ok = await deleteAccessRight(id)
+    if (!ok) return NextResponse.json(NOT_FOUND, { status: 404 })
+    return NextResponse.json({ ok: true })
+  } catch (error) {
+    if (error instanceof AccessRightError) return accessRightErrorResponse(error)
+    throw error
+  }
 }

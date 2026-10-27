@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 import { z } from "zod"
 
 import { requireRole } from "@/lib/rbac"
-import { parseJsonBody } from "@/lib/validation"
+import { invalidIdResponse, parseIdSegment, parseJsonBody } from "@/lib/validation"
 import { setDebtLimit } from "@/lib/debt-limits-repo"
 
 const debtLimitInputSchema = z.object({
@@ -17,7 +17,8 @@ export async function PUT(request: Request, { params }: RouteParams) {
   const auth = await requireRole("manager")
   if ("error" in auth) return auth.error
 
-  const id = Number((await params).id)
+  const id = parseIdSegment((await params).id)
+  if (id === null) return invalidIdResponse()
   const parsed = await parseJsonBody(request, debtLimitInputSchema)
   if (parsed.error) return parsed.error
 

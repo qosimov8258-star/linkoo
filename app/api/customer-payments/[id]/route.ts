@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 import { z } from "zod"
 
 import { requireRole } from "@/lib/rbac"
-import { parseJsonBody } from "@/lib/validation"
+import { invalidIdResponse, parseIdSegment, parseJsonBody } from "@/lib/validation"
 import { cashErrorResponse } from "@/lib/cash/api"
 import { deleteCustomerPayment, updateCustomerPayment } from "@/lib/customer-payments-repo"
 
@@ -24,7 +24,8 @@ export async function PATCH(request: Request, { params }: RouteParams) {
   const auth = await requireRole("manager")
   if ("error" in auth) return auth.error
 
-  const id = Number((await params).id)
+  const id = parseIdSegment((await params).id)
+  if (id === null) return invalidIdResponse()
   const parsed = await parseJsonBody(request, paymentPatchSchema)
   if (parsed.error) return parsed.error
   if (parsed.data.accepted !== undefined || parsed.data.acceptedAt !== undefined || parsed.data.kassa !== undefined) {
@@ -40,7 +41,8 @@ export async function DELETE(_request: Request, { params }: RouteParams) {
   const auth = await requireRole("manager")
   if ("error" in auth) return auth.error
 
-  const id = Number((await params).id)
+  const id = parseIdSegment((await params).id)
+  if (id === null) return invalidIdResponse()
   try {
     const ok = await deleteCustomerPayment(id, auth.user.displayName)
     if (!ok) return NextResponse.json({ error: "Оплата не найдена" }, { status: 404 })

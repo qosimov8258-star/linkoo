@@ -7,7 +7,7 @@ import { parseJsonBody } from "@/lib/validation"
 import { listSurveyPlans, parseSurveyPlanReplaceInput, replaceSurveyPlanPeriod } from "@/lib/survey-plans-repo"
 
 const surveyPlanReplaceSchema = z.object({
-  period: z.string().trim().min(1),
+  period: z.string().trim().min(1).max(255, "Не более 255 символов"),
   entries: z.array(z.record(z.string(), z.unknown())).optional(),
 })
 

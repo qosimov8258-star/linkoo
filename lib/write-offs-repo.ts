@@ -1,15 +1,21 @@
 import "server-only"
 
 import { getDb, withTransaction, type PgDb } from "@/lib/db"
-import { isIsoDay, nowLocalIso, parseAnyDate, parseAnyDay } from "@/lib/finance/dates"
+import { isIsoDay, parseAnyDate, parseAnyDay, todayIso } from "@/lib/finance/dates"
+import { getStockBalances } from "@/lib/stock/ledger"
+import { nowLocalMoment } from "@/lib/stock/moments"
 import { ensureStockSchema } from "@/lib/stock/schema"
+import { jsonLines } from "@/lib/stock/sources"
 import {
   catalogIndex,
+  countedByInventory,
   findShortages,
+  findWarehouse,
   lockWarehouseStock,
   resolveLine,
   round6,
   shortageMessage,
+  textKey,
   warehouseStock,
   type CatalogIndex,
   type ItemStock,
@@ -28,9 +34,15 @@ import {
 
 // "Списание" storage: write_offs (+ lazy finished / cancelled who-when
 // columns). A write-off is created finished ("закрыт", demo "Списать") or
-// pending; finishing is refused when the warehouse lacks the goods (stock
-// core); a finished one can be cancelled unless a later confirmed inventory
-// of the same warehouse already counted it.
+// pending, for a registered active warehouse, dated today or earlier;
+// finishing is refused when the warehouse lacks the goods (stock core; lines
+// flagged "defect" take Брак, up to the defective units on hand); a finished
+// one can be cancelled unless a confirmed inventory of the same warehouse
+// counted the stock after it left. Line costs are the cost of goods
+// (lib/stock/costs.ts) of the write-off day.
+
+/** Contract 3 bound. */
+export const MAX_WRITE_OFF_QTY = 1e9
 
 declare global {
   var __linkoWriteOffsSchemaV1: Promise<void> | undefined
@@ -104,6 +116,7 @@ function parseItems(text: string): WriteOffItem[] {
         qty,
         cost,
         sum: round6(qty * cost),
+        ...(line.defect === true ? { defect: true } : {}),
       }
     })
 }
@@ -185,7 +198,9 @@ export async function listWriteOffs(query: WriteOffListQuery): Promise<WriteOffL
   if (search) {
     params.search = `%${search.replace(/[\\%_]/g, (char) => `\\${char}`)}%`
     params.search_id = /^\d{1,9}$/.test(search) ? Number(search) : -1
-    parts.push("(w.id = @search_id OR w.warehouse ILIKE @search OR w.creator ILIKE @search OR w.comment ILIKE @search OR w.items ILIKE @search)")
+    // Lines by product name only (not the raw JSON: costs, blocks and ids would match digits).
+    parts.push(`(w.id = @search_id OR w.warehouse ILIKE @search OR w.creator ILIKE @search OR w.comment ILIKE @search
+      OR EXISTS (SELECT 1 FROM jsonb_array_elements(${jsonLines("w.items")}) AS l(j) WHERE l.j ->> 'product' ILIKE @search))`)
   }
   const where = parts.length ? `WHERE ${parts.join(" AND ")}` : ""
   const desc = query.ordering.startsWith("-")
@@ -223,7 +238,7 @@ export async function writeOffOptions(): Promise<WriteOffOptions> {
 // Create / actions
 // ---------------------------------------------------------------------------
 
-export type WriteOffLineInput = { key?: string; product?: string; qty: number; series?: string }
+export type WriteOffLineInput = { key?: string; product?: string; qty: number; series?: string; defect?: boolean }
 
 export type WriteOffInput = {
   warehouse: string
@@ -236,7 +251,7 @@ export type WriteOffInput = {
   items: WriteOffLineInput[]
 }
 
-export type WriteOffError = { error: string; status: 400 | 404 | 409; shortages?: StockShortage[] }
+export type WriteOffError = { error: string; status: 400 | 404 | 409; shortages?: StockShortage[]; field?: string }
 export type WriteOffChange = WriteOff | WriteOffError
 
 export function isWriteOffError(value: unknown): value is WriteOffError {
@@ -258,47 +273,81 @@ async function inTransaction(fn: (tx: PgDb) => Promise<WriteOffChange>): Promise
   }
 }
 
+/** Local date-time of the write-off (milliseconds: the cost ledger orders the day's
+ * movements by it): now; a chosen time; or the end of an earlier chosen day. */
 function momentOf(value: string): string | null {
   const text = value.trim()
-  const now = nowLocalIso()
+  const now = nowLocalMoment()
   if (!text) return now
-  if (isIsoDay(text)) return `${text}${now.slice(10)}`
-  return parseAnyDate(text)
+  if (isIsoDay(text)) return saneYear(text) ? (text >= now.slice(0, 10) ? `${text}${now.slice(10)}` : `${text}T23:59:59`) : null
+  const parsed = parseAnyDate(text)
+  return parsed && saneYear(parsed) ? parsed : null
 }
 
-/** Lines with the canonical product, unit, blocks and the current average cost. */
-function buildLines(lines: Array<{ key?: string; product?: string; qty: number; series?: string }>, index: CatalogIndex, stock: Map<string, ItemStock>): WriteOffItem[] | WriteOffError {
+/** Years a write-off can sensibly carry (0001-01-01 or 9999-12-31 are typos → 400). */
+function saneYear(moment: string): boolean {
+  const match = /^(\d{1,4})-/.exec(moment.trim())
+  const year = match ? Number(match[1]) : Number.NaN
+  return year >= 2000 && year <= 2100
+}
+
+/** Lines with the canonical product, unit, blocks and the cost of goods of the day;
+ * an invalid line is refused (400 with its `field`), never dropped. */
+function buildLines(
+  lines: WriteOffLineInput[],
+  index: CatalogIndex,
+  stock: Map<string, ItemStock>,
+  orphans: Set<string>,
+): WriteOffItem[] | WriteOffError {
+  if (!lines.length) return { error: "Добавьте товары", status: 400, field: "items" }
   const items: WriteOffItem[] = []
-  for (const line of lines) {
-    const qty = round6(Number(line.qty) || 0)
-    if (!(qty > 0)) continue
+  for (const [position, line] of lines.entries()) {
+    const field = `items.${position}`
+    if (!String(line.key ?? "").trim() && !String(line.product ?? "").trim()) return { error: "Выберите товар", status: 400, field: `${field}.key` }
+    const qty = round6(Number(line.qty))
+    if (!Number.isFinite(Number(line.qty)) || !(qty > 0)) return { error: "Количество должно быть больше 0", status: 400, field: `${field}.qty` }
+    if (qty > MAX_WRITE_OFF_QTY) return { error: "Слишком большое количество", status: 400, field: `${field}.qty` }
     const resolved = resolveLine(index, line)
-    if (!resolved.name) continue
-    if (!resolved.item && !String(line.key ?? "").startsWith("name:")) return { error: `Товар не найден: ${resolved.name}`, status: 400 }
-    const cost = round6(stock.get(resolved.key)?.cost || resolved.item?.fallbackCost || 0)
+    let key = resolved.key
+    if (!resolved.item) {
+      // Only goods the warehouse holds under a legacy document name may be written off by name.
+      key = `name:${textKey(key.startsWith("name:") ? key.slice(5) : resolved.name)}`
+      if (!resolved.name || key === "name:" || !orphans.has(key)) return { error: "Товар не найден", status: 400, field: `${field}.key` }
+    }
+    const cost = round6(stock.get(key)?.cost ?? resolved.item?.fallbackCost ?? 0)
     const box = resolved.item?.boxSize ?? 0
     items.push({
       id: items.length + 1,
-      key: resolved.key,
+      key,
       product: resolved.name,
       code: resolved.item?.article ?? "",
       unit: resolved.item?.unit ?? "",
       series: String(line.series ?? "").trim(),
       block: box > 0 ? round6(qty / box) : 0,
       qty,
-      cost,
-      sum: round6(qty * cost),
+      // Брак carries no cost (the batch's raw cost belongs to its good output).
+      cost: line.defect ? 0 : cost,
+      sum: line.defect ? 0 : round6(qty * cost),
+      ...(line.defect ? { defect: true } : {}),
     })
   }
-  if (!items.length) return { error: "Добавьте товары", status: 400 }
   return items
 }
 
-/** Refuses lines the warehouse does not have on the write-off day (and today). */
+/** Non-catalog ("name:") keys the warehouse's ledger has (legacy document names). */
+async function ledgerOrphans(db: PgDb, warehouse: string, lines: WriteOffLineInput[], index: CatalogIndex): Promise<Set<string>> {
+  if (lines.every((line) => resolveLine(index, line).item)) return new Set()
+  const wanted = textKey(warehouse)
+  const keys = new Set<string>()
+  for (const row of await getStockBalances({ warehouses: [warehouse] }, db)) if (row.key.startsWith("name:") && textKey(row.warehouse) === wanted) keys.add(row.key)
+  return keys
+}
+
+/** Refuses lines the warehouse does not have on the write-off day, today and in the end. */
 async function checkStock(tx: PgDb, warehouse: string, day: string, items: WriteOffItem[], index: CatalogIndex) {
   const stock = await warehouseStock(warehouse, day, tx)
   const shortages = findShortages(
-    items.map((item) => ({ product: item.product, quantity: item.qty, unit: item.unit })),
+    items.map((item) => ({ product: item.product, quantity: item.qty, unit: item.unit, defect: item.defect })),
     index,
     stock,
   )
@@ -306,17 +355,29 @@ async function checkStock(tx: PgDb, warehouse: string, day: string, items: Write
   return stock
 }
 
+/** The registered, active warehouse of a write-off (the registry's spelling). */
+async function writeOffWarehouse(db: PgDb, name: string): Promise<string | WriteOffError> {
+  const found = await findWarehouse(db, name)
+  if (!found) return { error: "Склад не найден", status: 400, field: "warehouse" }
+  if (!found.active) return { error: "Склад неактивен", status: 400, field: "warehouse" }
+  return found.name
+}
+
 export async function createWriteOff(input: WriteOffInput, userName: string): Promise<WriteOffChange> {
   await ensureWriteOffsSchema()
-  const warehouse = input.warehouse.trim()
-  if (!warehouse) return { error: "Склад не выбран", status: 400 }
+  if (!input.warehouse.trim()) return { error: "Склад не выбран", status: 400, field: "warehouse" }
+  const db = getDb()
+  const warehouse = await writeOffWarehouse(db, input.warehouse)
+  if (isWriteOffError(warehouse)) return warehouse
   const date = momentOf(input.date)
-  if (!date) return { error: "Неверная дата", status: 400 }
-  const index = await catalogIndex()
+  if (!date) return { error: "Неверная дата", status: 400, field: "date" }
+  if (date.slice(0, 10) > todayIso()) return { error: "Дата не может быть позже сегодняшнего дня", status: 400, field: "date" }
+  const index = await catalogIndex(db)
+  const orphans = await ledgerOrphans(db, warehouse, input.items, index)
   return inTransaction(async (tx) => {
     await lockWarehouseStock(tx, [warehouse])
     const stock = await warehouseStock(warehouse, date.slice(0, 10), tx)
-    const items = buildLines(input.items, index, stock)
+    const items = buildLines(input.items, index, stock, orphans)
     if (isWriteOffError(items)) return items
     if (input.status === "закрыт") await checkStock(tx, warehouse, date.slice(0, 10), items, index)
     const finished = input.status === "закрыт"
@@ -333,22 +394,21 @@ export async function createWriteOff(input: WriteOffInput, userName: string): Pr
         comment: input.comment.trim(),
         reason: input.reason.trim(),
         items: JSON.stringify(items),
-        finished_at: finished ? nowLocalIso() : "",
+        finished_at: finished ? nowLocalMoment() : "",
         finished_by: finished ? userName : "",
       })
     return (await getWriteOff(Number(result.lastInsertRowid), tx))!
   })
 }
 
-/** A confirmed inventory of the warehouse on / after the write-off day already counted it. */
+/** A confirmed inventory of the warehouse counted the stock after the write-off left
+ * (a later day, or an end-of-day count of that day confirmed after the write-off). */
 async function linkedInventory(tx: PgDb, writeOff: WriteOff): Promise<boolean> {
-  const exists = (await tx.prepare("SELECT to_regclass('stock_inventories') IS NOT NULL AS ok").get()) as { ok: boolean } | undefined
-  if (!exists?.ok) return false
   const day = parseAnyDay(writeOff.date) ?? writeOff.date.slice(0, 10)
-  const row = (await tx
-    .prepare("SELECT 1 AS ok FROM stock_inventories WHERE status = 'confirmed' AND fin_key(warehouse) = fin_key(@warehouse) AND fin_ts(inv_date)::date >= @day::date LIMIT 1")
-    .get({ warehouse: writeOff.warehouse, day })) as { ok: number } | undefined
-  return Boolean(row)
+  // The goods left when it was finished (that day), else at its date.
+  const finished = parseAnyDate(writeOff.finishedAt)
+  const moment = finished && finished.slice(0, 10) === day ? finished : (parseAnyDate(writeOff.date) ?? `${day}T00:00:00`)
+  return countedByInventory(tx, writeOff.warehouse, day, moment)
 }
 
 /** POST /api/write-offs/[id]/action: finish (ожидает → закрыт) / cancel (→ отменен). */
@@ -361,14 +421,16 @@ export async function writeOffAction(id: number, action: WriteOffAction, userNam
     const current = rowToWriteOff(locked)
     const transition = WRITE_OFF_TRANSITIONS[action]
     if (!transition.from.includes(current.status)) return { error: `Действие недоступно для текущего статуса списания (${current.status})`, status: 409 }
-    const now = nowLocalIso()
+    const now = nowLocalMoment()
     if (action === "finish") {
+      const warehouse = await writeOffWarehouse(tx, current.warehouse)
+      if (isWriteOffError(warehouse)) return warehouse
       await lockWarehouseStock(tx, [current.warehouse])
       const day = parseAnyDay(current.date) ?? now.slice(0, 10)
       const stock = await checkStock(tx, current.warehouse, day, current.items, index)
-      // Cost at the moment the goods actually leave.
+      // Cost of goods when the goods actually leave (Брак carries none).
       const items = current.items.map((item) => {
-        const cost = round6(stock.get(item.key)?.cost || item.cost)
+        const cost = item.defect ? 0 : round6(stock.get(item.key)?.cost ?? item.cost)
         return { ...item, cost, sum: round6(item.qty * cost) }
       })
       await tx
@@ -386,9 +448,14 @@ export async function writeOffAction(id: number, action: WriteOffAction, userNam
 
 /** Hard delete of a write-off without stock effect (pending / cancelled). */
 export async function deleteWriteOff(id: number): Promise<"ok" | "not_found" | "locked"> {
-  const current = await getWriteOff(id)
-  if (!current) return "not_found"
-  if (current.status === "закрыт") return "locked"
-  await getDb().prepare("DELETE FROM write_offs WHERE id = @id").run({ id })
-  return "ok"
+  await ensureWriteOffsSchema()
+  // The status is read from the locked row, so a delete racing "finish" can never
+  // remove a write-off that has just been closed.
+  return withTransaction(async (tx) => {
+    const locked = (await tx.prepare("SELECT status FROM write_offs WHERE id = @id FOR UPDATE").get({ id })) as { status: string } | undefined
+    if (!locked) return "not_found"
+    if (locked.status === "закрыт") return "locked"
+    await tx.prepare("DELETE FROM write_offs WHERE id = @id").run({ id })
+    return "ok"
+  })
 }

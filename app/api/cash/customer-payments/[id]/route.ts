@@ -2,9 +2,10 @@ import { NextResponse } from "next/server"
 
 import { getCurrentUser } from "@/lib/current-user"
 import { requireRole } from "@/lib/rbac"
-import { parseJsonBody } from "@/lib/validation"
+import { parseIdSegment, parseJsonBody } from "@/lib/validation"
 import { cashErrorResponse } from "@/lib/cash/api"
 import { customerPaymentEditSchema, deleteCustomerPayment, getCustomerPayment, updateCustomerPayment } from "@/lib/cash/customer-payments"
+import { isDbId } from "@/lib/cash/common"
 
 // GET    /api/cash/customer-payments/[id] → CustomerPaymentRow (deleted rows too).
 // PUT    /api/cash/customer-payments/[id] CustomerPaymentEditInput → CustomerPaymentRow ("Изменение транзакции").
@@ -12,8 +13,8 @@ import { customerPaymentEditSchema, deleteCustomerPayment, getCustomerPayment, u
 type RouteParams = { params: Promise<{ id: string }> }
 
 async function idOf(params: RouteParams["params"]): Promise<number | null> {
-  const id = Number((await params).id)
-  return Number.isInteger(id) && id > 0 ? id : null
+  const id = (parseIdSegment((await params).id) ?? 0)
+  return isDbId(id) ? id : null
 }
 
 const notFound = () => NextResponse.json({ error: "Оплата не найдена", field: null }, { status: 404 })

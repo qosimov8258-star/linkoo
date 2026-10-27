@@ -181,6 +181,11 @@ export function CatalogView({ kind, initialDetailId }: { kind: CatalogKind; init
         : await catalogMutate("DELETE", `${api}/${confirm.id}?mode=${confirm.action === "hard" ? "hard" : "soft"}`)
     setBusy(false)
     if (!result.ok) {
+      if (result.status === 409 && result.stock?.length) {
+        // Still in stock: the warehouses and quantities that block the delete.
+        const usage = result.stock.map((line) => ({ table: `stock:${line.warehouse}`, label: line.warehouse, count: line.qty }))
+        return setConfirm({ ...confirm, error: errorText(result, t), usage })
+      }
       const error = result.status === 409 && result.usage ? t("Удаление невозможно из-за связи с другими данными") : errorText(result, t)
       return setConfirm({ ...confirm, error, usage: result.usage })
     }

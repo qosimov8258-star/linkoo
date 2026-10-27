@@ -2,6 +2,7 @@ import "server-only"
 
 import { z } from "zod"
 
+import { MAX_ID, MAX_MONEY } from "@/lib/finance/api"
 import { parseAnyDate } from "@/lib/finance/dates"
 
 // Request body of POST /api/balances/deliverer-debts/corrections — the demo's
@@ -20,14 +21,15 @@ const numeric = z.union([z.number(), z.string().trim().min(1).transform(Number)]
 
 export const delivererCorrectionSchema = z.object({
   /** employees.id of the deliverer (demo delivery_man). */
-  employeeId: numeric.pipe(z.number().int().positive()),
+  employeeId: numeric.pipe(z.number().int().positive().max(MAX_ID)),
   currency: z.string().trim().min(1).max(16),
   /** Signed as typed (demo keeps the sign); 0 is rejected. */
   amount: numeric.pipe(
     z
       .number()
       .finite()
-      .refine((value) => value !== 0, "≠ 0"),
+      .refine((value) => value !== 0, "≠ 0")
+      .refine((value) => Math.abs(value) <= MAX_MONEY, "≤ 1e13"),
   ),
   paymentType: z.enum(["cash", "bank", ""]).default(""),
   /** Organization (demo division) name; "" = not set. */

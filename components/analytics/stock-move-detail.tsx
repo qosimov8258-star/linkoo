@@ -8,7 +8,7 @@ import { useCashJson } from "@/components/analytics/cash/use-cash"
 import { currencyLabel, formatMoney } from "@/lib/finance/currency"
 import { formatDotDate } from "@/lib/finance/dates"
 import { useLanguage } from "@/lib/i18n/language-context"
-import { MOVE_COLUMNS_OTHERS, MOVE_DOC_TYPES, MOVE_KIND_LABELS, shownMoveValue, type MoveNumbers } from "@/lib/stock-movement-columns"
+import { MOVE_DOC_TYPES, MOVE_KIND_LABELS, moveColumns, shownMoveValue, type MoveNumbers } from "@/lib/stock-movement-columns"
 import type { MoveItemDetail } from "@/lib/stock-movement-report"
 import type { StockMoveKind } from "@/lib/stock/types"
 
@@ -36,7 +36,8 @@ export function StockMoveDetail({ url, kind, onKindChange, onClose }: { url: str
   const currency = data ? currencyLabel(data.currency) : ""
   const documents = (data?.documents ?? []).filter((document) => !kind || document.kind === kind)
   const unit = data?.item.unit ? t(data.item.unit) : ""
-  const cards = MOVE_COLUMNS_OTHERS
+  // Cost mode adds "Переоценка" (value only).
+  const cards = moveColumns(true, data?.mode)
   return (
     <div className="fixed inset-0 z-[100] flex items-start justify-center overflow-y-auto bg-black/30 px-2 py-8" onClick={onClose}>
       <div className="w-full max-w-[1100px] rounded-lg bg-white shadow-xl" onClick={(event) => event.stopPropagation()}>
@@ -76,15 +77,17 @@ export function StockMoveDetail({ url, kind, onKindChange, onClose }: { url: str
               <h3 className="mb-2 font-semibold text-[#17233b]">{t("По видам движения")}</h3>
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
                 {cards.map((column) => {
-                  const selectable = column.field !== "begin" && column.field !== "end"
+                  const selectable = !column.valueOnly && column.field !== "begin" && column.field !== "end"
                   const active = selectable && kind === column.field
                   const qty = shownMoveValue(column, data.total.qty[column.field])
                   const content = (
                     <>
                       <span className="block text-[12px] text-[#666]">{t(column.label)}</span>
-                      <span className="block font-semibold text-[#17233b]">
-                        {qtyText(qty)} {unit}
-                      </span>
+                      {!column.valueOnly && (
+                        <span className="block font-semibold text-[#17233b]">
+                          {qtyText(qty)} {unit}
+                        </span>
+                      )}
                       {money && (
                         <span className="block text-[12px] text-[#586174]">
                           {formatMoney(shownMoveValue(column, data.total.value?.[column.field] ?? 0), 2)} {currency}

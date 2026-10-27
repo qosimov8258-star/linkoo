@@ -29,7 +29,9 @@ function rowToRawMaterial(row: Row, withDeleted: boolean): RawMaterial {
   return {
     id: Number(row.id),
     name: text(row.name),
-    fullName: text(row.full_name) || text(row.name),
+    // The stored value only: a client echoing this shape back (Формирование цен) must not
+    // turn an empty "Полное наименование" into the name.
+    fullName: text(row.full_name),
     barcode: text(row.barcode).trim() || "не установлен",
     article: text(row.article),
     type: text(row.type),

@@ -61,11 +61,20 @@ async function ensureSchema(db: ReturnType<typeof getDb>) {
       color_bar TEXT NOT NULL DEFAULT 'none',
       category TEXT NOT NULL DEFAULT 'unconfirmed',
       debt_limit_type TEXT NOT NULL DEFAULT 'unlimited',
-      debt_limit REAL,
+      debt_limit DOUBLE PRECISION,
       debt_limit_currency TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-    )
+    );
+    -- Money precision (contract 3): an older database created these columns as REAL (float4).
+    DO $$
+    DECLARE c text;
+    BEGIN
+      FOR c IN SELECT column_name FROM information_schema.columns
+                WHERE table_schema = current_schema() AND table_name = 'debt_limits' AND data_type = 'real' LOOP
+        EXECUTE format('ALTER TABLE debt_limits ALTER COLUMN %I TYPE double precision USING (%I::text)::double precision', c, c);
+      END LOOP;
+    END $$;
   `)
 }
 

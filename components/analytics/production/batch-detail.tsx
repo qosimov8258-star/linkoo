@@ -20,6 +20,8 @@ import {
   SaveButton,
   STATUS_LABELS,
   STATUS_TEXT,
+  STATUS_TRANSITIONS,
+  todayIso,
   useApiData,
   type CatalogItem,
   type DraftLine,
@@ -186,7 +188,7 @@ export function BatchDetail({ partyId, stages, onChanged }: { partyId: number; s
                 rows={party.raw.map((row) => [row.name, formatAmount(row.amount, row.unit), formatNumber(row.cost), formatNumber(row.total)])}
                 onDelete={pending ? party.raw.map((row) => () => removeMovement(row.id)) : undefined}
               />
-              <TotalRow cols={RAW} value={party.totalRawCost} />
+              <TotalRow cols={RAW} value={party.raw.reduce((sum, row) => sum + row.total, 0)} />
             </>
           )}
           {tab === "defects" && (
@@ -546,7 +548,7 @@ function ItemsDialog({ party, direction, items, onClose, onSaved }: DialogProps 
       <div className="mb-4 flex items-end gap-6">
         <span className="pb-2 font-semibold">{t("Список товаров")}</span>
         <Field label="Дата" className="w-52">
-          <input type="date" value={date} onChange={(event) => setDate(event.target.value)} className={inputClass} />
+          <input type="date" value={date} max={todayIso()} onChange={(event) => setDate(event.target.value)} className={inputClass} />
         </Field>
       </div>
       {direction === "made" && !items.length && <p className="mb-3 text-sm text-amber-600">{t("У этапа нет продуктов. Добавьте их в разделе «Этапы производства».")}</p>}
@@ -562,6 +564,9 @@ function EditDialog({ party, stages, onClose, onSaved }: { party: PartyDetail; s
   const [date, setDate] = useState(party.date)
   const [comment, setComment] = useState(party.comment)
   const [saving, setSaving] = useState(false)
+  // Lines are booked on their own day in the batch's warehouse: once there
+  // are any, the batch date and stage stay as they are.
+  const hasLines = party.made.length + party.raw.length + party.madeDefects.length + party.rawDefects.length > 0
 
   async function save(event: FormEvent) {
     event.preventDefault()
@@ -580,18 +585,19 @@ function EditDialog({ party, stages, onClose, onSaved }: { party: PartyDetail; s
     <Modal title={t("Изменение партии")} width="max-w-[700px]" onClose={onClose} onSubmit={save} footer={<SaveButton saving={saving} label="Изменить" />}>
       <div className="space-y-5">
         <Field label="Этап производства" required>
-          <select required value={stageId} onChange={(event) => setStageId(event.target.value)} className={inputClass}>
+          <select required value={stageId} disabled={hasLines} onChange={(event) => setStageId(event.target.value)} className={inputClass}>
             {stages.map((stage) => <option key={stage.id} value={stage.id}>{stage.name}</option>)}
           </select>
         </Field>
         <Field label="Статус" required>
           <select value={status} onChange={(event) => setStatus(event.target.value as PartyStatus)} className={inputClass}>
-            {(Object.keys(STATUS_LABELS) as PartyStatus[]).map((value) => <option key={value} value={value}>{t(STATUS_LABELS[value])}</option>)}
+            {STATUS_TRANSITIONS[party.status].map((value) => <option key={value} value={value}>{t(STATUS_LABELS[value])}</option>)}
           </select>
         </Field>
         <Field label="Дата партии" required>
-          <input required type="date" value={date} onChange={(event) => setDate(event.target.value)} className={inputClass} />
+          <input required type="date" value={date} max={todayIso()} disabled={hasLines} onChange={(event) => setDate(event.target.value)} className={inputClass} />
         </Field>
+        {hasLines && <p className="-mt-3 text-xs text-slate-500">{t("В партии уже есть товары — этап и дату изменить нельзя")}</p>}
         <Field label="Комментарий">
           <textarea value={comment} onChange={(event) => setComment(event.target.value)} rows={2} className={inputClass} />
         </Field>

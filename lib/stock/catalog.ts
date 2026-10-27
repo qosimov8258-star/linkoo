@@ -78,7 +78,7 @@ function catalogSql(t: StockTables): string {
       FROM products p ${productFilter(t)}`)
   }
   if (t.has("raw_materials")) {
-    parts.push(`SELECT 'raw_material', r.id, r.name, ${rc("article")}::text, ${rc("barcode")}::text, ${rc("type")}::text, NULL::text, ${rc("brand")}::text,
+    parts.push(`SELECT 'raw_material', r.id, r.name, ${rc("article")}::text, ${rc("barcode")}::text, ${rc("type")}::text, ${rc("subcategory")}::text, ${rc("brand")}::text,
       ${rc("unit")}::text, ${rc("organization")}::text, ${rc("supplier")}::text, NULL::double precision, NULL::double precision,
       ${rc("price_lists")}::text, ${rc("price_list")}::text, ${rc("cash_price")}::text, ${rc("min_stock")}::text, ${rc("mass")}::text,
       ${rc("volume")}::text, ${rc("sub_unit")}::text

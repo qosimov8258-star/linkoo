@@ -133,7 +133,8 @@ export function StockLevelView() {
   }
 
   // --- cards ----------------------------------------------------------------------------
-  const pcs = state.unit === "amount" ? ` ${t("шт")}` : ""
+  // The unit only when every counted row shares it (kg, litre and pieces are never added up under one label).
+  const pcs = sum?.unit ? ` ${t(sum.unit)}` : ""
   const count = (value: number) => `${formatQty(value)}${pcs}`
   const money = (value: number) => `${formatMoney(value, 2)} ${currencyLabel(currency)}`
   const card = (label: string, amount: number, value: number) => (
@@ -234,7 +235,7 @@ export function StockLevelView() {
             />
             <Search className="pointer-events-none absolute left-[calc(100%+0px)] top-[8px] h-[22px] w-[22px] -translate-x-[3px] text-[#5d6474]" />
           </label>
-          <label style={{ left: "calc(818px + (100% - 1236px))" }} className="absolute top-[5px] block w-[200px] text-[10px] font-semibold leading-[12.2px] text-black" title={t("Покаазать в сгруппированном виде (блоки, коробки и тд.)")}>
+          <label style={{ left: "calc(818px + (100% - 1236px))" }} className="absolute top-[5px] block w-[200px] text-[10px] font-semibold leading-[12.2px] text-black" title={t("Показать в сгруппированном виде (блоки, коробки и т. д.)")}>
             {t("Показать")}
             <span className="relative mt-[6px] flex h-[36px] items-center border-b border-[#e8e8e8]">
               <select value={state.unit} onChange={(event) => update({ unit: event.target.value as StockLevelUnit })} className="h-full w-full appearance-none bg-transparent pt-[8px] text-[13px] font-semibold text-[#333] outline-none">

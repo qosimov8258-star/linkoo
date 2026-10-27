@@ -4,13 +4,13 @@ import { cashErrorResponse } from "@/lib/cash/api"
 import { cashbackRequestDecisionSchema, decideCashbackRequest, deleteCashbackRequest, getCashbackRequestDetail } from "@/lib/cashback-withdrawal-requests-repo"
 import { getCurrentUser } from "@/lib/current-user"
 import { requireRole } from "@/lib/rbac"
-import { parseJsonBody } from "@/lib/validation"
+import { parseIdSegment, parseJsonBody } from "@/lib/validation"
 
 type RouteParams = { params: Promise<{ id: string }> }
 
+/** Canonical digits only ("0x10" / "1e1" never resolve to another request). */
 function requestId(value: string): number | null {
-  const id = Number(value)
-  return Number.isInteger(id) && id > 0 && id <= 2_147_483_647 ? id : null
+  return parseIdSegment(value)
 }
 
 // GET /api/cashback-withdrawal-requests/[id] — the request + the client's cashback balance in its

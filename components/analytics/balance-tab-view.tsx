@@ -286,6 +286,7 @@ export function BalanceTabView() {
           <Heading>{t("Баланс на")} {dayLabel(endIso)}</Heading>
           {renderCells("end", true)}
         </div>
+
       </section>
 
       <BalanceSections from={beginIso} to={endIso} />

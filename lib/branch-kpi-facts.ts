@@ -3,12 +3,15 @@ import "server-only"
 import type { PgDb } from "@/lib/db"
 import type { BranchKpiPlanKey } from "@/lib/branch-kpi-types"
 import type { FinanceSchema } from "@/lib/finance/schema"
+import { orderCountedSql, orderRealizationTs } from "@/lib/finance/sources"
 
 // Facts of the branch KPI indicators for one month, per branch, in the base
 // currency (one SQL statement; values are aggregated in Postgres).
 //
-// Branch of an order: the client's branch (orders.client → clients.branch),
-// else the agent's branch (orders.agent → employees.branch). Branch of a
+// Branch of an order: the client's branch (orders.client_id, by name for
+// legacy rows → clients.branch), else the agent's branch (orders.agent →
+// employees.branch). Orders count unless Отменен / Не подтвержден; released
+// ones are dated by their realization moment (the ledger's rule). Branch of a
 // customer payment: the payment's, else its cashbox's, else the client's.
 // Order money = Σ order_items qty·price·(1 − discount%) (orders.amount text
 // when the order has no items), converted with the currencies' rates.
@@ -50,7 +53,6 @@ export const INACTIVE_DAYS = 30
 
 const RELEASED = "('В пути', 'Доставлено')"
 const DELIVERED = "'Доставлено'"
-const CANCELLED = "'Отменен'"
 
 /** Base-currency multiplier of a currency expression (NULL when the rate is unknown). */
 function toBase(currencyExpr: string, rateAlias: string): string {
@@ -110,17 +112,23 @@ export async function computeBranchFacts(db: PgDb, s: FinanceSchema, base: strin
              ${hasClients ? "COALESCE(c.id::text, 'n:' || fin_key(o.client))" : "'n:' || fin_key(o.client)"} AS ckey,
              ${orderBranch} AS branch_id,
              fin_ts(o.created_at, true) AS created_ts,
-             COALESCE(fin_ts(o.delivery), fin_ts(o.created_at, true)) AS delivery_ts,
+             ${orderRealizationTs(s, "o")} AS delivery_ts,
              COALESCE(${hasItems ? "oi.amount, " : ""}oa.amount, 0) AS amount,
              ${hasItems ? "COALESCE(oi.qty, 0)" : "0::float8"} AS qty,
              ${hasItems ? "COALESCE(oi.weight, 0)" : "0::float8"} AS weight
       FROM orders o
-      ${hasClients ? "LEFT JOIN ck ON ck.k = fin_key(o.client) LEFT JOIN clients c ON c.id = ck.id" : ""}
+      ${
+        hasClients
+          ? s.col("orders", "client_id")
+            ? "LEFT JOIN ck ON o.client_id IS NULL AND ck.k = fin_key(o.client) LEFT JOIN clients c ON c.id = COALESCE(o.client_id, ck.id)"
+            : "LEFT JOIN ck ON ck.k = fin_key(o.client) LEFT JOIN clients c ON c.id = ck.id"
+          : ""
+      }
       ${clientBranch ? branchJoin("bc", "c.branch") : ""}
       ${hasEmployees ? `LEFT JOIN ek ON ek.k = fin_key(o.agent) LEFT JOIN employees e ON e.id = ek.id ${branchJoin("be", "e.branch")}` : ""}
       ${hasItems ? "LEFT JOIN oi ON oi.order_id = o.id" : ""}
       LEFT JOIN oa ON oa.order_id = o.id
-      WHERE o.status IS DISTINCT FROM ${CANCELLED})`)
+      WHERE ${orderCountedSql("o")})`)
     ctes.push(`mc AS (
       SELECT o.branch_id,
              SUM(o.amount) AS sales_sum_order,

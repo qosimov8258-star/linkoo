@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
-import { CashOverview, WarehouseOverview } from "@/components/analytics/balance-sections"
+import { CashOverview, useBalanceOverview, WarehouseOverview } from "@/components/analytics/balance-sections"
 import { MoreButton, SortArrows, ToggleButtons, formatAmount, signedColor, useWidgetPeriod } from "@/components/analytics/widget-table-kit"
 import { ReportPage, WidgetHeader, WidgetUserCard } from "@/components/ref/report-kit"
 import type { PeriodKey } from "@/lib/dashboard-date-range"
@@ -62,6 +62,8 @@ export function BranchTabView() {
   const { t } = useLanguage()
   const { period, setPeriod, beginIso, endIso, label } = useWidgetPeriod()
   const [report, setReport] = useState<BranchReport | null>(null)
+  // The warehouse and cash sections follow the same period (GET /api/balances/overview).
+  const overview = useBalanceOverview({ from: beginIso, to: endIso })
   const [chartMode, setChartMode] = useState<"type" | "brand">("type")
   const [sort, setSort] = useState<{ field: string; currency: string; dir: "asc" | "desc" } | null>(null)
   const [expanded, setExpanded] = useState(false)
@@ -187,8 +189,8 @@ export function BranchTabView() {
         {rows.length > COLLAPSED_ROWS && <MoreButton expanded={expanded} onToggle={() => setExpanded((value) => !value)} />}
       </section>
 
-      <WarehouseOverview />
-      <div className="mt-[36px]"><CashOverview /></div>
+      <WarehouseOverview data={overview.data} />
+      <div className="mt-[36px]"><CashOverview data={overview.data} /></div>
       <div className="h-[30px]" />
     </ReportPage>
   )

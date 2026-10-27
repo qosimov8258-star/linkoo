@@ -7,7 +7,7 @@ import { parseJsonBody } from "@/lib/validation"
 import { CLIENT_ATTRIBUTE_FIELD_TYPES, createClientAttribute, listClientAttributes } from "@/lib/client-attributes-repo"
 
 const clientAttributeSchema = z.object({
-  name: z.string().trim().min(1),
+  name: z.string().trim().min(1).max(255, "Не более 255 символов"),
   fieldType: z.enum(CLIENT_ATTRIBUTE_FIELD_TYPES as [string, ...string[]]).optional(),
   required: z.boolean().optional(),
   cacheNumber: z.number().int().nullable().optional(),

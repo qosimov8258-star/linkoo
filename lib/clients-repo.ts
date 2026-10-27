@@ -1,44 +1,102 @@
-import { getLiveBalanceDeltas, mergeBalance } from "@/lib/client-live-balance"
-import { selectedBranchName } from "@/lib/selected-branch"
 import "server-only"
 
-import { getDb } from "@/lib/db"
+import { getLiveBalanceDeltas, mergeBalance } from "@/lib/client-live-balance"
+import { getDb, withTransaction, type PgDb } from "@/lib/db"
+import { clientLedgerBalances } from "@/lib/orders-repo"
+import { keySql, nameKey, quoteIdent } from "@/lib/platform-refs"
+import { selectedBranchName } from "@/lib/selected-branch"
 import type { Client } from "@/components/clients/clients-data"
 
-// Additive columns for the full "Добавить клиента" form (branch, address &
-// map location, contact details, and per-client settings) so a database
-// created before that form existed still works — ADD COLUMN IF NOT EXISTS is
-// a no-op once the column is already there.
-async function ensureSchema(db: ReturnType<typeof getDb>) {
-  await db.exec(`ALTER TABLE clients ADD COLUMN IF NOT EXISTS branch TEXT NOT NULL DEFAULT '';`)
-  await db.exec(`ALTER TABLE clients ADD COLUMN IF NOT EXISTS sales_channel TEXT NOT NULL DEFAULT '';`)
-  await db.exec(`ALTER TABLE clients ADD COLUMN IF NOT EXISTS realization_by TEXT NOT NULL DEFAULT '';`)
-  await db.exec(`ALTER TABLE clients ADD COLUMN IF NOT EXISTS address TEXT NOT NULL DEFAULT '';`)
-  await db.exec(`ALTER TABLE clients ADD COLUMN IF NOT EXISTS landmark TEXT NOT NULL DEFAULT '';`)
-  await db.exec(`ALTER TABLE clients ADD COLUMN IF NOT EXISTS location_lat REAL;`)
-  await db.exec(`ALTER TABLE clients ADD COLUMN IF NOT EXISTS location_lng REAL;`)
-  await db.exec(`ALTER TABLE clients ADD COLUMN IF NOT EXISTS telegram_location_link TEXT NOT NULL DEFAULT '';`)
-  await db.exec(`ALTER TABLE clients ADD COLUMN IF NOT EXISTS code TEXT NOT NULL DEFAULT '';`)
-  await db.exec(`ALTER TABLE clients ADD COLUMN IF NOT EXISTS contact_person TEXT NOT NULL DEFAULT '';`)
-  await db.exec(`ALTER TABLE clients ADD COLUMN IF NOT EXISTS note TEXT NOT NULL DEFAULT '';`)
-  await db.exec(`ALTER TABLE clients ADD COLUMN IF NOT EXISTS auto_delivery INTEGER NOT NULL DEFAULT 0;`)
-  await db.exec(`ALTER TABLE clients ADD COLUMN IF NOT EXISTS unlimited_debt INTEGER NOT NULL DEFAULT 0;`)
-  await db.exec(`ALTER TABLE clients ADD COLUMN IF NOT EXISTS attributes TEXT NOT NULL DEFAULT '{}';`)
-  await db.exec(`ALTER TABLE clients ADD COLUMN IF NOT EXISTS in_route INTEGER NOT NULL DEFAULT 0;`)
-  await db.exec(`ALTER TABLE clients ADD COLUMN IF NOT EXISTS is_problem INTEGER NOT NULL DEFAULT 0;`)
-  // «Статус объекта»; a client without a row counts as active.
-  await db.exec(`
-    CREATE TABLE IF NOT EXISTS client_object_status (
-      client_id INTEGER PRIMARY KEY,
-      is_active INTEGER NOT NULL DEFAULT 1
-    );
-  `)
+// Clients.
+// - `balance` is the client's OPENING balance (finance source "client_opening");
+//   an update without it keeps the stored one, null clears it.
+// - type must be a client type (Типы клиентов); agent / deliverer / collector /
+//   zone agent must be employees (or "Не указано"). Unchanged legacy values
+//   are kept as they are.
+// - A second client with the same name and the same phone or INN is refused
+//   (409) unless `allowDuplicate` is set.
+// - Deleting a client that documents reference (orders, payments, returns,
+//   loyalty, contracts, corrections, equipment…) or that has an opening
+//   balance is refused with 409 and the usage list (contract 7).
+// - A rename cascades to the documents that store the client name and links
+//   their legacy name-only rows by client_id (contract 6).
+// - Listed clients carry their CURRENT ledger balance (balanceLines /
+//   currentBalances) and last order / payment days from lib/finance.
+
+export class ClientError extends Error {
+  constructor(
+    message: string,
+    readonly status = 400,
+    readonly extra?: Record<string, unknown>,
+  ) {
+    super(message)
+  }
+}
+
+const CLIENT_COLUMNS: Array<[string, string]> = [
+  ["branch", "TEXT NOT NULL DEFAULT ''"],
+  ["sales_channel", "TEXT NOT NULL DEFAULT ''"],
+  ["realization_by", "TEXT NOT NULL DEFAULT ''"],
+  ["address", "TEXT NOT NULL DEFAULT ''"],
+  ["landmark", "TEXT NOT NULL DEFAULT ''"],
+  ["location_lat", "DOUBLE PRECISION"],
+  ["location_lng", "DOUBLE PRECISION"],
+  ["telegram_location_link", "TEXT NOT NULL DEFAULT ''"],
+  ["code", "TEXT NOT NULL DEFAULT ''"],
+  ["contact_person", "TEXT NOT NULL DEFAULT ''"],
+  ["note", "TEXT NOT NULL DEFAULT ''"],
+  ["auto_delivery", "INTEGER NOT NULL DEFAULT 0"],
+  ["unlimited_debt", "INTEGER NOT NULL DEFAULT 0"],
+  ["attributes", "TEXT NOT NULL DEFAULT '{}'"],
+  ["in_route", "INTEGER NOT NULL DEFAULT 0"],
+  ["is_problem", "INTEGER NOT NULL DEFAULT 0"],
+  ["created_by", "TEXT NOT NULL DEFAULT ''"],
+]
+
+const DDL = `
+${CLIENT_COLUMNS.map(([name, type]) => `ALTER TABLE clients ADD COLUMN IF NOT EXISTS ${name} ${type};`).join("\n")}
+DO $$
+DECLARE c text;
+BEGIN
+  FOREACH c IN ARRAY ARRAY['balance', 'location_lat', 'location_lng'] LOOP
+    IF EXISTS (SELECT 1 FROM information_schema.columns
+                WHERE table_schema = current_schema() AND table_name = 'clients' AND column_name = c AND data_type = 'real') THEN
+      EXECUTE format('ALTER TABLE clients ALTER COLUMN %I TYPE double precision USING round(%I::numeric, 6)::double precision', c, c);
+    END IF;
+  END LOOP;
+END $$;
+-- «Статус объекта»; a client without a row counts as active.
+CREATE TABLE IF NOT EXISTS client_object_status (
+  client_id INTEGER PRIMARY KEY,
+  is_active INTEGER NOT NULL DEFAULT 1
+);
+`
+
+const SCHEMA_VERSION = 2
+
+declare global {
+  var __linkoClientsSchema: { version: number; ready: Promise<void> } | undefined
+}
+
+/** Additive client columns (full "Добавить клиента" form), once per process. */
+export function ensureClientsSchema(): Promise<void> {
+  if (globalThis.__linkoClientsSchema?.version !== SCHEMA_VERSION) {
+    const ready = withTransaction(async (tx) => {
+      await tx.exec("SELECT pg_advisory_xact_lock(72120935)")
+      await tx.exec(DDL)
+    }).catch((error) => {
+      globalThis.__linkoClientsSchema = undefined
+      throw error
+    })
+    globalThis.__linkoClientsSchema = { version: SCHEMA_VERSION, ready }
+  }
+  return globalThis.__linkoClientsSchema!.ready
 }
 
 const SELECT_CLIENT = `SELECT c.*, s.is_active AS object_active
   FROM clients c LEFT JOIN client_object_status s ON s.client_id = c.id`
 
-async function saveObjectStatus(db: ReturnType<typeof getDb>, id: number, isActive: boolean | undefined) {
+async function saveObjectStatus(db: PgDb, id: number, isActive: boolean | undefined) {
   if (isActive === undefined) return
   await db
     .prepare(
@@ -61,6 +119,7 @@ type ClientRow = {
   collector: string
   balance: number | null
   created_at?: string | null
+  created_by?: string | null
   tab: Client["tab"]
   branch: string
   sales_channel: string
@@ -114,6 +173,7 @@ function rowToClient(row: ClientRow): Client {
     attributes: parseAttributes(row.attributes),
     balanceLines: parseBalanceLines(row.attributes),
     createdAt: row.created_at ?? undefined,
+    createdBy: row.created_by || undefined,
   }
 }
 
@@ -142,75 +202,31 @@ function parseAttributes(raw: string | null | undefined): Record<string, string>
   }
 }
 
-export type ClientInput = Omit<Client, "id">
+/** Fields written by create / update. `balance`: undefined = keep (update), null = none. */
+export type ClientInput = Omit<Client, "id" | "balance" | "balanceLines" | "currentBalances" | "lastOrder" | "lastPayment" | "createdAt" | "createdBy"> & {
+  balance?: number | null
+  /** Create / rename even when a client with the same name and phone / INN exists. */
+  allowDuplicate?: boolean
+}
 
-const allowedTabs = new Set(["unconfirmed", "problem", "plan", "closing", "all"])
+// ---------------------------------------------------------------------------
+// Reads
+// ---------------------------------------------------------------------------
 
-export function parseClientInput(body: unknown): ClientInput | null {
-  if (!body || typeof body !== "object") return null
-  const value = body as Record<string, unknown>
-
-  const name = typeof value.name === "string" ? value.name.trim() : ""
-  const phone = typeof value.phone === "string" ? value.phone.trim() : ""
-  const type = typeof value.type === "string" ? value.type.trim() : ""
-  const zone = typeof value.zone === "string" ? value.zone.trim() : ""
-  if (!name || !type) return null
-
-  const tab = typeof value.tab === "string" && allowedTabs.has(value.tab) ? (value.tab as ClientInput["tab"]) : "all"
-  const balance = typeof value.balance === "number" && Number.isFinite(value.balance) ? value.balance : undefined
-  const locationLat = typeof value.locationLat === "number" && Number.isFinite(value.locationLat) ? value.locationLat : undefined
-  const locationLng = typeof value.locationLng === "number" && Number.isFinite(value.locationLng) ? value.locationLng : undefined
-
-  return {
-    name,
-    phone,
-    type,
-    zone,
-    inn: typeof value.inn === "string" && value.inn.trim() ? value.inn.trim() : undefined,
-    zoneAgent: typeof value.zoneAgent === "string" && value.zoneAgent.trim() ? value.zoneAgent.trim() : "Не указано",
-    agent: typeof value.agent === "string" && value.agent.trim() ? value.agent.trim() : "Не указано",
-    deliverer: typeof value.deliverer === "string" && value.deliverer.trim() ? value.deliverer.trim() : "Не указано",
-    collector: typeof value.collector === "string" && value.collector.trim() ? value.collector.trim() : "Не указано",
-    balance,
-    tab,
-    branch: typeof value.branch === "string" ? value.branch.trim() || undefined : undefined,
-    salesChannel: typeof value.salesChannel === "string" ? value.salesChannel.trim() || undefined : undefined,
-    realizationBy: typeof value.realizationBy === "string" ? value.realizationBy.trim() || undefined : undefined,
-    address: typeof value.address === "string" ? value.address.trim() || undefined : undefined,
-    landmark: typeof value.landmark === "string" ? value.landmark.trim() || undefined : undefined,
-    locationLat,
-    locationLng,
-    telegramLocationLink: typeof value.telegramLocationLink === "string" ? value.telegramLocationLink.trim() || undefined : undefined,
-    code: typeof value.code === "string" ? value.code.trim() || undefined : undefined,
-    contactPerson: typeof value.contactPerson === "string" ? value.contactPerson.trim() || undefined : undefined,
-    note: typeof value.note === "string" ? value.note.trim() || undefined : undefined,
-    autoDelivery: typeof value.autoDelivery === "boolean" ? value.autoDelivery : undefined,
-    unlimitedDebt: typeof value.unlimitedDebt === "boolean" ? value.unlimitedDebt : undefined,
-    isActive: typeof value.isActive === "boolean" ? value.isActive : undefined,
-    attributes:
-      value.attributes && typeof value.attributes === "object" && !Array.isArray(value.attributes)
-        ? (Object.fromEntries(Object.entries(value.attributes as Record<string, unknown>).filter(([, v]) => typeof v === "string" && v !== "")) as Record<string, string>)
-        : undefined,
+async function attachLedger(clients: Client[]): Promise<Client[]> {
+  if (!clients.length) return clients
+  const balances = await clientLedgerBalances(clients.length <= 50 ? { keys: clients.map((client) => String(client.id)) } : {})
+  if (!balances.size) return clients
+  for (const client of clients) {
+    const ledger = balances.get(client.id)
+    if (!ledger) continue
+    // The reference balance lines (kept on the client, plus live deltas) win; the ledger fills clients without any.
+    client.balanceLines ??= ledger.lines
+    client.currentBalances = ledger.byCurrency
+    client.lastOrder = ledger.lastOrder
+    client.lastPayment = ledger.lastPayment
   }
-}
-
-export async function listClients(search?: string): Promise<Client[]> {
-  const db = getDb()
-  await ensureSchema(db)
-  const branch = await selectedBranchName()
-  const rows = search
-    ? ((await db
-              .prepare(`${SELECT_CLIENT} WHERE (c.name LIKE ? OR c.phone LIKE ?) AND (?::text = '' OR c.branch = ?) ORDER BY c.id DESC`)
-              .all(`%${search}%`, `%${search}%`, branch, branch)) as ClientRow[])
-    : ((await db.prepare(`${SELECT_CLIENT} WHERE (?::text = '' OR c.branch = ?) ORDER BY c.id DESC`).all(branch, branch)) as ClientRow[])
-  return withLiveBalances(rows.map(rowToClient))
-}
-
-export async function getClient(id: number): Promise<Client | null> {
-  const db = getDb()
-  await ensureSchema(db)
-  const row = (await db.prepare(`${SELECT_CLIENT} WHERE c.id = ?`).get(id)) as ClientRow | undefined
-  return row ? (await withLiveBalances([rowToClient(row)]))[0] : null
+  return clients
 }
 
 /** Reference balance + what the app moved since the baseline (orders, payments, returns, cancellations). */
@@ -230,104 +246,310 @@ async function withLiveBalances(clients: Client[]): Promise<Client[]> {
   })
 }
 
-export async function createClient(input: ClientInput): Promise<Client> {
+export async function listClients(search?: string, options: { withBalances?: boolean } = {}): Promise<Client[]> {
+  await ensureClientsSchema()
   const db = getDb()
-  await ensureSchema(db)
-  const result = (await db
+  const branch = await selectedBranchName()
+  const rows = search
+    ? ((await db
+        .prepare(`${SELECT_CLIENT} WHERE (c.name ILIKE @q OR c.phone ILIKE @q) AND (@branch::text = '' OR c.branch = @branch) ORDER BY c.id DESC`)
+        .all({ q: `%${search.replace(/[\\%_]/g, (char) => `\\${char}`)}%`, branch })) as ClientRow[])
+    : ((await db.prepare(`${SELECT_CLIENT} WHERE (@branch::text = '' OR c.branch = @branch) ORDER BY c.id DESC`).all({ branch })) as ClientRow[])
+  const clients = await withLiveBalances(rows.map(rowToClient))
+  return options.withBalances === false ? clients : attachLedger(clients)
+}
+
+export async function getClient(id: number, options: { withBalances?: boolean } = {}): Promise<Client | null> {
+  if (!Number.isSafeInteger(id) || id <= 0 || id > 2_147_483_647) return null
+  await ensureClientsSchema()
+  const row = (await getDb().prepare(`${SELECT_CLIENT} WHERE c.id = ?`).get(id)) as ClientRow | undefined
+  if (!row) return null
+  const client = (await withLiveBalances([rowToClient(row)]))[0]
+  return options.withBalances === false ? client : (await attachLedger([client]))[0]
+}
+
+// ---------------------------------------------------------------------------
+// Validation
+// ---------------------------------------------------------------------------
+
+const NOT_SET = new Set(["", "не указано", "не указан", "—", "-"])
+
+function digitsOf(phone: string): string[] {
+  return phone
+    .split(",")
+    .map((part) => part.replace(/\D/g, ""))
+    .filter((digits) => digits.length >= 5)
+    .map((digits) => digits.slice(-9))
+}
+
+async function clientTypeName(db: PgDb, name: string): Promise<string> {
+  const exists = (await db.prepare("SELECT to_regclass('client_types') IS NOT NULL AS ok").get()) as { ok: boolean }
+  const row = exists.ok
+    ? ((await db.prepare(`SELECT name FROM client_types WHERE ${keySql("name")} = ${keySql("@name::text")} ORDER BY id LIMIT 1`).get({ name })) as { name: string } | undefined)
+    : undefined
+  if (!row) throw new ClientError(`Тип клиента «${name}» не найден. Добавьте его в «Типы клиентов»`, 400, { field: "type" })
+  return row.name
+}
+
+async function employeeName(db: PgDb, name: string, field: string, label: string): Promise<string> {
+  if (NOT_SET.has(nameKey(name))) return "Не указано"
+  const row = (await db
+    .prepare(`SELECT btrim(first_name || ' ' || last_name) AS name FROM employees WHERE ${keySql("first_name || ' ' || last_name")} = ${keySql("@name::text")} ORDER BY id LIMIT 1`)
+    .get({ name })) as { name: string } | undefined
+  if (!row) throw new ClientError(`${label}: сотрудник «${name}» не найден`, 400, { field })
+  return row.name
+}
+
+/** Validates the references of `input` (only values that differ from `existing`). */
+async function validateReferences(db: PgDb, input: ClientInput, existing?: Client): Promise<ClientInput> {
+  const out = { ...input }
+  if (!existing || nameKey(existing.type) !== nameKey(input.type)) out.type = await clientTypeName(db, input.type)
+  const people: Array<["agent" | "deliverer" | "collector" | "zoneAgent", string]> = [
+    ["agent", "Ответственный агент"],
+    ["deliverer", "Ответственный доставщик"],
+    ["collector", "Ответственный инкассатор"],
+    ["zoneAgent", "Агент зоны"],
+  ]
+  for (const [field, label] of people) {
+    const value = input[field] ?? ""
+    if (existing && nameKey(existing[field] ?? "") === nameKey(value)) continue
+    out[field] = await employeeName(db, value, field, label)
+  }
+  return out
+}
+
+/** 409 when another client has the same name and the same phone or INN. */
+async function assertNotDuplicate(db: PgDb, input: ClientInput, exceptId: number) {
+  if (input.allowDuplicate) return
+  const twins = (await db
+    .prepare(`SELECT id, name, phone, inn FROM clients WHERE ${keySql("name")} = ${keySql("@name::text")} AND id <> @id`)
+    .all({ name: input.name, id: exceptId })) as Array<{ id: number; name: string; phone: string; inn: string | null }>
+  if (!twins.length) return
+  const phones = new Set(digitsOf(input.phone))
+  const inn = (input.inn ?? "").replace(/\s/g, "")
+  const twin = twins.find((row) => digitsOf(row.phone).some((digits) => phones.has(digits)) || (inn !== "" && (row.inn ?? "").replace(/\s/g, "") === inn))
+  if (twin) {
+    throw new ClientError(`Клиент «${twin.name}» с таким телефоном или ИНН уже существует (№${twin.id})`, 409, { duplicateId: twin.id })
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Writes
+// ---------------------------------------------------------------------------
+
+function writeParams(input: ClientInput, balance: number | null) {
+  return {
+    name: input.name,
+    phone: input.phone,
+    inn: input.inn ?? null,
+    type: input.type,
+    zone: input.zone,
+    zoneAgent: input.zoneAgent,
+    agent: input.agent,
+    deliverer: input.deliverer,
+    collector: input.collector,
+    balance,
+    tab: input.tab,
+    branch: input.branch ?? "",
+    salesChannel: input.salesChannel ?? "",
+    realizationBy: input.realizationBy ?? "",
+    address: input.address ?? "",
+    landmark: input.landmark ?? "",
+    locationLat: input.locationLat ?? null,
+    locationLng: input.locationLng ?? null,
+    telegramLocationLink: input.telegramLocationLink ?? "",
+    code: input.code ?? "",
+    contactPerson: input.contactPerson ?? "",
+    note: input.note ?? "",
+    autoDelivery: input.autoDelivery ? 1 : 0,
+    unlimitedDebt: input.unlimitedDebt ? 1 : 0,
+    attributes: JSON.stringify(input.attributes ?? {}),
+  }
+}
+
+async function lockClients(db: PgDb) {
+  await db.exec("SELECT pg_advisory_xact_lock(72120936)")
+}
+
+export async function createClient(input: ClientInput, user?: { displayName: string }): Promise<Client> {
+  await ensureClientsSchema()
+  const id = await withTransaction(async (tx) => {
+    await lockClients(tx)
+    const checked = await validateReferences(tx, input)
+    await assertNotDuplicate(tx, checked, 0)
+    const result = await tx
       .prepare(
         `INSERT INTO clients (
            name, phone, inn, type, zone, zone_agent, agent, deliverer, collector, balance, tab,
            branch, sales_channel, realization_by, address, landmark, location_lat, location_lng,
-           telegram_location_link, code, contact_person, note, auto_delivery, unlimited_debt, attributes, updated_at
+           telegram_location_link, code, contact_person, note, auto_delivery, unlimited_debt, attributes, created_by, updated_at
          )
-       VALUES (
+         VALUES (
            @name, @phone, @inn, @type, @zone, @zoneAgent, @agent, @deliverer, @collector, @balance, @tab,
            @branch, @salesChannel, @realizationBy, @address, @landmark, @locationLat, @locationLng,
-           @telegramLocationLink, @code, @contactPerson, @note, @autoDelivery, @unlimitedDebt, @attributes, datetime('now')
+           @telegramLocationLink, @code, @contactPerson, @note, @autoDelivery, @unlimitedDebt, @attributes, @createdBy, datetime('now')
          )`,
       )
-      .run({
-        name: input.name,
-        phone: input.phone,
-        inn: input.inn ?? null,
-        type: input.type,
-        zone: input.zone,
-        zoneAgent: input.zoneAgent,
-        agent: input.agent,
-        deliverer: input.deliverer,
-        collector: input.collector,
-        balance: input.balance ?? null,
-        tab: input.tab,
-        branch: input.branch ?? "",
-        salesChannel: input.salesChannel ?? "",
-        realizationBy: input.realizationBy ?? "",
-        address: input.address ?? "",
-        landmark: input.landmark ?? "",
-        locationLat: input.locationLat ?? null,
-        locationLng: input.locationLng ?? null,
-        telegramLocationLink: input.telegramLocationLink ?? "",
-        code: input.code ?? "",
-        contactPerson: input.contactPerson ?? "",
-        note: input.note ?? "",
-        autoDelivery: input.autoDelivery ? 1 : 0,
-        unlimitedDebt: input.unlimitedDebt ? 1 : 0,
-        attributes: JSON.stringify(input.attributes ?? {}),
-      }))
-  await saveObjectStatus(db, Number(result.lastInsertRowid), input.isActive)
-  return (await getClient(Number(result.lastInsertRowid)))!
+      .run({ ...writeParams(checked, checked.balance ?? null), createdBy: user?.displayName ?? "" })
+    await saveObjectStatus(tx, Number(result.lastInsertRowid), input.isActive)
+    return Number(result.lastInsertRowid)
+  })
+  return (await getClient(id))!
+}
+
+/** Documents that store the client name (and, where present, the client id). */
+const NAME_REFERENCES: Array<{ table: string; name: string; id?: string }> = [
+  { table: "orders", name: "client", id: "client_id" },
+  { table: "customer_payments", name: "client", id: "client_id" },
+  { table: "cash_management_entries", name: "client_name", id: "client_id" },
+  { table: "client_returns", name: "client", id: "client_id" },
+  { table: "cashback_withdrawal_requests", name: "client", id: "client_id" },
+  { table: "inventory_items", name: "client", id: "client_id" },
+  { table: "inventory_item_requests", name: "client", id: "client_id" },
+  { table: "inventory_item_checks", name: "client", id: "client_id" },
+  { table: "contract_clients", name: "client_name", id: "client_id" },
+]
+
+async function columnsOf(db: PgDb, tables: string[]): Promise<Map<string, Set<string>>> {
+  const rows = (await db
+    .prepare(
+      `SELECT c.table_name, c.column_name FROM information_schema.columns c
+         JOIN information_schema.tables t ON t.table_schema = c.table_schema AND t.table_name = c.table_name
+        WHERE c.table_schema = current_schema() AND t.table_type = 'BASE TABLE' AND c.table_name = ANY(@tables::text[])`,
+    )
+    .all({ tables })) as Array<{ table_name: string; column_name: string }>
+  const map = new Map<string, Set<string>>()
+  for (const row of rows) {
+    if (!map.has(row.table_name)) map.set(row.table_name, new Set())
+    map.get(row.table_name)!.add(row.column_name)
+  }
+  return map
+}
+
+/** Rename: documents linked by id get the new name; legacy name-only rows get the id too
+ * (only when the old name identified this client alone). */
+async function cascadeRename(db: PgDb, id: number, oldName: string, newName: string) {
+  if (oldName === newName) return
+  const columns = await columnsOf(db, NAME_REFERENCES.map((ref) => ref.table))
+  const twins = (await db.prepare(`SELECT COUNT(*)::int AS n FROM clients WHERE ${keySql("name")} = ${keySql("@name::text")} AND id <> @id`).get({ name: oldName, id })) as { n: number }
+  const byName = twins.n === 0
+  for (const ref of NAME_REFERENCES) {
+    const cols = columns.get(ref.table)
+    if (!cols?.has(ref.name)) continue
+    const table = quoteIdent(ref.table)
+    const nameCol = quoteIdent(ref.name)
+    if (ref.id && cols.has(ref.id)) {
+      const idCol = quoteIdent(ref.id)
+      const legacy = byName ? ` OR (${idCol} IS NULL AND ${keySql(nameCol)} = ${keySql("@oldName::text")})` : ""
+      await db
+        .prepare(`UPDATE ${table} SET ${nameCol} = @newName, ${idCol} = @id WHERE (${idCol} = @id${legacy}) AND (${nameCol} IS DISTINCT FROM @newName OR ${idCol} IS DISTINCT FROM @id)`)
+        .run({ id, oldName, newName })
+    } else if (byName) {
+      await db.prepare(`UPDATE ${table} SET ${nameCol} = @newName WHERE ${keySql(nameCol)} = ${keySql("@oldName::text")}`).run({ oldName, newName })
+    }
+  }
+  // Contracts list their clients by name.
+  const contracts = await columnsOf(db, ["contracts"])
+  if (byName && contracts.get("contracts")?.has("client")) {
+    await db.prepare(`UPDATE contracts SET client = @newName WHERE ${keySql("client")} = ${keySql("@oldName::text")}`).run({ oldName, newName })
+  }
 }
 
 export async function updateClient(id: number, input: ClientInput): Promise<Client | null> {
-  const db = getDb()
-  await ensureSchema(db)
-  const existing = (await getClient(id))
-  if (!existing) return null
-
-  await db.prepare(
+  if (!Number.isSafeInteger(id) || id <= 0 || id > 2_147_483_647) return null
+  await ensureClientsSchema()
+  const found = await withTransaction(async (tx) => {
+    await lockClients(tx)
+    const row = (await tx.prepare("SELECT * FROM clients WHERE id = ? FOR UPDATE").get(id)) as ClientRow | undefined
+    if (!row) return false
+    const existing = rowToClient(row)
+    const checked = await validateReferences(tx, input, existing)
+    if (nameKey(checked.name) !== nameKey(existing.name) || checked.phone !== existing.phone || (checked.inn ?? "") !== (existing.inn ?? "")) {
+      await assertNotDuplicate(tx, checked, id)
+    }
+    // An omitted opening balance keeps the stored one; null clears it.
+    const balance = input.balance === undefined ? (row.balance ?? null) : input.balance
+    await tx
+      .prepare(
         `UPDATE clients SET name = @name, phone = @phone, inn = @inn, type = @type, zone = @zone,
-       zone_agent = @zoneAgent, agent = @agent, deliverer = @deliverer, collector = @collector,
-       balance = @balance, tab = @tab,
-       branch = @branch, sales_channel = @salesChannel, realization_by = @realizationBy,
-       address = @address, landmark = @landmark, location_lat = @locationLat, location_lng = @locationLng,
-       telegram_location_link = @telegramLocationLink, code = @code, contact_person = @contactPerson,
-       note = @note, auto_delivery = @autoDelivery, unlimited_debt = @unlimitedDebt, attributes = @attributes,
-       updated_at = datetime('now')
-     WHERE id = @id`,
-      ).run({
-        id,
-        name: input.name,
-        phone: input.phone,
-        inn: input.inn ?? null,
-        type: input.type,
-        zone: input.zone,
-        zoneAgent: input.zoneAgent,
-        agent: input.agent,
-        deliverer: input.deliverer,
-        collector: input.collector,
-        balance: input.balance ?? null,
-        tab: input.tab,
-        branch: input.branch ?? "",
-        salesChannel: input.salesChannel ?? "",
-        realizationBy: input.realizationBy ?? "",
-        address: input.address ?? "",
-        landmark: input.landmark ?? "",
-        locationLat: input.locationLat ?? null,
-        locationLng: input.locationLng ?? null,
-        telegramLocationLink: input.telegramLocationLink ?? "",
-        code: input.code ?? "",
-        contactPerson: input.contactPerson ?? "",
-        note: input.note ?? "",
-        autoDelivery: input.autoDelivery ? 1 : 0,
-        unlimitedDebt: input.unlimitedDebt ? 1 : 0,
-        attributes: JSON.stringify(input.attributes ?? {}),
-      })
-  await saveObjectStatus(db, id, input.isActive)
-  return (await getClient(id))
+           zone_agent = @zoneAgent, agent = @agent, deliverer = @deliverer, collector = @collector,
+           balance = @balance, tab = @tab,
+           branch = @branch, sales_channel = @salesChannel, realization_by = @realizationBy,
+           address = @address, landmark = @landmark, location_lat = @locationLat, location_lng = @locationLng,
+           telegram_location_link = @telegramLocationLink, code = @code, contact_person = @contactPerson,
+           note = @note, auto_delivery = @autoDelivery, unlimited_debt = @unlimitedDebt, attributes = @attributes,
+           updated_at = datetime('now')
+         WHERE id = @id`,
+      )
+      .run({ ...writeParams(checked, balance), id })
+    await saveObjectStatus(tx, id, input.isActive)
+    await cascadeRename(tx, id, row.name, checked.name)
+    return true
+  })
+  return found ? getClient(id) : null
 }
 
+// ---------------------------------------------------------------------------
+// Delete (contract 7)
+// ---------------------------------------------------------------------------
+
+export type ClientUsage = { table: string; label: string; count: number }
+
+/** Documents referencing the client: by id, by name for legacy rows without an id, or in id lists. */
+const USAGE: Array<{ table: string; label: string; id?: string; name?: string; idList?: string; where?: string }> = [
+  { table: "orders", label: "Заказы", id: "client_id", name: "client" },
+  { table: "customer_payments", label: "Оплаты от клиентов", id: "client_id", name: "client" },
+  { table: "client_payments", label: "Оплаты от клиентов", id: "client_id" },
+  { table: "client_bulk_payments", label: "Оплаты от клиентов", idList: "client_ids" },
+  { table: "account_bulk_payments", label: "Оплаты от клиентов", idList: "client_ids" },
+  { table: "client_returns", label: "Возвраты", id: "client_id", name: "client" },
+  { table: "loyalty_card_transactions", label: "Накопительная карта", id: "client_id" },
+  { table: "cashback_withdrawal_requests", label: "Запросы на снятие кэшбэка", id: "client_id", name: "client" },
+  { table: "contract_clients", label: "Договоры", id: "client_id", name: "client_name" },
+  { table: "contracts", label: "Договоры", name: "client" },
+  { table: "client_balance_corrections", label: "Баланс клиентов", id: "client_id" },
+  { table: "cash_management_entries", label: "Управления кассой", id: "client_id", name: "client_name" },
+  { table: "inventory_items", label: "Работа с инвентарем", id: "client_id", name: "client" },
+]
+
+export async function clientUsage(db: PgDb, client: { id: number; name: string; balance: number | null }): Promise<ClientUsage[]> {
+  const columns = await columnsOf(db, [...new Set(USAGE.map((ref) => ref.table))])
+  const twins = (await db.prepare(`SELECT COUNT(*)::int AS n FROM clients WHERE ${keySql("name")} = ${keySql("@name::text")} AND id <> @id`).get({ name: client.name, id: client.id })) as { n: number }
+  const byName = twins.n === 0
+  const usage = new Map<string, ClientUsage>()
+  for (const ref of USAGE) {
+    const cols = columns.get(ref.table)
+    if (!cols) continue
+    const conditions: string[] = []
+    const hasId = ref.id && cols.has(ref.id)
+    if (hasId) conditions.push(`${quoteIdent(ref.id!)} = @id`)
+    if (ref.name && cols.has(ref.name) && byName) {
+      conditions.push(`(${hasId ? `${quoteIdent(ref.id!)} IS NULL AND ` : ""}${keySql(quoteIdent(ref.name))} = ${keySql("@name::text")})`)
+    }
+    if (ref.idList && cols.has(ref.idList)) conditions.push(`${quoteIdent(ref.idList)}::text ~ ('(^|[^0-9])' || @id::text || '([^0-9]|$)')`)
+    if (!conditions.length) continue
+    const row = (await db.prepare(`SELECT COUNT(*)::int AS n FROM ${quoteIdent(ref.table)} WHERE ${conditions.join(" OR ")}`).get({ id: client.id, name: client.name })) as { n: number }
+    if (row.n > 0) {
+      const current = usage.get(ref.label)
+      usage.set(ref.label, { table: current?.table ?? ref.table, label: ref.label, count: (current?.count ?? 0) + row.n })
+    }
+  }
+  if (client.balance !== null && Math.abs(client.balance) > 0.000001) {
+    usage.set("Первоначальный баланс", { table: "clients", label: "Первоначальный баланс", count: 1 })
+  }
+  return [...usage.values()]
+}
+
+/** Refused (409 + usage) while documents reference the client or it has an opening balance. */
 export async function deleteClient(id: number): Promise<boolean> {
-  const db = getDb()
-  await ensureSchema(db)
-  const result = (await db.prepare("DELETE FROM clients WHERE id = ?").run(id))
-  return result.changes > 0
+  if (!Number.isSafeInteger(id) || id <= 0 || id > 2_147_483_647) return false
+  await ensureClientsSchema()
+  return withTransaction(async (tx) => {
+    await lockClients(tx)
+    const row = (await tx.prepare("SELECT id, name, balance FROM clients WHERE id = ? FOR UPDATE").get(id)) as { id: number; name: string; balance: number | null } | undefined
+    if (!row) return false
+    const usage = await clientUsage(tx, row)
+    if (usage.length) throw new ClientError("Удаление невозможно из-за связи с другими данными", 409, { usage })
+    return (await tx.prepare("DELETE FROM clients WHERE id = ?").run(id)).changes > 0
+  })
 }

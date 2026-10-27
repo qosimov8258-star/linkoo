@@ -42,9 +42,11 @@ export type WriteOffItem = {
   /** Blocks (qty ÷ units per block), 0 when unknown. */
   block: number
   qty: number
-  /** Себестоимость: average unit cost when it was written off. */
+  /** Себестоимость: the cost of goods when it was written off (0 for Брак). */
   cost: number
   sum: number
+  /** Defective units (Брак) taken out of the warehouse's defects. */
+  defect?: boolean
 }
 
 export type WriteOff = {

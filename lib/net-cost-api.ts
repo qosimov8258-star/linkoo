@@ -7,6 +7,7 @@ import { isIsoDay } from "@/lib/finance/dates"
 import { isEntryError, type EntryError } from "@/lib/net-cost-entries"
 import type { NetCostListQuery } from "@/lib/net-cost-repo"
 import { NET_COST_CHECK_KEYS, NET_COST_SORT_KEYS, type NetCostActionInput, type NetCostCheckKey, type NetCostEntryInput, type NetCostRecord } from "@/lib/net-cost-types"
+import { parsePageParam } from "@/lib/stock/paging"
 
 // Request parsing of /api/cost-of-goods/** (accepts our camelCase names and the demo's
 // stock/net_cost/ serializer names: product, cost, created_date, stock, begin_date,
@@ -114,7 +115,7 @@ export function parseListQuery(url: string): { query: NetCostListQuery; paged: b
       endDate: day("end_date", "endDate", "toDate"),
       faults: [...new Set(faults)],
       ordering: (NET_COST_SORT_KEYS as readonly string[]).includes(ordering.replace(/^-/, "")) ? ordering : "",
-      page: Math.max(1, Math.floor(Number(params.get("page")) || 1)),
+      page: parsePageParam(params.get("page")),
       pageSize: Number.isFinite(pageSize) && pageSize >= 0 ? Math.min(Math.floor(pageSize), 100_000) : 25,
     },
   }

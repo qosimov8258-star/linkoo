@@ -118,7 +118,7 @@ export function SupplierFormModal({
       })
       if (!response.ok) {
         const data = await response.json().catch(() => ({}))
-        setError(data.error || t("Не удалось сохранить поставщика"))
+        setError(data.error ? t(data.error) : t("Не удалось сохранить поставщика"))
         return
       }
       const saved = (await response.json()) as Supplier

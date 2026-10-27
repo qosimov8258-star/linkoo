@@ -22,6 +22,7 @@ import { useLanguage } from "@/lib/i18n/language-context"
 
 import type { AccessRight, Capability, Permission } from "./access-rights-data"
 import { notify } from "@/lib/notify"
+import { UsersPanel } from "./users-view"
 
 // "Права доступа" (demo #/position, Settings → Персонал; API main/position/, main/group/gcrud/ and billing permission/):
 // grid Права доступа | Возможности (chips), ✎ / 🗑 on hover; "+ создать права доступа" opens "Добавление должности"
@@ -297,8 +298,10 @@ export function AccessRightsView({ embedded = false }: { embedded?: boolean }) {
   async function remove(role: AccessRight) {
     const response = await fetch(`/api/access-rights/${role.id}`, { method: "DELETE" })
     if (!response.ok) {
-      const body = (await response.json().catch(() => ({}))) as { error?: string }
-      notify(t(body.error || "Не удалось удалить права доступа"))
+      // 409 while users or dashboard widgets are linked to it (the usage list names them).
+      const body = (await response.json().catch(() => ({}))) as { error?: string; usage?: { label: string; count: number }[] }
+      const usage = body.usage?.map((item) => `${item.label}: ${item.count}`).join(", ")
+      notify(`${t(body.error || "Не удалось удалить права доступа")}${usage ? ` (${usage})` : ""}`)
       return
     }
     setDeleting(null)
@@ -366,6 +369,7 @@ export function AccessRightsView({ embedded = false }: { embedded?: boolean }) {
           onSaved={() => { setCapabilityDialog(null); void load() }}
         />
       )}
+      {roles && <UsersPanel accessRights={roles} />}
       {deleting && <ConfirmDeleteDialog name={`${t("Права доступа")}: ${deleting.name}`} onConfirm={() => void remove(deleting)} onClose={() => setDeleting(null)} />}
     </section>
   )

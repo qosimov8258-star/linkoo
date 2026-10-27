@@ -4,6 +4,9 @@ import { useEffect, useMemo, useState } from "react"
 import { X } from "lucide-react"
 import { RI, RefButton, RefHeader } from "@/components/ref/list-kit"
 import { ReportMultiChipField, ReportPage, ReportRangeField, ReportSelectField, formatShortReportDate } from "@/components/ref/report-kit"
+import { useDirectoryNames } from "@/components/clients/use-directory"
+import { ORDER_STATUSES } from "@/components/orders/orders-data"
+import { useLanguage } from "@/lib/i18n/language-context"
 
 type PeriodData = { stores: number; storePercent: number; sum: number; sumPercent: number; dynamic?: number }
 type ClassificationRow = { name: string; periods: [PeriodData, PeriodData, PeriodData] }
@@ -55,6 +58,7 @@ type SelectKey = keyof typeof emptySelects
 const labels: Record<SelectKey, string> = { zone: "Зона", status: "Статус", brand: "Бренд", productType: "Тип товара", agent: "Ответственный агент магазина", branch: "Филиалы", clientType: "Тип клиента", dateBy: "По дате", closing: "Статус закрытия" }
 
 export function ClientDynamicsView() {
+  const { t } = useLanguage()
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [classes, setClasses] = useState<ClassRow[]>(DEFAULT_CLASSES)
   const [periods, setPeriods] = useState<[Period, Period, Period]>(defaultPeriods)
@@ -159,13 +163,13 @@ export function ClientDynamicsView() {
         }}
         className="mx-7 bg-white px-[20px] pb-[11px] pt-[10px] shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]"
       >
-        <h2 className="text-[14px] leading-[18px] text-[#666]">Фильтр</h2>
+        <h2 className="text-[14px] leading-[18px] text-[#666]">{t("Фильтр")}</h2>
         <div className="mt-[6px] grid gap-x-[10px] gap-y-[13px] md:grid-cols-2 xl:grid-cols-4">
           {(["zone", "status", "brand", "productType", "agent", "branch", "clientType", "dateBy"] as SelectKey[]).map((key) =>
             key === "status" ? (
               <ReportMultiChipField key={key} label={labels[key]} values={statuses} options={selects.status} onChange={setStatuses} />
             ) : (
-            <ReportSelectField key={key} label={labels[key]} value={filters[key]} options={selects[key]} onChange={(value) => setFilters((current) => ({ ...current, [key]: value }))} clearable={key === "dateBy"} />
+            <ReportSelectField key={key} label={labels[key]} value={filters[key]} options={selects[key]} onChange={(value) => setFilters((current) => ({ ...current, [key]: value }))} clearable={key !== "dateBy"} />
             ),
           )}
           {periods.map((period, index) => (
@@ -173,7 +177,7 @@ export function ClientDynamicsView() {
           ))}
           <ReportSelectField label={labels.closing} value={filters.closing} options={selects.closing} onChange={(value) => setFilters((current) => ({ ...current, closing: value }))} />
         </div>
-        <button type="submit" className="mt-[14px] h-9 w-[88px] rounded-[3px] bg-[#5d6474] text-[13px] font-semibold uppercase text-white shadow-[0_2px_5px_rgba(0,0,0,0.25)] hover:brightness-110">Фильтр</button>
+        <button type="submit" className="mt-[14px] h-9 w-[88px] rounded-[3px] bg-[#5d6474] text-[13px] font-semibold uppercase text-white shadow-[0_2px_5px_rgba(0,0,0,0.25)] hover:brightness-110">{t("Фильтр")}</button>
       </form>
 
       <section className="mx-7 mt-[10px] overflow-x-auto bg-white">
@@ -182,13 +186,13 @@ export function ClientDynamicsView() {
             {[152, 137, 80, 115, 81, 114, 68, 95, 79, 83, 108, 64, 90, 90, 87].map((width, index) => <col key={index} style={{ width: `${(width / 1443) * 100}%` }} />)}
           </colgroup>
           <thead>
-            <tr><th rowSpan={2} className={th}>Классификация</th>{periodLabels.map((label, index) => <th key={label} colSpan={index === 0 ? 4 : 5} className={`${th} ${index ? "border-l-2 border-l-black" : ""}`}>{label}</th>)}</tr>
-            <tr>{periodLabels.flatMap((_, period) => ["Колв. магазинов", "%", "Сумма заказа", "%", ...(period ? ["Динамика"] : [])].map((title, index) => <th key={`${period}-${index}`} className={`${th} ${period && index === 0 ? "border-l-2 border-l-black" : ""}`}>{title}</th>))}</tr>
+            <tr><th rowSpan={2} className={th}>{t("Классификация")}</th>{periodLabels.map((label, index) => <th key={label} colSpan={index === 0 ? 4 : 5} className={`${th} ${index ? "border-l-2 border-l-black" : ""}`}>{label}</th>)}</tr>
+            <tr>{periodLabels.flatMap((_, period) => ["Колв. магазинов", "%", "Сумма заказа", "%", ...(period ? ["Динамика"] : [])].map((title, index) => <th key={`${period}-${index}`} className={`${th} ${period && index === 0 ? "border-l-2 border-l-black" : ""}`}>{t(title)}</th>))}</tr>
           </thead>
           <tbody>
             {rows.map((row) => (
               <tr key={row.name} className="h-[57px]">
-                <td className="border border-[#ddd] px-[6px]">{row.name}</td>
+                <td className="border border-[#ddd] px-[6px]">{t(row.name)}</td>
                 {row.periods.flatMap((data, period) => [
                   <td key={`${period}-stores`} className={`border border-[#ddd] px-[6px] text-right font-semibold text-[#4f71dc] ${period ? "border-l-2 border-l-black" : ""}`}>{format(data.stores)}</td>,
                   <td key={`${period}-sp`} className="border border-[#ddd] px-[6px] text-right">{data.storePercent} %</td>,
@@ -218,6 +222,7 @@ function Dynamic({ value, spaced }: { value: number; spaced?: boolean }) {
   return <span className={`inline-block w-full rounded-[3px] py-[8px] text-[13px] font-semibold ${positive ? "bg-[#dff5e3] text-[#35b653]" : "bg-[#fde2e2] text-[#f25555]"}`}>{positive ? "▲" : "▼"} {format(value)}{spaced ? " %" : "%"}</span>
 }
 function ClassificationSettings({ classes, onSave, onClose }: { classes: ClassRow[]; onSave: (rows: ClassRow[]) => void | Promise<void>; onClose: () => void }) {
+  const { t } = useLanguage()
   const [rows, setRows] = useState(classes)
   const [draftName, setDraftName] = useState("")
   const [draftAmount, setDraftAmount] = useState("")
@@ -227,18 +232,18 @@ function ClassificationSettings({ classes, onSave, onClose }: { classes: ClassRo
     <div className="fixed inset-0 z-[90] bg-black/[0.54]" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
       <section role="dialog" className="fixed bottom-[48px] left-1/2 top-[80px] flex w-[500px] max-w-full -translate-x-1/2 flex-col bg-white text-[13px] text-[#333] shadow-[0_10px_30px_rgba(0,0,0,0.3)]">
         <header className="flex h-[60px] shrink-0 items-center justify-between border-b border-[#efefef] pl-[30px] pr-[22px]">
-          <b className="uppercase">Настройки</b>
-          <button type="button" onClick={onClose} aria-label="Закрыть"><X className="h-6 w-6" /></button>
+          <b className="uppercase">{t("Настройки")}</b>
+          <button type="button" onClick={onClose} aria-label={t("Закрыть")}><X className="h-6 w-6" /></button>
         </header>
         <div className="min-h-0 flex-1 overflow-y-auto px-[30px] pb-[20px]">
           {rows.map((row, index) => (
             <div key={index} className="relative grid h-[102px] grid-cols-[215px_1fr] gap-x-[10px] pt-[60px]">
               <label className="relative block h-[36px] border-b border-[#e8e8e8]">
-                <span className={`${float} -top-[18px]`}>Название</span>
+                <span className={`${float} -top-[18px]`}>{t("Название")}</span>
                 <input value={row.name} onChange={(event) => setRows((current) => current.map((item, i) => (i === index ? { ...item, name: event.target.value } : item)))} className="absolute inset-x-0 bottom-0 h-[26px] bg-transparent font-semibold outline-none" />
               </label>
               <label className="relative block h-[36px] border-b border-[#e8e8e8]">
-                <span className={`${float} -top-[18px]`}>Сумма закупа до <span className="text-[#e57373]">*</span></span>
+                <span className={`${float} -top-[18px]`}>{t("Сумма закупа до")} <span className="text-[#e57373]">*</span></span>
                 <input
                   value={fmt(row.amount)}
                   onChange={(event) => {
@@ -248,14 +253,14 @@ function ClassificationSettings({ classes, onSave, onClose }: { classes: ClassRo
                   className="absolute inset-x-0 bottom-0 h-[26px] bg-transparent font-semibold outline-none"
                 />
               </label>
-              <button type="button" aria-label="Удалить" onClick={() => setRows((current) => current.filter((_, i) => i !== index))} className="absolute right-0 top-[20px] flex h-[40px] w-[40px] items-center justify-center rounded-[3px] bg-[#e57373]">
+              <button type="button" aria-label={t("Удалить")} onClick={() => setRows((current) => current.filter((_, i) => i !== index))} className="absolute right-0 top-[20px] flex h-[40px] w-[40px] items-center justify-center rounded-[3px] bg-[#e57373]">
                 <span className="h-[2px] w-[14px] bg-white" />
               </button>
             </div>
           ))}
           <div className="mt-[20px] grid grid-cols-[215px_1fr] gap-x-[10px]">
             <label className="relative block h-[50px] border-b border-[#e8e8e8]">
-              <span className={`absolute left-0 font-semibold ${draftName ? "top-0 text-[10px]" : "top-[28px] text-[13px]"}`}>Название</span>
+              <span className={`absolute left-0 font-semibold ${draftName ? "top-0 text-[10px]" : "top-[28px] text-[13px]"}`}>{t("Название")}</span>
               <input value={draftName} onChange={(event) => setDraftName(event.target.value)} className="absolute inset-x-0 bottom-0 h-[26px] bg-transparent font-semibold outline-none" />
             </label>
             <input value={draftAmount} onChange={(event) => setDraftAmount(event.target.value.replace(/\D/g, ""))} placeholder="20 000 000" className="h-[52px] bg-[#f2f5f8] px-[12px] outline-none placeholder:text-[#999]" />
@@ -271,12 +276,12 @@ function ClassificationSettings({ classes, onSave, onClose }: { classes: ClassRo
             }}
             className="mt-[20px] h-[35px] w-full rounded-[3px] bg-[#4f71dc] font-semibold text-white hover:brightness-95"
           >
-            Добавить
+            {t("Добавить")}
           </button>
         </div>
         <footer className="flex h-[57px] shrink-0 items-center justify-end gap-[20px] border-t border-[#efefef] pr-[10px]">
-          <button type="button" onClick={() => setRows(DEFAULT_CLASSES)} className="h-[35px] rounded-[3px] bg-[#71ce87] px-[16px] font-bold uppercase text-white hover:brightness-95">Восстановить</button>
-          <button type="button" onClick={() => onSave(rows)} className="h-[35px] rounded-[3px] bg-[#71ce87] px-[16px] font-bold uppercase text-white hover:brightness-95">Сохранить</button>
+          <button type="button" onClick={() => setRows(DEFAULT_CLASSES)} className="h-[35px] rounded-[3px] bg-[#71ce87] px-[16px] font-bold uppercase text-white hover:brightness-95">{t("Восстановить")}</button>
+          <button type="button" onClick={() => onSave(rows)} className="h-[35px] rounded-[3px] bg-[#71ce87] px-[16px] font-bold uppercase text-white hover:brightness-95">{t("Сохранить")}</button>
         </footer>
       </section>
     </div>

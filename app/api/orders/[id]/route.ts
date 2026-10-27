@@ -1,100 +1,73 @@
 import { NextRequest, NextResponse } from "next/server"
+
+import { parseBody } from "@/lib/auth-request"
+import { getCurrentUser } from "@/lib/current-user"
+import { orderErrorResponse, orderPatchSchema as baseOrderPatchSchema, routeId } from "@/lib/orders-api"
+import { deleteOrder, getOrder, getOrderClientDebt, updateOrder } from "@/lib/orders-repo"
+import { requireRole } from "@/lib/rbac"
 import { z } from "zod"
 
-import { getCurrentUser } from "@/lib/current-user"
-import { requireRole } from "@/lib/rbac"
-import { parseJsonBody } from "@/lib/validation"
 import { getDb } from "@/lib/db"
-import { addOrderLog } from "@/lib/order-logs-repo"
-import { deleteOrder, getOrder, updateOrder, type OrderPatch } from "@/lib/orders-repo"
 
 type RouteParams = { params: Promise<{ id: string }> }
 
-/** Reference status codes (0 В процессе … 5 Не подтвержден) and the labels its log comments use. */
-const STATUS_CODE: Record<string, string> = { "В процессе": "0", "Есть на складе": "1", "В пути": "2", "Доставлено": "3", "Отменен": "4", "Не подтвержден": "5" }
-const STATUS_LOG_LABEL: Record<string, string> = { "В пути": "Передан доставщику", "Доставлено": "Доставлен" }
-const statusLogLabel = (status: string) => STATUS_LOG_LABEL[status] ?? status
+const NOT_FOUND = { error: "Заказ не найден" }
 
-const orderPatchSchema = z.object({
-  client: z.string().optional(),
-  zone: z.string().optional(),
-  type: z.string().optional(),
-  product: z.string().optional(),
-  created: z.string().optional(),
-  delivery: z.string().optional(),
-  agent: z.string().optional(),
-  amount: z.string().optional(),
-  balance: z.string().optional(),
-  status: z.string().optional(),
-  discount: z.string().optional(),
-  negative: z.boolean().optional(),
-  paymentDate: z.union([z.string().regex(/^\d{4}-\d{2}-\d{2}$/), z.literal("")]).optional(),
-  paymentType: z.enum(["cash", "bank", ""]).optional(),
-  organization: z.string().trim().max(200).optional(),
-  deliveryMan: z.string().trim().max(200).optional(),
+const isoDay = z.union([z.string().regex(/^\d{4}-\d{2}-\d{2}$/), z.literal("")])
+
+// The shared patch schema plus the reference-snapshot fields the order card edits.
+const orderPatchSchema = baseOrderPatchSchema.extend({
   expeditor: z.string().trim().max(200).optional(),
   payMethod: z.enum(["cash", "bank", ""]).optional(),
   payTypeName: z.string().trim().max(100).optional(),
-  priceList: z.string().trim().max(200).optional(),
   stockName: z.string().trim().max(200).optional(),
   branchName: z.string().trim().max(200).optional(),
-  dealType: z.enum(["0", "1", ""]).optional(),
-  deliveryType: z.enum(["delivery", "self", ""]).optional(),
-  dueDate: z.union([z.string().regex(/^\d{4}-\d{2}-\d{2}$/), z.literal("")]).optional(),
   transportNumber: z.string().trim().max(100).optional(),
-  acceptedDate: z.union([z.string().regex(/^\d{4}-\d{2}-\d{2}$/), z.literal("")]).optional(),
+  dueDate: isoDay.optional(),
+  acceptedDate: isoDay.optional(),
   paidAmount: z.number().min(0).optional(),
   orderBalance: z.number().optional(),
-  invoiceActive: z.boolean().optional(),
-  invoiceNumber: z.string().trim().max(100).optional(),
-  invoiceDate: z.union([z.string().regex(/^\d{4}-\d{2}-\d{2}$/), z.literal("")]).optional(),
   invoiceContract: z.string().trim().max(200).optional(),
   createdAt: z.string().regex(/^\d{4}-\d{2}-\d{2}( \d{2}:\d{2}(:\d{2})?)?$/).optional(),
 })
 
+// GET /api/orders/[id] → Order + clientDebt {operative, actual} (the client's ledger balance by creation / realization).
 export async function GET(_request: NextRequest, { params }: RouteParams) {
   const user = await getCurrentUser()
   if (!user) return NextResponse.json({ error: "Tizimga kirilmagan" }, { status: 401 })
 
-  const id = Number((await params).id)
-  const order = (await getOrder(id))
-  if (!order) return NextResponse.json({ error: "Заказ не найден" }, { status: 404 })
-  return NextResponse.json(order)
+  const id = routeId((await params).id)
+  const order = id ? await getOrder(id) : null
+  if (!order) return NextResponse.json(NOT_FOUND, { status: 404 })
+  return NextResponse.json({ ...order, clientDebt: await getOrderClientDebt(order) })
 }
 
+// PATCH /api/orders/[id] — status (known statuses and allowed transitions only,
+// 409 otherwise), client, warehouse, people, payment terms… Доставлено /
+// Отменен orders are final (only payment date / invoice details change).
 export async function PATCH(request: NextRequest, { params }: RouteParams) {
   const auth = await requireRole("manager")
   if ("error" in auth) return auth.error
 
-  const id = Number((await params).id)
-  const parsed = await parseJsonBody(request, orderPatchSchema)
+  const id = routeId((await params).id)
+  if (!id) return NextResponse.json(NOT_FOUND, { status: 404 })
+  const parsed = await parseBody(request, orderPatchSchema)
   if (parsed.error) return parsed.error
 
-  const patch = Object.fromEntries(Object.entries(parsed.data).filter(([, value]) => value !== undefined)) as OrderPatch
-  if (Object.keys(patch).length === 0) {
+  const { balance: _balance, negative: _negative, ...patch } = parsed.data
+  void _balance
+  void _negative
+  if (!Object.values(patch).some((value) => value !== undefined)) {
     return NextResponse.json({ error: "Нет данных для обновления" }, { status: 400 })
   }
 
-  const before = await getOrder(id)
-  const order = (await updateOrder(id, patch))
-  if (!order) return NextResponse.json({ error: "Заказ не найден" }, { status: 404 })
-  if (before && order.status !== before.status) {
-    // the employee record that owns the login carries the person's real name (same lookup as /api/auth/me)
-    const employee = (await getDb()
-      .prepare("SELECT first_name, last_name FROM employees WHERE login = ? ORDER BY id LIMIT 1")
-      .get(auth.user.username)) as { first_name: string; last_name: string } | undefined
-    await addOrderLog(id, {
-      action: "updated",
-      status: STATUS_CODE[order.status] ?? "",
-      comment: `Изменен статус: ${statusLogLabel(before.status)} - ${statusLogLabel(order.status)}`,
-      totalPrice: order.totalPrice ?? 0,
-      currency: order.amount.trim().split(/\s+/).pop() || "SUM",
-      payType: order.payTypeName,
-      createdBy: employee ? `${employee.first_name} ${employee.last_name}`.trim() : auth.user.displayName,
-      market: order.marketName || order.client,
-    })
+  try {
+    const order = await updateOrder(id, patch, auth.user)
+    if (!order) return NextResponse.json(NOT_FOUND, { status: 404 })
+    return NextResponse.json(order)
+  } catch (error) {
+    return orderErrorResponse(error)
   }
-  return NextResponse.json(order)
 }
 
 /** Removes an order that never left the warehouse (the reference only cancels, so a shipped / delivered order is refused). */

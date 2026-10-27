@@ -7,9 +7,12 @@ import { getDb, type PgDb } from "@/lib/db"
 import { normCurrency } from "@/lib/finance/currency"
 import { loadCurrencyContext } from "@/lib/finance/context"
 import { isIsoDay, monthEndIso, monthStartIso, todayIso } from "@/lib/finance/dates"
+import { REVALUATION_KIND, type LedgerPosting } from "@/lib/net-cost-ledger"
+import { loadCostLedger } from "@/lib/stock/costs"
 import { stockOrphanNames } from "@/lib/stock/level"
-import { getStockBalances, getStockCatalog, stockMovementsSql } from "@/lib/stock/ledger"
-import { STOCK_MOVE_KINDS, type StockBalance, type StockCatalogItem, type StockMoveKind } from "@/lib/stock/types"
+import { getStockCatalog, stockMovementsSql } from "@/lib/stock/ledger"
+import { parsePageParam } from "@/lib/stock/paging"
+import { STOCK_MOVE_KINDS, type StockCatalogItem, type StockMoveKind } from "@/lib/stock/types"
 import {
   MOVE_FIELDS,
   MOVE_GROUP_BY,
@@ -31,9 +34,12 @@ import {
 //   kind   = Σ movements of that kind within [from, to]
 //   end    = begin + Σ kinds
 // then grouped by item / brand / type / warehouse / branch.
-// Modes: quantity; cost (begin/end valued like "Остаток" = getStockBalances
-// value; movements at their document value, else qty × average cost at the
-// end of the period); price (qty × the item's price in the chosen price list).
+// Modes: quantity; cost (every value from the cost ledger, lib/stock/costs.ts:
+// receipts at their cost, issues and transfers at the moving average of their
+// moment, plus "Переоценка" = the revaluation of the stock on hand when the
+// average changes; begin = Σ before `from`, end = begin + Σ columns, which is
+// on-hand × the moving average, as "Остаток" shows it); price (qty × the
+// item's price in the chosen price list).
 
 export type MoveFilters = {
   from: string
@@ -141,7 +147,7 @@ export function parseMoveFilters(params: URLSearchParams): { filters: MoveFilter
 }
 
 export function parsePaging(params: URLSearchParams): { page: number; pageSize: number; ordering: string } {
-  const page = Math.max(1, Math.floor(Number(params.get("page")) || 1))
+  const page = parsePageParam(params.get("page"))
   const sizeRaw = params.get("pageSize")
   const size = sizeRaw === null || sizeRaw === "" ? 25 : Math.floor(Number(sizeRaw))
   return { page, pageSize: Number.isFinite(size) && size >= 0 ? Math.min(size, 5000) : 25, ordering: (params.get("ordering") ?? "").trim() }
@@ -157,6 +163,7 @@ const round = (value: number) => {
 function finish(numbers: MoveNumbers): MoveNumbers {
   numbers.other_in = numbers.inventory_in + numbers.manufacture_in + numbers.transfer_in + numbers.none_in
   numbers.other_out = numbers.inventory_out + numbers.manufacture_out + numbers.transfer_out + numbers.none_out
+  numbers.revaluation = numbers.revaluation || 0
   for (const field of MOVE_FIELDS) numbers[field] = round(numbers[field])
   return numbers
 }
@@ -176,12 +183,6 @@ const cellKey = (itemKey: string, warehouseKey: string) => `${itemKey}\u0000${wa
 /** JS twin of the SQL fin_key(): trimmed, single-spaced, lower-cased. */
 export function finKey(value: string): string {
   return value.replace(/[\u00a0\u202f]/g, " ").replace(/\s+/g, " ").trim().toLowerCase()
-}
-
-function previousDay(day: string): string {
-  const date = new Date(`${day}T00:00:00Z`)
-  date.setUTCDate(date.getUTCDate() - 1)
-  return date.toISOString().slice(0, 10)
 }
 
 // --- mirrored reference history ----------------------------------------------------
@@ -300,16 +301,18 @@ function ledgerWhere(context: Context, params: Record<string, unknown>): string[
   return where
 }
 
-/** Ledger → one cell per (item, warehouse) with begin / kinds / end; `costs` = average unit cost at the end of the period. */
+/** Ledger → one cell per (item, warehouse) with begin / kinds / end; `postings` = the cost
+ * ledger's value changes of the items (cost mode). */
 async function loadCells(
   filters: MoveFilters,
   context: Context,
   db: PgDb,
   itemKey?: string,
-): Promise<{ cells: Cell[]; needPriceList: boolean; costs: Map<string, number> }> {
+): Promise<{ cells: Cell[]; needPriceList: boolean; postings: Map<string, LedgerPosting[]>; costs: Map<string, number> }> {
   const needPriceList = filters.mode === "price" && !filters.priceList
   const costs = new Map<string, number>()
-  if (context.allowedWarehouses && !context.allowedWarehouses.length) return { cells: [], needPriceList, costs }
+  let postings = new Map<string, LedgerPosting[]>()
+  if (context.allowedWarehouses && !context.allowedWarehouses.length) return { cells: [], needPriceList, postings, costs }
   const ledger = await reportLedger(db)
   const params: Record<string, unknown> = { ...ledger.params, rep_from: filters.from, rep_to: filters.to }
   const where = [...ledgerWhere(context, params), "m.day <= @rep_to"]
@@ -338,7 +341,7 @@ async function loadCells(
     let cell = cells.get(id)
     if (!cell) {
       const warehouse = context.warehouses.get(warehouseKey)?.name ?? String(row.wh ?? "").trim()
-      cell = { itemKey: key, warehouseKey, warehouse, qty: emptyMoveNumbers(), value: null, kindValue: emptyMoveNumbers(), unvalued: emptyMoveNumbers(), adj: 0 }
+      cell = { itemKey: key, warehouseKey, warehouse, qty: emptyMoveNumbers(), value: filters.mode === "cost" ? emptyMoveNumbers() : null, kindValue: emptyMoveNumbers(), unvalued: emptyMoveNumbers(), adj: 0 }
       cells.set(id, cell)
     }
     const qty = Number(row.qty) || 0
@@ -354,11 +357,9 @@ async function loadCells(
     }
   }
 
-  // Cost mode: begin / end valued like "Остаток" (qty × average cost at that
-  // moment); movements at their document value, else (transfers, lines without
-  // a cost) qty × the average cost at the end of the period.
-  let beginBalances = new Map<string, StockBalance>()
-  let endBalances = new Map<string, StockBalance>()
+  // Cost mode: with the mirrored reference history the valuations are the reference's own snapshots; otherwise every
+  // value comes from the cost ledger's postings, so value is conserved: end = begin + Σ kinds + Переоценка
+  // (= on hand × moving average).
   const mirrored = new Map<string, { begin: number; end: number }>()
   if (filters.mode === "cost" && cells.size && ledger.cutoff) {
     // Valuations come from the reference's own snapshots (value after each movement day): begin = the last snapshot
@@ -396,14 +397,19 @@ async function loadCells(
       })
     }
   } else if (filters.mode === "cost" && cells.size) {
-    const warehouses = context.allowedWarehouses ?? undefined
-    const [begin, end] = await Promise.all([
-      getStockBalances({ warehouses, date: previousDay(filters.from) }, db),
-      getStockBalances({ warehouses, date: filters.to }, db),
-    ])
-    beginBalances = new Map(begin.map((balance) => [cellKey(balance.key, finKey(balance.warehouse)), balance]))
-    endBalances = new Map(end.map((balance) => [cellKey(balance.key, finKey(balance.warehouse)), balance]))
-    for (const balance of end) costs.set(balance.key, balance.cost)
+    const costLedger = await loadCostLedger(db)
+    postings = costLedger.postings
+    const items = new Set([...cells.values()].map((cell) => cell.itemKey))
+    for (const item of items) {
+      for (const posting of costLedger.postings.get(item) ?? []) {
+        if (posting.day > filters.to) continue
+        const value = cells.get(cellKey(item, posting.wk))?.value
+        if (!value) continue
+        if (posting.day < filters.from) value.begin += posting.value
+        else if (posting.kind === REVALUATION_KIND) value.revaluation += posting.value
+        else if (STOCK_MOVE_KINDS.includes(posting.kind as StockMoveKind)) value[posting.kind as StockMoveKind] += posting.value
+      }
+    }
   }
 
   const result: Cell[] = []
@@ -411,22 +417,24 @@ async function loadCells(
     cell.qty.end = cell.qty.begin + STOCK_MOVE_KINDS.reduce((sum, kind) => sum + cell.qty[kind], 0) + cell.adj
     finish(cell.qty)
     let value: MoveNumbers | null = null
-    if (filters.mode === "cost") {
-      const begin = beginBalances.get(id)
-      const end = endBalances.get(id)
+    const mirror = mirrored.get(id)
+    if (filters.mode === "cost" && mirror) {
       const unitCost = costs.get(cell.itemKey) ?? context.catalog.get(cell.itemKey)?.fallbackCost ?? 0
       value = emptyMoveNumbers()
-      const mirror = mirrored.get(id)
-      value.begin = mirror ? mirror.begin : begin ? begin.value : cell.qty.begin * unitCost
-      value.end = mirror ? mirror.end : end ? end.value : cell.qty.end * unitCost
+      value.begin = mirror.begin
+      value.end = mirror.end
       for (const kind of STOCK_MOVE_KINDS) value[kind] = cell.kindValue[kind] + cell.unvalued[kind] * unitCost
       finish(value)
+    } else if (filters.mode === "cost" && cell.value) {
+      const costed = cell.value
+      costed.end = costed.begin + STOCK_MOVE_KINDS.reduce((sum, kind) => sum + costed[kind], 0) + costed.revaluation
+      value = finish(costed)
     } else if (filters.mode === "price" && !needPriceList) {
       value = finish(scaled(cell.qty, context.catalog.get(cell.itemKey)?.prices[filters.priceList] ?? 0))
     }
     result.push({ itemKey: cell.itemKey, warehouseKey: cell.warehouseKey, warehouse: cell.warehouse, qty: cell.qty, value })
   }
-  return { cells: result, needPriceList, costs }
+  return { cells: result, needPriceList, postings, costs }
 }
 
 function groupOf(cell: Pick<Cell, "itemKey" | "warehouse" | "warehouseKey">, groupBy: MoveGroupBy, context: Context): string {
@@ -597,7 +605,7 @@ export async function stockMovementItem(key: string, filters: MoveFilters, db: P
   const item = context.catalog.get(key)
   if (!item && !key.startsWith("name:")) return null
   const itemFilters: MoveFilters = { ...filters, groupBy: "stock", search: "", organizations: [], types: [], subcategories: [], brands: [], transaction: "", balance: "" }
-  const { cells, needPriceList, costs } = await loadCells(itemFilters, context, db, key)
+  const { cells, needPriceList, postings, costs } = await loadCells(itemFilters, context, db, key)
   await resolveOrphans([key], context, db)
   const withValue = filters.mode === "cost" || (filters.mode === "price" && !needPriceList)
   const total: MoveRow = { key, name: nameOfKey(key, context), article: item?.article ?? "", unit: item?.unit ?? "", qty: emptyMoveNumbers(), value: withValue ? emptyMoveNumbers() : null }
@@ -611,8 +619,17 @@ export async function stockMovementItem(key: string, filters: MoveFilters, db: P
   finish(total.qty)
   if (total.value) finish(total.value)
 
-  // Documents of the period (lines without a document value: qty × the average cost at the end of the period).
+  // Documents of the period; in cost mode valued from the cost ledger (the movement's own posting).
+  const docValues = new Map<string, number>()
+  if (filters.mode === "cost") {
+    for (const posting of postings.get(key) ?? []) {
+      if (posting.kind === REVALUATION_KIND || posting.day < filters.from || posting.day > filters.to) continue
+      const id = [posting.day, posting.wk, posting.kind, posting.docType, posting.docId].join("\u0000")
+      docValues.set(id, (docValues.get(id) ?? 0) + posting.value)
+    }
+  }
   const ledger = await reportLedger(db)
+  const mirrorCutoff = ledger.cutoff
   const params: Record<string, unknown> = { ...ledger.params, rep_key: key, rep_from: filters.from, rep_to: filters.to }
   const where = [...ledgerWhere(context, params), "m.item_key = @rep_key", "m.day >= @rep_from", "m.day <= @rep_to"]
   const docRows =
@@ -636,7 +653,8 @@ export async function stockMovementItem(key: string, filters: MoveFilters, db: P
     const qty = round(Number(row.qty) || 0)
     const warehouse = context.warehouses.get(String(row.wk ?? ""))?.name ?? String(row.wh ?? "").trim()
     let value: number | null = null
-    if (filters.mode === "cost") value = round((Number(row.value) || 0) + (Number(row.unvalued) || 0) * unitCost)
+    if (filters.mode === "cost" && mirrorCutoff) value = round((Number(row.value) || 0) + (Number(row.unvalued) || 0) * unitCost)
+    else if (filters.mode === "cost") value = round(docValues.get([String(row.day ?? ""), String(row.wk ?? ""), String(row.kind), String(row.doc_type ?? ""), Number(row.doc_id) || 0].join("\u0000")) ?? 0)
     else if (withValue) value = round(qty * price)
     // The mirror's kind-less movements show as "Прочий приход / расход".
     const rawKind = String(row.kind)
@@ -684,10 +702,11 @@ export function stockMovementSheet(rows: MoveRow[], filters: MoveFilters, option
     ]
   }
 
-  const columns = moveColumns(options.showOthers)
+  const columns = moveColumns(options.showOthers, filters.mode)
   const valueLabel = filters.mode === "price" ? t("Цена") : t("Стоимость")
+  const qtyCell = (column: (typeof columns)[number], qty: MoveNumbers): MoveSheetCell => (column.valueOnly ? "" : shownMoveValue(column, qty[column.field]))
   const cells = (qty: MoveNumbers, value: MoveNumbers | null) =>
-    columns.flatMap((column) => (options.withValue ? [shownMoveValue(column, qty[column.field]), shownMoveValue(column, value?.[column.field] ?? 0)] : [shownMoveValue(column, qty[column.field])]))
+    columns.flatMap((column) => (options.withValue ? [qtyCell(column, qty), shownMoveValue(column, value?.[column.field] ?? 0)] : [qtyCell(column, qty)]))
   const header = [...lead, ...columns.flatMap((column) => (options.withValue ? [t(column.label), ""] : [t(column.label)]))]
   const subHeader = [...lead.map(() => ""), ...columns.flatMap(() => (options.withValue ? [t("Кол-во"), valueLabel] : [t("Кол-во")]))]
   return [header, subHeader, ...rows.map((row) => [...leadOf(row), ...cells(row.qty, row.value)]), [...totalLead, ...cells(total, options.withValue ? totalValue : null)]]

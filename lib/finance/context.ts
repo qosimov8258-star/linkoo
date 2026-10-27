@@ -46,3 +46,13 @@ export function withSeenCodes(ctx: CurrencyContext, codes: Iterable<string>): Cu
   ]
   return { ...ctx, currencies, rates: { ...ctx.rates, ...Object.fromEntries(extra.map((code) => [code, null])) } }
 }
+
+/** Canonical code of `value` when it is a currency of the currencies table
+ * (SUM / USD / EUR when the table is empty), else null — the check every
+ * money write does before storing a currency ("Валюта не найдена"). */
+export async function resolveCurrencyCode(db: PgDb, value: string | null | undefined): Promise<string | null> {
+  if (!String(value ?? "").trim()) return null
+  const code = normCurrency(value)
+  const context = await loadCurrencyContext(db)
+  return context.currencies.some((currency) => currency.code === code) ? code : null
+}

@@ -12,7 +12,7 @@ import { useLanguage } from "@/lib/i18n/language-context"
 import { STOCK_INVENTORY_TYPE_LABELS, type StockInventoryDetail } from "@/lib/stock-inventories-types"
 
 // Demo InventoryDetail (module 4750), shown in place of the clicked row: the
-// creator as the title; "Изменить" (pending only), Excel of the lines,
+// document ("Инвентаризация № N · warehouse") as the title; "Изменить" (pending only), Excel of the lines,
 // "Подтвердить" (pending; dialog "Подтверждения инвентаризации" with a comment)
 // or "Отменить" (confirmed), "Удалить" (pending). Left: Тип, Склад, Статус,
 // Дата создания, Время, Комментарий. Right: Наименование | Серия | Баланс (до) |
@@ -96,7 +96,10 @@ export function InventoryDetailPanel({
     <div className="bg-white text-[14px] text-[#333] shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
       <div className="relative flex min-h-[65px] flex-wrap items-center justify-between gap-3 border-b border-[#efefef] px-4 py-2 md:px-[30px]">
         <button type="button" onClick={onClose} className="absolute inset-0 cursor-pointer" aria-label={t("Закрыть")} />
-        <h3 className="relative z-[1] truncate text-[16px] font-bold text-[#333]">{data.createdBy || `№ ${data.id}`}</h3>
+        <h3 className="relative z-[1] truncate text-[16px] font-bold text-[#333]">
+          {t("Инвентаризация")} № {data.id}
+          {data.warehouse ? <span className="ml-2 font-normal text-[#586174]">· {data.warehouse}</span> : null}
+        </h3>
         <div className="relative z-[3] flex items-center gap-2.5">
           {canEdit && (
             <button type="button" disabled={data.status !== "pending"} onClick={() => onEdit(data)} title={t("Изменить")} aria-label={t("Изменить")} className={iconButton}>
@@ -142,6 +145,7 @@ export function InventoryDetailPanel({
             <InfoRow label={t("Дата создания")}>{inventoryDateText(data, language)}</InfoRow>
             <InfoRow label={t("Время")}>{data.forDayEnd ? t("На конец дня") : t("На начало дня")}</InfoRow>
             <InfoRow label={t("Комментарий")}>{data.comment || t("Комментариев нет")}</InfoRow>
+            <InfoRow label={t("Создал")}>{data.createdBy || "—"}</InfoRow>
             {data.confirmedAt && (
               <InfoRow label={t("Подтвердил")}>
                 {data.confirmedBy || "—"}

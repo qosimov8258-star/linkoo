@@ -8,7 +8,7 @@ import { useLanguage } from "@/lib/i18n/language-context"
 import { AddOrderDialog } from "./add-order-dialog"
 import { RefCheck, RefDate, RefSelect, RefText } from "./order-ref-fields"
 import { OrderPaymentsDialog, OrderReturnsTab } from "./order-returns-tab"
-import { orderOrganization, type Order } from "./orders-data"
+import { EDITABLE_STATUSES, FINAL_STATUSES, ORDER_STATUSES, canChangeStatus, orderOrganization, type Order } from "./orders-data"
 
 /* ------------------------------------------------------------------ */
 /* Types & constants                                                   */
@@ -16,6 +16,7 @@ import { orderOrganization, type Order } from "./orders-data"
 
 export type OrderLineItem = {
   id: number
+  productId: number | null
   productName: string
   unit: string
   quantity: number
@@ -42,8 +43,6 @@ export type ApiOrderLog = {
   market: string
   products: { productId: number | null; name: string; amount: number; price: number; total: number }[]
 }
-
-type InvoiceDetails = { number: string; date: string; contract: string; active: boolean }
 
 /** Reference action codes -> badge label and colour of the "Логи" tab. */
 export const LOG_ACTIONS: Record<string, { label: string; tone: "success" | "begin" | "error" }> = {
@@ -76,7 +75,7 @@ export function formatLogDate(iso: string) {
   return `${formatRuDate(date)}, ${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`
 }
 
-export const ORDER_STATUS_OPTIONS = ["Не подтвержден", "В процессе", "Есть на складе", "В пути", "Доставлено", "Отменен"]
+export const ORDER_STATUS_OPTIONS: string[] = [...ORDER_STATUSES]
 
 const STATUS_MENU: { status: string; label: string; icon: string; color: string }[] = [
   { status: "Не подтвержден", label: "Не подтвержденный", icon: "M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z", color: "#999" },
@@ -137,15 +136,29 @@ function formatRuDate(date: Date) {
   return `${String(date.getDate()).padStart(2, "0")} ${RU_SHORT_MONTHS[date.getMonth()]} ${date.getFullYear()}`
 }
 
-function toInputDate(value: string) {
-  const match = /(\d{1,2})\s+([А-Яа-я]+)\.?\s+(\d{4})/.exec(value)
+function localIso(date: Date) {
+  const offset = date.getTimezoneOffset() * 60000
+  return new Date(date.getTime() - offset).toISOString().slice(0, 10)
+}
+
+/** "2026-10-21", "21 окт. 2026" or "21 октября 2026 г." → "2026-10-21" (today when unreadable). */
+function toInputDate(value: string | undefined) {
+  const text = value ?? ""
+  if (/^\d{4}-\d{2}-\d{2}/.test(text)) return text.slice(0, 10)
+  const match = /(\d{1,2})\s+([А-Яа-я]+)\.?\s+(\d{4})/.exec(text)
   const date = new Date()
   if (match) {
     const month = MONTH_PREFIXES.findIndex((prefix) => match[2].toLowerCase().startsWith(prefix))
     if (month >= 0) date.setFullYear(Number(match[3]), month, Number(match[1]))
   }
-  const offset = date.getTimezoneOffset() * 60000
-  return new Date(date.getTime() - offset).toISOString().slice(0, 10)
+  return localIso(date)
+}
+
+/** "2026-10-21" → "21 окт. 2026"; other texts unchanged. */
+function displayDay(value: string | undefined | null) {
+  const text = value ?? ""
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(text)
+  return match ? `${match[3]} ${RU_SHORT_MONTHS[Number(match[2]) - 1] ?? ""} ${match[1]}` : text
 }
 
 function fromInputDate(value: string) {
@@ -153,8 +166,33 @@ function fromInputDate(value: string) {
   return Number.isNaN(date.getTime()) ? value : formatRuDate(date)
 }
 
+/** UTC "YYYY-MM-DD HH:MM:SS" or ISO → local "21 окт. 2026, 14:05". */
+function displayMoment(value: string | undefined | null) {
+  if (!value) return ""
+  const date = new Date(/[zZ]|[+-]\d{2}:?\d{2}$/.test(value) ? value : `${value.replace(" ", "T")}Z`)
+  if (Number.isNaN(date.getTime())) return value
+  return `${formatRuDate(date)}, ${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`
+}
+
 function formatNumber(value: number) {
   return value.toLocaleString("ru-RU", { maximumFractionDigits: 2 })
+}
+
+type ApiResult<T> = { ok: true; body: T } | { ok: false; error: string }
+
+async function api<T>(url: string, init?: { method?: string; body?: unknown }): Promise<ApiResult<T>> {
+  try {
+    const response = await fetch(url, {
+      method: init?.method ?? "GET",
+      headers: init?.body !== undefined ? { "Content-Type": "application/json" } : undefined,
+      body: init?.body !== undefined ? JSON.stringify(init.body) : undefined,
+    })
+    const body = (await response.json().catch(() => null)) as (T & { error?: string }) | null
+    if (!response.ok || body === null) return { ok: false, error: body?.error ?? "Не удалось сохранить изменения на сервере" }
+    return { ok: true, body }
+  } catch {
+    return { ok: false, error: "Не удалось сохранить изменения на сервере" }
+  }
 }
 
 /* ------------------------------------------------------------------ */
@@ -169,12 +207,13 @@ function Mi({ d, className = "h-[18px] w-[18px] fill-white" }: { d: string; clas
   )
 }
 
-function HeaderButton({ icon, label, onClick }: { icon: string; label: string; onClick: () => void }) {
+function HeaderButton({ icon, label, onClick, disabled }: { icon: string; label: string; onClick: () => void; disabled?: boolean }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className="flex h-[30px] items-center rounded-[5px] bg-[#4f71dc] pl-3 text-[13px] font-semibold text-white hover:brightness-95"
+      disabled={disabled}
+      className="flex h-[30px] items-center rounded-[5px] bg-[#4f71dc] pl-3 text-[13px] font-semibold text-white hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-40"
     >
       <Mi d={icon} className="mb-1 h-[18px] w-[18px] fill-white" />
       <span className="pl-2 pr-4">{label}</span>
@@ -196,6 +235,7 @@ function MenuItem({
   onClick,
   kind = "action",
   iconNode,
+  disabled,
 }: {
   icon?: string
   color?: string
@@ -203,9 +243,10 @@ function MenuItem({
   onClick: () => void
   kind?: "status" | "action"
   iconNode?: ReactNode
+  disabled?: boolean
 }) {
   return (
-    <button type="button" onClick={onClick} className="flex h-12 w-full cursor-pointer items-center pl-5 pr-4 text-left text-[13px] text-[#333] hover:bg-[#f5f5f5]">
+    <button type="button" onClick={onClick} disabled={disabled} className="flex h-12 w-full cursor-pointer items-center pl-5 pr-4 text-left text-[13px] text-[#333] hover:bg-[#f5f5f5] disabled:cursor-not-allowed disabled:opacity-40">
       {kind === "status" ? (
         <svg viewBox="0 0 24 24" className="h-6 w-6 shrink-0" aria-hidden>
           <path d={icon} fill={color} />
@@ -264,6 +305,7 @@ export function DialogShell({
   top,
   inset,
   closeRight = 10,
+  error,
 }: {
   title: string
   onClose: () => void
@@ -278,6 +320,8 @@ export function DialogShell({
   inset?: boolean
   /** Distance of the 48px close button from the right edge (the reference uses 15px in a few dialogs). */
   closeRight?: number
+  /** Server error shown at the bottom-left of the footer. */
+  error?: string
 }) {
   useEscape(onClose)
   return createPortal(
@@ -293,6 +337,7 @@ export function DialogShell({
         <span className="absolute inset-x-0 top-[59.3px] h-px bg-[#efefef]" />
         <span className={`absolute bottom-[56px] h-px bg-[#efefef] ${inset ? "inset-x-[30px]" : "inset-x-0"}`} />
         <div className="px-[30px]">{children}</div>
+        {error && <span className="absolute bottom-[19px] left-[30px] right-[120px] text-[#e57373]">{error}</span>}
         <button type="button" disabled={disabled} onClick={onAction} className="absolute bottom-[10px] right-[10px] h-9 min-w-[88px] cursor-pointer text-center disabled:cursor-default disabled:opacity-40">
           <span className="inline-block px-[16px] py-[9px] text-[13px] font-semibold uppercase leading-[18px] text-[#129fdd]">{action}</span>
         </button>
@@ -330,6 +375,26 @@ function Robot({ text, overlay }: { text: string; overlay?: boolean }) {
   )
 }
 
+function useNames(url: string, pick: (row: Record<string, unknown>) => string) {
+  const [names, setNames] = useState<string[]>([])
+  useEffect(() => {
+    let cancelled = false
+    void api<unknown>(url).then((result) => {
+      if (cancelled || !result.ok) return
+      const rows = Array.isArray(result.body) ? result.body : ((result.body as { results?: unknown[]; rows?: unknown[] }).results ?? (result.body as { rows?: unknown[] }).rows ?? [])
+      setNames([...new Set((rows as Record<string, unknown>[]).map(pick).filter(Boolean))])
+    })
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [url])
+  return names
+}
+
+const employeeName = (row: Record<string, unknown>) => `${String(row.firstName ?? "")} ${String(row.lastName ?? "")}`.trim() || String(row.name ?? "")
+const plainName = (row: Record<string, unknown>) => String(row.name ?? "")
+
 /* ------------------------------------------------------------------ */
 /* The card                                                            */
 /* ------------------------------------------------------------------ */
@@ -347,7 +412,7 @@ export function OrderDetailCard({
   onNotify,
 }: {
   order: Order
-  onUpdate: (id: number, patch: Partial<Order>) => void
+  onUpdate: (id: number, patch: Partial<Order>) => Promise<boolean> | void
   refreshOrder: (id: number) => void
   onNavigate: (href: string) => void
   onNotify: (message: string) => void
@@ -389,17 +454,17 @@ export function OrderDetailCard({
   const [itemsLoading, setItemsLoading] = useState(true)
   const [logs, setLogs] = useState<ApiOrderLog[]>([])
   const [statusTarget, setStatusTarget] = useState(order.status)
+  const [dialogError, setDialogError] = useState("")
 
   const loadItems = useCallback(() => {
     setItemsLoading(true)
-    return fetch(`/api/orders/${order.id}/items`)
-      .then(async (response) => (response.ok ? ((await response.json()) as OrderLineItem[]) : []))
-      .then(setItems)
+    return api<OrderLineItem[]>(`/api/orders/${order.id}/items`)
+      .then((result) => setItems(result.ok ? result.body : []))
       .finally(() => setItemsLoading(false))
   }, [order.id])
 
   useEffect(() => {
-    loadItems()
+    void loadItems()
     setTab("Список товаров")
     setMenu(null)
   }, [order.id, loadItems])
@@ -424,29 +489,37 @@ export function OrderDetailCard({
     }).then(loadLogs)
   }
 
-  const changeStatus = (status: string) => {
-    if (status === order.status) return
-    onUpdate(order.id, { status })
-    onNotify(`${t("Статус заказа изменён:")} ${t(status)}`)
+  const reloadAll = () => {
+    void loadItems()
+    loadLogs()
+    refreshOrder(order.id)
   }
+
+  /** Saves a patch through the list's updater; false (and no message) when the server refused it. */
+  const patchOrder = async (patch: Partial<Order>, message?: string) => {
+    const ok = await onUpdate(order.id, patch)
+    if (ok !== false) {
+      loadLogs()
+      if (message) onNotify(message)
+    }
+    return ok !== false
+  }
+
+  const status = order.status
+  const editable = !(ORDER_STATUSES as readonly string[]).includes(status) || EDITABLE_STATUSES.includes(status)
+  const final = FINAL_STATUSES.includes(status)
 
   /** The reference only offers returns once the goods left the warehouse (delivered / handed to the courier). */
   const canReturn = order.status === "Доставлено" || order.status === "В пути"
 
-  async function applyDiscountPercent(percent: number) {
-    await Promise.all(
-      items.map((item) =>
-        fetch(`/api/orders/${order.id}/items/${item.id}`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ productName: item.productName, unit: item.unit, quantity: item.quantity, unitPrice: item.unitPrice, discountPercent: percent, currency: item.currency }),
-        }),
-      ),
-    )
-    onUpdate(order.id, { discount: `${percent}%` })
-    addLog("add_discount", `Ручная скидка: ${percent}%`)
-    loadItems()
-    refreshOrder(order.id)
+  /** One discount on every line; returns the first server error (nothing is logged then). */
+  async function applyDiscountPercent(percent: number): Promise<string | null> {
+    const error = await putDiscounts(order.id, items, percent)
+    if (error) return error
+    await patchOrder({ discount: percent ? `${percent}%` : "" })
+    addLog(percent ? "add_discount" : "updated", percent ? `Ручная скидка: ${percent}%` : "Скидки отменены")
+    reloadAll()
+    return null
   }
 
   const invoiceActive = order.invoiceActive ?? false
@@ -454,7 +527,7 @@ export function OrderDetailCard({
   const invoiceDate = order.invoiceDate ?? ""
   const invoiceContract = order.invoiceContract ?? ""
   const statusColor =
-    order.status === "Доставлено" ? "text-[#81c784]" : order.status === "Отменен" ? "text-[#e57373]" : order.status === "Не подтвержден" ? "text-[#999]" : "text-[#f0ad4e]"
+    status === "Доставлено" ? "text-[#81c784]" : status === "Отменен" ? "text-[#e57373]" : status === "Не подтвержден" ? "text-[#999]" : "text-[#f0ad4e]"
   const currency = order.amount.trim().split(/\s+/).pop() || "SUM"
   const money = (value: number, unit = currency) => `${formatNumber(value)} ${unit}`
   const debtClass = (value: number) => (value < 0 ? "text-[#e57373]" : "text-[#81c784]")
@@ -462,15 +535,18 @@ export function OrderDetailCard({
   const operativeLines = debtLines(order.operativeExpand, order.operativeDebt ?? 0)
   const actualLines = debtLines(order.actualExpand, order.actualDebt ?? 0)
   const createdDate = order.createdAt ? fromInputDate(order.createdAt.slice(0, 10)) : /^\d{1,2}\s+\S+\s+\d{4}/.test(order.created) ? order.created.replace(/\s+\d{1,2}:\d{2}$/, "") : `${order.created.replace(/\s+\d{1,2}:\d{2}$/, "")} ${new Date().getFullYear()}`
+  // Client debt of the invoice (per currency), as the print form lists it.
+  const debt = { operative: operativeLines.map((line) => `${formatNumber(line.amount)} ${line.currency}`).join(", ") }
 
   const row = (label: string, value: ReactNode, valueClass = "") => (
-    <li className="flex min-h-[25px] items-start justify-between leading-[25px]">
+    <li className="flex min-h-[25px] items-start justify-between gap-3 leading-[25px]">
       <span>{label}</span>
       <span className={`max-w-[50%] text-right font-semibold ${valueClass}`}>{value}</span>
     </li>
   )
 
   const tabIndex = TABS.indexOf(tab)
+  const allowedTargets = STATUS_MENU.filter((item) => item.status !== status && canChangeStatus(status, item.status))
 
   return (
     <div className="relative bg-white font-sans text-[13px] leading-normal text-[#333] shadow-[0_3px_10px_rgba(0,0,0,0.16),0_3px_10px_rgba(0,0,0,0.23)]">
@@ -481,19 +557,11 @@ export function OrderDetailCard({
           {order.id}
         </h2>
         <div className="flex items-center gap-[18px]">
-          {tab === "Серии" && (
-            <>
-              <svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#666]" aria-hidden>
-                <path d={ICONS.clock} />
-              </svg>
-              <HeaderButton icon={ICONS.edit} label={t("Изменит серии")} onClick={() => onNotify(t("Серии для этого заказа не найдены"))} />
-            </>
-          )}
           <div className="relative">
-            <HeaderButton icon={ICONS.edit} label={t("Изменить статус")} onClick={() => setMenu(menu === "status" ? null : "status")} />
+            <HeaderButton icon={ICONS.edit} label={t("Изменить статус")} disabled={!allowedTargets.length} onClick={() => setMenu(menu === "status" ? null : "status")} />
             {menu === "status" && (
               <Menu onClose={() => setMenu(null)}>
-                {STATUS_MENU.map((item) => (
+                {allowedTargets.map((item) => (
                   <MenuItem
                     key={item.status}
                     kind="status"
@@ -503,6 +571,7 @@ export function OrderDetailCard({
                     onClick={() => {
                       setMenu(null)
                       setStatusTarget(item.status)
+                      setDialogError("")
                       setDialog("status")
                     }}
                   />
@@ -514,21 +583,20 @@ export function OrderDetailCard({
             <HeaderButton icon={ICONS.edit} label={t("Изменить")} onClick={() => setMenu(menu === "edit" ? null : "edit")} />
             {menu === "edit" && (
               <Menu onClose={() => setMenu(null)} width={336}>
-                <MenuItem icon={ICONS.edit} label={t("Изменить")} onClick={() => (setMenu(null), setSheet("edit"))} />
-                <MenuItem icon={ICONS.editMode} label={t("Быстрая правка")} onClick={() => (setMenu(null), setSheet("quickEdit"))} />
-                <MenuItem icon={ICONS.receipt} label={t("Изменить детали счет фактуры")} onClick={() => (setMenu(null), setDialog("invoice"))} />
+                <MenuItem icon={ICONS.edit} label={t("Изменить")} disabled={final} onClick={() => (setMenu(null), setSheet("edit"))} />
+                <MenuItem icon={ICONS.editMode} label={t("Быстрая правка")} disabled={!editable || !items.length} onClick={() => (setMenu(null), setSheet("quickEdit"))} />
+                <MenuItem icon={ICONS.receipt} label={t("Изменить детали счет фактуры")} onClick={() => (setMenu(null), setDialogError(""), setDialog("invoice"))} />
               </Menu>
             )}
           </div>
           <div className="relative">
-            <HeaderButton icon={ICONS.discount} label={t("Скидка")} onClick={() => setMenu(menu === "discount" ? null : "discount")} />
+            <HeaderButton icon={ICONS.discount} label={t("Скидка")} disabled={!editable || !items.length} onClick={() => setMenu(menu === "discount" ? null : "discount")} />
             {menu === "discount" && (
               <Menu onClose={() => setMenu(null)}>
                 <MenuItem icon={ICONS.discount} label={t("Скидка")} onClick={() => setMenu("discountSize")} />
                 <MenuItem icon={ICONS.discount} label={t("Частичная скидка")} onClick={() => (setMenu(null), setSheet("quickEdit"))} />
-                <MenuItem icon={ICONS.discount} label={t("Ручная скидка")} onClick={() => (setMenu(null), setDialog("manualDiscount"))} />
                 <MenuItem icon={ICONS.sync} label={t("Пересчитать")} onClick={() => (setMenu(null), setDialog("recalc"))} />
-                <MenuItem icon={ICONS.trash} label={t("Отменить скидки")} onClick={() => (setMenu(null), setDialog("cancelDiscount"))} />
+                <MenuItem icon={ICONS.trash} label={t("Отменить скидки")} onClick={() => (setMenu(null), setDialogError(""), setDialog("cancelDiscount"))} />
               </Menu>
             )}
             {menu === "discountSize" && (
@@ -548,7 +616,7 @@ export function OrderDetailCard({
                 <Menu onClose={() => setMenu(null)}>
                   <MenuItem
                     label={t("Полный возврат")}
-                    onClick={() => (setMenu(null), setDialog("fullReturn"))}
+                    onClick={() => (setMenu(null), setDialogError(""), setDialog("fullReturn"))}
                     iconNode={
                       <svg viewBox="0 0 24 24" className="h-6 w-6" aria-hidden>
                         <svg viewBox="0 0 122.88 80.23" y="4.2" width="24" height="15.7">
@@ -572,8 +640,9 @@ export function OrderDetailCard({
           <button
             type="button"
             aria-label={t("Отменить")}
-            onClick={() => setDialog("cancelOrder")}
-            className="group relative flex h-12 w-12 items-center justify-center"
+            disabled={!canChangeStatus(status, "Отменен") || status === "Отменен"}
+            onClick={() => (setDialogError(""), setDialog("cancelOrder"))}
+            className="group relative flex h-12 w-12 items-center justify-center disabled:cursor-not-allowed disabled:opacity-40"
           >
             <Mi d={ICONS.trash} className="h-5 w-5 fill-black/30 group-hover:fill-black/60" />
             <span className="pointer-events-none absolute right-[-27px] top-[58px] z-[120] hidden whitespace-nowrap rounded-[2px] bg-[#2d3037] px-[21px] py-[8px] text-[13px] font-bold leading-[17px] text-white opacity-90 group-hover:block">{t("Отменить")}</span>
@@ -619,7 +688,7 @@ export function OrderDetailCard({
               ),
             )}
             {row(`${t("Остаток")}:`, order.orderBalance === undefined ? order.balance : money(order.orderBalance), (order.orderBalance ?? 0) > 0 ? "text-[#e57373]" : "")}
-            <li className="flex min-h-[25px] items-center justify-between font-semibold leading-[25px]">
+            <li className="flex min-h-[25px] items-center justify-between gap-3 font-semibold leading-[25px]">
               <span className="flex items-center gap-[5px]">
                 <Mi d={ICONS.info} className="h-6 w-6 fill-[#4f71dc]" />
                 Оперативный долг клиента:
@@ -630,7 +699,7 @@ export function OrderDetailCard({
                 ))}
               </span>
             </li>
-            <li className="flex min-h-[25px] items-center justify-between font-semibold leading-[25px]">
+            <li className="flex min-h-[25px] items-center justify-between gap-3 font-semibold leading-[25px]">
               <span className="flex items-center gap-[5px]">
                 <Mi d={ICONS.info} className="h-6 w-6 fill-[#4f71dc]" />
                 Фактический долг клиента:
@@ -766,33 +835,37 @@ export function OrderDetailCard({
       {dialog === "status" && (
         <StatusDialog
           orderId={order.id}
+          current={status}
           initial={statusTarget}
+          delivery={order.delivery}
+          error={dialogError}
           onClose={() => setDialog(null)}
-          onApply={(status, deliveryDate) => {
-            setDialog(null)
-            if (deliveryDate) onUpdate(order.id, { status, delivery: fromInputDate(deliveryDate) })
-            else changeStatus(status)
+          onApply={async (next, deliveryDate) => {
+            const ok = await patchOrder(deliveryDate ? { status: next, delivery: deliveryDate } : { status: next }, `${t("Статус заказа изменён:")} ${t(next)}`)
+            if (ok) setDialog(null)
           }}
         />
       )}
       {dialog === "invoice" && (
         <InvoiceDialog
-          initial={{ number: invoiceNumber, date: invoiceDate, contract: invoiceContract, active: invoiceActive }}
+          order={order}
           onClose={() => setDialog(null)}
-          onSave={(invoice) => {
-            onUpdate(order.id, { invoiceActive: invoice.active, invoiceNumber: invoice.number, invoiceDate: invoice.date, invoiceContract: invoice.contract })
-            addLog("updated")
-            setDialog(null)
-            onNotify(t("Детали счет фактуры сохранены"))
+          onSave={async (patch) => {
+            if (await patchOrder(patch, t("Детали счет фактуры сохранены"))) {
+              addLog("updated")
+              setDialog(null)
+            }
           }}
         />
       )}
       {dialog === "manualDiscount" && (
         <ManualDiscountDialog
+          error={dialogError}
           onClose={() => setDialog(null)}
           onApply={async (percent) => {
+            const error = await applyDiscountPercent(percent)
+            if (error) return setDialogError(t(error))
             setDialog(null)
-            await applyDiscountPercent(percent)
           }}
         />
       )}
@@ -804,7 +877,7 @@ export function OrderDetailCard({
           action={t("Да")}
           onAction={() => {
             setDialog(null)
-            refreshOrder(order.id)
+            reloadAll()
             onNotify(t("Скидочные акции пересчитаны"))
           }}
         >
@@ -820,21 +893,11 @@ export function OrderDetailCard({
           height={327}
           onClose={() => setDialog(null)}
           action={t("Да")}
+          error={dialogError}
           onAction={async () => {
-            await Promise.all(
-              items.map((item) =>
-                fetch(`/api/orders/${order.id}/items/${item.id}`, {
-                  method: "PUT",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ productName: item.productName, unit: item.unit, quantity: item.quantity, unitPrice: item.unitPrice, discountPercent: 0, currency: item.currency }),
-                }),
-              ),
-            )
-            onUpdate(order.id, { discount: "" })
-            addLog("updated", "Скидки отменены")
+            const error = await applyDiscountPercent(0)
+            if (error) return setDialogError(t(error))
             setDialog(null)
-            loadItems()
-            refreshOrder(order.id)
           }}
         >
           <ConfirmText>{t("Вы уверены что хотите отменить эти данные?")}</ConfirmText>
@@ -878,9 +941,8 @@ export function OrderDetailCard({
           height={327}
           onClose={() => setDialog(null)}
           action={t("Да")}
-          onAction={() => {
-            setDialog(null)
-            changeStatus("Отменен")
+          onAction={async () => {
+            if (await patchOrder({ status: "Отменен" }, `${t("Статус заказа изменён:")} ${t("Отменен")}`)) setDialog(null)
           }}
         >
           <ConfirmText>{t("Вы уверены что хотите отменить эти данные?")}</ConfirmText>
@@ -901,13 +963,12 @@ export function OrderDetailCard({
           }}
           onClose={() => setSheet(null)}
           onCreated={() => setSheet(null)}
-          onSaved={(patch) => {
-            onUpdate(order.id, patch)
+          onSaved={async (patch) => {
+            if (!(await patchOrder(patch, t("Заказ обновлён")))) return
             addLog("updated")
             setSheet(null)
-            loadItems()
+            void loadItems()
             refreshOrder(order.id)
-            onNotify(t("Заказ обновлён"))
           }}
         />
       )}
@@ -919,8 +980,7 @@ export function OrderDetailCard({
           onSaved={() => {
             addLog("updated")
             setSheet(null)
-            loadItems()
-            refreshOrder(order.id)
+            reloadAll()
             onNotify(t("Изменения сохранены"))
           }}
         />
@@ -933,6 +993,7 @@ export function OrderDetailCard({
           onSaved={() => {
             addLog("updated", "Оформлен быстрый возврат")
             setSheet(null)
+            void loadItems()
             onNotify(t("Возврат оформлен"))
           }}
         />
@@ -946,9 +1007,21 @@ export function OrderDetailCard({
           }}
         />
       )}
-      {sheet === "printPreview" && <PrintSheet order={order} items={items} copies={printCopies} onClose={() => setSheet(null)} />}
+      {sheet === "printPreview" && createPortal(<PrintSheet order={order} items={items} debt={debt} copies={printCopies} onClose={() => setSheet(null)} />, document.body)}
     </div>
   )
+}
+
+/** Sets one discount on every line; returns the first server error, if any. */
+async function putDiscounts(orderId: number, items: OrderLineItem[], percent: number): Promise<string | null> {
+  for (const item of items) {
+    const result = await api(`/api/orders/${orderId}/items/${item.id}`, {
+      method: "PUT",
+      body: { productId: item.productId ?? undefined, productName: item.productName, unit: item.unit, quantity: item.quantity, unitPrice: item.unitPrice, discountPercent: percent, currency: item.currency },
+    })
+    if (!result.ok) return result.error
+  }
+  return null
 }
 
 export function StatusIcon({ status, color, size = 20 }: { status: string; color?: string; size?: number }) {
@@ -1250,12 +1323,18 @@ function ConfirmText({ children }: { children: ReactNode }) {
 
 function StatusDialog({
   orderId,
+  current,
   initial,
+  delivery,
+  error,
   onClose,
   onApply,
 }: {
   orderId: number
+  current: string
   initial: string
+  delivery: string
+  error?: string
   onClose: () => void
   onApply: (status: string, deliveryDate?: string) => void
 }) {
@@ -1263,10 +1342,11 @@ function StatusDialog({
   const [status, setStatus] = useState(initial)
   const [changeDelivery, setChangeDelivery] = useState(false)
   const [changeTransfer, setChangeTransfer] = useState(false)
-  const [date, setDate] = useState(toInputDate(""))
+  const [date, setDate] = useState(toInputDate(delivery))
+  const options = ORDER_STATUS_OPTIONS.filter((value) => value === current || canChangeStatus(current, value))
   const label = (value: string) => t(value === "Доставлено" ? "Доставлен" : value)
   return (
-    <DialogShell title={t("Изменение")} height={302.3} inset onClose={onClose} action={t("Изменить")} onAction={() => onApply(status, changeDelivery ? date : undefined)}>
+    <DialogShell title={t("Изменение")} height={302.3} inset onClose={onClose} action={t("Изменить")} error={error} disabled={status === current && !changeDelivery} onAction={() => onApply(status, changeDelivery ? date : undefined)}>
       <p className="mt-[10px] text-[13px] font-bold leading-[16.3px]">
         {t("Заказ №")} {orderId}
       </p>
@@ -1275,7 +1355,7 @@ function StatusDialog({
         label={t("Статус")}
         value={status}
         display={label(status)}
-        options={ORDER_STATUS_OPTIONS.map((value) => ({ value, label: label(value) }))}
+        options={options.map((value) => ({ value, label: label(value) }))}
         onChange={setStatus}
       />
       <RefCheck className="mt-[15px]" checked={changeDelivery} onChange={setChangeDelivery}>
@@ -1289,12 +1369,19 @@ function StatusDialog({
   )
 }
 
-function InvoiceDialog({ initial, onClose, onSave }: { initial?: InvoiceDetails; onClose: () => void; onSave: (value: InvoiceDetails) => void }) {
+function InvoiceDialog({ order, onClose, onSave }: { order: Order; onClose: () => void; onSave: (value: Partial<Order>) => void }) {
   const { t } = useLanguage()
-  const [number, setNumber] = useState(initial?.number ?? "")
-  const [date, setDate] = useState(initial?.date ?? "")
-  const [contract, setContract] = useState(initial?.contract ?? "")
-  const [active, setActive] = useState(initial?.active ?? false)
+  const [number, setNumber] = useState(order.invoiceNumber ?? "")
+  const [date, setDate] = useState(order.invoiceDate ?? "")
+  const [contract, setContract] = useState(order.invoiceContract ?? order.contract ?? "")
+  const [active, setActive] = useState(order.invoiceActive ?? false)
+  // The client's contracts (Финансы → Договоры).
+  const contracts = useNames("/api/contracts?pageSize=0", (row) => {
+    const clients = (row.clients as Array<{ id: number; name: string }> | undefined) ?? []
+    const mine = clients.some((client) => (order.clientId ? client.id === order.clientId : client.name === order.client))
+    return mine ? `№${String(row.fullNumber ?? row.id)}${row.officialName ? ` ${String(row.officialName)}` : ""}` : ""
+  })
+  const options = contract && !contracts.includes(contract) ? [contract, ...contracts] : contracts
   return (
     <DialogShell
       title={t("Изменить детали счет фактуры")}
@@ -1303,7 +1390,7 @@ function InvoiceDialog({ initial, onClose, onSave }: { initial?: InvoiceDetails;
       top={50}
       onClose={onClose}
       action={t("Сохранить")}
-      onAction={() => onSave({ number: number.trim(), date, contract, active })}
+      onAction={() => onSave({ invoiceNumber: number.trim(), invoiceDate: date, invoiceContract: contract, invoiceActive: active })}
     >
       <RefText className="mt-[8px]" label={t("Номер счет фактуры")} value={number} onChange={setNumber} />
       <RefDate className="mt-[13px]" height={49} label={t("Дата счет фактуры")} value={date} display={longRuDate(date)} onChange={setDate} />
@@ -1311,10 +1398,7 @@ function InvoiceDialog({ initial, onClose, onSave }: { initial?: InvoiceDetails;
         className="mt-[24px]"
         label={t("Договор")}
         value={contract}
-        options={[
-          { value: "Договор №1", label: "Договор №1" },
-          { value: "Договор №2", label: "Договор №2" },
-        ]}
+        options={options.map((value) => ({ value, label: value }))}
         onChange={setContract}
         onClear={() => setContract("")}
       />
@@ -1325,11 +1409,11 @@ function InvoiceDialog({ initial, onClose, onSave }: { initial?: InvoiceDetails;
   )
 }
 
-function ManualDiscountDialog({ onClose, onApply }: { onClose: () => void; onApply: (percent: number) => void }) {
+function ManualDiscountDialog({ onClose, onApply, error }: { onClose: () => void; onApply: (percent: number) => void; error?: string }) {
   const { t } = useLanguage()
   const [percent, setPercent] = useState("")
   return (
-    <DialogShell title={t("Ручная скидка")} height={367} onClose={onClose} action={t("Применить")} disabled={!percent} onAction={() => onApply(Number(percent))}>
+    <DialogShell title={t("Ручная скидка")} height={367} onClose={onClose} action={t("Применить")} error={error} disabled={!percent} onAction={() => onApply(Number(percent))}>
       <RefSelect
         className="mt-[30px]"
         label={t("Акция")}
@@ -1343,8 +1427,7 @@ function ManualDiscountDialog({ onClose, onApply }: { onClose: () => void; onApp
 
 function FullReturnDialog({ orderId, onClose, onConfirm }: { orderId: number; onClose: () => void; onConfirm: () => void }) {
   const { t } = useLanguage()
-  const today = new Date()
-  const [date, setDate] = useState(new Date(today.getTime() - today.getTimezoneOffset() * 60000).toISOString().slice(0, 10))
+  const [date, setDate] = useState(localIso(new Date()))
   return (
     <DialogShell title={t("Выполнить")} height={350.8} onClose={onClose} action={t("Да")} onAction={onConfirm}>
       <ConfirmText>{t("Подтверждение запроса")}</ConfirmText>
@@ -1368,6 +1451,7 @@ function QuickEditSheet({ order, items, onClose, onSaved }: { order: Order; item
   const [lines, setLines] = useState(() => items.map((item) => ({ id: item.id, quantity: String(item.quantity), price: String(item.unitPrice), discount: item.discountPercent ? String(item.discountPercent) : "" })))
   const [confirmed, setConfirmed] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [error, setError] = useState("")
 
   const calc = useMemo(
     () =>
@@ -1387,26 +1471,28 @@ function QuickEditSheet({ order, items, onClose, onSaved }: { order: Order; item
   const update = (index: number, patch: Partial<(typeof lines)[number]>) => setLines((current) => current.map((line, i) => (i === index ? { ...line, ...patch } : line)))
 
   const save = useCallback(async () => {
+    setError("")
+    for (const [index, line] of lines.entries()) {
+      const quantity = Number(line.quantity)
+      const price = Number(line.price)
+      const discount = Number(line.discount || 0)
+      if (!(quantity > 0) || !(price >= 0) || !(discount >= 0 && discount <= 100)) return setError(`${items[index]?.productName}: ${t("Проверьте количество и цену")}`)
+    }
     setSaving(true)
     try {
-      await Promise.all(
-        items.map((item, index) => {
-          const line = lines[index]
-          const quantity = Number(line.quantity)
-          const price = Number(line.price)
-          if (!(quantity > 0) || !(price >= 0)) return Promise.resolve()
-          return fetch(`/api/orders/${order.id}/items/${item.id}`, {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ productName: item.productName, unit: item.unit, quantity, unitPrice: price, discountPercent: Math.min(100, Math.max(0, Number(line.discount) || 0)), currency: item.currency }),
-          })
-        }),
-      )
+      for (const [index, item] of items.entries()) {
+        const line = lines[index]
+        const result = await api(`/api/orders/${order.id}/items/${item.id}`, {
+          method: "PUT",
+          body: { productId: item.productId ?? undefined, productName: item.productName, unit: item.unit, quantity: Number(line.quantity), unitPrice: Number(line.price), discountPercent: Number(line.discount || 0), currency: item.currency },
+        })
+        if (!result.ok) return setError(`${item.productName}: ${t(result.error)}`)
+      }
       onSaved()
     } finally {
       setSaving(false)
     }
-  }, [items, lines, onSaved, order.id])
+  }, [items, lines, onSaved, order.id, t])
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -1435,9 +1521,12 @@ function QuickEditSheet({ order, items, onClose, onSaved }: { order: Order; item
             <span>{t("Итого")}:</span>
             <b className="ml-[10px] text-[16px] font-semibold text-[#129fdd]">{formatNumber(netTotal)}</b>
           </div>
-          <button type="button" onClick={save} disabled={saving} className="h-9 min-w-[213.9px] rounded-[2px] bg-[#71ce87] px-[5.3px] text-[13px] font-semibold uppercase text-white disabled:opacity-50">
-            {t("Сохранить")} (Alt + Enter)
-          </button>
+          <div className="flex items-center gap-4">
+            {error && <span className="text-[#e57373]">{error}</span>}
+            <button type="button" onClick={save} disabled={saving} className="h-9 min-w-[213.9px] rounded-[2px] bg-[#71ce87] px-[5.3px] text-[13px] font-semibold uppercase text-white disabled:opacity-50">
+              {t("Сохранить")} (Alt + Enter)
+            </button>
+          </div>
         </div>
       }
     >
@@ -1486,7 +1575,7 @@ function QuickEditSheet({ order, items, onClose, onSaved }: { order: Order; item
 function QuickReturnSheet({ order, items, onClose, onSaved }: { order: Order; items: OrderLineItem[]; onClose: () => void; onSaved: () => void }) {
   const { t } = useLanguage()
   const [paymentType, setPaymentType] = useState("Банковский счет")
-  const [warehouse, setWarehouse] = useState(order.stockName ?? "")
+  const [warehouse, setWarehouse] = useState(order.stockName ?? order.warehouse ?? "")
   const [warehouses, setWarehouses] = useState<string[]>([])
   const [comment, setComment] = useState("")
   const [manualPrice, setManualPrice] = useState(false)
@@ -1662,10 +1751,39 @@ function PrintDrawer({ onClose, onPick }: { onClose: () => void; onPick: (copies
   )
 }
 
-function PrintSheet({ order, items, copies = 1, onClose }: { order: Order; items: OrderLineItem[]; copies?: number; onClose: () => void }) {
+function PrintSheet({ order, items, debt, copies = 1, onClose }: { order: Order; items: OrderLineItem[]; debt: { operative: string } | null; copies?: number; onClose: () => void }) {
   const { t } = useLanguage()
+  const organizations = useNames("/api/organizations", plainName)
+  const [agentPhone, setAgentPhone] = useState("")
+  useEffect(() => {
+    void api<Array<Record<string, unknown>>>("/api/employees").then((result) => {
+      if (!result.ok) return
+      const agent = result.body.find((row) => employeeName(row) === order.agent)
+      setAgentPhone(String(agent?.phone ?? ""))
+    })
+  }, [order.agent])
   const total = items.reduce((sum, item) => sum + item.lineTotal, 0)
   const qty = items.reduce((sum, item) => sum + item.quantity, 0)
+  const currency = order.currency || "SUM"
+  // The company on the invoice: the order's organization, else the first organization.
+  const company = orderOrganization(order) || organizations[0] || ""
+  const counted = order.status !== "Отменен" && order.status !== "Не подтвержден"
+  const endBalance = debt?.operative || `0 ${currency}`
+  // Balance before this order = end balance + this order's total (same currency) when the order counts.
+  const beforeBalance = (() => {
+    if (!counted || !debt) return endBalance
+    const parts = (debt.operative || "").split(/,\s+/).filter(Boolean)
+    let found = false
+    const next = parts.map((part) => {
+      const match = /^(-?[\d\s .,]+)\s+([A-Za-z]+)$/.exec(part.trim())
+      if (!match || match[2] !== currency) return part
+      found = true
+      const value = Number(match[1].replace(/[\s ]/g, "").replace(",", ".")) + total
+      return `${formatNumber(value)} ${currency}`
+    })
+    if (!found) next.push(`${formatNumber(total)} ${currency}`)
+    return next.join(", ")
+  })()
 
   const block = (
     <div className="mb-6">
@@ -1674,10 +1792,9 @@ function PrintSheet({ order, items, copies = 1, onClose }: { order: Order; items
           <tr className="font-semibold">
             <th className="border border-black px-2 py-[3px]">№</th>
             <th className="border border-black px-2 py-[3px]">{t("Наименование")}</th>
-            <th className="border border-black px-2 py-[3px]">{t("Блок")}</th>
             <th className="border border-black px-2 py-[3px]">{t("Количество")}</th>
-            <th className="border border-black px-2 py-[3px]">{t("Сумма")} (SUM)</th>
-            <th className="border border-black px-2 py-[3px]" />
+            <th className="border border-black px-2 py-[3px]">{`${t("Цена")} (${currency})`}</th>
+            <th className="border border-black px-2 py-[3px]">{`${t("Сумма")} (${currency})`}</th>
           </tr>
         </thead>
         <tbody>
@@ -1685,7 +1802,6 @@ function PrintSheet({ order, items, copies = 1, onClose }: { order: Order; items
             <tr key={item.id}>
               <td className="border border-black px-2 py-[3px] font-bold">{index + 1}</td>
               <td className="border border-black px-2 py-[3px] font-bold">{item.productName}</td>
-              <td className="border border-black px-2 py-[3px]">-</td>
               <td className="border border-black px-2 py-[3px]">
                 {formatNumber(item.quantity)} {item.unit}
               </td>
@@ -1694,21 +1810,23 @@ function PrintSheet({ order, items, copies = 1, onClose }: { order: Order; items
             </tr>
           ))}
           <tr className="font-bold">
-            <td colSpan={3} className="border border-black px-2 py-[3px] text-left">
+            <td colSpan={2} className="border border-black px-2 py-[3px] text-left">
               {t("Итого")}:
             </td>
             <td className="border border-black px-2 py-[3px]">{formatNumber(qty)}</td>
             <td className="border border-black px-2 py-[3px]" />
-            <td className="border border-black px-2 py-[3px]">{formatNumber(total)} SUM</td>
+            <td className="border border-black px-2 py-[3px]">
+              {formatNumber(total)} {currency}
+            </td>
           </tr>
         </tbody>
       </table>
       <div className="mt-6 flex justify-between font-bold">
         <span>
-          {t("Баланс на конец")}: {order.balance}
+          {t("Баланс на конец")}: {endBalance}
         </span>
         <span>
-          {t("Организация")}: {orderOrganization(order) || t("Не указан")}
+          {t("Организация")}: {company || t("Не указан")}
         </span>
       </div>
       <div className="mt-6 flex justify-between">
@@ -1724,12 +1842,12 @@ function PrintSheet({ order, items, copies = 1, onClose }: { order: Order; items
         <h2 className="text-[18px] font-bold">
           {t("Заказ №")} {order.id}
         </h2>
-        <h2 className="absolute left-1/2 -translate-x-1/2 text-[18px] font-semibold uppercase">HILOL</h2>
+        <h2 className="absolute left-1/2 -translate-x-1/2 text-[18px] font-semibold uppercase">{company}</h2>
         <div className="flex items-start gap-5">
           <span className="text-[11px] font-semibold text-[#666]">
-            {t("Добавлено")}: {order.created}
+            {t("Добавлено")}: {order.createdAt ? displayMoment(order.createdAt) : order.created}
           </span>
-          <button type="button" onClick={onClose} aria-label={t("Закрыть")}>
+          <button type="button" onClick={onClose} aria-label={t("Закрыть")} className="print:hidden">
             <Mi d={ICONS.close} className="h-6 w-6 fill-[#333]" />
           </button>
         </div>
@@ -1740,16 +1858,16 @@ function PrintSheet({ order, items, copies = 1, onClose }: { order: Order; items
             <b>{t("Агент")}:</b> {order.agent}
           </p>
           <p>
-            <b>{t("Номер телефона агента")}:</b> None
+            <b>{t("Номер телефона агента")}:</b> {agentPhone || t("Не указан")}
           </p>
           <p>
-            <b>{t("Супервайзер")}:</b> +998 50 079 54 23
+            <b>{t("Склад")}:</b> {order.warehouse || t("Не указан")}
           </p>
           <p>
-            <b>{t("Комментарии")}:</b> None
+            <b>{t("Комментарии")}:</b> {order.comment || "—"}
           </p>
           <p>
-            <b>{t("Баланс клиента до")}:</b> {order.balance}
+            <b>{t("Баланс клиента до")}:</b> {beforeBalance}
           </p>
         </div>
         <div>
@@ -1760,7 +1878,7 @@ function PrintSheet({ order, items, copies = 1, onClose }: { order: Order; items
             <b>{t("Зона")}:</b> {order.zone || "—"}
           </p>
           <p>
-            <b>{t("Телефон")}:</b> +998 90 000 00 00
+            <b>{t("Телефон")}:</b> {order.clientPhone || t("Не указан")}
           </p>
         </div>
       </div>

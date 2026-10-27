@@ -124,6 +124,9 @@ export function InventoryFormDialog({
   }
 
   const totalQty = lines.reduce((sum, line) => sum + parseAmount(line.amount), 0)
+  // The total's unit only when every line shares it (never "ед" over kg and pieces).
+  const lineUnits = new Set(lines.map((line) => line.unit.trim().toLowerCase()))
+  const totalUnit = lineUnits.size === 1 && lines[0]?.unit.trim() ? t(lines[0].unit.trim()) : ""
   const totalSum = lines.reduce((sum, line) => {
     const row = balanceMap.get(line.key)
     return sum + (parseAmount(line.amount) - (row?.qty ?? 0)) * (row?.cost ?? 0)

@@ -7,8 +7,8 @@ import { parseJsonBody } from "@/lib/validation"
 import { createTask, listTasks, parseTaskInput } from "@/lib/tasks-repo"
 
 const taskSchema = z.object({
-  responsible: z.string().trim().min(1),
-  store: z.string().trim().min(1),
+  responsible: z.string().trim().min(1).max(255, "Не более 255 символов"),
+  store: z.string().trim().min(1).max(255, "Не более 255 символов"),
   description: z.string().optional(),
   status: z.enum(["in_progress", "fulfilled", "closed"]).optional(),
 })

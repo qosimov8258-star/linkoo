@@ -1,16 +1,33 @@
 import { NextResponse } from "next/server"
 import { z } from "zod"
 
+import { normalizeUsername, passwordProblem, usernameProblem } from "@/lib/auth-policy"
+import { nameField, parseBody } from "@/lib/auth-request"
 import { requireRole } from "@/lib/rbac"
-import { parseJsonBody } from "@/lib/validation"
-import { createUser, listUsers } from "@/lib/users-repo"
+import { createUser, listUsers, UserError } from "@/lib/users-repo"
 
-const createUserSchema = z.object({
-  username: z.string().trim().min(3).max(100),
-  password: z.string().min(6).max(200),
-  displayName: z.string().trim().min(1).max(200),
-  role: z.enum(["admin", "manager", "viewer"]),
-})
+const createUserSchema = z
+  .object({
+    username: z.string({ error: "Введите логин" }).max(200, { error: "Логин должен содержать от 3 до 64 символов" }),
+    password: z.string({ error: "Введите пароль" }).max(200, { error: "Пароль слишком длинный" }),
+    displayName: nameField("Введите имя пользователя"),
+    role: z.enum(["admin", "manager", "viewer"], { error: "Неизвестная роль" }),
+    accessRightId: z.number().int().positive().nullable().optional(),
+  })
+  .transform((value, ctx) => {
+    const username = normalizeUsername(value.username)
+    const loginProblem = usernameProblem(username)
+    if (loginProblem) {
+      ctx.addIssue({ code: "custom", message: loginProblem, path: ["username"] })
+      return z.NEVER
+    }
+    const weak = passwordProblem(value.password, username)
+    if (weak) {
+      ctx.addIssue({ code: "custom", message: weak, path: ["password"] })
+      return z.NEVER
+    }
+    return { ...value, username }
+  })
 
 export async function GET() {
   const auth = await requireRole("admin")
@@ -18,14 +35,22 @@ export async function GET() {
   return NextResponse.json(await listUsers())
 }
 
+// POST /api/users {username, password, displayName, role, accessRightId?} — the
+// login is stored normalized (NFKC, lower case, letters/digits/._-@ only) and is
+// unique case-insensitively; a taken login (also under concurrent requests) → 409.
 export async function POST(request: Request) {
   const auth = await requireRole("admin")
   if ("error" in auth) return auth.error
 
-  const parsed = await parseJsonBody(request, createUserSchema)
+  const parsed = await parseBody(request, createUserSchema)
   if (parsed.error) return parsed.error
 
-  const user = await createUser(parsed.data)
-  if (!user) return NextResponse.json({ error: "Этот логин уже занят" }, { status: 409 })
-  return NextResponse.json(user, { status: 201 })
+  try {
+    const user = await createUser(parsed.data)
+    if (!user) return NextResponse.json({ error: "Этот логин уже занят" }, { status: 409 })
+    return NextResponse.json(user, { status: 201 })
+  } catch (error) {
+    if (error instanceof UserError) return NextResponse.json({ error: error.message }, { status: error.status })
+    throw error
+  }
 }

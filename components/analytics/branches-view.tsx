@@ -201,8 +201,10 @@ export function BranchesView() {
     try {
       const response = await fetch(`/api/branches/${deleting.id}`, { method: "DELETE" })
       if (!response.ok) {
-        const data = (await response.json().catch(() => ({}))) as { error?: string }
-        setAlertMessage(t(data.error || "Не удалось удалить филиал"))
+        // 409 while other records use it: the usage list says where.
+        const data = (await response.json().catch(() => ({}))) as { error?: string; usage?: { label: string; count: number }[] }
+        const usage = data.usage?.map((item) => `${item.label}: ${item.count}`).join(", ")
+        setAlertMessage(`${t(data.error || "Не удалось удалить филиал")}${usage ? ` (${usage})` : ""}`)
         return
       }
       setDeleting(null)

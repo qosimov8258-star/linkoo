@@ -7,7 +7,7 @@ import { parseJsonBody } from "@/lib/validation"
 import { listDashboardWidgets, saveDashboardWidget, type DashboardWidgetInput } from "@/lib/dashboard-widgets-repo"
 
 const dashboardWidgetSchema = z.object({
-  reportSlug: z.string().trim().min(1),
+  reportSlug: z.string().trim().min(1).max(255, "Не более 255 символов"),
   reportLabel: z.string().trim().optional(),
   dashboard: z.string().trim().optional(),
   visibility: z.string().trim().optional(),

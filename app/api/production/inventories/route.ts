@@ -1,8 +1,7 @@
 import { NextResponse } from "next/server"
 
 import { requireRole } from "@/lib/rbac"
-import { parseJsonBody } from "@/lib/validation"
-import { errorResponse, isDateParam, positiveIntParam, requireViewer, schemas } from "@/lib/production-api"
+import { errorResponse, guarded, isDateParam, notFound, parseBody, positiveIntParam, requireViewer, schemas } from "@/lib/production-api"
 import { createInventory, listInventories } from "@/lib/production-activity-repo"
 
 export async function GET(request: Request) {
@@ -19,9 +18,17 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const auth = await requireRole("manager")
   if ("error" in auth) return auth.error
-  const parsed = await parseJsonBody(request, schemas.inventory)
+  const parsed = await parseBody(request, schemas.inventory)
   if (parsed.error) return parsed.error
-  const { stageId, ...input } = parsed.data
-  const inventory = await createInventory(stageId, input, auth.user.displayName)
-  return inventory ? NextResponse.json(inventory, { status: 201 }) : errorResponse("Нет строк для сверки")
+  const { stageId, lines, ...input } = parsed.data
+  return guarded(async () => {
+    const inventory = await createInventory(
+      stageId,
+      { ...input, lines: lines.map((line) => ({ kind: line.key.kind, id: line.key.id, actual: line.actual })) },
+      auth.user.displayName,
+    )
+    if (inventory === "stage_not_found") return notFound("Этап не найден")
+    if (inventory === "empty") return errorResponse("Нет строк для сверки")
+    return NextResponse.json(inventory, { status: 201 })
+  })
 }

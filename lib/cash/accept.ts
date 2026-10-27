@@ -6,7 +6,20 @@ import { normCurrency, roundMoney } from "@/lib/finance/currency"
 import { russianDateTime } from "@/lib/finance/customer-payment"
 import { nowLocalIso } from "@/lib/finance/dates"
 import { nameKey } from "@/lib/finance/entities"
-import { CashError, currencyContext, loadCashbox, loadEmployee, localDateTime, num, numOrNull, pickRate, type CashboxInfo } from "@/lib/cash/common"
+import {
+  CashError,
+  currencyContext,
+  loadCashbox,
+  loadEmployee,
+  localDateTime,
+  num,
+  numOrNull,
+  pageOf,
+  pickRate,
+  resolveOrganization,
+  type CashboxInfo,
+} from "@/lib/cash/common"
+import { guardCashboxBalances } from "@/lib/cash/guard"
 import { ensureCashSchema } from "@/lib/cash/schema"
 import { operationKey, type AcceptanceDetail, type AcceptGroup, type AcceptGroupFilter, type AgentPayment, type CashOperationKey } from "@/lib/cash/types"
 
@@ -20,8 +33,10 @@ import { operationKey, type AcceptanceDetail, type AcceptGroup, type AcceptGroup
 // another currency than the target cashbox keeps its real_amount/real_currency
 // and is converted at current rates by every reader (ledger and list).
 
-/** Who collected the money: agent, else delivery man, else creator. */
-const AGENT = "COALESCE(NULLIF(btrim(p.agent), ''), NULLIF(btrim(p.delivery_man), ''), NULLIF(btrim(p.created_by), ''), '')"
+/** Who collected the money: agent, else delivery man, else creator (a login display
+ * name like "Javohir Xolmatov (agent)" without its role suffix = the employee name). */
+const AGENT = `COALESCE(NULLIF(btrim(p.agent), ''), NULLIF(btrim(p.delivery_man), ''),
+  NULLIF(btrim(regexp_replace(p.created_by, '\\s*\\([^()]*\\)\\s*$', '')), ''), '')`
 const CASH_CUR = "COALESCE(fin_cur(NULLIF(p.real_currency, '')), fin_cur(p.currency), @base::text)"
 const CASH_AMOUNT = "COALESCE(p.real_amount, p.amount)::float8"
 const PAY_TS = "COALESCE(fin_ts(NULLIF(p.payment_date, '')), fin_ts(p.paid_at), fin_ts(p.created_at, true))"
@@ -187,8 +202,7 @@ export async function listAgentPayments(
     n: number
     total: number
   }
-  const pageSize = group.pageSize === 0 ? 0 : Math.max(1, Math.floor(group.pageSize ?? 25))
-  const page = Math.max(1, Math.floor(group.page ?? 1))
+  const { page, pageSize } = pageOf(group.page, group.pageSize)
   const paging = pageSize ? ` LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}` : ""
   const rows = (await db.prepare(`${PAYMENT_SELECT} WHERE ${GROUP_WHERE} ORDER BY p.id DESC${paging}`).all(params)) as PaymentRow[]
   return { count: num(agg.n), page, pageSize, rows: rows.map(toPayment), total: roundMoney(num(agg.total)), currency: params.cur }
@@ -209,6 +223,7 @@ export type AcceptCashResult = { key: CashOperationKey; id: number; docNo: numbe
 
 type LockedPayment = {
   id: number
+  client_id: number | null
   agent: string
   organization: string
   branch: string
@@ -248,7 +263,7 @@ export async function acceptCash(input: AcceptCashInput, user: string): Promise<
   return withTransaction(async (tx) => {
     const cashbox = await loadCashbox(tx, input.cashboxId, cc.base)
     let payments: LockedPayment[]
-    const select = `SELECT p.id, ${AGENT} AS agent, fin_place(p.organization) AS organization, fin_place(p.branch) AS branch, p.agent_cashbox_id,
+    const select = `SELECT p.id, p.client_id, ${AGENT} AS agent, fin_place(p.organization) AS organization, fin_place(p.branch) AS branch, p.agent_cashbox_id,
         p.amount::float8 AS amount, p.currency, p.real_amount::float8 AS real_amount, p.real_currency, p.amount_sum_equivalent::float8 AS amount_sum_equivalent
       FROM customer_payments p`
     if (input.ids?.length) {
@@ -264,6 +279,10 @@ export async function acceptCash(input: AcceptCashInput, user: string): Promise<
     const converted = payments.map((payment) => ({ payment, cash: cashIn(payment, cashbox, cc) }))
     const total = roundMoney(converted.reduce((sum, item) => sum + item.cash, 0), 5)
     const agent = common(payments.map((payment) => payment.agent)) ?? ""
+    // The payments' common organization, else the collecting agent's / the cashbox's one.
+    const organization =
+      common(payments.map((payment) => payment.organization)) ||
+      (payments.every((payment) => !payment.organization) ? await resolveOrganization(tx, "", { employeeName: agent, cashboxId: cashbox.id }) : "")
     const header = (await tx
       .prepare(
         `INSERT INTO cash_acceptances (cashbox_id, agent, agent_id, agent_cashbox_id, organization, branch, currency, amount, date, comment, created_by)
@@ -274,7 +293,7 @@ export async function acceptCash(input: AcceptCashInput, user: string): Promise<
         agent,
         agentId: await findEmployeeId(tx, agent),
         agentCashboxId: common(payments.map((payment) => payment.agent_cashbox_id)),
-        organization: common(payments.map((payment) => payment.organization)) ?? "",
+        organization,
         branch: common(payments.map((payment) => payment.branch)) ?? "",
         currency: cashbox.currency,
         amount: total,
@@ -284,16 +303,29 @@ export async function acceptCash(input: AcceptCashInput, user: string): Promise<
       })) as { id: number; doc_no: string | number }
     const acceptId = Number(header.id)
     const cashRate = pickRate(cashbox.currency, cc)
+    // A collection saved without an organization (older rows) gets its client's /
+    // agent's / the cashbox's one now, so the cash balance by organization counts it.
+    const orgOfClient = new Map<string, string>()
+    const organizationOf = async (payment: LockedPayment): Promise<string> => {
+      if (payment.organization) return payment.organization
+      const cacheKey = `${payment.client_id ?? ""}|${payment.agent}`
+      if (!orgOfClient.has(cacheKey)) {
+        orgOfClient.set(cacheKey, await resolveOrganization(tx, "", { clientId: payment.client_id, employeeName: payment.agent, cashboxId: cashbox.id }))
+      }
+      return orgOfClient.get(cacheKey) || organization
+    }
     for (const { payment, cash } of converted) {
       await tx
         .prepare(
           `UPDATE customer_payments SET accepted = 1, cashbox_id = @cashboxId, kassa = @kassa, accepted_at = @acceptedAt, accepted_by = @user,
              accept_id = @acceptId, icon = @icon, cash_amount = @cashAmount,
+             organization = CASE WHEN btrim(COALESCE(organization, '')) = '' THEN @organization ELSE organization END,
              amount_sum_equivalent = COALESCE(amount_sum_equivalent, @sumEq), updated_at = datetime('now')
            WHERE id = @id`,
         )
         .run({
           id: payment.id,
+          organization: await organizationOf(payment),
           cashboxId: cashbox.id,
           kassa: cashbox.name,
           acceptedAt: russianDateTime(date),
@@ -376,107 +408,121 @@ export async function updateAcceptance(id: number, input: UpdateAcceptanceInput,
     const header = (await tx.prepare("SELECT * FROM cash_acceptances WHERE id = @id FOR UPDATE").get({ id })) as Record<string, unknown> | undefined
     if (!header) throw new CashError("Операция не найдена", 404)
     if (num(header.is_deleted)) throw new CashError("Операция удалена", 409)
-    const cashbox = await loadCashbox(tx, input.cashboxId ?? numOrNull(header.cashbox_id), cc.base)
-    const rows = (await tx
-      .prepare(
-        `SELECT id, amount::float8 AS amount, currency, real_amount::float8 AS real_amount, real_currency, custom_rate, debt_rate
-         FROM customer_payments WHERE accept_id = @id AND is_deleted = 0 ORDER BY id FOR UPDATE`,
-      )
-      .all({ id })) as Array<{ id: number; amount: number; currency: string; real_amount: number | null; real_currency: string; custom_rate: number | null; debt_rate: number | null }>
-    const edits = new Map((input.payments ?? []).map((item) => [item.id, Number(item.amount)]))
-    for (const paymentId of edits.keys()) if (!rows.some((row) => row.id === paymentId)) throw new CashError("Оплата не входит в эту приемку", 400, "payments")
-    const date = input.date ? localDateTime(input.date) : String(header.date)
-    const cashRate = pickRate(cashbox.currency, cc)
-    let total = 0
-    for (const row of rows) {
-      const edited = edits.get(row.id)
-      if (edited !== undefined && !(edited > 0)) throw new CashError("Укажите сумму", 400, "payments")
-      const cash = edited ?? cashIn(row, cashbox, cc)
-      const debtCur = normCurrency(row.currency, cc.base)
-      let debt = num(row.amount)
-      if (edited !== undefined) {
-        if (debtCur === cashbox.currency) debt = cash
-        else {
-          const debtRate = pickRate(debtCur, cc, row.debt_rate)
-          if (!cashRate || !debtRate) throw new CashError("Курс валюты не задан", 400, "currencyRate")
-          debt = roundMoney((cash * cashRate) / debtRate, 5)
-        }
-      }
-      total += cash
-      // Only an edited amount fixes the cash side in the cashbox currency; other rows keep
-      // their collected amount/currency (the ledger converts them at current rates).
-      await tx
-        .prepare(
-          `UPDATE customer_payments SET cashbox_id = @cashboxId, kassa = @kassa, accepted_at = @acceptedAt,
-             real_amount = CASE WHEN @edited::boolean THEN @cash::float8 ELSE real_amount END,
-             real_currency = CASE WHEN @edited::boolean THEN @cur::text ELSE real_currency END,
-             amount = @debt, amount_sum_equivalent = CASE WHEN @edited::boolean THEN @sumEq::float8 ELSE amount_sum_equivalent END,
-             icon = @icon, cash_amount = @cashAmount, updated_at = datetime('now')
-           WHERE id = @id`,
-        )
-        .run({
-          id: row.id,
-          edited: edited !== undefined,
-          cashboxId: cashbox.id,
-          kassa: cashbox.name,
-          acceptedAt: russianDateTime(date),
-          cash,
-          cur: cashbox.currency,
-          debt,
-          sumEq: cashRate ? roundMoney(cash * cashRate) : null,
-          icon: cashbox.type === "bank" ? "card" : "cash",
-          cashAmount: cashbox.type === "bank" ? 0 : cash,
-        })
-    }
-    const deliveryMan = input.deliveryManId ? await loadEmployee(tx, input.deliveryManId) : null
-    await tx
-      .prepare(
-        `UPDATE cash_acceptances SET cashbox_id = @cashboxId, currency = @cur, amount = @amount, date = @date, branch = @branch, organization = @organization,
-           delivery_man = @deliveryMan, delivery_man_id = @deliveryManId, comment = @comment, updated_at = datetime('now')
-         WHERE id = @id`,
-      )
-      .run({
-        id,
-        cashboxId: cashbox.id,
-        cur: cashbox.currency,
-        amount: roundMoney(total, 5),
-        date,
-        branch: input.branch?.trim() ?? String(header.branch ?? ""),
-        organization: input.organization?.trim() ?? String(header.organization ?? ""),
-        deliveryMan: input.deliveryManId === null ? "" : (deliveryMan?.name ?? String(header.delivery_man ?? "")),
-        deliveryManId: input.deliveryManId === null ? null : (deliveryMan?.id ?? numOrNull(header.delivery_man_id)),
-        comment: input.comment?.trim() ?? String(header.comment ?? ""),
-      })
-    void user
+    // Moving the acceptance or lowering its amounts takes money out of the old cashbox.
+    await guardCashboxBalances(tx, [numOrNull(header.cashbox_id), input.cashboxId], cc.base, () => applyAcceptanceUpdate(tx, id, header, input, cc), "payments")
   })
+  void user
   return (await getAcceptance(id))!
 }
 
+async function applyAcceptanceUpdate(tx: PgDb, id: number, header: Record<string, unknown>, input: UpdateAcceptanceInput, cc: CurrencyContext): Promise<void> {
+  const cashbox = await loadCashbox(tx, input.cashboxId ?? numOrNull(header.cashbox_id), cc.base)
+  const rows = (await tx
+    .prepare(
+      `SELECT id, amount::float8 AS amount, currency, real_amount::float8 AS real_amount, real_currency, custom_rate, debt_rate
+       FROM customer_payments WHERE accept_id = @id AND is_deleted = 0 ORDER BY id FOR UPDATE`,
+    )
+    .all({ id })) as Array<{ id: number; amount: number; currency: string; real_amount: number | null; real_currency: string; custom_rate: number | null; debt_rate: number | null }>
+  const edits = new Map((input.payments ?? []).map((item) => [item.id, Number(item.amount)]))
+  for (const paymentId of edits.keys()) if (!rows.some((row) => row.id === paymentId)) throw new CashError("Оплата не входит в эту приемку", 400, "payments")
+  const date = input.date ? localDateTime(input.date) : String(header.date)
+  const cashRate = pickRate(cashbox.currency, cc)
+  let total = 0
+  for (const row of rows) {
+    const edited = edits.get(row.id)
+    if (edited !== undefined && !(edited > 0)) throw new CashError("Укажите сумму", 400, "payments")
+    const cash = edited ?? cashIn(row, cashbox, cc)
+    const debtCur = normCurrency(row.currency, cc.base)
+    let debt = num(row.amount)
+    if (edited !== undefined) {
+      if (debtCur === cashbox.currency) debt = cash
+      else {
+        const debtRate = pickRate(debtCur, cc, row.debt_rate)
+        if (!cashRate || !debtRate) throw new CashError("Курс валюты не задан", 400, "currencyRate")
+        debt = roundMoney((cash * cashRate) / debtRate, 5)
+      }
+    }
+    total += cash
+    // Only an edited amount fixes the cash side in the cashbox currency; other rows keep
+    // their collected amount/currency (the ledger converts them at current rates).
+    await tx
+      .prepare(
+        `UPDATE customer_payments SET cashbox_id = @cashboxId, kassa = @kassa, accepted_at = @acceptedAt,
+           real_amount = CASE WHEN @edited::boolean THEN @cash::float8 ELSE real_amount END,
+           real_currency = CASE WHEN @edited::boolean THEN @cur::text ELSE real_currency END,
+           amount = @debt, amount_sum_equivalent = CASE WHEN @edited::boolean THEN @sumEq::float8 ELSE amount_sum_equivalent END,
+           icon = @icon, cash_amount = @cashAmount, updated_at = datetime('now')
+         WHERE id = @id`,
+      )
+      .run({
+        id: row.id,
+        edited: edited !== undefined,
+        cashboxId: cashbox.id,
+        kassa: cashbox.name,
+        acceptedAt: russianDateTime(date),
+        cash,
+        cur: cashbox.currency,
+        debt,
+        sumEq: cashRate ? roundMoney(cash * cashRate) : null,
+        icon: cashbox.type === "bank" ? "card" : "cash",
+        cashAmount: cashbox.type === "bank" ? 0 : cash,
+      })
+  }
+  const deliveryMan = input.deliveryManId ? await loadEmployee(tx, input.deliveryManId) : null
+  await tx
+    .prepare(
+      `UPDATE cash_acceptances SET cashbox_id = @cashboxId, currency = @cur, amount = @amount, date = @date, branch = @branch, organization = @organization,
+         delivery_man = @deliveryMan, delivery_man_id = @deliveryManId, comment = @comment, updated_at = datetime('now')
+       WHERE id = @id`,
+    )
+    .run({
+      id,
+      cashboxId: cashbox.id,
+      cur: cashbox.currency,
+      amount: roundMoney(total, 5),
+      date,
+      branch: input.branch?.trim() ?? String(header.branch ?? ""),
+      organization: input.organization?.trim() ? await resolveOrganization(tx, input.organization, {}, "organization") : input.organization !== undefined ? "" : String(header.organization ?? ""),
+      deliveryMan: input.deliveryManId === null ? "" : (deliveryMan?.name ?? String(header.delivery_man ?? "")),
+      deliveryManId: input.deliveryManId === null ? null : (deliveryMan?.id ?? numOrNull(header.delivery_man_id)),
+      comment: input.comment?.trim() ?? String(header.comment ?? ""),
+    })
+}
+
+/** Detaches one payment from an acceptance inside the caller's transaction (it
+ * returns to "not accepted"); an acceptance left without live payments is
+ * soft-deleted, otherwise its stored amount follows. */
+export async function detachPaymentTx(tx: PgDb, acceptanceId: number, paymentId: number, user: string, base: string): Promise<void> {
+  const header = (await tx.prepare("SELECT * FROM cash_acceptances WHERE id = @id FOR UPDATE").get({ id: acceptanceId })) as Record<string, unknown> | undefined
+  if (!header) throw new CashError("Операция не найдена", 404)
+  if (num(header.is_deleted)) throw new CashError("Операция удалена", 409)
+  const { changes } = await tx
+    .prepare(
+      `UPDATE customer_payments SET accepted = 0, cashbox_id = NULL, kassa = '', accept_id = NULL, accepted_at = '', accepted_by = '', updated_at = datetime('now')
+       WHERE id = @paymentId AND accept_id = @id`,
+    )
+    .run({ id: acceptanceId, paymentId })
+  if (!changes) throw new CashError("Оплата не входит в эту приемку", 404, "client_transaction")
+  const left = (await tx.prepare("SELECT COUNT(*)::int AS n FROM customer_payments WHERE accept_id = @id AND is_deleted = 0").get({ id: acceptanceId })) as { n: number }
+  if (!num(left.n)) {
+    await tx
+      .prepare("UPDATE cash_acceptances SET is_deleted = 1, deleted_at = @at, deleted_by = @user, amount = 0, updated_at = datetime('now') WHERE id = @id")
+      .run({ id: acceptanceId, at: nowLocalIso(), user })
+  } else {
+    const amount = await liveAcceptanceAmount(tx, acceptanceId, base)
+    await tx.prepare("UPDATE cash_acceptances SET amount = @amount, updated_at = datetime('now') WHERE id = @id").run({ id: acceptanceId, amount })
+  }
+}
+
 /** Removes one payment from an acceptance (it returns to "not accepted");
- * an acceptance left without payments is deleted. */
+ * an acceptance left without payments is deleted. The cashbox loses that money,
+ * so it must not end overdrawn. */
 export async function detachPayment(acceptanceId: number, paymentId: number, user: string): Promise<AcceptanceDetail> {
   await ensureCashSchema()
   const cc = await currencyContext(getDb())
   await withTransaction(async (tx) => {
-    const header = (await tx.prepare("SELECT * FROM cash_acceptances WHERE id = @id FOR UPDATE").get({ id: acceptanceId })) as Record<string, unknown> | undefined
-    if (!header) throw new CashError("Операция не найдена", 404)
-    if (num(header.is_deleted)) throw new CashError("Операция удалена", 409)
-    const { changes } = await tx
-      .prepare(
-        `UPDATE customer_payments SET accepted = 0, cashbox_id = NULL, kassa = '', accept_id = NULL, accepted_at = '', accepted_by = '', updated_at = datetime('now')
-         WHERE id = @paymentId AND accept_id = @id`,
-      )
-      .run({ id: acceptanceId, paymentId })
-    if (!changes) throw new CashError("Оплата не входит в эту приемку", 404, "client_transaction")
-    const left = (await tx.prepare("SELECT COUNT(*)::int AS n FROM customer_payments WHERE accept_id = @id AND is_deleted = 0").get({ id: acceptanceId })) as { n: number }
-    if (!num(left.n)) {
-      await tx
-        .prepare("UPDATE cash_acceptances SET is_deleted = 1, deleted_at = @at, deleted_by = @user, amount = 0, updated_at = datetime('now') WHERE id = @id")
-        .run({ id: acceptanceId, at: nowLocalIso(), user })
-    } else {
-      const amount = await liveAcceptanceAmount(tx, acceptanceId, cc.base)
-      await tx.prepare("UPDATE cash_acceptances SET amount = @amount, updated_at = datetime('now') WHERE id = @id").run({ id: acceptanceId, amount })
-    }
+    const header = (await tx.prepare("SELECT cashbox_id FROM cash_acceptances WHERE id = @id").get({ id: acceptanceId })) as { cashbox_id: number | null } | undefined
+    await guardCashboxBalances(tx, [header?.cashbox_id], cc.base, () => detachPaymentTx(tx, acceptanceId, paymentId, user, cc.base))
   })
   return (await getAcceptance(acceptanceId))!
 }

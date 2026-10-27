@@ -1,8 +1,8 @@
 import "server-only"
 
 import { withTransaction, type PgDb } from "@/lib/db"
-import { getProductionDb, itemKey, nowIso, round, type ItemKind } from "@/lib/production-schema"
-import { averageCost, getCatalogItem, getWarehouseStock, nameKey } from "@/lib/production-stock"
+import { getProductionDb, itemKey, nowIso, ProductionError, round, textKey, type ItemKind } from "@/lib/production-schema"
+import { assertMovementDay, assertWarehouseOpen, ensureAvailable, itemCosts, requireCatalogItem, type CatalogItem, type StockNeed } from "@/lib/production-stock"
 import { getRecipe, getStage } from "@/lib/production-stages-repo"
 
 export type PartyStatus = "pending" | "finished" | "cancelled"
@@ -51,7 +51,9 @@ export type PartyDetail = ProductionParty & {
   madeDefects: ProductionMovement[]
   rawDefects: ProductionMovement[]
   totalMade: SummaryLine[]
+  /** Everything the batch consumed, spoiled raw material included. */
   totalRaw: SummaryLine[]
+  /** Value of everything consumed = value of the good output (brak carries no value). */
   totalRawCost: number
 }
 
@@ -129,8 +131,12 @@ export const toMovement = (row: MovementRow): ProductionMovement => ({
   createdAt: row.created_at,
 })
 
+// A batch moves stock in the warehouse stored on it at creation (the stage's
+// warehouse may change later); batches older than that column fall back to
+// the stage's warehouse.
 const PARTY_SELECT = `
-  SELECT p.*, s.warehouse
+  SELECT p.id, p.stage_id, p.stage_name, COALESCE(NULLIF(p.warehouse, ''), s.warehouse, '') AS warehouse,
+         p.date, p.comment, p.status, p.user_name, p.created_at, p.finished_at
   FROM production_parties p LEFT JOIN production_stages s ON s.id = p.stage_id`
 
 export const MOVEMENT_SELECT = `
@@ -230,29 +236,70 @@ export async function getPartyDetail(id: number): Promise<PartyDetail | null> {
   const movements = ((await db.prepare(`${MOVEMENT_SELECT} WHERE m.party_id = ? ORDER BY m.id`).all(id)) as MovementRow[]).map(toMovement)
   const made = movements.filter((row) => row.direction === "made" && !row.isDefect)
   const raw = movements.filter((row) => row.direction === "raw" && !row.isDefect)
+  const rawDefects = movements.filter((row) => row.direction === "raw" && row.isDefect)
+  const consumed = [...raw, ...rawDefects]
   return {
     ...party,
     made,
     raw,
     madeDefects: movements.filter((row) => row.direction === "made" && row.isDefect),
-    rawDefects: movements.filter((row) => row.direction === "raw" && row.isDefect),
+    rawDefects,
     totalMade: summarize(made),
-    totalRaw: summarize(raw),
-    totalRawCost: round(raw.reduce((sum, row) => sum + row.total, 0), 6),
+    totalRaw: summarize(consumed),
+    totalRawCost: round(consumed.reduce((sum, row) => sum + row.total, 0), 6),
   }
 }
 
-export async function createParty(input: { stageId: number; date: string; comment: string }, userName: string): Promise<ProductionParty | null> {
+export type CreatePartyResult = ProductionParty | "stage_not_found"
+
+export async function createParty(input: { stageId: number; date: string; comment: string }, userName: string): Promise<CreatePartyResult> {
   const stage = await getStage(input.stageId)
-  if (!stage) return null
+  if (!stage) return "stage_not_found"
+  assertMovementDay(input.date)
   const db = await getProductionDb()
+  await assertWarehouseOpen(db, stage.warehouse)
   const result = await db
-    .prepare("INSERT INTO production_parties (stage_id, stage_name, date, comment, status, user_name, created_at) VALUES (?, ?, ?, ?, 'pending', ?, ?)")
-    .run(stage.id, stage.name, input.date, input.comment, userName, nowIso())
-  return getParty(result.lastInsertRowid)
+    .prepare("INSERT INTO production_parties (stage_id, stage_name, warehouse, date, comment, status, user_name, created_at) VALUES (?, ?, ?, ?, ?, 'pending', ?, ?)")
+    .run(stage.id, stage.name, stage.warehouse, input.date, input.comment, userName, nowIso())
+  return (await getParty(result.lastInsertRowid))!
 }
 
 export type PartyUpdateResult = ProductionParty | "not_found" | "stage_not_found" | "stage_locked"
+
+/** Allowed status changes: a running batch can be finished or cancelled; a
+ * finished one can only be cancelled; a cancelled one is final. */
+const TRANSITIONS: Record<PartyStatus, PartyStatus[]> = {
+  pending: ["finished", "cancelled"],
+  finished: ["cancelled"],
+  cancelled: [],
+}
+
+type PartyLine = { direction: string; item_kind: string; item_id: number; item_name: string; unit: string; amount: number; is_defect: number; warehouse: string; date: string }
+
+async function partyLines(db: PgDb, partyId: number): Promise<PartyLine[]> {
+  return (await db
+    .prepare("SELECT direction, item_kind, item_id, item_name, unit, amount, is_defect, warehouse, date FROM production_movements WHERE party_id = ? ORDER BY id")
+    .all(partyId)) as PartyLine[]
+}
+
+/** Cancelling takes the batch's output (good and defective units) back out of
+ * the warehouse and returns its raw materials, so the output must still be there. */
+async function ensureCancellable(db: PgDb, lines: PartyLine[]) {
+  const byWarehouse = new Map<string, { warehouse: string; needs: StockNeed[] }>()
+  for (const line of lines) {
+    const amount = Number(line.amount) || 0
+    // Raw lines (spoiled raw included) took good units; they come back.
+    const qty = line.direction === "made" ? amount : line.direction === "raw" ? -amount : 0
+    if (!qty) continue
+    const group = byWarehouse.get(textKey(line.warehouse)) ?? { warehouse: line.warehouse, needs: [] }
+    const defect = line.direction === "made" && line.is_defect === 1
+    group.needs.push({ key: itemKey(line.item_kind, line.item_id), name: line.item_name, unit: line.unit, qty, date: line.date, defect })
+    byWarehouse.set(textKey(line.warehouse), group)
+  }
+  for (const group of byWarehouse.values()) {
+    if (textKey(group.warehouse)) await ensureAvailable(db, group.warehouse, group.needs, "Не возможно отменить. ")
+  }
+}
 
 export async function updateParty(id: number, input: { stageId: number; status: PartyStatus; comment: string; date: string }): Promise<PartyUpdateResult> {
   const stage = await getStage(input.stageId)
@@ -261,15 +308,26 @@ export async function updateParty(id: number, input: { stageId: number; status: 
     const current = await lockParty(db, id)
     if (!current) return "not_found" as const
     if (!stage) return "stage_not_found" as const
-    if (stage.id !== current.stageId) {
-      // Movements were taken from / put into the old stage's warehouse.
-      const moved = (await db.prepare("SELECT COUNT(*)::int AS count FROM production_movements WHERE party_id = ?").get(id)) as { count: number }
-      if (moved.count > 0) return "stage_locked" as const
+    const lines = await partyLines(db, id)
+    const stageChanged = stage.id !== current.stageId
+    // Movements were taken from / put into the old stage's warehouse.
+    if (stageChanged && lines.length > 0) return "stage_locked" as const
+    if (input.date !== current.date) {
+      // The movements carry their own day (the ledger books them on it).
+      if (lines.length > 0) throw new ProductionError(409, "В партии уже есть товары — дату изменить нельзя")
+      assertMovementDay(input.date)
     }
+    if (input.status !== current.status) {
+      if (current.status === "cancelled") throw new ProductionError(409, "Партия отменена — изменить ее статус нельзя")
+      if (!TRANSITIONS[current.status].includes(input.status)) throw new ProductionError(409, "Завершенную партию можно только отменить")
+      if (input.status === "cancelled") await ensureCancellable(db, lines)
+    }
+    if (stageChanged) await assertWarehouseOpen(db, stage.warehouse)
+    const warehouse = stageChanged ? stage.warehouse : current.warehouse
     const finishedAt = input.status === "finished" ? current.finishedAt || nowIso() : ""
     await db
-      .prepare("UPDATE production_parties SET stage_id = ?, stage_name = ?, status = ?, comment = ?, date = ?, finished_at = ? WHERE id = ?")
-      .run(stage.id, stage.name, input.status, input.comment, input.date, finishedAt, id)
+      .prepare("UPDATE production_parties SET stage_id = ?, stage_name = ?, warehouse = ?, status = ?, comment = ?, date = ?, finished_at = ? WHERE id = ?")
+      .run(stage.id, stage.name, warehouse, input.status, input.comment, input.date, finishedAt, id)
     return "ok" as const
   })
   return result === "ok" ? (await getParty(id))! : result
@@ -289,18 +347,26 @@ export async function deleteParty(id: number): Promise<"ok" | "not_found" | "fin
   })
 }
 
-/** Spreads the batch's raw-material cost over everything it produced. */
+
+/** The value of everything the batch consumed (raw lines, spoiled raw
+ * included) goes to its GOOD output; defective output (brak) carries no value,
+ * exactly as the stock core and the cost ledger hold it. So a batch moves
+ * value from raw materials to products without creating or losing any:
+ * Σ good made value = Σ raw value. */
 async function recalcPartyCost(db: PgDb, partyId: number) {
   const totals = (await db
     .prepare(
       `SELECT
-         COALESCE(SUM(CASE WHEN direction = 'raw' AND is_defect = 0 THEN amount * cost ELSE 0 END), 0) AS raw_cost,
-         COALESCE(SUM(CASE WHEN direction = 'made' AND is_defect = 0 THEN amount ELSE 0 END), 0) AS made_amount
+         COALESCE(SUM(CASE WHEN direction = 'raw' THEN amount * cost ELSE 0 END), 0) AS raw_cost,
+         COALESCE(SUM(CASE WHEN direction = 'made' AND is_defect <> 1 THEN amount ELSE 0 END), 0) AS good_amount
        FROM production_movements WHERE party_id = ?`,
     )
-    .get(partyId)) as { raw_cost: number; made_amount: number }
-  const unitCost = totals.made_amount > 0 ? totals.raw_cost / totals.made_amount : 0
-  await db.prepare("UPDATE production_movements SET cost = ? WHERE party_id = ? AND direction = 'made'").run(unitCost, partyId)
+    .get(partyId)) as { raw_cost: number; good_amount: number }
+  const goodAmount = Number(totals.good_amount) || 0
+  const unitCost = goodAmount > 0 ? (Number(totals.raw_cost) || 0) / goodAmount : 0
+  await db
+    .prepare("UPDATE production_movements SET cost = CASE WHEN is_defect = 1 THEN 0 ELSE CAST(? AS DOUBLE PRECISION) END WHERE party_id = ? AND direction = 'made'")
+    .run(unitCost, partyId)
 }
 
 export type MovementItemInput = { kind: ItemKind; id: number; amount: number }
@@ -313,35 +379,50 @@ type MovementContext = {
   shift?: string
   equipmentId?: number | null
   worker?: string
+  inventoryId?: number | null
 }
 
-/** Inserts stock movements; raw lines are costed at the warehouse's current
- * average cost, made lines get their cost from `madeCost` (or the batch
- * recalculation that follows). */
+/** Inserts stock movements atomically (inside the caller's transaction):
+ * every item must exist (404 otherwise, nothing is inserted); raw lines and
+ * negative adjustments must fit the warehouse's available stock on the
+ * movement day and today (409 otherwise); raw / adjust lines are valued at
+ * the shared cost of goods of that day; good made lines get `madeCost` (or the
+ * batch recalculation that follows), defective made lines 0. */
 export async function insertMovements(
   db: PgDb,
   context: MovementContext,
   direction: "made" | "raw" | "adjust",
   items: Array<MovementItemInput & { isDefect?: boolean; comment?: string; image?: string }>,
-  madeCost?: (item: { kind: ItemKind; id: number; name: string }) => Promise<number>,
+  madeCost?: (item: CatalogItem) => Promise<number>,
+  shortagePrefix = "",
 ): Promise<number> {
-  const stock = direction === "made" ? null : await getWarehouseStock(db, context.warehouse)
-  const fallbackRows = (await db.prepare("SELECT name, cost FROM products WHERE deleted = 0").all()) as Array<{ name: string; cost: number }>
-  const fallback = new Map(fallbackRows.map((row) => [nameKey(row.name), Number(row.cost) || 0]))
-  let inserted = 0
+  assertMovementDay(context.date)
+  await assertWarehouseOpen(db, context.warehouse)
+  const lines: Array<{ input: (typeof items)[number]; item: CatalogItem }> = []
   for (const input of items) {
-    if (!(input.amount > 0) && direction !== "adjust") continue
-    const item = await getCatalogItem(db, input.kind, input.id)
-    if (!item) continue
-    const cost = direction === "made"
-      ? madeCost ? await madeCost(item) : 0
-      : averageCost(stock?.get(nameKey(item.name)), fallback.get(nameKey(item.name)) ?? 0)
+    if (direction === "adjust" ? !input.amount : !(input.amount > 0)) continue
+    lines.push({ input, item: await requireCatalogItem(db, input.kind, input.id) })
+  }
+  if (!lines.length) return 0
+  const takes = lines.filter(({ input }) => direction === "raw" || (direction === "adjust" && input.amount < 0))
+  if (takes.length) {
+    await ensureAvailable(
+      db,
+      context.warehouse,
+      takes.map(({ input, item }) => ({ key: item.key, name: item.name, unit: item.unit, qty: Math.abs(input.amount), date: context.date })),
+      shortagePrefix,
+    )
+  }
+  const costs = direction === "made" ? null : await itemCosts(db, context.date)
+  for (const { input, item } of lines) {
+    // Defective output (brak) carries no value.
+    const cost = costs ? costs.get(item.key) ?? 0 : input.isDefect ? 0 : madeCost ? await madeCost(item) : 0
     await db
       .prepare(
         `INSERT INTO production_movements
            (stage_id, party_id, warehouse, direction, item_kind, item_id, item_name, unit, amount, cost, is_defect,
-            comment, image, date, shift, equipment_id, worker, user_name, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            comment, image, date, shift, equipment_id, worker, user_name, created_at, inventory_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         context.stageId,
@@ -353,7 +434,7 @@ export async function insertMovements(
         item.name,
         item.unit,
         input.amount,
-        cost,
+        Number.isFinite(cost) ? cost : 0,
         input.isDefect ? 1 : 0,
         input.comment ?? "",
         input.image ?? "",
@@ -363,10 +444,10 @@ export async function insertMovements(
         context.worker ?? "",
         context.userName,
         nowIso(),
+        context.inventoryId ?? null,
       )
-    inserted += 1
   }
-  return inserted
+  return lines.length
 }
 
 /** Reads the batch row with a row lock, so concurrent edits of one batch
@@ -451,14 +532,29 @@ export async function autoFinishParty(
   })
 }
 
+/** Deletes one movement of a running batch or a shift entry. Inventory
+ * adjustments belong to their inventory and cannot be deleted alone; removing
+ * output requires it to be still in the warehouse. */
 export async function deleteMovement(id: number): Promise<"ok" | "not_found" | "not_pending"> {
   await getProductionDb()
   return withTransaction(async (db) => {
-    const row = (await db.prepare("SELECT party_id FROM production_movements WHERE id = ?").get(id)) as { party_id: number | null } | undefined
+    const row = (await db
+      .prepare("SELECT party_id, direction, item_kind, item_id, item_name, unit, amount, is_defect, warehouse, date FROM production_movements WHERE id = ?")
+      .get(id)) as (PartyLine & { party_id: number | null }) | undefined
     if (!row) return "not_found"
+    if (row.direction === "adjust") throw new ProductionError(409, "Строка относится к инвентаризации — удалить ее нельзя")
     if (row.party_id) {
       const party = await lockParty(db, row.party_id)
       if (party && party.status !== "pending") return "not_pending"
+    }
+    if (row.direction === "made" && textKey(row.warehouse)) {
+      const defect = row.is_defect === 1
+      await ensureAvailable(
+        db,
+        row.warehouse,
+        [{ key: itemKey(row.item_kind, row.item_id), name: row.item_name, unit: row.unit, qty: Number(row.amount) || 0, date: row.date, defect }],
+        "Не возможно удалить. ",
+      )
     }
     await db.prepare("DELETE FROM production_movements WHERE id = ?").run(id)
     if (row.party_id) await recalcPartyCost(db, row.party_id)

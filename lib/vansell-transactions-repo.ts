@@ -4,6 +4,7 @@ import { getDb, withTransaction, type PgDb } from "@/lib/db"
 import { loadCurrencyContext } from "@/lib/finance/context"
 import { ledgerCurrency, normCurrency } from "@/lib/finance/currency"
 import { nowLocalIso, parseAnyDate } from "@/lib/finance/dates"
+import { isVansellAgent } from "@/lib/finance/entities"
 import { ensureLedgerExtensions } from "@/lib/finance/schema"
 import type { VansellLimitsBody, VansellTransactionCreateBody, VansellTransactionUpdateBody } from "@/lib/finance-vansell-balance-api"
 
@@ -122,9 +123,6 @@ function businessDate(value: string | undefined): string {
   return (value ? parseAnyDate(value) : null)?.slice(0, 16) ?? nowLocalIso().slice(0, 16)
 }
 
-async function employeeExists(db: PgDb, id: number): Promise<boolean> {
-  return Boolean(await db.prepare("SELECT id FROM employees WHERE id = ?").get(id))
-}
 
 /** Canonical code when the currency is known (currencies table, or SUM/USD/EUR when it is empty). */
 async function knownCurrency(db: PgDb, value: string): Promise<string | null> {
@@ -167,7 +165,8 @@ export type VansellWriteError = "employee_not_found" | "currency_not_found" | "n
 export async function createVansellTransaction(input: VansellTransactionCreateBody, createdBy: string): Promise<VansellTransaction | VansellWriteError> {
   const db = getDb()
   await ensureSchema(db)
-  if (!(await employeeExists(db, input.employeeId))) return "employee_not_found"
+  // Only a van-sell agent ("Вансел…" position, or the cashier of a van-sell cashbox) has this balance.
+  if (!(await isVansellAgent(db, input.employeeId))) return "employee_not_found"
   const code = await knownCurrency(db, input.currency)
   if (!code) return "currency_not_found"
   const amount = input.kind === "expense" ? -Math.abs(input.amount) : Math.abs(input.amount)
@@ -195,7 +194,7 @@ export async function updateVansellTransaction(id: number, input: VansellTransac
   if (!current) return "not_found"
   if (current.type !== "none_type") return "not_editable"
   const employeeId = input.employeeId ?? current.employeeId
-  if (employeeId !== current.employeeId && !(await employeeExists(db, employeeId))) return "employee_not_found"
+  if (employeeId !== current.employeeId && !(await isVansellAgent(db, employeeId))) return "employee_not_found"
   const code = await knownCurrency(db, input.currency)
   if (!code) return "currency_not_found"
   await db
@@ -232,8 +231,7 @@ export async function saveVansellLimits(items: VansellLimitsBody, updatedBy: str
   await ensureSchema()
   const ids = [...new Set(items.map((item) => item.employeeId))]
   const saved = await withTransaction(async (db) => {
-    const found = (await db.prepare("SELECT id FROM employees WHERE id = ANY(@ids::int[])").all({ ids })) as Array<{ id: number }>
-    if (found.length !== ids.length) return false
+    for (const id of ids) if (!(await isVansellAgent(db, id))) return false
     for (const item of items) {
       await db
         .prepare(

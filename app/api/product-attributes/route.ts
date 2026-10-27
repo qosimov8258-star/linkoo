@@ -7,7 +7,7 @@ import { parseJsonBody } from "@/lib/validation"
 import { createProductAttribute, listProductAttributes } from "@/lib/product-attributes-repo"
 
 const schema = z.object({
-  name: z.string().trim().min(1),
+  name: z.string().trim().min(1).max(255, "Не более 255 символов"),
   fieldType: z.enum(["Выбор вариантов", "Текстовое поле", "Цифровое поле"]).optional(),
   allTypes: z.boolean().optional(),
   types: z.array(z.string()).optional(),

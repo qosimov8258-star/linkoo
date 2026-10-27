@@ -8,7 +8,7 @@ import { applyProductRestriction, listProductRestrictions } from "@/lib/product-
 
 const applyRestrictionSchema = z.object({
   scope: z.enum(["products", "types"]),
-  employee: z.string().trim().min(1),
+  employee: z.string().trim().min(1).max(255, "Не более 255 символов"),
   mode: z.enum(["add", "remove", "replace"]),
   items: z.array(z.string()).optional(),
 })

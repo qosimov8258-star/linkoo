@@ -7,7 +7,7 @@ import { parseJsonBody } from "@/lib/validation"
 import { createNewReportBuilderSave, listNewReportBuilderSaves } from "@/lib/new-report-builder-repo"
 
 const newReportBuilderSaveSchema = z.object({
-  name: z.string().trim().min(1),
+  name: z.string().trim().min(1).max(255, "Не более 255 символов"),
   reportType: z.string().trim().optional(),
   config: z.record(z.string(), z.unknown()).optional(),
 })

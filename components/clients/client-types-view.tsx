@@ -12,6 +12,13 @@ type ClientType = { id: number; name: string; supplier: string; date: string; pa
 
 const emptyDraft = { name: "", supplier: "", parent: "", hasParent: false, innRequired: false }
 
+/** The server's message (409: duplicate name, or the usage list of a type in use). */
+async function errorOf(response: Response, t: (key: string) => string): Promise<string> {
+  const body = (await response.json().catch(() => null)) as { error?: string; usage?: Array<{ label: string; count: number }> } | null
+  const usage = body?.usage?.map((entry) => `${t(entry.label)}: ${entry.count}`).join(", ")
+  return body?.error ? `${t(body.error)}${usage ? ` (${usage})` : ""}` : t("Не удалось сохранить")
+}
+
 export function ClientTypesView({ embedded = false }: { embedded?: boolean }) {
   const { t } = useLanguage()
   const [items, setItems] = useState<ClientType[]>([])
@@ -83,8 +90,7 @@ export function ClientTypesView({ embedded = false }: { embedded?: boolean }) {
         body: JSON.stringify({ name: draft.name.trim(), supplier: draft.supplier, parentId, innRequired: draft.innRequired }),
       })
       if (!response.ok) {
-        const data = await response.json().catch(() => ({}))
-        setError(data.error || t("Не удалось сохранить"))
+        setError(await errorOf(response, t))
         return
       }
       const list = await fetch("/api/client-types").then((res) => (res.ok ? res.json() : null)).catch(() => null)

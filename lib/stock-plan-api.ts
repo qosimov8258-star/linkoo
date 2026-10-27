@@ -7,6 +7,7 @@ import { isIsoDay } from "@/lib/finance/dates"
 import type { PlanPaging, PlanTaskFilters } from "@/lib/stock-plan"
 import type { PlanMoveFilters } from "@/lib/stock-plan-movements"
 import { PLAN_TASK_TABS, PLAN_TYPE_LABELS, type PlanTaskTab, type PlanTaskType } from "@/lib/stock-plan-types"
+import { parsePageParam } from "@/lib/stock/paging"
 
 // Query parsing of /api/stock/plan/** (GET only; the actions go to the
 // documents' own endpoints: PATCH /api/supplier-incomings/[id] and
@@ -39,7 +40,7 @@ function period(params: URLSearchParams): Parsed<{ from: string; to: string }> {
 
 /** page (1-based), pageSize (0 = all rows), ordering ([-]field). */
 export function parsePlanPaging(params: URLSearchParams): PlanPaging {
-  const page = Math.max(1, Math.floor(Number(params.get("page")) || 1))
+  const page = parsePageParam(params.get("page"))
   const raw = params.get("pageSize")
   const size = raw === null || raw === "" ? 25 : Math.floor(Number(raw))
   return { page, pageSize: Number.isFinite(size) && size >= 0 ? Math.min(size, 2000) : 25, ordering: (params.get("ordering") ?? "").trim() }

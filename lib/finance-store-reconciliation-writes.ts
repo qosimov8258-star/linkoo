@@ -3,6 +3,7 @@ import "server-only"
 import { z } from "zod"
 
 import { getDb, withTransaction, type PgDb } from "@/lib/db"
+import { MAX_ID, MAX_MONEY } from "@/lib/finance/api"
 import { loadCurrencyContext } from "@/lib/finance/context"
 import { convertAmount, currencyLabel, formatMoney, normCurrency, roundMoney } from "@/lib/finance/currency"
 import { customerPaymentColumns } from "@/lib/finance/customer-payment"
@@ -47,7 +48,7 @@ export { FinanceInputError }
 export const TELEGRAM_BOT_CONNECTED = false
 
 const day = z.string().refine(isIsoDay, "YYYY-MM-DD")
-const clientId = z.coerce.number().int().positive()
+const clientId = z.coerce.number().int().positive().max(MAX_ID)
 
 // --- clients -----------------------------------------------------------------------
 
@@ -276,17 +277,41 @@ export const correctionSchema = z.object({
   /** expense = "Списать" (none_type −), income = "Добавить" / Прочие приходы (none_type +),
    * payment = "Добавить" / Оплата (Кассир не принял) (customer payment waiting for the cashier). */
   kind: z.enum(["expense", "income", "payment"]),
-  amount: z.coerce.number().finite().positive(),
-  currency: z.string().trim().min(1),
+  amount: z.coerce.number().finite().positive().max(MAX_MONEY),
+  /** A currency of the currencies table (checked on write: 400 "Валюта не найдена"). */
+  currency: z.string().trim().min(1).max(16),
   paymentType: z.enum(["cash", "bank", ""]).optional(),
-  organization: z.string().trim().optional(),
+  organization: z.string().trim().max(200).optional(),
   /** Local "YYYY-MM-DDTHH:mm" or "YYYY-MM-DD"; default now. */
-  date: z.string().trim().optional(),
-  deliveryMan: z.string().trim().optional(),
+  date: z.string().trim().max(40).optional(),
+  deliveryMan: z.string().trim().max(200).optional(),
   comment: z.string().trim().max(2000).optional(),
 })
 
 export type CorrectionInput = z.infer<typeof correctionSchema>
+
+/** Canonical code of a currency of the currencies table (SUM / USD / EUR when the table is empty). */
+async function knownCurrency(db: PgDb, value: string): Promise<string> {
+  const code = normCurrency(value)
+  const context = await loadCurrencyContext(db)
+  if (!context.currencies.some((item) => item.code === code)) throw new FinanceInputError("Валюта не найдена")
+  return code
+}
+
+/** Undo of a manual correction ("Списать" / "Добавить" / Excel debt line):
+ * soft delete (is_deleted = 1), so the client ledger no longer counts it. */
+export async function deleteClientCorrection(id: number, deletedBy: string): Promise<{ id: number; deleted: true }> {
+  const db = getDb()
+  await ensureStoreReconciliationSchema(db)
+  const row = (await db
+    .prepare(
+      `UPDATE ${CLIENT_CORRECTIONS_TABLE} SET is_deleted = 1, deleted_at = datetime('now'), deleted_by = @deleted_by
+       WHERE id = @id AND COALESCE(is_deleted, 0) = 0 RETURNING id`,
+    )
+    .get({ id, deleted_by: deletedBy })) as { id: number } | undefined
+  if (!row) throw new FinanceInputError("Запись не найдена", 404)
+  return { id: Number(row.id), deleted: true }
+}
 
 function localDate(value: string | undefined): string {
   if (!value) return nowLocalIso().slice(0, 16)
@@ -302,7 +327,7 @@ export async function createClientCorrection(input: CorrectionInput, createdBy: 
   await ensureStoreReconciliationSchema(db)
   const s = await ensureFinanceSchema(db)
   const client = await loadClient(db, input.clientId)
-  const currency = normCurrency(input.currency)
+  const currency = await knownCurrency(db, input.currency)
   const date = localDate(input.date)
   const amount = roundMoney(Math.abs(input.amount))
   const organization = placeName(input.organization)
@@ -432,7 +457,8 @@ export function parseAmountCell(text: string): number | null | undefined {
   if (raw.includes(",") && raw.includes(".")) normalized = raw.replace(/,/g, "")
   else if (raw.includes(",")) normalized = raw.replace(",", ".")
   if (!/^[-+]?\d+(\.\d+)?$/.test(normalized)) return undefined
-  return Number(normalized)
+  const value = Number(normalized)
+  return Number.isFinite(value) && Math.abs(value) <= MAX_MONEY ? value : undefined
 }
 
 type ResolvedLine = {

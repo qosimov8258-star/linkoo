@@ -306,7 +306,7 @@ export function CatalogFormDialog({
           <>
             {error && <span className="mr-4 text-[13px] text-[#f44336]">{error}</span>}
             <SaveButton busy={busy} onClick={() => void save()}>
-              {t("Сохранить изменение")}
+              {t(item ? "Сохранить изменение" : "Сохранить")}
             </SaveButton>
           </>
         }
@@ -442,6 +442,7 @@ export function CatalogFormDialog({
             onChange={(prices) => set({ prices })}
             priceLists={options?.priceLists ?? []}
             currencies={options?.currencies ?? ["SUM"]}
+            savedNames={item?.priceLists.map((entry) => entry.name) ?? []}
             error={errors.priceLists}
           />
           <div className="flex items-start">

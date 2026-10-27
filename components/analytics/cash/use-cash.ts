@@ -64,8 +64,18 @@ export function useCashJson<T>(url: string | null, pollMs = 0): CashFetchState<T
 
   useEffect(() => {
     if (!url || !pollMs) return
-    const timer = window.setInterval(() => setVersion((value) => value + 1), pollMs)
-    return () => window.clearInterval(timer)
+    // Skip the poll while the tab is hidden; refresh once when it becomes visible again.
+    const timer = window.setInterval(() => {
+      if (!document.hidden) setVersion((value) => value + 1)
+    }, pollMs)
+    const onVisible = () => {
+      if (!document.hidden) setVersion((value) => value + 1)
+    }
+    document.addEventListener("visibilitychange", onVisible)
+    return () => {
+      window.clearInterval(timer)
+      document.removeEventListener("visibilitychange", onVisible)
+    }
   }, [url, pollMs])
 
   const reload = useCallback(() => setVersion((value) => value + 1), [])
@@ -87,8 +97,8 @@ export function useCashTotals(query: CashQuery, enabled = true): CashFetchState<
   return useCashJson<CashTotalsResult>(enabled ? `/api/cash/operations/total?${buildCashQuery(query)}` : null)
 }
 
-/** GET /api/cash/unverified/count every 5 s — clock badge. */
-export function useUnverifiedCount(pollMs = 5000): CashFetchState<{ count: number }> {
+/** GET /api/cash/unverified/count every 30 s (not while the tab is hidden) — clock badge. */
+export function useUnverifiedCount(pollMs = 30_000): CashFetchState<{ count: number }> {
   return useCashJson<{ count: number }>("/api/cash/unverified/count", pollMs)
 }
 

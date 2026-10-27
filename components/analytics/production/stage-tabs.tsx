@@ -501,7 +501,7 @@ function ComponentDialog({ recipe, role, catalog, onClose, onSaved }: { recipe: 
 
   return (
     <Modal title={t(role === "ready" ? "Добавить готовый продукт" : "Добавить сырье")} tall onClose={onClose} onSubmit={save} footer={<SaveButton saving={saving} disabled={!key} />}>
-      <p className="mb-4 text-sm text-slate-500">{recipe.name} — {t("на")} {formatAmount(recipe.amount, recipe.unit)}</p>
+      <p className="mb-4 text-sm text-slate-500">{recipe.name} {t("— на")} {formatAmount(recipe.amount, recipe.unit)}</p>
       <div className="space-y-5">
         <Field label="Наименование" required><ItemPicker items={items} value={key} onChange={setKey} /></Field>
         <Field label="Объем" required>

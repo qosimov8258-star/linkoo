@@ -4,6 +4,7 @@ import { NextResponse } from "next/server"
 import { z } from "zod"
 
 import { isIsoDay } from "@/lib/finance/dates"
+import { parsePageParam } from "@/lib/stock/paging"
 import { WRITE_OFF_SORT_KEYS, isWriteOffError, type WriteOffChange, type WriteOffInput, type WriteOffListQuery } from "@/lib/write-offs-repo"
 import { WRITE_OFF_ACTIONS, WRITE_OFF_STATUSES, type WriteOffStatus } from "@/lib/write-offs-types"
 
@@ -32,15 +33,18 @@ export const writeOffBodySchema = z.object({
         block: num,
         cost: num,
         sum: num,
+        /** Defective units (Брак). */
+        defect: z.boolean().optional(),
       }),
     )
     .min(1)
     .max(2000),
 })
 
+/** A number field ("1 000,5" accepted); blank = 0; anything else unparseable = NaN (the repo refuses it). */
 const toNumber = (value: unknown) => {
-  const parsed = Number(String(value ?? "").replace(/\s/g, "").replace(",", "."))
-  return Number.isFinite(parsed) ? parsed : 0
+  if (value === undefined || value === null || String(value).trim() === "") return 0
+  return Number(String(value).replace(/\s/g, "").replace(",", "."))
 }
 
 export function toWriteOffInput(body: z.infer<typeof writeOffBodySchema>): WriteOffInput {
@@ -55,6 +59,7 @@ export function toWriteOffInput(body: z.infer<typeof writeOffBodySchema>): Write
       product: line.product === undefined ? undefined : String(line.product),
       qty: toNumber(line.qty ?? line.amount),
       series: line.series && line.series !== "-" ? line.series : "",
+      defect: line.defect === true,
     })),
   }
 }
@@ -62,7 +67,9 @@ export function toWriteOffInput(body: z.infer<typeof writeOffBodySchema>): Write
 export const writeOffActionSchema = z.object({ action: z.enum(WRITE_OFF_ACTIONS as [string, ...string[]]), comment: z.string().max(2000).optional() })
 
 export function writeOffResponse(result: WriteOffChange, created = false) {
-  if (isWriteOffError(result)) return NextResponse.json({ error: result.error, ...(result.shortages ? { shortages: result.shortages } : {}) }, { status: result.status })
+  if (isWriteOffError(result)) {
+    return NextResponse.json({ error: result.error, ...(result.field ? { field: result.field } : {}), ...(result.shortages ? { shortages: result.shortages } : {}) }, { status: result.status })
+  }
   return NextResponse.json(result, { status: created ? 201 : 200 })
 }
 
@@ -77,7 +84,7 @@ export function parseWriteOffListQuery(url: string): WriteOffListQuery | null {
   return {
     search: (params.get("search") ?? "").slice(0, 200),
     ordering: WRITE_OFF_SORT_KEYS.includes(ordering.replace(/^-/, "")) ? ordering : "",
-    page: Math.max(1, Math.floor(Number(params.get("page")) || 1)),
+    page: parsePageParam(params.get("page")),
     pageSize: Number.isFinite(pageSize) && pageSize >= 0 ? Math.min(5000, Math.floor(pageSize)) : 25,
     warehouse: list("warehouse"),
     creator: list("creator"),

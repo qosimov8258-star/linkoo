@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 import { z } from "zod"
 
 import { requireRole } from "@/lib/rbac"
-import { parseJsonBody } from "@/lib/validation"
+import { invalidIdResponse, parseIdSegment, parseJsonBody } from "@/lib/validation"
 import { deleteKpiTask, getKpiTask, setKpiTaskActive, setKpiTaskLock, updateKpiTask } from "@/lib/kpi-tasks-repo"
 
 // A PUT body of exactly `{ active: boolean }` is a toggle-only request; any
@@ -20,7 +20,7 @@ const kpiTaskLockSchema = z
   })
   .strict()
 const kpiTaskFullSchema = z.object({
-  name: z.string().trim().min(1),
+  name: z.string().trim().min(1).max(255, "Не более 255 символов"),
   planType: z.string().optional(),
   clientType: z.string().trim().optional(),
   comment: z.string().optional(),
@@ -37,7 +37,8 @@ export async function PUT(request: Request, { params }: RouteParams) {
   const auth = await requireRole("manager")
   if ("error" in auth) return auth.error
 
-  const id = Number((await params).id)
+  const id = parseIdSegment((await params).id)
+  if (id === null) return invalidIdResponse()
   const parsed = await parseJsonBody(request, kpiTaskPutSchema)
   if (parsed.error) return parsed.error
 
@@ -77,7 +78,8 @@ export async function DELETE(_request: Request, { params }: RouteParams) {
   const auth = await requireRole("manager")
   if ("error" in auth) return auth.error
 
-  const id = Number((await params).id)
+  const id = parseIdSegment((await params).id)
+  if (id === null) return invalidIdResponse()
   const ok = (await deleteKpiTask(id))
   if (!ok) return NextResponse.json({ error: "KPI задача не найдена" }, { status: 404 })
   return NextResponse.json({ ok: true })

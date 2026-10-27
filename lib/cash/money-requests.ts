@@ -5,7 +5,7 @@ import { normCurrency, roundMoney } from "@/lib/finance/currency"
 import { nowLocalIso, todayIso } from "@/lib/finance/dates"
 import { nameKey } from "@/lib/finance/entities"
 import { getBalanceList } from "@/lib/finance/ledger"
-import { CashError, num } from "@/lib/cash/common"
+import { CashError, num, pageOf } from "@/lib/cash/common"
 import { appendLog, lockFundRequest, parseLog, requestStatus } from "@/lib/cash/request-links"
 import { ensureCashSchema } from "@/lib/cash/schema"
 import { createCashOperation } from "@/lib/cash/write"
@@ -100,8 +100,7 @@ const ORDER: Record<string, string> = { id: "t.id", date: "t.created_at", amount
 /** List by status with the supplier balances (Ожидаемые расходы tabs, cash-page "Запрос средств" with status approved). */
 export async function listMoneyRequests(query: MoneyRequestsQuery, db: PgDb = getDb()): Promise<{ count: number; page: number; pageSize: number; rows: MoneyRequest[] }> {
   await ensureCashSchema(db)
-  const pageSize = query.pageSize === 0 ? 0 : Math.max(1, Math.floor(query.pageSize ?? 25))
-  const page = Math.max(1, Math.floor(query.page ?? 1))
+  const { page, pageSize } = pageOf(query.page, query.pageSize)
   if (!(await hasTable(db))) return { count: 0, page, pageSize, rows: [] }
   const status = query.status ?? ""
   const statuses = status === "pending" ? ["", "pending"] : status === "cancelled" ? ["cancelled", "rejected"] : status ? [status] : []
@@ -181,12 +180,14 @@ export async function updateMoneyRequest(id: number, input: MoneyRequestUpdate, 
   return (await getMoneyRequest(id))!
 }
 
-/** Cash side of the payment; categoryId (expense category) is optional here. */
+/** Cash side of the payment; categoryId (expense category) is optional here
+ * (default: the first expense category with the "Поставщик" / "Поставка" option). */
 export type PayMoneyRequestInput = Omit<CashOperationInput, "kind" | "moneyRequestId" | "supplierId">
 
 /** "Оплатить": a supplier payment (cash «Расход») for an approved request;
  * the request becomes "given". amount defaults to the request amount
- * converted into the cashbox currency. */
+ * converted into the cashbox currency; another amount is refused (a request
+ * is paid in full, and the supplier is credited with what was paid). */
 export async function payMoneyRequest(id: number, input: PayMoneyRequestInput, user: string): Promise<CashWriteResult> {
   return createCashOperation({ ...input, kind: "expense", moneyRequestId: id, isVerified: input.isVerified ?? true }, user)
 }

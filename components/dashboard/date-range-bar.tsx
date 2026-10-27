@@ -29,7 +29,11 @@ export function DateRangeBar({
   onCustomRange: (begin: string, end: string) => void
 }) {
   const { t } = useLanguage()
-  const [displayName, setDisplayName] = useState("Admin Ritm")
+  // The signed-in user's name (filled from /api/auth/me), never a placeholder person.
+  const [displayName, setDisplayName] = useState("")
+  // This server's address (after mount), never another company's server.
+  const [origin, setOrigin] = useState("")
+  useEffect(() => setOrigin(window.location.origin), [])
   const searchParams = useSearchParams()
   const [widgetsOpen, setWidgetsOpen] = useState(searchParams.get("widgets") === "1")
   const [pickerOpen, setPickerOpen] = useState(false)
@@ -58,7 +62,7 @@ export function DateRangeBar({
       <div className="flex items-center">
         <span className="h-[30px] w-[30px] rounded-full bg-[url('/default-avatar.png')] bg-cover bg-center" aria-hidden />
         <h4 className="mx-[10px] text-[16px] font-semibold leading-5 text-[#333]">{displayName}</h4>
-        <span className="-ml-[5px] text-[12px] font-semibold leading-[15px] text-[#999]">{t("Сервер: (https://time3.linko.uz)")}</span>
+        {origin && <span className="-ml-[5px] text-[12px] font-semibold leading-[15px] text-[#999]">{t("Сервер")}: ({origin})</span>}
       </div>
 
       <div className="flex items-center gap-[10px]">
