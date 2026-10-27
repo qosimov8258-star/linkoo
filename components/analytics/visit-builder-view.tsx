@@ -307,7 +307,7 @@ export function VisitBuilderView({ variant = "visits" }: { variant?: "visits" | 
 
   return (
     <ReportPage>
-      <div className="pl-[30px] pr-[38px]">
+      <div className="pl-[28px] pr-[38px]">
         <RefHeader title={t(isSales ? "Отчет по продажам" : "Конструктор")}>
           <div className="flex overflow-hidden rounded-[3px] shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
             {(isSales ? ["ЗАКАЗ И ВОЗВРАТ ПО ДАТЕ РЕАЛИЗАЦИИ", "ЗАКАЗ И ВОЗВРАТ ПО ДАТЕ СОЗДАНИЯ"] : ["ВИЗИТ", "ЗАДАЧИ", "ОТКАЗЫ"]).map((tab) => (

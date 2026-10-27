@@ -254,7 +254,7 @@ export function ReportBuilderView() {
 
   return (
     <ReportPage>
-      <div className="pl-[30px] pr-[38px]">
+      <div className="pl-[28px] pr-[38px]">
         <RefHeader title="Конструктор">
           <div className="flex overflow-hidden rounded-[3px] shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
             {([["stock", "ТЕКУЩИЙ ОСТАТОК"], ["warehouse", "СКЛАД"]] as const).map(([key, label]) => (

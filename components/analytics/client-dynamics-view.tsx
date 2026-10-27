@@ -145,7 +145,7 @@ export function ClientDynamicsView() {
 
   return (
     <ReportPage>
-      <div className="pl-[30px] pr-[38px]">
+      <div className="pl-[28px] pr-[38px]">
         <RefHeader title="Классификация и динамика клиентов">
           <RefButton icon={RI.chart} green label="Скачать" onClick={download} />
           <RefButton icon={GEAR} label="Настроить классификацию" onClick={() => setSettingsOpen(true)} />
