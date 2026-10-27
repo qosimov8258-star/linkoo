@@ -116,7 +116,7 @@ export function PhotoReportReviewView() {
 
   return (
     <ReportPage>
-      <header className="relative pl-[30px] pr-[38px]">
+      <header className="relative pl-[28px] pr-[38px]">
         <RefHeader title="Активность">
           <strong className="mr-[10px] text-[13px] font-bold text-[#4f71dc]">
             {formatDate(range.from)} - {formatDate(range.to)}
