@@ -225,7 +225,7 @@ function DateField({ label, value, onChange }: { label: string; value: DateRange
   const text = value.from || value.to ? `${value.from || "…"} — ${value.to || "…"}` : t("Укажите дату")
   return (
     <div className="relative h-[37px] w-[256px] border-b border-[#e0e0e0]">
-      <span className="absolute left-0 top-0 flex items-center gap-[3px] text-[10px] font-bold leading-3">
+      <span className="absolute left-0 top-0 flex items-center gap-[3px] text-[9.75px] font-semibold leading-3">
         {t(label)}
         <CalendarDays className="h-3 w-3 text-[#bbb]" />
       </span>

@@ -26,6 +26,7 @@ export function RefSearchSelect({
   rowHeight = 36,
   labelShift = 0,
   dense,
+  panelCaret,
 }: {
   label: string
   items: RefSelectItem[]
@@ -48,6 +49,8 @@ export function RefSearchSelect({
   labelShift?: number
   /** Dialog variant: the clear mark and arrow sit closer to the right edge. */
   dense?: boolean
+  /** The 10x5 arrow of the reference's newer filter panels (right 10px, 39.4px down). */
+  panelCaret?: boolean
 }) {
   const { t } = useLanguage()
   const [open, setOpen] = useState(false)
@@ -94,9 +97,15 @@ export function RefSearchSelect({
           ×
         </button>
       )}
-      <svg viewBox="0 0 10 7" className={`pointer-events-none absolute h-[7px] w-[10px] fill-[#888] ${dense ? "right-[10px] top-[39px]" : "right-[14px] top-[36px]"} ${open ? "rotate-180" : ""}`}>
-        <path d="M0 0l5 5.5L10 0z" />
-      </svg>
+      {panelCaret ? (
+        <svg viewBox="0 0 10 5" className={`pointer-events-none absolute right-[10px] top-[39.4px] h-[5px] w-[10px] fill-[#999] ${open ? "rotate-180" : ""}`}>
+          <path d="M0 0l5 5 5-5z" />
+        </svg>
+      ) : (
+        <svg viewBox="0 0 10 7" className={`pointer-events-none absolute h-[7px] w-[10px] fill-[#888] ${dense ? "right-[10px] top-[39px]" : "right-[14px] top-[36px]"} ${open ? "rotate-180" : ""}`}>
+          <path d="M0 0l5 5.5L10 0z" />
+        </svg>
+      )}
       {error && <div className="absolute left-0 top-[56px] text-[12px] leading-4 text-[#f44336]">{error}</div>}
       {open && (
         <div className={`absolute inset-x-0 top-[54px] z-50 overflow-y-auto bg-white py-1 ${dense ? "max-h-[200px]" : "max-h-[240px]"} shadow-[0_1px_6px_rgba(0,0,0,0.2),0_1px_4px_rgba(0,0,0,0.2)]`}>
