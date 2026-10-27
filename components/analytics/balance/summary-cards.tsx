@@ -37,6 +37,8 @@ export function BalanceSummaryCards({
   marginClass = "mx-[30px]",
   plain = false,
   compact = false,
+  neutral = false,
+  gapped = false,
 }: {
   boxes: SummaryBox[]
   /** BalanceListResult.totals or StatementResult.summary. */
@@ -53,15 +55,19 @@ export function BalanceSummaryCards({
   plain?: boolean
   /** The reference balance pages: 13px grey title, 14px semibold values on a 20px pitch. */
   compact?: boolean
+  /** Black values whatever the sign (the supplier debts report). */
+  neutral?: boolean
+  /** Separate white cards with a gap instead of one bordered box. */
+  gapped?: boolean
 }) {
   const { t } = useLanguage()
   const columns = { 1: "lg:grid-cols-1", 2: "lg:grid-cols-2", 3: "lg:grid-cols-3", 4: "lg:grid-cols-4", 5: "lg:grid-cols-5" }[Math.min(5, boxes.length) as 1 | 2 | 3 | 4 | 5]
   // Reference order of the lines: Euro, SUM, USD (alphabetical by label).
   const lines = [...currencies].sort((a, b) => currencyLabel(a).localeCompare(currencyLabel(b)))
   return (
-    <section className={`${marginClass} ${compact ? "mb-[10px] mt-[5px]" : "my-[10px]"} grid grid-cols-1 border border-[#efefef] bg-white sm:grid-cols-2 ${columns} ${loading ? "opacity-60" : ""}`}>
+    <section className={`${marginClass} ${gapped ? "mb-[10px] -mt-px" : compact ? "mb-[10px] mt-[5px]" : "my-[10px]"} grid grid-cols-1 sm:grid-cols-2 ${gapped ? "gap-x-[16px]" : "border border-[#efefef] bg-white"} ${columns} ${loading ? "opacity-60" : ""}`}>
       {boxes.map((box, boxIndex) => (
-        <div key={boxIndex} className={`flex flex-col ${compact ? "gap-[10.75px] px-[16px] pb-[9px] pt-[11px]" : plain ? "gap-[10px] px-[16px] py-[10px]" : "gap-[10px] px-[15px] py-[10px]"} border-[#efefef] lg:border-r lg:last:border-r-0 ${box.align === "right" ? "lg:items-end lg:text-right" : ""}`}>
+        <div key={boxIndex} className={`flex flex-col ${compact ? "gap-[10.75px] px-[16px] pb-[9px] pt-[11px]" : plain ? "gap-[10px] px-[16px] py-[10px]" : "gap-[10px] px-[15px] py-[10px]"} border-[#efefef] ${gapped ? "border bg-white" : "lg:border-r lg:last:border-r-0"} ${box.align === "right" ? "lg:items-end lg:text-right" : ""}`}>
           {box.metrics.map((metric) => {
             const content = (
               <>
@@ -73,7 +79,7 @@ export function BalanceSummaryCards({
                   const balance = totals[code]
                   const value = balance ? (metric.value ? metric.value(balance) : (balance[metric.field] ?? 0)) : 0
                   return (
-                    <p key={code} className={compact ? "text-[14px] font-semibold leading-[20px] text-black" : plain ? "text-[14px] font-normal leading-[30px]" : "text-[16px] font-semibold leading-[20px] text-[#333]"} style={{ color: balanceColor(value, "card") }}>
+                    <p key={code} className={compact ? "text-[14px] font-semibold leading-[20px] text-black" : plain ? "text-[14px] font-normal leading-[30px]" : "text-[16px] font-semibold leading-[20px] text-[#333]"} style={{ color: neutral ? "#000" : balanceColor(value, "card") }}>
                       {formatMoney(value, digits)}{hideCurrency ? "" : ` ${currencyLabel(code)}`}
                     </p>
                   )

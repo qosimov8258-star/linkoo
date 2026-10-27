@@ -366,11 +366,11 @@ export function SupplierDebtsView() {
   const actRow = state.openClient ? rows.find((row) => row.key === state.openClient) : undefined
 
   const toggleButton = (active: boolean) =>
-    `h-[32px] px-4 text-[13px] font-normal uppercase transition-colors ${active ? "bg-[#4f71dc] text-white" : "bg-white text-[#333] shadow-[0_1px_3px_rgba(0,0,0,0.2)] hover:bg-[#f2f5f8]"}`
+    `h-[32px] px-4 text-[13px] font-normal uppercase transition-colors ${active ? "bg-[#4f71dc] text-white [box-shadow:0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]" : "bg-white text-black [box-shadow:0_1px_3px_rgba(0,0,0,0.2)] hover:bg-[#f2f5f8]"}`
 
   return (
     <main className="min-h-screen bg-[#f1f4f8] text-[#17233b]">
-      <header className="flex min-h-[60px] items-center px-[28px]">
+      <header className="flex min-h-[60px] items-center pl-[30px] pr-[28px]">
         <div className="flex items-center">
           <FavoritesButton className="flex items-center gap-[5px] text-[18px] font-bold text-[#4f71dc]" />
           <span className="mx-[11px] h-[21px] w-[2px] bg-[#5d6474]" />
@@ -435,7 +435,7 @@ export function SupplierDebtsView() {
 
       <div className="pt-[35px]">
         {data ? (
-          <BalanceSummaryCards digits={3} boxes={isAgents ? AGENT_BOXES : DELIVERER_BOXES} totals={data.totals} currencies={codes} loading={list.loading} />
+          <BalanceSummaryCards compact neutral gapped digits={3} boxes={isAgents ? AGENT_BOXES : DELIVERER_BOXES} totals={data.totals} currencies={codes} loading={list.loading} />
         ) : (
           <div className="flex h-[150px] items-center justify-center pb-6">
             {list.error ? <span className="text-[#e57373]">{t(list.error)}</span> : <Loader2 className="h-7 w-7 animate-spin text-[#4f70e7]" />}
@@ -478,7 +478,7 @@ export function SupplierDebtsView() {
             rows={rows}
             groups={DELIVERER_GROUPS}
             currencies={codes}
-            first={{ label: "Доставщик", width: 220, sortKey: "name", render: delivererCell }}
+            first={{ label: "Доставщик", raw: true, width: 220, sortKey: "name", render: delivererCell }}
             ordering={state.orderingPrediction}
             onOrderingChange={(orderingPrediction) => update({ orderingPrediction })}
             loading={list.loading}
