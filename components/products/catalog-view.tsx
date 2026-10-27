@@ -212,9 +212,15 @@ export function CatalogView({ kind, initialDetailId }: { kind: CatalogKind; init
   const lastPage = Math.max(1, Math.ceil(count / Math.max(1, state.pageSize)))
   const page = Math.min(state.page, lastPage)
   const hasSelection = selectMode && selected.size > 0
+  // "Сырье" of the reference: name / barcode / article are double width, the rest single, the menu column 1.5.
+  const raw = kind === "raw_material"
   const gridCols = selectMode
-    ? "grid-cols-[20px_minmax(0,2.5fr)_repeat(7,minmax(0,1fr))_minmax(0,0.5fr)]"
-    : "grid-cols-[minmax(0,2.5fr)_repeat(7,minmax(0,1fr))_minmax(0,0.5fr)]"
+    ? raw
+      ? "grid-cols-[20px_minmax(0,239fr)_minmax(0,230fr)_minmax(0,231fr)_minmax(0,115fr)_minmax(0,108fr)_minmax(0,123fr)_minmax(0,115fr)_minmax(0,118fr)_minmax(0,121fr)]"
+      : "grid-cols-[20px_minmax(0,2.5fr)_repeat(7,minmax(0,1fr))_minmax(0,0.5fr)]"
+    : raw
+      ? "grid-cols-[minmax(0,239fr)_minmax(0,230fr)_minmax(0,231fr)_minmax(0,115fr)_minmax(0,108fr)_minmax(0,123fr)_minmax(0,115fr)_minmax(0,118fr)_minmax(0,121fr)]"
+      : "grid-cols-[minmax(0,2.5fr)_repeat(7,minmax(0,1fr))_minmax(0,0.5fr)]"
 
   const toggleSelectMode = () => {
     setSelectMode((current) => !current)
