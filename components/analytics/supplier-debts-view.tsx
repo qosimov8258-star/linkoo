@@ -435,7 +435,7 @@ export function SupplierDebtsView() {
 
       <div className="pt-[35px]">
         {data ? (
-          <BalanceSummaryCards boxes={isAgents ? AGENT_BOXES : DELIVERER_BOXES} totals={data.totals} currencies={codes} loading={list.loading} />
+          <BalanceSummaryCards digits={3} boxes={isAgents ? AGENT_BOXES : DELIVERER_BOXES} totals={data.totals} currencies={codes} loading={list.loading} />
         ) : (
           <div className="flex h-[150px] items-center justify-center pb-6">
             {list.error ? <span className="text-[#e57373]">{t(list.error)}</span> : <Loader2 className="h-7 w-7 animate-spin text-[#4f70e7]" />}

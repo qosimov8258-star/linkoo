@@ -376,7 +376,7 @@ export function AccountDebtsView() {
         {exportError && <p className="w-full text-right text-sm text-[#e57373]">{exportError}</p>}
       </section>
 
-      <BalanceSummaryCards compact boxes={SUMMARY_BOXES} totals={data?.totals ?? {}} currencies={currencies} loading={loading} />
+      <BalanceSummaryCards digits={3} compact boxes={SUMMARY_BOXES} totals={data?.totals ?? {}} currencies={currencies} loading={loading} />
 
       <ExpandedOverlay expanded={expanded}>
         <section className="flex flex-wrap items-center gap-x-6 gap-y-3 border-t border-[#efefef] px-[30px] pb-[4px] pt-[10px]">

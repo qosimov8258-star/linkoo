@@ -294,7 +294,7 @@ export function ClientBalanceView() {
         </div>
       </section>
 
-      <BalanceSummaryCards compact boxes={SUMMARY} totals={data?.totals ?? {}} currencies={visible} loading={loading} />
+      <BalanceSummaryCards digits={3} compact boxes={SUMMARY} totals={data?.totals ?? {}} currencies={visible} loading={loading} />
 
       <ExpandedOverlay expanded={expanded}>
         <section className="flex flex-wrap items-center gap-3 border-t border-[#efefef] px-[30px] pb-[4px] pt-[10px]">

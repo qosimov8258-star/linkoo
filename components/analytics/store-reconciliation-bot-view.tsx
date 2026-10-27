@@ -293,7 +293,7 @@ export function StoreReconciliationBotView({ variant = "client" }: { variant?: R
         </div>
       )}
       <div className={refGrid ? "pt-1" : "pt-4"}>
-        <BalanceSummaryCards plain marginClass="mx-[28px]" boxes={SUMMARY} totals={cardTotals} currencies={data?.visibleCurrencies ?? []} loading={loading} />
+        <BalanceSummaryCards digits={3} plain marginClass="mx-[28px]" boxes={SUMMARY} totals={cardTotals} currencies={data?.visibleCurrencies ?? []} loading={loading} />
       </div>
       {data && data.missingRates.length > 0 && (
         <p className="px-6 pb-3 text-[13px] text-[#8a6d3b] md:px-9">

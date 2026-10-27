@@ -336,7 +336,7 @@ export function SupplierBalanceView() {
 
       {list.error && <p className="px-6 pb-4 text-[#e57373] md:px-9">{t(list.error)}</p>}
 
-      <BalanceSummaryCards compact hideCurrency boxes={SUMMARY_BOXES} totals={list.data?.totals ?? {}} currencies={visible} loading={list.loading} />
+      <BalanceSummaryCards digits={3} compact hideCurrency boxes={SUMMARY_BOXES} totals={list.data?.totals ?? {}} currencies={visible} loading={list.loading} />
 
       <ExpandedOverlay expanded={expanded}>
         <section className="flex flex-wrap items-center gap-3 border-t border-[#efefef] px-[30px] pb-[8px] pt-[17px]">
