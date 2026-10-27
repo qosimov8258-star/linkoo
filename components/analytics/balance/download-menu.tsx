@@ -28,7 +28,7 @@ export function BalanceDownloadMenu({ items, label = "Скачать", disabled 
         className={`flex h-[34px] items-center rounded-[5px] bg-[#71ce87] pl-[12px] text-[13px] font-semibold text-white disabled:opacity-50 ${wide ? "w-[130px]" : ""}`}
       >
         <svg viewBox="0 0 24 24" className="h-[18px] w-[18px] shrink-0 fill-white" aria-hidden><path d="M5 9.2h3V19H5V9.2zM10.6 5h2.8v14h-2.8V5zm5.6 8H19v6h-2.8v-6z" /></svg>
-        <span className="px-[12px]">{t(label)}</span>
+        <span className="pl-[12px] pr-[16px]">{t(label)}</span>
       </button>
       {open && (
         <div className="absolute right-0 z-[60] mt-1 min-w-[220px] overflow-hidden rounded-md border border-[#e1e5eb] bg-white shadow-lg">

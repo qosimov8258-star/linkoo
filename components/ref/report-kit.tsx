@@ -486,12 +486,12 @@ export function ReportTopRow({
     <div className="flex h-[34px] items-center pt-0">
       <button type="button" onClick={onFilter} className="flex h-[34px] items-center rounded-[5px] bg-[#4f71dc] pl-[12.8px] text-[13px] font-semibold text-white hover:brightness-95">
         <svg viewBox="0 0 24 24" className="h-[18px] w-[18px] shrink-0 fill-white" aria-hidden><path d={RI.filter} /></svg>
-        <span className="px-[12px]">{filterLabel}</span>
+        <span className="pl-[8px] pr-[16px]">{filterLabel}</span>
       </button>
       <span className="ml-[14px] text-[13px] font-semibold text-[#4f71dc]">{scope}</span>
       <button type="button" onClick={onDownload} className="ml-auto flex h-[34px] items-center rounded-[5px] bg-[#71ce87] pl-[12px] text-[13px] font-semibold text-white hover:brightness-95">
         <svg viewBox="0 0 24 24" className="h-[18px] w-[18px] shrink-0 fill-white" aria-hidden><path d={RI.chart} /></svg>
-        <span className="px-[12px]">{t("Скачать")}</span>
+        <span className="pl-[12px] pr-[16px]">{t("Скачать")}</span>
       </button>
     </div>
   )
