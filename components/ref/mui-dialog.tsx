@@ -1,8 +1,9 @@
 "use client"
 
-import { useEffect, type ReactNode } from "react"
+import { useEffect, useState, type ReactNode } from "react"
 import { createPortal } from "react-dom"
 
+import { DatePickerDialog } from "@/components/analytics/date-picker-dialog"
 import { useLanguage } from "@/lib/i18n/language-context"
 
 // The reference's Material-UI dialog with a green action (Себестоимость: "Перерасчет",
@@ -107,6 +108,7 @@ function longDate(iso: string, language: string): string {
  */
 export function RefMuiDate({ label, value, onChange, error }: { label: string; value: string; onChange: (value: string) => void; error?: string }) {
   const { language } = useLanguage()
+  const [open, setOpen] = useState(false)
   return (
     <div className="relative h-[38px] min-w-0 flex-1">
       <div className={`absolute inset-x-0 bottom-0 h-px ${error ? "bg-[#f44336]" : "bg-[#e0e0e0]"}`} />
@@ -121,7 +123,8 @@ export function RefMuiDate({ label, value, onChange, error }: { label: string; v
       <svg viewBox="0 0 24 24" className="absolute bottom-[4px] right-[2px] h-[17px] w-[17px] fill-[#ccc]">
         <path d={CALENDAR} />
       </svg>
-      <input type="date" value={value} onChange={(event) => onChange(event.target.value)} aria-label={label} className="absolute inset-0 h-full w-full cursor-pointer opacity-0" />
+      <button type="button" onClick={() => setOpen(true)} aria-label={label} className="absolute inset-0 h-full w-full cursor-pointer opacity-0" />
+      {open && <DatePickerDialog value={value} onCancel={() => setOpen(false)} onPick={(next) => { onChange(next); setOpen(false) }} />}
       {error && <span className="absolute -bottom-[16px] left-0 text-[11px] text-[#f44336]">{error}</span>}
     </div>
   )

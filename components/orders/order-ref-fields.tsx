@@ -1,6 +1,8 @@
 "use client"
 
-import type { ReactNode } from "react"
+import { useState, type ReactNode } from "react"
+
+import { DatePickerDialog } from "@/components/analytics/date-picker-dialog"
 
 /**
  * Form primitives of the reference's order dialogs (Material-UI "floating label" fields). Every field is a fixed
@@ -93,6 +95,7 @@ export function RefDate({
   height?: number
   className?: string
 }) {
+  const [open, setOpen] = useState(false)
   return (
     <div style={{ height }} className={`relative ${className}`}>
       <Label label={label} required={required} floating={Boolean(display) || Boolean(compact)} plain />
@@ -100,7 +103,8 @@ export function RefDate({
       <svg viewBox="0 0 24 24" className={`pointer-events-none absolute right-[2.5px] h-5 w-5 ${compact ? "top-[14.6px]" : "top-[27px]"}`} aria-hidden>
         <path d={CALENDAR} fill="#ccc" />
       </svg>
-      <input type="date" value={value} onChange={(event) => onChange(event.target.value)} className="absolute inset-0 h-full w-full cursor-pointer opacity-0" />
+      <button type="button" aria-label={label} onClick={() => setOpen(true)} className="absolute inset-0 h-full w-full cursor-pointer opacity-0" />
+      {open && <DatePickerDialog value={value} onCancel={() => setOpen(false)} onPick={(next) => { onChange(next); setOpen(false) }} />}
       <span className={`absolute inset-x-0 h-px bg-[#e0e0e0] ${compact ? "top-[41px]" : "bottom-0"}`} />
     </div>
   )

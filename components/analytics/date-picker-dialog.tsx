@@ -37,7 +37,7 @@ export function DatePickerDialog({ value, onCancel, onPick, anchor }: { value: s
   }
 
   return createPortal(
-    <div className={anchor ? "fixed inset-0 z-[1400]" : "fixed inset-0 z-[200] flex items-center justify-center bg-black/50"} onMouseDown={anchor ? onCancel : undefined}>
+    <div className={anchor ? "fixed inset-0 z-[1600]" : "fixed inset-0 z-[1600] flex items-center justify-center bg-black/50"} onMouseDown={anchor ? onCancel : undefined}>
       <div
         onMouseDown={(event) => event.stopPropagation()}
         style={anchor ? { position: "absolute", left: Math.max(8, Math.min(anchor.left, window.innerWidth - 318)), top: Math.max(8, Math.min(anchor.top, window.innerHeight - 442)) } : undefined}
