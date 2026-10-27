@@ -79,24 +79,24 @@ export function PeriodClosingsView() {
   }
 
   return (
-    <main className="min-w-0 flex-1 overflow-x-clip">
+    <main className="min-h-[calc(100vh-50px)] min-w-0 flex-1 overflow-x-clip bg-white">
       <SettingsToolbar
         className="-mr-[14px] h-[50px] pl-[15px] pt-[4px]"
         search={<SettingsSearch value={query} onChange={(value) => { setQuery(value); setPage(1) }} />}
         pager={<SettingsPager page={current} pageSize={pageSize} count={filtered.length} onPage={setPage} onPageSize={(size) => { setPageSize(size); setPage(1) }} />}
       />
-      <div className={`${grayHead} ${COLS} pr-[30px]`}>
+      <div className={`${grayHead} ${COLS} pr-[30px] pt-[2px]`}>
         <span>{t("Наименование")}</span>
-        <span>{t("Тип")}</span>
-        <span>{t("Дата")}</span>
-        <span>{t("Дни")}</span>
+        <span className="pl-[8px]">{t("Тип")}</span>
+        <span className="pl-[8px]">{t("Дата")}</span>
+        <span className="pl-[8px]">{t("Дни")}</span>
       </div>
       {visible.map((row) => (
-        <div key={row.id} className={`${listRow} ${COLS} pr-[30px] last:border-b-0`}>
-          <span>{t(row.name)}</span>
-          <span>{row.isAuto ? t("Авто по дням") : t("По дате")}</span>
-          <span>{row.date ? refDate(row.date) : "-"}</span>
-          <span>{row.isAuto ? row.days : "-"}</span>
+        <div key={row.id} className={`${listRow} ${COLS} pr-[30px] pt-[4px] last:border-b-0`}>
+          <span data-no-translate>{row.name}</span>
+          <span className="pl-[8px]">{row.isAuto ? t("Авто по дням") : t("По дате")}</span>
+          <span className="pl-[8px]">{row.date ? refDate(row.date) : "-"}</span>
+          <span className="pl-[8px]">{row.isAuto ? row.days : "-"}</span>
           <RowPencil onClick={() => openEdit(row)} label={t("Изменить")} />
         </div>
       ))}
