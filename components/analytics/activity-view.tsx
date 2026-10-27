@@ -373,11 +373,11 @@ function ActivityInner() {
           onScroll={measureScroll}
           className="flex h-[66px] overflow-x-auto bg-white text-[13px] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
         >
-          <button type="button" onClick={() => go({ agentId: null })} className="flex w-[93.5px] shrink-0 items-center pl-[16px] text-left">
+          <button type="button" onClick={() => go({ agentId: null })} className="flex min-w-[93.5px] shrink-0 items-center pl-[16px] pr-[15.5px] text-left">
             <span className="flex h-[35px] w-[35px] shrink-0 items-center justify-center rounded-full bg-[#9aa6b3]">
               <svg viewBox="0 0 24 24" className="h-6 w-6 fill-white"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z" /></svg>
             </span>
-            <span className="ml-[5px] block">
+            <span className="ml-[5px] mt-[6px] block">
               <span className="block h-[18px] font-semibold leading-[18px] text-[#333]">{t("Все")}</span>
               <span className="block h-[18px] leading-[18px] text-[#666]">{total}</span>
             </span>
