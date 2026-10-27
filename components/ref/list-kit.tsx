@@ -177,7 +177,10 @@ export function RefToolbar({
   plain,
   thinChevron,
   pageSizeMenu,
+  fluid,
 }: {
+  /** The tabbed lists of the reference: the search field drifts right with the viewport (25% of the extra width). */
+  fluid?: boolean
   /** Page-size dropdown of the settings lists (10 … 2000) instead of the native select. */
   pageSizeMenu?: boolean
   /** The 24-viewBox thin chevron of the reference's KPI toolbar (default is the older, larger glyph). */
@@ -216,7 +219,7 @@ export function RefToolbar({
   const searchWidth = searchWidthProp ?? (linkFilter === "flush" ? 285.5 : undefined)
   return (
     <div className={`relative flex h-[50px] items-center px-[5px] ${plain ? "" : "bg-white"}`}>
-      <div className={leftSlot || !hideFilter ? "shrink-0" : "hidden"} style={{ width: leftSlot || !hideFilter ? filterWidth : undefined }}>
+      <div className={leftSlot || !hideFilter ? "shrink-0" : "hidden"} style={{ width: leftSlot || !hideFilter ? (fluid ? `calc(${filterWidth}px + max(0px, 100vw - 1296px) * 0.25)` : filterWidth) : undefined }}>
         {leftSlot}
         {!leftSlot && !hideFilter && (
           linkFilter ? (
@@ -241,7 +244,7 @@ export function RefToolbar({
         )}
       </div>
       {filterOpen && <div className="absolute left-0 top-0 z-30 w-full">{filterPanel}</div>}
-      <div className={`relative ${hideSearch ? "hidden" : "flex"} ${linkFilter === "flush" ? "h-[40px] items-start self-start" : "items-center"} border-b border-[#e0e0e0] focus-within:border-[#5d6474] ${leftSlot || !hideFilter ? "ml-[18px] w-[300px]" : "ml-[10px] w-[182px]"}`} style={searchWidth ? { width: searchWidth } : undefined}>
+      <div className={`relative ${hideSearch ? "hidden" : "flex"} ${linkFilter === "flush" ? "h-[40px] items-start self-start" : "items-center"} border-b border-[#e0e0e0] focus-within:border-[#5d6474] ${leftSlot || !hideFilter ? "ml-[18px] w-[300px]" : "ml-[10px] w-[182px]"}`} style={searchWidth ? { width: fluid ? `calc(${searchWidth}px + max(0px, 100vw - 1296px) * 0.0711)` : searchWidth } : undefined}>
         <input
           value={query}
           onChange={(event) => onQuery(event.target.value)}

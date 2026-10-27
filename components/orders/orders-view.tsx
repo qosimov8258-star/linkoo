@@ -551,7 +551,7 @@ export function OrdersView({ initialOrderId }: { initialOrderId?: number } = {})
             {selecting ? (
               <div className="w-[347px] shrink-0 pl-[5px] text-[13px] font-bold text-[#333]">{t("Выбрано:")} {selectedRows.length}</div>
             ) : (
-              <div className="w-[326.5px] shrink-0">
+              <div className="shrink-0" style={{ width: "calc(326.5px + max(0px, 100vw - 1296px) * 0.25)" }}>
                 {activeFilterCount > 0 ? (
                   <div className="relative mt-px flex h-[48.25px] w-[346.5px] items-center bg-[#efefef] pl-[30px] text-[13px] text-[#666]">
                     <span>{t("Фильтр:")} {activeFilterCount} {t("элемента")}</span>
@@ -574,7 +574,7 @@ export function OrdersView({ initialOrderId }: { initialOrderId?: number } = {})
               </div>
             )}
             {!selecting && (
-              <div className="relative flex w-[285.5px] items-center self-start">
+              <div className="relative flex items-center self-start" style={{ width: "calc(285.5px + max(0px, 100vw - 1296px) * 0.0711)" }}>
                 <input
                   value={query}
                   onChange={(event) => { setQuery(event.target.value); setPage(1) }}

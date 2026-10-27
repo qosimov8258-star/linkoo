@@ -564,8 +564,7 @@ export function CustomerPaymentsView() {
         <div className="bg-white pb-[2px]"><RefTabs labels={TABS.map((item) => item.label)} value={TABS.find((item) => item.tab === state.tab)?.label ?? TABS[0].label} onChange={(label) => update({ tab: TABS.find((item) => item.label === label)?.tab ?? "all", page: 1 })} /></div>
         <RefToolbar
           linkFilter="flush"
-          filterWidth={355}
-          searchWidth={300}
+          fluid
           filterOpen={filterOpen}
           onToggleFilter={() => {
             setDraft(state.filters)
