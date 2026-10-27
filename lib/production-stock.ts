@@ -1,6 +1,7 @@
 import "server-only"
 
 import type { PgDb } from "@/lib/db"
+import { docYearOk } from "@/lib/document-dates"
 import { isIsoDay, todayIso } from "@/lib/finance/dates"
 import { lockWarehouseStock, shortageMessage, warehouseStock } from "@/lib/internal-transfers-stock"
 import type { StockShortage } from "@/lib/internal-transfers-types"
@@ -16,9 +17,10 @@ import { getStockBalances } from "@/lib/stock/ledger"
 // "Остаток" and the management balance agree. Production movements are
 // booked with their exact item key (kind:id), so everything here is keyed
 // by item key, not by name.
-//   available = on hand − defects − reserved, the smaller of that day and
-//               today (a document dated in the past must fit both), exactly
-//               what transfers and write-offs check;
+//   available = on hand − defects − reserved, the smallest end-of-day
+//               balance from that day on (that day, every later day, today
+//               and the documents dated ahead: no day may go negative),
+//               exactly what transfers and write-offs check;
 //   cost      = the ONE cost of goods (lib/stock/costs.ts) at the end of the day.
 
 export type CatalogItem = { key: string; kind: ItemKind; id: number; name: string; unit: string; type: string }
@@ -74,7 +76,8 @@ export async function requireCatalogItem(db: PgDb, kind: ItemKind, id: number): 
 
 /** The movement day: a real calendar day, not after today. */
 export function assertMovementDay(day: string): string {
-  if (!isIsoDay(day)) throw new ProductionError(400, "Неверная дата")
+  // A real day of a sane year (2000..2100, lib/document-dates.ts).
+  if (!isIsoDay(day) || !docYearOk(day)) throw new ProductionError(400, "Неверная дата")
   if (day > todayIso()) throw new ProductionError(400, "Дата не может быть позже сегодняшнего дня")
   return day
 }
@@ -165,9 +168,11 @@ export async function itemCosts(db: PgDb, day: string): Promise<Map<string, numb
 export type StockNeed = { key: string; name: string; unit: string; qty: number; date: string; defect?: boolean }
 
 /** Locks the warehouse (same lock as transfers / write-offs) and refuses the
- * write with 409 when it would take more than is available — on the day of
- * each movement and today. Good units are checked against what may leave,
- * defective ones against the brak on hand. Runs inside the caller's transaction. */
+ * write with 409 when it would take more than is available on any day from the
+ * day of each movement on (every later day, today and the documents dated ahead:
+ * the needs booked up to a day must fit the smallest balance from that day on).
+ * Good units are checked against what may leave, defective ones against the brak
+ * on hand. Runs inside the caller's transaction. */
 export async function ensureAvailable(tx: PgDb, warehouse: string, needs: StockNeed[], prefix = ""): Promise<void> {
   if (!needs.some((need) => need.qty > 0)) return
   await lockWarehouseStock(tx, [warehouse])
@@ -175,7 +180,8 @@ export async function ensureAvailable(tx: PgDb, warehouse: string, needs: StockN
   const dayOf = (need: StockNeed) => (isIsoDay(need.date) && need.date < today ? need.date : today)
   const days = [...new Set(needs.map(dayOf))].sort()
   for (const day of days) {
-    // Everything booked up to that day must fit (later lines do not exist yet then).
+    // Everything booked up to that day must fit every day from it on (warehouseStock takes the
+    // minimum over those days; the needs of later days are added by the later iterations).
     const required = new Map<string, { key: string; defect: boolean; name: string; unit: string; qty: number }>()
     for (const need of needs) {
       if (dayOf(need) > day) continue

@@ -2,6 +2,7 @@ import "server-only"
 
 import type { PgDb } from "@/lib/db"
 import type { WarehouseUsage } from "@/components/analytics/warehouses-data"
+import { usageTableLabel } from "@/lib/usage-labels"
 
 // Where warehouses are referenced. Documents store the warehouse NAME as text
 // (the demo links them by id), so a rename has to be carried over and a delete
@@ -64,7 +65,7 @@ const TABLE_LABELS: Record<string, string> = {
 }
 
 export function warehouseReferenceLabel(table: string): string {
-  return TABLE_LABELS[table] ?? table
+  return usageTableLabel(table, TABLE_LABELS)
 }
 
 const isHistoryTable = (table: string) => /_logs?$/.test(table)

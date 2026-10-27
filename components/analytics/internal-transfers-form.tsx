@@ -5,7 +5,7 @@ import { FileSpreadsheet, Plus, Trash2 } from "lucide-react"
 
 import { buildCashQuery, cashMutate, useCashJson } from "@/components/analytics/cash/use-cash"
 import { CashModal, ConfirmDialog, FormField, PrimaryButton, SearchSelect, inputClass, mutationError, parseAmount } from "@/components/analytics/cash-management-shared"
-import { ExcelImportPanel, StockProductPicker, validQty, type PickEntry } from "@/components/analytics/internal-transfers-picker"
+import { ExcelImportPanel, StockProductPicker, formatUnitTotals, validQty, type PickEntry } from "@/components/analytics/internal-transfers-picker"
 import { formatQty, formatSum, formatWeight } from "@/components/analytics/internal-transfers-shared"
 import { nowLocalIso, todayIso } from "@/lib/finance/dates"
 import { useLanguage } from "@/lib/i18n/language-context"
@@ -132,13 +132,12 @@ export function TransferFormDialog({
   const totals = lines.reduce(
     (sum, line) => {
       const qty = parseAmount(line.quantity)
-      return { amount: sum.amount + qty * priceOf(line), qty: sum.qty + qty, weight: sum.weight + qty * line.weight }
+      return { amount: sum.amount + qty * priceOf(line), weight: sum.weight + qty * line.weight }
     },
-    { amount: 0, qty: 0, weight: 0 },
+    { amount: 0, weight: 0 },
   )
-  // The total's unit only when every line shares it (never "ед" over kg and pieces).
-  const lineUnits = new Set(lines.map((line) => line.unit.trim().toLowerCase()))
-  const totalUnit = lineUnits.size === 1 && lines[0]?.unit.trim() ? t(lines[0].unit.trim()) : ""
+  // Quantities are totalled per unit (never "ед" over kg and pieces).
+  const totalQty = formatUnitTotals(lines.map((line) => ({ qty: parseAmount(line.quantity), unit: line.unit })), t)
   // Editable transfers have no stock effect yet, so the source's available quantity applies as is.
   const availableOf = (line: Line) => (line.defect ? rowMap.get(line.key)?.defectsAvailable : rowMap.get(line.key)?.available) ?? 0
   const over = (line: Line) => parseAmount(line.quantity) > availableOf(line) + 1e-9
@@ -192,7 +191,7 @@ export function TransferFormDialog({
               {t("Сумма")}: <b className="text-[#17233b]">{formatSum(totals.amount, shownCurrency)}</b>
             </li>
             <li>
-              {t("Общее кол-во:")} <b className="text-[#17233b]">{formatQty(totals.qty, totalUnit)}</b>
+              {t("Общее кол-во:")} <b className="text-[#17233b]">{totalQty}</b>
             </li>
             <li>
               {t("Вес")}: <b className="text-[#17233b]">{formatWeight(totals.weight, t("кг"))}</b>

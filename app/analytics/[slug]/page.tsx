@@ -1,5 +1,5 @@
 import type { Metadata } from "next"
-import { notFound, redirect } from "next/navigation"
+import { redirect } from "next/navigation"
 
 import { AnalyticsReportView } from "@/components/analytics/analytics-report-view"
 import {
@@ -95,10 +95,13 @@ import { TransportView } from "@/components/analytics/transport-view"
 import { SubscriptionsView } from "@/components/analytics/subscriptions-view"
 import { SessionsView } from "@/components/analytics/sessions-view"
 import {
+  analyticsReports,
+  analyticsResources,
   getAnalyticsReport,
   getAnalyticsResource,
 } from "@/lib/analytics-catalog"
 import { CatalogPageLayout } from "@/components/dashboard/catalog-sidebar"
+import { NotFoundContent, notFoundMetadata } from "@/components/not-found-content"
 import { getServerT } from "@/lib/i18n/server"
 
 type PageProps = {
@@ -111,13 +114,29 @@ type PageProps = {
 // Всегда рендерим заново, без статического кеша.
 export const dynamic = "force-dynamic"
 
+// Only the catalog's slugs exist: where Next enforces dynamicParams (next dev), any other
+// /analytics/<slug> is an unmatched URL and the router answers with the localized
+// app/not-found.tsx (404) at once. A production build does not enforce it for this force-dynamic
+// route, so the page also renders the same localized screen itself for an unknown slug: a
+// notFound() thrown while the page renders would give only Next's bare error shell.
+export const dynamicParams = false
+
+export function generateStaticParams() {
+  const slugs = new Set<string>([
+    ...analyticsResources.map((resource) => resource.slug),
+    ...analyticsReports.filter((report) => report.href.startsWith("/analytics/")).map((report) => report.slug),
+  ])
+  return [...slugs].map((slug) => ({ slug }))
+}
+
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
   const { slug } = await params
-  const page = getAnalyticsResource(slug) ?? getAnalyticsReport(slug)
+  const report = getAnalyticsReport(slug)
+  // The same rule as the page below: a resource redirects, a report renders only under /analytics/.
+  const page = getAnalyticsResource(slug) ?? (report?.href.startsWith("/analytics/") ? report : undefined)
+  if (!page) return notFoundMetadata()
+
   const t = await getServerT()
-
-  if (!page) return { title: `${t("Отчёт не найден")} — Linko` }
-
   const title = "title" in page ? page.title : page.label
   return {
     title: `${t(title)} — Linko`,
@@ -141,7 +160,7 @@ export default async function AnalyticsPage({ params }: PageProps) {
   }
 
   const report = getAnalyticsReport(slug)
-  if (!report || !report.href.startsWith("/analytics/")) notFound()
+  if (!report || !report.href.startsWith("/analytics/")) return <NotFoundContent />
 
   if (report.slug === "visits-by-day") {
     return <VisitsByDayView />

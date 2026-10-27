@@ -4,6 +4,7 @@ import { Fragment, useEffect, useMemo, useState } from "react"
 import { downloadExcelTable } from "@/lib/excel-export"
 import { DashboardDialog } from "./dashboard-dialog"
 import { ReportBand, ReportDateField, ReportEmpty, ReportFilters, ReportHeader, ReportPage } from "@/components/ref/report-kit"
+import { useLanguage } from "@/lib/i18n/language-context"
 
 type AgentRow = {
   name: string
@@ -47,6 +48,7 @@ function format(value: number) {
 }
 
 export function AgentVisitsView({ supervisorMode = false }: { supervisorMode?: boolean }) {
+  const { t } = useLanguage()
   const today = useMemo(() => inputDate(new Date()), [])
   const [draftFrom, setDraftFrom] = useState(monthStart)
   const [draftTo, setDraftTo] = useState(today)
@@ -193,10 +195,10 @@ export function AgentVisitsView({ supervisorMode = false }: { supervisorMode?: b
               <tr>
                 <th className="w-[360px] border-b border-r border-slate-300" />
                 <th colSpan={5} className="border-b border-r border-slate-300 py-4 text-center text-lg font-semibold">
-                  По маршруту
+                  {t("По маршруту")}
                 </th>
                 <th colSpan={4} className="border-b border-slate-300 py-4 text-center text-lg font-semibold">
-                  Вне маршрута
+                  {t("Вне маршрута")}
                 </th>
               </tr>
               <tr>
@@ -206,9 +208,9 @@ export function AgentVisitsView({ supervisorMode = false }: { supervisorMode?: b
                       type="button"
                       onClick={() => setSupervisorAscending((value) => !value)}
                       className="inline-flex items-center gap-3 font-semibold"
-                      aria-label="Сортировать по супервайзеру"
+                      aria-label={t("Сортировать по супервайзеру")}
                     >
-                      Супервайзер
+                      {t("Супервайзер")}
                       <span className="text-xs text-slate-400">{supervisorAscending ? "▲" : "▼"}</span>
                     </button>
                   ) : (
@@ -260,7 +262,7 @@ export function AgentVisitsView({ supervisorMode = false }: { supervisorMode?: b
                 ))
               )}
               <tr className="bg-[#555] font-bold text-white">
-                <th className="border-r border-slate-300 px-2 py-4 text-left">Итого</th>
+                <th className="border-r border-slate-300 px-2 py-4 text-left">{t("Итого")}</th>
                 {(supervisorMode
                   ? [0, 0, 0, 0, 0, 0, 0, 0, 0]
                   : [...totals.route, ...totals.outside]
@@ -279,7 +281,7 @@ export function AgentVisitsView({ supervisorMode = false }: { supervisorMode?: b
       {overlayOpen && (
         <button
           type="button"
-          aria-label="Окнони yopish"
+          aria-label={t("Закрыть окно")}
           onClick={() => setDashboardOpen(false)}
           className="fixed inset-0 z-[90] cursor-default bg-black/55"
         />

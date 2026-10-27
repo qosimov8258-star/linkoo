@@ -6,7 +6,15 @@
 
 type Bucket = { count: number; resetAt: number }
 
-const buckets = new Map<string, Bucket>()
+declare global {
+  var __linkoRateBuckets: Map<string, Bucket> | undefined
+}
+
+// One map per process (not per bundled module copy), so every route handler
+// that counts the same key (e.g. wrong passwords) shares the counter. Node runs
+// the handlers on one thread: a read and a write with no `await` in between
+// cannot interleave with another request.
+const buckets: Map<string, Bucket> = (globalThis.__linkoRateBuckets ??= new Map<string, Bucket>())
 let sweepCounter = 0
 
 function sweepExpired(now: number) {
@@ -34,22 +42,62 @@ export function checkRateLimit(key: string, limit: number, windowMs: number): Ra
   return { allowed: true, retryAfterSeconds: 0 }
 }
 
-/** Failure counters (e.g. wrong passwords per account): `isBlocked` only reads,
- * `recordFailure` counts one failure, `clearFailures` resets after a success. */
-export function isBlocked(key: string, limit: number): RateLimitResult {
-  const now = Date.now()
-  const bucket = buckets.get(key)
-  if (!bucket || bucket.resetAt <= now || bucket.count < limit) return { allowed: true, retryAfterSeconds: 0 }
-  return { allowed: false, retryAfterSeconds: Math.ceil((bucket.resetAt - now) / 1000) }
+export type AttemptLimit = { key: string; limit: number }
+
+export type Attempt = RateLimitResult & {
+  /** The attempt succeeded: it stops counting as a failure (only once). */
+  release(): void
 }
 
-export function recordFailure(key: string, windowMs: number): void {
+/**
+ * Failure counters (e.g. wrong passwords per account and client). Every
+ * attempt is counted BEFORE the slow check runs (a bcrypt comparison): the
+ * check and the count happen in one synchronous step, so requests sent in
+ * parallel cannot all pass while none of them has been counted yet — at most
+ * `limit` attempts per key are ever in flight or failed within the window.
+ * A failed attempt simply stays counted; a successful one calls `release()`
+ * (and usually `clearFailures` for the per-client key).
+ *
+ * All `limits` are checked first; when any of them is reached nothing is
+ * counted and the attempt is refused with the longest wait.
+ */
+export function reserveAttempt(limits: AttemptLimit[], windowMs: number): Attempt {
   const now = Date.now()
-  const bucket = buckets.get(key)
-  if (!bucket || bucket.resetAt <= now) buckets.set(key, { count: 1, resetAt: now + windowMs })
-  else bucket.count += 1
+  let blocked = false
+  let retryAfterSeconds = 0
+  for (const { key, limit } of limits) {
+    const bucket = buckets.get(key)
+    if (bucket && bucket.resetAt > now && bucket.count >= limit) {
+      blocked = true
+      retryAfterSeconds = Math.max(retryAfterSeconds, Math.ceil((bucket.resetAt - now) / 1000))
+    }
+  }
+  if (blocked) return { allowed: false, retryAfterSeconds: Math.max(1, retryAfterSeconds), release() {} }
+
+  const held: Bucket[] = []
+  for (const { key } of limits) {
+    let bucket = buckets.get(key)
+    if (!bucket || bucket.resetAt <= now) {
+      bucket = { count: 0, resetAt: now + windowMs }
+      buckets.set(key, bucket)
+    }
+    bucket.count += 1
+    held.push(bucket)
+  }
+  let released = false
+  return {
+    allowed: true,
+    retryAfterSeconds: 0,
+    release() {
+      if (released) return
+      released = true
+      // A bucket that expired or was cleared meanwhile is no longer in the map; decrementing it is harmless.
+      for (const bucket of held) if (bucket.count > 0) bucket.count -= 1
+    },
+  }
 }
 
+/** Resets a failure counter after a success (e.g. the right password from this client). */
 export function clearFailures(key: string): void {
   buckets.delete(key)
 }

@@ -16,6 +16,7 @@ import {
 import { optionalNumber, type PriceGridSaveInput } from "@/lib/price-lists-api"
 import { priceListsByIds } from "@/lib/price-lists-repo"
 import { getItemCosts } from "@/lib/stock/costs"
+import { parseIdSegment } from "@/lib/validation"
 import type { PriceGridEntry, PriceGridKind, PriceGridResult, PriceGridRow, PriceGridSaveResult } from "@/components/analytics/price-lists-data"
 
 // Price-setting grid "Установить цену в прайс-лист" (demo c9 module 4389 + set-price serializers,
@@ -73,7 +74,8 @@ export type PriceGridQuery = {
 
 export function parsePriceGridQuery(url: string): PriceGridQuery {
   const params = new URL(url).searchParams
-  const ids = [...new Set(params.getAll("priceList").flatMap((value) => value.split(/[-,]/)).map(Number).filter((id) => Number.isInteger(id) && id > 0))].slice(0, 50)
+  // Out-of-range ids (above int4) are dropped: they never reach Postgres.
+  const ids = [...new Set(params.getAll("priceList").flatMap((value) => value.split(/[-,]/)).map((value) => parseIdSegment(value.trim())).filter((id): id is number => id !== null))].slice(0, 50)
   const kind = params.get("kind")
   const pageSize = Number(params.get("pageSize") ?? 25)
   return {

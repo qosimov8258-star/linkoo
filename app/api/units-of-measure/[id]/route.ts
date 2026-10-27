@@ -5,7 +5,7 @@ import { unitBodySchema, unitInput } from "@/lib/dictionaries-api"
 import { dictionaryWrite, parseDictionaryId } from "@/lib/dictionaries-schema"
 import { requireRole } from "@/lib/rbac"
 import { deleteUnitOfMeasure, getUnitDetail, updateUnitOfMeasure } from "@/lib/units-of-measure-repo"
-import { parseJsonBody } from "@/lib/validation"
+import { notSignedInResponse, parseJsonBody } from "@/lib/validation"
 
 type RouteParams = { params: Promise<{ id: string }> }
 
@@ -14,7 +14,7 @@ const NOT_FOUND = { error: "Единица измерения не найден�
 // GET /api/units-of-measure/[id] — the unit with parentName / childCount; ?usage=1 adds where it is used.
 export async function GET(request: Request, { params }: RouteParams) {
   const user = await getCurrentUser()
-  if (!user) return NextResponse.json({ error: "Tizimga kirilmagan" }, { status: 401 })
+  if (!user) return notSignedInResponse()
   const id = parseDictionaryId((await params).id)
   const unit = id ? await getUnitDetail(id, new URL(request.url).searchParams.get("usage") === "1") : null
   if (!unit) return NextResponse.json(NOT_FOUND, { status: 404 })

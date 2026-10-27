@@ -189,9 +189,9 @@ function RangeCalendar({ value, onChange }: { value: DateRange; onChange: (value
   return (
     <div className="w-[280px] select-none text-[13px]">
       <div className="mb-2 flex items-center justify-between">
-        <button type="button" onClick={() => shift(-1)} aria-label="prev" className="px-2 text-lg text-[#5d6474]">‹</button>
-        <span className="font-semibold capitalize">{title}</span>
-        <button type="button" onClick={() => shift(1)} aria-label="next" className="px-2 text-lg text-[#5d6474]">›</button>
+        <button type="button" onClick={() => shift(-1)} aria-label={t("Назад")} className="px-2 text-lg text-[#5d6474]">‹</button>
+        <span className="font-semibold capitalize">{t(title)}</span>
+        <button type="button" onClick={() => shift(1)} aria-label={t("Вперед")} className="px-2 text-lg text-[#5d6474]">›</button>
       </div>
       <div className="grid grid-cols-7 text-center text-[11px] text-[#999]">
         {WEEKDAYS.map((d) => <span key={d} className="py-1">{t(d)}</span>)}

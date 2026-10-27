@@ -5,6 +5,7 @@ import { NextResponse } from "next/server"
 import { getCurrentUser } from "@/lib/current-user"
 import { parseCashListQuery } from "@/lib/cash/api"
 import type { ExpenseReportFilters, ExpenseReportPaging } from "@/lib/cash/reports"
+import { notSignedInResponse, invalidFieldResponse } from "@/lib/validation"
 
 // Shared query parsing of the report routes ("Расходы по категориям",
 // "Расходы на персонал"): from to branch* organization* expenseCategory*
@@ -14,7 +15,7 @@ export type ReportQuery = { filters: ExpenseReportFilters; paging: ExpenseReport
 
 export async function reportQuery(url: string): Promise<{ data: ReportQuery; error?: undefined } | { data?: undefined; error: NextResponse }> {
   const user = await getCurrentUser()
-  if (!user) return { error: NextResponse.json({ error: "Tizimga kirilmagan" }, { status: 401 }) }
+  if (!user) return { error: notSignedInResponse() }
   const parsed = parseCashListQuery(url)
   if (parsed.error) return { error: parsed.error }
   const q = parsed.data
@@ -28,5 +29,5 @@ export async function reportQuery(url: string): Promise<{ data: ReportQuery; err
 }
 
 export function badReportParam(name: string, hint: string) {
-  return NextResponse.json({ error: "Ma'lumotlar noto'g'ri", details: { fieldErrors: { [name]: [hint] } } }, { status: 400 })
+  return invalidFieldResponse(name, hint)
 }

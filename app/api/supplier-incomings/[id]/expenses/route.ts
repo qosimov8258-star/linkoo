@@ -5,11 +5,12 @@ import { requireRole } from "@/lib/rbac"
 import { addIncomingExpense, listIncomingExpenses } from "@/lib/supplier-incomings-repo"
 import { incomingChangeResponse, incomingExpenseSchema, incomingNotFound } from "@/lib/supplier-incomings-api"
 import { parseProcurementBody, parseRouteId, procurementWrite } from "@/lib/supplier-refs"
+import { notSignedInResponse } from "@/lib/validation"
 
 type RouteParams = { params: Promise<{ id: string }> }
 
 export async function GET(_request: NextRequest, { params }: RouteParams) {
-  if (!(await getCurrentUser())) return NextResponse.json({ error: "Tizimga kirilmagan" }, { status: 401 })
+  if (!(await getCurrentUser())) return notSignedInResponse()
   const id = parseRouteId((await params).id)
   const expenses = id ? await listIncomingExpenses(id) : null
   return expenses ? NextResponse.json(expenses) : incomingNotFound()

@@ -17,11 +17,18 @@ import { useLanguage } from "@/lib/i18n/language-context"
 
 type Named = { id: number; name: string }
 type Cashbox = Named & { currency: string; branch: string; paymentType: string }
+/** GET /api/income-categories row: `options` holds the category's parameter ("client", "order", "provider"…). */
+type IncomeCategory = Named & { options?: string[] }
+type Employee = Named & { position?: string; active?: boolean }
+
+/** Delivery positions (as the "Доставщик" options of Баланс клиентов, plus Latin spellings). */
+const DELIVERY_POSITION = /достав|курьер|экспедит|водит|deliver|courier|kur[iy]?er|dostav|ekspedit|eltuv|yetkaz|haydov/i
 
 export function GroupPaymentDialog({
   open,
   rows,
   currencies,
+  deliverers,
   onClose,
   onSaved,
 }: {
@@ -30,6 +37,9 @@ export function GroupPaymentDialog({
   rows: BalanceRow[]
   /** Currency codes whose end balance is shown per row (demo: SUM, USD). */
   currencies: string[]
+  /** "Ответственный доставщик" choices (the page's deliverer list); default: the active
+   * employees in a delivery position. */
+  deliverers?: string[]
   onClose: () => void
   /** Called after a successful save (show "Успешно сохранено", refetch list + totals). */
   onSaved: () => void
@@ -37,9 +47,19 @@ export function GroupPaymentDialog({
   const { t } = useLanguage()
   const cashboxes = useLookup<Cashbox>(open ? "/api/cashboxes" : null)
   const branches = useLookup<Named>(open ? "/api/branches" : null)
-  const categories = useLookup<Named>(open ? "/api/income-categories" : null)
+  // A client payment: only the income categories meant for clients (parameter "Клиент").
+  const allCategories = useLookup<IncomeCategory>(open ? "/api/income-categories" : null)
+  const categories = useMemo(() => allCategories.filter((item) => Array.isArray(item.options) && item.options.includes("client")), [allCategories])
   const organizations = useLookup<Named>(open ? "/api/organizations" : null)
-  const employees = useLookup<Named>(open ? "/api/employees" : null)
+  const employees = useLookup<Employee>(open && !deliverers ? "/api/employees" : null)
+  const delivererNames = useMemo(
+    () =>
+      deliverers ??
+      [...new Set(employees.filter((item) => item.active !== false && DELIVERY_POSITION.test(item.position ?? "")).map((item) => item.name.trim()).filter(Boolean))].sort((a, b) =>
+        a.localeCompare(b, "ru"),
+      ),
+    [deliverers, employees],
+  )
   const { data: currencyInfo } = useFinanceCurrencies()
 
   const [date, setDate] = useState(() => nowLocalIso().slice(0, 16))
@@ -90,8 +110,10 @@ export function GroupPaymentDialog({
         }),
       })
       if (!response.ok) {
-        const body = (await response.json().catch(() => null)) as { error?: string } | null
-        throw new Error(body?.error || t("Не удалось сохранить"))
+        // Server reasons are Russian i18n keys; a zod refusal of the date carries it in fieldErrors.
+        const body = (await response.json().catch(() => null)) as { error?: string; details?: { fieldErrors?: Record<string, string[] | undefined> } } | null
+        const reason = body?.details?.fieldErrors?.date?.[0] ?? body?.error
+        throw new Error(reason ? t(reason) : t("Не удалось сохранить"))
       }
       setAmounts({})
       onSaved()
@@ -162,9 +184,9 @@ export function GroupPaymentDialog({
               {t("Ответственный доставщик")}
               <select value={deliveryMan} onChange={(event) => setDeliveryMan(event.target.value)} className={field}>
                 <option value="">{t("Не указано")}</option>
-                {employees.map((item) => (
-                  <option key={item.id} value={item.name}>
-                    {item.name}
+                {delivererNames.map((name) => (
+                  <option key={name} value={name}>
+                    {name}
                   </option>
                 ))}
               </select>

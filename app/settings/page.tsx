@@ -44,7 +44,7 @@ export default async function SettingsPage() {
                   <h2 className="mt-3 text-2xl font-bold text-slate-900">{t(item.title)}</h2>
                 </div>
                 <span className="inline-flex h-12 w-12 items-center justify-center rounded-3xl bg-brand-blue/10 text-brand-blue">
-                  {item.title.slice(0, 1)}
+                  {t(item.title).slice(0, 1)}
                 </span>
               </div>
               <p className="mt-5 text-sm leading-6 text-slate-600">{t(item.description)}</p>

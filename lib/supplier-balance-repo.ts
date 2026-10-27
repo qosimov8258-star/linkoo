@@ -3,10 +3,11 @@ import "server-only"
 import { CashError } from "@/lib/cash/common"
 import { updateMoneyRequest } from "@/lib/cash/money-requests"
 import { appendLog, requestStatus } from "@/lib/cash/request-links"
-import { getDb, withTransaction, type PgDb } from "@/lib/db"
+import { getDb, outsideTransaction, withTransaction, type PgDb } from "@/lib/db"
+import { DOC_DATE_FUTURE, docDateError, parseDocInput } from "@/lib/document-dates"
 import { resolveCurrencyCode } from "@/lib/finance/context"
 import { normCurrency } from "@/lib/finance/currency"
-import { nowLocalIso, parseAnyDate } from "@/lib/finance/dates"
+import { nowLocalIso } from "@/lib/finance/dates"
 import { ensureLedgerExtensions } from "@/lib/finance/schema"
 import { tableColumns } from "@/lib/supplier-refs"
 
@@ -83,7 +84,8 @@ export type SupplierBalanceResult =
   | { transaction: SupplierBalanceTransaction; error?: undefined }
   | {
       transaction?: undefined
-      error: "not_found" | "supplier_not_found" | "invalid" | "currency_not_found" | "locked"
+      /** date_invalid / date_future: the document date rule (lib/document-dates.ts). */
+      error: "not_found" | "supplier_not_found" | "invalid" | "currency_not_found" | "locked" | "date_invalid" | "date_future"
     }
 
 type Row = {
@@ -134,8 +136,8 @@ async function createSchema(db: PgDb) {
   `)
 }
 
-async function ensureSchema(db: PgDb) {
-  schemaReady ??= createSchema(db).catch((error: unknown) => {
+async function ensureSchema() {
+  schemaReady ??= outsideTransaction(() => createSchema(getDb())).catch((error: unknown) => {
     schemaReady = null
     throw error
   })
@@ -183,12 +185,19 @@ function rowToTransaction(row: Row): SupplierBalanceTransaction {
 /** Any accepted date text → local "YYYY-MM-DDTHH:mm" (now when empty). */
 function localDateTime(value: string | undefined): string | null {
   if (!value?.trim()) return nowLocalIso().slice(0, 16)
-  return parseAnyDate(value)?.slice(0, 16) ?? null
+  return parseDocInput(value)?.slice(0, 16) ?? null
+}
+
+/** The document date rule: year 2000..2100 always; an add / expense entry (money) is never
+ * dated after today, except an edit keeping its own day; a money request (a plan) may be. */
+function dateIssue(date: string, kind: SupplierBalanceKind, current?: string): SupplierBalanceResult | null {
+  const error = docDateError(date, { allowFuture: kind === "fund_request", current })
+  return error === DOC_DATE_FUTURE ? { error: "date_future" } : error ? { error: "date_invalid" } : null
 }
 
 export async function listSupplierBalanceTransactions(filter: { supplierId?: number; kind?: SupplierBalanceKind } = {}): Promise<SupplierBalanceTransaction[]> {
   const db = getDb()
-  await ensureSchema(db)
+  await ensureSchema()
   const rows = (await db
     .prepare(
       `${SELECT}
@@ -204,15 +213,18 @@ export async function listSupplierBalanceTransactions(filter: { supplierId?: num
 
 export async function getSupplierBalanceTransaction(id: number, db: PgDb = getDb(), forUpdate = false): Promise<SupplierBalanceTransaction | null> {
   if (!Number.isInteger(id) || id <= 0) return null
-  await ensureSchema(getDb())
+  await ensureSchema()
   const row = (await db.prepare(`${SELECT} WHERE t.id = ?${forUpdate ? " FOR UPDATE OF t" : ""}`).get(id)) as Row | undefined
   return row ? rowToTransaction(row) : null
 }
 
 export async function createSupplierBalanceTransaction(input: SupplierBalanceCreateInput, createdBy: string): Promise<SupplierBalanceResult> {
-  await ensureSchema(getDb())
+  await ensureSchema()
   const date = localDateTime(input.date)
-  if (!date || !(input.amount > 0)) return { error: "invalid" }
+  if (!date) return { error: "date_invalid" }
+  if (!(input.amount > 0)) return { error: "invalid" }
+  const issue = dateIssue(date, input.kind)
+  if (issue) return issue
   const currency = await resolveCurrencyCode(getDb(), input.currency)
   if (!currency) return { error: "currency_not_found" }
   return withTransaction(async (db) => {
@@ -255,7 +267,7 @@ export async function updateSupplierBalanceTransaction(id: number, input: Suppli
 }
 
 async function updateEntry(id: number, input: SupplierBalanceUpdateInput): Promise<SupplierBalanceResult> {
-  await ensureSchema(getDb())
+  await ensureSchema()
   const currency = await resolveCurrencyCode(getDb(), input.currency)
   if (!currency) return { error: "currency_not_found" }
   return withTransaction(async (db) => {
@@ -269,6 +281,9 @@ async function updateEntry(id: number, input: SupplierBalanceUpdateInput): Promi
     const isRequest = current.kind === "fund_request"
     if (isRequest && input.amount < 0) return { error: "invalid" }
     const kind: SupplierBalanceKind = isRequest ? "fund_request" : input.amount > 0 ? "add" : "expense"
+    // Only a typed date is checked: a kept (stored) date is not entered anew.
+    const issue = input.date?.trim() ? dateIssue(date, kind, current.date) : null
+    if (issue) return issue
     await db
       .prepare(
         `UPDATE supplier_balance_transactions
@@ -312,7 +327,7 @@ async function requestClosed(db: PgDb, transaction: SupplierBalanceTransaction):
  * through the cash core (lib/cash/money-requests updateMoneyRequest: log, approver,
  * "Запрос уже закрыт"); a given / cancelled / paid request is refused ("locked"). */
 export async function setFundRequestStatus(id: number, status: FundRequestStatus, userName = ""): Promise<SupplierBalanceResult> {
-  await ensureSchema(getDb())
+  await ensureSchema()
   const current = await getSupplierBalanceTransaction(id)
   if (!current) return { error: "not_found" }
   if (current.kind !== "fund_request") return { error: "invalid" }
@@ -348,8 +363,7 @@ export async function setFundRequestStatus(id: number, status: FundRequestStatus
  * cancelled and not paid by a live payment ("locked" otherwise). */
 export async function deleteSupplierBalanceTransaction(id: number): Promise<"ok" | "not_found" | "locked"> {
   if (!Number.isInteger(id) || id <= 0) return "not_found"
-  const db = getDb()
-  await ensureSchema(db)
+  await ensureSchema()
   return withTransaction(async (tx) => {
     const current = await getSupplierBalanceTransaction(id, tx, true)
     if (!current) return "not_found"

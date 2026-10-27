@@ -3,7 +3,7 @@ import { NextResponse } from "next/server"
 import { getCurrentUser } from "@/lib/current-user"
 import { routeId } from "@/lib/finance/api"
 import { requireRole } from "@/lib/rbac"
-import { parseJsonBody } from "@/lib/validation"
+import { notSignedInResponse, parseJsonBody } from "@/lib/validation"
 import { branchBalanceTransactionSchema, createBranchBalanceTransaction, listBranchBalanceTransactions } from "@/lib/branch-balance-repo"
 
 // GET  /api/branch-balance-transactions[?branchId=N] → the manual branch ledger rows.
@@ -11,7 +11,7 @@ import { branchBalanceTransactionSchema, createBranchBalanceTransaction, listBra
 // of the Баланс филиалов page (balances: GET /api/balances/branch).
 export async function GET(request: Request) {
   const user = await getCurrentUser()
-  if (!user) return NextResponse.json({ error: "Tizimga kirilmagan" }, { status: 401 })
+  if (!user) return notSignedInResponse()
   const branchId = routeId(new URL(request.url).searchParams.get("branchId") ?? "")
   return NextResponse.json(await listBranchBalanceTransactions(branchId ?? undefined))
 }

@@ -4,6 +4,7 @@ import { NextResponse } from "next/server"
 
 import { getCurrentUser } from "@/lib/current-user"
 import { getDb, type PgDb } from "@/lib/db"
+import { dbErrorResponse } from "@/lib/db-errors"
 import { normCurrency } from "@/lib/finance/currency"
 import { loadCurrencyContext } from "@/lib/finance/context"
 import { isIsoDay, monthEndIso, monthStartIso, todayIso } from "@/lib/finance/dates"
@@ -13,6 +14,7 @@ import { stockOrphanNames } from "@/lib/stock/level"
 import { getStockCatalog, stockMovementsSql } from "@/lib/stock/ledger"
 import { parsePageParam } from "@/lib/stock/paging"
 import { STOCK_MOVE_KINDS, type StockCatalogItem, type StockMoveKind } from "@/lib/stock/types"
+import { notSignedInResponse, invalidFieldResponse } from "@/lib/validation"
 import {
   MOVE_FIELDS,
   MOVE_GROUP_BY,
@@ -572,17 +574,19 @@ export function stockMovementSheet(rows: MoveRow[], filters: MoveFilters, option
 /** Auth (any signed-in user) + filter parsing of the /api/stock/movement routes. */
 export async function movementRequest(url: string): Promise<{ filters: MoveFilters; params: URLSearchParams; error?: undefined } | { error: NextResponse }> {
   const user = await getCurrentUser()
-  if (!user) return { error: NextResponse.json({ error: "Tizimga kirilmagan" }, { status: 401 }) }
+  if (!user) return { error: notSignedInResponse() }
   const params = new URL(url).searchParams
   const parsed = parseMoveFilters(params)
   if (parsed.error !== undefined) {
-    return { error: NextResponse.json({ error: "Ma'lumotlar noto'g'ri", details: { fieldErrors: { [parsed.error]: ["YYYY-MM-DD"] } } }, { status: 400 }) }
+    return { error: invalidFieldResponse(parsed.error, "YYYY-MM-DD") }
   }
   return { filters: parsed.filters, params }
 }
 
 /** 500 with the message (e.g. the stock core is not ready yet). */
 export function movementFailure(error: unknown): NextResponse {
+  const busy = dbErrorResponse(error)
+  if (busy) return busy
   console.error("stock movement report:", error)
   return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status: 500 })
 }

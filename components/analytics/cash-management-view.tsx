@@ -45,7 +45,7 @@ import { useLanguage } from "@/lib/i18n/language-context"
 // with their ledger balances on the left (= "Баланс кассы"), the operations of
 // the selected cashbox ("Общий объем" = all) on the right — server-side list
 // with filters, search, sorting, paging and per-currency totals — and every
-// cash dialog: Принять деньги, Груповой приход, Приход, Расход, Перевод,
+// cash dialog: Принять деньги, Групповой приход, Приход, Расход, Перевод,
 // Запрос средств, unverified transactions (clock badge, polled every 5 s), the
 // row menu (Изменить / Дублировать / Печать / Удалить) and the receipt.
 // Everything goes through the cash core (/api/cash/**, components/analytics/cash/use-cash.ts).
@@ -249,9 +249,10 @@ function CashManagementContent() {
         {canWrite && (
           <div className="ml-auto flex flex-wrap items-center gap-2">
             <HeaderButton tone="green" icon={Banknote} label={t("Принять деньги")} onClick={() => setPanel("accept")} />
-            <HeaderButton tone="blue" icon={CreditCard} label={t("Груповой приход")} onClick={() => setDialog({ kind: "group" })} />
-            <HeaderButton tone="blue" icon={CreditCard} label={t("Приход")} onClick={() => openOperation({ kind: "income", mode: "create" })} />
-            <HeaderButton tone="red" icon={CreditCard} label={t("Расход")} onClick={() => openOperation({ kind: "expense", mode: "create" })} />
+            <HeaderButton tone="blue" icon={CreditCard} label={t("Групповой приход")} onClick={() => setDialog({ kind: "group" })} />
+            {/* The cashbox selected on the left is preselected in the dialog (with its branch). */}
+            <HeaderButton tone="blue" icon={CreditCard} label={t("Приход")} onClick={() => openOperation({ kind: "income", mode: "create", cashboxId: selectedId || undefined })} />
+            <HeaderButton tone="red" icon={CreditCard} label={t("Расход")} onClick={() => openOperation({ kind: "expense", mode: "create", cashboxId: selectedId || undefined })} />
           </div>
         )}
       </header>

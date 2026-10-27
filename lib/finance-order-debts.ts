@@ -3,13 +3,15 @@ import "server-only"
 import { NextResponse } from "next/server"
 import { z } from "zod"
 
-import { getDb, type PgDb } from "@/lib/db"
+import { dbErrorResponse } from "@/lib/db-errors"
+import { getDb, outsideTransaction, type PgDb } from "@/lib/db"
 import { CashError, currencyContext, num } from "@/lib/cash/common"
 import { payOrder } from "@/lib/cash/expected-payments"
 import { orderDues } from "@/lib/cash/orders"
 import { ensureCashSchema } from "@/lib/cash/schema"
 import type { CashWriteResult } from "@/lib/cash/types"
-import { MAX_ID, MAX_MONEY } from "@/lib/finance/api"
+import { docDateCheck, docYearOk } from "@/lib/document-dates"
+import { MAX_MONEY } from "@/lib/finance/api"
 import type { CurrencyContext } from "@/lib/finance/context"
 import { currencyLabel, normCurrency, roundMoney } from "@/lib/finance/currency"
 import { isIsoDay, todayIso } from "@/lib/finance/dates"
@@ -42,6 +44,8 @@ import {
   type OrderDebtQuery,
   type OrderDebtStats,
 } from "@/lib/finance-order-debts-types"
+import { dbId, strictNum } from "@/lib/strict-number"
+import { invalidFieldResponse } from "@/lib/validation"
 
 // "Долги с заказов" (demo #/statistics/debtors): debt aging of order remainders.
 //
@@ -94,7 +98,7 @@ declare global {
 async function ensureSchema(db: PgDb = getDb()): Promise<void> {
   await ensureCashSchema(db)
   if (globalThis.__linkoOrderDebtsSchema?.version !== SCHEMA_VERSION) {
-    const ready = db.exec(DDL).catch((error: unknown) => {
+    const ready = outsideTransaction(() => getDb().exec(DDL)).catch((error: unknown) => {
       globalThis.__linkoOrderDebtsSchema = undefined
       throw error
     })
@@ -922,7 +926,7 @@ export async function getOrderDebtOptions(): Promise<OrderDebtOptions> {
 export type Parsed<T> = { data: T; error?: undefined } | { data?: undefined; error: NextResponse }
 
 function bad(name: string, hint: string) {
-  return NextResponse.json({ error: "Ma'lumotlar noto'g'ri", details: { fieldErrors: { [name]: [hint] } } }, { status: 400 })
+  return invalidFieldResponse(name, hint)
 }
 
 type DateFilterName = Extract<(typeof ORDER_DEBT_TEXT_FILTERS)[number], `${string}Date`>
@@ -974,41 +978,43 @@ export function parseOrderDebtQuery(url: string): Parsed<OrderDebtQuery> {
   }
 }
 
-const period = z.coerce.number().int().min(1).max(3650)
+const period = strictNum(z.number().int().min(1).max(3650))
 
 /** Body of PUT /api/order-debts/settings. */
 export const orderDebtConfigSchema = z.object({ firstDebtPeriod: period, secondDebtPeriod: period, thirdDebtPeriod: period })
 
-const isoDay = z.string().trim().refine((value) => isIsoDay(value), "YYYY-MM-DD")
+/** A real day of a sane year (2000..2100, lib/document-dates.ts); an expected payment date may be in the future. */
+const isoDay = z.string().trim().refine((value) => isIsoDay(value) && docYearOk(value), "YYYY-MM-DD")
 
 /** Body of POST /api/order-debts/recalc. */
 export const orderDebtRecalcSchema = z.object({
-  clientId: z.coerce.number().int().positive().max(MAX_ID).optional(),
+  clientId: dbId().optional(),
   fromDate: isoDay.optional(),
 })
 
 /** Body of POST /api/order-debts/payment-date. */
 export const orderPaymentDateSchema = z.object({
-  orderIds: z.array(z.coerce.number().int().positive().max(MAX_ID)).min(1).max(5000),
+  orderIds: z.array(dbId()).min(1).max(5000),
   /** "" clears the date. */
   paymentDate: z.union([isoDay, z.literal("")]),
 })
 
 /** Body of POST /api/order-debts/group-payment. */
 export const orderGroupPaymentSchema = z.object({
-  cashboxId: z.coerce.number().int().positive().max(MAX_ID),
-  date: z.string().trim().max(40).optional(),
+  cashboxId: dbId(),
+  /** A money document: year 2000..2100, never after today (lib/document-dates.ts). */
+  date: z.string().trim().max(40).optional().superRefine(docDateCheck()),
   branch: z.string().trim().max(200).optional(),
-  categoryId: z.coerce.number().int().positive().max(MAX_ID).optional(),
-  responsibleId: z.coerce.number().int().positive().max(MAX_ID).optional(),
+  categoryId: dbId().optional(),
+  responsibleId: dbId().optional(),
   isVerified: z.boolean().optional(),
   comment: z.string().trim().optional(),
   items: z
     .array(
       z.object({
-        orderId: z.coerce.number().int().positive().max(MAX_ID),
+        orderId: dbId(),
         /** Cash taken, in the cashbox currency. */
-        amount: z.coerce.number().finite().nonnegative().max(MAX_MONEY),
+        amount: strictNum(z.number().finite().nonnegative().max(MAX_MONEY)),
         /** Order part (debt) currency. */
         currency: z.string().trim().min(1),
         comment: z.string().trim().optional(),
@@ -1021,5 +1027,7 @@ export const orderGroupPaymentSchema = z.object({
 /** Maps CashError to { error, field } like the cash routes. */
 export function orderDebtErrorResponse(error: unknown): NextResponse {
   if (error instanceof CashError) return NextResponse.json({ error: error.message, field: error.field ?? null }, { status: error.status })
+  const busy = dbErrorResponse(error)
+  if (busy) return busy
   throw error
 }

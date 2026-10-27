@@ -68,7 +68,9 @@ export async function netCostMutate<T>(method: "POST" | "PUT" | "DELETE", url: s
     const response = await fetch(url, { method, headers: body === undefined ? undefined : { "Content-Type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body) })
     const json = (await response.json().catch(() => null)) as (T & { error?: string; errors?: Array<{ row: number; error: string }> }) | null
     if (!response.ok) {
-      const error = response.status === 403 ? "Недостаточно прав" : json?.error === "Ma'lumotlar noto'g'ri" ? "Проверьте правильность заполнения полей" : json?.error || `HTTP ${response.status}`
+      // The generic validation error is "Неверные данные" (older builds answered in Uzbek).
+      const generic = json?.error === "Неверные данные"
+      const error = response.status === 403 ? "Недостаточно прав" : generic ? "Проверьте правильность заполнения полей" : json?.error || `HTTP ${response.status}`
       return { ok: false, status: response.status, error, rows: json?.errors ?? [] }
     }
     return { ok: true, data: json as T }

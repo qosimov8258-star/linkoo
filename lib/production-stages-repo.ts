@@ -184,7 +184,8 @@ export type ProductionEquipment = {
   lastShipment: number | null
   createdAt: string
 }
-export type EquipmentInput = { stageId: number; name: string; status: "0" | "1"; image: string }
+/** `status` omitted: "1" (работает) for a new machine, unchanged on an edit. */
+export type EquipmentInput = { stageId: number; name: string; status?: "0" | "1"; image: string }
 
 type EquipmentRow = { id: number; stage_id: number; name: string; status: string; image: string; created_at: string; last_shipment: number | null }
 
@@ -216,13 +217,18 @@ async function getEquipment(id: number): Promise<ProductionEquipment | null> {
   return row ? toEquipment(row) : null
 }
 
+export const EQUIPMENT_NOT_WORKING = "Оборудование не работает"
+
 /** Equipment referenced by an operation / product / shift entry of a stage
- * must exist (404) and belong to that same stage (400). */
-export async function requireStageEquipment(db: PgDb, equipmentId: number | null | undefined, stageId: number): Promise<void> {
+ * must exist (404) and belong to that same stage (400). Work booked on it
+ * (`mustWork`: shift entries) also needs it in status "работает" (400); master
+ * data (operations, products) may name a machine that is down for now. */
+export async function requireStageEquipment(db: PgDb, equipmentId: number | null | undefined, stageId: number, options?: { mustWork?: boolean }): Promise<void> {
   if (!equipmentId) return
-  const row = (await db.prepare("SELECT id, stage_id FROM production_equipment WHERE id = ?").get(equipmentId)) as { id: number; stage_id: number } | undefined
+  const row = (await db.prepare("SELECT id, stage_id, status FROM production_equipment WHERE id = ?").get(equipmentId)) as { id: number; stage_id: number; status: string | null } | undefined
   if (!row) throw new ProductionError(404, "Оборудование не найдено")
   if (row.stage_id !== stageId) throw new ProductionError(400, "Оборудование не относится к этапу")
+  if (options?.mustWork && row.status !== "1") throw new ProductionError(400, EQUIPMENT_NOT_WORKING, { equipmentId })
 }
 
 export async function createEquipment(input: EquipmentInput): Promise<ProductionEquipment> {
@@ -230,7 +236,7 @@ export async function createEquipment(input: EquipmentInput): Promise<Production
   if (!(await getStage(input.stageId, db))) throw new ProductionError(404, "Этап не найден")
   const result = await db
     .prepare("INSERT INTO production_equipment (stage_id, name, status, image, created_at) VALUES (?, ?, ?, ?, ?)")
-    .run(input.stageId, input.name, input.status, input.image, nowIso())
+    .run(input.stageId, input.name, input.status ?? "1", input.image, nowIso())
   return (await getEquipment(result.lastInsertRowid))!
 }
 
@@ -250,19 +256,32 @@ export async function updateEquipment(id: number, input: EquipmentInput): Promis
       .get(id, id, id)) as { count: number | string }
     if (Number(used.count) > 0) throw new ProductionError(409, "Оборудование уже используется — перенести его на другой этап нельзя")
   }
-  await db.prepare("UPDATE production_equipment SET stage_id = ?, name = ?, status = ?, image = ? WHERE id = ?").run(input.stageId, input.name, input.status, input.image, id)
+  await db.prepare("UPDATE production_equipment SET stage_id = ?, name = ?, status = ?, image = ? WHERE id = ?").run(input.stageId, input.name, input.status ?? current.status, input.image, id)
   return getEquipment(id)
 }
 
-/** Equipment named on production records (shift entries, batch lines) stays. */
+/** Equipment that an operation or a stage product (recipe) uses, or that is
+ * named on production records (shift entries, batch lines), stays: 409 with
+ * the usage list. The row lock makes a concurrent operation / recipe write
+ * that points at it wait, so the count cannot miss it. */
 export async function deleteEquipment(id: number): Promise<boolean> {
-  const db = await getProductionDb()
-  if (!(await getEquipment(id))) return false
-  const used = (await db.prepare("SELECT COUNT(*) AS count FROM production_movements WHERE equipment_id = ?").get(id)) as { count: number | string }
-  if (Number(used.count) > 0) {
-    throw new ProductionError(409, DELETE_BLOCKED, { usage: [{ table: "production_movements", label: "Производство", count: Number(used.count) }] satisfies Usage[] })
-  }
-  return (await db.prepare("DELETE FROM production_equipment WHERE id = ?").run(id)).changes > 0
+  await getProductionDb()
+  return withTransaction(async (db) => {
+    if (!(await db.prepare("SELECT id FROM production_equipment WHERE id = ? FOR UPDATE").get(id))) return false
+    const counts = (await db
+      .prepare(
+        `SELECT (SELECT COUNT(*) FROM production_operations WHERE equipment_id = @id) AS operations,
+                (SELECT COUNT(*) FROM production_recipes WHERE equipment_id = @id) AS recipes,
+                (SELECT COUNT(*) FROM production_movements WHERE equipment_id = @id) AS movements`,
+      )
+      .get({ id })) as { operations: number | string; recipes: number | string; movements: number | string }
+    const usage: Usage[] = []
+    if (Number(counts.operations) > 0) usage.push({ table: "production_operations", label: "Операции", count: Number(counts.operations) })
+    if (Number(counts.recipes) > 0) usage.push({ table: "production_recipes", label: "Продукция", count: Number(counts.recipes) })
+    if (Number(counts.movements) > 0) usage.push({ table: "production_movements", label: "Производство", count: Number(counts.movements) })
+    if (usage.length) throw new ProductionError(409, DELETE_BLOCKED, { usage })
+    return (await db.prepare("DELETE FROM production_equipment WHERE id = ?").run(id)).changes > 0
+  })
 }
 
 // ---------------------------------------------------------------------------
@@ -432,6 +451,30 @@ export async function updateStaff(id: number, input: StaffInput): Promise<Produc
     return true
   })
   return found ? getStaff(id) : null
+}
+
+export const WORKER_NOT_ON_STAGE = "Работник не входит в сотрудники этапа"
+
+/** The worker of a shift entry: a member of the stage's staff ("Сотрудники"),
+ * matched by name like the stage responsible and the staff themselves (case and
+ * spacing ignored; a linked employee by their current name). Returns the
+ * canonical name to store ("" = no worker); anyone else is refused (400). */
+export async function resolveStageWorker(db: PgDb, stageId: number, worker: string): Promise<string> {
+  const key = textKey(worker)
+  if (!key) return ""
+  const rows = (await db
+    .prepare(
+      `SELECT s.employee_name,
+              NULLIF(btrim(btrim(COALESCE(e.first_name, '')) || ' ' || btrim(COALESCE(e.last_name, ''))), '') AS current_name
+       FROM production_staff s LEFT JOIN employees e ON e.id = s.employee_id
+       WHERE s.stage_id = ? ORDER BY s.id`,
+    )
+    .all(stageId)) as Array<{ employee_name: string | null; current_name: string | null }>
+  for (const row of rows) {
+    const name = row.current_name ?? String(row.employee_name ?? "")
+    if (textKey(name) === key || textKey(row.employee_name) === key) return name
+  }
+  throw new ProductionError(400, WORKER_NOT_ON_STAGE, { worker })
 }
 
 export async function deleteStaff(id: number): Promise<boolean> {

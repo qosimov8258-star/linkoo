@@ -164,6 +164,7 @@ export function mutationMessage(result: JsonMutation<unknown>): string {
   if (result.ok) return ""
   if (result.status === 403) return "Недостаточно прав"
   if (result.status === 0) return "Сервер недоступен, попробуйте ещё раз"
-  if (result.status === 400 && result.error === "Ma'lumotlar noto'g'ri") return "Проверьте правильность заполнения полей"
+  // The generic validation error: "Неверные данные" (older builds answered in Uzbek).
+  if (result.status === 400 && result.error === "Неверные данные") return "Проверьте правильность заполнения полей"
   return result.error
 }

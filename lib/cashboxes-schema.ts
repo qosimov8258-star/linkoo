@@ -1,6 +1,7 @@
 import { z } from "zod"
 
 import { cashboxTypeOf } from "@/components/analytics/cashboxes-data"
+import { strictNum, strictNumber } from "@/lib/strict-number"
 
 // Request schemas of /api/cashboxes (demo finance/cashbox/ serializer: name,
 // currency, cashier and type are required; position is required by the dialog).
@@ -11,10 +12,10 @@ const MAX_INT = 2_147_483_647
 
 const emptyToUndefined = (value: unknown) => (value === "" || value === null ? undefined : value)
 const emptyToNull = (value: unknown) => (value === "" || value === undefined ? null : value)
-/** "12" → 12, "" / null → undefined (required error), other strings → NaN (number error). */
+/** "12" → 12, "" / null → undefined (required error), other strings ("0x10", "12abc") → NaN (number error). */
 const toNumberOrUndefined = (value: unknown) => {
   if (value === "" || value === null || value === undefined) return undefined
-  if (typeof value === "string") return value.trim() ? Number(value.trim()) : undefined
+  if (typeof value === "string") return value.trim() ? strictNumber(value) : undefined
   return value
 }
 
@@ -63,7 +64,7 @@ export const cashboxInputSchema = z
 export type CashboxInputBody = z.infer<typeof cashboxInputSchema>
 
 const text = (max: number) => z.preprocess(emptyToUndefined, z.string().trim().max(max).optional())
-const int = (min: number, max: number) => z.preprocess(emptyToUndefined, z.coerce.number().int().min(min).max(max).optional())
+const int = (min: number, max: number) => z.preprocess(emptyToUndefined, strictNum(z.number().int().min(min).max(max).optional()))
 
 export const cashboxListQuerySchema = z.object({
   search: text(200),

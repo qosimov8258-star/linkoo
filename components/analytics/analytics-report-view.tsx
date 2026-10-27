@@ -14,6 +14,7 @@ import {
   Users,
 } from "lucide-react"
 
+import { csvText } from "@/lib/csv"
 import type { AnalyticsReport } from "@/lib/analytics-catalog"
 
 type Filters = {
@@ -59,10 +60,6 @@ function formatNumber(value: number) {
 function formatPrimary(value: number, group: AnalyticsReport["group"]) {
   if (group === "sales") return `${formatNumber(value)} сум`
   return formatNumber(value)
-}
-
-function escapeCsv(value: string | number) {
-  return `"${String(value).replaceAll('"', '""')}"`
 }
 
 export function AnalyticsReportView({ report }: { report: AnalyticsReport }) {
@@ -125,7 +122,7 @@ export function AnalyticsReportView({ report }: { report: AnalyticsReport }) {
   function downloadCsv() {
     const header = ["Название", report.group === "sales" ? "Продажи" : "Результат", "План", "Выполнение, %", "Динамика, %"]
     const body = rows.map((row) => [row.name, row.primary, row.plan, row.completion, row.change])
-    const csv = [header, ...body].map((row) => row.map(escapeCsv).join(";")).join("\n")
+    const csv = csvText([header, ...body])
     const blob = new Blob([`\uFEFF${csv}`], { type: "text/csv;charset=utf-8" })
     const url = URL.createObjectURL(blob)
     const anchor = document.createElement("a")

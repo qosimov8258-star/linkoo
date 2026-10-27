@@ -3,10 +3,12 @@ import "server-only"
 import type { Product } from "@/components/analytics/products-data"
 import { parseItemPrices } from "@/lib/item-prices"
 import { catalogDb } from "@/lib/products-schema"
+import { withCostOfGoods } from "@/lib/stock/costs"
 
 // The default (legacy) shape of GET /api/products, POST and PUT responses: one array of
 // every product, deleted ones included (`deleted`), as the existing consumers expect.
 // Reads and writes of the catalog pages live in lib/products-catalog.ts / products-write.ts.
+// `cost` is the one cost of goods (lib/stock/costs.ts), not the stored products.cost cache.
 
 type Row = Record<string, unknown> & { id: number; name: string }
 
@@ -72,11 +74,11 @@ function rowToProduct(row: Row): Product {
 export async function listProducts(): Promise<Product[]> {
   const db = await catalogDb()
   const rows = (await db.prepare("SELECT * FROM products ORDER BY id DESC").all()) as Row[]
-  return rows.map(rowToProduct)
+  return withCostOfGoods("product", rows.map(rowToProduct), db)
 }
 
 export async function getProduct(id: number): Promise<Product | null> {
   const db = await catalogDb()
   const row = (await db.prepare("SELECT * FROM products WHERE id = ?").get(id)) as Row | undefined
-  return row ? rowToProduct(row) : null
+  return row ? (await withCostOfGoods("product", [rowToProduct(row)], db))[0] : null
 }

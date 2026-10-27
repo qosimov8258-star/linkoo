@@ -6,6 +6,7 @@ import { Copy, ListFilter, Lock, Pencil, Trash2, X } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { RI, RefButton, RefCard, RefHeader, RefPage, RefTable, RefTabs, RefToolbar } from "@/components/ref/list-kit"
 import { ReportEmpty, ReportPage, ReportSelectField, WidgetHeader, WidgetUserCard } from "@/components/ref/report-kit"
+import { csvText } from "@/lib/csv"
 import { useLanguage } from "@/lib/i18n/language-context"
 
 type KpiTask = {
@@ -51,7 +52,7 @@ export function KpiPerformanceView() {
   const [showFilter, setShowFilter] = useState(false)
 
   function downloadCsv() {
-    const csv = `${t("Месяц")};${t("Год")};KPI;${t("Значение")}\n${month + 1};${year};${t("Общий объем во всех KPI")};0`
+    const csv = csvText([[t("Месяц"), t("Год"), "KPI", t("Значение")], [month + 1, year, t("Общий объем во всех KPI"), 0]])
     const url = URL.createObjectURL(new Blob([`\uFEFF${csv}`], { type: "text/csv;charset=utf-8" }))
     const anchor = document.createElement("a")
     anchor.href = url

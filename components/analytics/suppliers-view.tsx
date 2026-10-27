@@ -6,6 +6,7 @@ import { ChangeEvent, Fragment, useEffect, useMemo, useRef, useState } from "rea
 import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
 import { downloadExcelTable } from "@/lib/excel-export"
 import { mapHeaderColumns, readExcelRows } from "@/lib/excel-import"
+import { formatDateText } from "@/lib/i18n/format-date"
 import { useLanguage } from "@/lib/i18n/language-context"
 import { SupplierFormModal } from "./supplier-form-modal"
 import { SupplierReserveDialog } from "./supplier-reserve-dialog"
@@ -20,7 +21,7 @@ const IMPORT_HEADER_ALIASES: Record<string, string> = {
 }
 
 export function SuppliersView({ embedded = false }: { embedded?: boolean }) {
-  const { t } = useLanguage()
+  const { t, language } = useLanguage()
   const [rows, setRows] = useState<Supplier[]>([])
   const [reserveTarget, setReserveTarget] = useState<Supplier | null>(null)
   const [loading, setLoading] = useState(true)
@@ -116,7 +117,7 @@ export function SuppliersView({ embedded = false }: { embedded?: boolean }) {
   function downloadList() {
     downloadExcelTable("postavshiki", [
       ["Id", t("Наименование"), t("Категория"), t("Дата создания")],
-      ...filtered.map((row) => [row.id, row.name, row.category, row.createdDate]),
+      ...filtered.map((row) => [row.id, row.name, row.category, formatDateText(row.createdDate, language)]),
     ])
   }
 
@@ -266,7 +267,7 @@ export function SuppliersView({ embedded = false }: { embedded?: boolean }) {
                   <td className="px-9 py-4">{row.id}</td>
                   <td className="px-5 py-4 text-[#4f70e7]">{row.name}</td>
                   <td className="px-5 py-4">{row.category}</td>
-                  <td className="px-5 py-4">{row.createdDate}</td>
+                  <td className="px-5 py-4">{formatDateText(row.createdDate, language)}</td>
                 </tr>
 
                 {expandedId === row.id && (
@@ -295,7 +296,7 @@ export function SuppliersView({ embedded = false }: { embedded?: boolean }) {
                               <div className="flex justify-between gap-4"><dt className="text-slate-500">{t("Категория")}</dt><dd className="font-medium text-[#4f70e7]">{row.category}</dd></div>
                               <div className="flex justify-between gap-4"><dt className="text-slate-500">{t("Филиал")}</dt><dd className="font-medium text-[#4f70e7]">{t(row.branch)}</dd></div>
                               <div className="flex justify-between gap-4"><dt className="text-slate-500">{t("Организация")}</dt><dd className="font-medium text-[#4f70e7]">{t(row.organization)}</dd></div>
-                              <div className="flex justify-between gap-4"><dt className="text-slate-500">{t("Дата добавления")}</dt><dd className="font-medium text-[#4f70e7]">{row.createdDate}</dd></div>
+                              <div className="flex justify-between gap-4"><dt className="text-slate-500">{t("Дата добавления")}</dt><dd className="font-medium text-[#4f70e7]">{formatDateText(row.createdDate, language)}</dd></div>
                             </dl>
                             <p className="mb-2 mt-5 font-medium text-slate-800">{t("Контакты")}</p>
                             {row.contacts.length === 0 && <p className="text-sm text-slate-400">{t("Не указано")}</p>}

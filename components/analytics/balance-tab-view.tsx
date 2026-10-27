@@ -49,7 +49,8 @@ export function periodRange(period: string, custom: { from: string; to: string }
   return { from: monthStartIso(today), to: monthEndIso(today) }
 }
 
-const CELLS: Array<{ label: string; section: "assets" | "passives"; info?: boolean; base?: boolean }> = [
+// optional: shown only when the period has an amount on that line.
+const CELLS: Array<{ label: string; section: "assets" | "passives"; info?: boolean; base?: boolean; optional?: boolean }> = [
   { label: "Склад", section: "assets", base: true },
   { label: "Авансы, полученные от покупателей", section: "passives", info: true },
   { label: "Касса", section: "assets" },
@@ -61,6 +62,9 @@ const CELLS: Array<{ label: string; section: "assets" | "passives"; info?: boole
   { label: "Авансы, выданные по оплате труда", section: "assets", info: true },
   { label: "Задолженность филиалов", section: "assets", info: true },
   { label: "Авансы полученные от филиалов", section: "passives", info: true },
+  { label: "Деньги у агентов", section: "assets", info: true },
+  { label: "Неоплаченные доп. расходы", section: "passives", info: true },
+  { label: "Предоплаченные доп. расходы", section: "assets", info: true, optional: true },
 ]
 
 function cellLines(data: BalanceOverview | null, label: string, side: "begin" | "end") {
@@ -74,7 +78,7 @@ function BalanceCard({ title, data, side }: { title: string; data: BalanceOvervi
     <div>
       <h3 className="mb-[10px] text-[18px] font-semibold">{title}</h3>
       <div className="grid grid-cols-2 rounded-[12px] bg-white shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)] [&>div]:min-h-[110px] [&>div]:border-b [&>div]:border-r [&>div]:border-[#efefef] [&>div]:p-[16px] [&>div:nth-child(2n)]:border-r-0">
-        {CELLS.map((cell) => {
+        {CELLS.filter((cell) => !cell.optional || (data?.lines ?? []).some((line) => line.label === cell.label && (line.begin || line.end))).map((cell) => {
           const lines = cellLines(data, cell.label, side)
           return <WidgetCell key={cell.label} label={t(cell.label)} info={cell.info} lines={lines.length || !cell.base ? lines : [{ value: 0, suffix: base }]} />
         })}

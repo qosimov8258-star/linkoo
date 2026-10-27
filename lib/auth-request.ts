@@ -3,7 +3,7 @@ import "server-only"
 import { NextResponse } from "next/server"
 import { z, type ZodType } from "zod"
 
-import { cleanJsonText } from "@/lib/validation"
+import { cleanJsonText, NOT_JSON_MESSAGE, zodErrorBody, zodIssueMessage } from "@/lib/validation"
 
 // Request parsing for the platform routes (auth, users, access rights,
 // employees, branches, currencies, positions):
@@ -47,10 +47,10 @@ async function readCapped(request: Request, maxBytes: number): Promise<string | 
   return new TextDecoder().decode(bytes)
 }
 
+/** The first issue's reason as a Russian i18n key (zod's English defaults mapped by code). */
 export function firstIssueMessage(error: z.ZodError): string {
   const issue = error.issues[0]
-  if (issue && /[А-Яа-яЁё]/.test(issue.message)) return issue.message
-  return "Неверные данные"
+  return issue ? zodIssueMessage(issue) : "Неверные данные"
 }
 
 export async function parseBody<T>(request: Request, schema: ZodType<T>, maxBytes = MAX_JSON_BYTES): Promise<Parsed<T>> {
@@ -60,7 +60,7 @@ export async function parseBody<T>(request: Request, schema: ZodType<T>, maxByte
   try {
     json = JSON.parse(text)
   } catch {
-    return { error: bad("Тело запроса не является JSON") }
+    return { error: bad(NOT_JSON_MESSAGE) }
   }
   // Zero-width / bidi characters are dropped from every text (passwords excepted);
   // NUL and broken Unicode answer 400.
@@ -68,7 +68,8 @@ export async function parseBody<T>(request: Request, schema: ZodType<T>, maxByte
   if (cleaned.issue) return { error: bad(cleaned.issue.message, 400, { field: cleaned.issue.field || null }) }
   const result = schema.safeParse(cleaned.value)
   if (!result.success) {
-    return { error: bad(firstIssueMessage(result.error), 400, { details: z.flattenError(result.error) }) }
+    const body = zodErrorBody(result.error)
+    return { error: bad(body.error, 400, { field: body.field, details: body.details }) }
   }
   return { data: result.data }
 }
@@ -80,9 +81,10 @@ export function parseId(raw: string): number | null {
   return id > 0 ? id : null
 }
 
-/** Trims, collapses whitespace and drops control / invisible format characters. */
+/** Trims, collapses whitespace, drops invisible format characters and turns
+ * control characters (TAB, LF, …) into spaces ("A\tB" → "A B", never "AB"). */
 export function cleanText(value: string): string {
-  return value.normalize("NFC").replace(/[\p{Cc}\p{Cf}]/gu, "").replace(/\s+/g, " ").trim()
+  return value.normalize("NFC").replace(/\p{Cf}/gu, "").replace(/\p{Cc}/gu, " ").replace(/\s+/g, " ").trim()
 }
 
 /** A required, cleaned name of at most `max` characters; `required` is the

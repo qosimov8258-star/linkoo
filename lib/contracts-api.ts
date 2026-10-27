@@ -3,16 +3,19 @@ import "server-only"
 import { NextResponse } from "next/server"
 import { z } from "zod"
 
+import { dbErrorResponse } from "@/lib/db-errors"
 import { ContractError } from "@/lib/contracts-repo"
 import { CONTRACT_TABS, normalizeContractStatus, type ContractListQuery, type ContractTab } from "@/lib/contracts-types"
 import { MAX_ID } from "@/lib/finance/api"
+import { dbId, INVALID_ID, strictId, strictNum } from "@/lib/strict-number"
+import { invalidFieldResponse } from "@/lib/validation"
 
 // HTTP helpers of /api/contracts/** (route files export only handlers).
 
 export type Parsed<T> = { data: T; error?: undefined } | { data?: undefined; error: NextResponse }
 
 function bad(name: string, hint: string) {
-  return NextResponse.json({ error: "Ma'lumotlar noto'g'ri", details: { fieldErrors: { [name]: [hint] } } }, { status: 400 })
+  return invalidFieldResponse(name, hint)
 }
 
 const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/
@@ -65,18 +68,19 @@ export function parseContractListQuery(url: string): Parsed<ContractListQuery> {
   }
 }
 
-const optionalId = z.preprocess((value) => (value === "" || value === undefined ? null : value), z.coerce.number().int().positive().max(MAX_ID).nullable())
+const optionalId = z.preprocess((value) => (value === "" || value === undefined ? null : value), dbId().nullable())
 
 /** POST /api/contracts, PUT /api/contracts/[id] (demo ContractsCreateForm). Business rules live in the repo. */
 export const contractBodySchema = z.object({
-  contractNumber: z.preprocess((value) => (value === "" || value === undefined ? null : value), z.coerce.number().int().min(0).max(MAX_ID).nullable()).optional(),
+  contractNumber: z.preprocess((value) => (value === "" || value === undefined ? null : value), strictNum(z.number().int().min(0).max(MAX_ID).nullable())).optional(),
   contractPrefix: z.string().max(20).optional(),
   contractSuffix: z.string().max(20).optional(),
   createdDate: z.string().max(40).optional(),
   officialName: z.string().max(300).default(""),
   inn: z.string().max(40).default(""),
-  clientIds: z.array(z.coerce.number().int().positive().max(MAX_ID)).max(500).default([]),
-  agentId: z.coerce.number().int().min(0).max(MAX_ID).default(0),
+  clientIds: z.array(dbId()).max(500).default([]),
+  // 0 / null / "" / missing = no agent; otherwise a number or a digit text within int4 ("2e9", true → 400).
+  agentId: z.preprocess((value) => (value === undefined || value === null || value === "" ? 0 : value), dbId(INVALID_ID, { allowZero: true })),
   status: z.string().default("active"),
   comment: z.string().max(2000).optional(),
   organizationId: optionalId.optional(),
@@ -115,12 +119,16 @@ export function parseIdParam(value: string): number | null {
   return Number.isInteger(id) && id > 0 && id <= MAX_ID ? id : null
 }
 
+/** Optional query id (?clientId=, ?includeId=, ?year=): canonical digits within int4, else null ("0x10" is no id). */
 export function optionalNumberParam(search: URLSearchParams, name: string): number | null {
-  const value = Number(search.get(name) ?? "")
-  return Number.isInteger(value) && value > 0 && value <= MAX_ID ? value : null
+  return strictId(search.get(name) ?? "")
 }
 
 export function contractErrorResponse(error: unknown): NextResponse {
-  if (error instanceof ContractError) return NextResponse.json({ error: error.message, field: error.field ?? null }, { status: error.status })
+  if (error instanceof ContractError) {
+    return NextResponse.json({ error: error.message, field: error.field ?? null, ...(error.usage ? { usage: error.usage } : {}) }, { status: error.status })
+  }
+  const busy = dbErrorResponse(error)
+  if (busy) return busy
   throw error
 }

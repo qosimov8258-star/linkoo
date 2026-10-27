@@ -107,6 +107,39 @@ function translatePhrases(lang: TargetLanguage, text: string): string {
   return total > 0 && covered / total >= 0.75 ? result : text
 }
 
+// Stock refusals: "Недостаточно товара на складе «W»: <item> — доступно X u, требуется Y u; …"
+// (lib/internal-transfers-stock.ts shortageMessage, behind an optional prefix such as
+// "Не возможно отменить. ") and the orders' "<item> — нужно N, доступно A" variant. The
+// fixed words are dictionary keys; the warehouse, item names, quantities and units are
+// data and stay as they are.
+const SHORTAGE = /^(.*?)Недостаточно товара на складе «([^»]*)»: (.+?)(; … \(\+\d+\))?$/
+const SHORTAGE_PART = /^(.+) — (доступно|нужно) (.+?), (требуется|доступно) (.+)$/
+
+function translateShortage(lang: TargetLanguage, text: string): string | null {
+  const match = SHORTAGE.exec(text)
+  if (!match) return null
+  const dictionary = dictionaries[lang]
+  const head = dictionary["Недостаточно товара на складе"]
+  if (!head) return null
+  const word = (key: string) => (key === "нужно" ? (dictionary["нужно"] ?? dictionary["требуется"]) : dictionary[key]) ?? key
+  // Items are split at "; " unless the piece is not a whole "<item> — доступно …" (a name with "; ").
+  const parts: string[] = []
+  let carry = ""
+  for (const piece of match[3].split("; ")) {
+    const joined = carry ? `${carry}; ${piece}` : piece
+    const part = SHORTAGE_PART.exec(joined)
+    if (!part) {
+      carry = joined
+      continue
+    }
+    carry = ""
+    parts.push(`${part[1]} — ${word(part[2])} ${part[3]}, ${word(part[4])} ${part[5]}`)
+  }
+  if (carry || !parts.length) return null
+  const prefix = match[1].trim() ? `${translate(lang, match[1].trim())} ` : match[1]
+  return `${prefix}${head} «${match[2]}»: ${parts.join("; ")}${match[4] ?? ""}`
+}
+
 // Uses the original Russian source text as the dictionary key, so any string
 // that hasn't been translated yet simply falls back to showing the Russian
 // original instead of breaking — translations can be filled in incrementally.
@@ -120,6 +153,8 @@ export function translate(lang: LanguageCode, text: string): string {
   const exact = dictionary[text]
   if (exact !== undefined) return exact
   if (!/[А-Яа-яЁё]/.test(text)) return text
+  const shortage = translateShortage(lang, text)
+  if (shortage !== null) return shortage
 
   const numbers: string[] = []
   const template = text.replace(NUMBER_TOKEN, (match) => {

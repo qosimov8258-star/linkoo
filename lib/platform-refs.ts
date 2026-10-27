@@ -1,6 +1,7 @@
 import "server-only"
 
 import type { PgDb } from "@/lib/db"
+import { usageTableLabel } from "@/lib/usage-labels"
 
 // Where the platform's master data (employees, branches, job positions,
 // currencies) is referenced by other records, for the delete check (409 with a
@@ -30,6 +31,7 @@ const TABLE_LABELS: Record<string, string> = {
   cashboxes: "Кассы",
   client_balance_corrections: "Баланс клиентов",
   client_balance_imports: "Баланс клиентов",
+  client_zones: "Зоны",
   client_bulk_payments: "Оплаты от клиентов",
   account_bulk_payments: "Оплаты от клиентов",
   clients: "Клиенты",
@@ -39,6 +41,11 @@ const TABLE_LABELS: Record<string, string> = {
   deliverer_balance_transactions: "Баланс доставщиков",
   employee_balance_transactions: "Баланс сотрудников",
   employees: "Сотрудники",
+  field_gps_points: "Отслеживание",
+  field_photo_reports: "Фото отчеты",
+  field_refusals: "Отказы",
+  field_route_plans: "Маршруты",
+  field_visits: "Визиты",
   financial_accounts: "Финансовые счета",
   internal_transfers: "Передачи между складами",
   inventory_items: "Работа с инвентарем",
@@ -49,6 +56,7 @@ const TABLE_LABELS: Record<string, string> = {
   price_lists: "Прайс-листы",
   product_limits: "Ограничение продуктов",
   product_restrictions: "Ограничение продуктов",
+  product_type_restrictions: "Ограничение продуктов",
   production_movements: "Производство",
   production_stages: "Этапы производства",
   production_staff: "Сотрудники производства",
@@ -64,6 +72,7 @@ const TABLE_LABELS: Record<string, string> = {
   supplier_returns: "Возврат поставщиков",
   suppliers: "Поставщики",
   survey_plans: "Опросы",
+  surveys: "Опросник",
   tasks: "Задачи",
   transport_vehicles: "Транспорт",
   vansell_debt_limits: "Баланс вансел",
@@ -72,7 +81,7 @@ const TABLE_LABELS: Record<string, string> = {
 }
 
 export function referenceLabel(table: string): string {
-  return TABLE_LABELS[table] ?? table
+  return usageTableLabel(table, TABLE_LABELS)
 }
 
 export function quoteIdent(name: string): string {

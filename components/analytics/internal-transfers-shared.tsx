@@ -29,6 +29,32 @@ export function formatWeight(value: number, unit = "кг"): string {
   return `${formatMoney(value, 3)} ${unit}`
 }
 
+/** Quantities totalled per unit, in the order the units first appear: kilograms,
+ * pieces and litres are never added up (unit names compared ignoring case). */
+export function unitTotals(lines: Array<{ qty: number; unit: string }>): Array<{ unit: string; qty: number }> {
+  const totals = new Map<string, { unit: string; qty: number }>()
+  for (const line of lines) {
+    const unit = String(line.unit ?? "").trim()
+    const total = totals.get(unit.toLowerCase()) ?? { unit, qty: 0 }
+    total.qty += Number.isFinite(line.qty) ? line.qty : 0
+    totals.set(unit.toLowerCase(), total)
+  }
+  return [...totals.values()]
+}
+
+/** "Общее кол-во" of a document: "12 dona, 3,5 kg" (ru-RU numbers, units
+ * translated); one unit → "12 dona"; no lines → "0". A unit whose lines
+ * add up to nothing (lines not filled in / not returned) is left out
+ * ("6 dona", not "6 dona, 0 kg"); with nothing filled in at all the
+ * single unit still shows ("0 kg"), several → "0". */
+export function formatUnitTotals(lines: Array<{ qty: number; unit: string }>, t: (text: string) => string): string {
+  const totals = unitTotals(lines)
+  const filled = totals.filter((total) => Math.abs(total.qty) > 1e-9)
+  const shown = filled.length ? filled : totals.length === 1 ? totals : []
+  if (!shown.length) return formatQty(0)
+  return shown.map((total) => formatQty(total.qty, total.unit ? t(total.unit) : "")).join(", ")
+}
+
 /** "16 янв. 2026" / with ", 11:53" — '' stays ''. */
 export function docDate(value: string, language: string, withTime = false): string {
   if (!value) return ""
@@ -74,9 +100,13 @@ export function transfersListSheet(rows: Transfer[], t: Translate, language: str
   ]
 }
 
-/** One transfer's lines ("Скачать Excel" of the detail) + "Итого". */
+/** One transfer's lines ("Скачать Excel" of the detail) + "Итого". The total
+ * quantity is per unit: one unit → the number and its unit, several → "5 dona, 1,5 kg". */
 export function transferItemsSheet(transfer: Transfer, t: Translate): Cell[][] {
-  const qty = transfer.items.reduce((sum, item) => sum + item.quantity, 0)
+  const lines = transfer.items.map((item) => ({ qty: item.quantity, unit: item.unit }))
+  const units = unitTotals(lines)
+  const qty: Cell = units.length > 1 ? formatUnitTotals(lines, t) : Math.round((units[0]?.qty ?? 0) * 1000) / 1000
+  const qtyUnit = units.length === 1 ? units[0].unit : ""
   const weight = transfer.items.reduce((sum, item) => sum + item.quantity * item.weight, 0)
   return [
     [`${t("Передача")} № ${transfer.id}`, `${transfer.fromWarehouse} → ${transfer.toWarehouse}`],
@@ -93,6 +123,6 @@ export function transferItemsSheet(transfer: Transfer, t: Translate): Cell[][] {
       item.price,
       Math.round(item.quantity * item.price * 100) / 100,
     ]),
-    [t("Итого"), "", "", qty, "", Math.round(weight * 1000) / 1000, "", "", Math.round(transfer.amount * 100) / 100],
+    [t("Итого"), "", "", qty, qtyUnit, Math.round(weight * 1000) / 1000, "", "", Math.round(transfer.amount * 100) / 100],
   ]
 }

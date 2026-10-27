@@ -105,7 +105,7 @@ export function NotificationsMenu({ onClose }: NotificationsMenuProps) {
             <button aria-label={t("Предыдущий день")} onClick={() => shiftDate(-1)} className="rounded-full p-1 text-slate-500 hover:bg-slate-100 hover:text-slate-800">
               <ChevronLeft className="h-4 w-4" />
             </button>
-            <span className="whitespace-nowrap">{formatRu(viewDate)}</span>
+            <span className="whitespace-nowrap">{t(formatRu(viewDate))}</span>
             <button aria-label={t("Следующий день")} onClick={() => shiftDate(1)} className="rounded-full p-1 text-slate-500 hover:bg-slate-100 hover:text-slate-800">
               <ChevronRight className="h-4 w-4" />
             </button>

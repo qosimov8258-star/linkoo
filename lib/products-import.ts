@@ -2,13 +2,13 @@ import "server-only"
 
 import { withTransaction, type PgDb } from "@/lib/db"
 import { mapHeaderColumns } from "@/lib/excel-import"
-import { priceListKey } from "@/lib/item-prices"
+import { MAX_PRICE, priceListKey } from "@/lib/item-prices"
 import { readCatalogRow, rowToItem, splitBarcodes } from "@/lib/products-catalog"
 import { CATALOG_TABLE, catalogDb } from "@/lib/products-schema"
 import {
   catalogKey,
   cleanText,
-  leadingNumber,
+  quantityInput,
   type CatalogImportError,
   type CatalogImportMode,
   type CatalogImportResult,
@@ -16,6 +16,7 @@ import {
   type CatalogPrice,
 } from "@/lib/products-types"
 import { CatalogError, createCatalogItemTx, lockCatalog, updateCatalogItemTx, type CatalogPatch } from "@/lib/products-write"
+import { MAX_DB_ID, strictNumber } from "@/lib/strict-number"
 
 // "Импорт" (create) and "Обновить с excel" (update) of products / raw materials. The page
 // reads the sheet (lib/excel-import.ts) and posts its rows; the first row is the header.
@@ -141,17 +142,32 @@ function bool(value: string): boolean | undefined {
   return undefined
 }
 
-/** Cells of one row → patch of the non-empty cells. */
-function rowPatch(row: string[], columns: Columns): { patch: CatalogPatch; id: number | null; prices: Map<string, { name: string; cash?: number; nonCash?: number }> } {
+/** A number cell as the item form takes it: a number ("1e-7" too), "12,5", "1 000", "0 шт." or a
+ * placeholder ("-" = 0). Other text ("abc", "12abc", "0x10") is NaN, never a silent 0 / 12. */
+function cellNumber(cell: string): number {
+  const plain = strictNumber(cell, { locale: true })
+  return Number.isFinite(plain) ? plain : quantityInput(cell)
+}
+
+const BAD_NUMBER = "Некорректное число"
+const BAD_PRICE = "Некорректная цена"
+
+/** Cells of one row → patch of the non-empty cells; `error` = the first unreadable number cell (a row error). */
+function rowPatch(row: string[], columns: Columns): { patch: CatalogPatch; id: number | null; prices: Map<string, { name: string; cash?: number; nonCash?: number }>; error: string | null } {
   const patch: CatalogPatch = {}
   let id: number | null = null
+  let error: string | null = null
   for (const [index, field] of columns.fields) {
     const cell = String(row[index] ?? "").trim()
     if (!cell) continue
     switch (field) {
-      case "id":
-        id = Number.isInteger(Number(cell)) && Number(cell) > 0 ? Number(cell) : null
+      case "id": {
+        // An id an INTEGER column can hold, else no id (the row is matched by Артикул / Штрих-код /
+        // Наименование): "0x10" never selects item 16, 99999999999 never reaches Postgres.
+        const value = strictNumber(cell)
+        id = Number.isInteger(value) && value > 0 && value <= MAX_DB_ID ? value : null
         break
+      }
       case "barcodes":
         patch.barcodes = splitBarcodes(cell)
         break
@@ -165,9 +181,13 @@ function rowPatch(row: string[], columns: Columns): { patch: CatalogPatch; id: n
       case "weight":
       case "netWeight":
       case "volume":
-      case "salePoints":
-        patch[field] = Math.max(0, leadingNumber(cell))
+      case "salePoints": {
+        // The same bounds as the item body (lib/products-api.ts amount): 0 ≤ x < 1e15.
+        const value = cellNumber(cell)
+        if (Number.isFinite(value) && value >= 0 && value < 1e15) patch[field] = value
+        else error ??= BAD_NUMBER
         break
+      }
       case "type":
       case "subcategory":
       case "organization":
@@ -188,11 +208,17 @@ function rowPatch(row: string[], columns: Columns): { patch: CatalogPatch; id: n
     if (!cell) continue
     const key = priceListKey(column.priceList)
     const entry = prices.get(key) ?? { name: column.priceList }
-    if (column.cashless) entry.nonCash = Math.max(0, leadingNumber(cell))
-    else entry.cash = Math.max(0, leadingNumber(cell))
+    // A price: 0 ≤ x ≤ 1e13 (contract 3); text that is not a number is a row error.
+    const value = cellNumber(cell)
+    if (!(Number.isFinite(value) && value >= 0 && value <= MAX_PRICE)) {
+      error ??= BAD_PRICE
+      continue
+    }
+    if (column.cashless) entry.nonCash = value
+    else entry.cash = value
     prices.set(key, entry)
   }
-  return { patch, id, prices }
+  return { patch, id, prices, error }
 }
 
 class ImportFailed extends Error {
@@ -271,8 +297,9 @@ export async function importCatalogRows(kind: CatalogKind, mode: CatalogImportMo
       for (const [position, row] of body.entries()) {
         const line = position + 2
         if (!row.some((cell) => String(cell ?? "").trim())) continue
-        const { patch, id, prices } = rowPatch(row, columns)
+        const { patch, id, prices, error: cellError } = rowPatch(row, columns)
         try {
+          if (cellError) throw new CatalogError(cellError)
           if (mode === "create") {
             if (!patch.name) throw new CatalogError("Обязательное поле: Наименование")
             if (!patch.unit) throw new CatalogError("Обязательное поле: Мера")

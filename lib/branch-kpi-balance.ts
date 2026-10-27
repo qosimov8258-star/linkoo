@@ -1,7 +1,7 @@
 import "server-only"
 
 import { getDb, withTransaction } from "@/lib/db"
-import { computeBranchFacts, type BranchFactKey, type BranchFacts } from "@/lib/branch-kpi-facts"
+import { computeBranchFacts, RETURN_FACT_OF, type BranchFactKey, type BranchFacts } from "@/lib/branch-kpi-facts"
 import { ensureBranchKpiSchema, listBranchKpiIndicators, readLastDate, readPeriodPlans } from "@/lib/branch-kpi-plans-repo"
 import { branchKpiPeriod, type BranchKpiBalance, type BranchKpiDetail, type BranchKpiIndicator, type BranchKpiLevel, type BranchKpiRecalcResult } from "@/lib/branch-kpi-types"
 import { loadCurrencyContext } from "@/lib/finance/context"
@@ -14,11 +14,13 @@ import { ensureFinanceSchema } from "@/lib/finance/schema"
 // "Сумма бонусов" and the detail read that snapshot, like the demo.
 //
 // Formulas (server side in the demo, reconstructed — spec §8):
+//   fact = sales − returns ("… (продажа - возврат)" indicators subtract the
+//   month's accepted client returns, RETURN_FACT_OF; the others subtract 0);
 //   % = fact / plan · 100; level = the last level whose "от" ≤ % (needs % > 0); levels
 //   accumulate from level 1 up to the reached one, a level with "Обнулить
 //   предыдущие уровни" or a "… без учета предыдущих" type drops the previous;
 //   level bonus: Процент от продаж = sales · bonus / 100 (sales = the fact of a
-//   money indicator, else the branch's actual sales sum), Процент от бонусной
+//   money indicator, else the branch's actual sales sum net of returns), Процент от бонусной
 //   суммы / бонусного фонда = bonus fund · bonus / 100, Единоразовый = bonus,
 //   За каждую единицу = fact · bonus.
 //   Дневной план = max(plan − fact, 0) / remaining days of the month (incl.
@@ -89,16 +91,19 @@ export function computeBalance(indicator: BranchKpiIndicator, plan: number, fact
       bonusAmount: 0,
     }
   }
-  const sales = facts?.[indicator.planKey as BranchFactKey] ?? 0
-  const returns = 0
+  const key = indicator.planKey as BranchFactKey
+  const sales = facts?.[key] ?? 0
+  const returnKey = RETURN_FACT_OF[key]
+  const returns = returnKey ? (facts?.[returnKey] ?? 0) : 0
   const fact = sales - returns
+  const branchSales = (facts?.sales_sum ?? 0) - (facts?.return_sum ?? 0)
   const percent = plan > 0 ? (fact / plan) * 100 : 0
   // No plan or no achievement yet → no level (a 0 % fact never "reaches" a level starting at 0 %).
   const reached = plan > 0 && percent > 0 ? indicator.levels.filter((level) => level.fromAmount <= percent) : []
   let bonus = 0
   for (const level of reached) {
     if (level.excludeLowLevel || level.calculationType.endsWith("ForAll")) bonus = 0
-    bonus += levelBonus(level, indicator, fact, facts?.sales_sum ?? 0)
+    bonus += levelBonus(level, indicator, fact, branchSales)
   }
   const current = reached[reached.length - 1]
   const forecast = clock.state === "current" ? (clock.elapsed ? (fact / clock.elapsed) * clock.days : 0) : clock.state === "past" ? fact : 0
@@ -107,7 +112,7 @@ export function computeBalance(indicator: BranchKpiIndicator, plan: number, fact
     performanceIndicatorLevel: current ? { level: current.id, fromAmount: current.fromAmount, toAmount: current.toAmount } : null,
     planAmount: plan,
     salesAmount: roundMoney(sales, 3),
-    returnAmount: returns,
+    returnAmount: roundMoney(returns, 3),
     factAmount: roundMoney(fact, 3),
     dailyPlan: roundMoney(clock.remaining ? Math.max(plan - fact, 0) / clock.remaining : 0, 3),
     planForecast: roundMoney(forecast, 3),

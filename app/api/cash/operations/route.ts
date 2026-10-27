@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 
 import { getCurrentUser } from "@/lib/current-user"
 import { requireRole } from "@/lib/rbac"
-import { parseJsonBody } from "@/lib/validation"
+import { notSignedInResponse, parseJsonBody } from "@/lib/validation"
 import { cashErrorResponse, cashOperationSchema, parseCashListQuery } from "@/lib/cash/api"
 import { listCashOperations } from "@/lib/cash/list"
 import { createCashOperation } from "@/lib/cash/write"
@@ -11,7 +11,7 @@ import { createCashOperation } from "@/lib/cash/write"
 // POST /api/cash/operations  CashOperationInput → 201 CashWriteResult ("Приход" / "Расход").
 export async function GET(request: Request) {
   const user = await getCurrentUser()
-  if (!user) return NextResponse.json({ error: "Tizimga kirilmagan" }, { status: 401 })
+  if (!user) return notSignedInResponse()
   const parsed = parseCashListQuery(request.url)
   if (parsed.error) return parsed.error
   return NextResponse.json(await listCashOperations(parsed.data))

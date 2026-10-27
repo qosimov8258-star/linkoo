@@ -13,7 +13,7 @@ import { STOCK_INVENTORY_TYPE_LABELS, type StockInventoryDetail } from "@/lib/st
 
 // Demo InventoryDetail (module 4750), shown in place of the clicked row: the
 // document ("Инвентаризация № N · warehouse") as the title; "Изменить" (pending only), Excel of the lines,
-// "Подтвердить" (pending; dialog "Подтверждения инвентаризации" with a comment)
+// "Подтвердить" (pending; dialog "Подтверждение инвентаризации" with a comment)
 // or "Отменить" (confirmed), "Удалить" (pending). Left: Тип, Склад, Статус,
 // Дата создания, Время, Комментарий. Right: Наименование | Серия | Баланс (до) |
 // Баланс (после) | Разница | Сумма + "Итого". While pending the balances are the
@@ -221,7 +221,7 @@ export function InventoryDetailPanel({
       </div>
 
       {pending === "confirm" && (
-        <ConfirmDialog title={t("Подтверждения инвентаризации")} confirmLabel="Подтвердить" tone="blue" busy={busy} error={error} onConfirm={() => void run()} onClose={() => setPending(null)}>
+        <ConfirmDialog title={t("Подтверждение инвентаризации")} confirmLabel="Подтвердить" tone="blue" busy={busy} error={error} onConfirm={() => void run()} onClose={() => setPending(null)}>
           <label className="flex flex-col gap-1 text-[13px] text-[#586174]">
             {t("Комментарий")}...
             <textarea value={comment} onChange={(event) => setComment(event.target.value)} rows={3} maxLength={2000} className={`${inputClass} h-auto py-2`} />

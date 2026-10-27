@@ -6,6 +6,7 @@ import { Download, X } from "lucide-react"
 import * as echarts from "echarts"
 import { RefHeader } from "@/components/ref/list-kit"
 import { ReportPage, ReportSelectField, WidgetHeader, WidgetUserCard } from "@/components/ref/report-kit"
+import { csvText } from "@/lib/csv"
 import { useLanguage } from "@/lib/i18n/language-context"
 
 type ZoneRow = {
@@ -206,7 +207,7 @@ export function CoverageAnalysisView() {
     setActiveClientType(clientType)
   }
   function download() {
-    const csv = ["Зона;ОКБ;АКБ;Визит;Отказ;Новые точки;Перестали покупать;Нет заказа", ...visibleRows.map((row) => [row.zone, row.okb, row.akb, row.visits, row.refusal, row.newPoints, row.stopped, row.noOrder].join(";"))].join("\n")
+    const csv = csvText([["Зона", "ОКБ", "АКБ", "Визит", "Отказ", "Новые точки", "Перестали покупать", "Нет заказа"], ...visibleRows.map((row) => [row.zone, row.okb, row.akb, row.visits, row.refusal, row.newPoints, row.stopped, row.noOrder])])
     const url = URL.createObjectURL(new Blob([`\uFEFF${csv}`], { type: "text/csv;charset=utf-8" }))
     const link = document.createElement("a")
     link.href = url

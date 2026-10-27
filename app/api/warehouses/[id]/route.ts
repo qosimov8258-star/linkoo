@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 
 import { getCurrentUser } from "@/lib/current-user"
 import { requireRole } from "@/lib/rbac"
-import { parseJsonBody } from "@/lib/validation"
+import { INVALID_DATA_MESSAGE, notSignedInResponse, parseJsonBody } from "@/lib/validation"
 import { deleteWarehouse, getWarehouseDetail, updateWarehouse, warehouseErrorResponse } from "@/lib/warehouses-repo"
 import { parseWarehouseId, warehouseInput, warehouseInputSchema } from "@/lib/warehouses-schema"
 
@@ -13,7 +13,7 @@ const NOT_FOUND = { error: "Склад не найден" }
 // GET /api/warehouses/[id] — demo GET stock/stock/:id/ (full row); ?usage=1 adds where it is used.
 export async function GET(request: Request, { params }: RouteParams) {
   const user = await getCurrentUser()
-  if (!user) return NextResponse.json({ error: "Tizimga kirilmagan" }, { status: 401 })
+  if (!user) return notSignedInResponse()
   const id = parseWarehouseId((await params).id)
   const withUsage = new URL(request.url).searchParams.get("usage") === "1"
   const warehouse = id ? await getWarehouseDetail(id, withUsage) : null
@@ -33,7 +33,7 @@ export async function PUT(request: Request, { params }: RouteParams) {
   const parsed = await parseJsonBody(request, warehouseInputSchema)
   if (parsed.error) return parsed.error
   const input = warehouseInput(parsed.data)
-  if ("fields" in input) return NextResponse.json({ error: "Ma'lumotlar noto'g'ri", fields: input.fields }, { status: 400 })
+  if ("fields" in input) return NextResponse.json({ error: Object.values(input.fields)[0] ?? INVALID_DATA_MESSAGE, fields: input.fields }, { status: 400 })
 
   try {
     const result = await updateWarehouse(id, input.input)

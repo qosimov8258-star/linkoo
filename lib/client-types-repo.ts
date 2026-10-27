@@ -1,6 +1,6 @@
 import "server-only"
 
-import { getDb, withTransaction, type PgDb } from "@/lib/db"
+import { getDb, outsideTransaction, withTransaction, type PgDb } from "@/lib/db"
 import { isUniqueViolation } from "@/lib/auth-request"
 import { cascadeNameRename, existingReferences, keySql, nameKey, usageOf, type Usage } from "@/lib/platform-refs"
 import { refDate } from "@/lib/ref-date"
@@ -37,7 +37,7 @@ declare global {
 
 async function ensureSchema(): Promise<void> {
   if (globalThis.__linkoClientTypesSchema?.version !== SCHEMA_VERSION) {
-    const ready = withTransaction(async (tx) => {
+    const ready = outsideTransaction(() => withTransaction(async (tx) => {
       await tx.exec("SELECT pg_advisory_xact_lock(72120937)")
       await tx.exec(`
         CREATE TABLE IF NOT EXISTS client_types (
@@ -61,7 +61,7 @@ async function ensureSchema(): Promise<void> {
           END IF;
         END $$;
       `)
-    }).catch((error) => {
+    })).catch((error) => {
       globalThis.__linkoClientTypesSchema = undefined
       throw error
     })
@@ -95,6 +95,9 @@ export function parseClientTypeInput(body: unknown): ClientTypeInput | null {
 const REFERENCES = [
   { table: "clients", column: "type", kind: "name" as const },
   { table: "kpi_tasks", column: "client_type", kind: "name" as const },
+  // Surveys ("Опросник") keep the type name next to its id (lib/surveys-repo.ts).
+  { table: "surveys", column: "store_type", kind: "name" as const },
+  { table: "surveys", column: "client_type_id", kind: "id" as const },
 ]
 
 export async function listClientTypes(): Promise<ClientType[]> {

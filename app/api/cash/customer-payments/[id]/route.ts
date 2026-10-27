@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 
 import { getCurrentUser } from "@/lib/current-user"
 import { requireRole } from "@/lib/rbac"
-import { parseIdSegment, parseJsonBody } from "@/lib/validation"
+import { notSignedInResponse, parseIdSegment, parseJsonBody } from "@/lib/validation"
 import { cashErrorResponse } from "@/lib/cash/api"
 import { customerPaymentEditSchema, deleteCustomerPayment, getCustomerPayment, updateCustomerPayment } from "@/lib/cash/customer-payments"
 import { isDbId } from "@/lib/cash/common"
@@ -21,7 +21,7 @@ const notFound = () => NextResponse.json({ error: "Оплата не найде�
 
 export async function GET(_request: Request, { params }: RouteParams) {
   const user = await getCurrentUser()
-  if (!user) return NextResponse.json({ error: "Tizimga kirilmagan" }, { status: 401 })
+  if (!user) return notSignedInResponse()
   const id = await idOf(params)
   const row = id ? await getCustomerPayment(id) : null
   return row ? NextResponse.json(row) : notFound()

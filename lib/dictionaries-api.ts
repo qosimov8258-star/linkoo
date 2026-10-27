@@ -6,6 +6,7 @@ import { idOrObject, imageInput, imageSchema, nameSchema, organizationSchema } f
 import type { BrandInput } from "@/lib/brands-repo"
 import type { ProductTypeInput } from "@/lib/product-types-repo"
 import type { UnitOfMeasureInput } from "@/lib/units-of-measure-repo"
+import { strictNum } from "@/lib/strict-number"
 
 // Request bodies of the dictionary APIs. They accept our camelCase names, the demo
 // serializer names (parent, division, show_in_market, order, is_weighted, image) and the
@@ -13,7 +14,7 @@ import type { UnitOfMeasureInput } from "@/lib/units-of-measure-repo"
 // {name, organization, photoUrl}). Messages are Russian i18n keys.
 
 const positionSchema = z
-  .preprocess((value) => (value === "" || value === null ? undefined : value), z.coerce.number({ error: "Введите целое число" }).int("Введите целое число").min(-1_000_000).max(1_000_000))
+  .preprocess((value) => (value === "" || value === null ? undefined : value), strictNum(z.number({ error: "Введите целое число" }).int("Введите целое число").min(-1_000_000).max(1_000_000), "Введите целое число"))
   .optional()
 
 const first = <T>(...values: Array<T | undefined>): T | undefined => values.find((value) => value !== undefined)

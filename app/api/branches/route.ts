@@ -25,7 +25,7 @@ export async function POST(request: Request) {
     const branch = await createBranch({
       name: parsed.data.name,
       priceList: parsed.data.priceList ?? "",
-      currency: parsed.data.currency ?? "SUM",
+      currency: parsed.data.currency,
       debtTracking: parsed.data.debtTracking ?? true,
       isMain: parsed.data.isMain ?? false,
     })

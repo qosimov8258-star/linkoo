@@ -1,382 +1,457 @@
 "use client"
 
-import { Check, CheckCheck, ChevronDown, ChevronLeft, ChevronRight, EyeOff, Search, X } from "lucide-react"
-import { useEffect, useMemo, useRef, useState } from "react"
-import { createPortal } from "react-dom"
+import { ArrowDown, ArrowUp, CheckCheck, ChevronLeft, ChevronRight, EyeOff, Loader2, Search, X } from "lucide-react"
+import { usePathname, useSearchParams } from "next/navigation"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 
-import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
+import { CashSnackbar, useCanManage, type SnackbarMessage } from "@/components/analytics/cash-management-shared"
+import { RefEmpty, RefHeader, RefPage, RefTabs, REF_SHADOW, RI } from "@/components/ref/list-kit"
 import { useLanguage } from "@/lib/i18n/language-context"
+import {
+  RESTRICTION_DEFAULT_PAGE_SIZE,
+  RESTRICTION_PAGE_SIZES,
+  type RestrictionDetail,
+  type RestrictionListResponse,
+  type RestrictionListRow,
+  type RestrictionMode,
+  type RestrictionOrdering,
+  type RestrictionTab,
+} from "@/lib/product-restrictions-types"
 
-import { ProductPickerDialog, type PickerItem } from "./product-picker-dialog"
+import { RestrictionDetailPanel } from "./product-restrictions-detail"
+import { RestrictionDialog, type RestrictionDialogMode } from "./product-restrictions-dialog"
+import { apiErrorText, DemoCheckbox, rangeOf, TAB_COPY, type ApiErrorBody } from "./product-restrictions-shared"
 
-type Restriction = { id: number; employee: string; items: string[] }
-type Tab = "products" | "types"
-type Mode = "add" | "remove" | "replace"
+// "Ограничение продуктов" (demo #/user_product): the employees with the size of their product
+// list ("По продуктам") or product type list ("По типам продуктов"); 0 = "Не установлено" (not
+// restricted). Rows are selected in checkbox mode and changed in bulk with "Добавить …",
+// "Убрать …" and "Стереть и добавить"; a row opens the employee's detail with the pencil
+// "Изменение". The list state lives in the URL (?tab=&search=&page=&pageSize=&ordering=&employee=).
 
-const PAGE_SIZES = [10, 25, 50, 100]
+type ViewState = {
+  tab: RestrictionTab
+  search: string
+  page: number
+  pageSize: number
+  ordering: RestrictionOrdering
+  employee: number | null
+}
+
+const MANAGE_CODES = ["catalog.manage"] as const
+
+function positiveInt(text: string | null, max: number): number | null {
+  if (!text || !/^\d{1,10}$/.test(text)) return null
+  const value = Number(text)
+  return value >= 1 && value <= max ? value : null
+}
+
+function stateOf(params: URLSearchParams): ViewState {
+  const size = positiveInt(params.get("pageSize"), 1000)
+  return {
+    tab: params.get("tab") === "product_type" ? "product_type" : "product",
+    search: (params.get("search") ?? "").slice(0, 200),
+    page: positiveInt(params.get("page"), 1_000_000) ?? 1,
+    pageSize: size !== null && (RESTRICTION_PAGE_SIZES as readonly number[]).includes(size) ? size : RESTRICTION_DEFAULT_PAGE_SIZE,
+    ordering: params.get("ordering") === "-id" ? "-id" : "id",
+    employee: positiveInt(params.get("employee"), 2_147_483_647),
+  }
+}
+
+function paramsOf(state: ViewState): URLSearchParams {
+  const params = new URLSearchParams()
+  if (state.tab !== "product") params.set("tab", state.tab)
+  if (state.search) params.set("search", state.search)
+  if (state.page > 1) params.set("page", String(state.page))
+  if (state.pageSize !== RESTRICTION_DEFAULT_PAGE_SIZE) params.set("pageSize", String(state.pageSize))
+  if (state.ordering !== "id") params.set("ordering", state.ordering)
+  if (state.employee) params.set("employee", String(state.employee))
+  return params
+}
 
 function SolidIcon({ d, className = "h-[18px] w-[18px]" }: { d: string; className?: string }) {
-  return <svg viewBox="0 0 24 24" className={`${className} fill-current`} aria-hidden="true"><path d={d} /></svg>
+  return (
+    <svg viewBox="0 0 24 24" className={`${className} shrink-0 fill-current`} aria-hidden="true">
+      <path d={d} />
+    </svg>
+  )
 }
 const ICON_BOX = "M21 7.5l-9-5.25L3 7.5v9l9 5.25 9-5.25v-9zM12 4.55l5.9 3.45L12 11.45 6.1 8 12 4.55zM5 9.7l6 3.5v6.9l-6-3.5V9.7zm8 10.4v-6.9l6-3.5v6.9l-6 3.5z"
-const ICON_TRASH = "M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"
 const ICON_SHIELD = "M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm-2 16l-4-4 1.41-1.41L10 14.17l6.59-6.59L18 9l-8 8z"
-const ICON_LIST_CHECK = "M14 10H2v2h12v-2zm0-4H2v2h12V6zM2 16h8v-2H2v2zm19.5-4.5L23 13l-6.99 7-4.51-4.5L13 14l3.01 3 5.49-5.5z"
 
-const copy = {
-  products: {
-    tab: "По продуктам",
-    count: "Количество продуктов",
-    add: "Добавить продукты",
-    remove: "Убрать продукты",
-    titles: { add: "Добавить продукты", remove: "Убрать продукты", replace: "Установить продукты" },
-  },
-  types: {
-    tab: "По типам продуктов",
-    count: "Количество тип продуктов",
-    add: "Добавить тип продукты",
-    remove: "Убрать тип продукты",
-    titles: { add: "Добавить тип продукты", remove: "Убрать тип продукты", replace: "Установить тип продукты" },
-  },
-} as const
+type DialogState = { mode: RestrictionDialogMode; employeeIds: number[]; items?: RestrictionDetail }
 
 export function ProductRestrictionsView() {
   const { t } = useLanguage()
-  const [tab, setTab] = useState<Tab>("products")
-  const [rows, setRows] = useState<Record<Tab, Restriction[]>>({ products: [], types: [] })
-  const [query, setQuery] = useState("")
-  const [pageSize, setPageSize] = useState(25)
-  const [pageSizeOpen, setPageSizeOpen] = useState(false)
-  const [page, setPage] = useState(1)
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
+  const state = useMemo(() => stateOf(new URLSearchParams(searchParams.toString())), [searchParams])
+  const canManage = useCanManage(MANAGE_CODES)
+
+  const [searchText, setSearchText] = useState(state.search)
+  const [data, setData] = useState<(RestrictionListResponse & { query: string }) | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState("")
+  const [reloadKey, setReloadKey] = useState(0)
   const [selectMode, setSelectMode] = useState(false)
-  const [checked, setChecked] = useState<number[]>([])
-  const [dialog, setDialog] = useState<Mode | null>(null)
-  const [products, setProducts] = useState<PickerItem[] | null>(null)
-  const [productTypes, setProductTypes] = useState<PickerItem[] | null>(null)
-  const [error, setError] = useState("")
+  const [selected, setSelected] = useState<Map<number, RestrictionListRow>>(() => new Map())
+  const [dialog, setDialog] = useState<DialogState | null>(null)
+  const [message, setMessage] = useState<SnackbarMessage | null>(null)
 
-  const restrictions = rows[tab]
+  // The search box follows the URL (back / forward), but not the search it wrote itself while
+  // the user keeps typing.
+  const typedSearch = useRef<string | null>(null)
+  useEffect(() => {
+    if (typedSearch.current === state.search) return
+    typedSearch.current = null
+    setSearchText(state.search)
+  }, [state.search])
+  const closeMessage = useCallback(() => setMessage(null), [])
 
-  function loadRestrictions(scope: Tab) {
-    return fetch(`/api/product-restrictions?scope=${scope}`)
+  /** Writes a new state into the URL (useSearchParams follows, no server round-trip). */
+  const navigate = useCallback(
+    (patch: Partial<ViewState>, mode: "push" | "replace" = "replace") => {
+      const next = paramsOf({ ...state, ...patch }).toString()
+      const url = `${pathname}${next ? `?${next}` : ""}`
+      if (mode === "push") window.history.pushState(null, "", url)
+      else window.history.replaceState(null, "", url)
+    },
+    [state, pathname],
+  )
+
+  // Typing searches 400 ms after the last key (Enter at once), from page 1.
+  useEffect(() => {
+    const text = searchText.trim()
+    if (text === state.search) return
+    const timer = window.setTimeout(() => {
+      typedSearch.current = text
+      navigate({ search: text, page: 1 })
+    }, 400)
+    return () => window.clearTimeout(timer)
+  }, [searchText, state.search, navigate])
+
+  const listQuery = useMemo(() => {
+    const params = new URLSearchParams({ tab: state.tab, page: String(state.page), pageSize: String(state.pageSize), ordering: state.ordering })
+    if (state.search) params.set("search", state.search)
+    return params.toString()
+  }, [state.tab, state.page, state.pageSize, state.ordering, state.search])
+
+  useEffect(() => {
+    const controller = new AbortController()
+    setLoading(true)
+    fetch(`/api/product-restrictions?${listQuery}`, { cache: "no-store", signal: controller.signal })
       .then(async (response) => {
-        if (!response.ok) throw new Error("load failed")
-        return (await response.json()) as Restriction[]
+        const body = (await response.json().catch(() => null)) as (RestrictionListResponse & ApiErrorBody) | null
+        if (controller.signal.aborted) return
+        if (!response.ok || !body) throw new Error(apiErrorText(body, "Не удалось загрузить ограничения", t))
+        setData({ ...body, query: listQuery })
+        setLoadError("")
       })
-      .then((data) => setRows((current) => ({ ...current, [scope]: data })))
-      .catch(() => {})
-  }
+      .catch((reason: unknown) => {
+        if (controller.signal.aborted) return
+        setData(null)
+        setLoadError(reason instanceof Error && reason.message ? reason.message : t("Не удалось загрузить ограничения"))
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoading(false)
+      })
+    return () => controller.abort()
+  }, [listQuery, reloadKey, t])
 
+  // A page beyond the end (rows removed, a stale link) moves to the last one.
   useEffect(() => {
-    void loadRestrictions(tab)
-  }, [tab])
+    if (data && data.query === listQuery && data.page !== state.page) navigate({ page: data.page })
+  }, [data, listQuery, state.page, navigate])
 
-  // Catalogues are only needed once a dialog opens.
-  useEffect(() => {
-    if (!dialog) return
-    const load = (url: string) => fetch(url).then((response) => (response.ok ? response.json() : []))
-    if (tab === "products" && !products) load("/api/products").then((data: PickerItem[]) => setProducts(data))
-    if (tab === "types" && !productTypes) load("/api/product-types").then((data: PickerItem[]) => setProductTypes(data))
-  }, [dialog, tab, products, productTypes])
+  const copy = TAB_COPY[state.tab]
+  const rows = data?.results ?? []
+  const count = data?.count ?? 0
+  const page = data?.page ?? state.page
+  const pageCount = Math.max(1, Math.ceil(count / state.pageSize))
+  const range = rangeOf(page, state.pageSize, count)
+  const allOnPage = rows.length > 0 && rows.every((row) => selected.has(row.id))
+  const someOnPage = rows.some((row) => selected.has(row.id))
 
-  const filtered = useMemo(() => restrictions.filter((row) => row.employee.toLowerCase().includes(query.toLowerCase())), [restrictions, query])
-  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize))
-  const safePage = Math.min(page, pageCount)
-  const visible = filtered.slice((safePage - 1) * pageSize, safePage * pageSize)
-  const allChecked = visible.length > 0 && visible.every((row) => checked.includes(row.id))
-
-  function switchTab(next: Tab) {
-    setTab(next)
-    setPage(1)
-    setChecked([])
-    setQuery("")
+  function switchTab(label: string) {
+    const tab: RestrictionTab = label === TAB_COPY.product_type.tab ? "product_type" : "product"
+    if (tab === state.tab) return
+    setSelected(new Map())
+    navigate({ tab, page: 1 })
   }
 
   function toggleSelectMode() {
     setSelectMode((current) => !current)
-    setChecked([])
+    setSelected(new Map())
   }
 
-  /** Applies the operation to the checked rows only. As in the original, nothing is sent when no row is checked. */
-  async function apply(mode: Mode, items: string[]) {
-    setError("")
-    const targets = restrictions.filter((row) => checked.includes(row.id)).map((row) => row.employee)
-    if (!targets.length) return true
-    try {
-      const responses = await Promise.all(
-        targets.map((employee) =>
-          fetch("/api/product-restrictions", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ scope: tab, employee, mode, items }),
-          }),
-        ),
-      )
-      if (responses.some((response) => !response.ok)) throw new Error("save failed")
-      await loadRestrictions(tab)
-      setChecked([])
-      return true
-    } catch {
-      setError(t("Не удалось сохранить ограничения"))
-      return false
+  function toggleRow(row: RestrictionListRow, checked: boolean) {
+    setSelected((current) => {
+      const next = new Map(current)
+      if (checked) next.set(row.id, row)
+      else next.delete(row.id)
+      return next
+    })
+  }
+
+  function togglePage() {
+    setSelected((current) => {
+      const next = new Map(current)
+      for (const row of rows) {
+        if (allOnPage) next.delete(row.id)
+        else next.set(row.id, row)
+      }
+      return next
+    })
+  }
+
+  function openBulk(mode: RestrictionMode) {
+    if (!selected.size) {
+      setSelectMode(true)
+      setMessage({ text: "Выберите хотя бы одного сотрудника", tone: "error" })
+      return
     }
+    setDialog({ mode, employeeIds: [...selected.keys()] })
   }
 
-  const labels = copy[tab]
-  const iconBtn = "flex h-5 w-5 items-center justify-center rounded-full border text-slate-500 disabled:opacity-40"
-  const gridCols = selectMode ? "grid-cols-[48px_468px_488px_1fr]" : "grid-cols-[503px_494px_1fr]"
+  function saved() {
+    setDialog(null)
+    setSelected(new Map())
+    setReloadKey((key) => key + 1)
+    setMessage({ text: "Успешно сохранено", tone: "success" })
+  }
+
+  const actionButtons = canManage && (
+    <div className="flex flex-wrap items-center gap-[5px]">
+      <button
+        type="button"
+        onClick={() => openBulk("add")}
+        className="flex h-9 items-center gap-2 rounded-[3px] bg-[#4db6ac] px-[14px] text-[13px] font-semibold text-white hover:brightness-95"
+      >
+        <SolidIcon d={ICON_BOX} />
+        {t(copy.add)}
+      </button>
+      <button
+        type="button"
+        onClick={() => openBulk("remove")}
+        className="flex h-9 items-center gap-2 rounded-[3px] bg-[#ff8a65] px-[14px] text-[13px] font-semibold text-white hover:brightness-95"
+      >
+        <SolidIcon d={RI.trash} />
+        {t(copy.remove)}
+      </button>
+      <button
+        type="button"
+        onClick={() => openBulk("set")}
+        className="flex h-9 items-center gap-2 rounded-[3px] bg-[#4f71dc] px-[14px] text-[13px] font-semibold text-white hover:brightness-95"
+      >
+        <SolidIcon d={ICON_SHIELD} />
+        {t("Стереть и добавить")}
+      </button>
+    </div>
+  )
+
+  const pager = (
+    <div className="flex items-center gap-2 whitespace-nowrap text-[13px]">
+      <span>
+        {range.from} - {range.to} {t("из")} {count}
+      </span>
+      <button
+        type="button"
+        onClick={() => navigate({ page: Math.max(1, page - 1) })}
+        disabled={page <= 1}
+        aria-label={t("Назад")}
+        className="flex h-6 w-6 items-center justify-center rounded-full border border-slate-400 text-slate-600 disabled:border-slate-200 disabled:text-slate-300"
+      >
+        <ChevronLeft className="h-4 w-4" />
+      </button>
+      <button
+        type="button"
+        onClick={() => navigate({ page: Math.min(pageCount, page + 1) })}
+        disabled={page >= pageCount}
+        aria-label={t("Вперед")}
+        className="flex h-6 w-6 items-center justify-center rounded-full border border-slate-400 text-slate-600 disabled:border-slate-200 disabled:text-slate-300"
+      >
+        <ChevronRight className="h-4 w-4" />
+      </button>
+    </div>
+  )
+
+  const gridCols = selectMode ? "grid-cols-[44px_minmax(0,4fr)_minmax(0,4fr)_minmax(0,4fr)]" : "grid-cols-[minmax(0,4fr)_minmax(0,4fr)_minmax(0,4fr)]"
+  const countOf = (row: RestrictionListRow) => (state.tab === "product" ? row.productCount : row.productTypeCount)
 
   return (
-    <main className="min-h-[calc(100vh-50px)] bg-[#f2f5f8] px-[28px] pb-10 pt-[18px] text-[13px] text-[#333]">
-      <h1 className="mb-[17px] flex h-[26px] items-center gap-[7px] text-[18px] font-bold text-[#5d6474]">
-        <FavoritesButton className="flex items-center gap-[7px] text-[#4a6ee0]" />
-        <span className="font-normal text-[#5d6474]">|</span>
-        {t("Ограничение продуктов")}
-      </h1>
+    <RefPage>
+      <RefHeader title="Ограничение продуктов" />
 
-      <section className="bg-white shadow-[0_1px_4px_rgba(0,0,0,0.08)]">
-        <div className="grid grid-cols-2">
-          {(["products", "types"] as const).map((id) => (
-            <button
-              key={id}
-              type="button"
-              onClick={() => switchTab(id)}
-              className={`relative h-10 text-center text-[13px] text-black ${tab === id ? "after:absolute after:inset-x-0 after:bottom-0 after:h-[3px] after:bg-[#4c6dd4] after:shadow-[0_-4px_8px_rgba(76,109,212,0.25)]" : ""}`}
-            >
-              {t(copy[id].tab)}
-            </button>
-          ))}
-        </div>
+      <section className={`bg-white ${REF_SHADOW}`}>
+        <RefTabs labels={[TAB_COPY.product.tab, TAB_COPY.product_type.tab]} value={copy.tab} onChange={switchTab} />
 
-        <div className="relative flex h-[50px] items-center whitespace-nowrap border-t border-[#eef0f4] pb-[2px] pr-[5px]">
-          <label className="absolute left-[402px] top-[10px] w-[300px]">
-            <input
-              value={query}
-              onChange={(event) => { setQuery(event.target.value); setPage(1) }}
-              placeholder={t("Поиск")}
-              className="h-[30px] w-full border-b border-[#dfe3ea] bg-transparent pr-8 text-[13px] outline-none placeholder:text-[#b9c0cc] focus:border-[#4c6dd4]"
-            />
-            <Search className="absolute right-2 top-1.5 h-[18px] w-[18px] text-[#c4cad4]" />
-          </label>
-
-          <div className="relative ml-auto shrink-0">
-            <button type="button" onClick={() => setPageSizeOpen((open) => !open)} className="flex items-center gap-1 text-[13px]">
-              {pageSize}<ChevronDown className="h-3.5 w-3.5 text-slate-300" />
-            </button>
-            {pageSizeOpen && (
-              <ul className="absolute left-0 top-7 z-20 w-16 bg-white py-1 shadow-[0_2px_10px_rgba(0,0,0,0.2)]">
-                {PAGE_SIZES.map((size) => (
-                  <li key={size}>
-                    <button type="button" onClick={() => { setPageSize(size); setPage(1); setPageSizeOpen(false) }} className={`block w-full px-3 py-1.5 text-left font-semibold ${size === pageSize ? "bg-[#e3effd]" : "text-slate-500 hover:bg-slate-50"}`}>{size}</button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-
-          <span className="ml-[34px] shrink-0 text-[13px]">
-            {(safePage - 1) * pageSize + 1} - {Math.min(safePage * pageSize, filtered.length)} {t("из")} {filtered.length}
-          </span>
-          <button type="button" onClick={() => setPage(Math.max(1, safePage - 1))} disabled={safePage <= 1} aria-label={t("Назад")} className={`ml-[12px] ${iconBtn} border-slate-300`}><ChevronLeft className="h-4 w-4" /></button>
-          <button type="button" onClick={() => setPage(Math.min(pageCount, safePage + 1))} disabled={safePage >= pageCount} aria-label={t("Вперед")} className={`ml-[9px] ${iconBtn} border-slate-700 text-slate-700`}><ChevronRight className="h-4 w-4" /></button>
-
-          <div className="group relative ml-[36px] shrink-0">
-            <button type="button" onClick={toggleSelectMode} aria-label={t("Выбрать из списка")} className="flex h-6 w-6 items-center justify-center text-slate-700">
-              {selectMode ? <EyeOff className="h-6 w-6" /> : <SolidIcon d={ICON_LIST_CHECK} className="h-6 w-6" />}
-            </button>
-            <span className="pointer-events-none absolute right-[calc(100%+26px)] top-[-6px] hidden whitespace-nowrap rounded-[3px] bg-[#3a3f4a] px-5 py-[9px] text-[13px] leading-4 text-white group-hover:block">{t("Выбрать из списка")}</span>
-          </div>
-
-          <div className="ml-[13px] flex shrink-0 items-center gap-[5px]">
-            <button type="button" onClick={() => setDialog("add")} className="flex h-9 items-center gap-2 rounded-[3px] bg-[#4db6ac] px-[14px] font-bold text-white hover:brightness-95">
-              <SolidIcon d={ICON_BOX} />{t(labels.add)}
-            </button>
-            <button type="button" onClick={() => setDialog("remove")} className="flex h-9 items-center gap-2 rounded-[3px] bg-[#ff8a65] px-[14px] font-bold text-white hover:brightness-95">
-              <SolidIcon d={ICON_TRASH} />{t(labels.remove)}
-            </button>
-            <button type="button" onClick={() => setDialog("replace")} className="flex h-9 items-center gap-2 rounded-[3px] bg-[#4f71dc] px-[14px] font-bold text-white hover:brightness-95">
-              <SolidIcon d={ICON_SHIELD} />{t("Стереть и добавить")}
-            </button>
-          </div>
-        </div>
-
-        <div className={`grid h-[50px] items-center bg-[#5d6474] font-bold text-white ${gridCols}`}>
-          {selectMode && (
-            <button
-              type="button"
-              onClick={() => setChecked(allChecked ? [] : visible.map((row) => row.id))}
-              aria-label={t("Выбрать все")}
-              className="flex h-full items-center justify-end pr-2"
-            >
-              <CheckCheck className="h-5 w-5" />
-            </button>
-          )}
-          <span className={selectMode ? "pl-[2px]" : "pl-[30px]"}>№</span>
-          <span className="pl-[30px]">{t("Сотрудник")}</span>
-          <span className="pl-[30px]">{t(labels.count)}</span>
-        </div>
-
-        {error && <p className="px-[30px] py-3 text-red-500">{error}</p>}
-
-        {visible.map((row, index) => (
-          <div key={row.id} className={`grid min-h-[50px] items-center border-b border-dashed border-[#dfe3ea] hover:bg-slate-50 ${gridCols}`}>
-            {selectMode && (
-              <label className="flex h-full cursor-pointer items-center justify-end pr-3">
-                <span className={`flex h-[18px] w-[18px] items-center justify-center rounded-[2px] border-2 ${checked.includes(row.id) ? "border-[#5d6474] bg-[#5d6474]" : "border-[#333]"}`}>
-                  {checked.includes(row.id) && <Check className="h-3 w-3 stroke-[3] text-white" />}
-                  <input
-                    type="checkbox"
-                    checked={checked.includes(row.id)}
-                    onChange={() => setChecked((current) => (current.includes(row.id) ? current.filter((id) => id !== row.id) : [...current, row.id]))}
-                    className="sr-only"
-                  />
+        {state.employee ? (
+          <RestrictionDetailPanel
+            employeeId={state.employee}
+            tab={state.tab}
+            reloadKey={reloadKey}
+            canManage={canManage}
+            onBack={() => navigate({ employee: null }, "push")}
+            onEdit={(detail) => setDialog({ mode: "update", employeeIds: [detail.id], items: detail })}
+          />
+        ) : (
+          <>
+            {selected.size > 0 ? (
+              <div className="flex min-h-[50px] flex-wrap items-center gap-x-5 gap-y-2 border-t border-[#eef0f4] bg-[#f2f5f8] px-4 py-2 sm:px-[30px]">
+                <span className="font-semibold">
+                  {t("Выбрано")}: {selected.size}
                 </span>
-              </label>
+                <div className="ml-auto flex flex-wrap items-center gap-x-5 gap-y-2">
+                  {pager}
+                  {actionButtons}
+                  <button
+                    type="button"
+                    onClick={() => setSelected(new Map())}
+                    title={t("Снять выделение")}
+                    aria-label={t("Снять выделение")}
+                    className="flex h-8 w-8 items-center justify-center rounded-full text-[#5d6474] hover:bg-white"
+                  >
+                    <X className="h-5 w-5" />
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="flex min-h-[50px] flex-wrap items-center gap-x-5 gap-y-2 border-t border-[#eef0f4] px-4 py-2 sm:px-[30px]">
+                <label className="relative flex w-full items-center border-b border-[#e0e0e0] focus-within:border-[#5d6474] sm:w-[300px] lg:ml-[calc(25%-150px)]">
+                  <input
+                    value={searchText}
+                    onChange={(event) => setSearchText(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key !== "Enter") return
+                      typedSearch.current = searchText.trim()
+                      navigate({ search: searchText.trim(), page: 1 })
+                    }}
+                    maxLength={200}
+                    placeholder={t("Поиск")}
+                    aria-label={t("Поиск")}
+                    className="h-[34px] min-w-0 flex-1 bg-transparent pr-7 text-[13px] outline-none placeholder:text-black/30"
+                  />
+                  <Search className="absolute right-1 h-[18px] w-[18px] text-[#c4cad4]" />
+                </label>
+                <div className="ml-auto flex flex-wrap items-center gap-x-5 gap-y-2">
+                  <select
+                    value={state.pageSize}
+                    onChange={(event) => navigate({ pageSize: Number(event.target.value), page: 1 })}
+                    aria-label={t("Количество строк")}
+                    className="h-8 bg-transparent text-[13px] outline-none"
+                  >
+                    {RESTRICTION_PAGE_SIZES.map((size) => (
+                      <option key={size} value={size}>
+                        {size}
+                      </option>
+                    ))}
+                  </select>
+                  {pager}
+                  {canManage && (
+                    <button
+                      type="button"
+                      onClick={toggleSelectMode}
+                      title={t(selectMode ? "Спрятать флажки" : "Выбрать из списка")}
+                      aria-label={t(selectMode ? "Спрятать флажки" : "Выбрать из списка")}
+                      className="flex h-8 w-8 items-center justify-center rounded-full text-[#333] hover:bg-[#f2f5f8]"
+                    >
+                      {selectMode ? <EyeOff className="h-6 w-6" /> : <SolidIcon d={RI.checklist} className="h-6 w-6" />}
+                    </button>
+                  )}
+                  {actionButtons}
+                </div>
+              </div>
             )}
-            <span className={selectMode ? "pl-[2px]" : "pl-[30px]"}>{(safePage - 1) * pageSize + index + 1}</span>
-            <span className="pl-[30px] text-[#4a6ee0]">{row.employee}</span>
-            <span className="pl-[30px]">{row.items.length}</span>
-          </div>
-        ))}
 
-        {visible.length === 0 && (
-          <div className="flex h-[276px] flex-col items-center pt-[58px]">
-            <img src="/robot-empty.png" alt="" className="h-[162px] w-[162px] object-contain" />
-            <p className="mt-[8px] text-[13px] text-[#6b7280]">{t("По вашему запросу ничего не найдено")}</p>
-          </div>
+            <div className="overflow-x-auto">
+              <div className="min-w-[480px]">
+                <div className={`grid h-[50px] items-center bg-[#5d6474] font-bold text-white ${gridCols}`}>
+                  {selectMode && (
+                    <button
+                      type="button"
+                      onClick={togglePage}
+                      disabled={!rows.length}
+                      title={t("Выбрать все")}
+                      aria-label={t("Выбрать все")}
+                      className={`flex h-full items-center justify-center ${someOnPage ? "text-white" : "text-white/70"}`}
+                    >
+                      <CheckCheck className="h-5 w-5" />
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => navigate({ ordering: state.ordering === "id" ? "-id" : "id", page: 1 })}
+                    className="flex items-center gap-1 pl-4 text-left sm:pl-[30px]"
+                  >
+                    №{state.ordering === "-id" ? <ArrowDown className="h-4 w-4" /> : <ArrowUp className="h-4 w-4" />}
+                  </button>
+                  <span className="pl-4 sm:pl-[30px]">{t("Сотрудник")}</span>
+                  <span className="pl-4 sm:pl-[30px]">{t(copy.count)}</span>
+                </div>
+
+                {loading && !data ? (
+                  <div className="flex items-center justify-center gap-2 py-16 text-[#586174]">
+                    <Loader2 className="h-5 w-5 animate-spin" /> {t("Загрузка...")}
+                  </div>
+                ) : loadError ? (
+                  <div className="flex flex-col items-center gap-3 py-10 text-center text-[#586174]">
+                    <p className="text-[#e53935]">{loadError}</p>
+                    <button
+                      type="button"
+                      onClick={() => setReloadKey((key) => key + 1)}
+                      className="rounded-md border border-[#4f70e7] px-4 py-2 font-semibold text-[#4f70e7]"
+                    >
+                      {t("Повторить")}
+                    </button>
+                  </div>
+                ) : rows.length === 0 ? (
+                  <RefEmpty text="По вашему запросу ничего не найдено" />
+                ) : (
+                  rows.map((row) => {
+                    const amount = countOf(row)
+                    return (
+                      <div
+                        key={row.id}
+                        role="link"
+                        tabIndex={0}
+                        onClick={() => navigate({ employee: row.id }, "push")}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter") navigate({ employee: row.id }, "push")
+                        }}
+                        className={`grid min-h-[50px] cursor-pointer items-center border-b border-dashed border-[#dfe3ea] hover:bg-[#f8f9fb] ${gridCols} ${loading ? "opacity-60" : ""}`}
+                      >
+                        {selectMode && (
+                          <span className="flex justify-center" onClick={(event) => event.stopPropagation()}>
+                            <DemoCheckbox checked={selected.has(row.id)} onChange={(checked) => toggleRow(row, checked)} label={row.name} />
+                          </span>
+                        )}
+                        <span className="pl-4 sm:pl-[30px]">{row.id}</span>
+                        <span className="break-words pl-4 text-[#4a6ee0] sm:pl-[30px]">
+                          {row.name}
+                          {!row.active && <span className="ml-2 text-[12px] text-[#9e9e9e]">{t("Неактивный")}</span>}
+                        </span>
+                        <span className={`pl-4 sm:pl-[30px] ${amount === 0 ? "text-[#9e9e9e]" : ""}`}>{amount === 0 ? t("Не установлено") : amount}</span>
+                      </div>
+                    )
+                  })
+                )}
+              </div>
+            </div>
+          </>
         )}
       </section>
 
       {dialog && (
         <RestrictionDialog
-          title={t(labels.titles[dialog])}
-          items={tab === "products" ? products : productTypes}
-          showFilters={tab === "products"}
+          tab={state.tab}
+          mode={dialog.mode}
+          employeeIds={dialog.employeeIds}
+          initialItems={dialog.items ? (state.tab === "product" ? dialog.items.products : dialog.items.productTypes) : []}
           onClose={() => setDialog(null)}
-          onSave={async (items) => {
-            if (await apply(dialog, items)) setDialog(null)
-          }}
+          onSaved={saved}
         />
       )}
-    </main>
-  )
-}
 
-function RestrictionDialog({
-  title,
-  items,
-  showFilters,
-  onSave,
-  onClose,
-}: {
-  title: string
-  items: PickerItem[] | null
-  showFilters: boolean
-  onSave: (names: string[]) => Promise<void>
-  onClose: () => void
-}) {
-  const { t } = useLanguage()
-  const [chosen, setChosen] = useState<string[]>([])
-  const [pickerOpen, setPickerOpen] = useState(false)
-  const [saving, setSaving] = useState(false)
-  const [confirmOpen, setConfirmOpen] = useState(false)
-  const pickerWasOpen = useRef(false)
-
-  useEffect(() => {
-    function onKey(event: KeyboardEvent) {
-      if (event.key === "Escape" && !pickerWasOpen.current) onClose()
-    }
-    window.addEventListener("keydown", onKey)
-    return () => window.removeEventListener("keydown", onKey)
-  }, [onClose])
-
-  useEffect(() => {
-    pickerWasOpen.current = pickerOpen
-  }, [pickerOpen])
-
-  // Saving always asks for confirmation first, even with an empty list, like the original.
-  async function confirmSave() {
-    setConfirmOpen(false)
-    if (!chosen.length) return
-    setSaving(true)
-    await onSave(chosen)
-    setSaving(false)
-  }
-
-  return createPortal(
-    <div className="fixed inset-0 z-[100] flex flex-col bg-white text-[13px] text-[#333]">
-      <header className="flex h-[60px] shrink-0 items-center justify-between border-b border-[#e8ebf0] pl-[30px] pr-[22px]">
-        <h2 className="text-[13px] font-bold uppercase">{title}</h2>
-        <button type="button" onClick={onClose} aria-label={t("Закрыть")} className="text-slate-500 hover:text-slate-800"><X className="h-6 w-6" /></button>
-      </header>
-
-      <div className="min-h-0 flex-1 overflow-y-auto px-[30px] pt-[31px]">
-        <div className="flex items-center justify-between">
-          <h3 className="text-[13px] font-semibold">{t("Список товаров")}</h3>
-          <button type="button" onClick={() => setPickerOpen(true)} className="pr-[16px] text-[13px] text-[#4f6fe0] hover:underline">{t("добавить из списка")}</button>
-        </div>
-
-        {chosen.length === 0 ? (
-          <div className="mt-[35px] flex flex-col items-center text-center leading-[18px] text-[#9e9e9e]">
-            <img src="/empty-basket.svg" alt="" className="mb-[20px] h-[72px] w-[72px]" />
-            <p>
-              {t("Вы еще не выбрали ни одного товара.")}<br />
-              <button type="button" onClick={() => setPickerOpen(true)} className="text-[#0a9bd9]">{t("Добавить")}</button> {t("товар?")}
-            </p>
-          </div>
-        ) : (
-          <div className="mt-[41px] px-[5px]">
-            <div className="flex text-[12px] font-bold">
-              <span className="flex-1">{t("Наименование")}</span>
-              <span className="mr-[526px] w-[80px] text-left">{t("Статус")}</span>
-            </div>
-            {chosen.map((name, index) => (
-              <div key={name} className="mt-[20px] flex h-[22px] items-center">
-                <span className="flex-1"><b className="mr-[8px]">{index + 1}.</b>{name}</span>
-                <label className="mr-[526px] flex w-[80px] cursor-pointer items-center">
-                  <span className="flex h-[20px] w-[20px] items-center justify-center rounded-[3px] bg-[#5d6474]">
-                    <svg viewBox="0 0 12 12" className="h-3 w-3"><path d="M2 6.5l2.5 2.5L10 3.5" fill="none" stroke="#fff" strokeWidth="2" /></svg>
-                    <input type="checkbox" checked onChange={() => setChosen((current) => current.filter((value) => value !== name))} aria-label={t("Удалить")} className="sr-only" />
-                  </span>
-                </label>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      <footer className="flex h-[57px] shrink-0 items-center justify-end border-t border-[#e8ebf0] pr-[10px]">
-        <button type="button" onClick={() => setConfirmOpen(true)} disabled={saving} className="rounded-[3px] px-[16px] py-[8px] text-[13px] font-bold uppercase text-[#0a9bd9] hover:bg-[#ececec] disabled:opacity-50">{t("Сохранить")}</button>
-      </footer>
-
-      {confirmOpen && (
-        <div className="fixed inset-0 z-[110] flex items-start justify-center bg-black/50 pt-[200px]">
-          <div className="w-[305px] bg-white shadow-xl">
-            <div className="flex h-[60px] items-center justify-between border-b border-[#e8ebf0] pl-[30px] pr-[22px]">
-              <h3 className="text-[13px] font-bold uppercase">{t("Выполнить")}</h3>
-              <button type="button" onClick={() => setConfirmOpen(false)} aria-label={t("Закрыть")} className="text-slate-500 hover:text-slate-800"><X className="h-6 w-6" /></button>
-            </div>
-            <p className="h-[184px] px-[30px] pt-[20px] text-[13px]">{t("Подтверждение запроса")}</p>
-            <div className="flex h-[57px] items-center justify-end border-t border-[#e8ebf0] px-[45px]">
-              <button type="button" onClick={confirmSave} className="text-[13px] font-bold uppercase text-[#0a9bd9] hover:underline">{t("Да")}</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {pickerOpen && (
-        <ProductPickerDialog
-          items={items}
-          selected={chosen}
-          filters={showFilters}
-          onClose={() => setPickerOpen(false)}
-          onSave={(names) => {
-            setChosen(names)
-            setPickerOpen(false)
-          }}
-        />
-      )}
-    </div>,
-    document.body,
+      <CashSnackbar message={message} onClose={closeMessage} />
+    </RefPage>
   )
 }

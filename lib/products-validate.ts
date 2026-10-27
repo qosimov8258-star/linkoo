@@ -9,7 +9,7 @@ import { catalogKey, type CatalogItem, type CatalogKind } from "@/lib/products-t
 // Reference checks of a product / raw material write (create, edit, multi edit, Excel import):
 //   * Мера / Группа / ДОП. параметры units → units_of_measure ("Ед.измерения"),
 //   * Тип продукта → a top-level product type, Подкатегория → one of its children,
-//   * Бренд → brands, Организация → organizations,
+//   * Бренд → brands, Организация → organizations, Поставщик → suppliers,
 //   * price-list entries → price_lists (by name), their currencies and the sale-limit currency
 //     → the currencies table,
 // each matched by fin_key and stored in the dictionary's own spelling. Only values that change
@@ -26,6 +26,7 @@ export const REF_ERRORS = {
   subcategory: "Подкатегория не найдена",
   brand: "Бренд не найден",
   organization: "Организация не найдена",
+  supplier: "Поставщик не найден",
   priceList: "Прайс-лист не найден",
   currency: "Валюта не найдена",
   barcode: "Штрих-код уже используется",
@@ -36,7 +37,7 @@ export type FieldErrors = Record<string, string>
 
 const changed = (current: CatalogItem | null, value: string, stored: string | undefined) => !current || catalogKey(value) !== catalogKey(stored)
 
-async function nameIn(db: PgDb, table: "units_of_measure" | "brands" | "organizations" | "price_lists", value: string): Promise<string | null> {
+async function nameIn(db: PgDb, table: "units_of_measure" | "brands" | "organizations" | "suppliers" | "price_lists", value: string): Promise<string | null> {
   const row = (await db.prepare(`SELECT name FROM ${table} WHERE fin_key(name) = fin_key(@value) ORDER BY id LIMIT 1`).get({ value })) as { name: string } | undefined
   return row?.name ?? null
 }
@@ -112,6 +113,7 @@ export async function resolveCatalogRefs(db: PgDb, item: CatalogItem, current: C
   for (const [field, table] of [
     ["brand", "brands"],
     ["organization", "organizations"],
+    ["supplier", "suppliers"],
   ] as const) {
     const value = item[field].trim()
     if (!value || !changed(current, value, current?.[field])) continue

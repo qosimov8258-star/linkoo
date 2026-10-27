@@ -4,11 +4,12 @@ import { z } from "zod"
 import { requireRole } from "@/lib/rbac"
 import { invalidIdResponse, parseIdSegment, parseJsonBody } from "@/lib/validation"
 import { setDebtLimit } from "@/lib/debt-limits-repo"
+import { strictNum } from "@/lib/strict-number"
 
 const debtLimitInputSchema = z.object({
   unlimited: z.boolean().optional(),
   currency: z.enum(["USD", "Euro"]).optional(),
-  limit: z.coerce.number().optional(),
+  limit: strictNum(z.number().optional()),
 })
 
 type RouteParams = { params: Promise<{ id: string }> }

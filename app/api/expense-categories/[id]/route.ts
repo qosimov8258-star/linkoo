@@ -5,7 +5,7 @@ import { expenseCategoryInputSchema, parseCategoryId } from "@/lib/categories-sc
 import { getCurrentUser } from "@/lib/current-user"
 import { deleteExpenseCategory, getExpenseCategoryDetail, updateExpenseCategory } from "@/lib/expense-categories-repo"
 import { requireRole } from "@/lib/rbac"
-import { parseJsonBody } from "@/lib/validation"
+import { notSignedInResponse, parseJsonBody } from "@/lib/validation"
 
 type RouteParams = { params: Promise<{ id: string }> }
 
@@ -14,7 +14,7 @@ const NOT_FOUND = { error: "Категория не найдена" }
 // GET /api/expense-categories/[id] — demo GET finance/expense_category/:id/; ?usage=1 adds where it is used.
 export async function GET(request: Request, { params }: RouteParams) {
   const user = await getCurrentUser()
-  if (!user) return NextResponse.json({ error: "Tizimga kirilmagan" }, { status: 401 })
+  if (!user) return notSignedInResponse()
   const id = parseCategoryId((await params).id)
   const withUsage = new URL(request.url).searchParams.get("usage") === "1"
   const category = id ? await getExpenseCategoryDetail(id, withUsage) : null

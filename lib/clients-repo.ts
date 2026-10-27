@@ -1,6 +1,7 @@
 import "server-only"
 
-import { getDb, withTransaction, type PgDb } from "@/lib/db"
+import { CLIENT_COLUMNS, getDb, outsideTransaction, withTransaction, type PgDb } from "@/lib/db"
+import { ensureClientZones, resolveClientZone } from "@/lib/client-zones-repo"
 import { clientLedgerBalances } from "@/lib/orders-repo"
 import { keySql, nameKey, quoteIdent } from "@/lib/platform-refs"
 import type { Client } from "@/components/clients/clients-data"
@@ -8,14 +9,18 @@ import type { Client } from "@/components/clients/clients-data"
 // Clients.
 // - `balance` is the client's OPENING balance (finance source "client_opening");
 //   an update without it keeps the stored one, null clears it.
-// - type must be a client type (Типы клиентов); agent / deliverer / collector /
-//   zone agent must be employees (or "Не указано"). Unchanged legacy values
-//   are kept as they are.
+// - type must be a client type (Типы клиентов), branch a Филиал (or none);
+//   agent / deliverer / collector / zone agent must be employees (or
+//   "Не указано"). Unchanged legacy values are kept as they are.
+// - zone is a zone of the directory (lib/client-zones-repo.ts), spelled as the
+//   directory has it; a zone the directory does not have yet is added to it.
 // - A second client with the same name and the same phone or INN is refused
 //   (409) unless `allowDuplicate` is set.
 // - Deleting a client that documents reference (orders, payments, returns,
 //   loyalty, contracts, corrections, equipment…) or that has an opening
-//   balance is refused with 409 and the usage list (contract 7).
+//   balance is refused with 409 and the usage list (contract 7). Soft-deleted
+//   documents (is_deleted / deleted = 1) do not count; they keep the client's
+//   id and name as a snapshot.
 // - A rename cascades to the documents that store the client name and links
 //   their legacy name-only rows by client_id (contract 6).
 // - Listed clients carry their CURRENT ledger balance (balanceLines /
@@ -31,26 +36,9 @@ export class ClientError extends Error {
   }
 }
 
-const CLIENT_COLUMNS: Array<[string, string]> = [
-  ["branch", "TEXT NOT NULL DEFAULT ''"],
-  ["sales_channel", "TEXT NOT NULL DEFAULT ''"],
-  ["realization_by", "TEXT NOT NULL DEFAULT ''"],
-  ["address", "TEXT NOT NULL DEFAULT ''"],
-  ["landmark", "TEXT NOT NULL DEFAULT ''"],
-  ["location_lat", "DOUBLE PRECISION"],
-  ["location_lng", "DOUBLE PRECISION"],
-  ["telegram_location_link", "TEXT NOT NULL DEFAULT ''"],
-  ["code", "TEXT NOT NULL DEFAULT ''"],
-  ["contact_person", "TEXT NOT NULL DEFAULT ''"],
-  ["note", "TEXT NOT NULL DEFAULT ''"],
-  ["auto_delivery", "INTEGER NOT NULL DEFAULT 0"],
-  ["unlimited_debt", "INTEGER NOT NULL DEFAULT 0"],
-  ["attributes", "TEXT NOT NULL DEFAULT '{}'"],
-  ["in_route", "INTEGER NOT NULL DEFAULT 0"],
-  ["is_problem", "INTEGER NOT NULL DEFAULT 0"],
-  ["created_by", "TEXT NOT NULL DEFAULT ''"],
-]
-
+// The client columns are created by the lib/db.ts bootstrap (CLIENT_COLUMNS),
+// so every module that joins clients finds them on a fresh database; this
+// repeats them for a process that started before the bootstrap had them.
 const DDL = `
 ${CLIENT_COLUMNS.map(([name, type]) => `ALTER TABLE clients ADD COLUMN IF NOT EXISTS ${name} ${type};`).join("\n")}
 DO $$
@@ -74,10 +62,10 @@ declare global {
 /** Additive client columns (full "Добавить клиента" form), once per process. */
 export function ensureClientsSchema(): Promise<void> {
   if (globalThis.__linkoClientsSchema?.version !== SCHEMA_VERSION) {
-    const ready = withTransaction(async (tx) => {
+    const ready = outsideTransaction(() => withTransaction(async (tx) => {
       await tx.exec("SELECT pg_advisory_xact_lock(72120935)")
       await tx.exec(DDL)
-    }).catch((error) => {
+    })).catch((error) => {
       globalThis.__linkoClientsSchema = undefined
       throw error
     })
@@ -247,6 +235,17 @@ async function clientTypeName(db: PgDb, name: string): Promise<string> {
   return row.name
 }
 
+/** The branch as the Филиалы directory spells it ('' = none). */
+async function branchName(db: PgDb, name: string): Promise<string> {
+  if (NOT_SET.has(nameKey(name))) return ""
+  const exists = (await db.prepare("SELECT to_regclass('branches') IS NOT NULL AS ok").get()) as { ok: boolean }
+  const row = exists.ok
+    ? ((await db.prepare(`SELECT name FROM branches WHERE ${keySql("name")} = ${keySql("@name::text")} ORDER BY id LIMIT 1`).get({ name })) as { name: string } | undefined)
+    : undefined
+  if (!row) throw new ClientError("Филиал не найден", 400, { field: "branch" })
+  return row.name
+}
+
 async function employeeName(db: PgDb, name: string, field: string, label: string): Promise<string> {
   if (NOT_SET.has(nameKey(name))) return "Не указано"
   const row = (await db
@@ -257,9 +256,19 @@ async function employeeName(db: PgDb, name: string, field: string, label: string
 }
 
 /** Validates the references of `input` (only values that differ from `existing`). */
-async function validateReferences(db: PgDb, input: ClientInput, existing?: Client): Promise<ClientInput> {
+async function validateReferences(db: PgDb, input: ClientInput, existing?: Client, createdBy = ""): Promise<ClientInput> {
   const out = { ...input }
   if (!existing || nameKey(existing.type) !== nameKey(input.type)) out.type = await clientTypeName(db, input.type)
+  // Branch: a Филиал of the directory ('' / "Не указано" = none); an unchanged legacy value is kept.
+  if (!existing || nameKey(existing.branch ?? "") !== nameKey(input.branch ?? "")) out.branch = await branchName(db, input.branch ?? "")
+  // Zone: always saved with the directory spelling. A new client (dialog, API,
+  // Excel import) may bring a new zone, which is added to the directory. An
+  // update accepts only the client's own zone or a directory zone: a form opened
+  // before a zone rename must not bring the old name back as a new zone.
+  const keepsZone = existing !== undefined && nameKey(existing.zone) === nameKey(input.zone)
+  const zone = await resolveClientZone(db, input.zone, createdBy, !existing || keepsZone)
+  if (zone === null) throw new ClientError("Зона не найдена", 400, { field: "zone" })
+  out.zone = zone
   const people: Array<["agent" | "deliverer" | "collector" | "zoneAgent", string]> = [
     ["agent", "Ответственный агент"],
     ["deliverer", "Ответственный доставщик"],
@@ -329,9 +338,10 @@ async function lockClients(db: PgDb) {
 
 export async function createClient(input: ClientInput, user?: { displayName: string }): Promise<Client> {
   await ensureClientsSchema()
+  await ensureClientZones()
   const id = await withTransaction(async (tx) => {
     await lockClients(tx)
-    const checked = await validateReferences(tx, input)
+    const checked = await validateReferences(tx, input, undefined, user?.displayName ?? "")
     await assertNotDuplicate(tx, checked, 0)
     const result = await tx
       .prepare(
@@ -363,6 +373,8 @@ const NAME_REFERENCES: Array<{ table: string; name: string; id?: string }> = [
   { table: "inventory_item_requests", name: "client", id: "client_id" },
   { table: "inventory_item_checks", name: "client", id: "client_id" },
   { table: "contract_clients", name: "client_name", id: "client_id" },
+  // Tasks keep the store name as a snapshot next to client_id (lib/tasks-repo.ts).
+  { table: "tasks", name: "store", id: "client_id" },
 ]
 
 async function columnsOf(db: PgDb, tables: string[]): Promise<Map<string, Set<string>>> {
@@ -410,15 +422,17 @@ async function cascadeRename(db: PgDb, id: number, oldName: string, newName: str
   }
 }
 
-export async function updateClient(id: number, input: ClientInput): Promise<Client | null> {
+export async function updateClient(id: number, input: ClientInput, user?: { displayName: string }): Promise<Client | null> {
   if (!Number.isSafeInteger(id) || id <= 0 || id > 2_147_483_647) return null
   await ensureClientsSchema()
+  // The directory must hold every zone clients carry before an update is checked against it.
+  await ensureClientZones()
   const found = await withTransaction(async (tx) => {
     await lockClients(tx)
     const row = (await tx.prepare("SELECT * FROM clients WHERE id = ? FOR UPDATE").get(id)) as ClientRow | undefined
     if (!row) return false
     const existing = rowToClient(row)
-    const checked = await validateReferences(tx, input, existing)
+    const checked = await validateReferences(tx, input, existing, user?.displayName ?? "")
     if (nameKey(checked.name) !== nameKey(existing.name) || checked.phone !== existing.phone || (checked.inn ?? "") !== (existing.inn ?? "")) {
       await assertNotDuplicate(tx, checked, id)
     }
@@ -449,21 +463,26 @@ export async function updateClient(id: number, input: ClientInput): Promise<Clie
 
 export type ClientUsage = { table: string; label: string; count: number }
 
-/** Documents referencing the client: by id, by name for legacy rows without an id, or in id lists. */
-const USAGE: Array<{ table: string; label: string; id?: string; name?: string; idList?: string; where?: string }> = [
+/** Documents referencing the client: by id, by name for legacy rows without an id, or in id lists.
+ * `deleted`: the soft-delete flag of the table; rows with it set to 1 are not counted. */
+const USAGE: Array<{ table: string; label: string; id?: string; name?: string; idList?: string; deleted?: string }> = [
   { table: "orders", label: "Заказы", id: "client_id", name: "client" },
-  { table: "customer_payments", label: "Оплаты от клиентов", id: "client_id", name: "client" },
+  { table: "customer_payments", label: "Оплаты от клиентов", id: "client_id", name: "client", deleted: "is_deleted" },
   { table: "client_payments", label: "Оплаты от клиентов", id: "client_id" },
-  { table: "client_bulk_payments", label: "Оплаты от клиентов", idList: "client_ids" },
-  { table: "account_bulk_payments", label: "Оплаты от клиентов", idList: "client_ids" },
+  { table: "client_bulk_payments", label: "Оплаты от клиентов", idList: "client_ids", deleted: "is_deleted" },
+  { table: "account_bulk_payments", label: "Оплаты от клиентов", idList: "client_ids", deleted: "is_deleted" },
   { table: "client_returns", label: "Возвраты", id: "client_id", name: "client" },
   { table: "loyalty_card_transactions", label: "Накопительная карта", id: "client_id" },
   { table: "cashback_withdrawal_requests", label: "Запросы на снятие кэшбэка", id: "client_id", name: "client" },
   { table: "contract_clients", label: "Договоры", id: "client_id", name: "client_name" },
   { table: "contracts", label: "Договоры", name: "client" },
-  { table: "client_balance_corrections", label: "Баланс клиентов", id: "client_id" },
-  { table: "cash_management_entries", label: "Управления кассой", id: "client_id", name: "client_name" },
-  { table: "inventory_items", label: "Работа с инвентарем", id: "client_id", name: "client" },
+  { table: "client_balance_corrections", label: "Баланс клиентов", id: "client_id", deleted: "is_deleted" },
+  { table: "cash_management_entries", label: "Управления кассой", id: "client_id", name: "client_name", deleted: "is_deleted" },
+  { table: "inventory_items", label: "Работа с инвентарем", id: "client_id", name: "client", deleted: "deleted" },
+  { table: "tasks", label: "Задачи", id: "client_id", name: "store" },
+  { table: "field_visits", label: "Визиты", id: "client_id" },
+  { table: "field_refusals", label: "Отказы", id: "client_id" },
+  { table: "field_photo_reports", label: "Фото отчеты", id: "client_id" },
 ]
 
 export async function clientUsage(db: PgDb, client: { id: number; name: string; balance: number | null }): Promise<ClientUsage[]> {
@@ -482,7 +501,11 @@ export async function clientUsage(db: PgDb, client: { id: number; name: string; 
     }
     if (ref.idList && cols.has(ref.idList)) conditions.push(`${quoteIdent(ref.idList)}::text ~ ('(^|[^0-9])' || @id::text || '([^0-9]|$)')`)
     if (!conditions.length) continue
-    const row = (await db.prepare(`SELECT COUNT(*)::int AS n FROM ${quoteIdent(ref.table)} WHERE ${conditions.join(" OR ")}`).get({ id: client.id, name: client.name })) as { n: number }
+    // Soft-deleted documents no longer reference anybody (they are not shown, counted or restored).
+    const live = ref.deleted && cols.has(ref.deleted) ? ` AND COALESCE(${quoteIdent(ref.deleted)}, 0) = 0` : ""
+    const row = (await db
+      .prepare(`SELECT COUNT(*)::int AS n FROM ${quoteIdent(ref.table)} WHERE (${conditions.join(" OR ")})${live}`)
+      .get({ id: client.id, name: client.name })) as { n: number }
     if (row.n > 0) {
       const current = usage.get(ref.label)
       usage.set(ref.label, { table: current?.table ?? ref.table, label: ref.label, count: (current?.count ?? 0) + row.n })
@@ -504,6 +527,13 @@ export async function deleteClient(id: number): Promise<boolean> {
     if (!row) return false
     const usage = await clientUsage(tx, row)
     if (usage.length) throw new ClientError("Удаление невозможно из-за связи с другими данными", 409, { usage })
+    // Route plans and the location lock are settings of the client, not documents: they go with it.
+    // Both tables are created lazily, so they may not exist yet.
+    const extras = (await tx
+      .prepare("SELECT to_regclass('field_route_plans') IS NOT NULL AS plans, to_regclass('client_location_locks') IS NOT NULL AS locks")
+      .get()) as { plans: boolean; locks: boolean }
+    if (extras.plans) await tx.prepare("DELETE FROM field_route_plans WHERE client_id = ?").run(id)
+    if (extras.locks) await tx.prepare("DELETE FROM client_location_locks WHERE client_id = ?").run(id)
     return (await tx.prepare("DELETE FROM clients WHERE id = ?").run(id)).changes > 0
   })
 }

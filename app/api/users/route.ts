@@ -12,7 +12,8 @@ const createUserSchema = z
     password: z.string({ error: "Введите пароль" }).max(200, { error: "Пароль слишком длинный" }),
     displayName: nameField("Введите имя пользователя"),
     role: z.enum(["admin", "manager", "viewer"], { error: "Неизвестная роль" }),
-    accessRightId: z.number().int().positive().nullable().optional(),
+    accessRightId: z.number({ error: "Права доступа не найдены" }).int().positive().max(2_147_483_647).nullable().optional(),
+    employeeId: z.number({ error: "Сотрудник не найден" }).int().positive().max(2_147_483_647).nullable().optional(),
   })
   .transform((value, ctx) => {
     const username = normalizeUsername(value.username)
@@ -35,9 +36,14 @@ export async function GET() {
   return NextResponse.json(await listUsers())
 }
 
-// POST /api/users {username, password, displayName, role, accessRightId?} — the
-// login is stored normalized (NFKC, lower case, letters/digits/._-@ only) and is
-// unique case-insensitively; a taken login (also under concurrent requests) → 409.
+// POST /api/users {username, password, displayName, role, accessRightId?, employeeId?}
+// — the login is stored normalized (NFKC, lower case, letters/digits/._-@ only)
+// and is unique case-insensitively; a taken login (also under concurrent
+// requests) → 409. The password is chosen by the administrator, so the user
+// must replace it at the first sign-in (until then the API answers 403
+// passwordChangeRequired). `employeeId` ties the account to an employee
+// (Сотрудники): a deactivated employee or one without "Доступ к системе"
+// cannot sign in; an employee already linked to another account → 409.
 export async function POST(request: Request) {
   const auth = await requireRole("admin")
   if ("error" in auth) return auth.error
@@ -46,7 +52,7 @@ export async function POST(request: Request) {
   if (parsed.error) return parsed.error
 
   try {
-    const user = await createUser(parsed.data)
+    const user = await createUser({ ...parsed.data, mustChangePassword: true })
     if (!user) return NextResponse.json({ error: "Этот логин уже занят" }, { status: 409 })
     return NextResponse.json(user, { status: 201 })
   } catch (error) {

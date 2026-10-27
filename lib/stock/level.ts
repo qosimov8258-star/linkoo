@@ -1,6 +1,7 @@
 import "server-only"
 
 import { getDb, type PgDb } from "@/lib/db"
+import { unitWeightKg } from "@/lib/internal-transfers-types"
 import { loadCurrencyContext } from "@/lib/finance/context"
 import { normCurrency } from "@/lib/finance/currency"
 import { nameKey, placeName } from "@/lib/finance/entities"
@@ -111,8 +112,15 @@ async function orphanItems(keys: string[], db: PgDb, t: StockTables): Promise<Ma
 
 type Conversion = { factor: number; unit: string }
 
+/** Totals of the counts per display unit (kg, pieces and litres are never added up). */
+export type StockLevelUnitTotal = { unit: string; total: number; reserved: number; defects: number; available: number; transit: number }
+/** The page totals plus `byUnit`: one line per unit of the counted rows ("" = no unit). */
+export type StockLevelSumWithUnits = StockLevelSum & { byUnit: StockLevelUnitTotal[] }
+
 function conversion(item: StockCatalogItem | undefined, unit: StockLevelQuery["unit"], fallbackUnit: string): Conversion {
-  if (unit === "weight") return { factor: item?.weight ?? 0, unit: "кг" }
+  // Weight of one unit: the item's own weight, else what a weight unit implies
+  // (a kg item weighs 1 kg per unit) — the same rule as the transfer documents.
+  if (unit === "weight") return { factor: unitWeightKg(item?.unit ?? fallbackUnit, item?.weight ?? 0), unit: "кг" }
   if (unit === "capacity") return { factor: item?.volume ?? 0, unit: "м³" }
   if (unit === "box") return { factor: item?.boxSize ? 1 / item.boxSize : 0, unit: "блок" }
   return { factor: 1, unit: item?.unit || fallbackUnit }
@@ -126,7 +134,7 @@ function qty(base: { total: number; reserved: number; transit: number; defects: 
   return { total, reserved, transit, defects, available: round((base.total - base.reserved - base.defects) * factor) }
 }
 
-type Built = { rows: StockLevelRow[]; sum: StockLevelSum; currency: string; baseCurrency: string }
+type Built = { rows: StockLevelRow[]; sum: StockLevelSumWithUnits; currency: string; baseCurrency: string }
 
 function matches(values: string[], value: string): boolean {
   if (!values.length) return true
@@ -188,7 +196,7 @@ async function buildStockLevel(query: StockLevelQuery, db: PgDb): Promise<Built>
   // Totals: counts in the display unit, money in the selected mode (amount
   // mode: valued at cost, as the demo's balances_sum does; at cost Брак has
   // no value). The count's unit is shown only when every counted row shares it.
-  const sum: StockLevelSum = {
+  const sum: StockLevelSumWithUnits = {
     total: { count: 0, price: 0 },
     reserved: { count: 0, price: 0 },
     defected: { count: 0, price: 0 },
@@ -196,8 +204,10 @@ async function buildStockLevel(query: StockLevelQuery, db: PgDb): Promise<Built>
     given: 0,
     currency,
     unit: "",
+    byUnit: [],
   }
   const units = new Set<string>()
+  const byUnit = new Map<string, StockLevelUnitTotal>()
   const rows: StockLevelRow[] = []
   const keys = [...ctx.catalog.map((item) => item.key), ...orphanKeys]
   for (const key of keys) {
@@ -258,9 +268,22 @@ async function buildStockLevel(query: StockLevelQuery, db: PgDb): Promise<Built>
       sum.defected.price += atCost ? 0 : line.defects * money
       sum.available.price += (line.total - line.reserved - line.defects) * money
     }
-    if (row.total || row.reserved || row.defects || row.transit) units.add(row.unit.trim().toLowerCase())
+    if (row.total || row.reserved || row.defects || row.transit) {
+      const unitKey = row.unit.trim().toLowerCase()
+      units.add(unitKey)
+      const line = byUnit.get(unitKey) ?? { unit: row.unit.trim(), total: 0, reserved: 0, defects: 0, available: 0, transit: 0 }
+      line.total += row.total
+      line.reserved += row.reserved
+      line.defects += row.defects
+      line.available += row.available
+      line.transit += row.transit
+      byUnit.set(unitKey, line)
+    }
   }
   if (units.size === 1) sum.unit = rows.find((row) => row.total || row.reserved || row.defects || row.transit)?.unit.trim() ?? ""
+  sum.byUnit = [...byUnit.values()]
+    .map((line) => ({ unit: line.unit, total: round(line.total), reserved: round(line.reserved), defects: round(line.defects), available: round(line.available), transit: round(line.transit) }))
+    .sort((a, b) => a.unit.localeCompare(b.unit, "ru"))
 
   sortRows(rows, query.ordering)
   for (const part of [sum.total, sum.reserved, sum.defected, sum.available]) {
@@ -306,7 +329,7 @@ export async function getStockLevelList(query: StockLevelQuery, db: PgDb = getDb
   return { count: built.rows.length, page, pageSize: query.pageSize, baseCurrency: built.baseCurrency, currency: built.currency, rows, sum: built.sum }
 }
 
-export async function getStockLevelSum(query: StockLevelQuery, db: PgDb = getDb()): Promise<StockLevelSum> {
+export async function getStockLevelSum(query: StockLevelQuery, db: PgDb = getDb()): Promise<StockLevelSumWithUnits> {
   return (await buildStockLevel(query, db)).sum
 }
 

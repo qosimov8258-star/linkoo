@@ -3,7 +3,7 @@ import { z } from "zod"
 
 import { getCurrentUser } from "@/lib/current-user"
 import { requireRole } from "@/lib/rbac"
-import { parseJsonBody } from "@/lib/validation"
+import { invalidFieldResponse, parseJsonBody } from "@/lib/validation"
 import { createClientModuleItem, listClientModuleItems } from "@/lib/client-module-items-repo"
 
 const clientModuleItemSchema = z.object({
@@ -22,7 +22,7 @@ export async function GET(request: Request) {
 
   const { searchParams } = new URL(request.url)
   const moduleKey = searchParams.get("moduleKey") || ""
-  if (!moduleKey) return NextResponse.json({ error: "moduleKey обязателен" }, { status: 400 })
+  if (!moduleKey) return invalidFieldResponse("moduleKey", "required")
 
   return NextResponse.json((await listClientModuleItems(moduleKey)))
 }

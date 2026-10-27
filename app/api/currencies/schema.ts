@@ -3,6 +3,7 @@ import { z } from "zod"
 
 import { nameField } from "@/lib/auth-request"
 import { CurrencyError, type CurrencyInput } from "@/lib/currencies-repo"
+import { strictNumber } from "@/lib/strict-number"
 
 export const MAX_RATE = 1e9
 
@@ -26,7 +27,7 @@ export const currencySchema = z
       ctx.addIssue({ code: "custom", message: "Укажите курс валюты", path: ["rate"] })
       return z.NEVER
     }
-    const rate = typeof raw === "number" ? raw : Number(raw.replace(/[\s ]/g, "").replace(",", "."))
+    const rate = strictNumber(raw, { locale: true })
     if (!Number.isFinite(rate) || rate <= 0) {
       ctx.addIssue({ code: "custom", message: "Курс должен быть положительным числом", path: ["rate"] })
       return z.NEVER

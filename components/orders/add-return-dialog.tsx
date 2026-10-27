@@ -4,6 +4,7 @@ import { X } from "lucide-react"
 import { useEffect, useMemo, useState } from "react"
 import { createPortal } from "react-dom"
 
+import { formatUnitTotals } from "@/components/analytics/internal-transfers-picker"
 import { useLanguage } from "@/lib/i18n/language-context"
 
 import { Checkbox, DateField, SelectField, toInputDate } from "./add-order-dialog"
@@ -97,7 +98,18 @@ export function AddReturnDialog({ initialOrderId, onClose, onCreated }: { initia
     mode === "order"
       ? returnable.reduce((sum, line) => sum + (Number(qty[line.orderItemId]) || 0) * priceOf(line), 0)
       : lines.reduce((sum, line) => sum + (Number(line.quantity) || 0) * (Number(line.price) || 0), 0)
-  const totalQty = mode === "order" ? returnable.reduce((sum, line) => sum + (Number(qty[line.orderItemId]) || 0), 0) : lines.reduce((sum, line) => sum + (Number(line.quantity) || 0), 0)
+  // One total per unit (pieces and kilograms are never added up).
+  const totalQty = formatUnitTotals(
+    mode === "order"
+      ? returnable.map((line) => ({ qty: Number(qty[line.orderItemId]) || 0, unit: line.unit }))
+      : lines.map((line) => ({ qty: Number(line.quantity) || 0, unit: line.unit })),
+    t,
+  )
+  /** Return quantities above what is still returnable: flagged on the line, and saving waits for a fix. */
+  const overLine = (line: Returnable) => (Number(qty[line.orderItemId]) || 0) > line.available + 1e-9
+  const overLines = mode === "order" ? returnable.filter(overLine) : []
+  /** Any edit: the message of the last save attempt is about the old values. */
+  const edited = () => setError("")
   const shownCurrency = mode === "order" ? orderCurrency : currency || currencies[0] || ""
 
   const options = {
@@ -127,7 +139,7 @@ export function AddReturnDialog({ initialOrderId, onClose, onCreated }: { initia
       if (!order) return setError(t("Выберите заказ"))
       const chosen = returnable.filter((line) => (Number(qty[line.orderItemId]) || 0) > 0)
       if (!chosen.length) return setError(t("Укажите количество возврата"))
-      const over = chosen.find((line) => Number(qty[line.orderItemId]) > line.available)
+      const over = chosen.find(overLine)
       if (over) return setError(`${over.productName}: ${t("Количество возврата больше доступного")}`)
       items = chosen.map((line) => ({ orderItemId: line.orderItemId, quantity: Number(qty[line.orderItemId]), ...(manual ? { price: priceOf(line) } : {}) }))
     } else {
@@ -181,20 +193,20 @@ export function AddReturnDialog({ initialOrderId, onClose, onCreated }: { initia
                 <span className={`flex h-[18px] w-[18px] items-center justify-center rounded-full border-2 ${mode === item.key ? "border-slate-700" : "border-slate-600"}`}>
                   {mode === item.key && <span className="h-[8px] w-[8px] rounded-full bg-slate-700" />}
                 </span>
-                <input type="radio" name="return-mode" checked={mode === item.key} onChange={() => setMode(item.key)} className="sr-only" />
+                <input type="radio" name="return-mode" checked={mode === item.key} onChange={() => (setMode(item.key), edited())} className="sr-only" />
                 {item.label}
               </label>
             ))}
           </div>
           <p className="mb-[2px] mt-[26px] text-[12px] font-semibold">{t("Детали")}</p>
-          <DateField label={t("Дата возврата")} required value={date} onChange={setDate} />
-          <SelectField label={t("Клиент")} required placeholderLabel value={clientId} onChange={(value) => (setClientId(value), setOrderId(""))} options={options.clients} onClear={() => (setClientId(""), setOrderId(""))} />
+          <DateField label={t("Дата возврата")} required value={date} onChange={(value) => (setDate(value), edited())} />
+          <SelectField label={t("Клиент")} required placeholderLabel value={clientId} onChange={(value) => (setClientId(value), setOrderId(""), edited())} options={options.clients} onClear={() => (setClientId(""), setOrderId(""), edited())} />
           {mode === "order" ? (
-            <SelectField label={t("Заказ")} required placeholderLabel value={orderId} onChange={setOrderId} options={options.orders} onClear={() => setOrderId("")} />
+            <SelectField label={t("Заказ")} required placeholderLabel value={orderId} onChange={(value) => (setOrderId(value), edited())} options={options.orders} onClear={() => (setOrderId(""), edited())} />
           ) : (
-            <SelectField label={t("Валюта")} required value={shownCurrency} onChange={setCurrency} options={options.currencies} />
+            <SelectField label={t("Валюта")} required value={shownCurrency} onChange={(value) => (setCurrency(value), edited())} options={options.currencies} />
           )}
-          <SelectField label={t("Склад")} required placeholderLabel value={warehouse} onChange={setWarehouse} options={options.warehouses} onClear={() => setWarehouse("")} />
+          <SelectField label={t("Склад")} required placeholderLabel value={warehouse} onChange={(value) => (setWarehouse(value), edited())} options={options.warehouses} onClear={() => (setWarehouse(""), edited())} />
           <SelectField label={t("Доставщик")} placeholderLabel value={deliverer} onChange={setDeliverer} options={options.people} onClear={() => setDeliverer("")} />
           <SelectField label={t("Ответственный агент")} placeholderLabel value={agent} onChange={setAgent} options={options.people} onClear={() => setAgent("")} />
           <input value={comment} onChange={(event) => setComment(event.target.value)} placeholder={t("Оставить комментарий...")} className="mt-[22px] h-[34px] w-full border-b border-slate-300 bg-transparent text-[13px] font-semibold outline-none placeholder:text-slate-800" />
@@ -231,10 +243,29 @@ export function AddReturnDialog({ initialOrderId, onClose, onCreated }: { initia
                       <td>{line.returned}</td>
                       <td>{line.available}</td>
                       <td className="w-[140px] pr-4">
-                        <input type="number" min="0" max={line.available} step="any" disabled={line.available <= 0} value={qty[line.orderItemId] ?? ""} onChange={(event) => setQty((current) => ({ ...current, [line.orderItemId]: event.target.value }))} className="w-full border-b-2 border-[#374557] bg-transparent py-1 outline-none disabled:opacity-40" />
+                        <input
+                          type="number"
+                          min="0"
+                          max={line.available}
+                          step="any"
+                          disabled={line.available <= 0}
+                          value={qty[line.orderItemId] ?? ""}
+                          aria-invalid={overLine(line)}
+                          title={overLine(line) ? t("Количество возврата больше доступного") : undefined}
+                          onChange={(event) => {
+                            setQty((current) => ({ ...current, [line.orderItemId]: event.target.value }))
+                            edited()
+                          }}
+                          className={`w-full border-b-2 bg-transparent py-1 outline-none disabled:opacity-40 ${overLine(line) ? "border-[#e57373] text-[#e57373]" : "border-[#374557]"}`}
+                        />
+                        {overLine(line) && (
+                          <span className="block text-[11px] font-semibold text-[#e57373]">
+                            {t("Больше доступного количества")}: {line.available.toLocaleString("ru-RU")} {line.unit ? t(line.unit) : ""}
+                          </span>
+                        )}
                       </td>
                       <td className="w-[140px] pr-4">
-                        <input disabled={!manual} value={manual ? (prices[line.orderItemId] ?? String(line.price)) : String(line.price)} onChange={(event) => setPrices((current) => ({ ...current, [line.orderItemId]: event.target.value }))} className="w-full border-b border-dotted border-[#374557] bg-transparent py-1 font-bold outline-none" />
+                        <input disabled={!manual} value={manual ? (prices[line.orderItemId] ?? String(line.price)) : String(line.price)} onChange={(event) => (setPrices((current) => ({ ...current, [line.orderItemId]: event.target.value })), edited())} className="w-full border-b border-dotted border-[#374557] bg-transparent py-1 font-bold outline-none" />
                       </td>
                       <td>{((Number(qty[line.orderItemId]) || 0) * priceOf(line)).toLocaleString("ru-RU", { maximumFractionDigits: 2 })}</td>
                     </tr>
@@ -248,10 +279,10 @@ export function AddReturnDialog({ initialOrderId, onClose, onCreated }: { initia
             <>
               <div className="mt-4 flex items-end gap-4 bg-[#f1f4f7] px-3 pb-3 pt-2">
                 <div className="w-[360px]">
-                  <SelectField label={t("Товар")} placeholderLabel flat value={pick.product} onChange={(value) => setPick({ ...pick, product: value })} options={options.products} />
+                  <SelectField label={t("Товар")} placeholderLabel flat value={pick.product} onChange={(value) => (setPick({ ...pick, product: value }), edited())} options={options.products} />
                 </div>
-                <input type="number" min="0" step="any" value={pick.quantity} onChange={(event) => setPick({ ...pick, quantity: event.target.value })} placeholder={t("Кол-во")} className="h-[34px] w-[120px] border-b border-slate-300 bg-transparent outline-none" />
-                <input type="number" min="0" step="any" value={pick.price} onChange={(event) => setPick({ ...pick, price: event.target.value })} placeholder={`${t("Цена")} (${shownCurrency})`} className="h-[34px] w-[160px] border-b border-slate-300 bg-transparent outline-none" />
+                <input type="number" min="0" step="any" value={pick.quantity} onChange={(event) => (setPick({ ...pick, quantity: event.target.value }), edited())} placeholder={t("Кол-во")} className="h-[34px] w-[120px] border-b border-slate-300 bg-transparent outline-none" />
+                <input type="number" min="0" step="any" value={pick.price} onChange={(event) => (setPick({ ...pick, price: event.target.value }), edited())} placeholder={`${t("Цена")} (${shownCurrency})`} className="h-[34px] w-[160px] border-b border-slate-300 bg-transparent outline-none" />
                 <button type="button" onClick={addFreeLine} className="text-[12px] font-semibold text-[#0a9ddb]">
                   + {t("добавить товар")}
                 </button>
@@ -268,7 +299,7 @@ export function AddReturnDialog({ initialOrderId, onClose, onCreated }: { initia
                         {line.price} {shownCurrency}
                       </td>
                       <td className="text-right">
-                        <button type="button" onClick={() => setLines((current) => current.filter((_, i) => i !== index))} aria-label={t("Удалить")} className="text-[#e57373]">
+                        <button type="button" onClick={() => (setLines((current) => current.filter((_, i) => i !== index)), edited())} aria-label={t("Удалить")} className="text-[#e57373]">
                           <X className="h-4 w-4" />
                         </button>
                       </td>
@@ -282,14 +313,18 @@ export function AddReturnDialog({ initialOrderId, onClose, onCreated }: { initia
       </div>
       <footer className="flex h-[56px] shrink-0 items-center justify-between border-t border-[#efefef] px-[14px]">
         <span className="text-[12px] font-semibold">
-          {t("Общая стоимость:")} <span className="text-[#0a9ddb]">{`${total.toLocaleString("ru-RU", { maximumFractionDigits: 2 })} ${shownCurrency}`}</span> &nbsp; {t("Общее кол-во:")} <span className="text-[#0a9ddb]">{`${totalQty} ${t("ед")}`}</span>
+          {t("Общая стоимость:")} <span className="text-[#0a9ddb]">{`${total.toLocaleString("ru-RU", { maximumFractionDigits: 2 })} ${shownCurrency}`}</span> &nbsp; {t("Общее кол-во:")} <span className="text-[#0a9ddb]">{totalQty}</span>
         </span>
         <div className="flex items-center gap-6">
-          {error && <span className="text-[12px] text-[#e57373]">{error}</span>}
-          <button type="button" disabled={saving} onClick={() => save(false)} className="text-[12px] font-bold uppercase text-[#0a9ddb] disabled:opacity-50">
+          {error ? (
+            <span className="text-[12px] text-[#e57373]">{error}</span>
+          ) : (
+            overLines.length > 0 && <span className="text-[12px] text-[#e57373]">{`${overLines[0].productName}: ${t("Количество возврата больше доступного")}`}</span>
+          )}
+          <button type="button" disabled={saving || overLines.length > 0} onClick={() => save(false)} className="text-[12px] font-bold uppercase text-[#0a9ddb] disabled:opacity-50">
             {t("Сохранить")}
           </button>
-          <button type="button" disabled={saving} onClick={() => save(true)} className="text-[12px] font-bold uppercase text-[#48a34b] disabled:opacity-50">
+          <button type="button" disabled={saving || overLines.length > 0} onClick={() => save(true)} className="text-[12px] font-bold uppercase text-[#48a34b] disabled:opacity-50">
             {t("Сохранить и принять на склад")}
           </button>
         </div>

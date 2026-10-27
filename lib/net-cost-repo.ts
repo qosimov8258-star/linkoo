@@ -84,10 +84,15 @@ type RecordRow = {
   last_check_time: string
 }
 
+/** The moment a record took effect on its day: its registered moment when that is on its day,
+ * else the start of the day ('': a back-dated manual entry or document counts from 00:00 —
+ * lib/net-cost-ledger.ts). The list orders by it (and the item's ledger order `seq`). */
+const EFFECTIVE_AT = "(CASE WHEN substr(at,1,10) = day THEN at ELSE '' END)"
+
 const ORDERINGS: Record<string, string> = {
   product__name: "item_label",
   stock: "scope_name",
-  created_date: "day, at",
+  created_date: `day, ${EFFECTIVE_AT}, seq`,
   cost: "cost",
   real_cost: "real_cost",
   id: "id",
@@ -198,7 +203,7 @@ export async function listNetCost(query: NetCostListQuery): Promise<NetCostListR
         .split(", ")
         .map((column) => `${column} ${direction}`)
         .join(", ")}, id ${direction}`
-    : "day DESC, at DESC, id DESC"
+    : `day DESC, ${EFFECTIVE_AT} DESC, seq DESC, id DESC`
   const total = (await stmt(db, `SELECT COUNT(*)::int AS n FROM net_cost_records ${where}`, params).get()) as { n: number } | undefined
   const count = Number(total?.n ?? 0)
   const pageSize = Math.max(0, Math.floor(query.pageSize))

@@ -5,7 +5,7 @@ import { getCurrentUser } from "@/lib/current-user"
 import { brandBodySchema, brandInput } from "@/lib/dictionaries-api"
 import { dictionaryListQuery, dictionaryWrite, wantsDictionaryPage } from "@/lib/dictionaries-schema"
 import { requireRole } from "@/lib/rbac"
-import { parseJsonBody } from "@/lib/validation"
+import { notSignedInResponse, parseJsonBody } from "@/lib/validation"
 import { BRAND_ORDERINGS } from "@/components/analytics/brands-data"
 
 // GET /api/brands — plain array [{id, name, organization, createdDate, photoUrl, createdAt}]
@@ -15,7 +15,7 @@ import { BRAND_ORDERINGS } from "@/components/analytics/brands-data"
 // name | division | created_date, "-" = descending; default name).
 export async function GET(request: Request) {
   const user = await getCurrentUser()
-  if (!user) return NextResponse.json({ error: "Tizimga kirilmagan" }, { status: 401 })
+  if (!user) return notSignedInResponse()
   const params = new URL(request.url).searchParams
   if (!wantsDictionaryPage(params)) return NextResponse.json(await listBrands())
   const query = dictionaryListQuery(params, BRAND_ORDERINGS)

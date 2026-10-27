@@ -1,6 +1,6 @@
 import "server-only"
 
-import { getDb, type PgDb } from "@/lib/db"
+import { getDb, outsideTransaction, type PgDb } from "@/lib/db"
 import { ensureFinanceSchema } from "@/lib/finance/schema"
 
 // DDL of "Работа с инвентарем", created lazily and idempotently once per
@@ -99,7 +99,7 @@ async function createSchema(): Promise<void> {
 
 /** Adds the equipment columns / tables if missing (idempotent, once per process). */
 export function ensureInventorySchema(): Promise<void> {
-  globalThis.__linkoInventoryItemsSchema ??= createSchema().catch((error: unknown) => {
+  globalThis.__linkoInventoryItemsSchema ??= outsideTransaction(createSchema).catch((error: unknown) => {
     globalThis.__linkoInventoryItemsSchema = undefined
     throw error
   })

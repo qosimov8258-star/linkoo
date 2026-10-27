@@ -33,6 +33,7 @@ import type { ClientModule, ClientModuleKind } from "@/lib/clients-catalog"
 import { cn } from "@/lib/utils"
 import { downloadExcelTable } from "@/lib/excel-export"
 import { mapHeaderColumns, normalizeHeader, readExcelRows } from "@/lib/excel-import"
+import { csvText } from "@/lib/csv"
 import { useLanguage } from "@/lib/i18n/language-context"
 
 type ModuleRowStatus = "active" | "attention" | "inactive"
@@ -139,10 +140,6 @@ function apiItemToRow(item: ApiModuleItem): ModuleRow {
     statusLabel: item.statusLabel,
     updatedAt: item.updatedAt,
   }
-}
-
-function csvCell(value: string | number) {
-  return '"' + String(value).replace(/"/g, '""') + '"'
 }
 
 function todayLabel() {
@@ -406,7 +403,7 @@ export function ClientModuleView({ clientModule }: { clientModule: ClientModule 
         row.updatedAt,
       ]),
     ]
-    const csv = csvRows.map((row) => row.map(csvCell).join(";")).join("\r\n")
+    const csv = csvText(csvRows, ";", "\r\n")
     const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8" })
     const url = URL.createObjectURL(blob)
     const anchor = document.createElement("a")

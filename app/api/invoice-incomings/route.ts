@@ -4,11 +4,11 @@ import { getCurrentUser } from "@/lib/current-user"
 import { invoiceBodySchema, invoiceErrorResponse, parseInvoiceListQuery, toInvoiceInput } from "@/lib/invoice-incomings-api"
 import { createInvoice, listInvoices } from "@/lib/invoice-incomings-repo"
 import { requireRole } from "@/lib/rbac"
-import { parseJsonBody } from "@/lib/validation"
+import { notSignedInResponse, parseJsonBody } from "@/lib/validation"
 
 export async function GET(request: Request) {
   const user = await getCurrentUser()
-  if (!user) return NextResponse.json({ error: "Tizimga kirilmagan" }, { status: 401 })
+  if (!user) return notSignedInResponse()
   const query = parseInvoiceListQuery(request.url)
   if (query.error) return query.error
   return NextResponse.json(await listInvoices(query.data))

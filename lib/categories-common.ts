@@ -2,12 +2,14 @@ import "server-only"
 
 import { NextResponse } from "next/server"
 
+import { dbErrorResponse } from "@/lib/db-errors"
 import { ensureCashSchema } from "@/lib/cash/schema"
 import { categoryOptionTitle, type CategoryKind } from "@/lib/category-options"
 import type { CategoryUsage } from "@/lib/categories-schema"
 import type { CategoryOptionKey } from "@/lib/cash/types"
-import { getDb, type PgDb } from "@/lib/db"
+import { getDb, outsideTransaction, type PgDb } from "@/lib/db"
 import { parseAnyDate } from "@/lib/finance/dates"
+import { usageTableLabel } from "@/lib/usage-labels"
 
 // Storage rules shared by lib/income-categories-repo.ts and lib/expense-categories-repo.ts
 // (demo finance/income_category, finance/expense_category):
@@ -38,7 +40,7 @@ export class CategoryError extends Error {
 
 /** JSON response of a CategoryError ({error, fields?, usage?}); null for other errors. */
 export function categoryErrorResponse(error: unknown): NextResponse | null {
-  if (!(error instanceof CategoryError)) return null
+  if (!(error instanceof CategoryError)) return dbErrorResponse(error)
   return NextResponse.json(
     {
       error: error.message,
@@ -84,10 +86,12 @@ export async function ensureCategorySchema(): Promise<void> {
  * database default (en_US.UTF-8 on macOS libc) mixes Cyrillic before Latin, so
  * neither is used. Without ICU, "C" on lower() keeps Latin before Cyrillic.
  */
-export async function nameCollation(db: PgDb): Promise<string> {
-  globalThis.__linkoCategoryCollation ??= db
-    .prepare("SELECT EXISTS (SELECT 1 FROM pg_collation WHERE collname = 'und-x-icu') AS ok")
-    .get()
+export async function nameCollation(db?: PgDb): Promise<string>
+export async function nameCollation(): Promise<string> {
+  // Cached for every request: read once on the maintenance pool (outsideTransaction → getDb(), as
+  // the schema installs do), never on the caller's transaction or the request pool — the
+  // callers' `db` is accepted but not used.
+  globalThis.__linkoCategoryCollation ??= outsideTransaction(() => getDb().prepare("SELECT EXISTS (SELECT 1 FROM pg_collation WHERE collname = 'und-x-icu') AS ok").get())
     .then((row) => (row?.ok ? '"und-x-icu"' : '"C"'))
     .catch((error) => {
       globalThis.__linkoCategoryCollation = undefined
@@ -238,7 +242,7 @@ export async function categoryUsage(db: PgDb, kind: CategoryKind, row: { id: num
     if (!conditions.length) continue
     const result = await db.prepare(`SELECT COUNT(*) AS n FROM ${ref.table} WHERE ${conditions.join(" OR ")}`).get({ id: row.id, key })
     const count = Number(result?.n ?? 0)
-    if (count > 0) usage.push({ table: ref.table, label: USAGE_LABELS[ref.table] ?? ref.table, count })
+    if (count > 0) usage.push({ table: ref.table, label: usageTableLabel(ref.table, USAGE_LABELS), count })
   }
   if (kind === "expense") {
     const children = await db.prepare("SELECT COUNT(*) AS n FROM expense_categories WHERE parent_id = @id").get({ id: row.id })

@@ -5,14 +5,14 @@ import { contractBodySchema, contractErrorResponse, contractStatusSchema, parseI
 import { deleteContract, getContract, setContractStatus, updateContract } from "@/lib/contracts-repo"
 import { normalizeContractStatus, type ContractStatus } from "@/lib/contracts-types"
 import { requireRole } from "@/lib/rbac"
-import { parseJsonBody } from "@/lib/validation"
+import { notSignedInResponse, parseJsonBody } from "@/lib/validation"
 
 type RouteParams = { params: Promise<{ id: string }> }
 
 // GET → ContractDetail (with the payments made under the contract and totals per currency).
 export async function GET(_request: Request, { params }: RouteParams) {
   const user = await getCurrentUser()
-  if (!user) return NextResponse.json({ error: "Tizimga kirilmagan" }, { status: 401 })
+  if (!user) return notSignedInResponse()
   const id = parseIdParam((await params).id)
   const contract = id ? await getContract(id) : null
   if (!contract) return NextResponse.json({ error: "Договор не найден" }, { status: 404 })

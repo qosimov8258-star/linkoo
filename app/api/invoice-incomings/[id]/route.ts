@@ -4,7 +4,7 @@ import { getCurrentUser } from "@/lib/current-user"
 import { invoiceBodySchema, invoiceErrorResponse, invoiceStatusSchema, parseIdParam, toInvoiceInput } from "@/lib/invoice-incomings-api"
 import { changeInvoiceStatus, deleteInvoice, getInvoice, updateInvoice } from "@/lib/invoice-incomings-repo"
 import { requireRole } from "@/lib/rbac"
-import { parseJsonBody } from "@/lib/validation"
+import { notSignedInResponse, parseJsonBody } from "@/lib/validation"
 
 type RouteParams = { params: Promise<{ id: string }> }
 
@@ -12,7 +12,7 @@ const notFound = () => NextResponse.json({ error: "Счет-фактура не 
 
 export async function GET(_request: Request, { params }: RouteParams) {
   const user = await getCurrentUser()
-  if (!user) return NextResponse.json({ error: "Tizimga kirilmagan" }, { status: 401 })
+  if (!user) return notSignedInResponse()
   const id = parseIdParam((await params).id)
   if (!id) return notFound()
   const invoice = await getInvoice(id)

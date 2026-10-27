@@ -1,12 +1,14 @@
 import "server-only"
 
 import { getDb, withTransaction } from "@/lib/db"
+import { DOC_DATE_INVALID, parseDocDay, type DocDate } from "@/lib/document-dates"
 import { nameKey } from "@/lib/finance/entities"
-import { nowLocalIso, parseAnyDay, todayIso } from "@/lib/finance/dates"
+import { nowLocalIso, todayIso } from "@/lib/finance/dates"
 import { InventoryError } from "@/lib/inventory-items-api"
 import { actorName, insertLog, type Actor } from "@/lib/inventory-items-repo"
 import { ensureInventorySchema } from "@/lib/inventory-items-schema"
 import { INVENTORY_CONDITIONS, type InventoryImportRow } from "@/lib/inventory-items-types"
+import { strictId } from "@/lib/strict-number"
 
 // "Импорт с Excel" (demo main/gear/import_excel/): the template lists the
 // clients of the chosen agents / zones (ID клиента | Клиент | Зона | Агент) and
@@ -31,14 +33,16 @@ type Prepared = {
 
 export type InventoryImportResult = { created: number }
 
-/** YYYY-MM-DD of a date cell: any stored date text, or an Excel serial day number. */
-function cellDay(value: string): string | null {
+/** YYYY-MM-DD of a date cell (any stored date text, or an Excel serial day number) under the
+ * document date rule, as for a single item: a year 2000..2100, not after today
+ * (lib/document-dates.ts); otherwise the error key. */
+function cellDay(value: string): DocDate {
   if (/^\d{5}(\.\d+)?$/.test(value)) {
     const serial = Math.floor(Number(value))
-    if (serial < 20000 || serial > 80000) return null
-    return new Date(Date.UTC(1899, 11, 30) + serial * 86_400_000).toISOString().slice(0, 10)
+    if (serial < 20000 || serial > 80000) return { ok: false, error: DOC_DATE_INVALID }
+    return parseDocDay(new Date(Date.UTC(1899, 11, 30) + serial * 86_400_000).toISOString().slice(0, 10))
   }
-  return parseAnyDay(value)
+  return parseDocDay(value)
 }
 
 export async function importInventoryItems(rows: InventoryImportRow[], user: Actor): Promise<InventoryImportResult> {
@@ -47,19 +51,25 @@ export async function importInventoryItems(rows: InventoryImportRow[], user: Act
   const by = actorName(user)
   const [products, warehouses, existing] = await Promise.all([
     db.prepare("SELECT id, name FROM products WHERE is_inventory = 1 AND deleted = 0").all() as Promise<Array<{ id: number; name: string }>>,
-    db.prepare("SELECT name FROM warehouses ORDER BY id").all() as Promise<Array<{ name: string }>>,
+    // Active rows first, so an active namesake wins over an inactive one.
+    db.prepare("SELECT name, COALESCE(active, 1) AS active FROM warehouses ORDER BY COALESCE(active, 1) DESC, id").all() as Promise<
+      Array<{ name: string; active: number | boolean }>
+    >,
     db.prepare("SELECT inventory_code FROM inventory_items WHERE deleted = 0 AND btrim(inventory_code) <> ''").all() as Promise<Array<{ inventory_code: string }>>,
   ])
   const productByKey = new Map<string, { id: number; name: string }>()
   for (const row of products) if (!productByKey.has(nameKey(row.name))) productByKey.set(nameKey(row.name), { id: Number(row.id), name: row.name })
-  const warehouseByKey = new Map<string, string>()
-  for (const row of warehouses) if (!warehouseByKey.has(nameKey(row.name))) warehouseByKey.set(nameKey(row.name), row.name.trim())
+  const warehouseByKey = new Map<string, { name: string; active: boolean }>()
+  for (const row of warehouses) {
+    if (!warehouseByKey.has(nameKey(row.name))) warehouseByKey.set(nameKey(row.name), { name: row.name.trim(), active: Boolean(Number(row.active)) })
+  }
   const usedNumbers = new Set(existing.map((row) => nameKey(row.inventory_code)))
 
   const filled = rows.filter((row) => [row.product, row.serialNumber, row.stockNumber, row.warehouse].some((value) => String(value ?? "").trim()))
   if (!filled.length) throw new InventoryError("В файле нет заполненных строк")
 
-  const clientIds = [...new Set(filled.map((row) => Number(String(row.clientId ?? "").trim())).filter((id) => Number.isInteger(id) && id > 0))]
+  // Only canonical int4 ids reach Postgres ("0x10" / beyond int4 are "Клиент не найден", never a 500).
+  const clientIds = [...new Set(filled.map((row) => strictId(String(row.clientId ?? "").trim())).filter((id): id is number => id !== null))]
   const clientNames = [...new Set(filled.filter((row) => !String(row.clientId ?? "").trim() && String(row.client ?? "").trim()).map((row) => nameKey(row.client)))]
   const clientRows = (await db
     .prepare("SELECT id, name FROM clients WHERE id = ANY(?::int[]) OR fin_key(name) = ANY(?::text[])")
@@ -77,17 +87,23 @@ export async function importInventoryItems(rows: InventoryImportRow[], user: Act
       fail("Продукт не найден или не отмечен как инвентарь")
       continue
     }
-    const warehouse = warehouseByKey.get(nameKey(row.warehouse))
-    if (!warehouse) {
+    const found = warehouseByKey.get(nameKey(row.warehouse))
+    if (!found) {
       fail("Склад не найден")
       continue
     }
+    // An inactive warehouse takes no new gear (same rule as POST /api/inventory-items).
+    if (!found.active) {
+      fail("Склад неактивен")
+      continue
+    }
+    const warehouse = found.name
     let clientId: number | null = null
     let client = ""
     const rawId = String(row.clientId ?? "").trim()
     if (rawId) {
-      const id = Number(rawId)
-      if (!clientById.has(id)) {
+      const id = strictId(rawId)
+      if (id === null || !clientById.has(id)) {
         fail("Клиент не найден")
         continue
       }
@@ -109,11 +125,12 @@ export async function importInventoryItems(rows: InventoryImportRow[], user: Act
       continue
     }
     const rawDate = String(row.date ?? "").trim()
-    const date = rawDate ? cellDay(rawDate) : todayIso()
-    if (!date) {
-      fail("Неверная дата")
+    const day: DocDate = rawDate ? cellDay(rawDate) : { ok: true, date: todayIso() }
+    if (!day.ok) {
+      fail(day.error)
       continue
     }
+    const date = day.date
     const stockNumber = String(row.stockNumber ?? "").trim()
     if (stockNumber) {
       if (usedNumbers.has(nameKey(stockNumber))) {

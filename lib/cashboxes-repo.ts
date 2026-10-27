@@ -2,7 +2,8 @@ import "server-only"
 
 import { NextResponse } from "next/server"
 
-import { getDb, withTransaction, type PgDb } from "@/lib/db"
+import { dbErrorResponse } from "@/lib/db-errors"
+import { getDb, outsideTransaction, withTransaction, type PgDb } from "@/lib/db"
 import { loadCurrencyContext } from "@/lib/finance/context"
 import { normCurrency } from "@/lib/finance/currency"
 import {
@@ -17,6 +18,7 @@ import {
   type CashboxUsage,
 } from "@/components/analytics/cashboxes-data"
 import type { CashboxInputBody, CashboxListQuery } from "@/lib/cashboxes-schema"
+import { usageTableLabel } from "@/lib/usage-labels"
 
 // "Кассы" (demo #/cashbox, API finance/cashbox/). Storage = the `cashboxes` table the
 // cash core reads (lib/cash/common.ts loadCashbox, lib/finance/entities.ts):
@@ -60,7 +62,7 @@ export class CashboxError extends Error {
 
 /** JSON response of a CashboxError ({error, fields?, usage?}); null for other errors. */
 export function cashboxErrorResponse(error: unknown): NextResponse | null {
-  if (!(error instanceof CashboxError)) return null
+  if (!(error instanceof CashboxError)) return dbErrorResponse(error)
   return NextResponse.json(
     {
       error: error.message,
@@ -79,9 +81,7 @@ let schemaReady: Promise<void> | null = null
 
 /** Adds the nullable cashier_id link next to the `cashier` name (idempotent, once per process). */
 export function ensureCashboxesSchema(): Promise<void> {
-  schemaReady ??= getDb()
-    .exec("ALTER TABLE cashboxes ADD COLUMN IF NOT EXISTS cashier_id INTEGER")
-    .catch((error: unknown) => {
+  schemaReady ??= outsideTransaction(() => getDb().exec("ALTER TABLE cashboxes ADD COLUMN IF NOT EXISTS cashier_id INTEGER")).catch((error: unknown) => {
       schemaReady = null
       throw error
     })
@@ -279,7 +279,7 @@ async function cashboxUsage(db: PgDb, row: CashboxRow): Promise<CashboxUsage[]> 
       .prepare(`SELECT COUNT(*) AS n FROM ${quoteIdent(ref.table)} WHERE ${conditions.join(" OR ")}`)
       .get({ id: Number(row.id), key })) as { n: string | number } | undefined
     const count = Number(result?.n ?? 0)
-    if (count > 0) usage.push({ table: ref.table, label: TABLE_LABELS[ref.table] ?? ref.table, count })
+    if (count > 0) usage.push({ table: ref.table, label: usageTableLabel(ref.table, TABLE_LABELS), count })
   }
   return usage
 }

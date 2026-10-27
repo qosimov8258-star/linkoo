@@ -1,10 +1,15 @@
 import "server-only"
 
-import { getDb, withTransaction, type PgDb } from "@/lib/db"
+import { CashError, resolveOrganization } from "@/lib/cash/common"
+import { getDb, outsideTransaction, withTransaction, type PgDb } from "@/lib/db"
 import { todayIso } from "@/lib/finance/dates"
+import { placeName } from "@/lib/finance/entities"
 import { getBalanceList } from "@/lib/finance/ledger"
 import { ensureFinanceSchema } from "@/lib/finance/schema"
+import { lockWarehouseStock } from "@/lib/internal-transfers-stock"
 import { keySql, nameKey } from "@/lib/platform-refs"
+import { findRestrictedProducts, PRODUCT_RESTRICTION_DENIED } from "@/lib/product-restrictions-check"
+import { ensureProductRestrictionsSchema } from "@/lib/product-restrictions-repo"
 import { getStockBalances, getStockPending } from "@/lib/stock/ledger"
 import { ensureStockSchema } from "@/lib/stock/schema"
 import {
@@ -14,6 +19,7 @@ import {
   RELEASED_STATUSES,
   STOCK_STATUSES,
   canChangeStatus,
+  type AgentLimitExceeded,
   type Order,
 } from "@/components/orders/orders-data"
 
@@ -33,11 +39,27 @@ import {
 //   the warehouses.name). Entering such a status, changing the warehouse or a
 //   line of a reserved order checks availability: on hand − reserved by other
 //   orders (lib/stock/ledger.ts) must cover the order's quantity, else 409.
+// - Agent limits (Продукты → "Добавить лимит", product_limits): an order that is
+//   not cancelled must keep its agent within every product limit (Реализовано
+//   counted as the product card counts it), else 409 with `agentLimit`. Checked
+//   when an order is created, when its agent changes and when a line grows.
+// - Product restrictions (Персонал → Заказ → "Ограничение продуктов"): an agent with a
+//   product / product type list may sell only those products, else 409
+//   "Агенту запрещено продавать товар" with `productRestriction` {agent, products}.
+//   Checked for the lines a new order has, a line that is added, changes its product or
+//   grows, and every line when the order's agent changes or it comes back from Отменен.
+//   The time windows (Ограничение времени) are enforced by the order routes.
 // - shipped_at (ISO, UTC "Z") is the moment the order left the warehouse;
 //   the finance ledger dates realization by it.
 // - Every change is logged in order_logs (the order card "Логи" tab).
 // - `balance` / `negative` of a listed order are the client's CURRENT ledger
 //   balance (lib/finance), never stored.
+// - organization (the finance filter "Организация"): the chosen one (a known
+//   organization), else the same fallbacks as payments (lib/cash/common.ts
+//   resolveOrganization): the client's contracts (one organization) → the
+//   agent's single organization → the warehouse manager's single organization
+//   → the only organization. Orders saved without one are filled the same way
+//   (ORGANIZATION_BACKFILL, empty values only).
 
 export class OrderError extends Error {
   constructor(
@@ -125,18 +147,109 @@ CREATE TABLE IF NOT EXISTS order_logs (
 CREATE INDEX IF NOT EXISTS order_logs_order_idx ON order_logs (order_id);
 `
 
-const SCHEMA_VERSION = 1
+// Organization of orders saved without one (older versions, API callers that
+// sent none), with the fallbacks of resolveOrderOrganization: the client's
+// contracts when they all name one organization → the agent's single
+// organization → the warehouse manager's single organization → the only
+// organization, in the canonical spelling of a known organization. Fills ONLY
+// empty values (fin_place(organization) = ''), never changes a set one, so it
+// is idempotent and gives the same result for the same data. Needs the fin_*
+// helpers (ensureFinanceSchema). A failure only logs a warning.
+const ORGANIZATION_BACKFILL = `
+-- employees.organizations (JSON array text, or a comma list): its single organization, empty when none or several.
+CREATE OR REPLACE FUNCTION orders_single_org(raw text) RETURNS text LANGUAGE plpgsql IMMUTABLE AS $$
+DECLARE n int; one_org text;
+BEGIN
+  IF raw IS NULL OR btrim(raw) = '' THEN RETURN ''; END IF;
+  BEGIN
+    SELECT count(DISTINCT fin_key(v)), min(fin_place(v)) INTO n, one_org FROM json_array_elements_text(raw::json) AS v WHERE fin_place(v) <> '';
+  EXCEPTION WHEN others THEN
+    SELECT count(DISTINCT fin_key(v)), min(fin_place(v)) INTO n, one_org FROM unnest(string_to_array(raw, ',')) AS v WHERE fin_place(v) <> '';
+  END;
+  RETURN CASE WHEN n = 1 THEN one_org ELSE '' END;
+END
+$$;
+
+DO $$
+DECLARE org_count int := 0; only_org text := '';
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM orders WHERE fin_place(organization) = '') THEN RETURN; END IF;
+  -- Scratch tables of this transaction only (dropped at COMMIT, gone on ROLLBACK).
+  CREATE TEMP TABLE IF NOT EXISTS ord_org_client (id int PRIMARY KEY, org text NOT NULL) ON COMMIT DROP;
+  CREATE TEMP TABLE IF NOT EXISTS ord_org_person (k text PRIMARY KEY, org text NOT NULL) ON COMMIT DROP;
+  CREATE TEMP TABLE IF NOT EXISTS ord_org_warehouse (k text PRIMARY KEY, org text NOT NULL) ON COMMIT DROP;
+  CREATE TEMP TABLE IF NOT EXISTS ord_org_known (k text PRIMARY KEY, name text NOT NULL) ON COMMIT DROP;
+  TRUNCATE pg_temp.ord_org_client, pg_temp.ord_org_person, pg_temp.ord_org_warehouse, pg_temp.ord_org_known;
+  -- The client's (not cancelled) contracts when they all belong to one organization.
+  IF to_regclass('contracts') IS NOT NULL AND to_regclass('clients') IS NOT NULL THEN
+    INSERT INTO pg_temp.ord_org_client
+      SELECT c.id, min(fin_place(to_jsonb(k) ->> 'organization'))
+      FROM clients c JOIN contracts k ON fin_key(to_jsonb(k) ->> 'client') = fin_key(c.name)
+      WHERE COALESCE(to_jsonb(k) ->> 'status', '') <> 'cancelled' AND fin_place(to_jsonb(k) ->> 'organization') <> ''
+      GROUP BY c.id HAVING count(DISTINCT fin_key(to_jsonb(k) ->> 'organization')) = 1;
+  END IF;
+  IF to_regclass('employees') IS NOT NULL THEN
+    -- An employee's single organization (the first employee of that name).
+    INSERT INTO pg_temp.ord_org_person
+      SELECT DISTINCT ON (fin_key(e.first_name || ' ' || e.last_name)) fin_key(e.first_name || ' ' || e.last_name), orders_single_org(to_jsonb(e) ->> 'organizations')
+      FROM employees e WHERE fin_key(e.first_name || ' ' || e.last_name) <> ''
+      ORDER BY fin_key(e.first_name || ' ' || e.last_name), e.id;
+    DELETE FROM pg_temp.ord_org_person WHERE org = '';
+    -- The warehouse manager's single organization.
+    IF to_regclass('warehouses') IS NOT NULL THEN
+      INSERT INTO pg_temp.ord_org_warehouse
+        SELECT DISTINCT ON (fin_key(w.name)) fin_key(w.name), orders_single_org(to_jsonb(e) ->> 'organizations')
+        FROM warehouses w
+        JOIN employees e ON e.id = NULLIF(to_jsonb(w) ->> 'manager_id', '')::int
+          OR (NULLIF(to_jsonb(w) ->> 'manager_id', '') IS NULL AND fin_key(e.first_name || ' ' || e.last_name) = fin_key(to_jsonb(w) ->> 'manager'))
+        WHERE fin_key(w.name) <> ''
+        ORDER BY fin_key(w.name), w.id, e.id;
+      DELETE FROM pg_temp.ord_org_warehouse WHERE org = '';
+    END IF;
+  END IF;
+  IF to_regclass('organizations') IS NOT NULL THEN
+    SELECT count(*), min(name) INTO org_count, only_org FROM organizations;
+    INSERT INTO pg_temp.ord_org_known
+      SELECT DISTINCT ON (fin_key(g.name)) fin_key(g.name), g.name FROM organizations g WHERE fin_place(g.name) <> '' ORDER BY fin_key(g.name), g.id;
+  END IF;
+
+  UPDATE orders o SET organization = COALESCE(kn.name, y.org)
+  FROM (
+    SELECT o2.id, COALESCE(cl.org, ag.org, wh.org, CASE WHEN org_count = 1 THEN only_org END) AS org
+    FROM orders o2
+    LEFT JOIN pg_temp.ord_org_client cl ON cl.id = o2.client_id
+    LEFT JOIN pg_temp.ord_org_person ag ON ag.k = fin_key(o2.agent)
+    LEFT JOIN pg_temp.ord_org_warehouse wh ON wh.k = fin_key(o2.warehouse)
+    WHERE fin_place(o2.organization) = ''
+  ) y
+  LEFT JOIN pg_temp.ord_org_known kn ON kn.k = fin_key(y.org)
+  WHERE o.id = y.id AND fin_place(o.organization) = '' AND fin_place(y.org) <> '';
+EXCEPTION WHEN others THEN
+  RAISE WARNING 'orders organization backfill skipped: %', SQLERRM;
+END $$;
+`
+
+const SCHEMA_VERSION = 2
 
 declare global {
   var __linkoOrdersSchema: { version: number; ready: Promise<void> } | undefined
 }
 
-/** Order columns, order_items (double precision, FK) and order_logs; once per process. */
+/** Order columns, order_items (double precision, FK), order_logs and the
+ * organization backfill of older orders; once per process. */
 export function ensureOrdersSchema(): Promise<void> {
   if (globalThis.__linkoOrdersSchema?.version !== SCHEMA_VERSION) {
-    const ready = withTransaction(async (tx) => {
-      await tx.exec("SELECT pg_advisory_xact_lock(72120931)")
-      await tx.exec(DDL)
+    const ready = outsideTransaction(async () => {
+      await withTransaction(async (tx) => {
+        await tx.exec("SELECT pg_advisory_xact_lock(72120931)")
+        await tx.exec(DDL)
+      })
+      // fin_key / fin_place (installed by the finance core on its own connection, outside our transaction).
+      await ensureFinanceSchema()
+      await withTransaction(async (tx) => {
+        await tx.exec("SELECT pg_advisory_xact_lock(72120931)")
+        await tx.exec(ORGANIZATION_BACKFILL)
+      })
     }).catch((error) => {
       globalThis.__linkoOrdersSchema = undefined
       throw error
@@ -367,6 +480,166 @@ export async function resolveProduct(db: PgDb, input: { productId?: number | nul
 }
 
 // ---------------------------------------------------------------------------
+// Organization and the defaults of a new order
+// ---------------------------------------------------------------------------
+
+/** employees.organizations (JSON array text, or a comma list) → its single organization, "" when none / several. */
+function singleOrganization(raw: unknown): string {
+  let list: unknown = raw
+  if (typeof raw === "string") {
+    try {
+      list = JSON.parse(raw)
+    } catch {
+      list = raw.split(",")
+    }
+  }
+  const names = new Map<string, string>()
+  for (const item of Array.isArray(list) ? list : []) {
+    const name = placeName(item)
+    if (name && !names.has(nameKey(name))) names.set(nameKey(name), name)
+  }
+  return names.size === 1 ? [...names.values()][0] : ""
+}
+
+async function tableExists(db: PgDb, table: string): Promise<boolean> {
+  return Boolean(((await db.prepare("SELECT to_regclass(@table) IS NOT NULL AS ok").get({ table })) as { ok: boolean } | undefined)?.ok)
+}
+
+/** Documents that take their organization from the order they belong to (lib/cash/common.ts
+ * resolveOrganization: order first). client_returns joins once it has its own column. */
+const ORDER_LINKED_ORGANIZATION_TABLES = ["customer_payments", "client_returns"] as const
+
+/** The order's organization changed from `before` to `after`: its documents that still carry
+ * `before` (or none) move to `after`. Nothing moves when `after` is empty. */
+async function moveLinkedOrganization(db: PgDb, orderId: number, before: string, after: string): Promise<void> {
+  if (!placeName(after)) return
+  for (const table of ORDER_LINKED_ORGANIZATION_TABLES) {
+    const row = (await db
+      .prepare(
+        `SELECT count(*)::int AS n FROM information_schema.columns
+          WHERE table_schema = current_schema() AND table_name = '${table}' AND column_name IN ('order_id', 'organization')`,
+      )
+      .get()) as { n: number } | undefined
+    if (row?.n !== 2) continue
+    await db
+      .prepare(`UPDATE ${table} SET organization = @after WHERE order_id = @orderId AND fin_key(fin_place(organization)) = fin_key(fin_place(@before::text))`)
+      .run({ orderId, before, after })
+  }
+}
+
+/** Single organization of the manager of `warehouse` (by manager_id, else by name); "" when unknown. */
+async function warehouseManagerOrganization(db: PgDb, warehouse: string): Promise<string> {
+  if (!warehouse.trim() || !(await tableExists(db, "warehouses"))) return ""
+  const row = (await db
+    .prepare(
+      `SELECT to_jsonb(e) ->> 'organizations' AS organizations FROM warehouses w
+         JOIN employees e ON e.id = NULLIF(to_jsonb(w) ->> 'manager_id', '')::int
+           OR (NULLIF(to_jsonb(w) ->> 'manager_id', '') IS NULL AND ${keySql("e.first_name || ' ' || e.last_name")} = ${keySql("to_jsonb(w) ->> 'manager'")})
+        WHERE ${keySql("w.name")} = ${keySql("@name::text")} ORDER BY w.id, e.id LIMIT 1`,
+    )
+    .get({ name: warehouse })) as { organizations: unknown } | undefined
+  return singleOrganization(row?.organizations)
+}
+
+/** Organization of an order. A chosen one must be a known organization (canonical
+ * spelling returned, 400 otherwise). Without one, the fallbacks of payments
+ * (lib/cash/common.ts resolveOrganization): the client's contracts (one
+ * organization) → the agent's single organization → then the warehouse
+ * manager's single organization → the only organization. "" when unknown. */
+export async function resolveOrderOrganization(
+  db: PgDb,
+  explicit: string | null | undefined,
+  hints: { clientId?: number | null; agent?: string | null; warehouse?: string | null },
+): Promise<string> {
+  try {
+    if (placeName(explicit)) return await resolveOrganization(db, explicit, {}, "organization")
+    const byParty = await resolveOrganization(db, "", { clientId: hints.clientId ?? null, employeeName: hints.agent?.trim() || null }, "organization")
+    if (byParty) return byParty
+    const byWarehouse = await warehouseManagerOrganization(db, hints.warehouse ?? "")
+    if (!byWarehouse) return ""
+    const known = (await tableExists(db, "organizations"))
+      ? ((await db.prepare("SELECT name FROM organizations ORDER BY id").all()) as Array<{ name: string }>).map((row) => row.name)
+      : []
+    return known.find((name) => nameKey(name) === nameKey(byWarehouse)) ?? byWarehouse
+  } catch (error) {
+    if (error instanceof CashError) throw new OrderError(error.message, error.status, { field: "organization" })
+    throw error
+  }
+}
+
+export type OrderDefaults = {
+  /** The client's agent when it is an employee ("" without a client). */
+  agent: string
+  /** The active price list marked "default for orders", else the client's branch price list. */
+  priceList: string
+  /** The client's branch warehouse when the branch has exactly one active sales warehouse, else "". */
+  warehouse: string
+  /** resolveOrderOrganization without a chosen organization. */
+  organization: string
+}
+
+/** Defaults of the "Добавление заказа" dialog for a client (none = before the client is
+ * chosen). `agent` / `warehouse` are the dialog's current choices, used for the organization. */
+export async function getOrderDefaults(input: { clientId?: number; agent?: string; warehouse?: string }): Promise<OrderDefaults> {
+  await ensureOrdersSchema()
+  await ensureFinanceSchema()
+  const db = getDb()
+  let client: { id: number; agent: string | null; branch: string | null } | undefined
+  if (input.clientId !== undefined) {
+    client = (await db.prepare("SELECT id, agent, to_jsonb(c) ->> 'branch' AS branch FROM clients c WHERE id = ?").get(input.clientId)) as typeof client
+    if (!client) throw new OrderError("Клиент не найден", 404, { field: "clientId" })
+  }
+
+  let agent = ""
+  if (client && !NOT_SET.has(nameKey(client.agent ?? ""))) {
+    agent = await resolveEmployee(db, client.agent ?? "", "agent", "Агент").catch(() => "")
+  }
+
+  let priceList = ""
+  if (await tableExists(db, "price_lists")) {
+    const active = "COALESCE(to_jsonb(p) ->> 'is_active', '1') NOT IN ('0', 'false')"
+    const byFlag = (await db
+      .prepare(
+        `SELECT p.name FROM price_lists p WHERE ${active} AND COALESCE(to_jsonb(p) ->> 'is_default_for_order', '0') IN ('1', 'true')
+          ORDER BY p.id LIMIT 1`,
+      )
+      .get()) as { name: string } | undefined
+    priceList = byFlag?.name ?? ""
+    const branch = placeName(client?.branch)
+    if (!priceList && branch && (await tableExists(db, "branches"))) {
+      const row = (await db
+        .prepare(
+          `SELECT p.name FROM branches b JOIN price_lists p ON ${keySql("p.name")} = ${keySql("to_jsonb(b) ->> 'price_list'")}
+            WHERE ${keySql("b.name")} = ${keySql("@branch::text")} AND ${active} ORDER BY b.id, p.id LIMIT 1`,
+        )
+        .get({ branch })) as { name: string } | undefined
+      priceList = row?.name ?? ""
+    }
+  }
+
+  let warehouse = ""
+  const branch = placeName(client?.branch)
+  if (branch && (await tableExists(db, "warehouses"))) {
+    const rows = (await db
+      .prepare(
+        `SELECT w.name FROM warehouses w
+          WHERE ${keySql("to_jsonb(w) ->> 'branch'")} = ${keySql("@branch::text")} AND COALESCE(to_jsonb(w) ->> 'active', '1') NOT IN ('0', 'false')
+            AND COALESCE(to_jsonb(w) ->> 'for_return', '0') IN ('0', 'false')
+          ORDER BY w.id LIMIT 2`,
+      )
+      .all({ branch })) as Array<{ name: string }>
+    if (rows.length === 1) warehouse = rows[0].name
+  }
+
+  const organization = await resolveOrderOrganization(db, "", {
+    clientId: client?.id ?? null,
+    agent: input.agent !== undefined ? input.agent : agent,
+    warehouse: input.warehouse !== undefined ? input.warehouse : warehouse,
+  })
+  return { agent, priceList, warehouse, organization }
+}
+
+// ---------------------------------------------------------------------------
 // Lines
 // ---------------------------------------------------------------------------
 
@@ -451,7 +724,10 @@ function lineKey(productId: number | null, name: string): string {
 
 /** 409 when on hand − reserved by other orders cannot cover `needs` at `warehouse`.
  * `ownReserved` = quantities this order already reserves there (excluded). Reads
- * committed data on a separate connection (callers hold the order lock). */
+ * committed data on a separate connection: callers hold the order lock AND the
+ * warehouse's stock lock (lockWarehouseStock, taken by lockOrderWarehouses before the
+ * order row is locked), so a write-off, transfer, supplier return or return unaccept of
+ * the same warehouse either committed before this read or waits for this order. */
 async function assertAvailable(warehouse: string, needs: Need[], ownReserved: Map<string, number>): Promise<void> {
   const wanted = new Map<string, Need>()
   for (const need of needs) {
@@ -492,6 +768,100 @@ function reservedBy(order: Pick<OrderRow, "status" | "warehouse">, items: ItemRo
   if (order.status !== "Есть на складе" || nameKey(order.warehouse ?? "") !== nameKey(warehouse)) return own
   for (const need of needsOf(items)) own.set(need.key, (own.get(need.key) ?? 0) + need.quantity)
   return own
+}
+
+// ---------------------------------------------------------------------------
+// Agent limits (Продукты → "Добавить лимит", product_limits)
+// ---------------------------------------------------------------------------
+
+const isCancelledStatus = (status: string | null | undefined) => /^отмен/i.test(String(status ?? "").trim())
+
+/** Quantity per product of order lines. */
+function quantitiesByProduct(lines: Array<{ productId: number | null; productName: string; quantity: number }>): Map<number, { name: string; quantity: number }> {
+  const result = new Map<number, { name: string; quantity: number }>()
+  for (const line of lines) {
+    if (!line.productId) continue
+    const current = result.get(line.productId)
+    if (current) current.quantity += Number(line.quantity) || 0
+    else result.set(line.productId, { name: line.productName, quantity: Number(line.quantity) || 0 })
+  }
+  return result
+}
+
+const itemsByProduct = (items: ItemRow[]) =>
+  quantitiesByProduct(items.map((item) => ({ productId: item.product_id, productName: item.product_name, quantity: Number(item.quantity) })))
+
+/** 409 when the order makes `agent` sell more of a product than the agent's limit.
+ * Реализовано is counted exactly as the product card shows it (lib/products-catalog.ts
+ * itemLimits): Σ quantities of the agent's orders that are not cancelled and were created
+ * since the limit was set. `after` = this order's quantity per product after the change;
+ * `before` = what the order counted for this agent before it (empty for a new order, a
+ * cancelled one or another agent). Only a product whose quantity grows is checked, so an
+ * order that keeps or lowers its quantities is never refused, even when the agent is
+ * already over a limit that was lowered later. An order created before the limit was set
+ * does not count towards it. Without the catalog's product_limits table nothing is limited.
+ * "Now" (a new order) is fin_ts(datetime('now'), true): the same UTC text → Tashkent wall
+ * clock conversion as the stored created_at columns, so the comparison does not depend on
+ * the database session's TimeZone (now() is a timestamptz and would be shifted by it). */
+async function assertAgentLimits(
+  db: PgDb,
+  input: { agent: string; orderId?: number; createdAt?: string | null; after: Map<number, { name: string; quantity: number }>; before?: Map<number, { name: string; quantity: number }> },
+): Promise<void> {
+  if (!nameKey(input.agent) || NOT_SET.has(nameKey(input.agent))) return
+  const grown = [...input.after.entries()].filter(([productId, line]) => line.quantity > (input.before?.get(productId)?.quantity ?? 0) + 1e-9)
+  if (!grown.length || !(await tableExists(db, "product_limits"))) return
+  const limits = (await db
+    .prepare(
+      `SELECT l.item_id, l.agent, l.amount::float8 AS amount,
+              (SELECT COALESCE(SUM(oi.quantity), 0)::float8 FROM orders o JOIN order_items oi ON oi.order_id = o.id
+                WHERE fin_key(o.agent) = fin_key(l.agent) AND o.status NOT ILIKE 'отмен%' AND o.id <> @orderId
+                  AND (oi.product_id = l.item_id OR (oi.product_id IS NULL AND fin_key(oi.product_name) = fin_key(COALESCE(p.name, ''))))
+                  AND COALESCE(fin_ts(o.created_at, true), fin_ts(datetime('now'), true)) >= COALESCE(fin_ts(l.created_at, true), '-infinity'::timestamp)) AS realized,
+              (COALESCE(fin_ts(@createdAt::text, true), fin_ts(datetime('now'), true)) >= COALESCE(fin_ts(l.created_at, true), '-infinity'::timestamp)) AS counts
+         FROM product_limits l LEFT JOIN products p ON p.id = l.item_id
+        WHERE l.item_kind = 'product' AND l.item_id = ANY(@ids::int[]) AND fin_key(l.agent) = fin_key(@agent)
+        ORDER BY l.id`,
+    )
+    .all({ orderId: input.orderId ?? 0, createdAt: input.createdAt ?? null, ids: grown.map(([productId]) => productId), agent: input.agent })) as Array<{
+    item_id: number
+    agent: string
+    amount: number
+    realized: number
+    counts: boolean
+  }>
+  for (const [productId, line] of grown) {
+    for (const limit of limits.filter((row) => Number(row.item_id) === productId && row.counts)) {
+      const amount = Number(limit.amount) || 0
+      const realized = roundQty(Number(limit.realized) || 0)
+      const requested = roundQty(line.quantity)
+      if (realized + requested <= amount + 1e-9) continue
+      const detail: AgentLimitExceeded = {
+        agent: limit.agent,
+        productId,
+        product: line.name,
+        limit: amount,
+        realized,
+        requested,
+        remaining: roundQty(Math.max(0, amount - realized)),
+      }
+      throw new OrderError(
+        `Превышен лимит агента «${detail.agent}» по товару «${detail.product}»: лимит ${detail.limit}, реализовано ${detail.realized}, в заказе ${detail.requested}`,
+        409,
+        { field: "items", agentLimit: detail },
+      )
+    }
+  }
+}
+
+/** 409 when `agent` may not sell one of `productIds` (lib/product-restrictions-check.ts):
+ * an agent with a product / product type list sells only those products. An agent that is
+ * not set, unknown or without a list is not restricted. */
+async function assertProductsAllowed(db: PgDb, agent: string, productIds: Array<number | null | undefined>): Promise<void> {
+  if (!nameKey(agent) || NOT_SET.has(nameKey(agent))) return
+  const ids = productIds.filter((id): id is number => typeof id === "number" && id > 0)
+  if (!ids.length) return
+  const violation = await findRestrictedProducts(db, { agent, productIds: ids })
+  if (violation) throw new OrderError(PRODUCT_RESTRICTION_DENIED, 409, { field: "items", productRestriction: violation })
 }
 
 // ---------------------------------------------------------------------------
@@ -681,6 +1051,16 @@ async function lockOrders(db: PgDb) {
   await db.exec("SELECT pg_advisory_xact_lock(72120932)")
 }
 
+/** The stock lock of the warehouses an order write may reserve / ship from: the same
+ * transaction-scoped lock as every other stock document (write-offs, transfers, supplier
+ * returns, supply / client-return unaccept), so their stock checks and the order's
+ * availability check see each other. Lock order: orders lock → warehouse lock, and it is
+ * taken before the order row is locked (FOR UPDATE), the order a warehouse rename uses
+ * (warehouse lock → orders rows), so the two never wait on each other in a cycle. */
+async function lockOrderWarehouses(db: PgDb, warehouses: Array<string | null | undefined>): Promise<void> {
+  await lockWarehouseStock(db, warehouses.map((name) => String(name ?? "")))
+}
+
 function nowIso(): string {
   return new Date().toISOString()
 }
@@ -693,6 +1073,9 @@ async function prepareWrites() {
   // wait for the stock check.
   await ensureStockSchema()
   await ensureFinanceSchema()
+  // The product restriction tables (and the move of the older name-based table): the order
+  // checks below read them inside the transaction and never run DDL there.
+  await ensureProductRestrictionsSchema()
 }
 
 export async function createOrder(input: OrderCreateInput, user: { displayName: string }): Promise<Order> {
@@ -717,15 +1100,27 @@ export async function createOrder(input: OrderCreateInput, user: { displayName: 
     const lineCurrency = lines.find((line) => line.currency?.trim())?.currency
     if (!currency && lineCurrency) currency = await resolveCurrency(tx, lineCurrency)
     currency ??= await baseCurrency(tx)
+    // Reserving / shipping stock: the warehouse's stock lock, before its name is resolved, so a
+    // rename of that warehouse either finished before (the new name resolves) or waits for this order.
+    if (lines.length && STOCK_STATUSES.includes(status)) await lockOrderWarehouses(tx, [input.warehouse])
     const warehouse = input.warehouse?.trim() ? await resolveWarehouse(tx, input.warehouse) : ""
     const agentDefault = !NOT_SET.has(nameKey(client.agent ?? "")) ? client.agent : user.displayName
     const agent = input.agent?.trim() ? (await resolveEmployee(tx, input.agent, "agent", "Агент")) || agentDefault : agentDefault
     const deliveryMan = input.deliveryMan?.trim() ? await resolveEmployee(tx, input.deliveryMan, "deliveryMan", "Доставщик") : ""
+    const organization = await resolveOrderOrganization(tx, input.organization, { clientId: client.id, agent, warehouse })
     const resolved: ResolvedLine[] = []
     for (const line of lines) resolved.push(await resolveLine(tx, line, currency))
     if (resolved.length && STOCK_STATUSES.includes(status)) {
       if (!warehouse) throw new OrderError("Укажите склад заказа", 400, { field: "warehouse" })
+      // Already held unless the resolved name keys differently from the text sent (no-op then).
+      await lockOrderWarehouses(tx, [warehouse])
       await assertAvailable(warehouse, resolved.map((line) => ({ key: lineKey(line.productId, line.productName), name: line.productName, quantity: line.quantity })), new Map())
+    }
+    // A new order that is not cancelled: its agent must be allowed to sell every product, and it
+    // counts towards the agent's product limits.
+    if (!isCancelledStatus(status)) {
+      await assertProductsAllowed(tx, agent, resolved.map((line) => line.productId))
+      await assertAgentLimits(tx, { agent, after: quantitiesByProduct(resolved) })
     }
     const total = resolved.reduce((sum, line) => sum + line.quantity * line.unitPrice * (1 - line.discountPercent / 100), 0)
     if (total > MAX_MONEY) throw new OrderError("Сумма заказа слишком большая", 400, { field: "items" })
@@ -756,7 +1151,7 @@ export async function createOrder(input: OrderCreateInput, user: { displayName: 
         discount: input.discount?.trim() || null,
         paymentDate: input.paymentDate ?? "",
         paymentType: input.paymentType ?? "",
-        organization: input.organization?.trim() ?? "",
+        organization,
         warehouse,
         deliveryMan,
         shippedAt: RELEASED_STATUSES.includes(status) ? nowIso() : null,
@@ -786,7 +1181,7 @@ async function insertLine(db: PgDb, orderId: number, line: ResolvedLine, currenc
 }
 
 /** Fields that may still change once the order is final (Доставлено / Отменен). */
-const FINAL_EDITABLE = new Set(["paymentDate", "comment", "invoiceNumber", "invoiceDate", "invoiceActive", "contract"])
+const FINAL_EDITABLE = new Set(["paymentDate", "comment", "invoiceNumber", "invoiceDate", "invoiceActive", "contract", "organization"])
 /** Fields fixed once the goods left the warehouse (В пути). */
 const SHIPPED_FIXED = new Set(["clientId", "client", "amount", "currency", "warehouse"])
 /** API field → orders column (text fields compared against the stored value). */
@@ -815,6 +1210,11 @@ export async function updateOrder(id: number, patch: OrderUpdateInput, user: { d
   await prepareWrites()
   const found = await withTransaction(async (tx) => {
     await lockOrders(tx)
+    // Only a status or warehouse change can reserve / ship stock (assertAvailable below).
+    if (patch.status !== undefined || patch.warehouse !== undefined) {
+      const head = (await tx.prepare("SELECT warehouse FROM orders WHERE id = ?").get(id)) as { warehouse: string | null } | undefined
+      if (head) await lockOrderWarehouses(tx, [head.warehouse, patch.warehouse])
+    }
     const current = (await tx.prepare("SELECT * FROM orders WHERE id = ? FOR UPDATE").get(id)) as OrderRow | undefined
     if (!current) return false
     const items = await listItemRows(tx, id)
@@ -904,7 +1304,6 @@ export async function updateOrder(id: number, patch: OrderUpdateInput, user: { d
       ["discount", "discount"],
       ["paymentDate", "payment_date"],
       ["paymentType", "payment_type"],
-      ["organization", "organization"],
       ["priceList", "price_list"],
       ["comment", "comment"],
       ["deliveryType", "delivery_type"],
@@ -921,6 +1320,16 @@ export async function updateOrder(id: number, patch: OrderUpdateInput, user: { d
     if (patch.product !== undefined && !items.length && patch.product.trim() !== current.product) sets("product", patch.product.trim() || "—")
     if (patch.invoiceActive !== undefined && (patch.invoiceActive ? 1 : 0) !== (current.invoice_active ?? 0)) sets("invoice_active", patch.invoiceActive ? 1 : 0)
 
+    // Agent limits: a not cancelled order counts towards its agent's limits, so a new agent
+    // (or an order that comes back from a cancelled status) must still fit them.
+    if (items.length && !isCancelledStatus(target)) {
+      const agentAfter = (next.agent as string | undefined) ?? current.agent
+      const counted = !isCancelledStatus(from) && nameKey(agentAfter) === nameKey(current.agent)
+      // A new agent (or an order back from Отменен) must be allowed to sell every line.
+      if (!counted) await assertProductsAllowed(tx, agentAfter, items.map((item) => item.product_id))
+      await assertAgentLimits(tx, { agent: agentAfter, orderId: id, createdAt: current.created_at, after: itemsByProduct(items), before: counted ? itemsByProduct(items) : undefined })
+    }
+
     // Status and stock
     if (target !== from) sets("status", target)
     if (items.length && STOCK_STATUSES.includes(target)) {
@@ -930,11 +1339,43 @@ export async function updateOrder(id: number, patch: OrderUpdateInput, user: { d
       const moved = "warehouse" in next
       const unknownFrom = !(ORDER_STATUSES as readonly string[]).includes(from)
       if (entering || releasing || moved || unknownFrom) {
+        // Already held unless the resolved name keys differently from the text sent (no-op then).
+        await lockOrderWarehouses(tx, [warehouse])
         await assertAvailable(warehouse, needsOf(items), reservedBy(current, items, warehouse))
       }
     }
     if (RELEASED_STATUSES.includes(target) && !RELEASED_STATUSES.includes(from)) sets("shipped_at", nowIso())
     if (!RELEASED_STATUSES.includes(target) && current.shipped_at) sets("shipped_at", null)
+
+    // Organization: a chosen one must be known (400). A cleared one, or the empty
+    // one of an older order that changes now, takes the default of the order's
+    // client / agent / warehouse (resolveOrderOrganization). When the client, agent
+    // or warehouse changes and no organization is sent, an organization that was
+    // the default of the old ones follows the new ones; one chosen by hand stays.
+    const storedOrganization = current.organization ?? ""
+    let organization: string | undefined
+    const organizationHints = {
+      clientId: (next.client_id as number | undefined) ?? current.client_id,
+      agent: (next.agent as string | undefined) ?? current.agent,
+      warehouse,
+    }
+    if (patch.organization !== undefined) organization = await resolveOrderOrganization(tx, patch.organization, organizationHints)
+    else if (!placeName(storedOrganization) && Object.keys(next).length) organization = await resolveOrderOrganization(tx, "", organizationHints)
+    else if ("client_id" in next || "agent" in next || "warehouse" in next) {
+      const before = await resolveOrderOrganization(tx, "", { clientId: current.client_id, agent: current.agent, warehouse: current.warehouse ?? "" })
+      if (nameKey(before) === nameKey(storedOrganization)) {
+        const after = await resolveOrderOrganization(tx, "", organizationHints)
+        if (after) organization = after
+      }
+    }
+    if (organization !== undefined && organization !== storedOrganization && (organization || patch.organization !== undefined)) sets("organization", organization)
+    // The order's payments (and returns, once they carry an organization) took the
+    // order's organization when they were made: they move with it, so the order's
+    // debt and its payments stay under the same organization. A payment of another
+    // organization (chosen by hand) keeps its own.
+    if ("organization" in next && placeName(String(next.organization ?? "")) && nameKey(String(next.organization)) !== nameKey(storedOrganization)) {
+      await moveLinkedOrganization(tx, id, storedOrganization, String(next.organization ?? ""))
+    }
 
     const changedColumns = Object.keys(next)
     const currencyChanged = "currency" in next
@@ -977,6 +1418,11 @@ export async function writeOrderLine(orderId: number, op: LineOp, user: { displa
   await prepareWrites()
   return withTransaction(async (tx) => {
     await lockOrders(tx)
+    // Adding / changing a line of a reserved order re-checks its warehouse's stock (assertAvailable below).
+    if (op.kind !== "delete") {
+      const head = (await tx.prepare("SELECT status, warehouse FROM orders WHERE id = ?").get(orderId)) as { status: string; warehouse: string | null } | undefined
+      if (head && STOCK_STATUSES.includes(head.status)) await lockOrderWarehouses(tx, [head.warehouse])
+    }
     const order = (await tx.prepare("SELECT * FROM orders WHERE id = ? FOR UPDATE").get(orderId)) as OrderRow | undefined
     if (!order) throw new OrderError("Заказ не найден", 404)
     const known = (ORDER_STATUSES as readonly string[]).includes(order.status)
@@ -995,6 +1441,22 @@ export async function writeOrderLine(orderId: number, op: LineOp, user: { displa
       // New lines take the order currency; a legacy line of another currency keeps its own.
       const expected = existing && existing.currency && existing.currency.toUpperCase() !== currency.toUpperCase() ? existing.currency : currency
       resolved = await resolveLine(tx, op.line, expected)
+    }
+    // Product restrictions: a line that is added, changes its product or grows.
+    if (resolved && !isCancelledStatus(order.status)) {
+      const grows = !existing || existing.product_id !== resolved.productId || resolved.quantity > Number(existing.quantity) + 1e-9
+      if (grows) await assertProductsAllowed(tx, order.agent, [resolved.productId])
+    }
+    // Agent limits: the order's quantity per product after the change (only growth is checked).
+    if (resolved && !isCancelledStatus(order.status)) {
+      const others = items.filter((item) => !existing || item.id !== existing.id)
+      await assertAgentLimits(tx, {
+        agent: order.agent,
+        orderId,
+        createdAt: order.created_at,
+        after: quantitiesByProduct([...others.map((item) => ({ productId: item.product_id, productName: item.product_name, quantity: Number(item.quantity) })), resolved]),
+        before: itemsByProduct(items),
+      })
     }
     // Stock of a reserved order: the order's quantities after the change.
     if (resolved && STOCK_STATUSES.includes(order.status)) {

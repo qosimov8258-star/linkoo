@@ -2,10 +2,22 @@ import "server-only"
 
 import { z } from "zod"
 
-import { getDb, withTransaction, type PgDb } from "@/lib/db"
+import { getDb, outsideTransaction, withTransaction, type PgDb } from "@/lib/db"
 import type { ReturnItem, SupplierReturn } from "@/components/analytics/supplier-returns-data"
-import { nowLocalIso, parseAnyDay } from "@/lib/finance/dates"
-import { catalogIndex, findShortages, lockWarehouseStock, resolveLine, shortageMessage, warehouseStock, type CatalogIndex } from "@/lib/internal-transfers-stock"
+import { parseDocDay, type DocDate } from "@/lib/document-dates"
+import { nowLocalIso, parseAnyDay, todayIso } from "@/lib/finance/dates"
+import {
+  catalogIndex,
+  findShortages,
+  lockNamedWarehouse,
+  lockWarehousesOf,
+  lockWarehouseStock,
+  resolveLine,
+  shortageMessage,
+  warehouseStock,
+  type CatalogIndex,
+} from "@/lib/internal-transfers-stock"
+import { ensureStockSchema } from "@/lib/stock/schema"
 import {
   ensureProcurementFunctions,
   findBranch,
@@ -28,7 +40,10 @@ import {
 // Every reference must exist (supplier, warehouse, branch, organization,
 // currency, catalog products) and lines must have qty > 0, price ≥ 0; a hand-over
 // is refused while the warehouse does not hold the goods. On hand-over the
-// currency rate is kept in rate_to_base (contract 2).
+// currency rate is kept in rate_to_base (contract 2). The return date is stored as
+// "YYYY-MM-DD" like supplies (any typed format is accepted on input; year 2000..2100,
+// not after today — lib/document-dates.ts); older rows typed as "19.10.2026" or
+// "20 октября 2026" are read back as "YYYY-MM-DD" too (the stored text is not rewritten).
 
 type Row = {
   id: number
@@ -91,12 +106,14 @@ async function installSchema(): Promise<void> {
 
 async function returnsDb(): Promise<PgDb> {
   if (!globalThis.__linkoReturnsSchemaReadyV2) {
-    globalThis.__linkoReturnsSchemaReadyV2 = installSchema().catch((error) => {
+    globalThis.__linkoReturnsSchemaReadyV2 = outsideTransaction(installSchema).catch((error) => {
       globalThis.__linkoReturnsSchemaReadyV2 = undefined
       throw error
     })
   }
   await globalThis.__linkoReturnsSchemaReadyV2
+  // The stock core's own DDL runs outside the transactions that read it (hand-over check).
+  await ensureStockSchema()
   return getDb()
 }
 
@@ -115,7 +132,8 @@ function rowToReturn(row: Row): SupplierReturn {
     fromWhom: row.from_whom,
     warehouse: row.warehouse,
     addedBy: row.added_by,
-    date: row.date,
+    // Older rows keep the typed text ("19.10.2026", "20 октября 2026"): read back as YYYY-MM-DD.
+    date: parseAnyDay(row.date) ?? row.date,
     time: row.time,
     amount: Number(row.amount) || 0,
     status: row.status as SupplierReturn["status"],
@@ -135,7 +153,7 @@ function rowToReturn(row: Row): SupplierReturn {
 
 const RU_MONTHS = ["января", "февраля", "марта", "апреля", "мая", "июня", "июля", "августа", "сентября", "октября", "ноября", "декабря"]
 
-/** "19 октября 2026" of a YYYY-MM-DD day (the format the page shows). */
+/** "19 октября 2026" of a YYYY-MM-DD day (the hand-over / cancel stamps). */
 function ruDay(day: string): string {
   const [y, m, d] = day.split("-")
   return `${d} ${RU_MONTHS[Number(m) - 1] ?? ""} ${y}`
@@ -174,7 +192,7 @@ export const supplierReturnSchema = z
     currency: optionalText(12),
     priceList: optionalText(255),
     paymentType: optionalText(100),
-    /** Any parseable date (default today). */
+    /** Any parseable date (default today); stored as YYYY-MM-DD. */
     date: optionalText(60),
     comment: optionalText(2000),
     items: z.array(returnItemSchema, { error: "Добавьте товары" }).min(1, "Добавьте товары").max(1000, "Не более 1000 строк"),
@@ -223,7 +241,7 @@ export function parseSupplierReturnInput(body: SupplierReturnBody): SupplierRetu
 }
 
 /** Canonical references; a 400 ProcurementError with every field error otherwise. */
-async function resolveReturn(tx: PgDb, input: SupplierReturnInput, index: CatalogIndex): Promise<SupplierReturnInput> {
+async function resolveReturn(tx: PgDb, input: SupplierReturnInput, index: CatalogIndex, keepDate?: string): Promise<SupplierReturnInput> {
   const fields: Record<string, string> = {}
   const supplier = await findSupplier(tx, input.fromWhom)
   if (!supplier) fields.fromWhom = "Поставщик не найден"
@@ -243,9 +261,10 @@ async function resolveReturn(tx: PgDb, input: SupplierReturnInput, index: Catalo
   }
   const currency = await findCurrency(tx, input.currency || null)
   if (!currency) fields.currency = "Неизвестная валюта"
-  let date = input.date
-  if (!date) date = ruDay(nowLocalIso().slice(0, 10))
-  else if (!parseAnyDay(date)) fields.date = "Неверная дата"
+  // A supply document: any typed format, stored as "YYYY-MM-DD" (default today); year 2000..2100
+  // and never after today, except an edit keeping its own day (lib/document-dates.ts).
+  const day: DocDate = input.date ? parseDocDay(input.date, { current: keepDate }) : { ok: true, date: todayIso() }
+  if (!day.ok) fields.date = day.error
   const items = input.items.map((item, position) => {
     const line = resolveLine(index, { key: item.key, product: item.product })
     if (!line.item) fields[`items.${position}.product`] = "Товар не найден в каталоге"
@@ -255,7 +274,7 @@ async function resolveReturn(tx: PgDb, input: SupplierReturnInput, index: Catalo
   })
   const messages = Object.values(fields)
   if (messages.length) throw new ProcurementError(messages[0], 400, fields)
-  return { ...input, fromWhom: supplier!.name, warehouse: warehouse!.name, branch, organization, currency: currency!.code, date, items }
+  return { ...input, fromWhom: supplier!.name, warehouse: warehouse!.name, branch, organization, currency: currency!.code, date: day.ok ? day.date : "", items }
 }
 
 function amountOf(input: SupplierReturnInput) {
@@ -287,9 +306,13 @@ async function lockReturn(tx: PgDb, id: number): Promise<SupplierReturn | null> 
 /** Throws a 400 ProcurementError for unknown references / bad lines. */
 export async function createSupplierReturn(draft: SupplierReturnInput, userName: string): Promise<SupplierReturn> {
   await returnsDb()
+  // The warehouse as the request found it, read again under its lock below (rename race).
+  const seen = await findWarehouse(getDb(), draft.warehouse)
   return withTransaction(async (tx) => {
-    await lockWarehouseStock(tx, [draft.warehouse])
-    const input = await resolveReturn(tx, draft, await catalogIndex(tx))
+    // The warehouse's stock lock (as the rename takes it): a rename that committed since `seen`
+    // resolves to the new name, one still to come waits for this return (lockNamedWarehouse).
+    const warehouse = await lockNamedWarehouse(tx, draft.warehouse, seen)
+    const input = await resolveReturn(tx, { ...draft, warehouse }, await catalogIndex(tx))
     const result = await tx
       .prepare(
         `INSERT INTO supplier_returns (
@@ -324,12 +347,14 @@ export type ReturnChange = SupplierReturn | "not_found" | "locked"
 /** Only a return that hasn't been handed over yet can be edited. */
 export async function updateSupplierReturn(id: number, draft: SupplierReturnInput): Promise<ReturnChange> {
   await returnsDb()
+  const seen = await findWarehouse(getDb(), draft.warehouse)
   return withTransaction(async (tx) => {
+    // Lock order (C1): the stock lock before the row lock (rename race: see createSupplierReturn).
+    const warehouse = await lockNamedWarehouse(tx, draft.warehouse, seen)
     const current = await lockReturn(tx, id)
     if (!current) return "not_found"
     if (current.status !== "в процессе") return "locked"
-    await lockWarehouseStock(tx, [draft.warehouse])
-    const input = await resolveReturn(tx, draft, await catalogIndex(tx))
+    const input = await resolveReturn(tx, { ...draft, warehouse }, await catalogIndex(tx), current.date)
     await tx
       .prepare(
         `UPDATE supplier_returns SET
@@ -386,10 +411,13 @@ function assertGivable(current: SupplierReturn, index: CatalogIndex) {
 }
 
 /** "Передать" hands the goods over (they leave the warehouse; 409 while it does not
- * hold them); "Отменить" cancels a return that is in progress or undoes a completed one. */
+ * hold them on every day from the return's date on); "Отменить" cancels a return that
+ * is in progress or undoes a completed one. */
 export async function changeSupplierReturnStatus(id: number, action: "give" | "cancel", userName: string): Promise<ReturnChange> {
   await returnsDb()
   return withTransaction(async (tx) => {
+    // Lock order (C1): a hand-over moves stock — the warehouse's stock lock before the row lock.
+    if (action === "give") await lockWarehousesOf(tx, "SELECT warehouse FROM supplier_returns WHERE id = @id", { id })
     const current = await lockReturn(tx, id)
     if (!current) return "not_found"
     const stamp = ruStamp()
@@ -399,7 +427,9 @@ export async function changeSupplierReturnStatus(id: number, action: "give" | "c
       const index = await catalogIndex(tx)
       assertGivable(current, index)
       if (!(await findSupplier(tx, current.fromWhom))) throw new ProcurementError("Поставщик не найден", 409, { fromWhom: "Поставщик не найден" })
-      const stock = await warehouseStock(current.warehouse, undefined, tx)
+      // The stock core books the hand-over on the return's date (never after the hand-over
+      // itself), so the goods must be there from that day on — every later day included.
+      const stock = await warehouseStock(current.warehouse, parseAnyDay(current.date) ?? undefined, tx)
       const shortages = findShortages(
         current.items.map((item) => ({ product: item.product, quantity: Number(item.qty) || 0 })),
         index,

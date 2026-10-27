@@ -1,7 +1,7 @@
 import "server-only"
 
 import type { PgDb } from "@/lib/db"
-import { currencyLabel, DEFAULT_CURRENCY_CODES, normCurrency } from "@/lib/finance/currency"
+import { currencyLabel, normCurrency } from "@/lib/finance/currency"
 import type { FinanceCurrency } from "@/lib/finance/types"
 
 export type CurrencyContext = {
@@ -14,7 +14,10 @@ export type CurrencyContext = {
 type CurrencyRow = { id: number; name: string; code: string; rate: number | null; is_base: number }
 
 /** Currencies from the currencies table (canonical codes, base first, then by
- * id). With an empty table: SUM (base, rate 1), USD, EUR without rates. */
+ * id). With an empty table (a fresh install before its first currency) the list
+ * is empty: SUM is only the internal unit (`base`, rate 1), not a listed currency,
+ * so every money write is refused with "Валюта не найдена" until the first
+ * currency is created — that one becomes the base (lib/currencies-repo.ts). */
 export async function loadCurrencyContext(db: PgDb): Promise<CurrencyContext> {
   const rows = (await db.prepare("SELECT id, name, code, rate, is_base FROM currencies ORDER BY is_base DESC, id").all()) as CurrencyRow[]
   const currencies: FinanceCurrency[] = []
@@ -23,9 +26,7 @@ export async function loadCurrencyContext(db: PgDb): Promise<CurrencyContext> {
     if (currencies.some((currency) => currency.code === code)) continue
     currencies.push({ code, label: currencyLabel(code), name: row.name, rate: row.rate ? Number(row.rate) : null, isBase: Boolean(row.is_base), id: row.id })
   }
-  if (!currencies.length) {
-    for (const code of DEFAULT_CURRENCY_CODES) currencies.push({ code, label: currencyLabel(code), name: code, rate: code === "SUM" ? 1 : null, isBase: code === "SUM", id: null })
-  }
+  if (!currencies.length) return { base: "SUM", currencies: [], rates: { SUM: 1 } }
   let base = currencies.find((currency) => currency.isBase)
   if (!base) {
     base = currencies.find((currency) => currency.code === "SUM") ?? currencies[0]
@@ -47,9 +48,9 @@ export function withSeenCodes(ctx: CurrencyContext, codes: Iterable<string>): Cu
   return { ...ctx, currencies, rates: { ...ctx.rates, ...Object.fromEntries(extra.map((code) => [code, null])) } }
 }
 
-/** Canonical code of `value` when it is a currency of the currencies table
- * (SUM / USD / EUR when the table is empty), else null — the check every
- * money write does before storing a currency ("Валюта не найдена"). */
+/** Canonical code of `value` when it is a currency of the currencies table,
+ * else null (always null while the table is empty) — the check every money
+ * write does before storing a currency ("Валюта не найдена"). */
 export async function resolveCurrencyCode(db: PgDb, value: string | null | undefined): Promise<string | null> {
   if (!String(value ?? "").trim()) return null
   const code = normCurrency(value)

@@ -11,10 +11,11 @@ import {
   SUBSCRIPTION_PERIODS,
   SUBSCRIPTION_STATUSES,
 } from "@/lib/subscriptions-repo"
+import { strictNum } from "@/lib/strict-number"
 
 const subscriptionSchema = z.object({
   planName: z.string().trim().min(1).max(255, "Не более 255 символов"),
-  price: z.coerce.number().finite().optional(),
+  price: strictNum(z.number().finite().optional()),
   billingPeriod: z.enum(SUBSCRIPTION_PERIODS).optional(),
   status: z.enum(SUBSCRIPTION_STATUSES).optional(),
   renewsAt: z.string().optional(),

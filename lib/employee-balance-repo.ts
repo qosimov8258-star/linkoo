@@ -1,6 +1,6 @@
 import "server-only"
 
-import { getDb, withTransaction, type PgDb } from "@/lib/db"
+import { getDb, outsideTransaction, withTransaction, type PgDb } from "@/lib/db"
 import { loadCurrencyContext } from "@/lib/finance/context"
 import { ledgerCurrency, normCurrency } from "@/lib/finance/currency"
 import { nowLocalIso, parseAnyDate } from "@/lib/finance/dates"
@@ -79,9 +79,9 @@ async function createSchema(db: PgDb) {
   `)
 }
 
-function ensureSchema(db: PgDb = getDb()): Promise<void> {
+function ensureSchema(): Promise<void> {
   if (!globalThis.__linkoEmployeeBalanceSchema) {
-    globalThis.__linkoEmployeeBalanceSchema = createSchema(db).catch((error) => {
+    globalThis.__linkoEmployeeBalanceSchema = outsideTransaction(() => createSchema(getDb())).catch((error) => {
       globalThis.__linkoEmployeeBalanceSchema = undefined
       throw error
     })
@@ -114,7 +114,7 @@ function businessDate(value: string | undefined): string {
   return (value ? parseAnyDate(value) : null)?.slice(0, 16) ?? nowLocalIso().slice(0, 16)
 }
 
-/** Canonical code when the currency is known (currencies table, or SUM/USD/EUR when it is empty). */
+/** Canonical code when the currency is in the currencies table (none while it is empty). */
 async function knownCurrency(db: PgDb, value: string): Promise<string | null> {
   const code = normCurrency(value)
   const context = await loadCurrencyContext(db)
@@ -124,7 +124,7 @@ async function knownCurrency(db: PgDb, value: string): Promise<string | null> {
 /** Raw manual movements, newest first (optionally of one employee). */
 export async function listEmployeeBalanceTransactions(filter: { employeeId?: number } = {}): Promise<EmployeeBalanceTransaction[]> {
   const db = getDb()
-  await ensureSchema(db)
+  await ensureSchema()
   const rows = (
     filter.employeeId
       ? await db.prepare(`${SELECT_TX} WHERE t.employee_id = ? ORDER BY t.id DESC`).all(filter.employeeId)
@@ -134,7 +134,7 @@ export async function listEmployeeBalanceTransactions(filter: { employeeId?: num
 }
 
 export async function getEmployeeBalanceTransaction(id: number, db: PgDb = getDb()): Promise<EmployeeBalanceTransaction | null> {
-  await ensureSchema(db)
+  await ensureSchema()
   const row = (await db.prepare(`${SELECT_TX} WHERE t.id = ?`).get(id)) as Row | undefined
   return row ? toTransaction(row) : null
 }

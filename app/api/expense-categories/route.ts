@@ -5,7 +5,7 @@ import { categoryListQuerySchema, expenseCategoryInputSchema, searchParamsObject
 import { getCurrentUser } from "@/lib/current-user"
 import { createExpenseCategory, listExpenseCategories, listExpenseCategoriesPage } from "@/lib/expense-categories-repo"
 import { requireRole } from "@/lib/rbac"
-import { parseJsonBody } from "@/lib/validation"
+import { notSignedInResponse, parseJsonBody, zodErrorResponse } from "@/lib/validation"
 
 // GET /api/expense-categories — plain array [{id, name, parameter, options, parentId, parentName,
 // direct, excludeFromPnl, createdDate}] (id DESC) for the category selects of the other pages; optional ?search=
@@ -14,10 +14,10 @@ import { parseJsonBody } from "@/lib/validation"
 // by ?ordering (default name) — demo GET finance/expense_category/.
 export async function GET(request: Request) {
   const user = await getCurrentUser()
-  if (!user) return NextResponse.json({ error: "Tizimga kirilmagan" }, { status: 401 })
+  if (!user) return notSignedInResponse()
   const params = new URL(request.url).searchParams
   const query = categoryListQuerySchema.safeParse(searchParamsObject(params))
-  if (!query.success) return NextResponse.json({ error: "Ma'lumotlar noto'g'ri", details: query.error.flatten() }, { status: 400 })
+  if (!query.success) return zodErrorResponse(query.error)
   if (wantsPagedList(params)) return NextResponse.json(await listExpenseCategoriesPage(query.data))
   return NextResponse.json(await listExpenseCategories(query.data.search ?? "", query.data.ordering ?? ""))
 }

@@ -1,6 +1,6 @@
 import "server-only"
 
-import { withTransaction } from "@/lib/db"
+import { outsideTransaction, withTransaction } from "@/lib/db"
 
 // Storage of "Входящие счет фактуры" (spec: scratchpad extra/spec-invoice-incomings.md).
 //
@@ -96,7 +96,7 @@ async function installSchema(): Promise<void> {
 /** Creates / extends the invoice tables once per process. Call before any transaction. */
 export async function ensureInvoiceIncomingsSchema(): Promise<void> {
   if (globalThis.__linkoInvoiceIncomingsSchema?.version !== SCHEMA_VERSION) {
-    const ready = installSchema().catch((error) => {
+    const ready = outsideTransaction(installSchema).catch((error) => {
       globalThis.__linkoInvoiceIncomingsSchema = undefined
       throw error
     })

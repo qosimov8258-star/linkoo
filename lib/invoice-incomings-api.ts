@@ -3,24 +3,27 @@ import "server-only"
 import { NextResponse } from "next/server"
 import { z } from "zod"
 
+import { dbErrorResponse } from "@/lib/db-errors"
 import { normCurrency } from "@/lib/finance/currency"
 import { InvoiceError } from "@/lib/invoice-incomings-repo"
 import { MAX_MONEY, MAX_QTY } from "@/lib/supplier-refs"
 import { INVOICE_TABS, type InvoiceInput, type InvoiceListQuery, type InvoiceTab } from "@/lib/invoice-incomings-types"
-import { parseIdSegment } from "@/lib/validation"
+import { parseIdSegment, invalidFieldResponse } from "@/lib/validation"
+import { dbId, INVALID_ID, strictNum, strictNumber } from "@/lib/strict-number"
 
 // HTTP helpers of /api/invoice-incomings/** (route files export only handlers).
 
 export type Parsed<T> = { data: T; error?: undefined } | { data?: undefined; error: NextResponse }
 
 function bad(name: string, hint: string) {
-  return NextResponse.json({ error: "Ma'lumotlar noto'g'ri", details: { fieldErrors: { [name]: [hint] } } }, { status: 400 })
+  return invalidFieldResponse(name, hint)
 }
 
 const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/
 
 function ids(values: string[]): number[] {
-  return [...new Set(values.flatMap((value) => value.split(/[-,]/)).map(Number).filter((value) => Number.isInteger(value) && value > 0))]
+  // Out-of-range ids (above int4) are dropped: they never reach Postgres.
+  return [...new Set(values.flatMap((value) => value.split(/[-,]/)).map((value) => parseIdSegment(value.trim())).filter((value): value is number => value !== null))]
 }
 
 /**
@@ -31,9 +34,10 @@ export function parseInvoiceListQuery(url: string): Parsed<InvoiceListQuery> {
   const search = new URL(url).searchParams
   const tab = (search.get("status") ?? search.get("tab") ?? "all").trim().toLowerCase() || "all"
   if (!INVOICE_TABS.includes(tab as InvoiceTab)) return { error: bad("status", INVOICE_TABS.join(" | ")) }
-  const page = Number(search.get("page") ?? 1)
-  const pageSize = Number(search.get("pageSize") ?? 25)
-  if (!Number.isInteger(page) || page < 1) return { error: bad("page", ">= 1") }
+  const page = strictNumber(search.get("page") ?? 1)
+  const pageSize = strictNumber(search.get("pageSize") ?? 25)
+  // Bounded like the other lists (dictionaries-schema): page 1e20 overflowed the bigint OFFSET (500).
+  if (!Number.isInteger(page) || page < 1 || page > 1_000_000) return { error: bad("page", "1..1000000") }
   if (!Number.isInteger(pageSize) || pageSize < 0 || pageSize > 5000) return { error: bad("pageSize", "0..5000") }
   const fromDate = (search.get("fromDate") ?? "").trim()
   const toDate = (search.get("toDate") ?? "").trim()
@@ -56,18 +60,21 @@ export function parseInvoiceListQuery(url: string): Parsed<InvoiceListQuery> {
   }
 }
 
-const optionalId = z.preprocess((value) => (value === "" || value === undefined ? null : value), z.coerce.number().int().positive().max(2_147_483_647).nullable())
+const optionalId = z.preprocess((value) => (value === "" || value === undefined ? null : value), dbId().nullable())
 const text = (max: number) => z.string().max(max).default("")
 
 const lineSchema = z.object({
   name: text(500),
   ikpu: text(40),
   unit: text(40),
-  quantity: z.coerce.number().finite().max(MAX_QTY),
-  price: z.coerce.number().finite().max(MAX_MONEY),
-  vatRate: z.preprocess((value) => (value === "" || value === undefined ? null : value), z.coerce.number().min(0).max(100).nullable()),
+  quantity: strictNum(z.number({ error: "Введите количество" }).finite("Введите количество").max(MAX_QTY, "Слишком большое количество"), "Введите количество"),
+  price: strictNum(z.number({ error: "Неверная цена" }).finite("Неверная цена").max(MAX_MONEY, "Слишком большая цена"), "Неверная цена"),
+  vatRate: z.preprocess(
+    (value) => (value === "" || value === undefined ? null : value),
+    strictNum(z.number({ error: "Неверная ставка НДС" }).min(0, "Неверная ставка НДС").max(100, "Неверная ставка НДС").nullable(), "Неверная ставка НДС"),
+  ),
   match: z
-    .object({ kind: z.enum(["product", "raw_material"]), id: z.coerce.number().int().positive() })
+    .object({ kind: z.enum(["product", "raw_material"]), id: dbId() })
     .nullable()
     .default(null),
 })
@@ -107,7 +114,8 @@ export const invoiceImportSchema = z.object({
   rows: z
     .array(
       z.object({
-        row: z.coerce.number().int().positive(),
+        // Spreadsheet row number: a whole number 1..int4 (1e20 → "Неверный идентификатор", not zod's English "Too big").
+        row: dbId(INVALID_ID),
         number: cell,
         date: cell,
         contractNumber: cell,
@@ -137,5 +145,7 @@ export function parseIdParam(value: string): number | null {
 
 export function invoiceErrorResponse(error: unknown): NextResponse {
   if (error instanceof InvoiceError) return NextResponse.json({ error: error.message, field: error.field ?? null }, { status: error.status })
+  const busy = dbErrorResponse(error)
+  if (busy) return busy
   throw error
 }

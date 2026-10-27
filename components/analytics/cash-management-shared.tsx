@@ -100,6 +100,31 @@ export function useCanWrite(): boolean {
   return canWrite
 }
 
+/** True when the signed-in user may change what every permission in `codes` covers
+ * (lib/capabilities-catalog.ts): role manager or admin and, for a user restricted by an
+ * access right (Права доступа), each code granted — the server rule of hasPermission in
+ * lib/rbac.ts. False while loading, so a hidden action never flashes. */
+export function useCanManage(codes: readonly string[]): boolean {
+  const key = codes.join(",")
+  const [allowed, setAllowed] = useState(false)
+  useEffect(() => {
+    let cancelled = false
+    fetch("/api/auth/me", { cache: "no-store" })
+      .then((response) => (response.ok ? (response.json() as Promise<{ role?: string; permissions?: string[] | null }>) : null))
+      .then((user) => {
+        if (cancelled || !user) return
+        const writer = user.role === "manager" || user.role === "admin"
+        const granted = user.role === "admin" || !Array.isArray(user.permissions) || key.split(",").filter(Boolean).every((code) => user.permissions!.includes(code))
+        setAllowed(writer && granted)
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [key])
+  return allowed
+}
+
 /** GET of a JSON array (lookups); [] while loading / on error; url = null skips. */
 export function useJsonList<T>(url: string | null): { items: T[]; loading: boolean } {
   const [state, setState] = useState<{ url: string | null; items: T[]; loading: boolean }>({ url: null, items: [], loading: false })

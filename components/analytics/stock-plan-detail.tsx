@@ -8,16 +8,29 @@ import { ConfirmDialog, ErrorBlock, FormField, LoadingBlock, inputClass } from "
 import { planDate, planQty } from "@/components/analytics/stock-plan-state"
 import { todayIso } from "@/lib/finance/dates"
 import { useLanguage } from "@/lib/i18n/language-context"
-import { PLAN_TYPE_LABELS, isHistoryTab, isReceiveTab, type PlanItemDetail, type PlanTaskRow, type PlanTaskTab } from "@/lib/stock-plan-types"
+import {
+  PLAN_TYPE_LABELS,
+  isHistoryTab,
+  isReceiveTab,
+  type PlanItemDetail,
+  type PlanPermission,
+  type PlanRights,
+  type PlanTaskRow,
+  type PlanTaskTab,
+} from "@/lib/stock-plan-types"
 
 // Expanded row of a task tab (demo 4891 / 4894): the document's products
 // (Товар | Тип товара | Кол-во, "Общее количество" when they share a unit) and
 // the side panel (who / when, Комментарий), plus the row action:
 //   Приемка           Поставка → PATCH /api/supplier-incomings/[id] {action:"accept"}
 //                     Передача → POST /api/internal-transfers/[id]/action {action:"accept"}
+//                     Возврат  → POST /api/stock/plan/returns/[id]/accept (stock in + client
+//                                credit; the plan's own route, so the stock permission is enough)
 //   Передача          Передача → … {action:"give"}; Заказ is read-only (orders module)
-//   История Приемки   Поставка → {action:"unaccept"}; Передача → {action:"cancel_accepted"}
+//   История Приемки   Поставка → {action:"unaccept"}; Передача → {action:"cancel_accepted"};
+//                     an accepted Возврат cannot be undone (no action)
 //   История Передачи  Передача still 'в пути' → {action:"cancel_given"}
+// An action is offered only when the user has the permission its endpoint needs.
 
 type PlanAction = {
   label: string
@@ -30,15 +43,26 @@ type PlanAction = {
   body: Record<string, string>
   /** Transfer give / accept: the dialog also asks for the date and a comment (POST …/action {date?, comment?}). */
   withNote: boolean
+  /** Permission the endpoint asks for (lib/capabilities-catalog.ts). */
+  permission: PlanPermission
 }
 
 export function planActionFor(tab: PlanTaskTab, row: Pick<PlanTaskRow, "type" | "id" | "status">): PlanAction | null {
-  const transfer = (action: string) => ({ url: `/api/internal-transfers/${row.id}/action`, method: "POST" as const, body: { action }, withNote: action === "give" || action === "accept" })
-  const supply = (action: string) => ({ url: `/api/supplier-incomings/${row.id}`, method: "PATCH" as const, body: { action }, withNote: false })
+  const transfer = (action: string) => ({
+    url: `/api/internal-transfers/${row.id}/action`,
+    method: "POST" as const,
+    body: { action },
+    withNote: action === "give" || action === "accept",
+    permission: "stock.manage" as const,
+  })
+  const supply = (action: string) => ({ url: `/api/supplier-incomings/${row.id}`, method: "PATCH" as const, body: { action }, withNote: false, permission: "procurement.manage" as const })
   const confirm = { label: "Принять", title: "Подтвердить Запрос", tone: "blue" as const, success: "Успешно принять" }
   const cancel = { label: "Отменить Запрос", title: "Отменить Запрос", tone: "red" as const, success: "Успешно отменено" }
   if (tab === "receive" && row.type === "supply" && row.status === "ожидает") return { ...confirm, ...supply("accept") }
   if (tab === "receive" && row.type === "transfer" && row.status === "в пути") return { ...confirm, ...transfer("accept") }
+  if (tab === "receive" && row.type === "order_return" && row.status === "pending") {
+    return { ...confirm, url: `/api/stock/plan/returns/${row.id}/accept`, method: "POST", body: {}, withNote: false, permission: "stock.manage" }
+  }
   if (tab === "transfer" && row.type === "transfer" && row.status === "потвержден") return { ...confirm, label: "Передать", success: "Успешно передан", ...transfer("give") }
   if (tab === "receive_history" && row.type === "supply" && row.status === "принят") return { ...cancel, ...supply("unaccept") }
   if (tab === "receive_history" && row.type === "transfer" && row.status === "принят") return { ...cancel, ...transfer("cancel_accepted") }
@@ -59,13 +83,14 @@ function Info({ label, value }: { label: string; value: string }) {
 export function StockPlanDetail({
   tab,
   row,
-  canWrite,
+  rights,
   onClose,
   onDone,
 }: {
   tab: PlanTaskTab
   row: PlanTaskRow
-  canWrite: boolean
+  /** The user's permissions: an action whose endpoint would refuse them is not offered. */
+  rights: PlanRights
   onClose: () => void
   /** After a successful action: snackbar text (the list reloads). */
   onDone: (message: string) => void
@@ -76,7 +101,8 @@ export function StockPlanDetail({
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState("")
   const [note, setNote] = useState({ date: todayIso(), comment: "" })
-  const action = canWrite ? planActionFor(tab, row) : null
+  const offered = planActionFor(tab, row)
+  const action = offered && rights[offered.permission] ? offered : null
   const data = detail.data
   const receive = isReceiveTab(tab)
 
@@ -113,7 +139,8 @@ export function StockPlanDetail({
     if (tab === "receive_history") info.push(["Дата приемки", planDate(data.acceptedAt, language)], ["Принял", data.acceptedBy])
     if (tab === "transfer_history") info.push(["Дата передачи", planDate(data.givenAt, language)], ["Передал", data.givenBy])
     if (tab === "receive" && row.type === "transfer") info.push(["Дата передачи", planDate(data.givenAt, language)], ["Передал", data.givenBy])
-    if (row.type !== "supply") info.push(["Дата доставки", planDate(data.plannedDate, language)], ["Доставщик", data.deliverer])
+    if (row.type === "order_return") info.push(["Дата возврата", planDate(data.plannedDate, language)], ["Доставщик", data.deliverer])
+    else if (row.type !== "supply") info.push(["Дата доставки", planDate(data.plannedDate, language)], ["Доставщик", data.deliverer])
     if (tab === "transfer_history" && data.acceptedAt) info.push(["Дата приемки", planDate(data.acceptedAt, language)], ["Принял", data.acceptedBy])
     info.push(["Создал", data.createdBy], ["Дата создания", planDate(data.createdAt, language)])
   }

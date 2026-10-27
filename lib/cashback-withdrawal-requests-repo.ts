@@ -2,9 +2,9 @@ import "server-only"
 
 import { z } from "zod"
 
-import { getDb, withTransaction, type PgDb } from "@/lib/db"
+import { getDb, outsideTransaction, withTransaction, type PgDb } from "@/lib/db"
 import { listCashboxesWithBalances } from "@/lib/cash/cashboxes"
-import { assertCashbackAvailable, CashError, clientCashbackBalance, loadClient, lockClientCashback, MAX_DB_ID, MAX_MONEY } from "@/lib/cash/common"
+import { assertCashbackAvailable, CashError, clientCashbackBalance, loadClient, lockClientCashback, MAX_MONEY } from "@/lib/cash/common"
 import { guardCashboxBalances } from "@/lib/cash/guard"
 import { ensureCashSchema } from "@/lib/cash/schema"
 import { insertCashbackPayout } from "@/lib/cashback-requests-payout"
@@ -20,6 +20,7 @@ import { loadCurrencyContext, withSeenCodes, type CurrencyContext } from "@/lib/
 import { currencyLabel, normCurrency, roundMoney } from "@/lib/finance/currency"
 import { nowLocalIso, parseAnyDate } from "@/lib/finance/dates"
 import { ensureLoyaltySchema } from "@/lib/loyalty-card-repo"
+import { dbId, strictNum } from "@/lib/strict-number"
 
 // "Запросы на снятие кэшбэка" (demo #/cashback-requests, telegram/cashback_request/).
 // Clients ask for a cashback payout from the Telegram bot; a manager confirms
@@ -85,7 +86,7 @@ async function install(): Promise<void> {
 export async function ensureCashbackRequestsSchema(): Promise<void> {
   const cached = globalThis.__linkoCashbackRequestsSchema
   if (!cached || cached.version !== SCHEMA_VERSION) {
-    const ready = install().catch((error: unknown) => {
+    const ready = outsideTransaction(install).catch((error: unknown) => {
       globalThis.__linkoCashbackRequestsSchema = undefined
       throw error
     })
@@ -100,7 +101,7 @@ export async function ensureCashbackRequestsSchema(): Promise<void> {
 
 const emptyToUndefined = (value: unknown) => (value === "" || value === null ? undefined : value)
 const text = (max: number) => z.preprocess(emptyToUndefined, z.string().trim().max(max).optional())
-const int = (min: number, max: number) => z.preprocess(emptyToUndefined, z.coerce.number().int().min(min).max(max).optional())
+const int = (min: number, max: number) => z.preprocess(emptyToUndefined, strictNum(z.number().int().min(min).max(max).optional()))
 
 export const cashbackRequestListQuerySchema = z.object({
   search: text(200),
@@ -116,9 +117,12 @@ export type CashbackRequestListQuery = z.infer<typeof cashbackRequestListQuerySc
 
 /** POST — creation path for the Telegram bot (the demo page has no create UI). */
 export const cashbackRequestCreateSchema = z.object({
-  clientId: z.coerce.number().int().positive().max(MAX_DB_ID),
-  amount: z.coerce.number().finite().positive().max(MAX_MONEY),
-  currency: z.string().trim().min(1).max(16),
+  clientId: dbId("Выберите клиента"),
+  amount: strictNum(
+    z.number({ error: "Введите сумму" }).finite("Введите сумму").positive("Введите сумму больше нуля").max(MAX_MONEY, "Слишком большая сумма"),
+    "Введите сумму",
+  ),
+  currency: z.string({ error: "Выберите валюту" }).trim().min(1, "Выберите валюту").max(16, "Выберите валюту"),
   comment: z.string().trim().max(500).optional(),
   /** Where the request came from (telegram, manager, …). */
   source: z.string().trim().max(40).optional(),
@@ -134,7 +138,7 @@ export const cashbackRequestDecisionSchema = z.preprocess(
     return { ...body, cashboxId: body.cashboxId ?? cashbox }
   },
   z.discriminatedUnion("status", [
-    z.object({ status: z.literal("confirmed"), cashboxId: z.coerce.number({ error: "Укажите кассу" }).int().positive({ error: "Укажите кассу" }).max(MAX_DB_ID, { error: "Касса не найдена" }) }),
+    z.object({ status: z.literal("confirmed"), cashboxId: dbId("Укажите кассу") }),
     z.object({ status: z.literal("rejected") }),
   ]),
 )

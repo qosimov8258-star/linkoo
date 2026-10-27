@@ -317,7 +317,7 @@ const toolReports: AnalyticsReport[] = [
     slug: "time-restrictions",
     label: "Ограничение времени",
     href: "/analytics/time-restrictions",
-    description: "Анализ ограничений по времени для задач и визитов.",
+    description: "Время, в которое агенты могут создавать и редактировать заказы.",
     group: "tools",
   },
   {

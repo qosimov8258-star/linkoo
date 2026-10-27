@@ -4,6 +4,8 @@ import { X } from "lucide-react";
 import { RI, RefButton, RefCard, RefHeader, RefIconButton, RefPage, RefTable, RefTabs, RefToolbar, usePaging } from "@/components/ref/list-kit";
 import { FormEvent, useMemo, useState } from "react";
 import { PROMO_SEED } from "./marketing-data";
+import { csvText } from "@/lib/csv";
+import { formatDateText } from "@/lib/i18n/format-date";
 import { useLanguage } from "@/lib/i18n/language-context";
 
 type Promo = {
@@ -26,7 +28,7 @@ const toDisplayDate = (value: string) => {
 };
 
 export function MarketingCampaignsView() {
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
   const [tab, setTab] = useState<Tab>("Активные");
   const [promos, setPromos] = useState(initialPromos);
   const [search, setSearch] = useState("");
@@ -42,7 +44,7 @@ export function MarketingCampaignsView() {
   }), [filterType, promos, search, tab]);
 
   const downloadCsv = () => {
-    const csv = [[t("№ акции"), t("Наименование"), t("Дата начала"), t("Дата завершения"), t("Тип акции")].join(";"), ...rows.map((row) => `${row.id};${row.name};${row.start};${row.end};${row.type}`)].join("\n");
+    const csv = csvText([[t("№ акции"), t("Наименование"), t("Дата начала"), t("Дата завершения"), t("Тип акции")], ...rows.map((row) => [row.id, row.name, formatDateText(row.start, language), formatDateText(row.end, language), t(row.type)])]);
     const url = URL.createObjectURL(new Blob(["\ufeff" + csv], { type: "text/csv;charset=utf-8" }));
     const link = document.createElement("a");
     link.href = url;
@@ -109,7 +111,7 @@ export function MarketingCampaignsView() {
           rows={pageRows}
           rowKey={(promo) => promo.id}
           empty={<div className="flex flex-col items-center"><img src="/robot-empty.png" alt="" className="w-[120px]" /><span className="-mt-[22px]">{t("По вашему запросу ничего не найдено")}</span></div>}
-          render={(promo) => [promo.id, promo.name, promo.start, promo.end, t(promo.type)]}
+          render={(promo) => [promo.id, promo.name, formatDateText(promo.start, language), formatDateText(promo.end, language), t(promo.type)]}
         />
       </RefCard>
 

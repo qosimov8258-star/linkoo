@@ -141,6 +141,9 @@ export function TopNav() {
   const [signingOut, setSigningOut] = useState(false)
   const [passwordOpen, setPasswordOpen] = useState(false)
   const [passwordRequired, setPasswordRequired] = useState(false)
+  // The API refused this page's data until the required change (403
+  // passwordChangeRequired): closing the dialog afterwards reloads the page.
+  const [reloadAfterPassword, setReloadAfterPassword] = useState(false)
   const accountRef = useRef<HTMLDivElement>(null)
   const brandRef = useRef<HTMLDivElement>(null)
   const notificationsRef = useRef<HTMLDivElement>(null)
@@ -306,7 +309,7 @@ export function TopNav() {
             aria-haspopup="menu"
             aria-expanded={brandMenuOpen}
             className="flex shrink-0 items-center rounded-md focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-white"
-            aria-label="Linko menyusi"
+            aria-label={t("Меню Linko")}
           >
             <span className="flex flex-col text-left leading-none">
               <span className="flex items-center">
@@ -477,7 +480,7 @@ export function TopNav() {
           type="button"
           onClick={() => setMobileOpen((current) => !current)}
           className="rounded-md p-2 transition-colors hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-white lg:hidden"
-          aria-label={mobileOpen ? "Menyuni yopish" : "Menyuni ochish"}
+          aria-label={mobileOpen ? t("Закрыть меню") : t("Открыть меню")}
           aria-expanded={mobileOpen}
           aria-controls="mobile-navigation"
         >
@@ -572,9 +575,15 @@ export function TopNav() {
         <ChangePasswordDialog
           username={account?.username ?? ""}
           required={passwordRequired}
-          onChanged={() => setPasswordRequired(false)}
+          onChanged={() => {
+            if (passwordRequired) setReloadAfterPassword(true)
+            setPasswordRequired(false)
+          }}
           onSignOut={() => void signOut()}
-          onClose={() => setPasswordOpen(false)}
+          onClose={() => {
+            setPasswordOpen(false)
+            if (reloadAfterPassword) window.location.reload()
+          }}
         />
       )}
 

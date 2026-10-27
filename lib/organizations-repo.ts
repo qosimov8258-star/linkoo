@@ -3,6 +3,7 @@ import "server-only"
 import { NextResponse } from "next/server"
 import { z } from "zod"
 
+import { dbErrorResponse } from "@/lib/db-errors"
 import { getDb, withTransaction, type PgDb } from "@/lib/db"
 import type {
   Organization,
@@ -11,6 +12,8 @@ import type {
   OrganizationListResult,
   OrganizationUsage,
 } from "@/components/analytics/organization-data"
+import { strictNum } from "@/lib/strict-number"
+import { usageTableLabel } from "@/lib/usage-labels"
 
 // "Организация" (demo #/division, API main/division/: {id, name, created_date,
 // use_limit_for_debt}). The demo links documents to a division by id; this app
@@ -48,7 +51,7 @@ export class OrganizationError extends Error {
 
 /** JSON response of an OrganizationError ({error, fields?, usage?}); null for other errors. */
 export function organizationErrorResponse(error: unknown): NextResponse | null {
-  if (!(error instanceof OrganizationError)) return null
+  if (!(error instanceof OrganizationError)) return dbErrorResponse(error)
   return NextResponse.json(
     {
       error: error.message,
@@ -83,7 +86,7 @@ export function organizationInput(body: OrganizationInputBody): OrganizationInpu
 
 const emptyToUndefined = (value: unknown) => (value === "" || value === null ? undefined : value)
 const text = (max: number) => z.preprocess(emptyToUndefined, z.string().trim().max(max).optional())
-const int = (min: number, max: number) => z.preprocess(emptyToUndefined, z.coerce.number().int().min(min).max(max).optional())
+const int = (min: number, max: number) => z.preprocess(emptyToUndefined, strictNum(z.number().int().min(min).max(max).optional()))
 
 export const organizationListQuerySchema = z.object({
   search: text(200),
@@ -211,6 +214,7 @@ const TABLE_LABELS: Record<string, string> = {
   customer_payments: "Оплаты",
   client_balance_corrections: "Корректировки баланса клиентов",
   client_balance_imports: "Импорт долгов клиентов",
+  client_returns: "Возвраты",
   contracts: "Договоры",
   deliverer_balance_transactions: "Долги доставщиков",
   internal_transfers: "Передачи между складами",
@@ -298,7 +302,7 @@ async function organizationUsage(db: PgDb, row: OrganizationRow, refs?: Referenc
     for (const ref of tableRefs.filter((item) => item.kind === "names")) {
       for (const match of await jsonArrayMatches(db, ref, key)) count += match.rows
     }
-    if (count > 0) usage.push({ table, label: TABLE_LABELS[table] ?? table, count })
+    if (count > 0) usage.push({ table, label: usageTableLabel(table, TABLE_LABELS), count })
   }
   return usage
 }

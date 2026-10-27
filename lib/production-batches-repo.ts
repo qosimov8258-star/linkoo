@@ -2,8 +2,10 @@ import "server-only"
 
 import { withTransaction, type PgDb } from "@/lib/db"
 import { getProductionDb, itemKey, nowIso, ProductionError, round, textKey, type ItemKind } from "@/lib/production-schema"
+import { lockWarehousesOf, lockWarehouseStock } from "@/lib/internal-transfers-stock"
 import { assertMovementDay, assertWarehouseOpen, ensureAvailable, itemCosts, requireCatalogItem, type CatalogItem, type StockNeed } from "@/lib/production-stock"
 import { getRecipe, getStage } from "@/lib/production-stages-repo"
+import { documentLineUnit, documentLineValues, loadCostLedger } from "@/lib/stock/costs"
 
 export type PartyStatus = "pending" | "finished" | "cancelled"
 
@@ -218,11 +220,29 @@ function summarize(rows: ProductionMovement[]): SummaryLine[] {
   return Array.from(lines.values())
 }
 
+/** The cost of each line as the cost ledger moved it (lib/stock/costs.ts, the one cost
+ * of goods): raw lines at the average they were issued at, a batch's good output at the
+ * value of everything the batch consumed ÷ its good units, shift output at its recipe
+ * norms × the components' averages of its day — so a later change of a raw material's
+ * average (back-dated receipt, expense on an accepted supply) shows here too. Lines the
+ * ledger did not move (a cancelled batch) keep the cost booked when they were added. */
+export async function withLedgerCosts(db: PgDb, rows: ProductionMovement[]): Promise<ProductionMovement[]> {
+  if (!rows.length) return rows
+  const index = documentLineValues(await loadCostLedger(db))
+  return rows.map((row) => {
+    const unit = documentLineUnit(index, "production_movements", row.id, row.key)
+    if (unit === undefined) return row
+    const cost = round(unit, 6)
+    return { ...row, cost, total: round(row.amount * cost, 6) }
+  })
+}
+
 export async function getPartyDetail(id: number): Promise<PartyDetail | null> {
   const party = await getParty(id)
   if (!party) return null
   const db = await getProductionDb()
-  const movements = ((await db.prepare(`${MOVEMENT_SELECT} WHERE m.party_id = ? ORDER BY m.id DESC`).all(id)) as MovementRow[]).map(toMovement)
+  const booked = ((await db.prepare(`${MOVEMENT_SELECT} WHERE m.party_id = ? ORDER BY m.id DESC`).all(id)) as MovementRow[]).map(toMovement)
+  const movements = await withLedgerCosts(db, booked)
   const made = movements.filter((row) => row.direction === "made" && !row.isDefect)
   const raw = movements.filter((row) => row.direction === "raw" && !row.isDefect)
   const rawDefects = movements.filter((row) => row.direction === "raw" && row.isDefect)
@@ -265,6 +285,18 @@ const TRANSITIONS: Record<PartyStatus, PartyStatus[]> = {
 
 type PartyLine = { direction: string; item_kind: string; item_id: number; item_name: string; unit: string; amount: number; is_defect: number; warehouse: string; date: string }
 
+/** Refusal of finishing a batch whose good output consumed no raw material. */
+export const NO_RAW_ERROR = "В партии нет сырья — завершить ее нельзя"
+
+/** A batch can only be finished when its good output was made from something: good
+ * output without a single raw line would bring goods in from nothing (the cost ledger
+ * then takes them in at the average, never at a cost of 0). Brak-only batches carry
+ * no value and may be finished. */
+function assertConsumed(lines: Array<Pick<PartyLine, "direction" | "amount" | "is_defect">>) {
+  const good = lines.reduce((sum, line) => sum + (line.direction === "made" && Number(line.is_defect) !== 1 ? Number(line.amount) || 0 : 0), 0)
+  if (good > 0 && !lines.some((line) => line.direction === "raw")) throw new ProductionError(409, NO_RAW_ERROR)
+}
+
 async function partyLines(db: PgDb, partyId: number): Promise<PartyLine[]> {
   return (await db
     .prepare("SELECT direction, item_kind, item_id, item_name, unit, amount, is_defect, warehouse, date FROM production_movements WHERE party_id = ? ORDER BY id")
@@ -294,6 +326,9 @@ export async function updateParty(id: number, input: { stageId: number; status: 
   const stage = await getStage(input.stageId)
   await getProductionDb()
   const result = await withTransaction(async (db) => {
+    // Lock order (C1): cancelling moves stock in every warehouse the batch touched — their
+    // stock locks (one sorted call) before the batch's row lock.
+    if (input.status === "cancelled") await lockWarehousesOf(db, "SELECT DISTINCT warehouse FROM production_movements WHERE party_id = @id", { id })
     const current = await lockParty(db, id)
     if (!current) return "not_found" as const
     if (!stage) return "stage_not_found" as const
@@ -310,6 +345,7 @@ export async function updateParty(id: number, input: { stageId: number; status: 
       if (current.status === "cancelled") throw new ProductionError(409, "Партия отменена — изменить ее статус нельзя")
       if (!TRANSITIONS[current.status].includes(input.status)) throw new ProductionError(409, "Завершенную партию можно только отменить")
       if (input.status === "cancelled") await ensureCancellable(db, lines)
+      if (input.status === "finished") assertConsumed(lines)
     }
     if (stageChanged) await assertWarehouseOpen(db, stage.warehouse)
     const warehouse = stageChanged ? stage.warehouse : current.warehouse
@@ -356,18 +392,24 @@ type MovementContext = {
   inventoryId?: number | null
 }
 
+/** The cost of a shift entry's good output and the recipe norms it was costed with
+ * (per unit of output), which the cost ledger re-values it by. */
+export type MadeCost = { cost: number; basis?: Array<{ key: string; amount: number }> }
+
 /** Inserts stock movements atomically (inside the caller's transaction):
  * every item must exist (404 otherwise, nothing is inserted); raw lines and
- * negative adjustments must fit the warehouse's available stock on the
- * movement day and today (409 otherwise); raw / adjust lines are valued at
+ * negative adjustments must fit the warehouse's available stock on every day
+ * from the movement day on (business rule 8; 409 otherwise); raw / adjust lines are valued at
  * the shared cost of goods of that day; good made lines get `madeCost` (or the
- * batch recalculation that follows), defective made lines 0. */
+ * batch recalculation that follows), defective made lines 0. The cost stored here
+ * is the booking-time value: the cost ledger values every line again from its own
+ * averages (see withLedgerCosts). */
 export async function insertMovements(
   db: PgDb,
   context: MovementContext,
   direction: "made" | "raw" | "adjust",
   items: Array<MovementItemInput & { isDefect?: boolean; comment?: string; image?: string }>,
-  madeCost?: (item: CatalogItem) => Promise<number>,
+  madeCost?: (item: CatalogItem) => Promise<MadeCost>,
   shortagePrefix = "",
 ): Promise<number> {
   assertMovementDay(context.date)
@@ -390,13 +432,15 @@ export async function insertMovements(
   const costs = direction === "made" ? null : await itemCosts(db, context.date)
   for (const { input, item } of lines) {
     // Defective output (brak) carries no value.
-    const cost = costs ? costs.get(item.key) ?? 0 : input.isDefect ? 0 : madeCost ? await madeCost(item) : 0
+    const made = !costs && !input.isDefect && madeCost ? await madeCost(item) : null
+    const cost = costs ? costs.get(item.key) ?? 0 : made ? made.cost : 0
+    const basis = made?.basis?.length ? JSON.stringify(made.basis) : null
     await db
       .prepare(
         `INSERT INTO production_movements
            (stage_id, party_id, warehouse, direction, item_kind, item_id, item_name, unit, amount, cost, is_defect,
-            comment, image, date, shift, equipment_id, worker, user_name, created_at, inventory_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            comment, image, date, shift, equipment_id, worker, user_name, created_at, inventory_id, cost_basis)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         context.stageId,
@@ -419,6 +463,7 @@ export async function insertMovements(
         context.userName,
         nowIso(),
         context.inventoryId ?? null,
+        basis,
       )
   }
   return lines.length
@@ -450,6 +495,12 @@ async function mutatePendingParty(
 ): Promise<MovementResult | "recipe_not_found"> {
   await getProductionDb()
   const result = await withTransaction(async (db) => {
+    // Lock order (C1): raw lines take stock — the batch warehouse's stock lock before the batch's row lock.
+    await lockWarehousesOf(
+      db,
+      "SELECT COALESCE(NULLIF(p.warehouse, ''), s.warehouse, '') AS warehouse FROM production_parties p LEFT JOIN production_stages s ON s.id = p.stage_id WHERE p.id = @id",
+      { id: partyId },
+    )
     const context = await lockPendingParty(db, partyId, userName, date)
     if (typeof context === "string") return context
     const outcome = await mutate(db, context)
@@ -486,7 +537,8 @@ export async function addPartyDefect(
 }
 
 /** "Автодобавление": records the product made plus the components consumed
- * for it and closes the batch, like the demo's party auto_finish. */
+ * for it and closes the batch, like the demo's party auto_finish. Like finishing by
+ * hand, it needs at least one raw line in the batch (409 otherwise). */
 export async function autoFinishParty(
   partyId: number,
   input: { recipeId: number; amount: number; comment: string; components: MovementItemInput[] },
@@ -498,6 +550,7 @@ export async function autoFinishParty(
     if (!recipe || recipe.stageId !== context.stageId) return "recipe_not_found"
     await insertMovements(db, context, "raw", input.components)
     await insertMovements(db, context, "made", [{ kind: recipe.kind, id: recipe.itemId, amount: input.amount, comment }])
+    assertConsumed(await partyLines(db, partyId))
     await db.prepare("UPDATE production_parties SET status = 'finished', finished_at = ? WHERE id = ?").run(nowIso(), partyId)
     // The note is kept on the made line; it also becomes the batch comment
     // when the batch has none yet.
@@ -517,6 +570,8 @@ export async function deleteMovement(id: number): Promise<"ok" | "not_found" | "
       .get(id)) as (PartyLine & { party_id: number | null }) | undefined
     if (!row) return "not_found"
     if (row.direction === "adjust") throw new ProductionError(409, "Строка относится к инвентаризации — удалить ее нельзя")
+    // Lock order (C1): removing output takes stock — the warehouse's stock lock before the batch's row lock.
+    if (row.direction === "made") await lockWarehouseStock(db, [row.warehouse])
     if (row.party_id) {
       const party = await lockParty(db, row.party_id)
       if (party && party.status !== "pending") return "not_pending"

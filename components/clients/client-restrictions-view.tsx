@@ -215,6 +215,7 @@ function Radio({ label, checked, onChange }: { label: string; checked: boolean; 
 }
 
 function PickSelect({ placeholder, options, value, onChange, className = "" }: { placeholder: string; options: string[]; value: string; onChange: (value: string) => void; className?: string }) {
+  const { t } = useLanguage()
   const [open, setOpen] = useState(false)
   const [search, setSearch] = useState("")
   const filtered = options.filter((option) => option.toLowerCase().includes(search.toLowerCase())).slice(0, 200)
@@ -226,7 +227,7 @@ function PickSelect({ placeholder, options, value, onChange, className = "" }: {
       </button>
       {open && (
         <>
-          <button type="button" aria-label="close" className="fixed inset-0 z-40 cursor-default" onClick={() => setOpen(false)} />
+          <button type="button" aria-label={t("Закрыть")} className="fixed inset-0 z-40 cursor-default" onClick={() => setOpen(false)} />
           <div className="absolute inset-x-0 top-[48px] z-50 max-h-[260px] overflow-y-auto bg-white py-1 shadow-[0_1px_6px_rgba(0,0,0,0.2),0_1px_4px_rgba(0,0,0,0.2)]">
             <input autoFocus value={search} onChange={(event) => setSearch(event.target.value)} className="mx-2 mb-1 h-8 w-[calc(100%-16px)] border-b border-[#ddd] px-1 text-[13px] outline-none" />
             {filtered.map((option) => (

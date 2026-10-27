@@ -8,7 +8,7 @@ import { requireRole } from "@/lib/rbac"
 const capabilitySchema = z.object({
   name: nameField("Укажите наименование", 120),
   permissionIds: z
-    .array(z.number({ error: "Неизвестное разрешение" }).int({ error: "Неизвестное разрешение" }).positive({ error: "Неизвестное разрешение" }))
+    .array(z.number({ error: "Неизвестное разрешение" }).int({ error: "Неизвестное разрешение" }).positive({ error: "Неизвестное разрешение" }).max(2_147_483_647, { error: "Неизвестное разрешение" }))
     .max(500)
     .optional(),
 })

@@ -21,6 +21,7 @@ import { GroupPaymentDialog } from "@/components/analytics/balance/group-payment
 import { BALANCE_PAGE_SIZES, BalancePagination } from "@/components/analytics/balance/pagination"
 import { BalanceSummaryCards, type SummaryBox } from "@/components/analytics/balance/summary-cards"
 import { buildBalanceQuery, useBalanceList, type BalanceQuery } from "@/components/analytics/balance/use-balance"
+import { useCanManage } from "@/components/analytics/cash-management-shared"
 import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
 import { downloadExcelTable } from "@/lib/excel-export"
 import { defaultBalancePeriod, isIsoDay } from "@/lib/finance/dates"
@@ -134,6 +135,8 @@ export function AccountDebtsView() {
   const [searchDraft, setSearchDraft] = useState(state.search)
   const [filterOpen, setFilterOpen] = useState(false)
   const [groupPaymentOpen, setGroupPaymentOpen] = useState(false)
+  // POST /api/balances/group-payment needs cash.manage (lib/capabilities-catalog.ts ROUTE_PERMISSIONS).
+  const canGroupPay = useCanManage(["cash.manage"])
   const [expanded, setExpanded] = useState(false)
   const [selected, setSelected] = useState<Map<string, BalanceRow>>(() => new Map())
   const [actName, setActName] = useState("")
@@ -354,7 +357,7 @@ export function AccountDebtsView() {
       <section className="flex flex-wrap items-center gap-4 px-6 py-4 md:px-9">
         <BalanceFilterButton count={filterCount} from={from} to={to} scope={scope} onOpen={() => setFilterOpen(true)} extra={realizedBadge} />
         <div className="ml-auto flex flex-wrap items-center gap-3">
-          {!byType && (
+          {!byType && canGroupPay && (
             <button
               type="button"
               onClick={() => setGroupPaymentOpen(true)}

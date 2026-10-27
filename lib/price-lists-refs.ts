@@ -3,6 +3,7 @@ import "server-only"
 import type { PgDb } from "@/lib/db"
 import { priceListKey } from "@/lib/item-prices"
 import type { PriceListUsage } from "@/components/analytics/price-lists-data"
+import { usageTableLabel } from "@/lib/usage-labels"
 
 // Where price lists are referenced. Like warehouses, most documents store the price-list NAME
 // (the demo links by id), so a rename is carried over in the renaming transaction and a delete
@@ -30,10 +31,12 @@ const TABLE_LABELS: Record<string, string> = {
   price_list_entries: "Прайс-листы",
   price_lists: "Связанный прайс лист",
   repricings: "Переоценка",
+  orders: "Заказы",
+  order_items: "Заказы",
 }
 
 export function priceListReferenceLabel(table: string): string {
-  return TABLE_LABELS[table] ?? table
+  return usageTableLabel(table, TABLE_LABELS)
 }
 
 const JOURNAL_TABLES = new Set(["linked_repricings"])

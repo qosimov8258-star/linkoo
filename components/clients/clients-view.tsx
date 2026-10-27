@@ -20,13 +20,14 @@ import {
 import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
 import { downloadExcelTable } from "@/lib/excel-export"
 import { mapHeaderColumns, readExcelRows } from "@/lib/excel-import"
+import { todayIso } from "@/lib/finance/dates"
 import { useLanguage } from "@/lib/i18n/language-context"
 
 import { AddOrderDialog } from "@/components/orders/add-order-dialog"
 
 import { clientTabs, type Client } from "./clients-data"
-import { useDirectoryNames } from "./use-directory"
-import { MultiEditDialog, type MultiEditPatch } from "./multi-edit-dialog"
+import { invalidateDirectory, useDirectoryNames } from "./use-directory"
+import { MultiEditDialog, type MultiEditExtras, type MultiEditPatch } from "./multi-edit-dialog"
 import { applyClientFilters, ClientsFilterPanel, emptyClientFilters, type ClientFilters } from "./clients-filter-panel"
 
 const LocationPicker = dynamic(() => import("./location-picker").then((m) => m.LocationPicker), {
@@ -236,11 +237,6 @@ export function ClientsView() {
     return () => document.removeEventListener("keydown", closeOnEscape)
   }, [modalMode])
 
-  const zoneOptions = useMemo(
-    () => [...new Set(clients.map((client) => client.zone))].sort((a, b) => a.localeCompare(b, "ru")),
-    [clients],
-  )
-
   const filtered = useMemo(() => {
     return clients.filter((c) => {
       const matchesTab =
@@ -306,6 +302,29 @@ export function ClientsView() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loading, clients])
 
+  // Deep link from Отслеживание ("Изменить маршрут"): /clients?select=<id,id,...> pre-selects
+  // those clients (once, after the list has loaded) for the bulk actions.
+  const deepSelectDone = useRef(false)
+  useEffect(() => {
+    if (loading || deepSelectDone.current) return
+    deepSelectDone.current = true
+    const raw = new URLSearchParams(window.location.search).get("select")
+    if (!raw) return
+    const wanted = new Set(
+      raw
+        .split(",")
+        .map((part) => part.trim())
+        .filter((part) => /^\d{1,10}$/.test(part))
+        .map(Number)
+        .filter((id) => id > 0 && id <= 2_147_483_647),
+    )
+    const ids = clients.filter((client) => wanted.has(client.id)).map((client) => client.id)
+    if (!ids.length) return
+    setActiveTab("all")
+    setSelectMode(true)
+    setSelected(ids)
+  }, [loading, clients])
+
   const allSelected = pageRows.length > 0 && pageRows.every((r) => selected.includes(r.id))
   const selectedClients = clients.filter((client) => selected.includes(client.id))
 
@@ -321,10 +340,38 @@ export function ClientsView() {
     setSelected((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]))
   }
 
-  async function applyMultiEdit(patch: MultiEditPatch) {
+  async function applyMultiEdit(patch: MultiEditPatch, extras: MultiEditExtras = {}) {
     setMultiEditOpen(false)
-    if (Object.keys(patch).length === 0) return
     const errors: string[] = []
+    if (extras.locationLock !== undefined && selectedClients.length) {
+      // The lock lives in client_location_locks (Отслеживание), up to 500 clients a call.
+      const ids = selectedClients.map((client) => client.id)
+      for (let index = 0; index < ids.length; index += 500) {
+        try {
+          const response = await fetch("/api/tracking/location-locks", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ clientIds: ids.slice(index, index + 500), locked: extras.locationLock }),
+          })
+          if (!response.ok) {
+            const body = (await response.json().catch(() => null)) as { error?: string } | null
+            errors.push(t(body?.error || "Не удалось сохранить"))
+            break
+          }
+        } catch {
+          errors.push(t("Сервер недоступен, попробуйте ещё раз"))
+          break
+        }
+      }
+      if (Object.keys(patch).length === 0) {
+        setNotice({
+          tone: errors.length ? "info" : "success",
+          message: errors.length ? errors[0] : `${t("Изменено клиентов")}: ${selectedClients.length}`,
+        })
+        return
+      }
+    }
+    if (Object.keys(patch).length === 0) return
     const results = await Promise.all(
       selectedClients.map(async (client) => {
         try {
@@ -1081,7 +1128,7 @@ export function ClientsView() {
         />
       )}
 
-      {multiEditOpen && <MultiEditDialog clients={clients} onSave={(patch) => void applyMultiEdit(patch)} onClose={() => setMultiEditOpen(false)} />}
+      {multiEditOpen && <MultiEditDialog clients={clients} onSave={(patch, extras) => void applyMultiEdit(patch, extras)} onClose={() => setMultiEditOpen(false)} />}
 
       {importDialog && (
         <RefImportDialog
@@ -1103,7 +1150,6 @@ export function ClientsView() {
           form={form}
           error={formError}
           saving={saving}
-          zoneOptions={zoneOptions}
           clients={clients}
           onTextChange={updateFormField}
           onPhoneChange={updatePhone}
@@ -1202,7 +1248,6 @@ function ClientModal({
   form,
   error,
   saving,
-  zoneOptions,
   clients: allClients,
   onTextChange,
   onPhoneChange,
@@ -1218,7 +1263,6 @@ function ClientModal({
   form: ClientForm
   error: string
   saving: boolean
-  zoneOptions: string[]
   clients: Client[]
   onTextChange: (field: ClientTextField, value: string) => void
   onPhoneChange: (index: number, value: string) => void
@@ -1233,10 +1277,13 @@ function ClientModal({
   const { t } = useLanguage()
   const [branchOptions, setBranchOptions] = useState<string[]>([])
   const [typeOptions, setTypeOptions] = useState<string[]>([])
+  // Zones come from the zone directory (Территория), so the first client of a new install can get one ("+").
+  const [zoneOptions, setZoneOptions] = useState<string[]>([])
   const [attributeDefs, setAttributeDefs] = useState<{ name: string; fieldType: string; options: string[] }[]>([])
-  const [addTypeOpen, setAddTypeOpen] = useState(false)
-  const [newTypeName, setNewTypeName] = useState("")
-  const [savingType, setSavingType] = useState(false)
+  const [quickAdd, setQuickAdd] = useState<"type" | "zone" | null>(null)
+  const [quickName, setQuickName] = useState("")
+  const [quickError, setQuickError] = useState("")
+  const [quickSaving, setQuickSaving] = useState(false)
   const [locationPickerOpen, setLocationPickerOpen] = useState(false)
   const [canSeePrice, setCanSeePrice] = useState(false)
   const [confirmToOrder, setConfirmToOrder] = useState(false)
@@ -1255,15 +1302,17 @@ function ClientModal({
   useEffect(() => {
     let cancelled = false
     async function loadOptions() {
-      const [branchesRes, typesRes, attributesRes, valuesRes] = await Promise.all([
+      const [branchesRes, typesRes, zonesRes, attributesRes, valuesRes] = await Promise.all([
         fetch("/api/branches").catch(() => null),
         fetch("/api/client-types").catch(() => null),
+        fetch("/api/clients/zones").catch(() => null),
         fetch("/api/client-attributes").catch(() => null),
         fetch("/api/client-attribute-values").catch(() => null),
       ])
       if (cancelled) return
       if (branchesRes?.ok) setBranchOptions(((await branchesRes.json()) as OptionItem[]).map((item) => item.name))
       if (typesRes?.ok) setTypeOptions(((await typesRes.json()) as OptionItem[]).map((item) => item.name))
+      if (zonesRes?.ok) setZoneOptions(((await zonesRes.json()) as OptionItem[]).map((item) => item.name))
       if (attributesRes?.ok) {
         const attributes = (await attributesRes.json()) as { name: string; fieldType: string }[]
         const values = valuesRes?.ok ? ((await valuesRes.json()) as { attribute: string; values: string[] }[]) : []
@@ -1287,26 +1336,52 @@ function ClientModal({
   // so saving the form never silently drops the existing value.
   const branchSelectOptions = form.branch && !branchOptions.includes(form.branch) ? [form.branch, ...branchOptions] : branchOptions
   const typeSelectOptions = form.type && !typeOptions.includes(form.type) ? [form.type, ...typeOptions] : typeOptions
+  const zoneSelectOptions = withCurrent(zoneOptions, form.zone)
 
-  async function saveNewType(event: FormEvent) {
+  function openQuickAdd(kind: "type" | "zone") {
+    setQuickName("")
+    setQuickError("")
+    setQuickAdd(kind)
+  }
+
+  // "+" next to Тип клиента / Зона: adds to that directory and picks the new entry.
+  async function saveQuickAdd(event: FormEvent) {
     event.preventDefault()
-    const trimmed = newTypeName.trim()
-    if (!trimmed) return
-    setSavingType(true)
+    event.stopPropagation()
+    const kind = quickAdd
+    const trimmed = quickName.trim()
+    if (!kind) return
+    if (!trimmed) {
+      setQuickError(t(kind === "zone" ? "Укажите название зоны" : "Укажите название типа клиента"))
+      return
+    }
+    setQuickSaving(true)
+    setQuickError("")
     try {
-      const response = await fetch("/api/client-types", {
+      const response = await fetch(kind === "zone" ? "/api/clients/zones" : "/api/client-types", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: trimmed }),
       })
-      if (response.ok) {
-        setTypeOptions((current) => (current.includes(trimmed) ? current : [...current, trimmed]))
-        onTextChange("type", trimmed)
-        setNewTypeName("")
-        setAddTypeOpen(false)
+      const body = (await response.json().catch(() => null)) as { error?: string; name?: string; zone?: { name: string } } | null
+      if (!response.ok) {
+        setQuickError(body?.error ? t(body.error) : t("Не удалось сохранить"))
+        return
       }
+      const saved = (kind === "zone" ? body?.zone?.name : body?.name) ?? trimmed
+      if (kind === "zone") {
+        setZoneOptions((current) => (current.includes(saved) ? current : [...current, saved].sort((a, b) => a.localeCompare(b, "ru"))))
+        invalidateDirectory("zones")
+      } else {
+        setTypeOptions((current) => (current.includes(saved) ? current : [...current, saved]))
+        invalidateDirectory("clientTypes")
+      }
+      onTextChange(kind, saved)
+      setQuickAdd(null)
+    } catch {
+      setQuickError(t("Не удалось сохранить"))
     } finally {
-      setSavingType(false)
+      setQuickSaving(false)
     }
   }
 
@@ -1347,13 +1422,25 @@ function ClientModal({
                   <button
                     type="button"
                     title={t("Добавить тип клиента")}
-                    onClick={() => setAddTypeOpen(true)}
+                    aria-label={t("Добавить тип клиента")}
+                    onClick={() => openQuickAdd("type")}
                     className="absolute -right-[26px] top-[22px] text-[#5fb583] hover:text-[#4a9d6d]"
                   >
                     <PlusCircle className="h-5 w-5" />
                   </button>
                 </div>
-                <FieldSelect label={t("Зона")} value={form.zone} onChange={(value) => onTextChange("zone", value)} options={withCurrent(zoneOptions.filter((zone) => zone && zone !== "Не указано"), form.zone)} />
+                <div className="relative">
+                  <FieldSelect label={t("Зона")} required value={form.zone} onChange={(value) => onTextChange("zone", value)} options={zoneSelectOptions} />
+                  <button
+                    type="button"
+                    title={t("Добавить зону")}
+                    aria-label={t("Добавить зону")}
+                    onClick={() => openQuickAdd("zone")}
+                    className="absolute -right-[26px] top-[22px] text-[#5fb583] hover:text-[#4a9d6d]"
+                  >
+                    <PlusCircle className="h-5 w-5" />
+                  </button>
+                </div>
                 <FieldSelect label={t("Реализация по")} value={form.realizationBy} onChange={(value) => onTextChange("realizationBy", value)} options={withCurrent(realizationOptions, form.realizationBy)} />
               </section>
 
@@ -1481,22 +1568,36 @@ function ClientModal({
         </footer>
       </form>
 
-      {addTypeOpen && (
+      {quickAdd && (
         <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/45 p-4" onMouseDown={(event) => event.stopPropagation()}>
-          <form onSubmit={saveNewType} className="w-full max-w-sm rounded bg-white p-6">
+          <form onSubmit={saveQuickAdd} className="w-full max-w-sm rounded bg-white p-6">
             <div className="mb-4 flex items-center justify-between">
-              <b className="uppercase">{t("Добавить тип клиента")}</b>
-              <button type="button" onClick={() => setAddTypeOpen(false)} aria-label={t("Закрыть")}>
+              <b className="uppercase">{t(quickAdd === "zone" ? "Добавить зону" : "Добавить тип клиента")}</b>
+              <button type="button" onClick={() => setQuickAdd(null)} aria-label={t("Закрыть")}>
                 <X className="h-5 w-5" />
               </button>
             </div>
             <label className="block border-b border-slate-200 pb-2 text-sm font-medium">
-              {t("Наименование")} <span className="text-red-500">*</span>
-              <input autoFocus value={newTypeName} onChange={(event) => setNewTypeName(event.target.value)} className="mt-2 block w-full outline-none" />
+              {t(quickAdd === "zone" ? "Наименование зоны" : "Наименование")} <span className="text-red-500">*</span>
+              <input
+                autoFocus
+                maxLength={200}
+                value={quickName}
+                onChange={(event) => {
+                  setQuickName(event.target.value)
+                  setQuickError("")
+                }}
+                className="mt-2 block w-full outline-none"
+              />
             </label>
+            {quickError && (
+              <p role="alert" className="mt-3 text-[13px] text-red-600">
+                {quickError}
+              </p>
+            )}
             <div className="mt-5 flex justify-end">
-              <button type="submit" disabled={savingType} className="rounded bg-[#71ce87] px-5 py-2.5 font-semibold text-white hover:brightness-95 disabled:opacity-60">
-                {savingType ? t("Сохранение...") : t("Сохранить")}
+              <button type="submit" disabled={quickSaving} className="rounded bg-[#71ce87] px-5 py-2.5 font-semibold text-white hover:brightness-95 disabled:opacity-60">
+                {quickSaving ? t("Сохранение...") : t("Сохранить")}
               </button>
             </div>
           </form>
@@ -1620,6 +1721,7 @@ function FieldSelect({
   placeholder?: string
   className?: string
 }) {
+  const { t } = useLanguage()
   return (
     <label className={`${fieldLine} mb-[10px] ${className ?? ""}`}>
       <FloatLabel label={label} required={required} filled={value !== ""} />
@@ -1637,7 +1739,7 @@ function FieldSelect({
         ))}
       </select>
       {value !== "" && (
-        <button type="button" onClick={() => onChange("")} aria-label="clear" className="absolute bottom-[3px] right-6 text-[16px] leading-none text-[#999]">
+        <button type="button" onClick={() => onChange("")} aria-label={t("Очистить")} className="absolute bottom-[3px] right-6 text-[16px] leading-none text-[#999]">
           ×
         </button>
       )}
@@ -1709,6 +1811,38 @@ function formatDetailDate(date: Date) {
   return `${date.getDate()} ${SHORT_MONTHS[date.getMonth()]} ${date.getFullYear()}`
 }
 
+/** The client card opened from another page (Активность, Отслеживание): loads the client
+ * by id and shows the same drawer as Клиенты, without the edit / delete buttons (those stay
+ * on the Клиенты page). Closes itself when the client cannot be loaded. */
+export function ClientDrawer({ clientId, onClose }: { clientId: number; onClose: () => void }) {
+  const [client, setClient] = useState<Client | null>(null)
+
+  useEffect(() => {
+    const controller = new AbortController()
+    fetch(`/api/clients/${clientId}`, { cache: "no-store", signal: controller.signal })
+      .then(async (response) => {
+        const body = (await response.json().catch(() => null)) as Client | null
+        if (!response.ok || !body || typeof body.id !== "number") throw new Error("not found")
+        setClient(body)
+      })
+      .catch((cause: { name?: string }) => {
+        if (cause?.name !== "AbortError") onClose()
+      })
+    return () => controller.abort()
+  }, [clientId, onClose])
+
+  useEffect(() => {
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") onClose()
+    }
+    document.addEventListener("keydown", closeOnEscape)
+    return () => document.removeEventListener("keydown", closeOnEscape)
+  }, [onClose])
+
+  if (!client || client.id !== clientId) return null
+  return <ClientDetail client={client} onClose={onClose} />
+}
+
 function ClientDetail({
   client,
   onClose,
@@ -1717,8 +1851,8 @@ function ClientDetail({
 }: {
   client: Client
   onClose: () => void
-  onEdit: () => void
-  onDelete: () => void
+  onEdit?: () => void
+  onDelete?: () => void
 }) {
   const { t } = useLanguage()
   const [tab, setTab] = useState<(typeof DETAIL_TABS)[number]>("АКТИВНОСТЬ")
@@ -1728,7 +1862,8 @@ function ClientDetail({
   const [paymentOpen, setPaymentOpen] = useState(false)
   const [paymentAmount, setPaymentAmount] = useState("")
   const [paymentComment, setPaymentComment] = useState("")
-  const [paymentDate, setPaymentDate] = useState(() => new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10))
+  // The business day (Asia/Tashkent), the day the server's "not after today" rule uses.
+  const [paymentDate, setPaymentDate] = useState(() => todayIso())
   const [paymentError, setPaymentError] = useState("")
   const [paymentSaving, setPaymentSaving] = useState(false)
   const [paymentDone, setPaymentDone] = useState(false)
@@ -1805,16 +1940,20 @@ function ClientDetail({
             <span>{client.name}</span>
           </div>
           <div className="-mr-[10px] flex items-center">
-            <button type="button" aria-label={t("Изменить")} onClick={onEdit} className="flex h-12 w-12 items-center justify-center">
-              <svg viewBox="0 0 24 24" className="h-5 w-5 fill-[#666]">
-                <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z" />
-              </svg>
-            </button>
-            <button type="button" aria-label={t("Удалить")} onClick={onDelete} className="flex h-12 w-12 items-center justify-center">
-              <svg viewBox="0 0 24 24" className="h-5 w-5 fill-[#666]">
-                <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z" />
-              </svg>
-            </button>
+            {onEdit && (
+              <button type="button" aria-label={t("Изменить")} onClick={onEdit} className="flex h-12 w-12 items-center justify-center">
+                <svg viewBox="0 0 24 24" className="h-5 w-5 fill-[#666]">
+                  <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z" />
+                </svg>
+              </button>
+            )}
+            {onDelete && (
+              <button type="button" aria-label={t("Удалить")} onClick={onDelete} className="flex h-12 w-12 items-center justify-center">
+                <svg viewBox="0 0 24 24" className="h-5 w-5 fill-[#666]">
+                  <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z" />
+                </svg>
+              </button>
+            )}
             <button type="button" aria-label={t("Закрыть")} onClick={onClose} className="flex h-12 w-12 items-center justify-center">
               <svg viewBox="0 0 24 24" className="h-5 w-5 fill-[#666]">
                 <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" />
@@ -2021,7 +2160,7 @@ function ClientDetail({
                 <div className="mb-[15px] flex items-center justify-between">
                   <span className="text-base font-bold leading-[22px]">{t("Баланс")}</span>
                   <span className="mr-[15px] w-[200px] text-[13px] font-bold text-[#4f71dc]">
-                    {formatDetailDate(periodStart)} - {formatDetailDate(periodEnd)}
+                    {t(formatDetailDate(periodStart))} - {t(formatDetailDate(periodEnd))}
                   </span>
                 </div>
                 <div className="grid grid-cols-2 gap-[15.5px]">
@@ -2039,7 +2178,7 @@ function ClientDetail({
                 </div>
                 <div className="mt-[15px]">
                   {t("Последняя дата платежа")} :
-                  <span className="ml-[5px] font-semibold">{summary ? (summary.lastPayment ? displayDay(summary.lastPayment) : t("Оплат нет")) : "…"}</span>
+                  <span className="ml-[5px] font-semibold">{summary ? (summary.lastPayment ? t(displayDay(summary.lastPayment)) : t("Оплат нет")) : "…"}</span>
                 </div>
               </div>
             </div>
@@ -2195,7 +2334,7 @@ function ClientDetail({
                           )}
                         </span>
                         <span className="truncate pr-2">{log.by}</span>
-                        <span className="pr-3">{log.at}</span>
+                        <span className="pr-3">{t(log.at)}</span>
                         <span>{log.sum}</span>
                       </div>
                     ))
@@ -2268,6 +2407,7 @@ function DetailListRow({ label, value, bold }: { label: string; value: React.Rea
 }
 
 function DetailPager({ total }: { total: number }) {
+  const { t } = useLanguage()
   const arrow = "flex h-5 w-5 items-center justify-center rounded-full border border-[#999] text-[#999]"
   return (
     <div className="flex items-center justify-center gap-4 text-[#666]">
@@ -2275,7 +2415,7 @@ function DetailPager({ total }: { total: number }) {
         25 <ChevronDown className="h-4 w-4 text-[#bbb]" />
       </span>
       <span>
-        {total === 0 ? 0 : 1} - {total} {"из"} {total}
+        {total === 0 ? 0 : 1} - {total} {t("из")} {total}
       </span>
       <span className="flex gap-2">
         <span className={arrow}>

@@ -4,6 +4,7 @@ import { z } from "zod"
 
 import { PRICE_LIST_SORT_KEYS, type PriceListActive, type PriceListInput, type PriceListListQuery } from "@/lib/price-lists-repo"
 import { parsePageParam } from "@/lib/stock/paging"
+import { dbId } from "@/lib/strict-number"
 
 // Request parsing of /api/price-lists/** (the older body {name, currency, linkedList, calcMethod}
 // is still accepted).
@@ -14,7 +15,8 @@ const num = z.union([z.number(), z.string().max(64)])
 export const toNumber = (value: unknown): number => {
   if (typeof value === "number") return value
   const text = String(value ?? "").replace(/[\s\u00a0\u202f]/g, "").replace(",", ".")
-  return text && /^[+-]?(\d+\.?\d*|\.\d+)(e[+-]?\d+)?$/i.test(text) ? Number(text) : Number.NaN
+  // Unambiguous pattern (fraction digits only after a point): a failed match stays linear.
+  return text && /^[+-]?(\d+(\.\d*)?|\.\d+)(e[+-]?\d+)?$/i.test(text) ? Number(text) : Number.NaN
 }
 
 const blankToUndefined = (value: unknown) => (value === null || (typeof value === "string" && !value.trim()) ? undefined : value)
@@ -40,7 +42,7 @@ export const priceListBodySchema = z.object({
   position: positionSchema,
   isActive: z.boolean().optional(),
   isDefaultForOrder: z.boolean().optional(),
-  connectedPriceListId: z.number().int().positive().max(2_147_483_647).nullable().optional(),
+  connectedPriceListId: dbId().nullable().optional(),
   linkedList: z.string().trim().max(200).optional(),
   calcMethodId: z.string().trim().max(50).nullable().optional(),
   /** Older body: the method NAME or id. */
@@ -90,11 +92,11 @@ export const priceGridSaveSchema = z.object({
     .array(
       z.object({
         kind: z.enum(["product", "raw_material"]),
-        id: z.number().int().positive(),
+        id: dbId(),
         prices: z
           .array(
             z.object({
-              priceListId: z.number().int().positive(),
+              priceListId: dbId(),
               cash: num.optional().nullable(),
               nonCash: num.optional().nullable(),
               min: num.optional().nullable(),

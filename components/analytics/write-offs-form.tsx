@@ -5,7 +5,7 @@ import { Plus, Trash2 } from "lucide-react"
 
 import { buildCashQuery, cashMutate, useCashJson } from "@/components/analytics/cash/use-cash"
 import { CashModal, FormField, PrimaryButton, SearchSelect, inputClass, mutationError, parseAmount } from "@/components/analytics/cash-management-shared"
-import { StockProductPicker, validQty, type PickEntry } from "@/components/analytics/internal-transfers-picker"
+import { StockProductPicker, formatUnitTotals, validQty, type PickEntry } from "@/components/analytics/internal-transfers-picker"
 import { formatQty, formatSum } from "@/components/analytics/internal-transfers-shared"
 import { nowLocalIso } from "@/lib/finance/dates"
 import { useLanguage } from "@/lib/i18n/language-context"
@@ -62,11 +62,17 @@ export function WriteOffFormDialog({ options, onClose, onSaved }: { options: Wri
   const availableOf = (line: Line) => (line.defect ? rowMap.get(line.key)?.defectsAvailable : rowMap.get(line.key)?.available) ?? 0
   const over = (line: Line) => parseAmount(line.quantity) > availableOf(line) + 1e-9
   const costOf = (line: Line) => (line.defect ? 0 : line.cost)
-  const qtyTotal = lines.reduce((sum, line) => sum + parseAmount(line.quantity), 0)
   const sumTotal = lines.reduce((sum, line) => sum + parseAmount(line.quantity) * costOf(line), 0)
-  // The total's unit only when every line shares it (never "ед" over kg and pieces).
-  const lineUnits = new Set(lines.map((line) => line.unit.trim().toLowerCase()))
-  const totalUnit = lineUnits.size === 1 && lines[0]?.unit.trim() ? t(lines[0].unit.trim()) : ""
+  // One total per unit (never kg and pieces added up): "12 dona, 1,5 kg".
+  const qtyTotals = formatUnitTotals(
+    lines.map((line) => ({ qty: parseAmount(line.quantity), unit: line.unit })),
+    t,
+  )
+  /** A line edit: the footer message of the last "Списать" is about the old state. */
+  const editLines = (update: (current: Line[]) => Line[]) => {
+    setLines(update)
+    setError("")
+  }
 
   const submit = async () => {
     setShowErrors(true)
@@ -96,7 +102,7 @@ export function WriteOffFormDialog({ options, onClose, onSaved }: { options: Wri
         <>
           <ul className="mr-auto flex flex-wrap gap-x-6 gap-y-1 text-[14px] text-[#586174]">
             <li>
-              {t("Общее кол-во")}: <b className="text-[#17233b]">{formatQty(qtyTotal, totalUnit)}</b>
+              {t("Общее кол-во")}: <b className="text-[#17233b]">{qtyTotals}</b>
             </li>
             <li>
               {t("Сумма")}: <b className="text-[#17233b]">{formatSum(sumTotal)}</b>
@@ -119,11 +125,23 @@ export function WriteOffFormDialog({ options, onClose, onSaved }: { options: Wri
               onChange={(value) => {
                 setWarehouse(value)
                 setLines([])
+                // "Склад не выбран" (or a stock refusal of the old warehouse) no longer applies.
+                setError("")
               }}
             />
           </FormField>
           <FormField label={t("Выберите дату")} required>
-            <input type="datetime-local" value={date} max={nowLocalIso().slice(0, 16)} onChange={(event) => setDate(event.target.value)} className={field} />
+            <input
+              type="datetime-local"
+              value={date}
+              max={nowLocalIso().slice(0, 16)}
+              onChange={(event) => {
+                setDate(event.target.value)
+                // A stock refusal is for the minimum balance from the old date onwards.
+                setError("")
+              }}
+              className={field}
+            />
           </FormField>
           <textarea value={comment} onChange={(event) => setComment(event.target.value)} rows={3} maxLength={2000} placeholder={`${t("Оставить комментарий")}...`} className={`${inputClass} h-auto py-2`} />
         </div>
@@ -192,7 +210,7 @@ export function WriteOffFormDialog({ options, onClose, onSaved }: { options: Wri
                               <input
                                 type="checkbox"
                                 checked={line.defect}
-                                onChange={(event) => setLines((current) => current.map((item, i) => (i === index ? { ...item, defect: event.target.checked } : item)))}
+                                onChange={(event) => editLines((current) => current.map((item, i) => (i === index ? { ...item, defect: event.target.checked } : item)))}
                                 className="h-3.5 w-3.5 accent-[rgb(79,113,220)]"
                               />
                               {t("Брак")}
@@ -205,7 +223,7 @@ export function WriteOffFormDialog({ options, onClose, onSaved }: { options: Wri
                             value={line.series}
                             maxLength={200}
                             aria-label={`${t("Серия")}: ${line.name}`}
-                            onChange={(event) => setLines((current) => current.map((item, i) => (i === index ? { ...item, series: event.target.value } : item)))}
+                            onChange={(event) => editLines((current) => current.map((item, i) => (i === index ? { ...item, series: event.target.value } : item)))}
                             className="h-9 w-[100px] border-b border-[#5d6474] bg-transparent px-1 outline-none"
                           />
                         </td>
@@ -215,7 +233,7 @@ export function WriteOffFormDialog({ options, onClose, onSaved }: { options: Wri
                               value={line.quantity}
                               inputMode="decimal"
                               aria-label={`${t("Кол-во")}: ${line.name}`}
-                              onChange={(event) => setLines((current) => current.map((item, i) => (i === index ? { ...item, quantity: event.target.value } : item)))}
+                              onChange={(event) => editLines((current) => current.map((item, i) => (i === index ? { ...item, quantity: event.target.value } : item)))}
                               className={`h-9 w-[90px] border-b bg-transparent px-1 outline-none ${bad ? "border-[#e57373] text-[#e57373]" : "border-[#5d6474]"}`}
                             />
                             <span className="text-[#586174]">{line.unit}</span>
@@ -224,7 +242,7 @@ export function WriteOffFormDialog({ options, onClose, onSaved }: { options: Wri
                         <td className="whitespace-nowrap py-2 pr-3 text-right">{formatSum(costOf(line))}</td>
                         <td className="whitespace-nowrap py-2 pr-3 text-right">{formatSum(parseAmount(line.quantity) * costOf(line))}</td>
                         <td className="py-2 text-right">
-                          <button type="button" onClick={() => setLines((current) => current.filter((_, i) => i !== index))} aria-label={t("Удалить")} className="text-[#9aa3b6] hover:text-[#e57373]">
+                          <button type="button" onClick={() => editLines((current) => current.filter((_, i) => i !== index))} aria-label={t("Удалить")} className="text-[#9aa3b6] hover:text-[#e57373]">
                             <Trash2 className="h-4 w-4" />
                           </button>
                         </td>

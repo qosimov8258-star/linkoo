@@ -4,9 +4,10 @@ import { z } from "zod"
 import { requireRole } from "@/lib/rbac"
 import { invalidIdResponse, parseIdSegment, parseJsonBody } from "@/lib/validation"
 import { addDebtLimitPayment } from "@/lib/debt-limits-repo"
+import { strictNum } from "@/lib/strict-number"
 
 const paymentSchema = z.object({
-  amount: z.coerce.number().positive(),
+  amount: strictNum(z.number().positive()),
   currency: z.enum(["USD", "Euro"]).optional(),
 })
 

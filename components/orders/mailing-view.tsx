@@ -4,6 +4,7 @@ import { ChangeEvent, FormEvent, useMemo, useRef, useState } from "react"
 import { Camera, ChevronLeft, ChevronRight, ImagePlus, Search, X } from "lucide-react"
 import { MAILING_SEED } from "./mailing-data"
 import { RefHeader, RefPage } from "@/components/ref/list-kit"
+import { formatDateText } from "@/lib/i18n/format-date"
 import { useLanguage } from "@/lib/i18n/language-context"
 
 export type Mailing = {
@@ -21,7 +22,7 @@ export type Mailing = {
 const initialMailings: Mailing[] = MAILING_SEED
 
 export function MailingView() {
-  const { t } = useLanguage()
+  const { t, language } = useLanguage()
   const [mailings, setMailings] = useState(initialMailings)
   const [query, setQuery] = useState("")
   const [selectedId, setSelectedId] = useState<number | null>(null)
@@ -144,7 +145,7 @@ export function MailingView() {
                 >
                   <td className="px-9 py-4">{mailing.id}</td>
                   <td className="px-4 py-4">{mailing.message}</td>
-                  <td className="px-4 py-4">{mailing.createdAt}</td>
+                  <td className="px-4 py-4">{formatDateText(mailing.createdAt, language)}</td>
                   <td className={"px-4 py-4 " + (mailing.status === "Отправлено" ? "text-[#6fc982]" : "text-[#e4a345]")}>{t(mailing.status)}</td>
                 </tr>
               ))}
@@ -170,7 +171,7 @@ export function MailingView() {
             <div className="border-r border-[#e7ebf0] px-9 py-5 leading-8">
               <p>{t("Отправлено")}: <strong className="float-right">{selectedMailing.sent}({t("человек")})</strong></p>
               <p>{t("Заблокировали")}: <strong className="float-right">{selectedMailing.blocked}({t("человек")})</strong></p>
-              <p>{t("Дата создания")}: <strong className="float-right">{selectedMailing.createdAtDetail}</strong></p>
+              <p>{t("Дата создания")}: <strong className="float-right">{formatDateText(selectedMailing.createdAtDetail, language)}</strong></p>
               <div className="mt-5 border-t border-[#e7ebf0] pt-5">
                 <p>{t("Исполнение")}:</p>
                 <p>{t("Статус")}: <span className="float-right text-[#6fc982]">{t(selectedMailing.status)}</span></p>

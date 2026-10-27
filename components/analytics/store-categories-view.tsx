@@ -43,7 +43,12 @@ export function StoreCategoriesView() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: name.trim() }),
       })
-      if (!response.ok) throw new Error("save failed")
+      if (!response.ok) {
+        // 409 "Такая категория магазина уже существует", 400 field errors: the server's reason.
+        const data = (await response.json().catch(() => ({}))) as { error?: string }
+        window.alert(t(data.error || "Не удалось сохранить"))
+        return
+      }
       const saved = (await response.json()) as StoreCategory
       setItems((list) => (isEdit ? list.map((item) => (item.id === saved.id ? saved : item)) : [...list, saved]))
       setEditing(null)

@@ -6,6 +6,7 @@ import { RI, RefButton, RefHeader } from "@/components/ref/list-kit"
 import { ReportMultiChipField, ReportPage, ReportRangeField, ReportSelectField, formatShortReportDate } from "@/components/ref/report-kit"
 import { useDirectoryNames } from "@/components/clients/use-directory"
 import { ORDER_STATUSES } from "@/components/orders/orders-data"
+import { csvText } from "@/lib/csv"
 import { useLanguage } from "@/lib/i18n/language-context"
 
 type PeriodData = { stores: number; storePercent: number; sum: number; sumPercent: number; dynamic?: number }
@@ -174,9 +175,9 @@ export function ClientDynamicsView() {
   }, [applied, appliedFilters, classes, clients, shownClients, orders])
 
   function download() {
-    const header = ["Классификация", ...periodLabels.flatMap((label) => [`${label} магазинов`, "%", "Сумма заказа", "%", "Динамика`"])].join(";")
-    const body = rows.map((row) => [row.name, ...row.periods.flatMap((item) => [item.stores, item.storePercent, item.sum, item.sumPercent, item.dynamic ?? ""])].join(";"))
-    const url = URL.createObjectURL(new Blob([`\uFEFF${[header, ...body].join("\n")}`], { type: "text/csv;charset=utf-8" }))
+    const header = [t("Классификация"), ...periodLabels.flatMap((label) => [`${t(label)} · ${t("Колв. магазинов")}`, "%", t("Сумма заказа"), "%", t("Динамика")])]
+    const body = rows.map((row) => [row.name, ...row.periods.flatMap((item) => [item.stores, item.storePercent, item.sum, item.sumPercent, item.dynamic ?? ""])])
+    const url = URL.createObjectURL(new Blob([`\uFEFF${csvText([header, ...body])}`], { type: "text/csv;charset=utf-8" }))
     const link = document.createElement("a")
     link.href = url
     link.download = "client-dynamics.csv"
@@ -227,7 +228,7 @@ export function ClientDynamicsView() {
             {[152, 137, 80, 115, 81, 114, 68, 95, 79, 83, 108, 64, 90, 90, 87].map((width, index) => <col key={index} style={{ width: `${(width / 1443) * 100}%` }} />)}
           </colgroup>
           <thead>
-            <tr><th rowSpan={2} className={th}>{t("Классификация")}</th>{periodLabels.map((label, index) => <th key={label} colSpan={index === 0 ? 4 : 5} className={`${th} ${index ? "border-l-2 border-l-black" : ""}`}>{label}</th>)}</tr>
+            <tr><th rowSpan={2} className={th}>{t("Классификация")}</th>{periodLabels.map((label, index) => <th key={label} colSpan={index === 0 ? 4 : 5} className={`${th} ${index ? "border-l-2 border-l-black" : ""}`}>{t(label)}</th>)}</tr>
             <tr>{periodLabels.flatMap((_, period) => ["Колв. магазинов", "%", "Сумма заказа", "%", ...(period ? ["Динамика"] : [])].map((title, index) => <th key={`${period}-${index}`} className={`${th} ${period && index === 0 ? "border-l-2 border-l-black" : ""}`}>{t(title)}</th>))}</tr>
           </thead>
           <tbody>

@@ -1,7 +1,12 @@
 import "server-only"
 
-import { getDb, withTransaction, type PgDb } from "@/lib/db"
+import { getDb, outsideTransaction, withTransaction, type PgDb } from "@/lib/db"
+import { DOC_DATE_INVALID, docDateError, docYearOk } from "@/lib/document-dates"
 import { todayIso } from "@/lib/finance/dates"
+import { placeName } from "@/lib/finance/entities"
+import { ensureFinanceSchema } from "@/lib/finance/schema"
+import { catalogIndex, countedByInventory, ledgerKey, lockWarehousesOf, lockWarehouseStock, round6, shortageMessage, warehouseStock } from "@/lib/internal-transfers-stock"
+import type { StockShortage } from "@/lib/internal-transfers-types"
 import { keySql, nameKey } from "@/lib/platform-refs"
 import {
   MAX_MONEY,
@@ -15,8 +20,10 @@ import {
   resolveClient,
   resolveCurrency,
   resolveEmployee,
+  resolveOrderOrganization,
   resolveWarehouse,
 } from "@/lib/orders-repo"
+import { ensureStockSchema } from "@/lib/stock/schema"
 import { RELEASED_STATUSES } from "@/components/orders/orders-data"
 
 // Client returns (Продажи → Возвраты), contract 5.
@@ -32,9 +39,17 @@ import { RELEASED_STATUSES } from "@/components/orders/orders-data"
 // - client ledger (lib/finance/sources.ts): the client is credited `amount`
 //   (in `currency`) on the accepted day.
 // accepted_at is an ISO UTC moment with "Z", so both read the same local day.
+// An accepted return can be undone ("Отменить приемку" → pending, or cancelled
+// right away): the goods leave the warehouse again, so they must still be there
+// on every day from the acceptance day on (business rule 8, warehouseStock) and
+// must not have been counted by a later confirmed inventory; the client credit
+// goes with the status. unaccepted_at / unaccepted_by keep the last undo.
 // A return of an order (order_id) is limited to the shipped quantities of that
 // order minus what earlier (not cancelled) returns took back, at the order's
 // net line price and currency by default.
+// organization: the order's organization for a return of an order, else the
+// chosen one or the order fallbacks (resolveOrderOrganization), so a return
+// without an order stays under the finance organization filter.
 
 export type ClientReturnStatus = "pending" | "accepted" | "cancelled"
 export const CLIENT_RETURN_STATUSES: ClientReturnStatus[] = ["pending", "accepted", "cancelled"]
@@ -64,10 +79,14 @@ export type ClientReturn = {
   comment: string
   deliverer: string
   agent: string
+  organization: string
   createdBy: string
   createdAt: string
   acceptedAt: string | null
   acceptedBy: string
+  /** Last "Отменить приемку" (ISO UTC) and who did it; null / "" when never undone. */
+  unacceptedAt: string | null
+  unacceptedBy: string
   items?: ClientReturnItem[]
   itemCount?: number
 }
@@ -84,6 +103,8 @@ export type ClientReturnInput = {
   comment?: string
   deliverer?: string
   agent?: string
+  /** A known organization; without one, the order's (return of an order) or the order fallbacks. */
+  organization?: string
   items?: ClientReturnLineInput[]
   /** With orderId and no items: return everything still returnable of the order. */
   full?: boolean
@@ -111,9 +132,12 @@ const RETURN_COLUMNS: Array<[string, string]> = [
   ["accepted_by", "TEXT NOT NULL DEFAULT ''"],
   ["deliverer", "TEXT NOT NULL DEFAULT ''"],
   ["agent", "TEXT NOT NULL DEFAULT ''"],
+  ["organization", "TEXT NOT NULL DEFAULT ''"],
   ["cancelled_at", "TEXT"],
   ["cancelled_by", "TEXT NOT NULL DEFAULT ''"],
   ["updated_at", "TEXT NOT NULL DEFAULT (datetime('now'))"],
+  ["unaccepted_at", "TEXT"],
+  ["unaccepted_by", "TEXT NOT NULL DEFAULT ''"],
 ]
 
 const ITEM_COLUMNS: Array<[string, string]> = [
@@ -143,21 +167,54 @@ ${ITEM_COLUMNS.map(([name, type]) => `ALTER TABLE client_return_items ADD COLUMN
 CREATE INDEX IF NOT EXISTS client_return_items_return_idx ON client_return_items (return_id);
 `
 
-const SCHEMA_VERSION = 1
+const SCHEMA_VERSION = 3
 
 declare global {
   var __linkoClientReturnsSchema: { version: number; ready: Promise<void> } | undefined
 }
 
+/** Fills EMPTY client_returns.organization only (idempotent, deterministic): a return of an
+ * order takes the order's organization; a return without one (or of an order without one)
+ * takes resolveOrderOrganization(client, agent, warehouse) when that gives a name. A set
+ * organization is never changed. A failure only logs a warning. */
+async function backfillReturnOrganizations(): Promise<void> {
+  try {
+    await withTransaction(async (tx) => {
+      await tx.exec("SELECT pg_advisory_xact_lock(72120933)")
+      await tx.exec(`UPDATE client_returns r SET organization = btrim(o.organization)
+        FROM orders o
+        WHERE o.id = r.order_id AND fin_place(r.organization) = '' AND fin_place(o.organization) <> ''`)
+      const rows = (await tx
+        .prepare(
+          `SELECT r.id, r.client_id, COALESCE(NULLIF(btrim(r.agent), ''), c.agent, '') AS agent, r.warehouse
+             FROM client_returns r LEFT JOIN clients c ON c.id = r.client_id
+            WHERE fin_place(r.organization) = '' ORDER BY r.id`,
+        )
+        .all()) as Array<{ id: number; client_id: number | null; agent: string; warehouse: string }>
+      for (const row of rows) {
+        const organization = await resolveOrderOrganization(tx, "", { clientId: row.client_id, agent: row.agent, warehouse: row.warehouse }).catch(() => "")
+        if (!placeName(organization)) continue
+        await tx
+          .prepare("UPDATE client_returns SET organization = @organization WHERE id = @id AND fin_place(organization) = ''")
+          .run({ id: row.id, organization })
+      }
+    })
+  } catch (error) {
+    console.warn("[client-returns] organization backfill skipped:", (error as Error).message)
+  }
+}
+
 export function ensureClientReturnsSchema(): Promise<void> {
   if (globalThis.__linkoClientReturnsSchema?.version !== SCHEMA_VERSION) {
-    const ready = (async () => {
+    const ready = outsideTransaction(async () => {
+      // ensureOrdersSchema also installs the fin_* helpers (ensureFinanceSchema) the backfill uses.
       await ensureOrdersSchema()
       await withTransaction(async (tx) => {
         await tx.exec("SELECT pg_advisory_xact_lock(72120933)")
         await tx.exec(DDL)
       })
-    })().catch((error) => {
+      await backfillReturnOrganizations()
+    }).catch((error) => {
       globalThis.__linkoClientReturnsSchema = undefined
       throw error
     })
@@ -183,10 +240,13 @@ type ReturnRow = {
   comment: string
   deliverer: string
   agent: string
+  organization?: string | null
   created_by: string
   created_at: string
   accepted_at: string | null
   accepted_by: string
+  unaccepted_at?: string | null
+  unaccepted_by?: string | null
   c_zone?: string | null
   item_count?: number | string | null
 }
@@ -221,10 +281,13 @@ function rowToReturn(row: ReturnRow): ClientReturn {
     comment: row.comment,
     deliverer: row.deliverer,
     agent: row.agent,
+    organization: row.organization ?? "",
     createdBy: row.created_by,
     createdAt: row.created_at,
     acceptedAt: row.accepted_at || null,
     acceptedBy: row.accepted_by,
+    unacceptedAt: row.unaccepted_at || null,
+    unacceptedBy: row.unaccepted_by ?? "",
     itemCount: row.item_count === undefined || row.item_count === null ? undefined : Number(row.item_count),
   }
 }
@@ -378,6 +441,8 @@ function assertIsoDay(value: string, field: string) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) throw new ClientReturnError("Дата: формат YYYY-MM-DD", 400, { field })
   const date = new Date(`${value}T00:00:00Z`)
   if (Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== value) throw new ClientReturnError("Несуществующая дата", 400, { field })
+  // Every document date has a year within 2000..2100 (lib/document-dates.ts).
+  if (!docYearOk(value)) throw new ClientReturnError(DOC_DATE_INVALID, 400, { field })
 }
 
 type ResolvedReturnLine = { productId: number | null; productName: string; unit: string; quantity: number; price: number; orderItemId: number | null }
@@ -398,19 +463,23 @@ async function resolveProductForReturn(db: PgDb, input: { productId?: number; pr
   return { id: row.id, name: row.name, unit: row.unit || "шт." }
 }
 
-type OrderInfo = { id: number; client_id: number | null; client: string; status: string; warehouse: string; currency: string; amount: string }
+type OrderInfo = { id: number; client_id: number | null; client: string; status: string; warehouse: string; currency: string; amount: string; organization: string | null }
 
-async function prepareReturn(db: PgDb, input: ClientReturnInput, exceptReturnId: number) {
+/** `currentDate` = the edited return's own return_date: an edit may keep it (even a future one). */
+async function prepareReturn(db: PgDb, input: ClientReturnInput, exceptReturnId: number, currentDate?: string | null) {
   const client = await resolveClient(db, { clientId: input.clientId, client: input.client })
   const warehouse = input.warehouse?.trim() ? await resolveWarehouse(db, input.warehouse) : ""
   const returnDate = input.returnDate?.trim() || todayIso()
   assertIsoDay(returnDate, "returnDate")
+  // A money and stock document: never dated after today (Asia/Tashkent), like write-offs and payments.
+  const dateError = docDateError(returnDate, { current: currentDate ?? undefined })
+  if (dateError) throw new ClientReturnError(dateError, 400, { field: "returnDate" })
   const deliverer = input.deliverer?.trim() ? await resolveEmployee(db, input.deliverer, "deliverer", "Доставщик") : ""
   const agent = input.agent?.trim() ? await resolveEmployee(db, input.agent, "agent", "Ответственный агент") : ""
 
   let order: OrderInfo | undefined
   if (input.orderId) {
-    order = (await db.prepare("SELECT id, client_id, client, status, warehouse, currency, amount FROM orders WHERE id = ?").get(input.orderId)) as OrderInfo | undefined
+    order = (await db.prepare("SELECT id, client_id, client, status, warehouse, currency, amount, organization FROM orders WHERE id = ?").get(input.orderId)) as OrderInfo | undefined
     if (!order) throw new ClientReturnError("Заказ не найден", 400, { field: "orderId" })
     const sameClient = order.client_id ? order.client_id === client.id : nameKey(order.client) === nameKey(client.name)
     if (!sameClient) throw new ClientReturnError("Заказ принадлежит другому клиенту", 400, { field: "orderId" })
@@ -471,7 +540,13 @@ async function prepareReturn(db: PgDb, input: ClientReturnInput, exceptReturnId:
   }
   const amount = round2(lines.reduce((sum, line) => sum + line.quantity * line.price, 0))
   if (amount > MAX_MONEY) throw new ClientReturnError("Сумма возврата слишком большая", 400, { field: "items" })
-  return { client, warehouse, returnDate, deliverer, agent, order, currency, lines, amount }
+  // A return of an order belongs to the order's organization; otherwise the chosen one
+  // (must be known, 400) or the order fallbacks (contracts → agent → warehouse manager → the only one).
+  const organization =
+    order && placeName(order.organization)
+      ? String(order.organization).trim()
+      : await resolveOrderOrganization(db, input.organization, { clientId: client.id, agent: agent || client.agent || "", warehouse })
+  return { client, warehouse, returnDate, deliverer, agent, order, currency, lines, amount, organization }
 }
 
 async function writeLines(db: PgDb, returnId: number, lines: ResolvedReturnLine[]) {
@@ -509,8 +584,8 @@ export async function createClientReturn(input: ClientReturnInput, user: { displ
     if (input.accept && !prepared.warehouse) throw new ClientReturnError("Укажите склад возврата", 400, { field: "warehouse" })
     const inserted = await tx
       .prepare(
-        `INSERT INTO client_returns (client_id, client, warehouse, order_id, return_date, status, currency, amount, comment, created_by, deliverer, agent)
-         VALUES (@clientId, @client, @warehouse, @orderId, @returnDate, 'pending', @currency, @amount, @comment, @createdBy, @deliverer, @agent)`,
+        `INSERT INTO client_returns (client_id, client, warehouse, order_id, return_date, status, currency, amount, comment, created_by, deliverer, agent, organization)
+         VALUES (@clientId, @client, @warehouse, @orderId, @returnDate, 'pending', @currency, @amount, @comment, @createdBy, @deliverer, @agent, @organization)`,
       )
       .run({
         clientId: prepared.client.id,
@@ -524,6 +599,7 @@ export async function createClientReturn(input: ClientReturnInput, user: { displ
         createdBy: user.displayName,
         deliverer: prepared.deliverer,
         agent: prepared.agent,
+        organization: prepared.organization,
       })
     const returnId = Number(inserted.lastInsertRowid)
     await writeLines(tx, returnId, prepared.lines)
@@ -552,15 +628,28 @@ export async function updateClientReturn(id: number, input: ClientReturnInput, u
       currency: input.currency ?? row.currency,
       deliverer: input.deliverer ?? row.deliverer,
       agent: input.agent ?? row.agent,
+      organization: input.organization,
       items:
         input.items ??
         existing.map((item) => ({ orderItemId: item.order_item_id ?? undefined, productId: item.product_id ?? undefined, productName: item.product_name, quantity: Number(item.quantity), price: Number(item.price) })),
     }
-    const prepared = await prepareReturn(tx, merged, id)
+    const prepared = await prepareReturn(tx, merged, id, row.return_date)
+    // No organization sent: a stored one stays while the order, client, agent and warehouse
+    // stay the same; any of them changed → the new default (prepared.organization).
+    const sameParties =
+      (prepared.order?.id ?? null) === (row.order_id ?? null) &&
+      prepared.client.id === row.client_id &&
+      nameKey(prepared.agent) === nameKey(row.agent) &&
+      nameKey(prepared.warehouse) === nameKey(row.warehouse)
+    const organization =
+      input.organization === undefined && placeName(row.organization) && sameParties && !(prepared.order && placeName(prepared.order.organization))
+        ? String(row.organization).trim()
+        : prepared.organization
     await tx
       .prepare(
         `UPDATE client_returns SET client_id = @clientId, client = @client, warehouse = @warehouse, order_id = @orderId, return_date = @returnDate,
-           currency = @currency, amount = @amount, comment = @comment, deliverer = @deliverer, agent = @agent, updated_at = datetime('now')
+           currency = @currency, amount = @amount, comment = @comment, deliverer = @deliverer, agent = @agent, organization = @organization,
+           updated_at = datetime('now')
          WHERE id = @id`,
       )
       .run({
@@ -575,6 +664,7 @@ export async function updateClientReturn(id: number, input: ClientReturnInput, u
         comment: input.comment !== undefined ? input.comment.trim() : row.comment,
         deliverer: prepared.deliverer,
         agent: prepared.agent,
+        organization,
       })
     await writeLines(tx, id, prepared.lines)
     void user
@@ -599,19 +689,116 @@ export async function acceptClientReturns(ids: number[], user: { displayName: st
   return Promise.all(unique.map(async (id) => (await getClientReturn(id))!))
 }
 
-/** Cancels a pending return; an accepted return cannot be cancelled (409). */
-export async function cancelClientReturn(id: number, user: { displayName: string }): Promise<ClientReturn | null> {
-  if (!Number.isSafeInteger(id) || id <= 0 || id > 2_147_483_647) return null
+/** Undoes the acceptance of `row` inside `tx` (the caller sets the new status): the goods
+ * the return put back must still be in its warehouse on every day from the day the stock
+ * core books the return on (rule 8: warehouseStock's minimum, less what orders reserve),
+ * and no confirmed inventory may have counted them since; else 409. */
+async function assertAcceptanceUndoable(tx: PgDb, row: ReturnRow): Promise<void> {
+  const warehouse = row.warehouse.trim()
+  // The stock core books an accepted return only with a warehouse.
+  if (!warehouse) return
+  await lockWarehouseStock(tx, [warehouse])
+  // Same day / moment as lib/stock/sources.ts (accepted_at, else return_date, else created_at).
+  const booked = (await tx
+    .prepare(
+      `SELECT to_char(m, 'YYYY-MM-DD') AS day, to_char(m, 'YYYY-MM-DD"T"HH24:MI:SS') AS moment
+         FROM (SELECT COALESCE(fin_ts(accepted_at), fin_ts(return_date), fin_ts(created_at, true)) AS m FROM client_returns WHERE id = @id) x`,
+    )
+    .get({ id: row.id })) as { day: string | null; moment: string | null } | undefined
+  const day = booked?.day || todayIso()
+  const moment = booked?.moment || `${day}T00:00:00`
+  const [index, stock, items] = await Promise.all([
+    catalogIndex(tx),
+    warehouseStock(warehouse, day, tx),
+    tx.prepare("SELECT * FROM client_return_items WHERE return_id = ? ORDER BY id").all(row.id) as Promise<ItemRow[]>,
+  ])
+  // Keys as the stock core books the lines: by product id, else by name.
+  const need = new Map<string, { product: string; unit: string; required: number }>()
+  for (const item of items) {
+    const quantity = Number(item.quantity) || 0
+    if (!(quantity > 0)) continue
+    const key = item.product_id ? `product:${item.product_id}` : ledgerKey(index, item.product_name)
+    const current = need.get(key)
+    if (current) current.required += quantity
+    else need.set(key, { product: item.product_name, unit: item.unit || index.byKey.get(key)?.unit || "", required: quantity })
+  }
+  const shortages: StockShortage[] = []
+  for (const [key, entry] of need) {
+    const available = stock.get(key)?.available ?? 0
+    if (entry.required > available + 1e-9) {
+      shortages.push({ key, product: entry.product, unit: entry.unit, required: round6(entry.required), available: round6(Math.max(0, available)) })
+    }
+  }
+  if (shortages.length) {
+    throw new ClientReturnError(`Не возможно отменить. ${shortageMessage(warehouse, shortages)}`, 409, { reason: "stock", shortages })
+  }
+  // A confirmed inventory counted the returned items after the acceptance: undoing it would break the count.
+  if (await countedByInventory(tx, warehouse, day, moment, [...need.keys()], { registeredAt: moment })) {
+    throw new ClientReturnError("Отменение невозможно из-за связи с другими данными", 409, { reason: "inventory" })
+  }
+}
+
+/** The stock / finance cores install their SQL helpers on their own connections:
+ * before our transaction holds the return locks (see lib/orders-repo.ts prepareWrites). */
+async function prepareUndo(): Promise<void> {
   await ensureClientReturnsSchema()
+  await ensureStockSchema()
+  await ensureFinanceSchema()
+}
+
+/** "Отменить приемку": an accepted return goes back to pending (editable, can be cancelled);
+ * its stock receipt and the client credit disappear. 409 when the goods are no longer in
+ * the warehouse (sold, moved, written off) or a later inventory counted them. */
+export async function unacceptClientReturn(id: number, user: { displayName: string }): Promise<ClientReturn | null> {
+  if (!Number.isSafeInteger(id) || id <= 0 || id > 2_147_483_647) return null
+  await prepareUndo()
   const found = await withTransaction(async (tx) => {
     await lockReturns(tx)
+    // Lock order (C1): undoing an acceptance takes the goods out again — the warehouse's stock lock before the row lock.
+    await lockWarehousesOf(tx, "SELECT warehouse FROM client_returns WHERE id = @id AND status = 'accepted'", { id })
+    const row = await loadReturn(tx, id, true)
+    if (!row) return false
+    if (row.status !== "accepted") {
+      throw new ClientReturnError(row.status === "cancelled" ? "Отмененный возврат нельзя изменить" : "Возврат еще не принят", 409, { status: row.status })
+    }
+    await assertAcceptanceUndoable(tx, row)
+    await tx
+      .prepare(
+        `UPDATE client_returns SET status = 'pending', accepted_at = NULL, accepted_by = '', unaccepted_at = @at, unaccepted_by = @user,
+           updated_at = datetime('now') WHERE id = @id`,
+      )
+      .run({ id, at: new Date().toISOString(), user: user.displayName })
+    return true
+  })
+  return found ? getClientReturn(id) : null
+}
+
+/** Cancels a return. A pending one simply; an accepted one only when its acceptance can
+ * be undone (as unacceptClientReturn: the goods must still be in the warehouse). */
+export async function cancelClientReturn(id: number, user: { displayName: string }): Promise<ClientReturn | null> {
+  if (!Number.isSafeInteger(id) || id <= 0 || id > 2_147_483_647) return null
+  await prepareUndo()
+  const found = await withTransaction(async (tx) => {
+    await lockReturns(tx)
+    // Lock order (C1): undoing an acceptance takes the goods out again — the warehouse's stock lock before the row lock.
+    await lockWarehousesOf(tx, "SELECT warehouse FROM client_returns WHERE id = @id AND status = 'accepted'", { id })
     const row = await loadReturn(tx, id, true)
     if (!row) return false
     if (row.status === "cancelled") return true
-    if (row.status !== "pending") throw new ClientReturnError("Принятый возврат нельзя отменить", 409, { status: row.status })
+    const at = new Date().toISOString()
+    if (row.status === "accepted") {
+      await assertAcceptanceUndoable(tx, row)
+      await tx
+        .prepare(
+          `UPDATE client_returns SET status = 'cancelled', cancelled_at = @at, cancelled_by = @user, accepted_at = NULL, accepted_by = '',
+             unaccepted_at = @at, unaccepted_by = @user, updated_at = datetime('now') WHERE id = @id`,
+        )
+        .run({ id, at, user: user.displayName })
+      return true
+    }
     await tx
       .prepare("UPDATE client_returns SET status = 'cancelled', cancelled_at = @at, cancelled_by = @user, updated_at = datetime('now') WHERE id = @id")
-      .run({ id, at: new Date().toISOString(), user: user.displayName })
+      .run({ id, at, user: user.displayName })
     return true
   })
   return found ? getClientReturn(id) : null

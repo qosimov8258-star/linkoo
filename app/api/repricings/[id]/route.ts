@@ -4,6 +4,7 @@ import { getCurrentUser } from "@/lib/current-user"
 import { requireRole } from "@/lib/rbac"
 import { parseRepricingId } from "@/lib/repricings-api"
 import { cancelRepricing, getRepricing, repricingErrorResponse } from "@/lib/repricings-repo"
+import { notSignedInResponse } from "@/lib/validation"
 
 type RouteParams = { params: Promise<{ id: string }> }
 
@@ -13,7 +14,7 @@ const NOT_FOUND = { error: "Переоценка не найдена" }
 // the linked repricings it created (`children`).
 export async function GET(_request: Request, { params }: RouteParams) {
   const user = await getCurrentUser()
-  if (!user) return NextResponse.json({ error: "Tizimga kirilmagan" }, { status: 401 })
+  if (!user) return notSignedInResponse()
   const id = parseRepricingId((await params).id)
   const repricing = id ? await getRepricing(id) : null
   if (!repricing) return NextResponse.json(NOT_FOUND, { status: 404 })

@@ -3,6 +3,7 @@ import { NextResponse } from "next/server"
 import { parseBody } from "@/lib/auth-request"
 import { getCurrentUser } from "@/lib/current-user"
 import { createOrderItem, listOrderItems } from "@/lib/order-items-repo"
+import { orderTimeRestrictionResponse } from "@/lib/order-time-restrictions-guard"
 import { orderErrorResponse, orderLineSchema, routeId } from "@/lib/orders-api"
 import { getOrder } from "@/lib/orders-repo"
 import { requireRole } from "@/lib/rbac"
@@ -26,6 +27,8 @@ export async function GET(_request: Request, { params }: RouteParams) {
 export async function POST(request: Request, { params }: RouteParams) {
   const auth = await requireRole("manager")
   if ("error" in auth) return auth.error
+  const blocked = await orderTimeRestrictionResponse("edit", auth.user)
+  if (blocked) return blocked
 
   const orderId = routeId((await params).id)
   if (!orderId) return NextResponse.json(NOT_FOUND, { status: 404 })

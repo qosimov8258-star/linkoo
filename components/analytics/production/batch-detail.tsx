@@ -76,7 +76,7 @@ const TABS: Array<[Tab, string]> = [
 ]
 
 export function BatchDetail({ partyId, stages, onChanged }: { partyId: number; stages: Stage[]; onChanged: () => void }) {
-  const { t } = useLanguage()
+  const { t, language } = useLanguage()
   const { data: party, setData: setParty } = useApiData<PartyDetail | null>(`/api/production/parties/${partyId}`, null)
   const [tab, setTab] = useState<Tab>("summary")
   const [dialog, setDialog] = useState<Dialog>(null)
@@ -129,9 +129,9 @@ export function BatchDetail({ partyId, stages, onChanged }: { partyId: number; s
       <div className="grid md:grid-cols-[300px_minmax(0,1fr)]">
         <aside className="border-slate-200 md:border-r">
           <dl className="space-y-2 border-b px-6 py-5 text-sm">
-            <InfoRow label="Дата создания" value={formatDateTime(party.createdAt)} />
-            <InfoRow label="Дата завершения" value={party.finishedAt ? formatDateTime(party.finishedAt) : t("Не указано")} />
-            <InfoRow label="Дата партии" value={formatDate(party.date)} />
+            <InfoRow label="Дата создания" value={formatDateTime(party.createdAt, language)} />
+            <InfoRow label="Дата завершения" value={party.finishedAt ? formatDateTime(party.finishedAt, language) : t("Не указано")} />
+            <InfoRow label="Дата партии" value={formatDate(party.date, language)} />
             <InfoRow label="Пользователь" value={party.userName} />
             <div>
               <dt className="text-slate-600">{t("Этап производства")}</dt>
@@ -322,6 +322,9 @@ function AutoAddDialog({ party, recipes, stock, onClose, onSaved }: DialogProps 
   const [components, setComponents] = useState<DraftLine[] | null>(null)
   const [saving, setSaving] = useState(false)
   const recipe = recipes.find((entry) => entry.key === recipeKey)
+  // Same rule as the server (autoFinishParty → 409): good output needs at least one raw line.
+  const hasRaw = party.raw.length > 0 || party.rawDefects.length > 0
+  const noRaw = components !== null && components.length === 0 && !hasRaw
   const stockByKey = useMemo(() => new Map(stock.map((item) => [item.key, item])), [stock])
 
   function calculate() {
@@ -354,7 +357,7 @@ function AutoAddDialog({ party, recipes, stock, onClose, onSaved }: DialogProps 
   }
 
   return (
-    <Modal title={t("Автодобавление")} tall onClose={onClose} width="max-w-3xl" footer={<SaveButton type="button" label="Подтвердить" saving={saving} disabled={!components} onClick={confirm} />}>
+    <Modal title={t("Автодобавление")} tall onClose={onClose} width="max-w-3xl" footer={<SaveButton type="button" label="Подтвердить" saving={saving} disabled={!components || noRaw} onClick={confirm} />}>
       <div className="grid gap-5 sm:grid-cols-[minmax(0,1fr)_160px_auto] sm:items-end">
         <Field label="Продукт">
           <ItemPicker items={recipes} value={recipeKey} onChange={(key) => { setRecipeKey(key); setComponents(null) }} placeholder="Продукт" />
@@ -401,8 +404,14 @@ function AutoAddDialog({ party, recipes, stock, onClose, onSaved }: DialogProps 
           </tbody>
         </table>
       ) : (
-        <p className="py-12 text-center text-sm text-slate-400">
-          {t(components ? "У продукта нет сырья — будет добавлен только готовый продукт" : "Пожалуйста выберите продукт и нажмите на кнопку рассчитать")}
+        <p className={`py-12 text-center text-sm ${noRaw ? "text-amber-600" : "text-slate-400"}`}>
+          {t(
+            !components
+              ? "Пожалуйста выберите продукт и нажмите на кнопку рассчитать"
+              : hasRaw
+                ? "У продукта нет сырья — будет добавлен только готовый продукт"
+                : "В партии нет сырья — добавьте сырье, чтобы завершить ее",
+          )}
         </p>
       )}
       <Field label="Комментарий" className="mt-4">

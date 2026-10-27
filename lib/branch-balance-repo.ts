@@ -3,12 +3,14 @@ import "server-only"
 import { z } from "zod"
 
 import { getBranch } from "@/lib/branches-repo"
-import { getDb } from "@/lib/db"
-import { MAX_ID, MAX_MONEY } from "@/lib/finance/api"
+import { getDb, outsideTransaction } from "@/lib/db"
+import { docDateCheck, parseDocInput } from "@/lib/document-dates"
+import { MAX_MONEY } from "@/lib/finance/api"
 import { loadCurrencyContext } from "@/lib/finance/context"
 import { ledgerCurrency, normCurrency } from "@/lib/finance/currency"
-import { nowLocalIso, parseAnyDate } from "@/lib/finance/dates"
+import { nowLocalIso } from "@/lib/finance/dates"
 import { ensureLedgerExtensions } from "@/lib/finance/schema"
+import { dbId, strictNum } from "@/lib/strict-number"
 
 // Manual ledger of the "Баланс филиалов" page (demo main/branch/add_transaction/):
 // "Добавить" (green +) stores kind 'add' → Прочие приходы, "Добавить расход"
@@ -20,8 +22,8 @@ declare global {
   var __linkoBranchBalanceSchema: Promise<void> | undefined
 }
 
-function ensureSchema(db: ReturnType<typeof getDb>): Promise<void> {
-  globalThis.__linkoBranchBalanceSchema ??= createSchema(db).catch((error: unknown) => {
+function ensureSchema(): Promise<void> {
+  globalThis.__linkoBranchBalanceSchema ??= outsideTransaction(() => createSchema(getDb())).catch((error: unknown) => {
     globalThis.__linkoBranchBalanceSchema = undefined
     throw error
   })
@@ -113,7 +115,7 @@ function rowToTransaction(row: Row): BranchBalanceTransaction {
  * расход" posts amount × −1 to the same endpoint). */
 export const branchBalanceTransactionSchema = z
   .object({
-    branchId: z.coerce.number({ error: "Выберите филиал" }).int("Выберите филиал").positive("Выберите филиал").max(MAX_ID, "Выберите филиал"),
+    branchId: dbId("Выберите филиал"),
     /** Ignored when the branch exists (the stored name is taken from branches). */
     branchName: z.string().trim().optional(),
     kind: z.enum(BRANCH_BALANCE_KINDS).optional(),
@@ -124,17 +126,17 @@ export const branchBalanceTransactionSchema = z
       .max(16, "Выберите валюту")
       .regex(/^[\p{L}$€']+$/u, "Выберите валюту")
       .optional(),
-    amount: z.coerce
-      .number({ error: "Введите сумму" })
-      .finite("Введите сумму")
-      .refine((value) => value !== 0, "Введите сумму")
-      .refine((value) => Math.abs(value) <= MAX_MONEY, "Слишком большая сумма"),
-    /** "YYYY-MM-DDTHH:mm", "YYYY-MM-DD HH:mm" or "YYYY-MM-DD"; default now. */
-    date: z
-      .string()
-      .trim()
-      .optional()
-      .refine((value) => !value || parseAnyDate(value) !== null, "Неверная дата"),
+    amount: strictNum(
+      z
+        .number({ error: "Введите сумму" })
+        .finite("Введите сумму")
+        .refine((value) => value !== 0, "Введите сумму")
+        .refine((value) => Math.abs(value) <= MAX_MONEY, "Слишком большая сумма"),
+      "Введите сумму",
+    ),
+    /** "YYYY-MM-DDTHH:mm", "YYYY-MM-DD HH:mm" or "YYYY-MM-DD"; default now. A money
+     * document: year 2000..2100 and never after today (lib/document-dates.ts). */
+    date: z.string().trim().optional().superRefine(docDateCheck()),
     comment: z.string().trim().max(2000).optional(),
   })
   // Only an expense may carry the demo's negative amount; "add" / "payments"
@@ -153,7 +155,7 @@ export type BranchBalanceTransactionInput = z.output<typeof branchBalanceTransac
 
 /** Stored date text: local business date-time "YYYY-MM-DDTHH:mm" (fin_ts reads it as Asia/Tashkent). */
 function storedDate(value: string): string {
-  const local = value ? parseAnyDate(value) : nowLocalIso()
+  const local = value ? parseDocInput(value) : nowLocalIso()
   if (!local) return nowLocalIso().slice(0, 16)
   // Keep a plain ISO day as a day (legacy rows), otherwise minutes precision.
   return /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : local.slice(0, 16)
@@ -161,7 +163,7 @@ function storedDate(value: string): string {
 
 export async function listBranchBalanceTransactions(branchId?: number): Promise<BranchBalanceTransaction[]> {
   const db = getDb()
-  await ensureSchema(db)
+  await ensureSchema()
   const rows = branchId
     ? ((await db.prepare("SELECT * FROM branch_balance_transactions WHERE branch_id = ? ORDER BY id ASC").all(branchId)) as Row[])
     : ((await db.prepare("SELECT * FROM branch_balance_transactions ORDER BY id ASC").all()) as Row[])
@@ -170,7 +172,7 @@ export async function listBranchBalanceTransactions(branchId?: number): Promise<
 
 export async function getBranchBalanceTransaction(id: number): Promise<BranchBalanceTransaction | null> {
   const db = getDb()
-  await ensureSchema(db)
+  await ensureSchema()
   const row = (await db.prepare("SELECT * FROM branch_balance_transactions WHERE id = ?").get(id)) as Row | undefined
   return row ? rowToTransaction(row) : null
 }
@@ -182,7 +184,7 @@ export async function createBranchBalanceTransaction(input: BranchBalanceTransac
   const branch = await getBranch(input.branchId)
   if (!branch) return "branch_not_found"
   const db = getDb()
-  await ensureSchema(db)
+  await ensureSchema()
   const code = normCurrency(input.currency)
   if (!(await loadCurrencyContext(db)).currencies.some((currency) => currency.code === code)) return "currency_not_found"
   const result = await db
@@ -206,7 +208,7 @@ export async function createBranchBalanceTransaction(input: BranchBalanceTransac
 
 export async function deleteBranchBalanceTransaction(id: number): Promise<boolean> {
   const db = getDb()
-  await ensureSchema(db)
+  await ensureSchema()
   const result = await db.prepare("DELETE FROM branch_balance_transactions WHERE id = ?").run(id)
   return result.changes > 0
 }

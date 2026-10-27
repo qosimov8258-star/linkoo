@@ -199,7 +199,7 @@ export function DelivererCorrectionDialog({
         const fields = body?.details?.fieldErrors ?? {}
         if (message === "Валюта не найдена" || fields.currency?.length) setErrors({ currency: message })
         else if (fields.amount?.length) setErrors({ amount: "Введите сумму" })
-        else if (fields.date?.length) setErrors({ date: message })
+        else if (fields.date?.length) setErrors({ date: fields.date[0] ?? message })
         else setErrors({ form: message })
         return
       }

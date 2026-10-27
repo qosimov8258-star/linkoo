@@ -4,13 +4,13 @@ import { getCurrentUser } from "@/lib/current-user"
 import { inventoryErrorResponse, inventoryItemSchema, parseInventoryQuery } from "@/lib/inventory-items-api"
 import { createInventoryItem, listInventoryItems } from "@/lib/inventory-items-repo"
 import { requireRole } from "@/lib/rbac"
-import { parseJsonBody } from "@/lib/validation"
+import { notSignedInResponse, parseJsonBody } from "@/lib/validation"
 
 // GET /api/inventory-items?status=in_stock|in_market|all|attachment &… (lib/inventory-items-api.ts) → InventoryItemListResult
 // POST /api/inventory-items — "Добавление инвентаря" → InventoryItemDetail (201)
 export async function GET(request: Request) {
   const user = await getCurrentUser()
-  if (!user) return NextResponse.json({ error: "Tizimga kirilmagan" }, { status: 401 })
+  if (!user) return notSignedInResponse()
   const parsed = parseInventoryQuery(request.url)
   if (parsed.error) return parsed.error
   return NextResponse.json(await listInventoryItems(parsed.data))

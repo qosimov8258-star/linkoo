@@ -4,7 +4,7 @@ import { z } from "zod"
 import { getCurrentUser } from "@/lib/current-user"
 import { requireRole } from "@/lib/rbac"
 import { parseJsonBody } from "@/lib/validation"
-import { createRefusalType, listRefusalTypes, parseRefusalTypeInput } from "@/lib/refusal-types-repo"
+import { createRefusalType, listRefusalTypes, parseRefusalTypeInput, RefusalTypeError } from "@/lib/refusal-types-repo"
 
 const refusalTypeSchema = z.object({
   name: z.string().trim().min(1).max(255, "Не более 255 символов"),
@@ -17,6 +17,7 @@ export async function GET() {
   return NextResponse.json((await listRefusalTypes()))
 }
 
+// POST /api/refusal-types {name, resolution?} — 409 for a name that exists (case- and space-insensitive).
 export async function POST(request: Request) {
   const auth = await requireRole("manager")
   if ("error" in auth) return auth.error
@@ -27,6 +28,10 @@ export async function POST(request: Request) {
   const input = parseRefusalTypeInput(parsed.data)
   if (!input) return NextResponse.json({ error: "Наименование обязательно" }, { status: 400 })
 
-  const item = (await createRefusalType(input))
-  return NextResponse.json(item, { status: 201 })
+  try {
+    return NextResponse.json(await createRefusalType(input), { status: 201 })
+  } catch (error) {
+    if (error instanceof RefusalTypeError) return NextResponse.json({ error: error.message, field: "name" }, { status: error.status })
+    throw error
+  }
 }

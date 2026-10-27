@@ -5,6 +5,7 @@ import { RefButton } from "@/components/ref/list-kit"
 import { FormEvent, useEffect, useMemo, useState } from "react"
 import { DUPLICATE_ORDER } from "./duplicate-data"
 import { Check, Link2, Search, Trash2, X } from "lucide-react"
+import { useLanguage } from "@/lib/i18n/language-context"
 
 type DuplicateGroup = {
   id: number
@@ -36,6 +37,7 @@ function buildGroups(clients: ClientRow[], field: "inn" | "phone"): DuplicateGro
 }
 
 export function DuplicateAnalysisView() {
+  const { t } = useLanguage()
   const [mode, setMode] = useState<"inn" | "phone">("inn")
   const [query, setQuery] = useState("")
   const [groups, setGroups] = useState<DuplicateGroup[]>([])
@@ -147,16 +149,16 @@ export function DuplicateAnalysisView() {
                     mode === tab ? "border-[#6178e8] text-slate-900" : "border-transparent hover:bg-slate-50"
                   }`}
                 >
-                  {tab === "inn" ? "По ИНН" : "По номеру телефона"}
+                  {tab === "inn" ? t("По ИНН") : t("По номеру телефона")}
                 </button>
               ))}
             </div>
             <label className="relative block h-[50px] w-full max-w-[330px] px-[15px]">
-              <span className="sr-only">Поиск</span>
+              <span className="sr-only">{t("Поиск")}</span>
               <input
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
-                placeholder="Поиск"
+                placeholder={t("Поиск")}
                 className="h-12 w-full border-b border-[#e0e0e0] bg-transparent pr-10 text-[13px] outline-none placeholder:text-black/30 focus:border-[#5d6474]"
               />
               <Search className="absolute right-[22px] top-1/2 h-6 w-6 -translate-y-1/2 text-[#ccc]" />
@@ -166,7 +168,7 @@ export function DuplicateAnalysisView() {
           {message && (
             <div className="mx-6 mt-4 flex items-center justify-between rounded-md bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-700">
               {message}
-              <button type="button" onClick={() => setMessage("")} aria-label="Закрыть сообщение">
+              <button type="button" onClick={() => setMessage("")} aria-label={t("Закрыть сообщение")}>
                 <X className="h-4 w-4" />
               </button>
             </div>
@@ -177,8 +179,8 @@ export function DuplicateAnalysisView() {
               <thead className="bg-[#5d6474] text-left" style={{ color: "#fff" }}>
                 <tr>
                   <th className="h-[50px] w-[182px] pl-[38px] font-semibold">№</th>
-                  <th className="h-[50px] w-[243px] pl-[38px] font-semibold">Наименование</th>
-                  <th className="h-[50px] pl-[38px] font-semibold">Клиенты</th>
+                  <th className="h-[50px] w-[243px] pl-[38px] font-semibold">{t("Наименование")}</th>
+                  <th className="h-[50px] pl-[38px] font-semibold">{t("Клиенты")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -213,7 +215,7 @@ export function DuplicateAnalysisView() {
                         className="absolute right-[120px] top-1/2 hidden h-[30px] -translate-y-1/2 items-center gap-2 rounded-[5px] bg-[#4f71dc] px-4 text-[13px] font-semibold text-white group-hover:inline-flex focus:inline-flex"
                       >
                         <Link2 className="h-4 w-4" />
-                        Объединить
+                        {t("Объединить")}
                       </button>
                     </td>
                   </tr>
@@ -221,7 +223,7 @@ export function DuplicateAnalysisView() {
               </tbody>
             </table>
             {filtered.length === 0 && (
-              <div className="py-20 text-center text-[13px] text-[#8c8c8c]">По вашему запросу ничего не найдено.</div>
+              <div className="py-20 text-center text-[13px] text-[#8c8c8c]">{t("По вашему запросу ничего не найдено.")}</div>
             )}
           </div>
         </section>
@@ -230,23 +232,23 @@ export function DuplicateAnalysisView() {
         <div className="fixed inset-0 z-[70] bg-white" role="dialog" aria-modal="true" aria-labelledby="merge-title">
           <form onSubmit={merge} className="flex h-full flex-col">
             <div className="flex items-center justify-between border-b px-9 py-6">
-              <h2 id="merge-title" className="text-[17px] font-bold uppercase">Объединение клиентов</h2>
-              <button type="button" onClick={() => setMergeOpen(false)} aria-label="Закрыть" className="text-slate-500 hover:text-slate-900">
+              <h2 id="merge-title" className="text-[17px] font-bold uppercase">{t("Объединение клиентов")}</h2>
+              <button type="button" onClick={() => setMergeOpen(false)} aria-label={t("Закрыть")} className="text-slate-500 hover:text-slate-900">
                 <X className="h-6 w-6" />
               </button>
             </div>
             <div className="border-b px-3 py-6 text-[17px] font-semibold text-slate-500">
-              <p>Все данные выбранных клиентов будут переписаны на имя клиента:</p>
-              <p className="text-red-500">Объединённые клиенты нельзя восстановить !</p>
+              <p>{t("Все данные выбранных клиентов будут переписаны на имя клиента:")}</p>
+              <p className="text-red-500">{t("Объединённые клиенты нельзя восстановить !")}</p>
             </div>
             <div className="grid min-h-0 flex-1 grid-cols-1 divide-x lg:grid-cols-2">
               <section className="overflow-y-auto p-3">
-                <h3 className="mb-8 text-2xl font-bold">Клиенты которые будут удалены</h3>
+                <h3 className="mb-8 text-2xl font-bold">{t("Клиенты которые будут удалены")}</h3>
                 <div className="mb-10 flex items-end gap-4">
                   <label className="min-w-0 flex-1">
-                    <span className="mb-2 block text-sm">Клиент</span>
+                    <span className="mb-2 block text-sm">{t("Клиент")}</span>
                     <select value={addKey} onChange={(event) => setAddKey(event.target.value)} className="w-full border-b border-slate-300 bg-white py-2 outline-none">
-                      <option value="">Выберите клиента</option>
+                      <option value="">{t("Выберите клиента")}</option>
                       {availableToAdd.map(({ key, client }) => (
                         <option key={key} value={key}>{client}</option>
                       ))}
@@ -262,11 +264,11 @@ export function DuplicateAnalysisView() {
                     }}
                     className="px-5 py-2 font-medium text-brand-blue disabled:cursor-not-allowed disabled:opacity-40"
                   >
-                    ДОБАВИТЬ
+                    {t("ДОБАВИТЬ")}
                   </button>
                 </div>
                 <div className="grid grid-cols-[1fr_155px_1fr_42px] gap-4 px-2 text-sm font-semibold">
-                  <span>Наименование</span><span>Телефон</span><span>Адрес</span><span />
+                  <span>{t("Наименование")}</span><span>{t("Телефон")}</span><span>{t("Адрес")}</span><span />
                 </div>
                 {selected.map((key) => {
                   const [id, index] = key.split(":").map(Number)
@@ -274,8 +276,8 @@ export function DuplicateAnalysisView() {
                   return (
                     <div key={key} className="mt-4 grid grid-cols-[1fr_155px_1fr_42px] items-center gap-4 border-b py-3 text-sm">
                       <span>{client}</span>
-                      <span>Не указан</span>
-                      <span>Не указано</span>
+                      <span>{t("Не указан")}</span>
+                      <span>{t("Не указано")}</span>
                       <button
                         type="button"
                         aria-label={`Удалить ${client}`}
@@ -289,9 +291,9 @@ export function DuplicateAnalysisView() {
                 })}
               </section>
               <section className="relative overflow-y-auto p-3">
-                <h3 className="mb-3 text-2xl font-bold">Клиент который остается</h3>
+                <h3 className="mb-3 text-2xl font-bold">{t("Клиент который остается")}</h3>
                 <label className="block text-sm">
-                  Клиент
+                  {t("Клиент")}
                   <button
                     type="button"
                     onClick={() => setClientPickerOpen((current) => !current)}
@@ -321,7 +323,7 @@ export function DuplicateAnalysisView() {
               </section>
             </div>
             <div className="flex justify-end border-t px-7 py-5">
-              <button type="submit" disabled={!primary || selected.length === 0} className="font-semibold text-[#00a4e8] disabled:opacity-40">ОБЪЕДИНИТЬ</button>
+              <button type="submit" disabled={!primary || selected.length === 0} className="font-semibold text-[#00a4e8] disabled:opacity-40">{t("ОБЪЕДИНИТЬ")}</button>
             </div>
           </form>
         </div>

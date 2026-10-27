@@ -3,11 +3,12 @@ import { NextRequest, NextResponse } from "next/server"
 import { getCurrentUser } from "@/lib/current-user"
 import { isIsoDay } from "@/lib/finance/dates"
 import { stockPickRows } from "@/lib/internal-transfers-stock"
+import { notSignedInResponse } from "@/lib/validation"
 
 /** Product picker: items of `warehouse` with their available balance
  * (stock core) and the price in `priceList`; `include` adds keys already on the document. */
 export async function GET(request: NextRequest) {
-  if (!(await getCurrentUser())) return NextResponse.json({ error: "Tizimga kirilmagan" }, { status: 401 })
+  if (!(await getCurrentUser())) return notSignedInResponse()
   const params = new URL(request.url).searchParams
   const warehouse = (params.get("warehouse") ?? "").trim()
   if (!warehouse) return NextResponse.json({ error: "Склад не выбран" }, { status: 400 })

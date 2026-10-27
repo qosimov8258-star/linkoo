@@ -256,7 +256,7 @@ export function InventoryPage() {
                       <td className={`${td} pl-6 font-semibold`}>{row.id}</td>
                       <td className={td}>{row.warehouse}</td>
                       <td className={td}>{row.createdBy || "—"}</td>
-                      <td className={`${td} whitespace-nowrap`}>{inventoryDateText(row, language)}</td>
+                      <td className={`${td} whitespace-nowrap`}>{inventoryDateText(row, language, false)}</td>
                       <td className={`${td} max-w-[260px] truncate`} title={row.comment || undefined}>
                         {row.comment || t("Комментариев нет")}
                       </td>

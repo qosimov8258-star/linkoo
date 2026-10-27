@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server"
 
+import { withDbErrors } from "@/lib/db-errors"
 import { requireRole } from "@/lib/rbac"
 import { parseIdSegment, parseJsonBody } from "@/lib/validation"
 import { transferActionSchema, transferResponse } from "@/lib/internal-transfers-api"
@@ -10,7 +11,7 @@ type RouteParams = { params: Promise<{ id: string }> }
 
 /** Status change: { action: approve | give | cancel_given | accept | cancel_accepted | cancel, comment?, date? }.
  * 200 → the updated transfer; 409 { error } when the transition is not allowed or the goods are missing. */
-export async function POST(request: NextRequest, { params }: RouteParams) {
+export const POST = withDbErrors(async function POST(request: NextRequest, { params }: RouteParams) {
   const auth = await requireRole("manager")
   if ("error" in auth) return auth.error
 
@@ -20,4 +21,4 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
   const { action, comment, date } = parsed.data
   return transferResponse(await transferAction(id, action as TransferAction, { comment, date }, auth.user.displayName))
-}
+})

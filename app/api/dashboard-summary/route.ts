@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 
 import { getCurrentUser } from "@/lib/current-user"
 import { getDashboardSummary } from "@/lib/dashboard-summary-repo"
+import { invalidFieldResponse } from "@/lib/validation"
 
 function validDay(value: string): boolean {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false
@@ -20,7 +21,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Требуются begin и end" }, { status: 400 })
   }
   if (!validDay(begin) || !validDay(end)) {
-    return NextResponse.json({ error: "begin/end: YYYY-MM-DD" }, { status: 400 })
+    return invalidFieldResponse(validDay(begin) ? "end" : "begin", "YYYY-MM-DD")
   }
   if (begin > end) {
     return NextResponse.json({ error: "begin должен быть не позже end" }, { status: 400 })

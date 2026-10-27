@@ -11,7 +11,7 @@ import {
   updateOrganization,
 } from "@/lib/organizations-repo"
 import { requireRole } from "@/lib/rbac"
-import { parseJsonBody } from "@/lib/validation"
+import { notSignedInResponse, parseJsonBody } from "@/lib/validation"
 
 type RouteParams = { params: Promise<{ id: string }> }
 
@@ -20,7 +20,7 @@ const NOT_FOUND = { error: "Организация не найдена" }
 // GET /api/organizations/[id] — demo GET main/division/:id/; ?usage=1 adds where it is used.
 export async function GET(request: Request, { params }: RouteParams) {
   const user = await getCurrentUser()
-  if (!user) return NextResponse.json({ error: "Tizimga kirilmagan" }, { status: 401 })
+  if (!user) return notSignedInResponse()
   const id = parseOrganizationId((await params).id)
   const withUsage = new URL(request.url).searchParams.get("usage") === "1"
   const organization = id ? await getOrganizationDetail(id, withUsage) : null

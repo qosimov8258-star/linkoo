@@ -1,6 +1,6 @@
 import "server-only"
 
-import { getDb, type PgDb } from "@/lib/db"
+import { getDb, outsideTransaction, withTransaction, type PgDb } from "@/lib/db"
 import { ensureFinanceSchema } from "@/lib/finance/schema"
 
 // Database plumbing of the stock core:
@@ -51,13 +51,28 @@ async function install(): Promise<void> {
   const db = getDb()
   await ensureFinanceSchema(db)
   const orders = (await db.prepare("SELECT to_regclass('orders') IS NOT NULL AS ok").get()) as { ok: boolean } | undefined
-  if (orders?.ok) await db.exec("ALTER TABLE orders ADD COLUMN IF NOT EXISTS warehouse TEXT NOT NULL DEFAULT ''")
+  if (!orders?.ok) return
+  // ADD COLUMN IF NOT EXISTS still takes an ACCESS EXCLUSIVE lock on orders even when
+  // the column is there. A caller whose transaction already read orders and then awaits
+  // the first ensureStockSchema() of the process would wait on that ALTER while the ALTER
+  // waits on it, which Postgres cannot detect. So ALTER only when the column is missing,
+  // and give up after a short lock wait instead of hanging every request.
+  const column = await db
+    .prepare(
+      "SELECT 1 AS ok FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'orders' AND column_name = 'warehouse'",
+    )
+    .get()
+  if (column) return
+  await withTransaction(async (tx) => {
+    await tx.exec("SET LOCAL lock_timeout = '5s'")
+    await tx.exec("ALTER TABLE orders ADD COLUMN IF NOT EXISTS warehouse TEXT NOT NULL DEFAULT ''")
+  })
 }
 
 /** Installs the SQL helpers the ledger needs (once per process). */
 export function ensureStockSchema(): Promise<void> {
   if (globalThis.__linkoStockSchema?.version !== STOCK_SCHEMA_VERSION) {
-    const ready = install().catch((error) => {
+    const ready = outsideTransaction(install).catch((error) => {
       globalThis.__linkoStockSchema = undefined
       throw error
     })

@@ -13,14 +13,14 @@ import type { CatalogKind } from "@/lib/products-types"
 import { NOT_FOUND, bulkUpdateCatalog, createCatalogItem, getCatalogUsage, deleteCatalogItem, restoreCatalogItem, updateCatalogItem } from "@/lib/products-write"
 import { getRawMaterial, listRawMaterials } from "@/lib/raw-materials-repo"
 import { requireRole } from "@/lib/rbac"
-import { parseJsonBody } from "@/lib/validation"
+import { notSignedInResponse, parseJsonBody } from "@/lib/validation"
 
 // Handlers behind app/api/products/** and app/api/raw-materials/** (same API, the kind
 // differs). Defaults keep the old shapes: GET /api/products = every product (array),
 // GET /api/raw-materials = raw materials not deleted (array), POST / PUT answer with the
 // item in that shape. Opt-in: ?view=list (paged CatalogItem list), ?view=item (detail).
 
-const UNAUTHORIZED = () => NextResponse.json({ error: "Tizimga kirilmagan" }, { status: 401 })
+const UNAUTHORIZED = () => notSignedInResponse()
 const notFound = (kind: CatalogKind) => NextResponse.json({ error: NOT_FOUND[kind] }, { status: 404 })
 const userName = (user: { displayName?: string; username: string }) => user.displayName || user.username
 

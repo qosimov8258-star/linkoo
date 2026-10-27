@@ -1,6 +1,6 @@
 import "server-only"
 
-import { getDb, withTransaction, type PgDb } from "@/lib/db"
+import { getDb, outsideTransaction, withTransaction, type PgDb } from "@/lib/db"
 import { BranchKpiError, type BranchKpiBulkInput, type BranchKpiCopyInput, type BranchKpiListQuery, type BranchKpiRulesInput } from "@/lib/branch-kpi-api"
 import {
   BRANCH_KPI_CALC_TYPE_IDS,
@@ -71,9 +71,7 @@ CREATE TABLE IF NOT EXISTS branch_kpi_recalcs (
 /** Creates the page's tables once per process. */
 export function ensureBranchKpiSchema(): Promise<void> {
   if (!globalThis.__linkoBranchKpiSchema) {
-    globalThis.__linkoBranchKpiSchema = getDb()
-      .exec(SCHEMA_SQL)
-      .catch((error: unknown) => {
+    globalThis.__linkoBranchKpiSchema = outsideTransaction(() => getDb().exec(SCHEMA_SQL)).catch((error: unknown) => {
         globalThis.__linkoBranchKpiSchema = undefined
         throw error
       })

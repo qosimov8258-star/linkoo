@@ -4,21 +4,22 @@ import { z } from "zod"
 import { getCurrentUser } from "@/lib/current-user"
 import { INVALID_PRICE, MAX_PRICE } from "@/lib/item-prices"
 import { requireRole } from "@/lib/rbac"
-import { parseJsonBody } from "@/lib/validation"
+import { notSignedInResponse, parseJsonBody } from "@/lib/validation"
 import { createPriceListEntry, listPriceListEntries } from "@/lib/price-list-entries-repo"
+import { strictNum } from "@/lib/strict-number"
 
 const priceListEntrySchema = z.object({
   priceList: z.string().trim().min(1).max(255),
   product: z.string().trim().min(1).max(255),
-  cash: z.coerce.number({ error: INVALID_PRICE }).min(0, INVALID_PRICE).max(MAX_PRICE, INVALID_PRICE).optional(),
-  nonCash: z.coerce.number({ error: INVALID_PRICE }).min(0, INVALID_PRICE).max(MAX_PRICE, INVALID_PRICE).optional(),
+  cash: strictNum(z.number({ error: INVALID_PRICE }).min(0, INVALID_PRICE).max(MAX_PRICE, INVALID_PRICE).optional(), INVALID_PRICE),
+  nonCash: strictNum(z.number({ error: INVALID_PRICE }).min(0, INVALID_PRICE).max(MAX_PRICE, INVALID_PRICE).optional(), INVALID_PRICE),
 })
 
 // GET /api/price-list-entries — [{id, priceList, product, cash, nonCash}] derived from the item
 // prices (price analysis reads it).
 export async function GET() {
   const user = await getCurrentUser()
-  if (!user) return NextResponse.json({ error: "Tizimga kirilmagan" }, { status: 401 })
+  if (!user) return notSignedInResponse()
   return NextResponse.json(await listPriceListEntries())
 }
 

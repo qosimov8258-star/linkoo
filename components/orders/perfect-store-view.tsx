@@ -4,6 +4,7 @@ import { Download } from "lucide-react";
 import { RefHeader, RefPage, RefTabs } from "@/components/ref/list-kit";
 import Link from "next/link";
 import { useState } from "react";
+import { csvText } from "@/lib/csv";
 import { useLanguage } from "@/lib/i18n/language-context";
 
 const tabs = ["Не подтверждён", "Подтверждён", "Все"];
@@ -15,7 +16,7 @@ export function PerfectStoreView() {
   const [notice, setNotice] = useState("");
 
   const download = () => {
-    const csv = "ID;Создал;Агент;Магазин;Дата создания;Присутствие;Доля;Задача;Комментарий;Статус задачи\n";
+    const csv = csvText([["ID", "Создал", "Агент", "Магазин", "Дата создания", "Присутствие", "Доля", "Задача", "Комментарий", "Статус задачи"]]) + "\n";
     const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8;" }));
     const anchor = document.createElement("a");
     anchor.href = url;

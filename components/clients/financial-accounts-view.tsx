@@ -12,6 +12,8 @@ import {
   RefTabs,
   SimpleListPage,
 } from "@/components/ref/list-kit"
+import { csvText } from "@/lib/csv"
+import { formatDateText } from "@/lib/i18n/format-date"
 import { useLanguage } from "@/lib/i18n/language-context"
 import { refDate } from "@/lib/ref-date"
 
@@ -21,7 +23,7 @@ type Filters = { agent: string; begin: string; end: string; type: string; blackl
 const emptyFilters: Filters = { agent: "", begin: "", end: "", type: "", blacklist: false, deleted: false }
 
 export function FinancialAccountsView() {
-  const { t } = useLanguage()
+  const { t, language } = useLanguage()
   const [tab, setTab] = useState("Все")
   const [rows, setRows] = useState<Account[]>([])
   const [loading, setLoading] = useState(true)
@@ -69,7 +71,7 @@ export function FinancialAccountsView() {
   }, [rows, tab, filters])
 
   function download() {
-    const csv = ["№;Наименование;Адрес;Дата добавления", ...shown.map((row) => `${row.id};${row.name};${row.address};${row.date}`)].join("\n")
+    const csv = csvText([["№", t("Наименование"), t("Адрес"), t("Дата добавления")], ...shown.map((row) => [row.id, row.name, row.address === "Не указано" ? t(row.address) : row.address, formatDateText(row.date, language)])])
     const a = document.createElement("a")
     a.href = "data:text/csv;charset=utf-8," + encodeURIComponent(csv)
     a.download = "financial-accounts.csv"
@@ -91,7 +93,7 @@ export function FinancialAccountsView() {
         <FinanceFilter value={filters} agents={agents} types={types} onClose={close} onApply={(next) => { setFilters(next); close() }} />
       )}
       icons={<RefIconButton path={RI.download} label={t("Скачать")} onClick={download} />}
-      render={(row) => [row.id, row.name, row.address, row.date]}
+      render={(row) => [row.id, row.name, row.address === "Не указано" ? t(row.address) : row.address, formatDateText(row.date, language)]}
     />
   )
 }

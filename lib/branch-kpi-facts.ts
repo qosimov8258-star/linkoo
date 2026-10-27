@@ -21,13 +21,33 @@ import { orderCountedSql, orderRealizationTs } from "@/lib/finance/sources"
 //     "доставки" / "доставленных" = Доставлено;
 //   payments accepted into a cashbox (customer_payments.accepted = 1) by the
 //     acceptance date: "Оплата (принятые на кассу)", "Количество оплативших клиентов".
-// Our app records no client returns, so every "− возврат" part is 0.
+// The "− возврат" part of an indicator: accepted client returns (client_returns
+// with status 'accepted', the sales module's document — the same returns the
+// client ledger and the P&L count) dated by their acceptance moment, money
+// = Σ return lines qty·price (the return's amount when it has no lines)
+// converted with the rates, quantity / weight of the returned lines. Branch of
+// a return: the client's branch, else the agent's (the return's agent, else
+// its order's agent) — the order rule above. RETURN_FACT_OF maps each
+// "… (продажа - возврат)" indicator to its return fact.
 
 export type BranchFactKey = Exclude<BranchKpiPlanKey, "visit" | "attendance" | "mml" | "plan_visit_by_day" | "perfect_store_visit_percent">
 
-export type BranchFacts = Record<BranchFactKey, number>
+/** Accepted client returns of the month: money (base currency), quantity, weight. */
+export type BranchReturnFactKey = "return_sum" | "return_qty" | "return_weight"
 
-const FACT_KEYS: BranchFactKey[] = [
+export type BranchFacts = Record<BranchFactKey | BranchReturnFactKey, number>
+
+/** The return fact subtracted from each "… − возврат" indicator (others subtract nothing). */
+export const RETURN_FACT_OF: Partial<Record<BranchFactKey, BranchReturnFactKey>> = {
+  sales_sum: "return_sum",
+  product_sales_amount: "return_qty",
+  product_sales_weight: "return_weight",
+  sales_sum_order: "return_sum",
+  product_sales_amount_order: "return_qty",
+  delivered_order_sum: "return_sum",
+}
+
+const FACT_KEYS: Array<BranchFactKey | BranchReturnFactKey> = [
   "sales_sum",
   "product_sales_amount",
   "sales_sum_order",
@@ -42,6 +62,9 @@ const FACT_KEYS: BranchFactKey[] = [
   "delivered_order_sum",
   "payed_market_count",
   "order_count",
+  "return_sum",
+  "return_qty",
+  "return_weight",
 ]
 
 export function emptyBranchFacts(): BranchFacts {
@@ -77,16 +100,18 @@ export async function computeBranchFacts(db: PgDb, s: FinanceSchema, base: strin
   const hasClients = s.has("clients")
   const clientBranch = hasClients && s.col("clients", "branch")
   if (hasClients) ctes.push("ck AS (SELECT fin_key(name) AS k, MIN(id) AS id FROM clients GROUP BY 1)")
+  const hasEmployees = s.has("employees") && s.col("employees", "branch")
+  if (hasEmployees) ctes.push("ek AS (SELECT fin_key(first_name || ' ' || last_name) AS k, MIN(id) AS id FROM employees GROUP BY 1)")
+  const hasWeight = s.has("products") && s.col("products", "weight")
+  /** Unit weight of product `alias` (products.weight is free text; non-numbers count 0). */
+  const weightOf = (alias: string) =>
+    `CASE WHEN replace(btrim(COALESCE(${alias}.weight, '')), ',', '.') ~ '^[0-9]+([.][0-9]+){0,1}$'
+          THEN replace(btrim(${alias}.weight), ',', '.')::float8 ELSE 0 END`
   const metrics: Array<{ name: string; sql: string }> = []
 
   if (s.has("orders")) {
     const hasItems = s.has("order_items")
-    const hasEmployees = s.has("employees") && s.col("employees", "branch")
-    const weight =
-      hasItems && s.has("products") && s.col("products", "weight")
-        ? `CASE WHEN replace(btrim(COALESCE(p.weight, '')), ',', '.') ~ '^[0-9]+([.][0-9]+){0,1}$'
-                THEN replace(btrim(p.weight), ',', '.')::float8 ELSE 0 END`
-        : "0"
+    const weight = hasItems && hasWeight ? weightOf("p") : "0"
     if (hasItems) {
       ctes.push(`oi AS (
         SELECT i.order_id,
@@ -106,7 +131,6 @@ export async function computeBranchFacts(db: PgDb, s: FinanceSchema, base: strin
       GROUP BY 1)`)
     const orderBranchIds = [clientBranch ? "bc.id" : "", hasEmployees ? "be.id" : ""].filter(Boolean)
     const orderBranch = orderBranchIds.length ? `COALESCE(${orderBranchIds.join(", ")})` : "NULL::int"
-    if (hasEmployees) ctes.push("ek AS (SELECT fin_key(first_name || ' ' || last_name) AS k, MIN(id) AS id FROM employees GROUP BY 1)")
     ctes.push(`ord AS (
       SELECT o.id, o.status,
              ${hasClients ? "COALESCE(c.id::text, 'n:' || fin_key(o.client))" : "'n:' || fin_key(o.client)"} AS ckey,
@@ -157,6 +181,64 @@ export async function computeBranchFacts(db: PgDb, s: FinanceSchema, base: strin
       { name: "mc", sql: "sales_sum_order, product_sales_amount_order, order_count, active_client_count, active_client_count_by_day, activate_count" },
       { name: "md", sql: "sales_sum, product_sales_amount, product_sales_weight, delivered_order_sum, delivered_product_amount, delivered_weight" },
     )
+  }
+
+  // Accepted client returns of the month (the "− возврат" part, see the header).
+  const CR = "client_returns"
+  const CRI = "client_return_items"
+  if (s.has(CR) && s.col(CR, "status")) {
+    const hasLines = s.has(CRI) && s.col(CRI, "return_id") && s.col(CRI, "quantity")
+    const linePrice = hasLines && s.col(CRI, "price") ? "COALESCE(i.price, 0)::float8" : "0::float8"
+    const lineWeight = hasLines && hasWeight && s.col(CRI, "product_id") ? weightOf("p") : "0"
+    if (hasLines) {
+      ctes.push(`rl AS (
+        SELECT i.return_id, SUM(COALESCE(i.quantity, 0)::float8 * ${linePrice}) AS amount, SUM(COALESCE(i.quantity, 0)::float8) AS qty,
+               SUM(COALESCE(i.quantity, 0)::float8 * ${lineWeight}) AS weight
+        FROM ${CRI} i ${lineWeight === "0" ? "" : "LEFT JOIN products p ON p.id = i.product_id"}
+        GROUP BY 1)`)
+    }
+    const acceptedTs = [
+      s.col(CR, "accepted_at") ? "fin_ts(r.accepted_at::text, true)" : "",
+      s.col(CR, "return_date") ? "fin_ts(r.return_date::text)" : "",
+      s.col(CR, "created_at") ? "fin_ts(r.created_at::text, true)" : "",
+    ].filter(Boolean)
+    const returnTs = acceptedTs.length ? `COALESCE(${acceptedTs.join(", ")})` : "NULL::timestamp"
+    const currency = s.col(CR, "currency") ? "fin_cur(r.currency)" : "NULL::text"
+    const ownAmount = s.col(CR, "amount") ? "COALESCE(r.amount, 0)::float8" : "0::float8"
+    const withOrder = s.col(CR, "order_id") && s.has("orders")
+    const agentNames = [s.col(CR, "agent") ? "NULLIF(fin_place(r.agent), '')" : "", withOrder && s.col("orders", "agent") ? "NULLIF(fin_place(ro.agent), '')" : ""].filter(Boolean)
+    const returnClient = !hasClients
+      ? ""
+      : s.col(CR, "client_id")
+        ? s.col(CR, "client")
+          ? "LEFT JOIN ck rk ON r.client_id IS NULL AND rk.k = fin_key(r.client) LEFT JOIN clients rc ON rc.id = COALESCE(r.client_id, rk.id)"
+          : "LEFT JOIN clients rc ON rc.id = r.client_id"
+        : s.col(CR, "client")
+          ? "LEFT JOIN ck rk ON rk.k = fin_key(r.client) LEFT JOIN clients rc ON rc.id = rk.id"
+          : ""
+    const branchIds = [returnClient && clientBranch ? "rbc.id" : "", hasEmployees && agentNames.length ? "rbe.id" : ""].filter(Boolean)
+    ctes.push(`ret AS (
+      SELECT ${branchIds.length ? `COALESCE(${branchIds.join(", ")})` : "NULL::int"} AS branch_id,
+             ${hasLines ? `COALESCE(rl.amount, ${ownAmount})` : ownAmount} * ${toBase(currency, "rr")} AS amount,
+             ${hasLines ? "COALESCE(rl.qty, 0)" : "0::float8"} AS qty,
+             ${hasLines ? "COALESCE(rl.weight, 0)" : "0::float8"} AS weight
+      FROM ${CR} r
+      ${returnClient}
+      ${hasLines ? "LEFT JOIN rl ON rl.return_id = r.id" : ""}
+      ${withOrder ? "LEFT JOIN orders ro ON ro.id = r.order_id" : ""}
+      ${returnClient && clientBranch ? branchJoin("rbc", "rc.branch") : ""}
+      ${
+        hasEmployees && agentNames.length
+          ? `LEFT JOIN ek rek ON rek.k = fin_key(COALESCE(${agentNames.join(", ")}, '')) LEFT JOIN employees re ON re.id = rek.id ${branchJoin("rbe", "re.branch")}`
+          : ""
+      }
+      LEFT JOIN rates rr ON rr.code = COALESCE(${currency}, @base::text)
+      WHERE r.status = 'accepted' AND ${returnTs} >= @from::timestamp AND ${returnTs} < @to::timestamp)`)
+    ctes.push(`mr AS (
+      SELECT branch_id, SUM(amount) AS return_sum, SUM(qty) AS return_qty, SUM(weight) AS return_weight
+      FROM ret WHERE branch_id IS NOT NULL
+      GROUP BY 1)`)
+    metrics.push({ name: "mr", sql: "return_sum, return_qty, return_weight" })
   }
 
   if (s.has("customer_payments") && s.col("customer_payments", "is_deleted") && s.col("customer_payments", "branch")) {

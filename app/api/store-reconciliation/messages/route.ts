@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 
 import { getCurrentUser } from "@/lib/current-user"
 import { requireRole } from "@/lib/rbac"
-import { parseJsonBody } from "@/lib/validation"
+import { notSignedInResponse, parseJsonBody, INVALID_DATA_MESSAGE } from "@/lib/validation"
 import { variantSchema } from "@/lib/finance-store-reconciliation"
 import {
   createReconciliationRequest,
@@ -19,12 +19,12 @@ import {
 //      No Telegram bot is connected: the request is recorded with status "not_send".
 export async function GET(request: Request) {
   const user = await getCurrentUser()
-  if (!user) return NextResponse.json({ error: "Tizimga kirilmagan" }, { status: 401 })
+  if (!user) return notSignedInResponse()
 
   const params = new URL(request.url).searchParams
   const variant = variantSchema.safeParse(params.get("variant") || "client")
   const key = (params.get("key") || params.get("clientId") || "").trim()
-  if (!variant.success || !key || key.length > 200) return NextResponse.json({ error: "Ma'lumotlar noto'g'ri" }, { status: 400 })
+  if (!variant.success || !key || key.length > 200) return NextResponse.json({ error: INVALID_DATA_MESSAGE }, { status: 400 })
   const page = Math.max(1, Math.floor(Number(params.get("page")) || 1))
   const pageSize = Math.max(1, Math.floor(Number(params.get("pageSize")) || 25))
   return NextResponse.json(await listReconciliationMessages(variant.data, key, page, pageSize))

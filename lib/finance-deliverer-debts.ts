@@ -1,6 +1,6 @@
 import "server-only"
 
-import { getDb, type PgDb } from "@/lib/db"
+import { getDb, outsideTransaction, type PgDb } from "@/lib/db"
 import { loadCurrencyContext } from "@/lib/finance/context"
 import { ledgerCurrency, normCurrency } from "@/lib/finance/currency"
 import { nowLocalIso, parseAnyDate } from "@/lib/finance/dates"
@@ -38,9 +38,9 @@ async function createSchema(db: PgDb) {
   `)
 }
 
-function ensureSchema(db: PgDb = getDb()): Promise<void> {
+function ensureSchema(): Promise<void> {
   if (!globalThis.__linkoDelivererDebtsSchema) {
-    globalThis.__linkoDelivererDebtsSchema = createSchema(db).catch((error) => {
+    globalThis.__linkoDelivererDebtsSchema = outsideTransaction(() => createSchema(getDb())).catch((error) => {
       globalThis.__linkoDelivererDebtsSchema = undefined
       throw error
     })
@@ -85,7 +85,7 @@ function toCorrection(row: CorrectionRow): DelivererCorrection {
 }
 
 export async function getDelivererCorrection(id: number, db: PgDb = getDb()): Promise<DelivererCorrection | null> {
-  await ensureSchema(db)
+  await ensureSchema()
   const row = (await db.prepare(`${SELECT_CORRECTION} WHERE t.id = ?`).get(id)) as CorrectionRow | undefined
   return row ? toCorrection(row) : null
 }
@@ -95,7 +95,7 @@ export type DelivererCorrectionError = "employee_not_found" | "currency_not_foun
 /** "КОРРЕКТИРОВКА" → one signed none_type row of the deliverer. */
 export async function createDelivererCorrection(input: DelivererCorrectionBody, user: string): Promise<DelivererCorrection | DelivererCorrectionError> {
   const db = getDb()
-  await ensureSchema(db)
+  await ensureSchema()
   if (!(await db.prepare("SELECT id FROM employees WHERE id = ?").get(input.employeeId))) return "employee_not_found"
   const code = normCurrency(input.currency)
   const context = await loadCurrencyContext(db)
@@ -122,7 +122,7 @@ export async function createDelivererCorrection(input: DelivererCorrectionBody, 
 /** Removes a manual correction (the page's own ledger row). */
 export async function deleteDelivererCorrection(id: number): Promise<boolean> {
   const db = getDb()
-  await ensureSchema(db)
+  await ensureSchema()
   const result = await db.prepare(`DELETE FROM ${DELIVERER_CORRECTIONS_TABLE} WHERE id = ?`).run(id)
   return result.changes > 0
 }

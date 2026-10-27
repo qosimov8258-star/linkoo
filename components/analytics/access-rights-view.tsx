@@ -5,12 +5,14 @@ import { FormEvent, useEffect, useMemo, useState } from "react"
 
 import type { AccessRight, Capability, Permission } from "./access-rights-data"
 import { UsersPanel } from "./users-view"
+import { useLanguage } from "@/lib/i18n/language-context"
 
 function emptyDraft() {
   return { name: "", capabilityIds: [] as number[] }
 }
 
 export function AccessRightsView() {
+  const { t } = useLanguage()
   const [roles, setRoles] = useState<AccessRight[]>([])
   const [capabilities, setCapabilities] = useState<Capability[]>([])
   const [permissions, setPermissions] = useState<Permission[]>([])
@@ -96,14 +98,14 @@ export function AccessRightsView() {
       setRoles((list) => (isEdit ? list.map((role) => (role.id === saved.id ? saved : role)) : [saved, ...list]))
       setEditing(null)
     } catch {
-      window.alert("Сервер недоступен, попробуйте ещё раз")
+      window.alert(t("Сервер недоступен, попробуйте ещё раз"))
     } finally {
       setSaving(false)
     }
   }
 
   async function remove(id: number) {
-    if (!window.confirm("Удалить эти права доступа?")) return
+    if (!window.confirm(t("Удалить эти права доступа?"))) return
     try {
       const response = await fetch(`/api/access-rights/${id}`, { method: "DELETE" })
       if (!response.ok) {
@@ -115,7 +117,7 @@ export function AccessRightsView() {
       }
       setRoles((list) => list.filter((role) => role.id !== id))
     } catch {
-      window.alert("Сервер недоступен, попробуйте ещё раз")
+      window.alert(t("Сервер недоступен, попробуйте ещё раз"))
     }
   }
 
@@ -139,7 +141,7 @@ export function AccessRightsView() {
       setCapabilityName("")
       setCapabilityModalOpen(false)
     } catch {
-      window.alert("Сервер недоступен, попробуйте ещё раз")
+      window.alert(t("Сервер недоступен, попробуйте ещё раз"))
     }
   }
 
@@ -147,23 +149,23 @@ export function AccessRightsView() {
     <main className="min-w-0 flex-1">
       <div className="flex flex-wrap items-center gap-6 px-5 py-4">
         <button type="button" onClick={openCreate} className="text-[16px] text-[#4f71dc] hover:underline">
-          + создать права доступа
+          {t("+ создать права доступа")}
         </button>
         <button type="button" onClick={() => setCapabilityModalOpen(true)} className="text-[16px] text-[#4f71dc] hover:underline">
-          + создать возможности
+          {t("+ создать возможности")}
         </button>
         <label className="relative ml-4 w-64">
-          <input value={query} onChange={(event) => { setQuery(event.target.value); setPage(1) }} placeholder="Поиск" className="w-full border-b border-slate-300 py-2 pr-10 outline-none focus:border-[#4f71dc]" />
+          <input value={query} onChange={(event) => { setQuery(event.target.value); setPage(1) }} placeholder={t("Поиск")} className="w-full border-b border-slate-300 py-2 pr-10 outline-none focus:border-[#4f71dc]" />
           <Search className="absolute right-2 top-2 h-5 w-5 text-slate-300" />
         </label>
         <span className="ml-auto text-slate-500">25</span>
         <span className="text-slate-500">
-          {filtered.length ? (safePage - 1) * pageSize + 1 : 0} - {Math.min(safePage * pageSize, filtered.length)} из {filtered.length}
+          {filtered.length ? (safePage - 1) * pageSize + 1 : 0} - {Math.min(safePage * pageSize, filtered.length)} {t("из")} {filtered.length}
         </span>
-        <button type="button" onClick={() => setPage((value) => Math.max(1, value - 1))} disabled={safePage <= 1} aria-label="Назад" className="disabled:opacity-30">
+        <button type="button" onClick={() => setPage((value) => Math.max(1, value - 1))} disabled={safePage <= 1} aria-label={t("Назад")} className="disabled:opacity-30">
           <ChevronLeft className="h-5 w-5 text-slate-400" />
         </button>
-        <button type="button" onClick={() => setPage((value) => Math.min(pageCount, value + 1))} disabled={safePage >= pageCount} aria-label="Вперед" className="disabled:opacity-30">
+        <button type="button" onClick={() => setPage((value) => Math.min(pageCount, value + 1))} disabled={safePage >= pageCount} aria-label={t("Вперед")} className="disabled:opacity-30">
           <ChevronRight className="h-5 w-5 text-slate-400" />
         </button>
       </div>
@@ -173,8 +175,8 @@ export function AccessRightsView() {
       <table className="w-full border-collapse text-left">
         <thead>
           <tr className="border-b border-slate-200">
-            <th className="w-[155px] px-5 py-3 text-[13px] font-bold text-black">Права доступа</th>
-            <th className="px-5 py-3 text-[13px] font-bold text-black">Возможности</th>
+            <th className="w-[155px] px-5 py-3 text-[13px] font-bold text-black">{t("Права доступа")}</th>
+            <th className="px-5 py-3 text-[13px] font-bold text-black">{t("Возможности")}</th>
             <th className="w-20" />
           </tr>
         </thead>
@@ -197,10 +199,10 @@ export function AccessRightsView() {
               </td>
               <td className="px-5 py-5">
                 <div className="hidden items-center justify-end gap-3 text-slate-500 group-hover:flex">
-                  <button type="button" onClick={() => openEdit(role)} aria-label="Изменить">
+                  <button type="button" onClick={() => openEdit(role)} aria-label={t("Изменить")}>
                     <Pencil className="h-5 w-5" />
                   </button>
-                  <button type="button" onClick={() => remove(role.id)} aria-label="Удалить">
+                  <button type="button" onClick={() => remove(role.id)} aria-label={t("Удалить")}>
                     <Trash2 className="h-5 w-5" />
                   </button>
                 </div>
@@ -210,7 +212,7 @@ export function AccessRightsView() {
           {!loading && visible.length === 0 && (
             <tr>
               <td colSpan={3} className="px-5 py-10 text-center text-slate-400">
-                Ничего не найдено
+                {t("Ничего не найдено")}
               </td>
             </tr>
           )}
@@ -223,14 +225,14 @@ export function AccessRightsView() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
           <form onSubmit={save} className="flex max-h-[92vh] w-[800px] max-w-full flex-col bg-white text-[13px]">
             <header className="flex h-[60px] shrink-0 items-center justify-between border-b border-[#e8ebf0] pl-[30px] pr-[28px]">
-              <b className="uppercase">{editing === "new" ? "Добавление должности" : "Изменить права доступа"}</b>
-              <button type="button" onClick={() => setEditing(null)} aria-label="Закрыть">
+              <b className="uppercase">{editing === "new" ? t("Создать права доступа") : t("Изменить права доступа")}</b>
+              <button type="button" onClick={() => setEditing(null)} aria-label={t("Закрыть")}>
                 <X className="h-5 w-5" />
               </button>
             </header>
             <div className="flex-1 overflow-y-auto px-[30px] pb-[20px] pt-[20px]">
               <label className="mb-[18px] block border-b border-[#d5dae1] pb-[4px] text-[10px] font-semibold">
-                Наименование <span className="text-red-500">*</span>
+                {t("Наименование")} <span className="text-red-500">*</span>
                 <input autoFocus value={draft.name} onChange={(event) => setDraft((value) => ({ ...value, name: event.target.value }))} className="mt-[6px] block h-[24px] w-full text-[13px] font-normal outline-none" />
               </label>
               
@@ -250,7 +252,7 @@ export function AccessRightsView() {
             </div>
             <footer className="flex h-[57px] shrink-0 items-center justify-end border-t border-[#e8ebf0] pr-[10px]">
               <button type="submit" disabled={saving} className="h-9 min-w-[111px] rounded-[3px] bg-[#71ce87] px-[16px] text-[12px] font-bold uppercase text-white hover:brightness-95 disabled:opacity-60">
-                {saving ? "Сохранение..." : "Сохранить"}
+                {saving ? t("Сохранение...") : t("Сохранить")}
               </button>
             </footer>
           </form>
@@ -261,18 +263,18 @@ export function AccessRightsView() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
           <form onSubmit={saveCapability} className="w-full max-w-md rounded-lg bg-white p-6 shadow-xl">
             <div className="mb-5 flex justify-between">
-              <h2 className="text-xl font-bold">Создать возможность</h2>
-              <button type="button" onClick={() => setCapabilityModalOpen(false)} aria-label="Закрыть">
+              <h2 className="text-xl font-bold">{t("Создать возможность")}</h2>
+              <button type="button" onClick={() => setCapabilityModalOpen(false)} aria-label={t("Закрыть")}>
                 <X />
               </button>
             </div>
             <label className="mb-2 block font-medium">
-              Наименование <span className="text-red-500">*</span>
+              {t("Наименование")} <span className="text-red-500">*</span>
             </label>
             <input autoFocus value={capabilityName} onChange={(event) => setCapabilityName(event.target.value)} className="mb-4 w-full border-b border-slate-300 py-2 outline-none focus:border-[#4f71dc]" />
             <div className="mt-6 flex justify-end">
               <button type="submit" className="rounded bg-[#71ce87] px-5 py-3 font-semibold uppercase text-white hover:brightness-95">
-                Сохранить
+                {t("Сохранить")}
               </button>
             </div>
           </form>
@@ -315,6 +317,7 @@ function CapabilityPermissionsModal({
   onClose: () => void
   onSaved: (capability: Capability) => void
 }) {
+  const { t } = useLanguage()
   const [selectedIds, setSelectedIds] = useState<number[]>(capability.permissionIds)
   const [saving, setSaving] = useState(false)
   const [availableCategory, setAvailableCategory] = useState("")
@@ -363,7 +366,7 @@ function CapabilityPermissionsModal({
       const updated = (await response.json()) as Capability
       onSaved(updated)
     } catch {
-      window.alert("Сервер недоступен, попробуйте ещё раз")
+      window.alert(t("Сервер недоступен, попробуйте ещё раз"))
     } finally {
       setSaving(false)
     }
@@ -373,8 +376,8 @@ function CapabilityPermissionsModal({
     <div className="fixed inset-0 z-[60] bg-white">
       <div className="flex h-full w-full flex-col">
         <header className="flex items-center justify-between border-b p-6">
-          <b className="uppercase">Изменить возможность — {capability.name}</b>
-          <button type="button" onClick={onClose} aria-label="Закрыть">
+          <b className="uppercase">{t("Изменить возможность —")} {capability.name}</b>
+          <button type="button" onClick={onClose} aria-label={t("Закрыть")}>
             <X className="h-5 w-5" />
           </button>
         </header>
@@ -383,15 +386,15 @@ function CapabilityPermissionsModal({
           <div className="flex min-h-0 flex-col">
             <div className="mb-3 flex flex-wrap items-center gap-3">
               <select value={availableCategory} onChange={(event) => setAvailableCategory(event.target.value)} className="rounded border border-slate-300 px-2 py-2 text-sm">
-                <option value="">Категория</option>
+                <option value="">{t("Категория")}</option>
                 {categories.map((item) => <option key={item} value={item}>{item}</option>)}
               </select>
               <select value={availableType} onChange={(event) => setAvailableType(event.target.value)} className="rounded border border-slate-300 px-2 py-2 text-sm">
-                <option value="">Тип</option>
+                <option value="">{t("Тип")}</option>
                 {types.map((item) => <option key={item} value={item}>{item}</option>)}
               </select>
               <label className="relative min-w-[160px] flex-1">
-                <input value={availableQuery} onChange={(event) => setAvailableQuery(event.target.value)} placeholder="Поиск из разрешения" className="w-full border-b border-slate-300 py-1.5 pr-8 text-sm outline-none focus:border-[#4f71dc]" />
+                <input value={availableQuery} onChange={(event) => setAvailableQuery(event.target.value)} placeholder={t("Поиск из разрешения")} className="w-full border-b border-slate-300 py-1.5 pr-8 text-sm outline-none focus:border-[#4f71dc]" />
                 <Search className="pointer-events-none absolute right-1 top-1.5 h-4 w-4 text-slate-300" />
               </label>
             </div>
@@ -409,22 +412,22 @@ function CapabilityPermissionsModal({
                   <ChevronRight className="h-4 w-4 shrink-0" />
                 </button>
               ))}
-              {available.length === 0 && <p className="px-4 py-6 text-center text-sm text-slate-400">Ничего не найдено</p>}
+              {available.length === 0 && <p className="px-4 py-6 text-center text-sm text-slate-400">{t("Ничего не найдено")}</p>}
             </div>
           </div>
 
           <div className="flex min-h-0 flex-col">
             <div className="mb-3 flex flex-wrap items-center gap-3">
               <select value={selectedCategory} onChange={(event) => setSelectedCategory(event.target.value)} className="rounded border border-slate-300 px-2 py-2 text-sm">
-                <option value="">Категория</option>
+                <option value="">{t("Категория")}</option>
                 {categories.map((item) => <option key={item} value={item}>{item}</option>)}
               </select>
               <select value={selectedType} onChange={(event) => setSelectedType(event.target.value)} className="rounded border border-slate-300 px-2 py-2 text-sm">
-                <option value="">Тип</option>
+                <option value="">{t("Тип")}</option>
                 {types.map((item) => <option key={item} value={item}>{item}</option>)}
               </select>
               <label className="relative min-w-[160px] flex-1">
-                <input value={selectedQuery} onChange={(event) => setSelectedQuery(event.target.value)} placeholder="Поиск из выбранных разрешения" className="w-full border-b border-slate-300 py-1.5 pr-8 text-sm outline-none focus:border-[#4f71dc]" />
+                <input value={selectedQuery} onChange={(event) => setSelectedQuery(event.target.value)} placeholder={t("Поиск из выбранных разрешения")} className="w-full border-b border-slate-300 py-1.5 pr-8 text-sm outline-none focus:border-[#4f71dc]" />
                 <Search className="pointer-events-none absolute right-1 top-1.5 h-4 w-4 text-slate-300" />
               </label>
             </div>
@@ -434,19 +437,19 @@ function CapabilityPermissionsModal({
                   <span className="truncate">
                     {item.category}/{item.label} ({item.code})
                   </span>
-                  <button type="button" onClick={() => removePermission(item.id)} aria-label="Убрать" className="shrink-0 text-[#4f71dc] hover:text-rose-500">
+                  <button type="button" onClick={() => removePermission(item.id)} aria-label={t("Убрать")} className="shrink-0 text-[#4f71dc] hover:text-rose-500">
                     <X className="h-4 w-4" />
                   </button>
                 </div>
               ))}
-              {selected.length === 0 && <p className="px-4 py-6 text-center text-sm text-slate-400">Ничего не выбрано</p>}
+              {selected.length === 0 && <p className="px-4 py-6 text-center text-sm text-slate-400">{t("Ничего не выбрано")}</p>}
             </div>
           </div>
         </div>
 
         <footer className="flex justify-end border-t p-5">
           <button type="button" onClick={() => void save()} disabled={saving} className="rounded bg-[#71ce87] px-6 py-3 font-semibold uppercase text-white hover:brightness-95 disabled:opacity-60">
-            {saving ? "Сохранение..." : "Сохранить"}
+            {saving ? t("Сохранение...") : t("Сохранить")}
           </button>
         </footer>
       </div>

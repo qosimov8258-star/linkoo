@@ -2,7 +2,8 @@ import "server-only"
 
 import { NextResponse } from "next/server"
 
-import { getDb, withTransaction, type PgDb } from "@/lib/db"
+import { dbErrorResponse } from "@/lib/db-errors"
+import { getDb, outsideTransaction, withTransaction, type PgDb } from "@/lib/db"
 import { loadCurrencyContext } from "@/lib/finance/context"
 import { normCurrency } from "@/lib/finance/currency"
 import { priceListKey } from "@/lib/item-prices"
@@ -27,6 +28,11 @@ import {
 // while anything uses the list. GET /api/price-lists (plain) keeps its array shape for the pickers.
 // The currency must be one of the currencies table (400 "Валюта не найдена"; an edited list keeps
 // its stored currency when the body repeats it).
+// "По умолчанию для заказа" belongs to an ACTIVE list only and is never lost silently: an inactive
+// list cannot take it (400), the default list cannot be deactivated or deleted while it holds it
+// (400 / 409: make another list the default, or untick it explicitly). Making a list the default
+// moves the flag from the previous one (deliberate). An older inactive row still flagged is read
+// (and re-saved) as not default.
 
 const NONE = "Не указано"
 const MONTHS = ["янв.", "февр.", "мар.", "апр.", "мая", "июня", "июля", "авг.", "сент.", "окт.", "нояб.", "дек."]
@@ -43,7 +49,7 @@ export class PriceListError extends Error {
 }
 
 export function priceListErrorResponse(error: unknown): NextResponse | null {
-  if (!(error instanceof PriceListError)) return null
+  if (!(error instanceof PriceListError)) return dbErrorResponse(error)
   return NextResponse.json(
     { error: error.message, ...(error.fields ? { fields: error.fields } : {}), ...(error.usage ? { usage: error.usage } : {}) },
     { status: error.status },
@@ -71,7 +77,7 @@ async function install(): Promise<void> {
 
 export function ensurePriceListsSchema(): Promise<void> {
   if (globalThis.__linkoPriceListsSchema?.version !== SCHEMA_VERSION) {
-    const ready = install().catch((error) => {
+    const ready = outsideTransaction(install).catch((error) => {
       globalThis.__linkoPriceListsSchema = undefined
       throw error
     })
@@ -152,7 +158,7 @@ function rowToPriceList(row: Row): PriceList {
     calcMethod: method?.name ?? NONE,
     position: Number(row.position) || 0,
     isActive: row.is_active === null ? true : Number(row.is_active) === 1,
-    isDefaultForOrder: Number(row.is_default_for_order) === 1,
+    isDefaultForOrder: Number(row.is_default_for_order) === 1 && (row.is_active === null || Number(row.is_active) === 1),
     connectedPriceList: linked && row.linked_id !== null ? { id: Number(row.linked_id), name: row.linked_name ?? "" } : null,
     calcMethodId: methodId,
     methodValues: method ? parseMethodValues(row.method_values) : [],
@@ -301,8 +307,15 @@ async function resolveLink(db: PgDb, selfId: number | null, selfName: string, in
 }
 
 export const CURRENCY_NOT_FOUND = "Валюта не найдена"
+export const INACTIVE_DEFAULT = "Неактивный прайс-лист не может быть по умолчанию для заказа"
+export const DEFAULT_DEACTIVATE = "Прайс-лист по умолчанию для заказа нельзя отключить: сначала назначьте по умолчанию другой прайс-лист или снимите эту отметку"
+export const DEFAULT_DELETE = "Прайс-лист по умолчанию для заказа нельзя удалить: сначала назначьте по умолчанию другой прайс-лист или снимите эту отметку"
 
-/** Currency of a written list: a code of the currencies table (empty table: SUM / USD / EUR), canonical. */
+/** The list holds "По умолчанию для заказа" (an inactive row never does). */
+const isDefaultRow = (row: Pick<Row, "is_active" | "is_default_for_order"> | null | undefined) =>
+  Boolean(row) && Number(row!.is_default_for_order) === 1 && (row!.is_active === null || Number(row!.is_active) === 1)
+
+/** Currency of a written list: a code of the currencies table, canonical (an omitted one is the base unit, also while the table is empty). */
 async function resolveListCurrency(db: PgDb, wanted: string | undefined, stored: string | null | undefined): Promise<string> {
   const context = await loadCurrencyContext(db)
   if (wanted === undefined || !wanted.trim()) {
@@ -329,13 +342,23 @@ async function storedFields(db: PgDb, id: number | null, input: PriceListInput, 
   }
   const flag = (value: boolean | undefined, stored: number | null | undefined, fallback: number) =>
     value === undefined ? (stored === null || stored === undefined ? fallback : Number(stored) === 1 ? 1 : 0) : value ? 1 : 0
+  const isActive = flag(input.isActive, current?.is_active, 1)
+  // The stored default counts only on an active row: an older inactive row still flagged is
+  // not the default, and activating it (flag omitted) does not take the default from another list.
+  let isDefault = flag(input.isDefaultForOrder, current ? (isDefaultRow(current) ? 1 : 0) : undefined, 0)
+  if (!isActive) {
+    if (input.isDefaultForOrder === true) throw new PriceListError(INACTIVE_DEFAULT, 400, { isDefaultForOrder: INACTIVE_DEFAULT })
+    // Deactivating the default list must say what happens to the default (untick it or move it first).
+    if (input.isDefaultForOrder === undefined && isDefaultRow(current)) throw new PriceListError(DEFAULT_DEACTIVATE, 400, { isActive: DEFAULT_DEACTIVATE })
+    isDefault = 0
+  }
   const currency = await resolveListCurrency(db, input.currency, current?.currency)
   return {
     name: input.name.trim(),
     currency,
     position: input.position === undefined ? Number(current?.position) || 0 : Math.trunc(input.position),
-    is_active: flag(input.isActive, current?.is_active, 1),
-    is_default_for_order: flag(input.isDefaultForOrder, current?.is_default_for_order, 0),
+    is_active: isActive,
+    is_default_for_order: isDefault,
     linked_list: linkedSet ? linked : NONE,
     calc_method: methodId || NONE,
     method_values: JSON.stringify(methodValues),
@@ -393,13 +416,15 @@ export async function updatePriceList(id: number, input: PriceListInput): Promis
   })
 }
 
-/** Demo DELETE sales/price_list/:id — refused (409) while the list is used anywhere. */
+/** Demo DELETE sales/price_list/:id — refused (409) while the list is used anywhere or is the
+ * default list for orders. */
 export async function deletePriceList(id: number): Promise<boolean> {
   await ensurePriceListsSchema()
   return withTransaction(async (tx) => {
     await lockPriceLists(tx)
     const current = await readRow(tx, id, true)
     if (!current) return false
+    if (isDefaultRow(current)) throw new PriceListError(DEFAULT_DELETE, 409)
     const usage = await priceListUsage(tx, { id: Number(current.id), name: current.name })
     if (usage.length) throw new PriceListError("Удаление невозможно из-за связи с другими данными", 409, undefined, usage)
     const result = await tx.prepare("DELETE FROM price_lists WHERE id = ?").run(id)

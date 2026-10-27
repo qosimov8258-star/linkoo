@@ -3,11 +3,13 @@ import "server-only"
 import { NextResponse } from "next/server"
 import { z } from "zod"
 
+import { parseDocInput } from "@/lib/document-dates"
 import { isIsoDay } from "@/lib/finance/dates"
 import { isEntryError, type EntryError } from "@/lib/net-cost-entries"
 import type { NetCostListQuery } from "@/lib/net-cost-repo"
 import { NET_COST_CHECK_KEYS, NET_COST_SORT_KEYS, type NetCostActionInput, type NetCostCheckKey, type NetCostEntryInput, type NetCostRecord } from "@/lib/net-cost-types"
 import { parsePageParam } from "@/lib/stock/paging"
+import { strictNumber } from "@/lib/strict-number"
 
 // Request parsing of /api/cost-of-goods/** (accepts our camelCase names and the demo's
 // stock/net_cost/ serializer names: product, cost, created_date, stock, begin_date,
@@ -28,16 +30,20 @@ export const entryBodySchema = z.object({
   comment: z.string().max(2000).optional(),
 })
 
+/** A cost: number or decimal text ("1 000,5"); anything else ("", "0x10", "12abc") = NaN (refused). */
 const toNumber = (value: unknown) => {
-  const parsed = Number(String(value ?? "").replace(/[\s ]/g, "").replace(",", "."))
-  return String(value ?? "").trim() && Number.isFinite(parsed) ? parsed : Number.NaN
+  const parsed = strictNumber(value, { locale: true })
+  return Number.isFinite(parsed) ? parsed : Number.NaN
 }
 
 export function toEntryInput(body: z.infer<typeof entryBodySchema>): NetCostEntryInput {
   const product = typeof body.product === "object" && body.product ? (body.product.value ?? body.product.id) : body.product
   const item = String(body.item ?? product ?? "").trim()
   const stock = typeof body.stock === "object" && body.stock ? (body.stock.name ?? body.stock.text ?? "") : body.stock
-  const date = String(body.date ?? body.created_date ?? body.createdDate ?? "").slice(0, 10)
+  // A date-time is parsed (impossible times / offsets refused), never cut to its first 10 characters;
+  // an unparseable value is passed on as is, so entryDayError answers "Некорректная дата".
+  const raw = String(body.date ?? body.created_date ?? body.createdDate ?? "").trim()
+  const date = /^\d{4}-\d{2}-\d{2}$/.test(raw) ? raw : raw ? (parseDocInput(raw)?.slice(0, 10) ?? raw) : ""
   return {
     item: /^\d+$/.test(item) ? `product:${item}` : item,
     cost: toNumber(body.cost),

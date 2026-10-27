@@ -1,6 +1,7 @@
 import "server-only"
 
-import { getDb, withTransaction, type PgDb } from "@/lib/db"
+import { getDb, outsideTransaction, withTransaction, type PgDb } from "@/lib/db"
+import { docDateError, parseDocInput } from "@/lib/document-dates"
 import { loadCurrencyContext } from "@/lib/finance/context"
 import { ledgerCurrency, normCurrency } from "@/lib/finance/currency"
 import { nowLocalIso, parseAnyDate } from "@/lib/finance/dates"
@@ -86,9 +87,9 @@ async function createSchema(db: PgDb) {
   `)
 }
 
-function ensureSchema(db: PgDb = getDb()): Promise<void> {
+function ensureSchema(): Promise<void> {
   if (!globalThis.__linkoVansellSchema) {
-    globalThis.__linkoVansellSchema = createSchema(db).catch((error) => {
+    globalThis.__linkoVansellSchema = outsideTransaction(() => createSchema(getDb())).catch((error) => {
       globalThis.__linkoVansellSchema = undefined
       throw error
     })
@@ -120,11 +121,11 @@ function toTransaction(row: TxRow): VansellTransaction {
 
 /** "YYYY-MM-DDTHH:mm" local time; missing / unparseable → now. */
 function businessDate(value: string | undefined): string {
-  return (value ? parseAnyDate(value) : null)?.slice(0, 16) ?? nowLocalIso().slice(0, 16)
+  return (value ? parseDocInput(value) : null)?.slice(0, 16) ?? nowLocalIso().slice(0, 16)
 }
 
 
-/** Canonical code when the currency is known (currencies table, or SUM/USD/EUR when it is empty). */
+/** Canonical code when the currency is in the currencies table (none while it is empty). */
 async function knownCurrency(db: PgDb, value: string): Promise<string | null> {
   const code = normCurrency(value)
   const context = await loadCurrencyContext(db)
@@ -133,7 +134,7 @@ async function knownCurrency(db: PgDb, value: string): Promise<string | null> {
 
 export async function listVansellTransactions(filter: { employeeId?: number } = {}): Promise<VansellTransaction[]> {
   const db = getDb()
-  await ensureSchema(db)
+  await ensureSchema()
   const rows = (
     filter.employeeId
       ? await db.prepare(`${SELECT_TX} WHERE v.employee_id = ? ORDER BY v.id DESC`).all(filter.employeeId)
@@ -143,17 +144,18 @@ export async function listVansellTransactions(filter: { employeeId?: number } = 
 }
 
 export async function getVansellTransaction(id: number, db: PgDb = getDb()): Promise<VansellTransaction | null> {
-  await ensureSchema(db)
+  await ensureSchema()
   const row = (await db.prepare(`${SELECT_TX} WHERE v.id = ?`).get(id)) as TxRow | undefined
   return row ? toTransaction(row) : null
 }
 
-export type VansellWriteError = "employee_not_found" | "currency_not_found" | "not_found" | "not_editable"
+/** date_future: an edit moves the movement to a day later than today (lib/document-dates.ts). */
+export type VansellWriteError = "employee_not_found" | "currency_not_found" | "not_found" | "not_editable" | "date_future"
 
 /** "Добавить" / "Добавить расход": one manual ('none_type') movement, + for add, − for expense. */
 export async function createVansellTransaction(input: VansellTransactionCreateBody, createdBy: string): Promise<VansellTransaction | VansellWriteError> {
   const db = getDb()
-  await ensureSchema(db)
+  await ensureSchema()
   // Only a van-sell agent ("Вансел…" position, or the cashier of a van-sell cashbox) has this balance.
   if (!(await isVansellAgent(db, input.employeeId))) return "employee_not_found"
   const code = await knownCurrency(db, input.currency)
@@ -178,7 +180,7 @@ export async function createVansellTransaction(input: VansellTransactionCreateBo
 /** Edit of a manual movement (demo pencil, only 'none_type' rows): signed amount, currency, date, optional comment/agent. */
 export async function updateVansellTransaction(id: number, input: VansellTransactionUpdateBody): Promise<VansellTransaction | VansellWriteError> {
   const db = getDb()
-  await ensureSchema(db)
+  await ensureSchema()
   const current = await getVansellTransaction(id, db)
   if (!current) return "not_found"
   if (current.type !== "none_type") return "not_editable"
@@ -186,6 +188,7 @@ export async function updateVansellTransaction(id: number, input: VansellTransac
   if (employeeId !== current.employeeId && !(await isVansellAgent(db, employeeId))) return "employee_not_found"
   const code = await knownCurrency(db, input.currency)
   if (!code) return "currency_not_found"
+  if (input.date && docDateError(parseDocInput(input.date), { current: current.createdDate })) return "date_future"
   await db
     .prepare(
       `UPDATE vansell_transactions
@@ -217,7 +220,7 @@ export async function deleteVansellTransaction(id: number): Promise<"ok" | "not_
 
 export async function listVansellLimits(): Promise<VansellLimit[]> {
   const db = getDb()
-  await ensureSchema(db)
+  await ensureSchema()
   const rows = (await db.prepare("SELECT employee_id, debt_limit, updated_by, updated_at FROM vansell_debt_limits ORDER BY employee_id").all()) as Array<{
     employee_id: number
     debt_limit: number

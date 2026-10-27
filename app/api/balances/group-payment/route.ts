@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 
+import { dateReasonFirst } from "@/lib/document-dates"
 import { requireRole } from "@/lib/rbac"
 import { parseJsonBody } from "@/lib/validation"
 import { groupPaymentSchema } from "@/lib/finance/api"
@@ -12,7 +13,8 @@ export async function POST(request: Request) {
   if ("error" in auth) return auth.error
 
   const parsed = await parseJsonBody(request, groupPaymentSchema)
-  if (parsed.error) return parsed.error
+  // A refusal caused only by the date answers the date reason (error + field "date").
+  if (parsed.error) return dateReasonFirst(parsed.error)
 
   try {
     const result = await createGroupPayment(parsed.data, auth.user.displayName)

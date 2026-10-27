@@ -2,7 +2,8 @@ import "server-only"
 
 import { NextResponse } from "next/server"
 
-import { getDb, withTransaction, type PgDb } from "@/lib/db"
+import { dbErrorResponse } from "@/lib/db-errors"
+import { getDb, outsideTransaction, withTransaction, type PgDb } from "@/lib/db"
 import { ensureStockSchema } from "@/lib/stock/schema"
 import { cascadeWarehouseRename, lockWarehouseNames, warehouseUsage, type WarehouseRenameChange } from "@/lib/warehouses-refs"
 import type { WarehouseActiveFilter, WarehouseInput, WarehouseListQuery } from "@/lib/warehouses-schema"
@@ -62,7 +63,7 @@ export class WarehouseError extends Error {
 
 /** JSON response of a WarehouseError ({error, fields?, usage?}); null for other errors. */
 export function warehouseErrorResponse(error: unknown): NextResponse | null {
-  if (!(error instanceof WarehouseError)) return null
+  if (!(error instanceof WarehouseError)) return dbErrorResponse(error)
   return NextResponse.json(
     { error: error.message, ...(error.fields ? { fields: error.fields } : {}), ...(error.usage ? { usage: error.usage } : {}) },
     { status: error.status },
@@ -95,7 +96,7 @@ async function install(): Promise<void> {
 
 export function ensureWarehousesSchema(): Promise<void> {
   if (globalThis.__linkoWarehousesSchema?.version !== SCHEMA_VERSION) {
-    const ready = install().catch((error) => {
+    const ready = outsideTransaction(install).catch((error) => {
       globalThis.__linkoWarehousesSchema = undefined
       throw error
     })

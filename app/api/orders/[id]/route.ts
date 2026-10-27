@@ -2,9 +2,11 @@ import { NextRequest, NextResponse } from "next/server"
 
 import { parseBody } from "@/lib/auth-request"
 import { getCurrentUser } from "@/lib/current-user"
+import { orderTimeRestrictionResponse } from "@/lib/order-time-restrictions-guard"
 import { orderErrorResponse, orderPatchSchema, routeId } from "@/lib/orders-api"
 import { getOrder, getOrderClientDebt, updateOrder } from "@/lib/orders-repo"
 import { requireRole } from "@/lib/rbac"
+import { notSignedInResponse } from "@/lib/validation"
 
 type RouteParams = { params: Promise<{ id: string }> }
 
@@ -13,7 +15,7 @@ const NOT_FOUND = { error: "Заказ не найден" }
 // GET /api/orders/[id] → Order + clientDebt {operative, actual} (the client's ledger balance by creation / realization).
 export async function GET(_request: NextRequest, { params }: RouteParams) {
   const user = await getCurrentUser()
-  if (!user) return NextResponse.json({ error: "Tizimga kirilmagan" }, { status: 401 })
+  if (!user) return notSignedInResponse()
 
   const id = routeId((await params).id)
   const order = id ? await getOrder(id) : null
@@ -27,6 +29,8 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
 export async function PATCH(request: NextRequest, { params }: RouteParams) {
   const auth = await requireRole("manager")
   if ("error" in auth) return auth.error
+  const blocked = await orderTimeRestrictionResponse("edit", auth.user)
+  if (blocked) return blocked
 
   const id = routeId((await params).id)
   if (!id) return NextResponse.json(NOT_FOUND, { status: 404 })

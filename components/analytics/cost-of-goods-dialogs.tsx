@@ -43,6 +43,8 @@ export function NetCostEntryDialog({ options, record, onClose, onSaved }: { opti
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState("")
+  // An edit that keeps the date and warehouse keeps the moment the entry took effect.
+  const keepsMoment = record !== null && date === record.date.slice(0, 10) && warehouse === (record.stock ?? "")
 
   const submit = async () => {
     const next: Record<string, string> = {}
@@ -93,7 +95,16 @@ export function NetCostEntryDialog({ options, record, onClose, onSaved }: { opti
         <FormField label={t("Склад (пусто — общие склады)")}>
           <SearchSelect value={warehouse} options={(options?.warehouses ?? []).map((name) => ({ value: name, label: name }))} placeholder={t("Общий")} onChange={(value) => setWarehouse(value)} />
         </FormField>
-        <p className="rounded bg-[#fff8e1] px-3 py-2.5 text-[12px] leading-snug text-[#666]">{t("Себестоимость действует с начала выбранного дня. Документы с этой даты пересчитываются автоматически.")}</p>
+        {/* When the entry takes effect (lib/net-cost-ledger.ts, lib/net-cost-entries.ts): an edit that keeps the date and
+            warehouse corrects the entry where it was entered; otherwise today's date — from the moment it is saved,
+            another date — from the start of that day. */}
+        <p className="rounded bg-[#fff8e1] px-3 py-2.5 text-[12px] leading-snug text-[#666]">
+          {keepsMoment
+            ? t("Новая себестоимость действует с того же момента, что и прежняя: документы с этого момента пересчитываются автоматически.")
+            : date === todayIso()
+              ? t("Себестоимость на сегодня действует с момента сохранения: она переоценивает остаток на этот момент, включая сегодняшние поступления.")
+              : t("Себестоимость действует с начала выбранного дня: поступления этого дня затем меняют среднюю себестоимость. Документы с этой даты пересчитываются автоматически.")}
+        </p>
       </div>
     </CashModal>
   )
@@ -306,6 +317,7 @@ export function NetCostImportDialog({ options, onClose, onDone }: { options: Net
         }}
       />
       <p className="mt-3 text-[12px] text-[#9aa3b6]">{t("Колонки: Наименование, Себестоимость, Дата, Склад (пусто — общие склады). Строки без себестоимости пропускаются.")}</p>
+      <p className="mt-1 text-[12px] text-[#9aa3b6]">{t("Новые строки с сегодняшней датой действуют с момента импорта, остальные — с начала своего дня. Строка уже добавленной себестоимости (тот же товар, дата и склад) исправляет её с прежнего момента.")}</p>
       {rowErrors.length > 0 && (
         <ul className="mt-3 max-h-48 overflow-y-auto rounded-md bg-[#fdecea] px-3 py-2 text-[13px] text-[#b71c1c]">
           {rowErrors.map((entry) => (

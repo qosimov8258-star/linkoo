@@ -5,23 +5,24 @@ import { getCurrentUser } from "@/lib/current-user"
 import { requireRole } from "@/lib/rbac"
 import { parseJsonBody } from "@/lib/validation"
 import { createAgentRoute, listAgentRoutes } from "@/lib/agent-routes-repo"
+import { strictNum } from "@/lib/strict-number"
 
 const agentRouteSchema = z.object({
   agent: z.string().trim().min(1).max(255, "Не более 255 символов"),
   routeDate: z.string().trim().optional(),
-  planVisits: z.coerce.number().finite().optional(),
-  routeVisited: z.coerce.number().finite().optional(),
-  routeEffective: z.coerce.number().finite().optional(),
-  routeRefused: z.coerce.number().finite().optional(),
-  routeSales: z.coerce.number().finite().optional(),
-  outsideVisited: z.coerce.number().finite().optional(),
-  outsideEffective: z.coerce.number().finite().optional(),
-  outsideRefused: z.coerce.number().finite().optional(),
-  outsideSales: z.coerce.number().finite().optional(),
+  planVisits: strictNum(z.number().finite().optional()),
+  routeVisited: strictNum(z.number().finite().optional()),
+  routeEffective: strictNum(z.number().finite().optional()),
+  routeRefused: strictNum(z.number().finite().optional()),
+  routeSales: strictNum(z.number().finite().optional()),
+  outsideVisited: strictNum(z.number().finite().optional()),
+  outsideEffective: strictNum(z.number().finite().optional()),
+  outsideRefused: strictNum(z.number().finite().optional()),
+  outsideSales: strictNum(z.number().finite().optional()),
   checkIn: z.string().trim().optional(),
   checkOut: z.string().trim().optional(),
-  gpsLat: z.coerce.number().finite().nullable().optional(),
-  gpsLng: z.coerce.number().finite().nullable().optional(),
+  gpsLat: strictNum(z.number().finite().nullable().optional()),
+  gpsLng: strictNum(z.number().finite().nullable().optional()),
   photoUrl: z.string().trim().optional(),
 })
 

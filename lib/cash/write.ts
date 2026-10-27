@@ -5,6 +5,7 @@ import type { CurrencyContext } from "@/lib/finance/context"
 import { normCurrency, roundMoney } from "@/lib/finance/currency"
 import { customerPaymentColumns, insertCustomerPayment, russianDateTime, type CustomerPaymentValues } from "@/lib/finance/customer-payment"
 import { nowLocalIso } from "@/lib/finance/dates"
+import { nameKey, placeName } from "@/lib/finance/entities"
 import {
   assertCashbackAvailable,
   CashError,
@@ -27,10 +28,16 @@ import {
   num,
   numOrNull,
   pickRate,
+  contractCoversClient,
+  lockSupplyPayments,
   resolveOrganization,
   type CashboxInfo,
   type CategoryInfo,
+  type ClientInfo,
+  type ContractInfo,
   type OrganizationHints,
+  type SupplyExpenseInfo,
+  type SupplyInfo,
 } from "@/lib/cash/common"
 import { detachPaymentTx, liveAcceptanceAmount } from "@/lib/cash/accept"
 import { guardCashboxBalances } from "@/lib/cash/guard"
@@ -62,8 +69,9 @@ import {
 //   anything else (detalization, amortization) → cash entry op 4 / 5 (+ cash_entry_children)
 // All writes run in one DB transaction; deletes are soft (is_deleted = 1).
 // Checks: a cashbox never goes below zero (lib/cash/guard.ts), a cashback payout
-// never exceeds the client's cashback, an order / supply payment never exceeds
-// what is still due, a money request is paid with its own amount, and the
+// never exceeds the client's cashback, an order / supply / supply-expense payment
+// never exceeds what is still due, a contract covers the paying client, a money
+// request is paid with its own amount, and the
 // supplier / client is credited with the money actually paid (converted into the
 // debt currency). The organization defaults from the counterparty
 // (resolveOrganization) when the dialog leaves it empty.
@@ -223,6 +231,152 @@ async function supplyPaidElsewhere(db: PgDb, supplyId: number, supplyCurrency: s
   return roundMoney(paid, 5)
 }
 
+/** A supply can be paid for `supplierName` (when known): it is not cancelled and is that supplier's.
+ * Shared by a plain supply payment and a money request paid "for a supply". */
+function assertSupplyOfSupplier(supply: SupplyInfo, supplierName: string | null): void {
+  if (supply.status === "отменен") throw new CashError("Поставка отменена", 400, "supply")
+  if (supplierName !== null && supplierName.trim().toLowerCase() !== supply.supplier.trim().toLowerCase()) {
+    throw new CashError("Поставка другого поставщика", 400, "supply")
+  }
+}
+
+/** A supply payment never exceeds the unpaid rest of the supply (an advance is a payment without a
+ * supply). `debt` is what the payment settles, in its own currency; the payment being edited does
+ * not count against itself. */
+async function assertWithinSupplyRest(
+  db: PgDb,
+  supply: SupplyInfo,
+  debt: { amount: number; currency: string; debtRate: number | null },
+  common: Common,
+  cc: CurrencyContext,
+  existing: OwnerRow | null,
+): Promise<void> {
+  const toSupplyCurrency = (amount: number, currency: string) => {
+    if (currency === supply.currency) return amount
+    const from = pickRate(currency, cc)
+    const to = pickRate(supply.currency, cc)
+    return from && to ? (amount * from) / to : amount
+  }
+  // Payments of one supply are serialised (two cashboxes paying it at the same moment would both
+  // see the old rest): only the cash core writes supplier_payments and it always takes this lock
+  // after its cashbox locks, so the order is fixed. Under READ COMMITTED the read below then sees
+  // a concurrent payment of the supply once it has committed. A cancel / delete of the supply takes
+  // the same lock: the status is read again under it (it may have been cancelled meanwhile).
+  await lockSupplyPayments(db, supply.id)
+  const fresh = (await db.prepare("SELECT status FROM supplier_incomings WHERE id = @id").get({ id: supply.id })) as { status: string } | undefined
+  if (!fresh) throw new CashError("Поставка не найдена", 404, "supply")
+  if (fresh.status === "отменен") throw new CashError("Поставка отменена", 400, "supply")
+  const already = await supplyPaidElsewhere(db, supply.id, supply.currency, cc, existing?.source === "supplier" ? existing.id : null)
+  const rest = roundMoney(supply.amount - already, 5)
+  const tolerance = debt.currency === supply.currency ? debtTolerance(debt, common) : Math.max(0.01, toSupplyCurrency(debtTolerance(debt, common), debt.currency))
+  if (toSupplyCurrency(debt.amount, debt.currency) > rest + tolerance) throw new CashError("Сумма больше неоплаченного остатка поставки", 400, "amount")
+}
+
+/** A payment of a supply's additional expense («Доп. расход») never exceeds the unpaid rest of the
+ * expense: its amount minus the other live cash entries paying it (linked by supply_expense_id, or
+ * the expense's transaction_id), in the expense currency; the entry being edited does not count
+ * against itself. The comparison never moves with today's rate: an entry in the expense currency
+ * counts at face value, any other one by its base value at its own rate (internal_amount) over the
+ * expense's frozen rate (rate_to_base, contract 2) — so a settled expense stays settled.
+ * An edit that keeps the expense and does not pay more (not more cash in the same currency, or not
+ * more of the expense) is not re-checked, so the comment / date of an older or over-paid entry can
+ * still be fixed.
+ * The expense of a cancelled supply is not paid any more. The expense row is locked
+ * (loadSupplyExpense, FOR UPDATE), so payments of one expense are serialised. */
+async function assertWithinExpenseRest(
+  db: PgDb,
+  expense: SupplyExpenseInfo,
+  cash: number,
+  common: Common,
+  cc: CurrencyContext,
+  existing: OwnerRow | null,
+): Promise<void> {
+  // The link column the paid-elsewhere read uses (the table may predate it).
+  await ensureSupplyExpenseLink(db)
+  const link = (await db
+    .prepare(
+      `SELECT s.status, e.transaction_id FROM supplier_incoming_expenses e LEFT JOIN supplier_incomings s ON s.id = e.incoming_id
+       WHERE e.id = @id`,
+    )
+    .get({ id: expense.id })) as { status: string | null; transaction_id: number | null } | undefined
+  const editedId = existing?.source === "cash" ? existing.id : null
+  const keepsExpense =
+    editedId !== null && (numOrNull(existing!.row.supply_expense_id) === expense.id || numOrNull(link?.transaction_id) === editedId)
+
+  // Base units per 1 unit of the expense currency: the expense's own snapshot (today's rate
+  // only for an older expense saved without one).
+  const expenseRate = expense.currency === cc.base ? 1 : (expense.rateToBase ?? pickRate(expense.currency, cc))
+  /** What a signed cash amount (cashbox / entry currency) settles, in the expense currency.
+   * `internal` is its base value at the entry's own rate (internal_amount) when known.
+   * null = no rate to convert with. */
+  const settles = (amount: number, currency: string, internal: number | null): number | null => {
+    const cur = normCurrency(currency, cc.base)
+    if (cur === expense.currency) return amount
+    let base = internal
+    if (base === null) {
+      const rate = pickRate(cur, cc)
+      base = rate ? amount * rate : null
+    }
+    return base !== null && expenseRate ? base / expenseRate : null
+  }
+
+  // The new / edited entry is valued as it will be stored: internal_amount = cash × its own rate.
+  const wanted = settles(cash, common.cashbox.currency, common.cashRate ? cash * common.cashRate : null)
+  // Rounding of the cash amount (0.01 of the cashbox currency) seen in the expense currency.
+  const tolerance =
+    common.cashbox.currency === expense.currency ? 0.01 : Math.max(0.01, common.cashRate && expenseRate ? (0.01 * common.cashRate) / expenseRate : 0.01)
+  if (keepsExpense) {
+    // Not paying more than before: the same cash in the same currency, or not more of the expense.
+    const row = existing!.row
+    const before = -num(row.amount)
+    const beforeInternal = numOrNull(row.internal_amount)
+    const settledBefore = settles(before, String(row.currency ?? ""), beforeInternal === null ? null : -beforeInternal)
+    const sameCurrency = normCurrency(String(row.currency ?? ""), cc.base) === common.cashbox.currency
+    if ((sameCurrency && cash <= before + 0.01) || (wanted !== null && settledBefore !== null && wanted <= settledBefore + tolerance)) return
+  }
+  if (!link?.status) throw new CashError("Поставка не найдена", 404, "supply")
+  if (link.status === "отменен") throw new CashError("Поставка отменена", 400, "supply")
+  if (wanted === null) throw new CashError("Курс валюты не задан", 400, "currencyRate")
+
+  const rows = (await db
+    .prepare(
+      `SELECT c.amount::float8 AS amount, c.currency, c.internal_amount::float8 AS internal FROM cash_management_entries c
+       WHERE COALESCE(c.is_deleted, 0) = 0
+         AND (c.supply_expense_id = @id::int OR c.id = (SELECT e.transaction_id FROM supplier_incoming_expenses e WHERE e.id = @id::int))
+         AND (@exclude::int IS NULL OR c.id <> @exclude::int)`,
+    )
+    .all({ id: expense.id, exclude: editedId })) as Array<{ amount: number; currency: string | null; internal: number | null }>
+  let paid = 0
+  for (const row of rows) {
+    // Expense entries are negative; an older entry without a usable rate counts at face value.
+    const signed = num(row.amount)
+    paid -= settles(signed, String(row.currency ?? ""), numOrNull(row.internal)) ?? signed
+  }
+  const rest = roundMoney(expense.amount - paid, 5)
+  if (wanted > rest + tolerance) throw new CashError("Сумма больше неоплаченного остатка доп. расхода", 400, "amount")
+}
+
+/** The contract of a client payment covers its client (the dialog only offers those contracts). An
+ * edit that keeps the payment's own client and contract is not re-checked (older data). */
+async function assertContractOfClient(db: PgDb, contract: ContractInfo | null, client: ClientInfo, existing: OwnerRow | null): Promise<void> {
+  if (!contract) return
+  const unchanged =
+    existing?.source === "customer" && numOrNull(existing.row.contract_id) === contract.id && numOrNull(existing.row.client_id) === client.id
+  if (unchanged) return
+  if (!(await contractCoversClient(db, contract.id, client))) throw new CashError("Договор не относится к клиенту", 400, "contract")
+}
+
+/** The document's branch must be the cashbox's own when both are set (the dialogs offer only
+ * the chosen branch's cashboxes, plus cashboxes without a branch). "Не указано" / "Все" count
+ * as no branch. An edit that keeps its branch and cashbox is not re-checked (older data). */
+function assertCashboxOfBranch(cashbox: CashboxInfo, branch: string, existing: OwnerRow | null): void {
+  const wanted = nameKey(placeName(branch))
+  const own = nameKey(placeName(cashbox.branch))
+  if (!wanted || !own || wanted === own) return
+  const unchanged = existing !== null && numOrNull(existing.row.cashbox_id) === cashbox.id && nameKey(placeName(existing.row.branch)) === wanted
+  if (!unchanged) throw new CashError("Касса не относится к выбранному филиалу", 400, "cashbox")
+}
+
 async function resolvePlan(db: PgDb, input: CashOperationInput, user: string, cc: CurrencyContext, existing: OwnerRow | null, opts: PlanOptions = {}): Promise<Plan> {
   const kind = input.kind
   const cashbox = await loadCashbox(db, input.cashboxId, cc.base)
@@ -238,7 +392,8 @@ async function resolvePlan(db: PgDb, input: CashOperationInput, user: string, cc
     kind,
     cashbox,
     category,
-    date: localDateTime(input.date),
+    // An edit may keep the day the document already has (even a future one).
+    date: localDateTime(input.date, "date", existing ? (existing.row.entry_date ?? existing.row.payment_date) : undefined),
     isVerified: input.isVerified !== false,
     comment: input.comment?.trim() ?? "",
     organization: "",
@@ -247,6 +402,7 @@ async function resolvePlan(db: PgDb, input: CashOperationInput, user: string, cc
     cashRate: pickRate(cashbox.currency, cc, rateType === "custom" ? input.customRate : null),
     user,
   }
+  assertCashboxOfBranch(cashbox, common.branch, existing)
   /** Organization of the document: the dialog's choice (validated) or the counterparty's. */
   const organize = async (hints: OrganizationHints) => {
     common.organization = await resolveOrganization(db, input.organization, { ...hints, cashboxId: cashbox.id })
@@ -282,6 +438,9 @@ async function resolvePlan(db: PgDb, input: CashOperationInput, user: string, cc
     if (!paidByThis && request.status !== "approved") throw new CashError("Запрос должен быть подтвержден", 409, "moneyRequest")
     const supplier = await loadSupplier(db, request.supplier_id)
     const supply = input.supplyId ? await loadSupply(db, input.supplyId, cc.base) : null
+    // Paying the request "for a supply" passes the checks of a plain supply payment: the
+    // supply is the request's supplier's, not cancelled, and the amount fits its unpaid rest.
+    if (supply) assertSupplyOfSupplier(supply, supplier.name)
     // Every payment has an expense category (the dialog may leave it empty here).
     if (!category) {
       category = await defaultExpenseCategory(db, supply ? ["supply", "provider"] : ["provider", "supply"])
@@ -303,6 +462,7 @@ async function resolvePlan(db: PgDb, input: CashOperationInput, user: string, cc
     if (Math.abs(debt.amount - request.amount) > debtTolerance(debt, common)) {
       throw new CashError("Сумма оплаты не совпадает с суммой запроса", 400, "amount")
     }
+    if (supply) await assertWithinSupplyRest(db, supply, { ...debt, amount: request.amount }, common, cc, existing)
     await organize({ moneyRequestId: request.id, supplyId: supply?.id ?? null, supplierId: supplier.id })
     return supplierPlan(common, cc, {
       op: supply ? CASH_OP.OUTCOME_FOR_SUPPLY : CASH_OP.OUTCOME,
@@ -316,29 +476,16 @@ async function resolvePlan(db: PgDb, input: CashOperationInput, user: string, cc
   if (kind === "expense" && (has("supply") || has("provider")) && (input.supplyId || input.supplierId)) {
     if (!cash) throw new CashError("Укажите сумму", 400, "amount")
     let supplier = input.supplierId ? await loadSupplier(db, input.supplierId) : null
-    let supply: Awaited<ReturnType<typeof loadSupply>> | null = null
+    let supply: SupplyInfo | null = null
     if (input.supplyId) {
       supply = await loadSupply(db, input.supplyId, cc.base)
-      if (supply.status === "отменен") throw new CashError("Поставка отменена", 400, "supply")
-      if (supplier && supplier.name.trim().toLowerCase() !== supply.supplier.trim().toLowerCase()) throw new CashError("Поставка другого поставщика", 400, "supply")
+      assertSupplyOfSupplier(supply, supplier?.name ?? null)
       supplier ??= await findSupplierByName(db, supply.supplier)
     }
     if (!supplier) throw new CashError("Укажите поставщика", 400, "provider")
     // A payment of a supply settles it in the supply currency unless the dialog chose another one.
     const debt = debtSide(cash, common, cc, input, supply?.currency)
-    if (supply) {
-      // Never more than the unpaid rest of the supply (an advance is a payment without a supply).
-      const toSupplyCurrency = (amount: number, currency: string) => {
-        if (currency === supply!.currency) return amount
-        const from = pickRate(currency, cc)
-        const to = pickRate(supply!.currency, cc)
-        return from && to ? (amount * from) / to : amount
-      }
-      const already = await supplyPaidElsewhere(db, supply.id, supply.currency, cc, existing?.source === "supplier" ? existing.id : null)
-      const rest = roundMoney(supply.amount - already, 5)
-      const tolerance = debt.currency === supply.currency ? debtTolerance(debt, common) : Math.max(0.01, toSupplyCurrency(debtTolerance(debt, common), debt.currency))
-      if (toSupplyCurrency(debt.amount, debt.currency) > rest + tolerance) throw new CashError("Сумма больше неоплаченного остатка поставки", 400, "amount")
-    }
+    if (supply) await assertWithinSupplyRest(db, supply, debt, common, cc, existing)
     await organize({ supplyId: supply?.id ?? null, supplierId: supplier.id })
     return supplierPlan(common, cc, {
       op: supply ? CASH_OP.OUTCOME_FOR_SUPPLY : CASH_OP.OUTCOME,
@@ -384,7 +531,9 @@ async function resolvePlan(db: PgDb, input: CashOperationInput, user: string, cc
       if (due.currencies.length === 1) orderCurrency = due.currencies[0].currency
     }
     if (!client) throw new CashError("Укажите клиента", 400, "client")
+    // The contract must cover the paying client (the order's client in order mode).
     const contract = await loadContract(db, input.contractId)
+    await assertContractOfClient(db, contract, client, existing)
     const responsible = input.responsibleId ? await loadEmployee(db, input.responsibleId) : null
     const debt = debtSide(cash, common, cc, input, orderCurrency)
     if (due) {
@@ -452,7 +601,10 @@ async function resolvePlan(db: PgDb, input: CashOperationInput, user: string, cc
         excludeEntryId: existing?.source === "cash" ? existing.id : null,
       })
     }
-    await organize({ clientId: client.id, contractId: input.contractId ?? null })
+    // A contract given here only picks the organization; it must still be the client's.
+    const contract = await loadContract(db, input.contractId)
+    await assertContractOfClient(db, contract, client, existing)
+    await organize({ clientId: client.id, contractId: contract?.id ?? null })
     return {
       owner: "cash",
       values: cashEntryValues(common, op, signed, {
@@ -470,6 +622,7 @@ async function resolvePlan(db: PgDb, input: CashOperationInput, user: string, cc
   }
   if (kind === "expense" && has("supply_expense") && input.supplyExpenseId) {
     const expense = await loadSupplyExpense(db, input.supplyExpenseId, cc.base)
+    await assertWithinExpenseRest(db, expense, cash, common, cc, existing)
     await organize({ supplyExpenseId: expense.id, supplyId: expense.incomingId })
     return {
       owner: "cash",

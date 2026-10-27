@@ -1,6 +1,6 @@
 import "server-only"
 
-import { getDb, withTransaction, type PgDb } from "@/lib/db"
+import { getDb, outsideTransaction, withTransaction, type PgDb } from "@/lib/db"
 import { CASH_DOC_SEQUENCE, ensureFinanceSchema, ensureLedgerExtensions, type FinanceSchema } from "@/lib/finance/schema"
 
 // Lazily created schema of the cash core. The money columns the ledger reads
@@ -32,7 +32,7 @@ import { CASH_DOC_SEQUENCE, ensureFinanceSchema, ensureLedgerExtensions, type Fi
 //     the cashbox cashier's single organization). Best effort: a failure only
 //     logs a warning and never blocks the schema.
 
-const CASH_SCHEMA_VERSION = 4
+const CASH_SCHEMA_VERSION = 5
 
 const DDL = `
 CREATE SEQUENCE IF NOT EXISTS ${CASH_DOC_SEQUENCE};
@@ -195,8 +195,13 @@ BEGIN
 END
 $$;
 
+-- Only while missing: ALTER TABLE locks the table even when the column exists
+-- (a caller's open transaction on it would hang this first install).
 DO $$ BEGIN
-  IF to_regclass('supplier_incoming_expenses') IS NOT NULL THEN
+  IF to_regclass('supplier_incoming_expenses') IS NOT NULL AND NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+     WHERE table_schema = current_schema() AND table_name = 'supplier_incoming_expenses' AND column_name = 'transaction_id'
+  ) THEN
     ALTER TABLE supplier_incoming_expenses ADD COLUMN IF NOT EXISTS transaction_id INTEGER;
   END IF;
 END $$;
@@ -299,7 +304,9 @@ DO $$ BEGIN
     LEFT JOIN pg_temp.cash_org_client cl ON cl.id = COALESCE(p2.client_id, (SELECT min(c.id) FROM clients c WHERE fin_key(c.name) = fin_key(p2.client)))
     LEFT JOIN LATERAL (
       SELECT cash_single_org(e.organizations) AS org FROM employees e
-      WHERE fin_key(e.first_name || ' ' || e.last_name) = fin_key(regexp_replace(COALESCE(NULLIF(btrim(p2.agent), ''), p2.created_by), '\\s*\\([^()]*\\)\\s*$', ''))
+      -- The collecting agent, else the client's agent (collections written without one), else the creator.
+      WHERE fin_key(e.first_name || ' ' || e.last_name) = fin_key(regexp_replace(COALESCE(NULLIF(btrim(p2.agent), ''),
+        NULLIF((SELECT fin_place(c.agent) FROM clients c WHERE c.id = p2.client_id), ''), p2.created_by), '\\s*\\([^()]*\\)\\s*$', ''))
       ORDER BY e.id LIMIT 1
     ) ag ON true
     LEFT JOIN pg_temp.cash_org_cashbox cb ON cb.id = p2.cashbox_id
@@ -386,7 +393,7 @@ export async function ensureSupplyExpenseLink(tx: PgDb): Promise<boolean> {
  * lib/cash operation. */
 export async function ensureCashSchema(db: PgDb = getDb()): Promise<FinanceSchema> {
   if (globalThis.__linkoCashSchema?.version !== CASH_SCHEMA_VERSION) {
-    const ready = install().catch((error) => {
+    const ready = outsideTransaction(install).catch((error) => {
       globalThis.__linkoCashSchema = undefined
       throw error
     })

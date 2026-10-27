@@ -51,6 +51,44 @@ export type Order = {
   clientDeliverer?: string
 }
 
+/** 409 detail of an order that would make its agent sell more of a product than the
+ * agent's limit (Продукты → "Добавить лимит"; lib/orders-repo.ts assertAgentLimits). */
+export type AgentLimitExceeded = {
+  agent: string
+  productId: number
+  product: string
+  /** The limit (product_limits.amount). */
+  limit: number
+  /** Реализовано without this order. */
+  realized: number
+  /** This order's quantity of the product. */
+  requested: number
+  /** limit − realized, never below 0. */
+  remaining: number
+}
+
+/** Message of an orders API error for the user: the agent-limit refusal is composed from
+ * translated parts (agent / product names stay as they are), anything else is translated
+ * as a whole; `fallback` (a Russian key) when the server sent no message. */
+export function orderApiErrorText(
+  body: { error?: string; agentLimit?: AgentLimitExceeded | null; productRestriction?: ProductRestrictionRefusal | null } | null | undefined,
+  t: (text: string) => string,
+  fallback: string,
+): string {
+  const limit = body?.agentLimit
+  if (limit) {
+    const n = (value: number) => value.toLocaleString("ru-RU", { maximumFractionDigits: 3 })
+    return `${t("Превышен лимит агента")} «${limit.agent}» ${t("по товару")} «${limit.product}»: ${t("лимит")} ${n(limit.limit)}, ${t("реализовано")} ${n(limit.realized)}, ${t("в заказе")} ${n(limit.requested)}`
+  }
+  const names = (body?.productRestriction?.products ?? []).map((product) => product.name).filter(Boolean)
+  if (names.length) return `${t(body?.error || "Агенту запрещено продавать товар")}: ${names.join(", ")}`
+  return t(body?.error || fallback)
+}
+
+/** 409 detail of "Агенту запрещено продавать товар" (Ограничение продуктов): the agent and the
+ * products of the order it may not sell. */
+export type ProductRestrictionRefusal = { employeeId: number; agent: string; products: Array<{ id: number; name: string }> }
+
 /** Every order status, in workflow order. */
 export const ORDER_STATUSES = ["Не подтвержден", "В процессе", "Есть на складе", "В пути", "Доставлено", "Отменен"] as const
 export type OrderStatus = (typeof ORDER_STATUSES)[number]

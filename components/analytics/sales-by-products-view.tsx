@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react"
 import { RefHeader } from "@/components/ref/list-kit"
 import { ReportCheckboxField, ReportChipField, ReportFilterPanel, ReportPage, ReportRangeField, ReportSearchBar, ReportSegmentTabs, ReportSelectField, ReportSummaryCard, ReportTopRow } from "@/components/ref/report-kit"
+import { csvText } from "@/lib/csv"
 import { useLanguage } from "@/lib/i18n/language-context"
 import type { OrderItemWithOrder } from "@/lib/order-items-repo"
 import { useDirectoryNames } from "@/components/clients/use-directory"
@@ -183,11 +184,9 @@ export function SalesByProductsView() {
   }
 
   function download() {
-    const header = "Товар;Ед. измер;Продажа кол-во;Продажа сумма;Возврат кол-во;Возврат сумма;Фактическая продажа кол-во;Фактическая продажа сумма"
-    const body = rows.map((row) =>
-      [row.name, row.unit, row.saleQty, row.saleSum, row.returnQty, row.returnSum, row.saleQty - row.returnQty, row.saleSum - row.returnSum].join(";"),
-    )
-    const url = URL.createObjectURL(new Blob([`\uFEFF${[header, ...body].join("\n")}`], { type: "text/csv;charset=utf-8" }))
+    const header = ["Товар", "Ед. измер", "Продажа кол-во", "Продажа сумма", "Возврат кол-во", "Возврат сумма", "Фактическая продажа кол-во", "Фактическая продажа сумма"]
+    const body = rows.map((row) => [row.name, row.unit, row.saleQty, row.saleSum, row.returnQty, row.returnSum, row.saleQty - row.returnQty, row.saleSum - row.returnSum])
+    const url = URL.createObjectURL(new Blob([`\uFEFF${csvText([header, ...body])}`], { type: "text/csv;charset=utf-8" }))
     const link = document.createElement("a")
     link.href = url
     link.download = "sales-by-products.csv"

@@ -166,7 +166,10 @@ async function aggregate(db: PgDb, kind: BalanceEntityKind, s: FinanceSchema, ba
   if (isClientKind(kind)) {
     parts.push(`SUM(m.amt) FILTER (WHERE m.pending AND m.col = 'payment' AND ${inPeriod}) AS not_accepted_payment`)
     parts.push(`to_char(MAX(m.d) FILTER (WHERE m.col = 'order'), 'YYYY-MM-DD') AS last_order`)
-    parts.push(`to_char(MAX(m.d) FILTER (WHERE m.col = 'payment' AND NOT m.pending), 'YYYY-MM-DD') AS last_payment`)
+    // The last payment follows the same pending rule as the balance: in the "created" mode a
+    // payment counts (balance and last payment day) as soon as it is entered, in the
+    // "realization" mode only once accepted into a cashbox.
+    parts.push(`to_char(MAX(m.d) FILTER (WHERE m.col = 'payment' AND ${counted}), 'YYYY-MM-DD') AS last_payment`)
   }
   if (kind === "supplier") {
     parts.push("SUM(m.amt) FILTER (WHERE m.col = 'money_request') AS money_request")

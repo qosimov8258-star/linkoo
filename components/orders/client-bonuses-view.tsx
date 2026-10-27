@@ -8,6 +8,8 @@ import {
   X,
 } from "lucide-react";
 import { RI, RefButton, RefCard, RefHeader, RefIconButton, RefPage, RefTable, RefToolbar, usePaging } from "@/components/ref/list-kit";
+import { csvText } from "@/lib/csv";
+import { formatDateText } from "@/lib/i18n/format-date";
 import { useLanguage } from "@/lib/i18n/language-context";
 
 type BonusEntry = {
@@ -37,7 +39,7 @@ const dateLabel = new Intl.DateTimeFormat("ru-RU", {
 });
 
 export function ClientBonusesView() {
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
   const [clients, setClients] = useState(initialClients);
   const [search, setSearch] = useState("");
   const [filterOpen, setFilterOpen] = useState(false);
@@ -102,10 +104,10 @@ export function ClientBonusesView() {
         String(client.id),
         client.name,
         String(client.points),
-        client.lastScore,
+        formatDateText(client.lastScore, language),
       ]),
     ];
-    const content = rows.map((row) => row.map((value) => `"${value.replace(/"/g, '""')}"`).join(";")).join("\n");
+    const content = csvText(rows);
     const url = URL.createObjectURL(new Blob(["\ufeff" + content], { type: "text/csv;charset=utf-8" }));
     const anchor = document.createElement("a");
     anchor.href = url;
@@ -259,7 +261,7 @@ export function ClientBonusesView() {
             client.id,
             client.name,
             <span key="p" className={client.points < 0 ? "text-[#e57373]" : ""}>{client.points}</span>,
-            t(client.lastScore),
+            formatDateText(client.lastScore, language),
             <button
               key="b"
               title={t("Добавить балл")}
@@ -340,7 +342,7 @@ export function ClientBonusesView() {
                       <td className="px-9 py-4">{entry.order}</td>
                       <td className="px-9 py-4">{t(entry.type)}</td>
                       <td className="px-9 py-4">{entry.promotion}</td>
-                      <td className="px-9 py-4">{entry.date}</td>
+                      <td className="px-9 py-4">{formatDateText(entry.date, language)}</td>
                       <td className={`px-9 py-4 font-semibold ${entry.points < 0 ? "text-[#e46666]" : "text-[#42a75b]"}`}>{entry.points}</td>
                     </tr>
                   )) : (

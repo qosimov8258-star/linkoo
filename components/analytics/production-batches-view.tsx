@@ -48,7 +48,7 @@ const TABS: Array<[PartyStatus | "", string]> = [
 const HEADERS = ["№", "Дата начала", "Дата завершения", "Дата партии", "Этап производства", "Пользователь", "Статус"]
 
 export function ProductionBatchesView() {
-  const { t } = useLanguage()
+  const { t, language } = useLanguage()
   const [status, setStatus] = useState<PartyStatus | "">("")
   const [query, setQuery] = useState("")
   const [search, setSearch] = useState("")
@@ -91,9 +91,9 @@ export function ProductionBatchesView() {
   function exportExcel() {
     const body = parties.map((party) => [
       party.id,
-      formatDateTime(party.createdAt),
-      party.finishedAt ? formatDateTime(party.finishedAt) : "",
-      formatDate(party.date),
+      formatDateTime(party.createdAt, language),
+      party.finishedAt ? formatDateTime(party.finishedAt, language) : "",
+      formatDate(party.date, language),
       party.stageName,
       party.userName,
       t(STATUS_LABELS[party.status]),
@@ -193,9 +193,9 @@ export function ProductionBatchesView() {
                   ) : (
                     <tr onClick={() => setExpanded(party.id)} className="cursor-pointer border-b border-dashed border-slate-300 text-sm hover:bg-slate-50">
                       <td className="px-6 py-4">{party.id}</td>
-                      <td className="px-6 py-4">{formatDateTime(party.createdAt)}</td>
-                      <td className="px-6 py-4">{party.finishedAt ? formatDateTime(party.finishedAt) : ""}</td>
-                      <td className="px-6 py-4">{formatDate(party.date)}</td>
+                      <td className="px-6 py-4">{formatDateTime(party.createdAt, language)}</td>
+                      <td className="px-6 py-4">{party.finishedAt ? formatDateTime(party.finishedAt, language) : ""}</td>
+                      <td className="px-6 py-4">{formatDate(party.date, language)}</td>
                       <td className="px-6 py-4">{party.stageName}</td>
                       <td className="px-6 py-4">{party.userName}</td>
                       <td className="px-6 py-4">

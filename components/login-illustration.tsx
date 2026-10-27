@@ -1,6 +1,21 @@
+
+"use client"
+
+import { useLanguage } from "@/lib/i18n/language-context"
+
+// The banner labels are translated, and some translations are much longer than the Russian
+// text (uz "ISHLAB CHIQARUVCHILAR"). A label wider than its banner is squeezed to the banner
+// width instead of spilling over the edges. Bold capitals are about 0.72em wide each.
+function fitLabel(text: string, fontSize: number, maxWidth: number) {
+  return text.length * fontSize * 0.72 > maxWidth ? { textLength: maxWidth, lengthAdjust: "spacingAndGlyphs" as const } : {}
+}
+
 export function LoginIllustration() {
+  const { t } = useLanguage()
+  const producers = t("ПРОИЗВОДИТЕЛИ")
+  const distributors = t("ДИСТРИБЬЮТОРЫ")
   return (
-    <svg viewBox="0 0 640 760" className="h-full w-full" role="img" aria-label="Linko: производители, дистрибьюторы">
+    <svg viewBox="0 0 640 760" className="h-full w-full" role="img" aria-label={t("Linko: производители, дистрибьюторы")}>
       <defs>
         <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
           <stop offset="0%" stopColor="#eef3fb" />
@@ -94,8 +109,8 @@ export function LoginIllustration() {
         </g>
         {/* label */}
         <rect x="82" y="332" width="140" height="22" rx="4" fill="#3255b5" transform="translate(0,10)" opacity="0.92" />
-        <text x="152" y="357" textAnchor="middle" fontSize="12" fontWeight="700" fill="#ffffff" letterSpacing="0.3">
-          ПРОИЗВОДИТЕЛИ
+        <text x="152" y="357" textAnchor="middle" fontSize="12" fontWeight="700" fill="#ffffff" letterSpacing="0.3" {...fitLabel(producers, 12, 128)}>
+          {producers}
         </text>
       </g>
 
@@ -115,8 +130,8 @@ export function LoginIllustration() {
         </g>
         {/* label banner */}
         <rect x="240" y="478" width="150" height="24" rx="4" fill="#2fb0c9" opacity="0.95" />
-        <text x="315" y="495" textAnchor="middle" fontSize="12.5" fontWeight="700" fill="#ffffff" letterSpacing="0.3">
-          ДИСТРИБЬЮТОРЫ
+        <text x="315" y="495" textAnchor="middle" fontSize="12.5" fontWeight="700" fill="#ffffff" letterSpacing="0.3" {...fitLabel(distributors, 12.5, 138)}>
+          {distributors}
         </text>
 
         {/* stacked boxes */}

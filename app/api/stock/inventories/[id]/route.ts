@@ -4,6 +4,7 @@ import { getCurrentUser } from "@/lib/current-user"
 import { requireRole } from "@/lib/rbac"
 import { inventoryInputSchema, parseInventoryBody, parseInventoryId, stockInventoryErrorResponse } from "@/lib/stock-inventories-api"
 import { deleteStockInventory, getStockInventory, updateStockInventory } from "@/lib/stock-inventories-repo"
+import { notSignedInResponse } from "@/lib/validation"
 
 type RouteParams = { params: Promise<{ id: string }> }
 
@@ -13,7 +14,7 @@ const NOT_FOUND = { error: "Инвентаризация не найдена" }
 // a pending inventory carries the live system balances (live: true).
 export async function GET(_request: Request, { params }: RouteParams) {
   const user = await getCurrentUser()
-  if (!user) return NextResponse.json({ error: "Tizimga kirilmagan" }, { status: 401 })
+  if (!user) return notSignedInResponse()
   const id = parseInventoryId((await params).id)
   const detail = id ? await getStockInventory(id) : null
   if (!detail) return NextResponse.json(NOT_FOUND, { status: 404 })

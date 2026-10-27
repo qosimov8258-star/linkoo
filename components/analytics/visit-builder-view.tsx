@@ -15,6 +15,7 @@ import {
 } from "lucide-react"
 import { RefHeader } from "@/components/ref/list-kit"
 import { ReportPage } from "@/components/ref/report-kit"
+import { csvText } from "@/lib/csv"
 import { useLanguage } from "@/lib/i18n/language-context"
 import { useDirectoryNames } from "@/components/clients/use-directory"
 
@@ -227,7 +228,7 @@ export function VisitBuilderView({ variant = "visits" }: { variant?: "visits" | 
       ...horizontalGroups.map(() => zone || t("Все зоны")),
       ...selectedColumns.map((_, index) => String(index === 0 ? 104 : 0)),
     ]
-    downloadFile(isSales ? "sales-builder.csv" : "visit-builder.csv", `\uFEFF${header.join(";")}\n${row.join(";")}`, "text/csv;charset=utf-8")
+    downloadFile(isSales ? "sales-builder.csv" : "visit-builder.csv", `\uFEFF${csvText([header, row])}`, "text/csv;charset=utf-8")
   }
 
   const shownColumns = availableColumns.filter((item) => item.toLowerCase().includes(columnQuery.toLowerCase()))
@@ -292,7 +293,7 @@ export function VisitBuilderView({ variant = "visits" }: { variant?: "visits" | 
           </button>
           <div className="ml-auto flex flex-wrap items-center gap-[19px]">
             <span className="relative text-[12px] font-bold text-[#4f71dc]">
-              {shortDate(from)} - {shortDate(to)}
+              {t(`${shortDate(from)} - ${shortDate(to)}`)}
               <input type="date" aria-label={t("Дата от")} value={from} max={to} onChange={(event) => event.target.value && setFrom(event.target.value)} className="absolute left-0 top-0 h-full w-[48%] cursor-pointer opacity-0" />
               <input type="date" aria-label={t("Дата до")} value={to} min={from} onChange={(event) => event.target.value && setTo(event.target.value)} className="absolute right-0 top-0 h-full w-[48%] cursor-pointer opacity-0" />
             </span>

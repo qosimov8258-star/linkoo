@@ -1,9 +1,12 @@
 import "server-only"
 
 import { getDb, type PgDb } from "@/lib/db"
+import { DB_LOCKED } from "@/lib/db-errors"
 import { todayIso } from "@/lib/finance/dates"
 import { getWarehouseItemCosts } from "@/lib/stock/costs"
 import { getStockBalances, getStockCatalog, getStockPending } from "@/lib/stock/ledger"
+import { minBalancesFrom } from "@/lib/stock/min-balance"
+import { stockTables } from "@/lib/stock/schema"
 import type { StockCatalogItem } from "@/lib/stock/types"
 import { unitWeightKg, type StockPickRow, type StockShortage } from "@/lib/internal-transfers-types"
 
@@ -11,10 +14,12 @@ import { unitWeightKg, type StockPickRow, type StockShortage } from "@/lib/inter
 // the stock core (getStockBalances / getStockPending / getStockCatalog):
 // Доступно = on hand − defects − reserved, as the demo's pickers show it; Брак
 // (defective units) can only leave through lines flagged "defect", up to the
-// defects on hand. A document must fit on its own day, today AND after every
-// movement already booked for a later day (a give or write-off dated ahead
-// must not let the same goods be spent twice), so the available quantity is
-// the smallest of those balances. Costs are the cost of goods
+// defects on hand. No stock may go negative on ANY day (business rule 8): a
+// document booked on a day lowers every later day too, so it must fit the
+// smallest end-of-day balance from its day on — every day in between, today
+// and the movements already booked for later days (a give or write-off dated
+// ahead must not let the same goods be spent twice). lib/stock/min-balance.ts
+// computes that minimum in one query. Costs are the cost of goods
 // (lib/stock/costs.ts) at the document's day (the warehouse's own when it is
 // its own cost scope).
 
@@ -39,19 +44,35 @@ export async function lockWarehouseStock(tx: PgDb, warehouses: string[]): Promis
   for (const key of keys) await tx.prepare("SELECT pg_advisory_xact_lock(hashtext(@k)) AS ok").get({ k: `linko-stock:${key}` })
 }
 
+/**
+ * Lock order of the stock writers (C1): the warehouses' stock locks BEFORE the row lock of
+ * the document being changed. One global order — linko-catalog, then linko-stock:<warehouse>
+ * (sorted), then stock_inventory:<warehouse>, then rows — is what a catalog or warehouse
+ * rename takes (lib/products-write.ts lockStockWrites, lib/warehouses-refs.ts
+ * lockWarehouseNames: every stock lock first, then the documents' rows). A writer that held
+ * its document's row while it waited for the stock lock deadlocked against such a rename.
+ * `sql` reads the document's warehouse(s) as `warehouse` WITHOUT a lock; lockWarehouseStock
+ * is re-entrant, so the writer's own later call for the same warehouse costs nothing (a
+ * warehouse changed in between is still locked by that later call).
+ */
+export async function lockWarehousesOf(tx: PgDb, sql: string, params: Record<string, unknown>): Promise<void> {
+  const rows = (await tx.prepare(sql).all(params)) as Array<{ warehouse: string | null }>
+  await lockWarehouseStock(
+    tx,
+    rows.map((row) => String(row.warehouse ?? "")),
+  )
+}
+
 export type ItemStock = {
   qty: number
   defects: number
   reserved: number
-  /** Good units that may leave: min over the moments of (on hand − defects) − reserved. */
+  /** Good units that may leave: min over every day from the document's day on of (on hand − defects), − reserved. */
   available: number
-  /** Defective units that may leave (lines flagged "defect"). */
+  /** Defective units that may leave (lines flagged "defect"): min over the same days. */
   defectsAvailable: number
   cost: number
 }
-
-/** A day after every booked movement (the balance "in the end"). */
-const FINAL_DAY = "9999-12-31"
 
 async function balancesOn(warehouse: string, date: string, db: PgDb) {
   const wanted = textKey(warehouse)
@@ -69,36 +90,40 @@ async function balancesOn(warehouse: string, date: string, db: PgDb) {
   return map
 }
 
-/** Stock of every item of one warehouse on `day` (default today): what is on hand today,
- * and what may leave on that day (see the header). */
-export async function warehouseStock(warehouse: string, day?: string, db: PgDb = getDb()): Promise<Map<string, ItemStock>> {
+/** The day a document's stock check starts from: its booking day, never after today
+ * (a document dated ahead must also fit today's stock). */
+export function checkDay(day?: string | null): string {
   const today = todayIso()
-  const docDay = day && day < today ? day : today
-  const [latest, onDay, final, pending, costs] = await Promise.all([
-    balancesOn(warehouse, today, db),
-    docDay < today ? balancesOn(warehouse, docDay, db) : Promise.resolve(null),
-    balancesOn(warehouse, FINAL_DAY, db),
+  return day && /^\d{4}-\d{2}-\d{2}$/.test(day) && day < today ? day : today
+}
+
+/** Stock of every item of one warehouse for a document booked on `day` (default today):
+ * what is on hand today, and what may leave from that day on (see the header). */
+export async function warehouseStock(warehouse: string, day?: string, db: PgDb = getDb()): Promise<Map<string, ItemStock>> {
+  const docDay = checkDay(day)
+  const [balances, pending, costs] = await Promise.all([
+    minBalancesFrom(warehouse, docDay, db),
     getStockPending({ warehouses: [warehouse] }, db),
     getWarehouseItemCosts({ date: docDay }, db),
   ])
   const reserved = new Map<string, number>()
   const wanted = textKey(warehouse)
   for (const row of pending) if (textKey(row.warehouse) === wanted) reserved.set(row.key, (reserved.get(row.key) ?? 0) + row.reserved)
+  const keys = [...new Set([...balances.keys(), ...reserved.keys()])]
+  // Items the cost of goods does not know (legacy "name:" lines) keep the stock core's own average.
+  const uncosted = keys.some((key) => costs.costOf(key, warehouse) === undefined)
+  const latest = uncosted ? await balancesOn(warehouse, todayIso(), db) : null
   const result = new Map<string, ItemStock>()
-  const keys = new Set([...latest.keys(), ...(onDay?.keys() ?? []), ...final.keys(), ...reserved.keys()])
   for (const key of keys) {
-    const now = latest.get(key)
-    const moments = [now, onDay ? onDay.get(key) : now, final.get(key)]
-    const good = Math.min(...moments.map((balance) => (balance?.qty ?? 0) - (balance?.defects ?? 0)))
-    const defects = Math.min(...moments.map((balance) => balance?.defects ?? 0))
+    const balance = balances.get(key)
     const r = reserved.get(key) ?? 0
     result.set(key, {
-      qty: round6(now?.qty ?? 0),
-      defects: round6(now?.defects ?? 0),
+      qty: round6(balance?.qty ?? 0),
+      defects: round6(balance?.defects ?? 0),
       reserved: round6(r),
-      available: round6(good - r),
-      defectsAvailable: round6(Math.max(0, defects)),
-      cost: round6(costs.costOf(key, warehouse) ?? now?.cost ?? 0),
+      available: round6((balance?.minGood ?? 0) - r),
+      defectsAvailable: round6(Math.max(0, balance?.minDefects ?? 0)),
+      cost: round6(costs.costOf(key, warehouse) ?? latest?.get(key)?.cost ?? 0),
     })
   }
   return result
@@ -178,35 +203,160 @@ export function findShortages(
 // Warehouses and inventories the documents depend on
 // ---------------------------------------------------------------------------
 
-export type WarehouseRef = { name: string; active: boolean }
+export type WarehouseRef = { id: number; name: string; active: boolean }
+
+type WarehouseRow = { id: number | string; name: string; active: number | boolean | null }
+
+const toWarehouseRef = (row: WarehouseRow): WarehouseRef => ({
+  id: Number(row.id),
+  name: String(row.name).trim(),
+  active: row.active === null || Boolean(Number(row.active)),
+})
 
 /** The warehouses-table row of a name (fin_key match; the registry's spelling), or null. */
 export async function findWarehouse(db: PgDb, name: string): Promise<WarehouseRef | null> {
   const wanted = textKey(name)
   if (!wanted) return null
   const row = (await db
-    .prepare("SELECT name, COALESCE(active, 1) AS active FROM warehouses WHERE fin_key(name) = fin_key(@name) ORDER BY COALESCE(active, 1) DESC, id LIMIT 1")
-    .get({ name })) as { name: string; active: number | boolean | null } | undefined
-  return row ? { name: String(row.name).trim(), active: row.active === null || Boolean(Number(row.active)) } : null
+    .prepare("SELECT id, name, COALESCE(active, 1) AS active FROM warehouses WHERE fin_key(name) = fin_key(@name) ORDER BY COALESCE(active, 1) DESC, id LIMIT 1")
+    .get({ name })) as WarehouseRow | undefined
+  return row ? toWarehouseRef(row) : null
 }
 
-/** Whether a confirmed inventory of `warehouse` counted the stock after `moment` (local
- * "YYYY-MM-DDTHH:mm:ss" of a movement on `day`): one dated after that day, or an
- * end-of-day one of that day confirmed at or after the moment. Undoing the movement
- * would then make the stock differ from the count. */
-export async function countedByInventory(db: PgDb, warehouse: string, day: string, moment: string): Promise<boolean> {
-  const exists = (await db.prepare("SELECT to_regclass('stock_inventories') IS NOT NULL AS ok").get()) as { ok: boolean } | undefined
-  if (!exists?.ok || !day) return false
+/** A warehouse of a document being written, as it is under its stock lock (lockDocumentWarehouses). */
+export type LockedWarehouse = {
+  /** null: a warehouse only documents know (no registry row), kept as named. */
+  id: number | null
+  /** The registry's spelling now (a rename that committed before the lock included). */
+  name: string
+  active: boolean
+  /** The name changed beyond its spelling since `ref` was read (another stock key): values the
+   * caller derived from the old name (stock, costs, ledger keys) must be read again. */
+  renamed: boolean
+}
+
+/** The warehouse of a document kept being renamed while the document was written. lib/db-errors.ts
+ * answers it like any other conflict ("retry", 409) where the caller does not map it itself. */
+export class WarehouseRenamedError extends Error {
+  readonly status = 409
+  /** serialization_failure: dbErrorKind() → "locked". */
+  readonly code = "40001"
+
+  constructor() {
+    super(DB_LOCKED)
+    this.name = "WarehouseRenamedError"
+  }
+}
+
+/**
+ * The warehouses a new or edited document names, under their stock locks, as they are now
+ * (rename race). A document validates its warehouse before its transaction; a rename that
+ * committed in between had already carried every existing document over to the new name, so
+ * the document would land on a name that no longer exists. Therefore, inside the document's
+ * transaction and before any row lock (the global lock order, see lockWarehousesOf):
+ *  1. the stock locks of the names the document validated, sorted — a rename takes the same
+ *     locks (lib/warehouses-refs.ts lockWarehouseNames) before its cascade, so it has either
+ *     committed by now or waits until this transaction commits (and then carries this
+ *     document over too);
+ *  2. each registry row read again by id (a plain read: the rename holds that row while it
+ *     waits for our lock) — a rename that committed before step 1 shows its new name, whose
+ *     stock lock is taken as well (other writers use that name now) and the rows are read
+ *     again, until every current name is locked.
+ * `ref.id` null / undefined = a warehouse only documents know: locked by name, kept as is.
+ * null in the result: the warehouse was deleted meanwhile. WarehouseRenamedError when it is
+ * renamed again and again under us (practically never: each round needs another committed rename).
+ */
+export async function lockDocumentWarehouses(tx: PgDb, refs: ReadonlyArray<{ id?: number | null; name: string }>): Promise<Array<LockedWarehouse | null>> {
+  const locked = new Set<string>()
+  const lock = async (names: string[]) => {
+    const fresh = [...new Set(names.map(textKey).filter((key) => key && !locked.has(key)))]
+    if (!fresh.length) return
+    await lockWarehouseStock(tx, fresh)
+    for (const key of fresh) locked.add(key)
+  }
+  await lock(refs.map((ref) => ref.name))
+  const ids = [...new Set(refs.map((ref) => Number(ref.id)).filter((id) => Number.isSafeInteger(id) && id > 0))]
+  for (let round = 0; round < 5; round++) {
+    const rows = ids.length
+      ? ((await tx.prepare("SELECT id, name, COALESCE(active, 1) AS active FROM warehouses WHERE id = ANY(@ids::int[])").all({ ids })) as WarehouseRow[])
+      : []
+    const byId = new Map(rows.map((row) => [Number(row.id), toWarehouseRef(row)]))
+    const current = refs.map((ref): LockedWarehouse | null => {
+      const id = Number(ref.id)
+      if (!(Number.isSafeInteger(id) && id > 0)) return { id: null, name: ref.name.trim(), active: true, renamed: false }
+      const row = byId.get(id)
+      return row ? { ...row, renamed: textKey(row.name) !== textKey(ref.name) } : null
+    })
+    const unlocked = current.flatMap((entry) => (entry && !locked.has(textKey(entry.name)) ? [entry.name] : []))
+    if (!unlocked.length) return current
+    await lock(unlocked)
+  }
+  throw new WarehouseRenamedError()
+}
+
+/** lockDocumentWarehouses for a document that resolves its warehouse inside its transaction
+ * (supplies, supplier returns): the stock lock of the warehouse the request named, and the name
+ * to resolve — the registry's current one when the row `seen` before the transaction
+ * (findWarehouse) was renamed meanwhile, else `name` as sent (an unknown or deleted warehouse
+ * then fails the caller's own lookup). */
+export async function lockNamedWarehouse(tx: PgDb, name: string, seen: { id: number; name: string } | null | undefined): Promise<string> {
+  if (!seen) {
+    await lockWarehouseStock(tx, [name])
+    return name
+  }
+  const [locked] = await lockDocumentWarehouses(tx, [seen])
+  return locked ? locked.name : name
+}
+
+/** The stock keys the ledger books a document's lines under (by name, as the core does). */
+export function documentKeys(index: CatalogIndex, lines: Array<{ product: string }>): string[] {
+  return [...new Set(lines.map((line) => ledgerKey(index, String(line.product ?? ""))).filter((key) => key && key !== "name:"))]
+}
+
+/** Whether a confirmed inventory of `warehouse` counted one of the document's items
+ * (`keys`, stock ledger keys) after its movement — booked on `day` at `moment` (local
+ * "YYYY-MM-DDTHH:mm:ss"): an inventory dated after that day, or an end-of-day one of
+ * that day confirmed at or after the moment. With `registeredAt` (the local moment
+ * the movement was entered), only counts confirmed at or after it qualify: a count
+ * confirmed before a back-dated movement was entered never saw it. Undoing the
+ * movement would make the stock differ from such a count; inventories that did not
+ * count the document's items are not affected. Missing lazy tables / columns are
+ * tolerated (no inventory = nothing counted). */
+export async function countedByInventory(
+  db: PgDb,
+  warehouse: string,
+  day: string,
+  moment: string,
+  keys: string[],
+  options: { registeredAt?: string | null } = {},
+): Promise<boolean> {
+  const wanted = [...new Set(keys.filter(Boolean))]
+  if (!day || !wanted.length) return false
+  const t = await stockTables(db)
+  if (!t.has("stock_inventories") || !t.has("stock_inventory_items") || !t.col("stock_inventories", "inv_date")) return false
+  const stamps = [
+    t.col("stock_inventories", "confirmed_at") ? "fin_ts(NULLIF(btrim(si.confirmed_at), ''), true)" : null,
+    t.col("stock_inventories", "created_at") ? "fin_ts(si.created_at, true)" : null,
+  ].filter(Boolean)
+  // No usable timestamp: assume the count came after the movement (refuse rather than corrupt).
+  const confirmed = `COALESCE(${[...stamps, "'infinity'::timestamp"].join(", ")})`
+  const sameDay = t.col("stock_inventories", "for_day_end")
+    ? ` OR (fin_ts(si.inv_date)::date = @day::date AND COALESCE(si.for_day_end, 0) = 1 AND ${confirmed} >= COALESCE(fin_ts(@moment), @day::timestamp))`
+    : ""
+  const registered = options.registeredAt ? ` AND ${confirmed} >= COALESCE(fin_ts(@registered), '-infinity'::timestamp)` : ""
   const row = (await db
     .prepare(
-      `SELECT 1 AS ok FROM stock_inventories
-       WHERE status = 'confirmed' AND fin_key(warehouse) = fin_key(@warehouse)
-         AND (fin_ts(inv_date)::date > @day::date
-              OR (fin_ts(inv_date)::date = @day::date AND COALESCE(for_day_end, 0) = 1
-                  AND COALESCE(fin_ts(NULLIF(btrim(confirmed_at), ''), true), fin_ts(created_at, true)) >= COALESCE(fin_ts(@moment), @day::timestamp)))
+      `SELECT 1 AS ok FROM stock_inventories si
+       WHERE si.status = 'confirmed' AND fin_key(si.warehouse) = fin_key(@warehouse)
+         AND (fin_ts(si.inv_date)::date > @day::date${sameDay})${registered}
+         AND EXISTS (
+           SELECT 1 FROM stock_inventory_items it
+           WHERE it.inventory_id = si.id
+             AND (CASE WHEN it.item_key LIKE 'name:%' THEN 'name:' || fin_key(substr(it.item_key, 6)) ELSE it.item_key END) = ANY(@keys::text[])
+         )
        LIMIT 1`,
     )
-    .get({ warehouse, day, moment: moment || day })) as { ok: number } | undefined
+    .get({ warehouse, day, moment: moment || day, keys: wanted, ...(options.registeredAt ? { registered: options.registeredAt } : {}) })) as { ok: number } | undefined
   return Boolean(row)
 }
 

@@ -1,8 +1,10 @@
 import "server-only"
 
 import { getDb, withTransaction, type PgDb } from "@/lib/db"
+import { docYearOk, parseDocInput } from "@/lib/document-dates"
+import { loadCurrencyContext, type CurrencyContext } from "@/lib/finance/context"
 import { normCurrency } from "@/lib/finance/currency"
-import { isIsoDay, parseAnyDate, parseAnyDay } from "@/lib/finance/dates"
+import { isIsoDay, parseAnyDate } from "@/lib/finance/dates"
 import { ensureInvoiceIncomingsSchema, INVOICE_STATUS_SQL } from "@/lib/invoice-incomings-schema"
 import {
   calcInvoiceLine,
@@ -302,13 +304,26 @@ async function catalogExists(db: PgDb, match: { kind: string; id: number }): Pro
   return Boolean(await db.prepare(`SELECT 1 FROM ${table} WHERE id = ?`).get(match.id))
 }
 
+/** The invoice currency: a code of Валюты (the supply made from the invoice — "Создать приход" —
+ * accepts only those, lib/supplier-refs.ts findCurrency); empty = the base currency. An edit may
+ * keep the code the invoice already has. null = not a configured currency. */
+async function invoiceCurrency(db: PgDb, value: string, context: CurrencyContext, excludeId: number | null = null): Promise<string | null> {
+  const code = normCurrency(value, context.base)
+  if (context.currencies.some((item) => item.code === code)) return code
+  if (!excludeId) return null
+  const own = (await db.prepare("SELECT currency FROM invoice_incomings WHERE id = ?").get(excludeId)) as { currency: string | null } | undefined
+  return own && normCurrency(own.currency, context.base) === code ? code : null
+}
+
 /** Normalises and validates a manual / imported invoice (throws InvoiceError with the field). */
 async function cleanInvoice(db: PgDb, input: InvoiceInput, excludeId: number | null): Promise<CleanInvoice> {
   const number = input.number.trim()
   if (!number) throw new InvoiceError("Укажите номер счет-фактуры", 400, "number")
   if (!isIsoDay(input.date)) throw new InvoiceError("Укажите дату счет-фактуры", 400, "date")
+  // Every document date has a year within 2000..2100 (lib/document-dates.ts).
+  if (!docYearOk(input.date)) throw new InvoiceError("Неверная дата счет-фактуры", 400, "date")
   const contractDate = input.contractDate.trim()
-  if (contractDate && !isIsoDay(contractDate)) throw new InvoiceError("Неверная дата договора", 400, "contractDate")
+  if (contractDate && !(isIsoDay(contractDate) && docYearOk(contractDate))) throw new InvoiceError("Неверная дата договора", 400, "contractDate")
 
   let supplierName = input.supplierName.trim()
   if (input.supplierId) {
@@ -329,8 +344,8 @@ async function cleanInvoice(db: PgDb, input: InvoiceInput, excludeId: number | n
   const buyerInn = input.buyerInn.trim()
   if (buyerInn && !INN_PATTERN.test(buyerInn)) throw new InvoiceError("ИНН должен содержать 9 или 14 цифр", 400, "buyerInn")
 
-  const currency = normCurrency(input.currency)
-  if (!/^[A-Z]{3}$/.test(currency)) throw new InvoiceError("Неверная валюта", 400, "currency")
+  const currency = await invoiceCurrency(db, input.currency, await loadCurrencyContext(db), excludeId)
+  if (!currency) throw new InvoiceError("Неверная валюта", 400, "currency")
 
   if (!input.lines.length) throw new InvoiceError("Добавьте хотя бы одну строку", 400, "lines")
   const lines: CleanLine[] = []
@@ -573,7 +588,7 @@ function parseImportDay(value: string): string | null {
     const iso = `${slash[3]}-${slash[2].padStart(2, "0")}-${slash[1].padStart(2, "0")}`
     return isIsoDay(iso) ? iso : null
   }
-  return parseAnyDay(text)
+  return parseDocInput(text)?.slice(0, 10) ?? null
 }
 
 function parseImportNumber(value: string | undefined): number | null {
@@ -614,20 +629,25 @@ export async function importInvoices(rows: Array<InvoiceImportRow & { row: numbe
 
   const invoices: InvoiceImportPreviewInvoice[] = []
   const seen = new Set<string>()
+  const currencies = await loadCurrencyContext(db)
   for (const group of groups) {
     const header = group.header
     const errors: InvoiceImportIssue[] = []
     const issue = (field: string, error: string, row = group.row) => errors.push({ row, field, error })
-    const date = parseImportDay(header.date)
+    const parsedDate = parseImportDay(header.date)
+    // Every document date has a year within 2000..2100 (lib/document-dates.ts).
+    const date = parsedDate && docYearOk(parsedDate) ? parsedDate : null
     if (!header.number) issue("number", "Укажите номер счет-фактуры")
     if (!date) issue("date", header.date ? "Неверная дата счет-фактуры" : "Укажите дату счет-фактуры")
-    const contractDate = header.contractDate ? parseImportDay(header.contractDate) : ""
+    const parsedContractDate = header.contractDate ? parseImportDay(header.contractDate) : ""
+    const contractDate = parsedContractDate && !docYearOk(parsedContractDate) ? null : parsedContractDate
     if (contractDate === null) issue("contractDate", "Неверная дата договора")
     if (!header.supplierName && !header.supplierInn) issue("supplierName", "Укажите поставщика")
     if (header.supplierInn && !INN_PATTERN.test(header.supplierInn)) issue("supplierInn", "ИНН должен содержать 9 или 14 цифр")
     if (header.buyerInn && !INN_PATTERN.test(header.buyerInn)) issue("buyerInn", "ИНН должен содержать 9 или 14 цифр")
-    const currency = normCurrency(header.currency)
-    if (!/^[A-Z]{3}$/.test(currency)) issue("currency", "Неверная валюта")
+    const known = await invoiceCurrency(db, header.currency, currencies)
+    if (!known) issue("currency", "Неизвестная валюта")
+    const currency = known ?? normCurrency(header.currency, currencies.base)
     const supplierMatch = await matchParty(db, "supplier", header.supplierInn, header.supplierName)
     const organizationMatch = await matchParty(db, "organization", header.buyerInn, header.buyerName)
     const supplierName = header.supplierName || supplierMatch?.name || ""

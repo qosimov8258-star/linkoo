@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 
 import { getCurrentUser } from "@/lib/current-user"
 import { requireRole } from "@/lib/rbac"
-import { parseJsonBody } from "@/lib/validation"
+import { notSignedInResponse, parseJsonBody } from "@/lib/validation"
 import { priceListBodySchema, toPriceListInput } from "@/lib/price-lists-api"
 import { deletePriceList, getPriceList, priceListErrorResponse, updatePriceList } from "@/lib/price-lists-repo"
 
@@ -19,7 +19,7 @@ function parseId(value: string): number | null {
 // GET /api/price-lists/[id] — demo GET sales/price_list/:id/; ?usage=1 adds where it is used.
 export async function GET(request: Request, { params }: RouteParams) {
   const user = await getCurrentUser()
-  if (!user) return NextResponse.json({ error: "Tizimga kirilmagan" }, { status: 401 })
+  if (!user) return notSignedInResponse()
   const id = parseId((await params).id)
   const priceList = id ? await getPriceList(id, new URL(request.url).searchParams.get("usage") === "1") : null
   if (!priceList) return NextResponse.json(NOT_FOUND, { status: 404 })
@@ -49,7 +49,8 @@ export async function PUT(request: Request, { params }: RouteParams) {
 }
 
 // DELETE /api/price-lists/[id] — 409 {error: "Удаление невозможно из-за связи с другими данными", usage}
-// while item prices, documents, branches, linked lists or repricings use the list.
+// while item prices, documents, branches, linked lists or repricings use the list; 409 {error} for
+// the default list for orders (another list must become the default, or the flag be unticked first).
 export async function DELETE(_request: Request, { params }: RouteParams) {
   const auth = await requireRole("manager")
   if ("error" in auth) return auth.error

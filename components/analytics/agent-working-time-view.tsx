@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react"
 import { downloadExcelTable } from "@/lib/excel-export"
 import { DashboardDialog } from "./dashboard-dialog"
 import { ReportBand, ReportChipField, ReportDateField, ReportEmpty, ReportFilters, ReportHeader, ReportPage, ReportSelectField } from "@/components/ref/report-kit"
+import { useLanguage } from "@/lib/i18n/language-context"
 
 const ALL_AGENTS = ""
 const ALL_SUPERVISORS = ""
@@ -21,6 +22,7 @@ function monthStart() {
 }
 
 export function AgentWorkingTimeView() {
+  const { t } = useLanguage()
   const today = useMemo(() => inputDate(new Date()), [])
   const [from, setFrom] = useState(monthStart)
   const [to, setTo] = useState(today)
@@ -105,7 +107,7 @@ export function AgentWorkingTimeView() {
       </ReportBand>
 
       {overlayOpen && (
-        <button type="button" aria-label="Закрыть окно" onClick={() => setDashboardOpen(false)} className="fixed inset-0 z-[90] cursor-default bg-black/55" />
+        <button type="button" aria-label={t("Закрыть окно")} onClick={() => setDashboardOpen(false)} className="fixed inset-0 z-[90] cursor-default bg-black/55" />
       )}
 
       {dashboardOpen && (

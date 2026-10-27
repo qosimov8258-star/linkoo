@@ -3,7 +3,7 @@ import { NextResponse } from "next/server"
 import { getCurrentUser } from "@/lib/current-user"
 import { vansellLimitsSchema } from "@/lib/finance-vansell-balance-api"
 import { requireRole } from "@/lib/rbac"
-import { parseJsonBody } from "@/lib/validation"
+import { notSignedInResponse, parseJsonBody } from "@/lib/validation"
 import { listVansellLimits, saveVansellLimits } from "@/lib/vansell-transactions-repo"
 
 // Van-sell debt limits ("Изменить лимит", demo van_sell_debt_limit).
@@ -11,7 +11,7 @@ import { listVansellLimits, saveVansellLimits } from "@/lib/vansell-transactions
 
 export async function GET() {
   const user = await getCurrentUser()
-  if (!user) return NextResponse.json({ error: "Tizimga kirilmagan" }, { status: 401 })
+  if (!user) return notSignedInResponse()
   return NextResponse.json({ canUpdate: user.role === "admin" || user.role === "manager", limits: await listVansellLimits() })
 }
 

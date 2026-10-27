@@ -88,8 +88,8 @@ function CatalogFilterPopup({
         </select>
       </FormField>
       <MultiPick label={t("Мера")} options={pick(options?.units)} value={draft.measurement} onChange={(measurement) => set({ measurement })} />
-      <MultiPick label={t("Бренд")} options={pick(options?.brands)} value={draft.brand} onChange={(brand) => set({ brand })} />
-      <MultiPick label={t("Поставщик")} options={pick(options?.suppliers)} value={draft.provider} onChange={(provider) => set({ provider })} />
+      <MultiPick label={t("Бренд")} options={pick(options?.filterValues?.brands ?? options?.brands)} value={draft.brand} onChange={(brand) => set({ brand })} />
+      <MultiPick label={t("Поставщик")} options={pick(options?.filterValues?.suppliers ?? options?.suppliers)} value={draft.provider} onChange={(provider) => set({ provider })} />
       <MultiPick label={t("Цвет")} options={pick(options?.colors)} value={draft.color} onChange={(color) => set({ color })} />
       <FormField label={t("Поставка")}>
         <SearchSelect
@@ -99,7 +99,7 @@ function CatalogFilterPopup({
           onChange={(value) => set({ supply: value })}
         />
       </FormField>
-      <MultiPick label={t("Организации")} options={pick(options?.organizations)} value={draft.division} onChange={(division) => set({ division })} />
+      <MultiPick label={t("Организации")} options={pick(options?.filterValues?.organizations ?? options?.organizations)} value={draft.division} onChange={(division) => set({ division })} />
       {check("isMML", "Только ММЛ продукты")}
       {check("isGear", "Инвентари")}
       {kind === "product" && check("isPerfectStore", "Только Perfect Store продукты")}

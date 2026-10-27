@@ -208,7 +208,8 @@ function useFieldErrors() {
       setError("")
     },
     fail: (result: Extract<SendResult, { ok: false }>) => {
-      setFields(result.fields)
+      // Field errors are Russian i18n keys (FormField prints them as is).
+      setFields(Object.fromEntries(Object.entries(result.fields).map(([name, message]) => [name, t(message)])))
       setError(Object.keys(result.fields).length ? "" : t(result.error))
     },
     setField: (name: string, message: string) => setFields({ [name]: message }),

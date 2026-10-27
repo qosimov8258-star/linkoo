@@ -3,7 +3,7 @@ import "server-only"
 import { NextResponse } from "next/server"
 import { z } from "zod"
 
-import { getDb, withTransaction, type PgDb } from "@/lib/db"
+import { getDb, outsideTransaction, withTransaction, type PgDb } from "@/lib/db"
 import { normCurrency, roundMoney } from "@/lib/finance/currency"
 import { isIsoDay } from "@/lib/finance/dates"
 import { nameKey, placeName } from "@/lib/finance/entities"
@@ -16,7 +16,6 @@ import {
   isoDayOrEmpty,
   loadClient,
   localDateTime,
-  MAX_DB_ID,
   MAX_MONEY,
   MAX_PAGE,
   MAX_PAGE_SIZE,
@@ -49,6 +48,8 @@ import {
   type ExpectedOrdersResult,
   type ExpectedOrderTotal,
 } from "@/lib/cash/customer-payments-types"
+import { dbId, strictNum } from "@/lib/strict-number"
+import { invalidFieldResponse } from "@/lib/validation"
 
 // Server side of two pages built on the cash core:
 //
@@ -97,10 +98,10 @@ declare global {
 async function ensureSchema(db: PgDb = getDb()): Promise<void> {
   await ensureCashSchema(db)
   if (globalThis.__linkoCustomerPaymentsSchema?.version !== SCHEMA_VERSION) {
-    const ready = withTransaction(async (tx) => {
+    const ready = outsideTransaction(() => withTransaction(async (tx) => {
       await tx.exec("SELECT pg_advisory_xact_lock(72120903)")
       await tx.exec(DDL)
-    }).catch((error) => {
+    })).catch((error) => {
       globalThis.__linkoCustomerPaymentsSchema = undefined
       throw error
     })
@@ -884,7 +885,7 @@ export async function getExpectedOrder(orderId: number): Promise<ExpectedOrderDe
 export type Parsed<T> = { data: T; error?: undefined } | { data?: undefined; error: NextResponse }
 
 function bad(name: string, hint = "YYYY-MM-DD") {
-  return NextResponse.json({ error: "Ma'lumotlar noto'g'ri", details: { fieldErrors: { [name]: [hint] } } }, { status: 400 })
+  return invalidFieldResponse(name, hint)
 }
 
 function idList(search: URLSearchParams, name: string): number[] {
@@ -990,13 +991,13 @@ export function parseExpectedOrdersQuery(url: string): Parsed<ExpectedOrdersQuer
   }
 }
 
-const positiveId = z.coerce.number().int().positive().max(MAX_DB_ID)
+const positiveId = dbId()
 const optText = z.string().trim().optional()
-const optRate = z.coerce.number().finite().positive().max(MAX_RATE).optional()
+const optRate = strictNum(z.number().finite().positive().max(MAX_RATE).optional())
 
 /** Body of PUT /api/cash/customer-payments/[id]. */
 export const customerPaymentEditSchema = z.object({
-  amount: z.coerce.number().finite().positive().max(MAX_MONEY),
+  amount: strictNum(z.number().finite().positive().max(MAX_MONEY)),
   currency: optText,
   debtCurrency: optText,
   rateType: z.enum(["current", "custom"]).optional(),

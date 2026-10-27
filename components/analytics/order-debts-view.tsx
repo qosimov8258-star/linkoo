@@ -10,6 +10,7 @@ import { BalanceDownloadMenu } from "@/components/analytics/balance/download-men
 import { ExpandedOverlay, ExpandedViewButton } from "@/components/analytics/balance/expanded-view"
 import { BalancePagination } from "@/components/analytics/balance/pagination"
 import { buildCashQuery, cashMutate, useCashJson } from "@/components/analytics/cash/use-cash"
+import { useCanManage } from "@/components/analytics/cash-management-shared"
 import { formatRuDate } from "@/components/analytics/customer-payments-filters"
 import {
   ClientDebtDetail,
@@ -89,6 +90,8 @@ export function OrderDebtsView() {
   const [filterOpen, setFilterOpen] = useState(false)
   const [periodOpen, setPeriodOpen] = useState(false)
   const [groupOpen, setGroupOpen] = useState(false)
+  // POST /api/order-debts/group-payment needs cash.manage (lib/capabilities-catalog.ts ROUTE_PERMISSIONS).
+  const canGroupPay = useCanManage(["cash.manage"])
   const [expanded, setExpanded] = useState(false)
   const [selected, setSelected] = useState<Record<string, OrderDebtOrderRow>>({})
   const [actClient, setActClient] = useState<{ key: string; name: string } | null>(null)
@@ -549,9 +552,11 @@ export function OrderDebtsView() {
                 <span className="font-semibold">
                   {t("Выбрано")}: {selectedRows.length}
                 </span>
-                <button type="button" onClick={() => setGroupOpen(true)} className="flex h-9 items-center gap-2 rounded-md bg-[rgb(79,113,220)] px-4 font-semibold text-white">
-                  <CreditCard className="h-4 w-4" /> {t("Групповая оплата")}
-                </button>
+                {canGroupPay && (
+                  <button type="button" onClick={() => setGroupOpen(true)} className="flex h-9 items-center gap-2 rounded-md bg-[rgb(79,113,220)] px-4 font-semibold text-white">
+                    <CreditCard className="h-4 w-4" /> {t("Групповая оплата")}
+                  </button>
+                )}
               </>
             )}
             <BalancePagination page={state.page} pageSize={state.pageSize} count={data?.count ?? 0} onChange={({ page, pageSize }) => update({ page, pageSize })} />

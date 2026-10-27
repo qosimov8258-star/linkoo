@@ -8,10 +8,13 @@ import type { PlanPaging, PlanTaskFilters } from "@/lib/stock-plan"
 import type { PlanMoveFilters } from "@/lib/stock-plan-movements"
 import { PLAN_TASK_TABS, PLAN_TYPE_LABELS, type PlanTaskTab, type PlanTaskType } from "@/lib/stock-plan-types"
 import { parsePageParam } from "@/lib/stock/paging"
+import { notSignedInResponse, invalidFieldResponse } from "@/lib/validation"
 
-// Query parsing of /api/stock/plan/** (GET only; the actions go to the
-// documents' own endpoints: PATCH /api/supplier-incomings/[id] and
-// POST /api/internal-transfers/[id]/action).
+// Query parsing of /api/stock/plan/** (the GETs). The row actions go to the
+// documents' own endpoints (PATCH /api/supplier-incomings/[id], POST
+// /api/internal-transfers/[id]/action), except a client return's "Принять":
+// POST /api/stock/plan/returns/[id]/accept, so the warehouse keeper's stock
+// permission is enough (POST /api/client-returns/** asks for orders.manage).
 
 type Parsed<T> = { value: T; error?: undefined } | { value?: undefined; error: NextResponse }
 
@@ -20,13 +23,13 @@ function list(params: URLSearchParams, name: string): string[] {
 }
 
 function badRequest(field: string, hint: string): NextResponse {
-  return NextResponse.json({ error: "Ma'lumotlar noto'g'ri", details: { fieldErrors: { [field]: [hint] } } }, { status: 400 })
+  return invalidFieldResponse(field, hint)
 }
 
 /** 401 unless signed in (reads are open to every role, like the other stock pages). */
 export async function planAuth(): Promise<NextResponse | null> {
   const user = await getCurrentUser()
-  return user ? null : NextResponse.json({ error: "Tizimga kirilmagan" }, { status: 401 })
+  return user ? null : notSignedInResponse()
 }
 
 function period(params: URLSearchParams): Parsed<{ from: string; to: string }> {
@@ -56,7 +59,7 @@ export function parseTaskFilters(params: URLSearchParams): Parsed<PlanTaskFilter
   const dates = period(params)
   if (dates.error) return dates
   const type = (params.get("type") ?? "").trim()
-  if (type && !(type in PLAN_TYPE_LABELS)) return { error: badRequest("type", Object.keys(PLAN_TYPE_LABELS).join(" | ")) }
+  if (type && !Object.prototype.hasOwnProperty.call(PLAN_TYPE_LABELS, type)) return { error: badRequest("type", Object.keys(PLAN_TYPE_LABELS).join(" | ")) }
   return {
     value: {
       warehouses: list(params, "warehouse"),

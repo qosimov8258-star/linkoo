@@ -182,7 +182,7 @@ export function EmployeesView() {
       })
       if (!response.ok) {
         const data = await response.json().catch(() => ({}))
-        window.alert(data.error || "Не удалось сохранить сотрудника")
+        window.alert(t(data.error || "Не удалось сохранить сотрудника"))
         return
       }
       const saved = (await response.json()) as Employee
@@ -246,7 +246,7 @@ export function EmployeesView() {
         })
         if (!response.ok) {
           const data = await response.json().catch(() => ({}))
-          window.alert(data.error || "Не удалось сохранить сотрудника")
+          window.alert(t(data.error || "Не удалось сохранить сотрудника"))
           return
         }
         const saved = (await response.json()) as Employee
@@ -536,6 +536,18 @@ export function EmployeesView() {
                   Двухэтапная проверка
                 </label>
               </div>
+              {/* The sign-in account tied to this employee (Права доступа → Пользователи):
+                  "Доступ к системе" off or a deactivated employee blocks its sign-in. */}
+              <p className="mt-2 text-[12px] text-slate-500">
+                {editing !== "new" && editing.login ? (
+                  <>
+                    {t("Учетная запись")}: <b data-no-translate>{editing.login}</b>
+                    {!draft.systemAccess && <span className="block text-rose-600">{t("Без доступа к системе пользователь не сможет войти, его сессии будут завершены.")}</span>}
+                  </>
+                ) : (
+                  t("Нет учетной записи. Привяжите пользователя в разделе «Права доступа → Пользователи».")
+                )}
+              </p>
 
               <label className="mt-4 flex items-center gap-2 text-sm font-medium">
                 <input type="checkbox" checked={draft.sessionLimit} onChange={(event) => setDraft((value) => ({ ...value, sessionLimit: event.target.checked }))} className="h-5 w-5" />

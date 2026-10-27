@@ -4,7 +4,7 @@ import { branchKpiErrorResponse, branchKpiRulesSchema } from "@/lib/branch-kpi-a
 import { recalcBranchKpi } from "@/lib/branch-kpi-balance"
 import { saveBranchKpiRules } from "@/lib/branch-kpi-plans-repo"
 import { requireRole } from "@/lib/rbac"
-import { parseIdSegment, parseJsonBody } from "@/lib/validation"
+import { parseIdSegment, parseJsonBody, INVALID_DATA_MESSAGE } from "@/lib/validation"
 
 // PUT /api/branch-kpi-plans/indicators/:id { bonusFund, levels, month?, year? } — the KPI's
 // "Уровень вознаграждения" (demo stages of staff/performance_indicator/:id/); with month/year
@@ -13,7 +13,7 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
   const auth = await requireRole("manager")
   if ("error" in auth) return auth.error
   const id = (parseIdSegment((await params).id) ?? 0)
-  if (!Number.isInteger(id) || id <= 0) return NextResponse.json({ error: "Ma'lumotlar noto'g'ri" }, { status: 400 })
+  if (!Number.isInteger(id) || id <= 0) return NextResponse.json({ error: INVALID_DATA_MESSAGE }, { status: 400 })
   const parsed = await parseJsonBody(request, branchKpiRulesSchema)
   if (parsed.error) return parsed.error
   try {

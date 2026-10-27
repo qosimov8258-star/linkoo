@@ -4,18 +4,18 @@ import { getCurrentUser } from "@/lib/current-user"
 import { supplierBalanceCreateSchema, supplierBalanceListQuerySchema, supplierBalanceResponse } from "@/lib/finance-supplier-balance"
 import { requireRole } from "@/lib/rbac"
 import { createSupplierBalanceTransaction, listSupplierBalanceTransactions } from "@/lib/supplier-balance-repo"
-import { parseJsonBody } from "@/lib/validation"
+import { notSignedInResponse, parseJsonBody, zodErrorResponse } from "@/lib/validation"
 
 // Manual supplier balance entries of "Баланс поставщиков". Balances, totals
 // and the act are read from /api/balances/supplier(/statement).
 
 export async function GET(request: Request) {
   const user = await getCurrentUser()
-  if (!user) return NextResponse.json({ error: "Tizimga kirilmagan" }, { status: 401 })
+  if (!user) return notSignedInResponse()
 
   const params = new URL(request.url).searchParams
   const query = supplierBalanceListQuerySchema.safeParse({ supplierId: params.get("supplierId") || undefined, kind: params.get("kind") || undefined })
-  if (!query.success) return NextResponse.json({ error: "Ma'lumotlar noto'g'ri", details: query.error.flatten() }, { status: 400 })
+  if (!query.success) return zodErrorResponse(query.error)
 
   return NextResponse.json(await listSupplierBalanceTransactions(query.data))
 }

@@ -2,15 +2,17 @@ import { NextRequest, NextResponse } from "next/server"
 
 import { parseBody } from "@/lib/auth-request"
 import { getCurrentUser } from "@/lib/current-user"
+import { orderTimeRestrictionResponse } from "@/lib/order-time-restrictions-guard"
 import { orderCreateSchema, orderErrorResponse } from "@/lib/orders-api"
 import { createOrder, listOrders } from "@/lib/orders-repo"
 import { requireRole } from "@/lib/rbac"
+import { notSignedInResponse } from "@/lib/validation"
 
 // GET /api/orders[?q=][&balances=0] → Order[] (balance = the client's current
 // ledger balance; balances=0 skips it for callers that do not show it).
 export async function GET(request: NextRequest) {
   const user = await getCurrentUser()
-  if (!user) return NextResponse.json({ error: "Tizimga kirilmagan" }, { status: 401 })
+  if (!user) return notSignedInResponse()
 
   const search = request.nextUrl.searchParams.get("q")?.trim().slice(0, 200) || undefined
   const withBalances = request.nextUrl.searchParams.get("balances") !== "0"
@@ -24,6 +26,8 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   const auth = await requireRole("manager")
   if ("error" in auth) return auth.error
+  const blocked = await orderTimeRestrictionResponse("create", auth.user)
+  if (blocked) return blocked
 
   const parsed = await parseBody(request, orderCreateSchema)
   if (parsed.error) return parsed.error

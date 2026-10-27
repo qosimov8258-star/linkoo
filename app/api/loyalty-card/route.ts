@@ -10,15 +10,15 @@ import {
   searchParamsObject,
 } from "@/lib/loyalty-card-repo"
 import { requireRole } from "@/lib/rbac"
-import { parseJsonBody } from "@/lib/validation"
+import { notSignedInResponse, parseJsonBody, zodErrorResponse } from "@/lib/validation"
 
 // GET /api/loyalty-card?search&clientType&ordering&page&pageSize — every client's
 // cashback balance per currency (demo GET sales/cash_back/).
 export async function GET(request: Request) {
   const user = await getCurrentUser()
-  if (!user) return NextResponse.json({ error: "Tizimga kirilmagan" }, { status: 401 })
+  if (!user) return notSignedInResponse()
   const query = loyaltyListQuerySchema.safeParse(searchParamsObject(new URL(request.url).searchParams))
-  if (!query.success) return NextResponse.json({ error: "Ma'lumotlar noto'g'ri", details: query.error.flatten() }, { status: 400 })
+  if (!query.success) return zodErrorResponse(query.error)
   return NextResponse.json(await listLoyaltyCards(query.data))
 }
 

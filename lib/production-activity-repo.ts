@@ -2,10 +2,21 @@ import "server-only"
 
 import { withTransaction } from "@/lib/db"
 import { lockWarehouseStock } from "@/lib/internal-transfers-stock"
-import { insertMovements, MOVEMENT_SELECT, toMovement, type MovementItemInput, type MovementRow, type ProductionMovement } from "@/lib/production-batches-repo"
+import { ensureNetCostSchema } from "@/lib/net-cost-schema"
+import { insertMovements, MOVEMENT_SELECT, toMovement, withLedgerCosts, type MovementItemInput, type MovementRow, type ProductionMovement } from "@/lib/production-batches-repo"
 import { getProductionDb, itemKey, nowIso, ProductionError, round, textKey, type ItemKind } from "@/lib/production-schema"
-import { assertMovementDay, itemCosts, requireCatalogItem, warehouseOnHand } from "@/lib/production-stock"
-import { getStage, listRecipes, requireStageEquipment } from "@/lib/production-stages-repo"
+import { assertMovementDay, requireCatalogItem, warehouseOnHand } from "@/lib/production-stock"
+import { getStage, listRecipes, requireStageEquipment, resolveStageWorker } from "@/lib/production-stages-repo"
+import { getWarehouseItemCosts, type WarehouseItemCosts } from "@/lib/stock/costs"
+
+/** Lazy tables the write transactions below reach, created before the transaction
+ * opens. The cost ledger's install (first use after a start) runs its DDL on another
+ * connection: started from inside a transaction that has already read those tables,
+ * it would wait for that transaction's locks while the transaction waits for it. */
+async function schemasBeforeTransaction(): Promise<void> {
+  await getProductionDb()
+  await ensureNetCostSchema()
+}
 
 export type ActivityFilters = { from: string; to: string; shift?: string; equipmentId?: number; worker?: string }
 
@@ -44,7 +55,8 @@ export async function getActivity(stageId: number, filters: ActivityFilters): Pr
     where.push("m.worker = ?")
     params.push(filters.worker)
   }
-  const logs = ((await db.prepare(`${MOVEMENT_SELECT} WHERE ${where.join(" AND ")} ORDER BY m.id DESC`).all(...params)) as MovementRow[]).map(toMovement)
+  const booked = ((await db.prepare(`${MOVEMENT_SELECT} WHERE ${where.join(" AND ")} ORDER BY m.id DESC`).all(...params)) as MovementRow[]).map(toMovement)
+  const logs = await withLedgerCosts(db, booked)
 
   const made = new Map<string, ActivityMadeLine>()
   const raw = new Map<string, ActivityRawLine>()
@@ -81,30 +93,60 @@ export type ActivityInput = {
   items: Array<MovementItemInput & { isDefect?: boolean }>
 }
 
+/** Refusals of a shift output line (R23): goods made without a recipe would come from nothing. */
+export const NO_RECIPE_ERROR = "У товара нет рецепта на этом этапе"
+export const EMPTY_RECIPE_ERROR = "В рецепте товара нет сырья"
+
 /** Shift entries ("Добавить продукт" / "Добавить сырье" on the activity tab)
- * are not part of a batch; products made this way are costed by their
- * recipe norms at the components' cost of goods of that day. Raw use must fit
- * the stage warehouse's available stock (409 otherwise). */
+ * are not part of a batch; products made this way are costed by their recipe norms
+ * on this stage at the components' cost of goods of that day (in the stage
+ * warehouse), and keep those norms so the cost ledger re-values them when a
+ * component's average of that day changes later. Output is only accepted for items
+ * with a recipe on the stage (400 otherwise, as the activity tab only offers those),
+ * and good output only when the recipe has raw material in it. Raw use must fit
+ * the stage warehouse's available stock (409 otherwise). The worker must be on
+ * the stage staff (stored under their canonical name) and the equipment must be
+ * working (400 otherwise). */
 export async function addActivity(stageId: number, input: ActivityInput, userName: string): Promise<number | "stage_not_found"> {
   const stage = await getStage(stageId)
   if (!stage) return "stage_not_found"
   assertMovementDay(input.date)
   const recipes = input.direction === "made" ? await listRecipes(stageId) : []
-  await getProductionDb()
+  const recipeOf = (kind: ItemKind, id: number) => recipes.find((entry) => entry.kind === kind && entry.itemId === id)
+  const normsOf = (recipe: NonNullable<ReturnType<typeof recipeOf>>) => {
+    const norms = new Map<string, number>()
+    for (const component of recipe.components) {
+      if (component.amount > 0) norms.set(component.key, (norms.get(component.key) ?? 0) + component.amount / recipe.amount)
+    }
+    return [...norms].map(([key, amount]) => ({ key, amount }))
+  }
+  if (input.direction === "made") {
+    for (const line of input.items) {
+      const recipe = recipeOf(line.kind, line.id)
+      const key = itemKey(line.kind, line.id)
+      if (!recipe || !(recipe.amount > 0)) throw new ProductionError(400, NO_RECIPE_ERROR, { key })
+      if (!line.isDefect && !normsOf(recipe).length) throw new ProductionError(400, EMPTY_RECIPE_ERROR, { key })
+    }
+  }
+  await schemasBeforeTransaction()
   return withTransaction(async (tx) => {
-    await requireStageEquipment(tx, input.equipmentId, stageId)
-    let costs: Map<string, number> | null = null
+    // Lock order (C1): raw use takes stock — the stage warehouse's stock lock before any row lock.
+    if (input.direction === "raw") await lockWarehouseStock(tx, [stage.warehouse])
+    await requireStageEquipment(tx, input.equipmentId, stageId, { mustWork: true })
+    const worker = await resolveStageWorker(tx, stageId, input.worker)
+    let costs: WarehouseItemCosts | null = null
     return insertMovements(
       tx,
-      { stageId, partyId: null, warehouse: stage.warehouse, date: input.date, userName, shift: input.shift, equipmentId: input.equipmentId, worker: input.worker },
+      { stageId, partyId: null, warehouse: stage.warehouse, date: input.date, userName, shift: input.shift, equipmentId: input.equipmentId, worker },
       input.direction,
       input.items,
       async (item) => {
-        const recipe = recipes.find((entry) => entry.kind === item.kind && entry.itemId === item.id)
-        if (!recipe || !(recipe.amount > 0)) return 0
-        costs ??= await itemCosts(tx, input.date)
-        const total = recipe.components.reduce((sum, component) => sum + component.amount * (costs?.get(component.key) ?? 0), 0)
-        return total / recipe.amount
+        const recipe = recipeOf(item.kind, item.id)
+        if (!recipe || !(recipe.amount > 0)) throw new ProductionError(400, NO_RECIPE_ERROR, { key: item.key })
+        const basis = normsOf(recipe)
+        costs ??= await getWarehouseItemCosts({ date: input.date }, tx)
+        const cost = basis.reduce((sum, line) => sum + line.amount * (costs?.costOf(line.key, stage.warehouse) ?? 0), 0)
+        return { cost, basis }
       },
     )
   })
@@ -159,7 +201,7 @@ export async function createInventory(
     if (seen.has(key)) throw new ProductionError(400, "Товар указан в сверке дважды", { key })
     seen.add(key)
   }
-  await getProductionDb()
+  await schemasBeforeTransaction()
   // Count, adjustments and the inventory record land together or not at all.
   const row = await withTransaction(async (db) => {
     await lockWarehouseStock(db, [stage.warehouse])

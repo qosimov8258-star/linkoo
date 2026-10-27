@@ -8,6 +8,7 @@ import { parsePageParam } from "@/lib/stock/paging"
 import { TRANSFER_SORT_KEYS, type TransferListQuery } from "@/lib/internal-transfers-list"
 import { isTransferError, type TransferChange, type TransferInput } from "@/lib/internal-transfers-repo"
 import { TRANSFER_ACTIONS, TRANSFER_STATUSES, type TransferStatus } from "@/lib/internal-transfers-types"
+import { strictId, strictNumber } from "@/lib/strict-number"
 
 // Request parsing of /api/internal-transfers/**: zod schemas of the bodies
 // (camelCase, legacy fields accepted) and of the list query string.
@@ -50,10 +51,10 @@ export const transferBodySchema = z.object({
 
 export type TransferBody = z.infer<typeof transferBodySchema>
 
-/** A number field ("1 000,5" accepted); blank = 0; anything else unparseable = NaN (the repo refuses it). */
+/** A number field ("1 000,5" accepted); blank = 0; anything else ("0x10", "12abc") = NaN (the repo refuses it). */
 const toNumber = (value: unknown) => {
   if (value === undefined || value === null || String(value).trim() === "") return 0
-  return Number(String(value).replace(/\s/g, "").replace(",", "."))
+  return strictNumber(value, { locale: true })
 }
 
 /** Body → repo input. Status: autoAccept → 'принят'; else an explicit status;
@@ -92,7 +93,7 @@ export const transferActionSchema = z.object({
   date: z
     .string()
     .optional()
-    .refine((value) => !value || isIsoDay(value), "date"),
+    .refine((value) => !value || isIsoDay(value), "Неверная дата"),
 })
 
 export function transferResponse(result: TransferChange, created = false) {
@@ -132,7 +133,7 @@ export function parseTransferListQuery(url: string): TransferListQuery | null {
     withCancelled: ["1", "true"].includes(params.get("withCancelled") ?? ""),
     ids: list("ids")
       .flatMap((value) => value.split(","))
-      .map(Number)
-      .filter((id) => Number.isInteger(id) && id > 0),
+      .map((value) => strictId(value))
+      .filter((id): id is number => id !== null),
   }
 }

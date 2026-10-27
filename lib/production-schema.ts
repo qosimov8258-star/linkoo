@@ -1,6 +1,6 @@
 import "server-only"
 
-import { getDb, type PgDb } from "@/lib/db"
+import { getDb, outsideTransaction, type PgDb } from "@/lib/db"
 
 // Production module tables (Этапы производства / Партии). Mirrors the demo
 // Linko data model: a stage ("manufacture") owns a warehouse, its products
@@ -10,7 +10,7 @@ import { getDb, type PgDb } from "@/lib/db"
 
 // Bump when createSchema changes, so a running dev server applies the new DDL
 // (the ready promise is cached on globalThis across hot reloads).
-const PRODUCTION_SCHEMA_VERSION = 3
+const PRODUCTION_SCHEMA_VERSION = 4
 
 declare global {
   var __linkoProductionSchema: { version: number; ready: Promise<void> } | undefined
@@ -137,6 +137,11 @@ async function createSchema(db: PgDb) {
     ALTER TABLE production_parties ADD COLUMN IF NOT EXISTS warehouse TEXT NOT NULL DEFAULT '';
     ALTER TABLE production_stages ADD COLUMN IF NOT EXISTS responsible_id INTEGER;
     ALTER TABLE production_movements ADD COLUMN IF NOT EXISTS inventory_id INTEGER;
+    -- v4: a shift entry's output keeps the recipe norms it was costed with (JSON
+    -- [{key, amount per unit of output}]), so the cost ledger values it at the
+    -- components' current averages of its day (lib/net-cost-sync.ts). NULL on older
+    -- rows (they keep their stored cost) and on every other line.
+    ALTER TABLE production_movements ADD COLUMN IF NOT EXISTS cost_basis TEXT;
 
     -- Money / quantity columns are double precision (older databases may hold real).
     DO $production_types$
@@ -184,7 +189,7 @@ async function createSchema(db: PgDb) {
 export async function getProductionDb(): Promise<PgDb> {
   const db = getDb()
   if (globalThis.__linkoProductionSchema?.version !== PRODUCTION_SCHEMA_VERSION) {
-    const ready = createSchema(db).catch((error) => {
+    const ready = outsideTransaction(() => createSchema(getDb())).catch((error) => {
       globalThis.__linkoProductionSchema = undefined
       throw error
     })

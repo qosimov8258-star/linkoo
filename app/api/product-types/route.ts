@@ -5,7 +5,7 @@ import { productTypeBodySchema, productTypeInput } from "@/lib/dictionaries-api"
 import { dictionaryListQuery, dictionaryWrite, wantsDictionaryPage } from "@/lib/dictionaries-schema"
 import { createProductType, listProductTypeTree, listProductTypes } from "@/lib/product-types-repo"
 import { requireRole } from "@/lib/rbac"
-import { parseJsonBody } from "@/lib/validation"
+import { notSignedInResponse, parseJsonBody } from "@/lib/validation"
 import { PRODUCT_TYPE_ORDERINGS, PRODUCT_TYPE_PAGE_SIZE } from "@/components/analytics/product-types-data"
 
 // GET /api/product-types — plain array [{id, name, organization, parentId, showInBot,
@@ -16,7 +16,7 @@ import { PRODUCT_TYPE_ORDERINGS, PRODUCT_TYPE_PAGE_SIZE } from "@/components/ana
 // created_date, "-" = descending; default Порядок, name) and paged over the top level.
 export async function GET(request: Request) {
   const user = await getCurrentUser()
-  if (!user) return NextResponse.json({ error: "Tizimga kirilmagan" }, { status: 401 })
+  if (!user) return notSignedInResponse()
   const params = new URL(request.url).searchParams
   if (!wantsDictionaryPage(params)) return NextResponse.json(await listProductTypes())
   const query = dictionaryListQuery(params, PRODUCT_TYPE_ORDERINGS, PRODUCT_TYPE_PAGE_SIZE)

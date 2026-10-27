@@ -32,7 +32,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
   if (parsed.error) return parsed.error
 
   try {
-    const client = await updateClient(id, clientInputOf(parsed.data))
+    const client = await updateClient(id, clientInputOf(parsed.data), auth.user)
     if (!client) return NextResponse.json(NOT_FOUND, { status: 404 })
     return NextResponse.json(client)
   } catch (error) {

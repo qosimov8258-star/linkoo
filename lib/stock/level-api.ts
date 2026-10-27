@@ -4,6 +4,8 @@ import { NextResponse } from "next/server"
 import { z } from "zod"
 
 import { STOCK_LEVEL_MODES, STOCK_LEVEL_SORT_KEYS, STOCK_LEVEL_UNITS, type StockLevelQuery } from "@/lib/stock/level-types"
+import { strictNum } from "@/lib/strict-number"
+import { zodErrorResponse } from "@/lib/validation"
 
 // Query string of GET /api/stock/balances(/sum|/[key]). List values are
 // repeated params (?warehouse=A&warehouse=B) because names may contain commas.
@@ -29,8 +31,8 @@ const querySchema = z.object({
     .trim()
     .default("name")
     .refine((value) => !value || sortKeys.has(value.replace(/^-/, "")), "ordering"),
-  page: z.coerce.number().int().min(1).default(1),
-  pageSize: z.coerce.number().int().min(0).max(5000).default(25),
+  page: strictNum(z.number().int().min(1).default(1)),
+  pageSize: strictNum(z.number().int().min(0).max(5000).default(25)),
 })
 
 const LIST_KEYS = ["warehouse", "branch", "type", "subcategory", "brand", "supplier", "organization"] as const
@@ -47,7 +49,7 @@ export function parseStockLevelQuery(url: string): ParsedStockQuery {
   }
   for (const name of LIST_KEYS) raw[name] ??= []
   const parsed = querySchema.safeParse(raw)
-  if (!parsed.success) return { error: NextResponse.json({ error: "Ma'lumotlar noto'g'ri", details: parsed.error.flatten() }, { status: 400 }) }
+  if (!parsed.success) return { error: zodErrorResponse(parsed.error) }
   const { onlyHas, ...rest } = parsed.data
   return { data: { ...rest, onlyHas: onlyHas === "1" || onlyHas === "true" } as StockLevelQuery }
 }

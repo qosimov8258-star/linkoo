@@ -3,8 +3,11 @@ import "server-only"
 import { NextResponse } from "next/server"
 import { z } from "zod"
 
+import { dbErrorResponse } from "@/lib/db-errors"
 import { BRANCH_KPI_CALC_TYPE_IDS } from "@/lib/branch-kpi-types"
 import { MAX_ID, MAX_MONEY } from "@/lib/finance/api"
+import { strictNum } from "@/lib/strict-number"
+import { zodErrorResponse } from "@/lib/validation"
 
 // Request schemas + error mapping of /api/branch-kpi-plans/* ("KPI план филиалов").
 
@@ -19,20 +22,22 @@ export class BranchKpiError extends Error {
 
 export function branchKpiErrorResponse(error: unknown): NextResponse {
   if (error instanceof BranchKpiError) return NextResponse.json({ error: error.message }, { status: error.status })
+  const busy = dbErrorResponse(error)
+  if (busy) return busy
   throw error
 }
 
 export function invalidQueryResponse(error: z.ZodError): NextResponse {
-  return NextResponse.json({ error: "Ma'lumotlar noto'g'ri", details: z.flattenError(error) }, { status: 400 })
+  return zodErrorResponse(error)
 }
 
 export function searchParamsObject(params: URLSearchParams): Record<string, string> {
   return Object.fromEntries(params.entries())
 }
 
-const month = z.coerce.number().int().min(1).max(12)
-const year = z.coerce.number().int().min(2000).max(2100)
-const plan = z.coerce.number().finite().min(0).max(MAX_MONEY)
+const month = strictNum(z.number().int().min(1).max(12))
+const year = strictNum(z.number().int().min(2000).max(2100))
+const plan = strictNum(z.number().finite().min(0).max(MAX_MONEY))
 
 /** Demo listFilterSerializer: search, month, year (+ grid page/ordering). */
 export const branchKpiListQuerySchema = z.object({
@@ -40,8 +45,8 @@ export const branchKpiListQuerySchema = z.object({
   year,
   search: z.string().trim().max(200).optional().default(""),
   ordering: z.enum(["name", "-name", "salary", "-salary", ""]).optional().default(""),
-  page: z.coerce.number().int().min(1).optional().default(1),
-  pageSize: z.coerce.number().int().min(1).max(2000).optional().default(25),
+  page: strictNum(z.number().int().min(1).optional().default(1)),
+  pageSize: strictNum(z.number().int().min(1).max(2000).optional().default(25)),
 })
 export type BranchKpiListQuery = z.infer<typeof branchKpiListQuerySchema>
 
@@ -80,13 +85,13 @@ export const branchKpiRecalcSchema = z.object({ month, year })
 
 /** Reward levels + bonus fund of one indicator (+ the month to recalculate afterwards). */
 export const branchKpiRulesSchema = z.object({
-  bonusFund: z.coerce.number().finite().min(0).max(MAX_MONEY).default(0),
+  bonusFund: strictNum(z.number().finite().min(0).max(MAX_MONEY).default(0)),
   levels: z
     .array(
       z.object({
-        fromAmount: z.coerce.number().finite().min(0).max(1e6),
-        toAmount: z.coerce.number().finite().min(0).max(1e6),
-        bonus: z.coerce.number().finite().min(0).max(MAX_MONEY),
+        fromAmount: strictNum(z.number().finite().min(0).max(1e6)),
+        toAmount: strictNum(z.number().finite().min(0).max(1e6)),
+        bonus: strictNum(z.number().finite().min(0).max(MAX_MONEY)),
         calculationType: z.enum(BRANCH_KPI_CALC_TYPE_IDS),
         excludeLowLevel: z.boolean().default(false),
       }),

@@ -1,5 +1,6 @@
 import "server-only"
 
+import { accountOfEmployee, ensureUserEmployeeLink, lockAccessChanges, otherAdminsWithAccess, revokeEmployeeSessions } from "@/lib/auth-employee"
 import { getDb, withTransaction, type PgDb } from "@/lib/db"
 import {
   cascadeNameRename,
@@ -11,12 +12,14 @@ import {
   type Usage,
 } from "@/lib/platform-refs"
 import type { Employee } from "@/components/analytics/employees-data"
+import type { Role } from "@/lib/session"
 
 type Row = {
   id: number
   first_name: string
   last_name: string
-  login: string
+  /** Login of the linked sign-in account (users.employee_id), or null. */
+  user_login?: string | null
   phone: string
   integration_code: string
   position: string
@@ -31,17 +34,25 @@ type Row = {
   active: number
 }
 
-function rowToEmployee(row: Row): Employee {
-  let organizations: string[] = []
+/** Stored organizations (a JSON array of names; anything else reads as none). */
+function parseOrganizations(raw: string | null | undefined): string[] {
   try {
-    organizations = JSON.parse(row.organizations) as string[]
+    const parsed = JSON.parse(raw || "[]") as unknown
+    return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string") : []
   } catch {
-    organizations = []
+    return []
   }
+}
+
+function rowToEmployee(row: Row): Employee {
+  const organizations = parseOrganizations(row.organizations)
   return {
     id: row.id,
     name: fullName(row),
-    login: row.login,
+    // The real login of the account linked in Права доступа → Пользователи
+    // (empty while none is): employees.login only ever held a generated name
+    // no account carried.
+    login: row.user_login ?? "",
     role: row.position,
     phone: row.phone,
     position: row.position,
@@ -110,6 +121,21 @@ const ID_REFERENCES: ReadonlyArray<{ table: string; column: string; nameColumn?:
   { table: "deliverer_balance_transactions", column: "employee_id" },
   { table: "vansell_transactions", column: "employee_id" },
   { table: "vansell_debt_limits", column: "employee_id" },
+  // Tasks link their responsible employee by id; older name-only tasks are in NAME_REFERENCES.
+  { table: "tasks", column: "employee_id", nameColumn: "responsible" },
+  // Field activity of the mobile app (visits, refusals, photo reports, GPS track, route plans).
+  { table: "field_visits", column: "employee_id" },
+  { table: "field_refusals", column: "employee_id" },
+  { table: "field_photo_reports", column: "employee_id" },
+  { table: "field_gps_points", column: "employee_id" },
+  { table: "field_route_plans", column: "employee_id" },
+  // Check-ins and manual attendance days (attendance_auto_days is derived data, not a reference).
+  { table: "attendance_check_ins", column: "employee_id" },
+  { table: "attendance_days", column: "employee_id" },
+  // Ограничение продуктов: the employee's product / product type lists (the FK would cascade
+  // them away silently).
+  { table: "product_restrictions", column: "employee_id" },
+  { table: "product_type_restrictions", column: "employee_id" },
 ]
 
 // By "First Last" name only (block a delete while the name is unambiguous; renamed by key):
@@ -126,7 +152,6 @@ const NAME_REFERENCES: ReadonlyArray<{ table: string; column: string }> = [
   { table: "debt_limits", column: "courier" },
   { table: "agent_routes", column: "agent" },
   { table: "financial_accounts", column: "agent" },
-  { table: "product_restrictions", column: "employee" },
   { table: "product_limits", column: "agent" },
   { table: "survey_plans", column: "employee" },
   { table: "tasks", column: "responsible" },
@@ -212,34 +237,64 @@ async function resolveName(db: PgDb, table: "branches" | "job_positions", value:
   throw new EmployeeError(`${notFound}: ${name}`, 400)
 }
 
+const NOT_SET = new Set(["", "не указано", "не указан", "—", "-"])
+
+/** Организации must be organizations of the directory (case- and space-insensitive,
+ * stored in their own spelling, each once). On an update the organizations the
+ * employee already has are kept as they are (renamed or removed since). */
+async function resolveOrganizations(db: PgDb, values: string[], current?: Row): Promise<string[]> {
+  const stored = new Map(parseOrganizations(current?.organizations).map((name) => [nameKey(name), name]))
+  const hasTable = await tableExists(db, "organizations")
+  const out: string[] = []
+  const seen = new Set<string>()
+  for (const value of values) {
+    const name = value.trim()
+    const key = nameKey(name)
+    if (NOT_SET.has(key) || seen.has(key)) continue
+    let resolved = stored.get(key)
+    if (resolved === undefined) {
+      const row = hasTable
+        ? ((await db.prepare(`SELECT name FROM organizations WHERE ${keySql("name")} = ${keySql("?::text")} ORDER BY id LIMIT 1`).get(name)) as { name: string } | undefined)
+        : undefined
+      if (!row) throw new EmployeeError(`Организация не найдена: ${name}`, 400)
+      resolved = row.name
+    }
+    seen.add(key)
+    if (out.some((item) => nameKey(item) === nameKey(resolved!))) continue
+    out.push(resolved)
+  }
+  return out
+}
+
 /** Branch and position must be an existing Филиал / Должность (case-insensitive,
- * stored in their canonical spelling). On an update an unchanged legacy value
- * is kept, so old records stay editable. */
+ * stored in their canonical spelling), organizations existing Организации. On an
+ * update an unchanged legacy value is kept, so old records stay editable. */
 async function resolveInput(db: PgDb, input: EmployeeInput, current?: Row): Promise<EmployeeInput> {
   const keep = (value: string, old: string | undefined) => old !== undefined && nameKey(value) === nameKey(old)
   const branch = keep(input.branch, current?.branch) ? current!.branch : await resolveName(db, "branches", input.branch, "Филиал не найден")
   const position = keep(input.position, current?.position)
     ? current!.position
     : await resolveName(db, "job_positions", input.position, "Должность не найдена")
-  return { ...input, branch, position }
+  const organizations = await resolveOrganizations(db, input.organizations, current)
+  return { ...input, branch, position, organizations }
 }
 
 // --- reads ----------------------------------------------------------------------------
+const SELECT_EMPLOYEES = `SELECT e.*, (SELECT u.username FROM users u WHERE u.employee_id = e.id ORDER BY u.id LIMIT 1) AS user_login
+    FROM employees e`
+
 export async function listEmployees(): Promise<Employee[]> {
+  await ensureUserEmployeeLink()
   const db = getDb()
-  const rows = (await db.prepare("SELECT * FROM employees ORDER BY id DESC").all()) as Row[]
+  const rows = (await db.prepare(`${SELECT_EMPLOYEES} ORDER BY e.id DESC`).all()) as Row[]
   return rows.map(rowToEmployee)
 }
 
 export async function getEmployee(id: number): Promise<Employee | null> {
+  await ensureUserEmployeeLink()
   const db = getDb()
-  const row = (await db.prepare("SELECT * FROM employees WHERE id = ?").get(id)) as Row | undefined
+  const row = (await db.prepare(`${SELECT_EMPLOYEES} WHERE e.id = ?`).get(id)) as Row | undefined
   return row ? rowToEmployee(row) : null
-}
-
-function makeLogin(firstName: string, lastName: string, id: number) {
-  const base = `${firstName}.${lastName}`.toLowerCase().replace(/\s+/g, "")
-  return base ? `${base}${id}` : `user${id}`
 }
 
 function toParams(input: EmployeeInput) {
@@ -276,20 +331,44 @@ export async function createEmployee(raw: EmployeeInput): Promise<Employee> {
         )`,
       )
       .run(toParams(input))
-    const newId = Number(result.lastInsertRowid)
-    await tx.prepare("UPDATE employees SET login = ? WHERE id = ?").run(makeLogin(input.firstName, input.lastName, newId), newId)
-    return newId
+    return Number(result.lastInsertRowid)
   })
   return (await getEmployee(id))!
 }
 
+/** Who makes the change (the signed-in user). */
+export type EmployeeActor = { id: number; role: Role }
+
+/** Turning "Доступ к системе" off or deactivating the employee ends the linked
+ * account's sign-in, so it must not lock out the person making the change, an
+ * administrator (unless an administrator does it) or the last administrator. */
+async function assertMayEndAccess(tx: PgDb, employeeId: number, actor: EmployeeActor | undefined) {
+  const account = await accountOfEmployee(tx, employeeId)
+  if (!account) return
+  if (actor && account.id === actor.id) throw new EmployeeError("Нельзя отключить доступ к системе самому себе", 400)
+  if (account.role === "admin") {
+    if (actor && actor.role !== "admin") throw new EmployeeError("Только администратор может отключить доступ администратора", 403)
+    if ((await otherAdminsWithAccess(tx, account.id)) === 0) throw new EmployeeError("Нельзя отключить доступ последнему администратору", 409)
+  }
+}
+
 /** Updates the employee; a changed name is carried into every record that
  * stores it (cashboxes, warehouses, clients' agent / deliverer / collector,
- * orders, payments, contracts, production staff …) in the same transaction. */
-export async function updateEmployee(id: number, raw: EmployeeInput): Promise<Employee | null> {
+ * orders, payments, contracts, production staff …) in the same transaction.
+ * Deactivating the employee or turning "Доступ к системе" off blocks the
+ * linked account's sign-in and ends its sessions. */
+export async function updateEmployee(id: number, raw: EmployeeInput, actor?: EmployeeActor): Promise<Employee | null> {
+  await ensureUserEmployeeLink()
+  let endsAccess = false
   const found = await withTransaction(async (tx) => {
+    // A change that may end the linked account's sign-in is serialised with
+    // the other such changes before its guards run (lib/auth-employee.ts).
+    if (!(raw.active && raw.systemAccess)) await lockAccessChanges(tx)
     const current = (await tx.prepare("SELECT * FROM employees WHERE id = ? FOR UPDATE").get(id)) as Row | undefined
     if (!current) return false
+    const hadAccess = Number(current.active) === 1 && Number(current.system_access) === 1
+    endsAccess = hadAccess && !(raw.active && raw.systemAccess)
+    if (endsAccess) await assertMayEndAccess(tx, id, actor)
     const input = await resolveInput(tx, raw, current)
     await tx
       .prepare(
@@ -306,17 +385,23 @@ export async function updateEmployee(id: number, raw: EmployeeInput): Promise<Em
     await cascadeEmployeeRename(tx, id, oldName, newName)
     return true
   })
-  return found ? getEmployee(id) : null
+  if (!found) return null
+  if (endsAccess) await revokeEmployeeSessions(id)
+  return getEmployee(id)
 }
 
 /** Deletes the employee — refused (409 with the usage list) while a cashbox,
  * warehouse, client, document or production record refers to them; such an
  * employee can be deactivated (active = false) instead. */
 export async function deleteEmployee(id: number): Promise<boolean> {
+  await ensureUserEmployeeLink()
   return withTransaction(async (tx) => {
     const current = (await tx.prepare("SELECT * FROM employees WHERE id = ? FOR UPDATE").get(id)) as Row | undefined
     if (!current) return false
     const usage = await employeeUsage(tx, current)
+    // A sign-in account linked to the employee (Права доступа → Пользователи).
+    const accounts = (await tx.prepare("SELECT COUNT(*)::int AS n FROM users WHERE employee_id = ?").get(id)) as { n: number }
+    if (Number(accounts.n) > 0) usage.push({ table: "users", label: "Пользователи", count: Number(accounts.n) })
     if (usage.length) throw new EmployeeError("Удаление невозможно из-за связи с другими данными", 409, usage)
     return (await tx.prepare("DELETE FROM employees WHERE id = ?").run(id)).changes > 0
   })

@@ -1,12 +1,13 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import { createPortal } from "react-dom"
 import { ChevronDown, X } from "lucide-react"
 
 import { useLanguage } from "@/lib/i18n/language-context"
 
-import { EDITABLE_STATUSES, FINAL_STATUSES, ORDER_STATUSES, RELEASED_STATUSES, canChangeStatus, type Order } from "./orders-data"
+import { useAllowedProductIds, useAllowedRows } from "./allowed-products"
+import { EDITABLE_STATUSES, FINAL_STATUSES, ORDER_STATUSES, RELEASED_STATUSES, canChangeStatus, orderApiErrorText, type AgentLimitExceeded, type Order, type ProductRestrictionRefusal } from "./orders-data"
 
 // The order card (Продажи → Заказы → a row). Every figure comes from the
 // server: the order (warehouse, payment terms, deliverer, invoice details),
@@ -139,7 +140,7 @@ function formatNumber(value: number) {
 const PAYMENT_TYPE_LABELS: Record<string, string> = { cash: "Наличные", bank: "Перечисление" }
 const DEAL_TYPE_LABELS: Record<string, string> = { standard: "Стандартная", consignment: "Консигнация" }
 
-type ApiResult<T> = { ok: true; body: T } | { ok: false; error: string }
+type ApiResult<T> = { ok: true; body: T } | { ok: false; error: string; agentLimit?: AgentLimitExceeded; productRestriction?: ProductRestrictionRefusal }
 
 async function api<T>(url: string, init?: { method?: string; body?: unknown }): Promise<ApiResult<T>> {
   try {
@@ -148,8 +149,10 @@ async function api<T>(url: string, init?: { method?: string; body?: unknown }): 
       headers: init?.body !== undefined ? { "Content-Type": "application/json" } : undefined,
       body: init?.body !== undefined ? JSON.stringify(init.body) : undefined,
     })
-    const body = (await response.json().catch(() => null)) as (T & { error?: string }) | null
-    if (!response.ok || body === null) return { ok: false, error: body?.error ?? "Не удалось сохранить изменения на сервере" }
+    const body = (await response.json().catch(() => null)) as (T & { error?: string; agentLimit?: AgentLimitExceeded; productRestriction?: ProductRestrictionRefusal }) | null
+    if (!response.ok || body === null) {
+      return { ok: false, error: body?.error ?? "Не удалось сохранить изменения на сервере", agentLimit: body?.agentLimit, productRestriction: body?.productRestriction }
+    }
     return { ok: true, body }
   } catch {
     return { ok: false, error: "Не удалось сохранить изменения на сервере" }
@@ -205,9 +208,10 @@ function MenuItem({ icon, color = "#666", label, onClick, disabled }: { icon: st
 }
 
 function Menu({ children, onClose }: { children: ReactNode; onClose: () => void }) {
+  const { t } = useLanguage()
   return (
     <>
-      <button type="button" data-order-overlay aria-label="close" onClick={onClose} className="fixed inset-0 z-[110] cursor-default" />
+      <button type="button" data-order-overlay aria-label={t("Закрыть")} onClick={onClose} className="fixed inset-0 z-[110] cursor-default" />
       <div className="absolute right-0 top-[30px] z-[115] min-w-[224px] rounded-[2px] bg-white py-[5px] shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">{children}</div>
     </>
   )
@@ -230,6 +234,7 @@ function DialogShell({
   disabled?: boolean
   error?: string
 }) {
+  const { t } = useLanguage()
   const portal = usePortal()
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => event.key === "Escape" && onClose()
@@ -241,7 +246,7 @@ function DialogShell({
       <div className="w-[500px] max-w-full bg-white shadow-[0_10px_30px_rgba(0,0,0,0.3)]">
         <div className="flex items-center justify-between border-b border-[#e8e8e8] px-[30px] py-[22px]">
           <h3 className="text-[13px] font-bold uppercase leading-4 tracking-[0.2px]">{title}</h3>
-          <button type="button" aria-label="close" onClick={onClose}>
+          <button type="button" aria-label={t("Закрыть")} onClick={onClose}>
             <Mi d={ICONS.close} className="h-6 w-6 fill-[#333]" />
           </button>
         </div>
@@ -258,6 +263,7 @@ function DialogShell({
 }
 
 function SheetShell({ title, onClose, children, footer }: { title: string; onClose: () => void; children: ReactNode; footer?: ReactNode }) {
+  const { t } = useLanguage()
   const portal = usePortal()
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => event.key === "Escape" && onClose()
@@ -270,7 +276,7 @@ function SheetShell({ title, onClose, children, footer }: { title: string; onClo
     <div data-order-overlay className="fixed inset-0 z-[120] flex flex-col bg-white font-sans text-[13px] text-[#333]">
       <div className="flex h-[59px] shrink-0 items-center justify-between border-b border-[#efefef] px-[30px]">
         <h3 className="text-[13px] font-bold uppercase leading-4">{title}</h3>
-        <button type="button" aria-label="close" onClick={onClose} className="flex h-10 w-10 items-center justify-center">
+        <button type="button" aria-label={t("Закрыть")} onClick={onClose} className="flex h-10 w-10 items-center justify-center">
           <Mi d={ICONS.close} className="h-6 w-6 fill-[#333]" />
         </button>
       </div>
@@ -324,7 +330,9 @@ function useNames(url: string, pick: (row: Record<string, unknown>) => string) {
 const employeeName = (row: Record<string, unknown>) => `${String(row.firstName ?? "")} ${String(row.lastName ?? "")}`.trim() || String(row.name ?? "")
 const plainName = (row: Record<string, unknown>) => String(row.name ?? "")
 
-function useSellableProducts() {
+/** Products that can be sold; for an agent with a product / type list (Ограничение продуктов)
+ * only those (the order API refuses the others). */
+function useSellableProducts(agent: string) {
   const [products, setProducts] = useState<ProductOption[] | null>(null)
   useEffect(() => {
     let cancelled = false
@@ -335,7 +343,7 @@ function useSellableProducts() {
       cancelled = true
     }
   }, [])
-  return products
+  return useAllowedRows(products, useAllowedProductIds(agent))
 }
 
 /* ------------------------------------------------------------------ */
@@ -529,14 +537,14 @@ export function OrderDetailCard({
             {row(`${t("Договор")}:`, order.contract || t("Не указан"))}
             {row(`${t("Счет фактура")}:`, order.invoiceActive ? t("Активный") : t("Не активный"), order.invoiceActive ? "text-[#81c784]" : "text-[#e57373]")}
             {row(`${t("Номер счет фактура")}:`, order.invoiceNumber || t("Не указан"))}
-            {row(`${t("Дата счет фактуры")}:`, order.invoiceDate ? displayDay(order.invoiceDate) : t("Не указан"))}
+            {row(`${t("Дата счет фактуры")}:`, order.invoiceDate ? t(displayDay(order.invoiceDate)) : t("Не указан"))}
           </ul>
         </div>
         <div className="min-h-[320px] w-1/3 border-r border-[#efefef] p-[15px]">
           <ul>
             {row(`${t("Прайс-лист")}:`, order.priceList || t("Не указан"))}
             {row(`${t("Организация")}:`, order.organization || t("Не указана"))}
-            {row(`${t("Дата окончательной оплаты")}:`, order.paymentDate ? displayDay(order.paymentDate) : t("Не указана"))}
+            {row(`${t("Дата окончательной оплаты")}:`, order.paymentDate ? t(displayDay(order.paymentDate)) : t("Не указана"))}
             {row(`${t("Тип оплаты")}:`, order.paymentType ? t(PAYMENT_TYPE_LABELS[order.paymentType] ?? order.paymentType) : t("Не указан"))}
             {row(t("Общая стоимость"), order.amount)}
             {order.discount && row(t("Скидка"), order.discount, "text-[#278549]")}
@@ -563,11 +571,11 @@ export function OrderDetailCard({
             {row(`${t("Создал")}:`, order.createdBy || t("Не указано"))}
             {row(`${t("Агент")}:`, order.agent || t("Не указано"))}
             {row(`${t("Доставщик")}:`, deliverer || t("Не указано"))}
-            {row(t("Дата создания"), order.createdAt ? displayMoment(order.createdAt) : order.created)}
-            {row(`${t("Дата реализации")}:`, order.shippedAt ? displayMoment(order.shippedAt) : t("Не реализовано"))}
+            {row(t("Дата создания"), t(order.createdAt ? displayMoment(order.createdAt) : order.created))}
+            {row(`${t("Дата реализации")}:`, order.shippedAt ? t(displayMoment(order.shippedAt)) : t("Не реализовано"))}
             {row(`${t("Текущий статус")}:`, t(status === "Доставлено" ? "Доставлен" : status), statusColor)}
             {row(`${t("Тип передачи")}:`, order.deliveryType ? t(order.deliveryType) : t("Не указано"))}
-            {row(`${t("Дата доставки")}:`, displayDay(order.delivery) || t("Не указана"))}
+            {row(`${t("Дата доставки")}:`, order.delivery ? t(displayDay(order.delivery)) : t("Не указана"))}
             {row(`${t("Тип сделки")}:`, order.dealType ? t(DEAL_TYPE_LABELS[order.dealType] ?? order.dealType) : t("Не указано"))}
             {order.comment && row(`${t("Комментарий")}:`, order.comment)}
           </ul>
@@ -585,7 +593,7 @@ export function OrderDetailCard({
           <span className="absolute -bottom-[1px] left-0 h-[2px] w-1/5 bg-[#4f71dc] transition-transform duration-300" style={{ transform: `translateX(${tabIndex * 100}%)` }} />
         </div>
 
-        {tab === "Список товаров" && <ItemsTable orderId={order.id} items={items} loading={itemsLoading} editable={editable} currency={currency} reload={reloadAll} onNotify={onNotify} />}
+        {tab === "Список товаров" && <ItemsTable orderId={order.id} agent={order.agent} items={items} loading={itemsLoading} editable={editable} currency={currency} reload={reloadAll} onNotify={onNotify} />}
         {tab === "Серии" && <Robot text={t("По вашему запросу ничего не найдено")} />}
         {tab === "Возврат" &&
           (returns.length ? (
@@ -607,7 +615,7 @@ export function OrderDetailCard({
                         {entry.id}
                       </button>
                     </td>
-                    <td>{displayDay(entry.returnDate)}</td>
+                    <td>{t(displayDay(entry.returnDate))}</td>
                     <td>{entry.warehouse}</td>
                     <td>{t(entry.status === "accepted" ? "Принят" : entry.status === "cancelled" ? "Отменен" : "Ожидает")}</td>
                     <td className="text-right">
@@ -649,7 +657,7 @@ export function OrderDetailCard({
                           <b>{t("Кем")}:</b> {log.createdBy || "—"}
                         </span>
                         <span>
-                          <b>{t("Когда")}:</b> {displayMoment(log.createdAt)}
+                          <b>{t("Когда")}:</b> {t(displayMoment(log.createdAt))}
                         </span>
                         <span>
                           <b>{t("Сумма")}:</b> {log.amount}
@@ -780,7 +788,7 @@ export function OrderDetailCard({
             <ul className="space-y-2">
               {logs.map((log) => (
                 <li key={log.id}>
-                  <b>{displayMoment(log.createdAt)}</b> — {t(log.kind)}: {log.comment || t(log.status)} ({log.createdBy || "—"})
+                  <b>{t(displayMoment(log.createdAt))}</b> — {t(log.kind)}: {log.comment || t(log.status)} ({log.createdBy || "—"})
                 </li>
               ))}
             </ul>
@@ -873,6 +881,7 @@ function SortHead({ children }: { children: ReactNode }) {
 
 function ItemsTable({
   orderId,
+  agent,
   items,
   loading,
   editable,
@@ -881,6 +890,7 @@ function ItemsTable({
   onNotify,
 }: {
   orderId: number
+  agent: string
   items: OrderLineItem[]
   loading: boolean
   editable: boolean
@@ -889,7 +899,7 @@ function ItemsTable({
   onNotify: (message: string) => void
 }) {
   const { t } = useLanguage()
-  const products = useSellableProducts()
+  const products = useSellableProducts(agent)
   const [addOpen, setAddOpen] = useState(false)
   const [productId, setProductId] = useState("")
   const [quantity, setQuantity] = useState("1")
@@ -903,7 +913,7 @@ function ItemsTable({
     if (!productId) return setError(t("Выберите товар"))
     if (!Number.isFinite(parsedQuantity) || parsedQuantity <= 0 || !Number.isFinite(parsedPrice) || parsedPrice < 0) return setError(t("Проверьте количество и цену"))
     const result = await api(`/api/orders/${orderId}/items`, { method: "POST", body: { productId: Number(productId), quantity: parsedQuantity, unitPrice: parsedPrice, currency } })
-    if (!result.ok) return setError(t(result.error))
+    if (!result.ok) return setError(orderApiErrorText(result, t, "Не удалось сохранить изменения на сервере"))
     setProductId("")
     setQuantity("1")
     setUnitPrice("")
@@ -1084,12 +1094,24 @@ function StatusDialog({
   )
 }
 
+/** Changing the organization of an order moves its payments that carry the old one
+ * (PATCH /api/orders/[id], lib/orders-repo.ts moveLinkedOrganization). */
+function OrganizationMoveHint({ stored, chosen }: { stored: string; chosen: string }) {
+  const { t } = useLanguage()
+  if (!stored.trim() || !chosen.trim() || stored.trim().toLowerCase() === chosen.trim().toLowerCase()) return null
+  return <span className="mt-1 block text-[12px] text-[#9aa3b6]">{t("Оплаты этого заказа перейдут в выбранную организацию")}</span>
+}
+
 function InvoiceDialog({ order, onClose, onSave }: { order: Order; onClose: () => void; onSave: (value: Partial<Order>) => void }) {
   const { t } = useLanguage()
   const [number, setNumber] = useState(order.invoiceNumber ?? "")
   const [date, setDate] = useState(order.invoiceDate ?? "")
   const [contract, setContract] = useState(order.contract ?? "")
   const [active, setActive] = useState(order.invoiceActive ?? false)
+  // The company on the invoice is the order's organization (also editable once the order is final).
+  const [organization, setOrganization] = useState(order.organization ?? "")
+  const organizations = useNames("/api/organizations", plainName)
+  const organizationOptions = organization && !organizations.includes(organization) ? [organization, ...organizations] : organizations
   // The client's contracts (Финансы → Договоры).
   const contracts = useNames("/api/contracts?pageSize=0", (row) => {
     const clients = (row.clients as Array<{ id: number; name: string }> | undefined) ?? []
@@ -1098,7 +1120,7 @@ function InvoiceDialog({ order, onClose, onSave }: { order: Order; onClose: () =
   })
   const options = contract && !contracts.includes(contract) ? [contract, ...contracts] : contracts
   return (
-    <DialogShell title={t("Изменить детали счет фактуры")} onClose={onClose} action={t("Сохранить")} onAction={() => onSave({ invoiceNumber: number.trim(), invoiceDate: date, contract, invoiceActive: active })}>
+    <DialogShell title={t("Изменить детали счет фактуры")} onClose={onClose} action={t("Сохранить")} onAction={() => onSave({ invoiceNumber: number.trim(), invoiceDate: date, contract, invoiceActive: active, ...(organization !== (order.organization ?? "") ? { organization } : {}) })}>
       <Field label={t("Номер счет фактуры")}>
         <input value={number} onChange={(event) => setNumber(event.target.value)} className={fieldClass} />
       </Field>
@@ -1114,6 +1136,17 @@ function InvoiceDialog({ order, onClose, onSave }: { order: Order; onClose: () =
             </option>
           ))}
         </select>
+      </Field>
+      <Field label={t("Организация")}>
+        <select value={organization} onChange={(event) => setOrganization(event.target.value)} className={fieldClass}>
+          {!organization && <option value="">{t("Не указана")}</option>}
+          {organizationOptions.map((value) => (
+            <option key={value} value={value}>
+              {value}
+            </option>
+          ))}
+        </select>
+        <OrganizationMoveHint stored={order.organization ?? ""} chosen={organization} />
       </Field>
       <label className="mt-4 flex items-center gap-3 font-semibold">
         <input type="checkbox" checked={active} onChange={(event) => setActive(event.target.checked)} className="h-4 w-4" />
@@ -1216,7 +1249,12 @@ function EditOrderSheet({
   const warehouses = useNames("/api/warehouses", (row) => (row.active === false ? "" : plainName(row)))
   const priceLists = useNames("/api/price-lists", plainName)
   const currencies = useNames("/api/currencies", (row) => String(row.code ?? ""))
+  const organizations = useNames("/api/organizations", plainName)
   const [clientId, setClientId] = useState(order.clientId ? String(order.clientId) : "")
+  const [organization, setOrganization] = useState(order.organization ?? "")
+  // Picked by hand: the organization no longer follows the client / agent / warehouse.
+  const organizationTouched = useRef(false)
+  const defaultsRequest = useRef(0)
   const [paymentType, setPaymentType] = useState(order.paymentType ?? "")
   const [currency, setCurrency] = useState(order.currency ?? "")
   const [priceList, setPriceList] = useState(order.priceList ?? "")
@@ -1237,6 +1275,36 @@ function EditOrderSheet({
     void api<Array<{ id: number; name: string }>>("/api/clients?balances=0").then((result) => setClients(result.ok ? result.body.map((row) => ({ id: row.id, name: row.name })) : []))
   }, [])
 
+  const initialParty = { clientId: order.clientId ? String(order.clientId) : "", agent: order.agent, warehouse: order.warehouse ?? "" }
+  const partyChanged = clientId !== initialParty.clientId || agent !== initialParty.agent || warehouse !== initialParty.warehouse
+
+  /** The organization follows a new client / agent / warehouse (GET /api/orders/defaults) while it
+   * is empty or still the default of the order's old ones and was not picked by hand — the rule
+   * PATCH /api/orders/[id] applies on the server. Stale answers are dropped. */
+  function followOrganization(change: { clientId?: string; agent?: string; warehouse?: string }) {
+    if (organizationTouched.current) return
+    const party = { clientId, agent, warehouse, ...change }
+    const request = ++defaultsRequest.current
+    const stored = order.organization ?? ""
+    if (party.clientId === initialParty.clientId && party.agent === initialParty.agent && party.warehouse === initialParty.warehouse) {
+      setOrganization(stored)
+      return
+    }
+    const url = (values: typeof party) => {
+      const params = new URLSearchParams()
+      if (values.clientId) params.set("clientId", values.clientId)
+      if (values.agent) params.set("agent", values.agent)
+      if (values.warehouse) params.set("warehouse", values.warehouse)
+      return `/api/orders/defaults?${params}`
+    }
+    const sameName = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase()
+    void Promise.all([stored.trim() ? api<{ organization: string }>(url(initialParty)) : Promise.resolve(null), api<{ organization: string }>(url(party))]).then(([before, after]) => {
+      if (request !== defaultsRequest.current || organizationTouched.current || !after.ok || !after.body.organization) return
+      if (stored.trim() && !(before?.ok && sameName(before.body.organization, stored))) return
+      setOrganization(after.body.organization)
+    })
+  }
+
   async function removeItem(itemId: number) {
     const result = await api(`/api/orders/${order.id}/items/${itemId}`, { method: "DELETE" })
     if (!result.ok) return setError(t(result.error))
@@ -1250,6 +1318,9 @@ function EditOrderSheet({
     if (currency && currency !== (order.currency ?? "")) patch.currency = currency
     if (priceList !== (order.priceList ?? "")) patch.priceList = priceList
     if (agent && agent !== order.agent) patch.agent = agent
+    // Sent when changed, or kept by hand while the client / agent / warehouse changes
+    // (otherwise the server lets a default organization follow them).
+    if (organization !== (order.organization ?? "") || (organizationTouched.current && partyChanged)) patch.organization = organization
     if (payUntil !== (order.paymentDate ?? "")) patch.paymentDate = payUntil
     if (deal !== (order.dealType ?? "")) patch.dealType = deal
     if (warehouse !== (order.warehouse ?? "")) patch.warehouse = warehouse
@@ -1290,7 +1361,15 @@ function EditOrderSheet({
       <div className="flex min-h-full">
         <div className="w-[280px] shrink-0 overflow-auto border-r border-[#efefef] px-[30px] pb-6 pt-[22px]">
           <Field label={t("Название клиента")} required>
-            <select value={clientId} disabled={shipped} onChange={(event) => setClientId(event.target.value)} className={`${fieldClass} disabled:opacity-60`}>
+            <select
+              value={clientId}
+              disabled={shipped}
+              onChange={(event) => {
+                setClientId(event.target.value)
+                followOrganization({ clientId: event.target.value })
+              }}
+              className={`${fieldClass} disabled:opacity-60`}
+            >
               {!order.clientId && <option value="">{order.client}</option>}
               {clients.map((client) => (
                 <option key={client.id} value={client.id}>
@@ -1312,7 +1391,30 @@ function EditOrderSheet({
           </Field>
           <Field label={t("Прайс лист")}>{select(priceList, setPriceList, priceLists)}</Field>
           <Field label={t("Агент")} required>
-            {select(agent, setAgent, employees, false, false)}
+            {select(
+              agent,
+              (value) => {
+                setAgent(value)
+                followOrganization({ agent: value })
+              },
+              employees,
+              false,
+              false,
+            )}
+          </Field>
+          {/* Empty only for an older order: the server then takes the client's / agent's organization. */}
+          <Field label={t("Организация")} required>
+            {select(
+              organization,
+              (value) => {
+                organizationTouched.current = true
+                setOrganization(value)
+              },
+              organizations,
+              false,
+              !organization,
+            )}
+            <OrganizationMoveHint stored={order.organization ?? ""} chosen={organization} />
           </Field>
           <Field label={t("Дата окончательной оплаты")}>
             <input type="date" value={payUntil} onChange={(event) => setPayUntil(event.target.value)} className={fieldClass} />
@@ -1325,7 +1427,15 @@ function EditOrderSheet({
             </label>
           ))}
           <Field label={t("Склад")} required>
-            {select(warehouse, setWarehouse, warehouses, shipped)}
+            {select(
+              warehouse,
+              (value) => {
+                setWarehouse(value)
+                followOrganization({ warehouse: value })
+              },
+              warehouses,
+              shipped,
+            )}
           </Field>
           <b className="mb-1 mt-6 block text-[13px]">{t("Условия доставки")}</b>
           <Field label={t("Тип доставки")}>{select(deliveryType, setDeliveryType, ["Доставка", "Самовывоз"])}</Field>
@@ -1437,7 +1547,7 @@ function QuickEditSheet({ order, items, onClose, onSaved }: { order: Order; item
           method: "PUT",
           body: { productId: item.productId ?? undefined, productName: item.productName, unit: item.unit, quantity: Number(line.quantity), unitPrice: Number(line.price), discountPercent: Number(line.discount || 0), currency: item.currency },
         })
-        if (!result.ok) return setError(`${item.productName}: ${t(result.error)}`)
+        if (!result.ok) return setError(result.agentLimit || result.productRestriction ? orderApiErrorText(result, t, "Не удалось сохранить изменения на сервере") : `${item.productName}: ${t(result.error)}`)
       }
       onSaved()
     } finally {
@@ -1762,7 +1872,7 @@ function PrintSheet({ order, items, debt, onClose }: { order: Order; items: Orde
         <h2 className="absolute left-1/2 -translate-x-1/2 text-[18px] font-semibold uppercase">{company}</h2>
         <div className="flex items-start gap-5">
           <span className="text-[11px] font-semibold text-[#666]">
-            {t("Добавлено")}: {order.createdAt ? displayMoment(order.createdAt) : order.created}
+            {t("Добавлено")}: {t(order.createdAt ? displayMoment(order.createdAt) : order.created)}
           </span>
           <button type="button" onClick={onClose} aria-label={t("Закрыть")} className="print:hidden">
             <Mi d={ICONS.close} className="h-6 w-6 fill-[#333]" />

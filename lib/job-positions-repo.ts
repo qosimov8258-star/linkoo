@@ -1,6 +1,6 @@
 import "server-only"
 
-import { getDb, withTransaction, type PgDb } from "@/lib/db"
+import { getDb, outsideTransaction, withTransaction, type PgDb } from "@/lib/db"
 import { isUniqueViolation } from "@/lib/auth-request"
 import { cascadeNameRename, existingReferences, keySql, nameKey, usageOf, type Usage } from "@/lib/platform-refs"
 
@@ -10,9 +10,10 @@ type Row = { id: number; name: string; created_at: string }
 
 let schemaReady: Promise<void> | null = null
 
-async function ensureSchema(db: ReturnType<typeof getDb>) {
+async function ensureSchema() {
   if (!schemaReady) {
-    schemaReady = (async () => {
+    schemaReady = outsideTransaction(async () => {
+      const db = getDb()
       await db.exec(`
         CREATE TABLE IF NOT EXISTS job_positions (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -34,7 +35,7 @@ async function ensureSchema(db: ReturnType<typeof getDb>) {
           END IF;
         END $$;
       `)
-    })().catch((error) => {
+    }).catch((error) => {
       schemaReady = null
       throw error
     })
@@ -72,17 +73,20 @@ export type JobPositionInput = { name: string }
 const REFERENCES = [
   { table: "employees", column: "position", kind: "name" as const },
   { table: "production_staff", column: "position", kind: "name" as const },
+  // База знания: the articles published to the position (deleting it would publish an article
+  // whose only position it was to everybody).
+  { table: "knowledge_base_article_positions", column: "position_id", kind: "id" as const },
 ]
 
 export async function listJobPositions(): Promise<JobPosition[]> {
   const db = getDb()
-  await ensureSchema(db)
+  await ensureSchema()
   return ((await db.prepare("SELECT * FROM job_positions ORDER BY id DESC").all()) as Row[]).map(rowToPosition)
 }
 
 export async function getJobPosition(id: number): Promise<JobPosition | null> {
   const db = getDb()
-  await ensureSchema(db)
+  await ensureSchema()
   const row = (await db.prepare("SELECT * FROM job_positions WHERE id = ?").get(id)) as Row | undefined
   return row ? rowToPosition(row) : null
 }
@@ -98,8 +102,7 @@ function duplicateGuard(error: unknown): never {
 }
 
 export async function createJobPosition(input: JobPositionInput): Promise<JobPosition> {
-  const db = getDb()
-  await ensureSchema(db)
+  await ensureSchema()
   try {
     const id = await withTransaction(async (tx) => {
       await tx.prepare("LOCK TABLE job_positions IN SHARE ROW EXCLUSIVE MODE").run()
@@ -115,8 +118,7 @@ export async function createJobPosition(input: JobPositionInput): Promise<JobPos
 
 /** Renames the position; employees holding the old name follow in the same transaction. */
 export async function updateJobPosition(id: number, input: JobPositionInput): Promise<JobPosition | null> {
-  const db = getDb()
-  await ensureSchema(db)
+  await ensureSchema()
   try {
     const found = await withTransaction(async (tx) => {
       await tx.prepare("LOCK TABLE job_positions IN SHARE ROW EXCLUSIVE MODE").run()
@@ -135,8 +137,7 @@ export async function updateJobPosition(id: number, input: JobPositionInput): Pr
 
 /** Refused (409 with the usage list) while employees hold the position. */
 export async function deleteJobPosition(id: number): Promise<boolean> {
-  const db = getDb()
-  await ensureSchema(db)
+  await ensureSchema()
   return withTransaction(async (tx) => {
     const current = (await tx.prepare("SELECT * FROM job_positions WHERE id = ? FOR UPDATE").get(id)) as Row | undefined
     if (!current) return false

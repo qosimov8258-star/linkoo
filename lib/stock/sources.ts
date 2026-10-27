@@ -245,7 +245,10 @@ export function buildMovementsSql(t: StockTables): string {
   // everything the batch made (Σ made value = Σ raw value, however the batch
   // spread it over its good and defective lines), so a good unit costs
   // made value ÷ good units and defective units are worth 0. A batch with no
-  // good output (yet) books its output at the document cost.
+  // good output (yet) books its output at the document cost. These are the
+  // values booked on the lines; the cost ledger (lib/net-cost-sync.ts) values
+  // a batch's good output again from the values it issued the batch's raw
+  // lines at, and shift output from its recipe norms at the ledger averages.
   if (t.has("production_movements")) {
     const parties = t.has("production_parties")
     const exact = t.col("production_movements", "item_kind") && t.col("production_movements", "item_id")
@@ -318,8 +321,8 @@ export function buildMovementsSql(t: StockTables): string {
   // day is the real ship moment (orders.shipped_at, ISO UTC) when the orders
   // module recorded one, else the delivery / order date. The value is unknown
   // here (0, the orders module leaves cost_price at 0): the cost ledger issues
-  // the goods at the moving-average cost of contract 1 (lib/stock/costs.ts),
-  // which this module cannot import (balances.ts reads it).
+  // the goods at the moving-average cost of contract 1 (lib/stock/costs.ts) of
+  // that ship moment, which this module cannot import (balances.ts reads it).
   if (t.has("orders") && t.has("order_items") && t.col("orders", "warehouse")) {
     const shipped = t.col("orders", "shipped_at") ? "fin_ts(o.shipped_at::text, true)" : "NULL::timestamp"
     const created = t.col("orders", "created") ? "fin_ts(o.created)" : "NULL::timestamp"

@@ -4,10 +4,11 @@ import { z } from "zod"
 
 import { getDb } from "@/lib/db"
 import { nameKey } from "@/lib/finance/entities"
-import { CashError, findClientByName, isDbId, loadCategories, MAX_DB_ID, MAX_MONEY } from "@/lib/cash/common"
+import { CashError, findClientByName, isDbId, loadCategories, MAX_MONEY } from "@/lib/cash/common"
 import { ensureCashSchema } from "@/lib/cash/schema"
 import type { CashOperationInput, CashWriteResult } from "@/lib/cash/types"
 import { createCashOperation, deleteCashOperation, updateCashOperation } from "@/lib/cash/write"
+import { dbId, strictNum } from "@/lib/strict-number"
 
 // Legacy /api/cash-management-entries: the old flat shape of a cash entry
 // ({ cashboxId, category, clientName, branch, organization, comment, date,
@@ -60,7 +61,7 @@ function rowToEntry(row: Row): CashManagementEntry {
   }
 }
 
-const id = z.coerce.number().int().positive().max(MAX_DB_ID)
+const id = dbId()
 
 /** Body of POST / PUT (legacy shape; `categoryId` may replace the category name). */
 export const cashManagementEntrySchema = z.object({
@@ -75,12 +76,14 @@ export const cashManagementEntrySchema = z.object({
   comment: z.string().max(2000).optional(),
   date: z.string().trim().max(40).optional(),
   /** > 0 = income, < 0 = expense, in the cashbox currency. */
-  amount: z.coerce
-    .number()
-    .finite()
-    .min(-MAX_MONEY, { error: "Слишком большая сумма" })
-    .max(MAX_MONEY, { error: "Слишком большая сумма" })
-    .refine((value) => value !== 0, { error: "Укажите сумму" }),
+  amount: strictNum(
+    z
+      .number()
+      .finite()
+      .min(-MAX_MONEY, { error: "Слишком большая сумма" })
+      .max(MAX_MONEY, { error: "Слишком большая сумма" })
+      .refine((value) => value !== 0, { error: "Укажите сумму" }),
+  ),
 })
 export type CashManagementEntryBody = z.infer<typeof cashManagementEntrySchema>
 

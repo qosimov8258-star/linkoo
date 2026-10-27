@@ -1,6 +1,7 @@
 import "server-only"
 
-import { getDb, withTransaction, type PgDb } from "@/lib/db"
+import { ensureUserEmployeeLink } from "@/lib/auth-employee"
+import { getDb, outsideTransaction, withTransaction, type PgDb } from "@/lib/db"
 import {
   normalizeContractStatus,
   type ContractClientRef,
@@ -18,10 +19,12 @@ import {
   type ContractStatus,
   type ContractTransaction,
 } from "@/lib/contracts-types"
+import { DOC_DATE_INVALID, docDateError, parseDocInput } from "@/lib/document-dates"
 import { loadCurrencyContext } from "@/lib/finance/context"
 import { nowLocalIso, parseAnyDate } from "@/lib/finance/dates"
 import { nameKey, placeName } from "@/lib/finance/entities"
 import { ensureFinanceSchema } from "@/lib/finance/schema"
+import { strictId } from "@/lib/strict-number"
 
 // "Договоры" (demo #/contracts — spec: scratchpad extra/spec-contracts.md).
 //
@@ -43,6 +46,8 @@ export class ContractError extends Error {
     readonly status = 400,
     /** Form field the error belongs to (contractNumber, createdDate, officialName, inn, clientIds, agentId, status, organizationId). */
     readonly field?: string,
+    /** Documents that block a delete (409), as DELETE /api/clients/[id] lists them. */
+    readonly usage?: Array<{ table: string; label: string; count: number }>,
   ) {
     super(message)
   }
@@ -99,7 +104,7 @@ async function installSchema(): Promise<void> {
 /** Creates / extends the tables (once per process) and the finance SQL helpers (fin_*). */
 export async function ensureContractsSchema(db: PgDb = getDb()): Promise<void> {
   if (globalThis.__linkoContractsSchema?.version !== CONTRACTS_SCHEMA_VERSION) {
-    const ready = installSchema().catch((error) => {
+    const ready = outsideTransaction(installSchema).catch((error) => {
       globalThis.__linkoContractsSchema = undefined
       throw error
     })
@@ -387,19 +392,23 @@ export async function getNextContractNumber(params: { year?: number | null; pref
 
 type ExistingRow = { id: number; contract_date: string; created_at: string; contract_number: number | null; agent_id: number | null; agent: string; organization_id: number | null }
 
-/** Input date → local "YYYY-MM-DDTHH:mm:ss"; a bare day keeps the stored time of the same day, else gets the current time. */
+/** Input date → local "YYYY-MM-DDTHH:mm:ss"; a bare day keeps the stored time of the same day, else gets the current time.
+ * The year must be within 2000..2100 (lib/document-dates.ts); a contract may be dated in the future. */
 function contractDate(value: string | undefined, existing: ExistingRow | null): string {
   const text = String(value ?? "").trim()
   const previous = existing ? (parseAnyDate(existing.contract_date) ?? parseAnyDate(existing.created_at, true)) : null
   if (!text) return previous ?? nowLocalIso()
-  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) {
-    if (!parseAnyDate(text)) throw new ContractError("Неверная дата", 400, "createdDate")
-    if (previous && previous.slice(0, 10) === text) return previous
-    return `${text}${nowLocalIso().slice(10)}`
+  const checked = (local: string | null) => {
+    const error = docDateError(local, { allowFuture: true })
+    if (error) throw new ContractError(error, 400, "createdDate")
+    return local!
   }
-  const parsed = parseAnyDate(text)
-  if (!parsed) throw new ContractError("Неверная дата", 400, "createdDate")
-  return parsed
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) {
+    if (!parseDocInput(text)) throw new ContractError(DOC_DATE_INVALID, 400, "createdDate")
+    if (previous && previous.slice(0, 10) === text) return previous
+    return checked(`${text}${nowLocalIso().slice(10)}`)
+  }
+  return checked(parseDocInput(text))
 }
 
 type Resolved = {
@@ -436,7 +445,7 @@ async function resolveInput(tx: PgDb, input: ContractInput, existing: ExistingRo
   if (!status) throw new ContractError("Укажите статус", 400, "status")
 
   // Clients (demo markets): at least one; ids already linked stay valid even if the client row is gone.
-  const ids = [...new Set((input.clientIds ?? []).map(Number).filter((id) => Number.isInteger(id) && id > 0))]
+  const ids = [...new Set((input.clientIds ?? []).map((id) => strictId(id)).filter((id): id is number => id !== null))]
   if (!ids.length) throw new ContractError("Укажите клиентов", 400, "clientIds")
   const found = (await tx.prepare("SELECT id, name, zone FROM clients WHERE id = ANY(?::int[])").all(ids)) as Array<{ id: number; name: string; zone: string }>
   const linked = existing
@@ -568,14 +577,18 @@ export async function setContractStatus(id: number, status: ContractStatus): Pro
   return result.changes ? getContract(id) : null
 }
 
-/** Demo DELETE /sales/contract/:id/ — refused while any payment references the contract. */
+/** Demo DELETE /sales/contract/:id/ — refused while a live (not soft-deleted) payment references
+ * the contract. Deleted payments keep their contract_id (no FK) and do not block it. */
 export async function deleteContract(id: number): Promise<boolean> {
   await ensureContractsSchema()
   return withTransaction(async (tx) => {
     const existing = await loadExisting(tx, id)
     if (!existing) return false
-    const used = (await tx.prepare("SELECT COUNT(*)::int AS n FROM customer_payments WHERE contract_id = ?").get(id)) as { n: number }
-    if (Number(used?.n ?? 0) > 0) throw new ContractError("Удаление невозможно из-за связи с другими данными", 409)
+    const used = (await tx.prepare("SELECT COUNT(*)::int AS n FROM customer_payments WHERE contract_id = ? AND COALESCE(is_deleted, 0) = 0").get(id)) as { n: number }
+    const count = Number(used?.n ?? 0)
+    if (count > 0) {
+      throw new ContractError("Удаление невозможно из-за связи с другими данными", 409, undefined, [{ table: "customer_payments", label: "Оплаты от клиентов", count }])
+    }
     await tx.prepare("DELETE FROM contract_clients WHERE contract_id = ?").run(id)
     await tx.prepare("DELETE FROM contracts WHERE id = ?").run(id)
     return true
@@ -694,16 +707,23 @@ function excelSerialDay(value: string): string | null {
 export async function importContracts(rows: ContractImportRow[], createdBy: string): Promise<ContractImportResult> {
   const db = getDb()
   await ensureContractsSchema(db)
+  await ensureUserEmployeeLink()
   const [clients, employees, organizations] = await Promise.all([
     db.prepare("SELECT id, name FROM clients ORDER BY id").all() as Promise<Array<{ id: number; name: string }>>,
-    db.prepare("SELECT id, first_name, last_name, login FROM employees ORDER BY id").all() as Promise<Array<{ id: number; first_name: string; last_name: string; login: string }>>,
+    // An agent may also be named by the login of the sign-in account linked to the employee
+    // (users.employee_id); employees.login is kept as an alias for older rows.
+    db
+      .prepare(
+        "SELECT id, first_name, last_name, login, (SELECT u.username FROM users u WHERE u.employee_id = employees.id ORDER BY u.id LIMIT 1) AS username FROM employees ORDER BY id",
+      )
+      .all() as Promise<Array<{ id: number; first_name: string; last_name: string; login: string | null; username: string | null }>>,
     db.prepare("SELECT id, name FROM organizations ORDER BY id").all() as Promise<Array<{ id: number; name: string }>>,
   ])
   const clientByKey = new Map<string, number>()
   for (const row of clients) if (!clientByKey.has(nameKey(row.name))) clientByKey.set(nameKey(row.name), Number(row.id))
   const employeeByKey = new Map<string, number>()
   for (const row of employees) {
-    for (const key of [`${row.first_name} ${row.last_name}`, `${row.last_name} ${row.first_name}`, row.login]) {
+    for (const key of [`${row.first_name} ${row.last_name}`, `${row.last_name} ${row.first_name}`, row.username ?? "", row.login ?? ""]) {
       if (nameKey(key) && !employeeByKey.has(nameKey(key))) employeeByKey.set(nameKey(key), Number(row.id))
     }
   }
@@ -735,7 +755,7 @@ export async function importContracts(rows: ContractImportRow[], createdBy: stri
       const numberText = String(row.contractNumber ?? "").trim()
       if (numberText && !/^\d+$/.test(numberText)) throw new ContractError("Неверный номер контракта", 400, "contractNumber")
       const dateText = String(row.createdDate ?? "").trim()
-      const day = dateText ? (excelSerialDay(dateText) ?? parseAnyDate(dateText)?.slice(0, 10) ?? null) : ""
+      const day = dateText ? (excelSerialDay(dateText) ?? parseDocInput(dateText)?.slice(0, 10) ?? null) : ""
       if (day === null) throw new ContractError("Неверная дата", 400, "createdDate")
       await createContract(
         {

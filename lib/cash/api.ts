@@ -3,10 +3,13 @@ import "server-only"
 import { NextResponse } from "next/server"
 import { z } from "zod"
 
+import { dbErrorResponse } from "@/lib/db-errors"
 import { isIsoDay } from "@/lib/finance/dates"
-import { CashError, isDbId, MAX_DB_ID, MAX_MONEY, MAX_PAGE, MAX_PAGE_SIZE, MAX_RATE } from "@/lib/cash/common"
+import { CashError, MAX_MONEY, MAX_PAGE, MAX_PAGE_SIZE, MAX_RATE } from "@/lib/cash/common"
 import type { CashListQuery } from "@/lib/cash/list"
 import { MONEY_REQUEST_STATUSES, type MoneyRequestStatus } from "@/lib/cash/types"
+import { dbId, INVALID_ID, strictId, strictNum } from "@/lib/strict-number"
+import { INVALID_DATA_MESSAGE, invalidFieldResponse, zodErrorResponse } from "@/lib/validation"
 
 // Query / body schemas of the /api/cash/** routes (zod v4) and the shared
 // error mapping. List params are repeated (?cashbox=1&cashbox=2); id lists also
@@ -24,14 +27,16 @@ export function cashErrorResponse(error: unknown): NextResponse {
   const code = (error as { code?: unknown } | null)?.code
   if (typeof code === "string" && code.startsWith("22")) {
     console.warn("[cash] rejected input:", (error as Error).message)
-    return NextResponse.json({ error: "Ma'lumotlar noto'g'ri", field: null }, { status: 400 })
+    return NextResponse.json({ error: INVALID_DATA_MESSAGE, field: null }, { status: 400 })
   }
+  const busy = dbErrorResponse(error)
+  if (busy) return busy
   console.error("[cash] unexpected error", error)
   return NextResponse.json({ error: "Внутренняя ошибка сервера", field: null }, { status: 500 })
 }
 
 function invalid(error: z.ZodError) {
-  return NextResponse.json({ error: "Ma'lumotlar noto'g'ri", details: error.flatten() }, { status: 400 })
+  return zodErrorResponse(error)
 }
 
 function params(url: string) {
@@ -42,8 +47,8 @@ function idList(search: URLSearchParams, name: string): number[] {
   return search
     .getAll(name)
     .flatMap((value) => value.split(/[,-]/))
-    .map((value) => Number(value.trim()))
-    .filter(isDbId)
+    .map((value) => strictId(value))
+    .filter((id): id is number => id !== null)
 }
 
 function textList(search: URLSearchParams, name: string): string[] {
@@ -82,7 +87,7 @@ function paging(search: URLSearchParams): { page?: number; pageSize?: number } {
 }
 
 function badParam(name: string, hint = "YYYY-MM-DD") {
-  return NextResponse.json({ error: "Ma'lumotlar noto'g'ri", details: { fieldErrors: { [name]: [hint] } } }, { status: 400 })
+  return invalidFieldResponse(name, hint)
 }
 
 /** GET /api/cash/operations, /total, /unverified query → CashListQuery. */
@@ -221,14 +226,22 @@ export function parseExpectedPaymentsQuery(url: string): ParsedQuery<{
 
 // --- bodies -------------------------------------------------------------------
 
-const id = z.coerce.number().int().positive().max(MAX_DB_ID, { error: "Не найдено" })
+/** A record id: a number or a digit text within int4 ("1e1", "2e9", "+5", true → 400 "Неверный идентификатор"). */
+const id = dbId(INVALID_ID)
 const optId = id.optional()
-/** Money: |x| ≤ 1e13 (contract 3). */
-const money = z.coerce.number().finite().min(-MAX_MONEY, { error: "Слишком большая сумма" }).max(MAX_MONEY, { error: "Слишком большая сумма" })
+/** Money: |x| ≤ 1e13 (contract 3); a number or a plain decimal text (lib/strict-number.ts). */
+const moneyNumber = z
+  .number({ error: "Введите сумму" })
+  .finite("Введите сумму")
+  .min(-MAX_MONEY, { error: "Слишком большая сумма" })
+  .max(MAX_MONEY, { error: "Слишком большая сумма" })
+const money = strictNum(moneyNumber, "Введите сумму")
+const nonNegativeMoney = strictNum(moneyNumber.nonnegative("Сумма не может быть отрицательной"), "Введите сумму")
+const positiveMoney = strictNum(moneyNumber.positive("Введите сумму больше нуля"), "Введите сумму")
 const text = z.string().trim()
 const optText = text.optional()
 const rateType = z.enum(["current", "order", "custom"]).optional()
-const optRate = z.coerce.number().finite().positive().max(MAX_RATE, { error: "Слишком большой курс" }).optional()
+const optRate = strictNum(z.number().finite().positive().max(MAX_RATE, { error: "Слишком большой курс" }).optional())
 
 const operationFields = {
   date: optText,
@@ -236,7 +249,7 @@ const operationFields = {
   branch: optText,
   organization: optText,
   categoryId: optId,
-  amount: money.nonnegative().optional(),
+  amount: nonNegativeMoney.optional(),
   comment: optText,
   isVerified: z.boolean().optional(),
   clientId: optId,
@@ -246,8 +259,8 @@ const operationFields = {
   supplyId: optId,
   supplyExpenseId: optId,
   responsibleId: optId,
-  staff: z.array(z.object({ employeeId: id, amount: money.nonnegative() })).optional(),
-  children: z.array(z.object({ name: text, amount: money.nonnegative() })).optional(),
+  staff: z.array(z.object({ employeeId: id, amount: nonNegativeMoney })).optional(),
+  children: z.array(z.object({ name: text, amount: nonNegativeMoney })).optional(),
   amortizationFrom: optText,
   amortizationTo: optText,
   debtCurrency: optText,
@@ -280,10 +293,11 @@ export const transferSchema = z.object({
   toOrganization: optText,
   fromBranch: optText,
   toBranch: optText,
-  amountFrom: money.positive(),
-  amountTo: money.positive().optional(),
+  amountFrom: positiveMoney,
+  amountTo: positiveMoney.optional(),
   rate: optRate,
-  percentage: z.coerce.number().finite().positive().max(1000).optional(),
+  // Business bounds (50…100 %, cash ↔ bank only) are checked by resolveTransfer with a clear message.
+  percentage: strictNum(z.number().finite().positive().max(1e6).optional()),
   date: optText,
   comment: optText,
   accumulatedFrom: optText,
@@ -306,7 +320,7 @@ export const acceptCashSchema = z
   .refine((value) => Boolean(value.ids?.length) !== Boolean(value.group), { message: "ids or group", path: ["ids"] })
 
 export const updateAcceptanceSchema = z.object({
-  payments: z.array(z.object({ id, amount: money.positive() })).optional(),
+  payments: z.array(z.object({ id, amount: positiveMoney })).optional(),
   branch: optText,
   organization: optText,
   cashboxId: optId,
@@ -334,7 +348,7 @@ export const cashGroupPaymentSchema = z.object({
     .array(
       z.object({
         clientId: id,
-        amount: money.positive(),
+        amount: positiveMoney,
         contractId: optId,
         organization: optText,
         date: optText,
@@ -362,7 +376,7 @@ export const groupPaymentMatchSchema = z.object({
 
 export const moneyRequestUpdateSchema = z.object({
   status: z.enum(["approved", "cancelled"]),
-  amount: money.positive().optional(),
+  amount: positiveMoney.optional(),
   currency: optText,
   comment: optText,
 })

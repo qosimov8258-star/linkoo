@@ -1,6 +1,7 @@
 import "server-only"
 
 import { getDb, withTransaction, type PgDb } from "@/lib/db"
+import { docDateError } from "@/lib/document-dates"
 import { nameKey } from "@/lib/finance/entities"
 import { isIsoDay, nowLocalIso, parseAnyDate, todayIso } from "@/lib/finance/dates"
 import { InventoryError, type InventoryQuery } from "@/lib/inventory-items-api"
@@ -239,11 +240,16 @@ export async function clientName(db: PgDb, clientId: number, field = "client"): 
   return row.name
 }
 
-/** Registered warehouse name (canonical spelling) or a field error. */
-export async function warehouseName(db: PgDb, name: string, field = "warehouse"): Promise<string> {
+/** Registered, active warehouse name (canonical spelling) or a field error. An inactive warehouse
+ * takes no new gear (as it takes no write-offs or transfers); `keep` — the warehouse an edited
+ * item already has — stays valid. */
+export async function warehouseName(db: PgDb, name: string, field = "warehouse", keep?: string): Promise<string> {
   if (!name.trim()) throw new InventoryError(REQUIRED, 400, field)
-  const row = (await db.prepare("SELECT name FROM warehouses WHERE fin_key(name) = fin_key(?) ORDER BY id LIMIT 1").get(name)) as { name: string } | undefined
+  const row = (await db
+    .prepare("SELECT name, COALESCE(active, 1) AS active FROM warehouses WHERE fin_key(name) = fin_key(?) ORDER BY COALESCE(active, 1) DESC, id LIMIT 1")
+    .get(name)) as { name: string; active: number | boolean } | undefined
   if (!row) throw new InventoryError("Склад не найден", 400, field)
+  if (!Number(row.active) && !(keep !== undefined && nameKey(keep) === nameKey(row.name))) throw new InventoryError("Склад неактивен", 400, field)
   return row.name
 }
 
@@ -285,6 +291,31 @@ export async function insertLog(
     .run(log.itemId, log.status, log.clientId, log.client, log.warehouse, log.condition, log.date, log.comment, log.requestId ?? null, log.user)
 }
 
+/** The item's date (attach_date: the day of its latest movement in История движений — the
+ * registration while nothing moved, else the latest take / give): a year 2000..2100, not after
+ * today (lib/document-dates.ts) — for a new item, an Excel line and an edit alike. An edit may
+ * keep the day the item already has (true = a new day). A new day corrects that latest movement
+ * (updateInventoryItem moves its entry too), so it is never before the movement preceding it,
+ * and the date never contradicts the history. */
+async function checkItemDate(db: PgDb, date: string, current: LockedItem | null): Promise<boolean> {
+  const own = current
+    ? ((await db.prepare("SELECT attach_date FROM inventory_items WHERE id = ?").get(current.id)) as { attach_date: string | null } | undefined)?.attach_date
+    : undefined
+  const error = docDateError(date, { current: own ?? undefined })
+  if (error) throw new InventoryError(error, 400, "date")
+  // A kept date is not entered anew (an older row stays editable).
+  if (!current || (own && own.slice(0, 10) === date)) return false
+  const before = (await db
+    .prepare(
+      `SELECT left(move_date, 10) AS day FROM inventory_item_logs
+       WHERE item_id = ? AND btrim(move_date) <> '' AND id < (SELECT max(id) FROM inventory_item_logs WHERE item_id = ?)
+       ORDER BY id DESC LIMIT 1`,
+    )
+    .get(current.id, current.id)) as { day: string | null } | undefined
+  if (before?.day && date < before.day) throw new InventoryError("Дата не может быть раньше предыдущего движения", 400, "date")
+  return true
+}
+
 type NormalizedInput = {
   warehouse: string
   productId: number
@@ -296,11 +327,13 @@ type NormalizedInput = {
   serialNumber: string
   stockNumber: string
   date: string
+  /** An edit sets a new day (not the one the item already has). */
+  dateChanged: boolean
   comment: string
 }
 
 async function normalizeInput(db: PgDb, input: InventoryItemInput, current: LockedItem | null): Promise<NormalizedInput> {
-  const warehouse = await warehouseName(db, input.warehouse)
+  const warehouse = await warehouseName(db, input.warehouse, "warehouse", current?.warehouse)
   const product = await inventoryProduct(db, input.productId, current?.product_id ?? null)
   const condition = checkCondition(input.condition, current?.condition ?? "")
   const responsible = input.responsible.trim()
@@ -311,10 +344,10 @@ async function normalizeInput(db: PgDb, input: InventoryItemInput, current: Lock
   if (!stockNumber) throw new InventoryError(REQUIRED, 400, "stockNumber")
   await checkStockNumber(db, stockNumber, current?.id ?? null)
   if (!isIsoDay(input.date)) throw new InventoryError(REQUIRED, 400, "date")
-  if (!current && input.date > todayIso()) throw new InventoryError(FUTURE_DATE, 400, "date")
+  const dateChanged = await checkItemDate(db, input.date, current)
   const clientId = !current && input.clientId ? input.clientId : null
   const client = clientId ? await clientName(db, clientId) : ""
-  return { warehouse, productId: product.id, productName: product.name, condition, responsible, clientId, client, serialNumber, stockNumber, date: input.date, comment: input.comment.trim() }
+  return { warehouse, productId: product.id, productName: product.name, condition, responsible, clientId, client, serialNumber, stockNumber, date: input.date, dateChanged, comment: input.comment.trim() }
 }
 
 /** "Добавление инвентаря": the item and its "create" log (Новый) in one transaction. */
@@ -365,6 +398,14 @@ export async function updateInventoryItem(id: number, input: InventoryItemInput)
          WHERE id = ?`,
       )
       .run(data.serialNumber, data.productName, data.productId, data.stockNumber, data.warehouse, data.condition, data.responsible, data.date, data.comment, input.photo ?? null, id)
+    // A new date corrects the item's latest movement (its registration while nothing moved), so
+    // that entry of История движений follows it: attach_date stays the day of the latest movement,
+    // and a later give / take checks against it. A kept date leaves the history as it is.
+    if (data.dateChanged) {
+      await tx
+        .prepare("UPDATE inventory_item_logs SET move_date = ? WHERE id = (SELECT max(id) FROM inventory_item_logs WHERE item_id = ?)")
+        .run(data.date, id)
+    }
   })
   return (await getInventoryItem(id))!
 }

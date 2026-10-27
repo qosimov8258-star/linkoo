@@ -1,25 +1,50 @@
 "use client"
 
-import { Suspense, useCallback, useState } from "react"
+import { Suspense, useCallback, useEffect, useState } from "react"
 
 import { useCashJson } from "@/components/analytics/cash/use-cash"
-import { CashSnackbar, useCanWrite, type SnackbarMessage } from "@/components/analytics/cash-management-shared"
+import { CashSnackbar, type SnackbarMessage } from "@/components/analytics/cash-management-shared"
 import { useStockOptions, useUrlState } from "@/components/analytics/stock-move-filters"
 import { StockPlanMovements } from "@/components/analytics/stock-plan-movements"
 import { countsApiQuery, planStateFromParams } from "@/components/analytics/stock-plan-state"
 import { StockPlanTasks } from "@/components/analytics/stock-plan-tasks"
 import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
 import { useLanguage } from "@/lib/i18n/language-context"
-import { PLAN_TAB_LABELS, PLAN_TABS, type PlanTab, type PlanTaskCounts } from "@/lib/stock-plan-types"
+import { NO_PLAN_RIGHTS, PLAN_TAB_LABELS, PLAN_TABS, type PlanPermission, type PlanRights, type PlanTab, type PlanTaskCounts } from "@/lib/stock-plan-types"
 
 // "План приемок и передач" (demo #/stock/receive, uz "Qabul qilish | Yuborish |
 // Mahsulot harakati | Qabul tarixi | Etkazish tarixi"): what each warehouse
 // still has to receive / send, the stock movement lines, and the done history.
 // Real data: supplier incomings, internal transfers, orders and the stock
-// ledger (lib/stock). Actions go to the documents' own endpoints. The state
+// ledger (lib/stock). Actions go to the documents' own endpoints (a client
+// return's to the plan's own POST /api/stock/plan/returns/[id]/accept). The state
 // (tab, filters, search, page, expanded row) lives in the URL.
 
 const BADGE_TABS: Partial<Record<PlanTab, keyof PlanTaskCounts>> = { receive: "receive", transfer: "transfer" }
+
+/** The user's plan permissions from GET /api/auth/me — the server rule of hasPermission
+ * (lib/rbac.ts): role manager or admin and, for a user restricted by an access right
+ * (Права доступа), the permission granted. No rights while loading, so a button the
+ * server would refuse (403) is never offered. */
+function usePlanRights(): PlanRights {
+  const [rights, setRights] = useState<PlanRights>(NO_PLAN_RIGHTS)
+  useEffect(() => {
+    let cancelled = false
+    fetch("/api/auth/me", { cache: "no-store" })
+      .then((response) => (response.ok ? (response.json() as Promise<{ role?: string; permissions?: string[] | null }>) : null))
+      .then((user) => {
+        if (cancelled || !user) return
+        const writer = user.role === "manager" || user.role === "admin"
+        const granted = (code: PlanPermission) => writer && (user.role === "admin" || !Array.isArray(user.permissions) || user.permissions.includes(code))
+        setRights({ "stock.manage": granted("stock.manage"), "procurement.manage": granted("procurement.manage") })
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [])
+  return rights
+}
 
 export function StockPlanView() {
   return (
@@ -33,7 +58,7 @@ function StockPlanContent() {
   const { t } = useLanguage()
   const { searchParams, update } = useUrlState()
   const state = planStateFromParams(searchParams)
-  const canWrite = useCanWrite()
+  const rights = usePlanRights()
   const counts = useCashJson<PlanTaskCounts>(`/api/stock/plan/counts?${countsApiQuery(state)}`)
   const [lookupsWanted, setLookupsWanted] = useState(false)
   const { options } = useStockOptions(lookupsWanted)
@@ -81,7 +106,7 @@ function StockPlanContent() {
       {state.tab === "movement" ? (
         <StockPlanMovements key="movement" state={state} update={update} options={options} onOptionsWanted={wantOptions} notify={notify} />
       ) : (
-        <StockPlanTasks key={state.tab} tab={state.tab} state={state} update={update} canWrite={canWrite} options={options} onOptionsWanted={wantOptions} notify={notify} onChanged={counts.reload} />
+        <StockPlanTasks key={state.tab} tab={state.tab} state={state} update={update} rights={rights} options={options} onOptionsWanted={wantOptions} notify={notify} onChanged={counts.reload} />
       )}
 
       <CashSnackbar message={message} onClose={closeSnackbar} />

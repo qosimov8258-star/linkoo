@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 
 import { parseBody } from "@/lib/auth-request"
 import { deleteOrderItem, updateOrderItem } from "@/lib/order-items-repo"
+import { orderTimeRestrictionResponse } from "@/lib/order-time-restrictions-guard"
 import { orderErrorResponse, orderLineSchema, routeId } from "@/lib/orders-api"
 import { requireRole } from "@/lib/rbac"
 
@@ -12,6 +13,8 @@ const ITEM_NOT_FOUND = { error: "Позиция не найдена" }
 export async function PUT(request: Request, { params }: RouteParams) {
   const auth = await requireRole("manager")
   if ("error" in auth) return auth.error
+  const blocked = await orderTimeRestrictionResponse("edit", auth.user)
+  if (blocked) return blocked
 
   const { id, itemId } = await params
   const orderId = routeId(id)
@@ -34,6 +37,8 @@ export async function PUT(request: Request, { params }: RouteParams) {
 export async function DELETE(_request: Request, { params }: RouteParams) {
   const auth = await requireRole("manager")
   if ("error" in auth) return auth.error
+  const blocked = await orderTimeRestrictionResponse("edit", auth.user)
+  if (blocked) return blocked
 
   const { id, itemId } = await params
   const orderId = routeId(id)

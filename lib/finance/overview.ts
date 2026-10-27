@@ -1,7 +1,9 @@
 import "server-only"
 
 import { getDb, type PgDb } from "@/lib/db"
+import { loadCategories } from "@/lib/cash/common"
 import { expensesByCategory } from "@/lib/cash/reports"
+import { CASH_OP, CASH_OP_TYPES, type CashOpType, type CategoryOptionKey } from "@/lib/cash/types"
 import { loadCurrencyContext } from "@/lib/finance/context"
 import { roundMoney } from "@/lib/finance/currency"
 import { nameKey } from "@/lib/finance/entities"
@@ -18,6 +20,28 @@ import { stockValuesAsOf } from "@/lib/finance/stock"
 // stock value per warehouse, client debts by client type (Баланс клиентов),
 // supplier obligations (Баланс поставщиков), sales of the period (P&L) and
 // expenses by category (Расходы по категориям).
+
+// "Прямые / Косвенные расходы" are the costs of the period. Money that only settles a
+// balance is not one: a supplier payment (or paid money request) settles what we owe for
+// goods that went to stock and reach the P&L later as cost of goods; a supply extra cost
+// is part of that cost of goods; a payout to a client (withdrawal from the client's
+// account, cashback, card cash-out, refund) uses up the client's credit or a cashback
+// liability that was booked before. So only plain cashbox expenses count, and of those
+// not the ones whose category settles a balance (its options) or is excluded from P&L.
+
+/** Category options that make a payment a settlement (see above). */
+const SETTLEMENT_OPTIONS: ReadonlySet<CategoryOptionKey> = new Set<CategoryOptionKey>(["supply", "provider", "supply_expense", "client", "client_contract", "client_card_out"])
+/** Operation types that are settlements (or transfer legs), whatever their category. */
+const SETTLEMENT_OPS: ReadonlySet<CashOpType> = new Set<CashOpType>([
+  CASH_OP.FROM_TRANSFER,
+  CASH_OP.TO_TRANSFER,
+  CASH_OP.OUTCOME_FROM_CLIENT,
+  CASH_OP.SUPPLY_EXPENSE,
+  CASH_OP.OUTCOME_FOR_SUPPLY,
+  CASH_OP.CLIENT_CONTRACT_OUT,
+])
+/** Operation types of plain cashbox entries that can be a cost of the period. */
+const PERIOD_EXPENSE_OPS: CashOpType[] = CASH_OP_TYPES.filter((op) => !SETTLEMENT_OPS.has(op))
 
 function dayBefore(iso: string): string {
   const date = new Date(`${iso}T00:00:00Z`)
@@ -36,7 +60,8 @@ export async function getBalanceOverview(params: { from: string; to: string; org
     getBalanceList("client", { ...period, groupBy: "type" }, db),
     getBalanceList("supplier", period, db),
     getPnl({ periods: [{ from: params.from, to: params.to }], filters: { organizations } }, db),
-    expensesByCategory({ from: params.from, to: params.to, organizations, pageSize: 0 }, db),
+    // Plain cashbox entries only: supplier / client money (their own tables) are settlements.
+    expensesByCategory({ from: params.from, to: params.to, organizations, pageSize: 0, sources: ["cash"], types: PERIOD_EXPENSE_OPS }, db),
   ])
 
   // Management lines summed over the branch cards.
@@ -96,23 +121,17 @@ export async function getBalanceOverview(params: { from: string; to: string; org
         .map(([currency, balance]) => ({ name: name(row), currency, begin: roundMoney(-balance.begin_balance), end: roundMoney(-balance.end_balance) })),
     )
 
-  // Expenses by category, split into direct (Прямой расход на товар) and indirect; P&L-excluded categories are left out.
-  // (expense_categories is not a ledger table: probe it and its flag columns here.)
-  const categoryColumns = new Set(
-    ((await db
-      .prepare("SELECT column_name FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'expense_categories'")
-      .all()) as Array<{ column_name: string }>).map((row) => row.column_name),
+  // Expenses by category, split into direct (Прямой расход на товар) and indirect. Left out:
+  // P&L-excluded categories and settlement categories (SETTLEMENT_OPTIONS, see the header).
+  // (expensesByCategory installed the cash schema, so the category options are there.)
+  const categoryOf = new Map(
+    (await loadCategories(db))
+      .filter((category) => category.kind === "expense")
+      .map((category) => [
+        category.id,
+        { direct: category.internal, exclude: category.excludeFromPnl || category.options.some((option) => SETTLEMENT_OPTIONS.has(option)) },
+      ]),
   )
-  const categories = categoryColumns.has("id")
-    ? ((await db
-        .prepare(
-          `SELECT id, ${categoryColumns.has("direct") ? "COALESCE(direct, 0)" : "0"} AS direct,
-                  ${categoryColumns.has("exclude_from_pnl") ? "COALESCE(exclude_from_pnl, 0)" : "0"} AS exclude
-           FROM expense_categories`,
-        )
-        .all()) as Array<{ id: number; direct: number | boolean; exclude: number | boolean }>)
-    : []
-  const categoryOf = new Map(categories.map((row) => [Number(row.id), { direct: Boolean(Number(row.direct)), exclude: Boolean(Number(row.exclude)) }]))
   const expenseGroups = { direct: new Map<string, number>(), indirect: new Map<string, number>() }
   for (const row of expenses.rows) {
     const info = row.categoryId !== null ? categoryOf.get(row.categoryId) : undefined

@@ -17,7 +17,7 @@ import {
   useJsonList,
   type Named,
 } from "@/components/analytics/cash-management-shared"
-import { transferAmountTo } from "@/lib/cash/rates"
+import { resolveTransfer, transferAmountTo, TRANSFER_MAX_PERCENTAGE, TRANSFER_MIN_PERCENTAGE } from "@/lib/cash/rates"
 import type { CashboxWithBalance, CashTransferInput, CashTransferResult } from "@/lib/cash/types"
 import { currencyLabel, formatMoney, normCurrency } from "@/lib/finance/currency"
 import { monthEndIso, monthStartIso, todayIso } from "@/lib/finance/dates"
@@ -28,10 +28,21 @@ import { useLanguage } from "@/lib/i18n/language-context"
 // Сумма с кассы + Процент (same currency, cash ↔ bank) or + Курс (different
 // currencies), Дата создания, Комментарий, Деньги накопленные за период →
 // POST /api/cash/transfers (two legs: type 1 out, type 2 in).
+// The amounts follow the server's resolveTransfer (lib/cash/rates.ts): a transfer
+// never creates money — "Процент" is 50…100, a "Курс" at most 10 % worse and
+// 2 % better than the currency table; the dialog shows the same error before sending.
 
 type Errors = Partial<Record<"from" | "to" | "amount" | "rate" | "percentage" | "comment" | "form", string>>
 
-const SERVER_FIELDS: Record<string, keyof Errors> = { fromCashbox: "from", toCashbox: "to", amountFrom: "amount", amountTo: "amount", rate: "rate", comment: "comment" }
+const SERVER_FIELDS: Record<string, keyof Errors> = {
+  fromCashbox: "from",
+  toCashbox: "to",
+  amountFrom: "amount",
+  amountTo: "amount",
+  rate: "rate",
+  percentage: "percentage",
+  comment: "comment",
+}
 
 export function CashTransferDialog({
   fromCashbox,
@@ -71,18 +82,22 @@ export function CashTransferDialog({
   const amountFrom = parseAmount(amount)
   // The default "Курс" follows transferAmountTo: base per source unit, base per target unit, or target per source unit.
   const defaultRate = rateMode ? transferAmountTo({ amountFrom: 1, fromCurrency, toCurrency, baseCurrency: base, rates }).rate : null
-  const preview =
-    source && target
-      ? transferAmountTo({
+  // Same rules as the server: the preview shows what the target receives, or why it cannot.
+  const resolved =
+    source && target && amountFrom > 0
+      ? resolveTransfer({
           amountFrom,
           fromCurrency,
           toCurrency,
+          fromType: source.type,
+          toType: target.type,
           baseCurrency: base,
           rates,
           rate: rateMode ? parseAmount(rate) || defaultRate : null,
           percentage: percentMode ? parseAmount(percentage) || 100 : null,
         })
       : null
+  const preview = resolved?.ok ? resolved : null
   const rateHint = rateMode
     ? toCurrency === base
       ? `1 ${currencyLabel(fromCurrency)} = ? ${currencyLabel(toCurrency)}`
@@ -99,6 +114,7 @@ export function CashTransferDialog({
     if (!(amountFrom > 0)) next.amount = t("Укажите сумму")
     if (percentMode && !(parseAmount(percentage) > 0)) next.percentage = t("Укажите сумму")
     if (rateMode && !(parseAmount(rate) > 0) && !defaultRate) next.rate = t("Курс валюты не задан")
+    if (!Object.keys(next).length && resolved && !resolved.ok) next[resolved.field === "percentage" ? "percentage" : resolved.field === "rate" ? "rate" : "amount"] = t(resolved.error)
     if (Object.keys(next).length) return setErrors(next)
     const body: CashTransferInput = {
       fromCashboxId: Number(fromId),
@@ -183,12 +199,34 @@ export function CashTransferDialog({
           </FormField>
           {percentMode && (
             <FormField label={`${t("Процент")} (%)`} required error={errors.percentage}>
-              <input type="number" min="0" step="any" value={percentage} onChange={(event) => setPercentage(event.target.value)} className={inputClass} />
+              <input
+                type="number"
+                min={TRANSFER_MIN_PERCENTAGE}
+                max={TRANSFER_MAX_PERCENTAGE}
+                step="any"
+                value={percentage}
+                onChange={(event) => {
+                  setPercentage(event.target.value)
+                  setErrors((current) => ({ ...current, percentage: undefined }))
+                }}
+                className={`${inputClass} ${errors.percentage ? "border-[#e57373]" : ""}`}
+              />
             </FormField>
           )}
           {rateMode && (
             <FormField label={t("Курс")} required error={errors.rate}>
-              <input type="number" min="0" step="any" value={rate} placeholder={defaultRate ? formatMoney(defaultRate, 5) : ""} onChange={(event) => setRate(event.target.value)} className={inputClass} />
+              <input
+                type="number"
+                min="0"
+                step="any"
+                value={rate}
+                placeholder={defaultRate ? formatMoney(defaultRate, 5) : ""}
+                onChange={(event) => {
+                  setRate(event.target.value)
+                  setErrors((current) => ({ ...current, rate: undefined }))
+                }}
+                className={`${inputClass} ${errors.rate ? "border-[#e57373]" : ""}`}
+              />
             </FormField>
           )}
         </div>
@@ -196,9 +234,13 @@ export function CashTransferDialog({
         {source && target && (
           <p className="text-[13px] text-[#586174]">
             {percentMode ? `${t("Касса")} ${target.name} ${t("получает")}` : t("Сумма перевода")}:{" "}
-            <b className="text-[#17233b]">{preview?.amountTo !== null && preview?.amountTo !== undefined ? `${formatMoney(preview.amountTo, 5)} ${currencyLabel(toCurrency)}` : "—"}</b>
+            <b className="text-[#17233b]">{preview ? `${formatMoney(preview.amountTo, 5)} ${currencyLabel(toCurrency)}` : "—"}</b>
           </p>
         )}
+        {resolved && !resolved.ok && !errors.percentage && !errors.rate && !errors.amount && (
+          <span className="-mt-2 text-[12px] text-[#e57373]">{t(resolved.error)}</span>
+        )}
+        {percentMode && <span className="-mt-2 text-[12px] text-[#9aa3b6]">{t("Процент от 50 до 100: касса-получатель получает не больше, чем ушло из кассы")}</span>}
         <FormField label={t("Дата создания")}>
           <input type="date" value={date} onChange={(event) => setDate(event.target.value)} className={inputClass} />
         </FormField>

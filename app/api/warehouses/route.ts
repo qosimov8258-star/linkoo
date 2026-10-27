@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 
 import { getCurrentUser } from "@/lib/current-user"
 import { requireRole } from "@/lib/rbac"
-import { parseJsonBody } from "@/lib/validation"
+import { INVALID_DATA_MESSAGE, notSignedInResponse, parseJsonBody, zodErrorResponse } from "@/lib/validation"
 import { createWarehouse, listWarehouses, listWarehousesPage, warehouseErrorResponse } from "@/lib/warehouses-repo"
 import {
   warehouseActiveParam,
@@ -22,10 +22,10 @@ import {
 // ordered by ?ordering (default name) — demo GET stock/stock/.
 export async function GET(request: Request) {
   const user = await getCurrentUser()
-  if (!user) return NextResponse.json({ error: "Tizimga kirilmagan" }, { status: 401 })
+  if (!user) return notSignedInResponse()
   const params = new URL(request.url).searchParams
   const query = warehouseListQuerySchema.safeParse(warehouseQueryObject(params))
-  if (!query.success) return NextResponse.json({ error: "Ma'lumotlar noto'g'ri", details: query.error.flatten() }, { status: 400 })
+  if (!query.success) return zodErrorResponse(query.error)
   const active = warehouseActiveParam(params)
   if (wantsPagedWarehouses(params)) {
     return NextResponse.json(await listWarehousesPage({ ...query.data, active } as WarehouseListQuery))
@@ -41,7 +41,7 @@ export async function POST(request: Request) {
   const parsed = await parseJsonBody(request, warehouseInputSchema)
   if (parsed.error) return parsed.error
   const input = warehouseInput(parsed.data)
-  if ("fields" in input) return NextResponse.json({ error: "Ma'lumotlar noto'g'ri", fields: input.fields }, { status: 400 })
+  if ("fields" in input) return NextResponse.json({ error: Object.values(input.fields)[0] ?? INVALID_DATA_MESSAGE, fields: input.fields }, { status: 400 })
 
   try {
     return NextResponse.json(await createWarehouse(input.input), { status: 201 })

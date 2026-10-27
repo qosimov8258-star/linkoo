@@ -4,10 +4,11 @@ import { getCurrentUser } from "@/lib/current-user"
 import { requireRole } from "@/lib/rbac"
 import { createSupplierReturn, listSupplierReturns, parseSupplierReturnInput, supplierReturnSchema } from "@/lib/supplier-returns-repo"
 import { parseProcurementBody, procurementWrite } from "@/lib/supplier-refs"
+import { notSignedInResponse } from "@/lib/validation"
 
 export async function GET() {
   const user = await getCurrentUser()
-  if (!user) return NextResponse.json({ error: "Tizimga kirilmagan" }, { status: 401 })
+  if (!user) return notSignedInResponse()
   return NextResponse.json((await listSupplierReturns()))
 }
 

@@ -1,8 +1,9 @@
 import "server-only"
 
-import { getDb, type PgDb } from "@/lib/db"
+import { getDb, isolated, isTransactionDb, type PgDb } from "@/lib/db"
 import { todayIso } from "@/lib/finance/dates"
-import type { LedgerAverage, LedgerPosting } from "@/lib/net-cost-ledger"
+import { REVALUATION_KIND, type LedgerAverage, type LedgerPosting } from "@/lib/net-cost-ledger"
+import { ensureNetCostSchema } from "@/lib/net-cost-schema"
 import { finKey } from "@/lib/net-cost-sync"
 import { loadLedgerInputs, runLedgers, sourcesFingerprint } from "@/lib/net-cost-sync"
 import { loadStockCatalog } from "@/lib/stock/catalog"
@@ -47,8 +48,17 @@ export type CostLedger = {
   fallback: Map<StockItemKey, number>
 }
 
+type CostLedgerCache = {
+  fingerprint: string
+  ledger: Promise<CostLedger>
+  /** Set once the build finished: the only form a transaction may reuse. */
+  value?: CostLedger
+  /** Built on a transaction's connection (never awaited by anybody else). */
+  inTransaction: boolean
+}
+
 declare global {
-  var __linkoCostLedger: { fingerprint: string; ledger: Promise<CostLedger> } | undefined
+  var __linkoCostLedger: CostLedgerCache | undefined
 }
 
 const round6 = (value: number) => {
@@ -76,17 +86,81 @@ async function buildCostLedger(db: PgDb, fingerprint: string): Promise<CostLedge
   return { fingerprint, averages, own, postings, fallback: new Map(catalog.map((item) => [item.key, item.fallbackCost])) }
 }
 
-/** The traced cost ledger of the current state of the sources (cached per process). */
+/** The traced cost ledger of the current state of the sources (cached per process).
+ *
+ * The ledger is a function of what the fingerprint hashes, so a cached one of the same
+ * fingerprint is reused whoever built it. A caller inside a transaction (stock writes:
+ * ensureAvailable → warehouseStock → getWarehouseItemCosts(tx), holding its warehouse
+ * locks) only reuses a FINISHED ledger and otherwise builds its own on its own
+ * connection: awaiting a build that runs on the pool (or on another transaction) could
+ * wait for a connection that only the waiting transactions can free — the whole server
+ * hung that way (C1). Pool callers hold no connection while they wait, so they share an
+ * in-flight pool build. */
 export async function loadCostLedger(db: PgDb = getDb()): Promise<CostLedger> {
+  // The schema first, on its own connection: `db` may be a caller's transaction, and the
+  // fingerprint below reads net_cost_entries in it (a lock held until its commit). An
+  // install started after that read would wait for the transaction while the transaction
+  // waits for the install (buildCostLedger → loadLedgerInputs → ensureNetCostSchema).
+  await ensureNetCostSchema()
   const fingerprint = await sourcesFingerprint(db)
+  const ownConnection = isTransactionDb(db)
   const cached = globalThis.__linkoCostLedger
-  if (cached && cached.fingerprint === fingerprint) return cached.ledger
+  if (cached && cached.fingerprint === fingerprint) {
+    if (cached.value) return cached.value
+    if (!ownConnection && !cached.inTransaction) return cached.ledger
+  }
   const ledger = buildCostLedger(db, fingerprint)
-  globalThis.__linkoCostLedger = { fingerprint, ledger }
-  ledger.catch(() => {
-    if (globalThis.__linkoCostLedger?.ledger === ledger) globalThis.__linkoCostLedger = undefined
-  })
+  const entry: CostLedgerCache = { fingerprint, ledger, inTransaction: ownConnection }
+  // A transaction's build is published once finished only (nobody waits on its connection).
+  if (!ownConnection) globalThis.__linkoCostLedger = entry
+  ledger.then(
+    (value) => {
+      entry.value = value
+      if (ownConnection && !globalThis.__linkoCostLedger?.value) globalThis.__linkoCostLedger = entry
+    },
+    () => {
+      if (globalThis.__linkoCostLedger === entry) globalThis.__linkoCostLedger = undefined
+    },
+  )
   return ledger
+}
+
+/** A document's line(s) of one item in the ledger: quantity and value as the ledger
+ * moved them (issues < 0), revaluations of the stock on hand excluded. */
+export type DocumentLineValue = { qty: number; value: number }
+
+const documentIndexes = new WeakMap<CostLedger, Map<string, DocumentLineValue>>()
+
+/** Key of documentLineValues: the document (source table + id) and the item. */
+export const documentLineKey = (docType: string, docId: number, item: StockItemKey) => `${docType}:${docId}|${item}`
+
+/** Every document's movement of every item at the value the cost ledger moved it at
+ * (summed over its warehouses / days), keyed by documentLineKey. This is the cost of
+ * goods of a sale or a client return, and the cost of a production line, exactly as the
+ * stock value changed ("Остаток на определенную дату" in cost mode). Built once per ledger. */
+export function documentLineValues(ledger: CostLedger): Map<string, DocumentLineValue> {
+  let index = documentIndexes.get(ledger)
+  if (index) return index
+  index = new Map()
+  for (const [item, list] of ledger.postings) {
+    for (const posting of list) {
+      if (posting.kind === REVALUATION_KIND) continue
+      const key = documentLineKey(posting.docType, posting.docId, item)
+      const entry = index.get(key) ?? { qty: 0, value: 0 }
+      entry.qty += posting.qty
+      entry.value += posting.value
+      index.set(key, entry)
+    }
+  }
+  documentIndexes.set(ledger, index)
+  return index
+}
+
+/** Unit cost of a document line in the ledger (|value| ÷ |qty|), undefined when the ledger did not move it. */
+export function documentLineUnit(index: Map<string, DocumentLineValue>, docType: string, docId: number, item: StockItemKey): number | undefined {
+  const entry = index.get(documentLineKey(docType, docId, item))
+  if (!entry || Math.abs(entry.qty) <= 1e-9) return undefined
+  return Math.abs(entry.value / entry.qty)
 }
 
 /** The last average on or before `day` (undefined when the item had no events yet). */
@@ -175,6 +249,62 @@ export function costsInWarehouse(costs: WarehouseItemCosts, warehouse: string): 
 /** getItemCosts plus the own-scope warehouses (see warehouseItemCosts). */
 export async function getWarehouseItemCosts(query: ItemCostQuery = {}, db: PgDb = getDb()): Promise<WarehouseItemCosts> {
   return warehouseItemCosts(await loadCostLedger(db), query.date)
+}
+
+/** The cost of goods of catalog items (today): `cost` of each item replaced by getItemCosts
+ * when the ledger knows the item. products.cost is only a cache of it, so every reader of
+ * the catalog (GET /api/products, the item detail, the catalog list) answers this value.
+ * A failing ledger leaves the stored values (logged): the catalog stays readable. */
+export async function withCostOfGoods<T extends { id: number; cost: number }>(kind: "product" | "raw_material", items: T[], db: PgDb = getDb()): Promise<T[]> {
+  if (!items.length) return items
+  let costs: Map<StockItemKey, number>
+  try {
+    // In a transaction a savepoint: a failing ledger read must not abort the caller's work.
+    costs = await isolated(() => getItemCosts({}, db))
+  } catch (error) {
+    console.error("[stock/costs] cost of goods unavailable for the catalog", error)
+    return items
+  }
+  return items.map((item) => {
+    const cost = costs.get(`${kind}:${item.id}`)
+    return cost === undefined || !Number.isFinite(cost) || cost === item.cost ? item : { ...item, cost }
+  })
+}
+
+/** Brings the products.cost cache to the cost of goods (base currency, today) inside `tx`,
+ * for the given live products: the "Общий" average of the ledger, or — for an item without
+ * ledger history up to today — its initial ("по умолчанию") cost, which is frozen first
+ * (initial_cost := cost where still NULL). lib/supplier-incomings-repo.ts
+ * refreshProductCostsIn delegates here. Raw materials have no stored cost. */
+export async function refreshProductCostCache(tx: PgDb, ids: number[]): Promise<void> {
+  const wanted = [...new Set(ids.filter((id) => Number.isInteger(id) && id > 0))]
+  if (!wanted.length) return
+  const rows = (await tx
+    .prepare("SELECT id, cost, initial_cost FROM products WHERE id = ANY(@ids::int[]) AND COALESCE(deleted, 0) = 0 ORDER BY id FOR UPDATE")
+    .all({ ids: wanted })) as Array<{ id: number; cost: number | null; initial_cost: number | null }>
+  if (!rows.length) return
+  const unfrozen = rows.filter((row) => row.initial_cost === null || row.initial_cost === undefined).map((row) => Number(row.id))
+  if (unfrozen.length) await tx.prepare("UPDATE products SET initial_cost = cost WHERE id = ANY(@ids::int[]) AND initial_cost IS NULL").run({ ids: unfrozen })
+  const ledger = await loadCostLedger(tx)
+  const today = todayIso()
+  const targets: number[] = []
+  const values: number[] = []
+  for (const row of rows) {
+    const list = ledger.averages.get(`product:${row.id}`)
+    const average = list ? averageOn(list, today) : undefined
+    const cost = round6(average ?? (Number(row.initial_cost ?? row.cost) || 0))
+    if (!Number.isFinite(cost) || cost === Number(row.cost)) continue
+    targets.push(Number(row.id))
+    values.push(cost)
+  }
+  if (!targets.length) return
+  await tx
+    .prepare(
+      `UPDATE products p SET cost = v.cost
+         FROM unnest(@ids::int[], @costs::double precision[]) AS v(id, cost)
+        WHERE p.id = v.id AND p.cost IS DISTINCT FROM v.cost`,
+    )
+    .run({ ids: targets, costs: values })
 }
 
 /** The day before a YYYY-MM-DD day (costs "на начало дня" = end of the previous day). */

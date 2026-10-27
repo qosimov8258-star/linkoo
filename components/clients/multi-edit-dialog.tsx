@@ -10,6 +10,11 @@ import { useDirectoryNames } from "./use-directory"
 
 export type MultiEditPatch = Partial<Pick<Client, "deliverer" | "zone" | "agent" | "type" | "collector" | "branch" | "unlimitedDebt">>
 
+/** Changes stored outside the client row: the location lock (PUT /api/tracking/location-locks). */
+export type MultiEditExtras = { locationLock?: boolean }
+
+const LOCK_OPTIONS = ["Заблокировать локацию", "Разблокировать локацию"] as const
+
 const CHECKS = [
   "Изменить ответственного инкассатора",
   "Изменить неограниченный долг",
@@ -28,26 +33,27 @@ const CHECKS = [
   "Изменить филиал",
 ] as const
 
-const uniq = (values: (string | undefined)[]) =>
-  [...new Set(values.filter((value): value is string => Boolean(value) && value !== "Не указано"))].sort((a, b) => a.localeCompare(b, "ru"))
-
-export function MultiEditDialog({ clients, onSave, onClose }: { clients: Client[]; onSave: (patch: MultiEditPatch) => void; onClose: () => void }) {
+export function MultiEditDialog({ onSave, onClose }: { clients: Client[]; onSave: (patch: MultiEditPatch, extras: MultiEditExtras) => void; onClose: () => void }) {
   const { t } = useLanguage()
   const [values, setValues] = useState({ deliverer: "", zone: "", agent: "", type: "", status: "", category: "", collector: "", branch: "" })
+  const [lock, setLock] = useState<"" | (typeof LOCK_OPTIONS)[number]>("")
   const [checks, setChecks] = useState<Record<string, boolean>>({})
-  // People are employees and types are client types (the API refuses other names).
+  // People are employees, types are client types (the API refuses other names), zones and branches come from their directories.
   const employees = useDirectoryNames("employees")
   const clientTypes = useDirectoryNames("clientTypes")
+  const zones = useDirectoryNames("zones")
+  const branches = useDirectoryNames("branches")
   const options = useMemo(
     () => ({
       deliverers: employees,
-      zones: uniq(clients.map((c) => c.zone)),
+      zones,
       agents: employees,
       types: clientTypes,
       collectors: employees,
-      branches: uniq(clients.map((c) => c.branch)),
+      // A client's branch must be a Филиал (the API refuses other names).
+      branches,
     }),
-    [clients, employees, clientTypes],
+    [employees, clientTypes, zones, branches],
   )
   const set = (key: keyof typeof values) => (value: string) => setValues((current) => ({ ...current, [key]: value }))
 
@@ -60,7 +66,9 @@ export function MultiEditDialog({ clients, onSave, onClose }: { clients: Client[
     if (checks["Изменить ответственного инкассатора"] && values.collector) patch.collector = values.collector
     if (checks["Изменить филиал"] && values.branch) patch.branch = values.branch
     if (checks["Изменить неограниченный долг"]) patch.unlimitedDebt = true
-    onSave(patch)
+    const extras: MultiEditExtras = {}
+    if (checks["Изменить блокировку локации"] && lock) extras.locationLock = lock === "Заблокировать локацию"
+    onSave(patch, extras)
   }
 
   return (
@@ -100,6 +108,15 @@ export function MultiEditDialog({ clients, onSave, onClose }: { clients: Client[
                 </button>
                 {checks[label] && label === "Изменить ответственного инкассатора" && <FilterSelect compact label={t("Инкассаторы")} value={values.collector} onChange={set("collector")} options={options.collectors} />}
                 {checks[label] && label === "Изменить филиал" && <FilterSelect compact label={t("Филиалы")} value={values.branch} onChange={set("branch")} options={options.branches} />}
+                {checks[label] && label === "Изменить блокировку локации" && (
+                  <FilterSelect
+                    compact
+                    label={t("Изменить блокировку локации")}
+                    value={lock ? t(lock) : ""}
+                    onChange={(text) => setLock(LOCK_OPTIONS.find((option) => t(option) === text) ?? "")}
+                    options={LOCK_OPTIONS.map((option) => t(option))}
+                  />
+                )}
               </div>
             ))}
           </div>

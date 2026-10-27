@@ -4,7 +4,7 @@ import { cashErrorResponse } from "@/lib/cash/api"
 import { cashbackRequestDecisionSchema, decideCashbackRequest, getCashbackRequestDetail } from "@/lib/cashback-withdrawal-requests-repo"
 import { getCurrentUser } from "@/lib/current-user"
 import { requireRole } from "@/lib/rbac"
-import { parseIdSegment, parseJsonBody } from "@/lib/validation"
+import { notSignedInResponse, parseIdSegment, parseJsonBody } from "@/lib/validation"
 
 type RouteParams = { params: Promise<{ id: string }> }
 
@@ -17,7 +17,7 @@ function requestId(value: string): number | null {
 // currency and the cashboxes of that currency (demo GET telegram/cashback_request/%d/).
 export async function GET(_request: Request, { params }: RouteParams) {
   const user = await getCurrentUser()
-  if (!user) return NextResponse.json({ error: "Tizimga kirilmagan" }, { status: 401 })
+  if (!user) return notSignedInResponse()
   const id = requestId((await params).id)
   if (!id) return NextResponse.json({ error: "Запрос не найден" }, { status: 404 })
   try {

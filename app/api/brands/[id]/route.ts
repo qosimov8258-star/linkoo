@@ -5,7 +5,7 @@ import { getCurrentUser } from "@/lib/current-user"
 import { brandBodySchema, brandInput } from "@/lib/dictionaries-api"
 import { dictionaryWrite, parseDictionaryId } from "@/lib/dictionaries-schema"
 import { requireRole } from "@/lib/rbac"
-import { parseJsonBody } from "@/lib/validation"
+import { notSignedInResponse, parseJsonBody } from "@/lib/validation"
 
 type RouteParams = { params: Promise<{ id: string }> }
 
@@ -14,7 +14,7 @@ const NOT_FOUND = { error: "Бренд не найден" }
 // GET /api/brands/[id] — demo GET main/brand/:id/; ?usage=1 adds where the brand is used.
 export async function GET(request: Request, { params }: RouteParams) {
   const user = await getCurrentUser()
-  if (!user) return NextResponse.json({ error: "Tizimga kirilmagan" }, { status: 401 })
+  if (!user) return notSignedInResponse()
   const id = parseDictionaryId((await params).id)
   const brand = id ? await getBrandDetail(id, new URL(request.url).searchParams.get("usage") === "1") : null
   if (!brand) return NextResponse.json(NOT_FOUND, { status: 404 })

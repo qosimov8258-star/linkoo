@@ -6,7 +6,7 @@ import { roundMoney } from "@/lib/finance/currency"
 import { nowLocalIso } from "@/lib/finance/dates"
 import { CashError, currencyContext, isoDayOrEmpty, loadCashbox, localDateTime, MAX_MONEY, pickRate, resolveOrganization } from "@/lib/cash/common"
 import { guardCashboxBalances } from "@/lib/cash/guard"
-import { transferAmountTo } from "@/lib/cash/rates"
+import { resolveTransfer } from "@/lib/cash/rates"
 import { ensureCashSchema } from "@/lib/cash/schema"
 import { CASH_OP, operationKey, type CashTransferInput, type CashTransferResult } from "@/lib/cash/types"
 
@@ -15,6 +15,10 @@ import { CASH_OP, operationKey, type CashTransferInput, type CashTransferResult 
 // cashbox, "Перевод в <to>") and op 2 (+amountTo, target, "Перевод из <from>"),
 // category 'Перевод' kept for older readers. Cross-currency transfers carry
 // their own amounts; the branch ledger pairs the legs by transfer_id.
+// A transfer never creates money (resolveTransfer in lib/cash/rates.ts): the
+// same currency and type moves the same amount, cash ↔ bank allows a bounded
+// commission (50…100 %), and a cross-currency transfer receives, at the currency
+// table's rates, between 90 % and 102 % of the value sent.
 // The source cashbox never ends overdrawn (lib/cash/guard.ts). Organizations
 // default to the cashbox's (its cashier's single organization), then to the
 // other side's, then to the only organization.
@@ -33,23 +37,23 @@ async function insertTransfer(tx: PgDb, input: CashTransferInput, user: string, 
   const to = await loadCashbox(tx, input.toCashboxId, cc.base, "toCashbox")
   const amountFrom = Number(input.amountFrom)
   if (!Number.isFinite(amountFrom) || amountFrom <= 0 || amountFrom > MAX_MONEY) throw new CashError("Укажите сумму", 400, "amountFrom")
-  const percentMode = from.currency === to.currency && from.type !== to.type && input.percentage !== undefined && input.percentage !== null
-  let amountTo = Number(input.amountTo)
-  let rate: number | null = input.rate && input.rate > 0 ? input.rate : null
-  if (!(Number.isFinite(amountTo) && amountTo > 0)) {
-    const computed = transferAmountTo({
-      amountFrom,
-      fromCurrency: from.currency,
-      toCurrency: to.currency,
-      baseCurrency: cc.base,
-      rates: cc.rates,
-      rate,
-      percentage: percentMode ? input.percentage : null,
-    })
-    if (computed.amountTo === null) throw new CashError("Курс валюты не задан", 400, "rate")
-    amountTo = computed.amountTo
-    rate = computed.rate
-  }
+  // A transfer never creates money (lib/cash/rates.ts resolveTransfer): same currency and type →
+  // amountTo = amountFrom; cash ↔ bank → a bounded "Процент"; different currencies → a rate close
+  // to the currency table.
+  const resolved = resolveTransfer({
+    amountFrom,
+    fromCurrency: from.currency,
+    toCurrency: to.currency,
+    fromType: from.type,
+    toType: to.type,
+    baseCurrency: cc.base,
+    rates: cc.rates,
+    amountTo: input.amountTo ?? null,
+    rate: input.rate && input.rate > 0 ? input.rate : null,
+    percentage: input.percentage ?? null,
+  })
+  if (!resolved.ok) throw new CashError(resolved.error, 400, resolved.field)
+  const { amountTo, rate } = resolved
   if (!(amountTo > 0) || amountTo > MAX_MONEY) throw new CashError("Укажите сумму", 400, "amountTo")
   const date = localDateTime(input.date)
   const accFrom = isoDayOrEmpty(input.accumulatedFrom, "accumulatedMoney")
@@ -79,7 +83,7 @@ async function insertTransfer(tx: PgDb, input: CashTransferInput, user: string, 
       amountFrom,
       amountTo,
       rate,
-      percentage: percentMode ? Number(input.percentage) : 0,
+      percentage: resolved.percentage ?? 0,
       fromOrg,
       toOrg,
       fromBranch,

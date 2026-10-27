@@ -11,7 +11,7 @@ import {
   type SupplierBalanceResult,
 } from "@/lib/supplier-balance-repo"
 import { parseRouteId } from "@/lib/supplier-refs"
-import { parseJsonBody } from "@/lib/validation"
+import { notSignedInResponse, parseJsonBody } from "@/lib/validation"
 
 type RouteParams = { params: Promise<{ id: string }> }
 
@@ -27,7 +27,7 @@ function respond(result: SupplierBalanceResult) {
 
 export async function GET(_request: Request, { params }: RouteParams) {
   const user = await getCurrentUser()
-  if (!user) return NextResponse.json({ error: "Tizimga kirilmagan" }, { status: 401 })
+  if (!user) return notSignedInResponse()
 
   const id = parseRouteId((await params).id)
   const transaction = id ? await getSupplierBalanceTransaction(id) : null

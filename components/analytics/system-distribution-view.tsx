@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react"
 import { downloadExcelTable } from "@/lib/excel-export"
 import { DashboardDialog } from "./dashboard-dialog"
 import { ReportBand, ReportDateField, ReportEmpty, ReportFilters, ReportHeader, ReportPage, ReportSelectField } from "@/components/ref/report-kit"
+import { useLanguage } from "@/lib/i18n/language-context"
 
 const data: (string | number)[][] = []
 
@@ -33,6 +34,7 @@ function downloadCsv() {
 }
 
 export function SystemDistributionView() {
+  const { t } = useLanguage()
   const today = useMemo(() => inputDate(new Date()), [])
   const [from, setFrom] = useState(monthStart)
   const [to, setTo] = useState(today)
@@ -78,7 +80,7 @@ export function SystemDistributionView() {
       {overlayOpen && (
         <button
           type="button"
-          aria-label="Окнони yopish"
+          aria-label={t("Закрыть окно")}
           onClick={() => setDashboardOpen(false)}
           className="fixed inset-0 z-[90] cursor-default bg-black/55"
         />
@@ -101,6 +103,7 @@ export function SystemDistributionView() {
 }
 
 function SystemDistributionTable() {
+  const { t } = useLanguage()
   const totals = ["Итого", "", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
   return (
         <div className="mt-3 overflow-x-auto border border-slate-300 visits-scrollbar">
@@ -108,10 +111,10 @@ function SystemDistributionTable() {
             <thead className="bg-slate-50">
               <tr>
                 <th colSpan={2} className="border-b border-r border-slate-300" />
-                <th colSpan={3} className="border-b border-r border-slate-300 py-4 text-center">Количественная дистрибуция</th>
-                <th colSpan={5} className="border-b border-r border-slate-300 py-4 text-center">Анализ визитов</th>
-                <th colSpan={4} className="border-b border-r border-slate-300 py-4 text-center">Результативность</th>
-                <th className="border-b border-slate-300 py-4 text-center">Системность</th>
+                <th colSpan={3} className="border-b border-r border-slate-300 py-4 text-center">{t("Количественная дистрибуция")}</th>
+                <th colSpan={5} className="border-b border-r border-slate-300 py-4 text-center">{t("Анализ визитов")}</th>
+                <th colSpan={4} className="border-b border-r border-slate-300 py-4 text-center">{t("Результативность")}</th>
+                <th className="border-b border-slate-300 py-4 text-center">{t("Системность")}</th>
               </tr>
               <tr>
                 {["Агент", "Супервайзер", "ОКБ", "АКБ", "%", "План", "Факт", "Плановый визит", "Внеплановый визит", "Выполнение маршрута, %", "Общий", "По маршруту", "Вне маршрута", "%", "%"].map((heading, index) => (

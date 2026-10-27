@@ -7,6 +7,7 @@ import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from "re
 import { downloadExcelTable } from "@/lib/excel-export"
 import { mapHeaderColumns, readExcelRows } from "@/lib/excel-import"
 import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
+import { useLanguage } from "@/lib/i18n/language-context"
 
 type RefusalType = { id: number; name: string; resolution: string }
 
@@ -18,6 +19,7 @@ const IMPORT_HEADER_ALIASES: Record<string, string> = {
 }
 
 export function RefusalTypesView({ embedded = false }: { embedded?: boolean }) {
+  const { t } = useLanguage()
   const [items, setItems] = useState(seed)
   const [query, setQuery] = useState("")
   const [editing, setEditing] = useState<RefusalType | null>(null)
@@ -38,12 +40,12 @@ export function RefusalTypesView({ embedded = false }: { embedded?: boolean }) {
         if (!cancelled) setItems(data)
       })
       .catch(() => {
-        if (!cancelled) window.alert("Не удалось загрузить типы отказов с сервера")
+        if (!cancelled) window.alert(t("Не удалось загрузить типы отказов с сервера"))
       })
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [t])
 
   const rows = useMemo(
     () => items.filter((item) => item.name.toLowerCase().includes(query.toLowerCase()) || item.resolution.toLowerCase().includes(query.toLowerCase())),
@@ -89,7 +91,7 @@ export function RefusalTypesView({ embedded = false }: { embedded?: boolean }) {
       }
       setEditing(null)
     } catch {
-      window.alert("Сервер недоступен, попробуйте ещё раз")
+      window.alert(t("Сервер недоступен, попробуйте ещё раз"))
     }
   }
 
@@ -97,13 +99,14 @@ export function RefusalTypesView({ embedded = false }: { embedded?: boolean }) {
     try {
       const response = await fetch(`/api/refusal-types/${id}`, { method: "DELETE" })
       if (!response.ok) {
-        const data = await response.json().catch(() => ({}))
-        window.alert(data.error || "Не удалось удалить тип отказа")
+        const data = (await response.json().catch(() => ({}))) as { error?: string; usage?: Array<{ label: string; count: number }> }
+        const usage = data.usage?.length ? `: ${data.usage.map((item) => `${t(item.label)} (${item.count})`).join(", ")}` : ""
+        window.alert(`${t(data.error || "Не удалось удалить тип отказа")}${usage}`)
         return
       }
       setItems((list) => list.filter((row) => row.id !== id))
     } catch {
-      window.alert("Сервер недоступен, попробуйте ещё раз")
+      window.alert(t("Сервер недоступен, попробуйте ещё раз"))
     }
   }
 
@@ -121,7 +124,7 @@ export function RefusalTypesView({ embedded = false }: { embedded?: boolean }) {
     try {
       const rows = await readExcelRows(importFile)
       if (!rows.length) {
-        window.alert("Не удалось найти данные для импорта в выбранном файле")
+        window.alert(t("Не удалось найти данные для импорта в выбранном файле"))
         return
       }
       const fieldByIndex = mapHeaderColumns(rows[0], IMPORT_HEADER_ALIASES)
@@ -145,7 +148,7 @@ export function RefusalTypesView({ embedded = false }: { embedded?: boolean }) {
       }
 
       if (!parsed.length) {
-        window.alert("Не удалось найти данные для импорта в выбранном файле")
+        window.alert(t("Не удалось найти данные для импорта в выбранном файле"))
         return
       }
 
@@ -179,7 +182,7 @@ export function RefusalTypesView({ embedded = false }: { embedded?: boolean }) {
         <header className="flex h-[60px] flex-wrap items-center justify-between gap-3">
           <h1 className="flex items-center text-[18px] font-bold text-[#5d6474]">
             <FavoritesButton className="flex items-center gap-[5px] text-[18px] font-bold text-[#4f71dc]" />
-            <span className="mx-[11px] inline-block h-[21px] w-[2px] bg-[#5d6474]" /> Тип отказа
+            <span className="mx-[11px] inline-block h-[21px] w-[2px] bg-[#5d6474]" /> {t("Тип отказа")}
           </h1>
         </header>
       )}
@@ -187,15 +190,15 @@ export function RefusalTypesView({ embedded = false }: { embedded?: boolean }) {
       <section className={embedded ? "" : "overflow-hidden rounded bg-white shadow"}>
         <div className="flex flex-wrap items-center gap-4 px-5 py-4">
           <button type="button" onClick={() => open()} className="text-[13px] text-[#4f71dc] hover:underline">
-            + добавить
+            {t("+ добавить")}
           </button>
           <label className="relative ml-4 w-72">
-            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Поиск" className="w-full border-b border-slate-300 py-2 pr-10 outline-none focus:border-[#4f71dc]" />
+            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("Поиск")} className="w-full border-b border-slate-300 py-2 pr-10 outline-none focus:border-[#4f71dc]" />
             <Search className="absolute right-2 top-2 h-5 w-5 text-slate-300" />
           </label>
           <span className="ml-auto text-slate-500">25</span>
           <span className="text-slate-500">
-            1 - {rows.length} из {rows.length}
+            {rows.length ? 1 : 0} - {rows.length} {t("из")} {rows.length}
           </span>
           <ChevronLeft className="h-5 w-5 text-slate-300" />
           <ChevronRight className="h-5 w-5 text-slate-300" />
@@ -205,8 +208,8 @@ export function RefusalTypesView({ embedded = false }: { embedded?: boolean }) {
           <thead className="bg-[#5d6474] text-white">
             <tr>
               <th className="px-9 py-4 text-[13px]">№</th>
-              <th className="px-5 py-4 text-[13px]">Наименование</th>
-              <th className="px-5 py-4 text-[13px]">Решение</th>
+              <th className="px-5 py-4 text-[13px]">{t("Наименование")}</th>
+              <th className="px-5 py-4 text-[13px]">{t("Решение")}</th>
               <th className="w-24" />
             </tr>
           </thead>
@@ -218,10 +221,10 @@ export function RefusalTypesView({ embedded = false }: { embedded?: boolean }) {
                 <td className="px-5 py-4 text-slate-700">{item.resolution}</td>
                 <td>
                   <div className="hidden items-center justify-end gap-3 pr-4 text-slate-500 group-hover:flex">
-                    <button type="button" onClick={() => open(item)} aria-label="Изменить">
+                    <button type="button" onClick={() => open(item)} aria-label={t("Изменить")}>
                       <Pencil className="h-5 w-5" />
                     </button>
-                    <button type="button" onClick={() => remove(item.id)} aria-label="Удалить">
+                    <button type="button" onClick={() => remove(item.id)} aria-label={t("Удалить")}>
                       <Trash2 className="h-5 w-5" />
                     </button>
                   </div>
@@ -231,7 +234,7 @@ export function RefusalTypesView({ embedded = false }: { embedded?: boolean }) {
             {rows.length === 0 && (
               <tr>
                 <td colSpan={4} className="px-5 py-10 text-center text-slate-400">
-                  Ничего не найдено
+                  {t("Ничего не найдено")}
                 </td>
               </tr>
             )}
@@ -240,7 +243,7 @@ export function RefusalTypesView({ embedded = false }: { embedded?: boolean }) {
       </section>
 
       {editing && (
-        <Modal title={editing.id ? "Изменить тип отказа" : "Добавить тип отказа"} onClose={() => setEditing(null)} footer={<SaveLink onClick={() => void save({ preventDefault() {} } as FormEvent)}>Сохранить</SaveLink>}>
+        <Modal title={editing.id ? "Изменить тип отказа" : "Добавить тип отказа"} onClose={() => setEditing(null)} footer={<SaveLink onClick={() => void save({ preventDefault() {} } as FormEvent)}>{t("Сохранить")}</SaveLink>}>
           <LineField label="Название тип отказа" required autoFocus value={draft.name} onChange={(value) => setDraft({ ...draft, name: value })} />
           <div className="mt-[20px]"><LineField label="Решение" required value={draft.resolution} onChange={(value) => setDraft({ ...draft, resolution: value })} /></div>
         </Modal>
@@ -250,13 +253,13 @@ export function RefusalTypesView({ embedded = false }: { embedded?: boolean }) {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 p-4">
           <div className="w-full max-w-md rounded-lg bg-white p-6 shadow-xl">
             <div className="mb-5 flex justify-between">
-              <h2 className="text-xl font-bold">Импорт с Excel</h2>
-              <button type="button" onClick={() => { setImportOpen(false); setImportFile(null) }} aria-label="Закрыть">
+              <h2 className="text-xl font-bold">{t("Импорт с Excel")}</h2>
+              <button type="button" onClick={() => { setImportOpen(false); setImportFile(null) }} aria-label={t("Закрыть")}>
                 <X />
               </button>
             </div>
             <button type="button" onClick={downloadTemplate} className="mb-4 font-semibold text-[#5474e6] hover:underline">
-              1. Скачать шаблон
+              {t("1. Скачать шаблон")}
             </button>
             <input ref={importInputRef} type="file" accept=".csv,.xls,.xlsx" onChange={pickImportFile} className="hidden" />
             <button
@@ -265,14 +268,14 @@ export function RefusalTypesView({ embedded = false }: { embedded?: boolean }) {
               className="flex w-full flex-col items-center justify-center gap-3 rounded border-2 border-dashed border-slate-300 py-10 text-slate-500 hover:border-[#5474e6] hover:text-[#5474e6]"
             >
               <FileText className="h-8 w-8" />
-              {importFile ? importFile.name : "Добавьте файл Excel или нажмите для выбора"}
+              {importFile ? importFile.name : t("Добавьте файл Excel или нажмите для выбора")}
             </button>
             <div className="mt-6 flex justify-end gap-3">
               <button type="button" onClick={() => { setImportOpen(false); setImportFile(null) }} className="rounded border px-4 py-2">
-                Отмена
+                {t("Отмена")}
               </button>
               <button type="button" disabled={!importFile || importSaving} onClick={saveImport} className="inline-flex items-center gap-2 rounded bg-[#5474e6] px-4 py-2 font-semibold text-white disabled:opacity-40">
-                {importSaving ? "Импорт..." : "Сохранить"}
+                {importSaving ? t("Импорт...") : t("Сохранить")}
               </button>
             </div>
           </div>

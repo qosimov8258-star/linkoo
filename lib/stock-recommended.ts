@@ -10,6 +10,7 @@ import { getStockBalances, getStockCatalog, getStockPending, stockMovementsSql }
 import type { StockCatalogItem } from "@/lib/stock/types"
 import { convertRecommended, defaultRecommendedPeriod, parseMeasure, recommendedNumbers, type RecommendedNumbers } from "@/lib/stock-recommended-calc"
 import { parsePageParam } from "@/lib/stock/paging"
+import { notSignedInResponse, invalidFieldResponse } from "@/lib/validation"
 
 // "Рекомендованный запас" (demo #/recommended-stock, API stock/recommended_balances):
 // per item with sales in the period —
@@ -215,11 +216,11 @@ export function recommendedSheet(rows: RecommendedRow[], t: (text: string) => st
 /** Auth + parsing of the /api/stock/recommended routes. */
 export async function recommendedRequest(url: string): Promise<{ filters: RecommendedFilters; params: URLSearchParams; error?: undefined } | { error: NextResponse }> {
   const user = await getCurrentUser()
-  if (!user) return { error: NextResponse.json({ error: "Tizimga kirilmagan" }, { status: 401 }) }
+  if (!user) return { error: notSignedInResponse() }
   const params = new URL(url).searchParams
   const parsed = parseRecommendedFilters(params)
   if (parsed.error !== undefined) {
-    return { error: NextResponse.json({ error: "Ma'lumotlar noto'g'ri", details: { fieldErrors: { [parsed.error]: ["YYYY-MM-DD"] } } }, { status: 400 }) }
+    return { error: invalidFieldResponse(parsed.error, "YYYY-MM-DD") }
   }
   return { filters: parsed.filters, params }
 }

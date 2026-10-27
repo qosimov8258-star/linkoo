@@ -1,6 +1,6 @@
 import "server-only"
 
-import { getDb, type PgDb } from "@/lib/db"
+import { getDb, outsideTransaction, type PgDb } from "@/lib/db"
 
 // DDL of "Инвентаризация" (scratchpad stock/spec.md, "Inventory tables"),
 // created lazily and idempotently once per process. The stock core reads
@@ -67,7 +67,7 @@ async function createSchema(): Promise<void> {
 
 /** Creates stock_inventories / stock_inventory_items if missing (idempotent, once per process). */
 export function ensureStockInventoriesSchema(): Promise<void> {
-  globalThis.__linkoStockInventoriesSchema ??= createSchema().catch((error: unknown) => {
+  globalThis.__linkoStockInventoriesSchema ??= outsideTransaction(createSchema).catch((error: unknown) => {
     globalThis.__linkoStockInventoriesSchema = undefined
     throw error
   })

@@ -2,10 +2,11 @@ import "server-only"
 
 import { z } from "zod"
 
-import { getDb, type PgDb } from "@/lib/db"
+import { getDb, outsideTransaction } from "@/lib/db"
 import { nowLocalIso } from "@/lib/finance/dates"
 import { cashDayOrNull, CashError, MAX_DB_ID, MAX_MONEY } from "@/lib/cash/common"
 import { createCashGroupPayment, type CashGroupPaymentResult } from "@/lib/cash/group-payment"
+import { dbId, strictNum } from "@/lib/strict-number"
 
 // Legacy "Групповая оплата" log of the old Долги по счетам page: one amount
 // for a list of client ids. The page posts to /api/balances/group-payment (one
@@ -48,9 +49,9 @@ declare global {
   var __linkoAccountBulkPaymentsSchema: { version: number; ready: Promise<void> } | undefined
 }
 
-async function ensureSchema(db: PgDb): Promise<void> {
+async function ensureSchema(): Promise<void> {
   if (globalThis.__linkoAccountBulkPaymentsSchema?.version !== SCHEMA_VERSION) {
-    const ready = db.exec(DDL).catch((error: unknown) => {
+    const ready = outsideTransaction(() => getDb().exec(DDL)).catch((error: unknown) => {
       globalThis.__linkoAccountBulkPaymentsSchema = undefined
       throw error
     })
@@ -98,15 +99,15 @@ function rowToPayment(row: Row): AccountBulkPayment {
   }
 }
 
-const id = z.coerce.number().int().positive().max(MAX_DB_ID)
+const id = dbId()
 
 /** Body of POST /api/account-bulk-payments (legacy shape + the cashbox that receives the money):
  * `amount` is paid by EACH listed client, credited in `currency` (default the cashbox's). */
 export const accountBulkPaymentSchema = z.object({
   clientIds: z.array(z.number().int().positive().max(MAX_DB_ID)).min(1).max(1000),
-  cashboxId: z.coerce.number({ error: "Укажите кассу" }).int().positive({ error: "Укажите кассу" }).max(MAX_DB_ID, { error: "Касса не найдена" }),
+  cashboxId: dbId("Укажите кассу"),
   currency: z.string().trim().regex(/^([A-Za-z]{2,5})?$/).optional(),
-  amount: z.coerce.number().finite().positive().max(MAX_MONEY, { error: "Слишком большая сумма" }),
+  amount: strictNum(z.number().finite().positive().max(MAX_MONEY, { error: "Слишком большая сумма" })),
   paymentDate: z
     .string()
     .trim()
@@ -130,7 +131,7 @@ export async function missingAccountClientIds(ids: number[]): Promise<number[]> 
 /** Stored legacy rows that still count (not cancelled). */
 export async function listAccountBulkPayments(): Promise<AccountBulkPayment[]> {
   const db = getDb()
-  await ensureSchema(db)
+  await ensureSchema()
   return ((await db.prepare("SELECT * FROM account_bulk_payments WHERE is_deleted = 0 ORDER BY id DESC").all()) as Row[]).map(rowToPayment)
 }
 
@@ -157,7 +158,7 @@ export async function createAccountBulkPayment(body: AccountBulkPaymentBody, use
  * row) stops counting it while the original stays on record. */
 export async function deleteAccountBulkPayment(paymentId: number, user: string): Promise<{ id: number; deleted: boolean }> {
   const db = getDb()
-  await ensureSchema(db)
+  await ensureSchema()
   const result = await db
     .prepare(
       "UPDATE account_bulk_payments SET is_deleted = 1, deleted_at = @at, deleted_by = @user, cancelled_amount = amount, amount = 0 WHERE id = @id AND is_deleted = 0",

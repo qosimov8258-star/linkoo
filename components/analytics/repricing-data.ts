@@ -39,6 +39,8 @@ export type Repricing = {
 }
 
 /** Product line of a repricing (demo item `products[]`). */
+/** Line of a document; totalOld / totalNew / diff are in the document currency (the old price is
+ * converted from oldCurrency when its entry was kept in another currency). */
 export type RepricingLine = {
   kind: RepricingItemKind
   id: number
@@ -77,13 +79,16 @@ export type RepricingPickRow = {
   unit: string
   /** Доступно = on hand − defects − reserved, over every warehouse. */
   available: number
-  /** Current cash price in the price list (null = none). */
+  /** Current cash price in the price list (null = none), in its entry's currency `currency`. */
   price: number | null
   currency: string
+  /** The same price in the price list's currency (null = none, or no rate to convert it). */
+  listPrice: number | null
 }
 
 export type RepricingCreateBody = {
   priceListId: number
+  /** Must be the price list's currency (400 "Валюта переоценки должна совпадать с валютой прайс-листа"). */
   currency: string
   comment?: string
   products: Array<{ kind: RepricingItemKind; id: number; price: number }>
@@ -94,4 +99,4 @@ export type RepricingCreateBody = {
 /** Result of POST /api/repricings and /api/repricings/connected. */
 export type RepricingCreateResult = { repricing: RepricingDetail | null; linked: RepricingDetail[]; skipped: Array<{ priceList: string; reason: string }> }
 
-export type RepricingErrorBody = { error?: string; conflicts?: number[]; missing?: string[] }
+export type RepricingErrorBody = { error?: string; conflicts?: number[]; missing?: string[]; currency?: string }

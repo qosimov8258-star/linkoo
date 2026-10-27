@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react"
 
 import { useCashJson } from "@/components/analytics/cash/use-cash"
 import { CashModal, ConfirmDialog, FormField, PrimaryButton, SearchSelect, inputClass, useCashRates } from "@/components/analytics/cash-management-shared"
-import { currencyLabel } from "@/lib/finance/currency"
+import { currencyLabel, normCurrency } from "@/lib/finance/currency"
 import { useLanguage } from "@/lib/i18n/language-context"
 import {
   PRICE_LISTS_API,
@@ -71,6 +71,13 @@ export function PriceListFormDialog({ priceListId, onClose, onSaved }: { priceLi
   const set = (patch: Partial<Draft>) => setDraft((current) => ({ ...current, ...patch }))
   const currencyOptions = useMemo(() => [...new Set([...codes, ...(draft.currency ? [draft.currency] : [])])].map((code) => ({ value: code, label: currencyLabel(code) })), [codes, draft.currency])
   const listOptions = (lists.data ?? []).filter((list) => list.id !== priceListId).map((list) => ({ value: String(list.id), label: list.name }))
+  // A linked list in another currency: "Умножить на курс" is the conversion (its "Курс"), the other
+  // methods get the connected list's price converted at the current rate (lib/repricings-repo.ts).
+  const connectedList = draft.isConnected ? ((lists.data ?? []).find((list) => String(list.id) === draft.connectedId) ?? null) : null
+  const currencyPair =
+    connectedList && draft.currency && normCurrency(connectedList.currency) !== normCurrency(draft.currency)
+      ? `${currencyLabel(normCurrency(connectedList.currency))} → ${currencyLabel(normCurrency(draft.currency))}`
+      : ""
 
   async function submit() {
     const nextErrors: Record<string, string> = {}
@@ -78,6 +85,8 @@ export function PriceListFormDialog({ priceListId, onClose, onSaved }: { priceLi
     if (!draft.currency) nextErrors.currency = t("Обязательное поле")
     if (draft.isConnected && !draft.connectedId) nextErrors.connectedPriceList = t("Обязательное поле")
     if (draft.position.trim() && !Number.isFinite(Number(draft.position.replace(",", ".")))) nextErrors.position = t("Введите число")
+    // Only an active list can be the default for orders (lib/price-lists-repo.ts): untick one of them deliberately.
+    if (!draft.isActive && draft.isDefaultForOrder) nextErrors.isDefaultForOrder = t("Неактивный прайс-лист не может быть по умолчанию для заказа")
     for (const key of method?.keys ?? []) {
       const raw = (draft.values[key.id] ?? "").replace(/\s/g, "").replace(",", ".")
       if (raw && !Number.isFinite(Number(raw))) nextErrors[key.id] = t("Введите число")
@@ -146,6 +155,7 @@ export function PriceListFormDialog({ priceListId, onClose, onSaved }: { priceLi
           </FormField>
           {check(t("Активный"), draft.isActive, (isActive) => set({ isActive }))}
           {check(t("По умолчанию для заказа"), draft.isDefaultForOrder, (isDefaultForOrder) => set({ isDefaultForOrder }))}
+          {(errors.isActive || errors.isDefaultForOrder) && <p className="-mt-2 text-[12px] text-[#e57373]">{errors.isActive || errors.isDefaultForOrder}</p>}
           {check(t("Связать прайс-лист"), draft.isConnected, (isConnected) => set({ isConnected }))}
           {draft.isConnected && (
             <div className="flex flex-col gap-4 border-l-2 border-[#4f71dc]/30 pl-4">
@@ -178,6 +188,14 @@ export function PriceListFormDialog({ priceListId, onClose, onSaved }: { priceLi
                     />
                   </FormField>
                 ),
+              )}
+              {currencyPair && draft.methodId && (
+                <p className="text-[12px] text-[#5d6474]">
+                  {draft.methodId === "rate"
+                    ? t("Курс — цена в валюте этого прайс-листа за 1 единицу валюты связанного прайс-листа")
+                    : t("Цена связанного прайс-листа переводится в валюту этого прайс-листа по текущему курсу")}{" "}
+                  ({currencyPair})
+                </p>
               )}
             </div>
           )}

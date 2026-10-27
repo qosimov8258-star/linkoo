@@ -7,7 +7,7 @@ import { nameField } from "@/lib/auth-request"
 export const accessRightSchema = z.object({
   name: nameField("Укажите наименование", 120),
   capabilityIds: z
-    .array(z.number({ error: "Неизвестная возможность" }).int({ error: "Неизвестная возможность" }).positive({ error: "Неизвестная возможность" }), {
+    .array(z.number({ error: "Неизвестная возможность" }).int({ error: "Неизвестная возможность" }).positive({ error: "Неизвестная возможность" }).max(2_147_483_647, { error: "Неизвестная возможность" }), {
       error: "Неверный список возможностей",
     })
     .max(500)

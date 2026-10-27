@@ -7,6 +7,7 @@ import { RI, RefButton, RefHeader, RefPage, RefTabs } from "@/components/ref/lis
 
 import { downloadExcelTable } from "@/lib/excel-export"
 import { mapHeaderColumns, readExcelRows } from "@/lib/excel-import"
+import { csvText, parseCsv } from "@/lib/csv"
 import { useLanguage } from "@/lib/i18n/language-context"
 
 const months = ["Январь", "Февраль", "Март", "Апрель", "Май", "Июнь", "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"]
@@ -240,17 +241,19 @@ export function SalaryPlanningView() {
   }
 
   function exportCsv() {
-    const header = "Сотрудник;Зарплата;Сумма бонусов;Итоговая зарплата;KPI;Зачислено"
-    const body = rows.map((row) => `${row.employee};${row.salary};${row.bonus};${row.salary + row.bonus};${row.kpi};${row.credited ? "Да" : "Нет"}`)
-    download("salary-plans.csv", [header, ...body].join("\n"))
+    const header = ["Сотрудник", "Зарплата", "Сумма бонусов", "Итоговая зарплата", "KPI", "Зачислено"]
+    const body = rows.map((row) => [row.employee, row.salary, row.bonus, row.salary + row.bonus, row.kpi, row.credited ? "Да" : "Нет"])
+    download("salary-plans.csv", csvText([header, ...body]))
   }
 
   async function importCsv(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0]
     if (!file) return
     const text = await file.text()
-    const imported = text.split(/\r?\n/).slice(1).filter(Boolean).map((line, index) => {
-      const [employee, salary, bonus, , kpi, credited] = line.split(";")
+    // The file of "Скачать EXCEL" (csvText: quoted cells) or an older plain "a;b;c" one.
+    const lines = parseCsv(text).slice(1).filter((cells) => cells.some((cell) => cell.trim()))
+    const imported = lines.map((cells, index) => {
+      const [employee, salary, bonus, , kpi, credited] = cells
       return { employee: employee || `Сотрудник ${index + 1}`, salary: Number(salary) || 0, bonus: Number(bonus) || 0, kpi: Number(kpi) || 0, credited: credited === "Да" }
     })
     event.target.value = ""

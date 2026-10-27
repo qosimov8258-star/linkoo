@@ -1,6 +1,7 @@
 import "server-only"
 
-import { getDb, withTransaction, type PgDb } from "@/lib/db"
+import { getDb, outsideTransaction, withTransaction, type PgDb } from "@/lib/db"
+import { docYearOk, parseDocInput } from "@/lib/document-dates"
 import { isIsoDay, parseAnyDate, parseAnyDay, todayIso } from "@/lib/finance/dates"
 import { getStockBalances } from "@/lib/stock/ledger"
 import { nowLocalMoment } from "@/lib/stock/moments"
@@ -9,16 +10,21 @@ import { jsonLines } from "@/lib/stock/sources"
 import {
   catalogIndex,
   countedByInventory,
+  documentKeys,
   findShortages,
   findWarehouse,
+  lockDocumentWarehouses,
+  lockWarehousesOf,
   lockWarehouseStock,
   resolveLine,
   round6,
   shortageMessage,
   textKey,
   warehouseStock,
+  WarehouseRenamedError,
   type CatalogIndex,
   type ItemStock,
+  type WarehouseRef,
 } from "@/lib/internal-transfers-stock"
 import type { StockShortage } from "@/lib/internal-transfers-types"
 import {
@@ -35,10 +41,10 @@ import {
 // "Списание" storage: write_offs (+ lazy finished / cancelled who-when
 // columns). A write-off is created finished ("закрыт", demo "Списать") or
 // pending, for a registered active warehouse, dated today or earlier;
-// finishing is refused when the warehouse lacks the goods (stock core; lines
-// flagged "defect" take Брак, up to the defective units on hand); a finished
-// one can be cancelled unless a confirmed inventory of the same warehouse
-// counted the stock after it left. Line costs are the cost of goods
+// finishing is refused when the warehouse lacks the goods on any day from the
+// write-off day on (stock core; lines flagged "defect" take Брак, up to the
+// defective units on hand); a finished one can be cancelled unless a confirmed
+// inventory of the same warehouse counted its items after they left. Line costs are the cost of goods
 // (lib/stock/costs.ts) of the write-off day.
 
 /** Contract 3 bound. */
@@ -50,7 +56,7 @@ declare global {
 
 export async function ensureWriteOffsSchema(): Promise<void> {
   if (!globalThis.__linkoWriteOffsSchemaV1) {
-    globalThis.__linkoWriteOffsSchemaV1 = (async () => {
+    globalThis.__linkoWriteOffsSchemaV1 = outsideTransaction(async () => {
       await ensureStockSchema()
       await getDb().exec(`
         ALTER TABLE write_offs ADD COLUMN IF NOT EXISTS finished_at TEXT NOT NULL DEFAULT '';
@@ -58,7 +64,7 @@ export async function ensureWriteOffsSchema(): Promise<void> {
         ALTER TABLE write_offs ADD COLUMN IF NOT EXISTS cancelled_at TEXT NOT NULL DEFAULT '';
         ALTER TABLE write_offs ADD COLUMN IF NOT EXISTS cancelled_by TEXT NOT NULL DEFAULT '';
       `)
-    })().catch((error) => {
+    }).catch((error) => {
       globalThis.__linkoWriteOffsSchemaV1 = undefined
       throw error
     })
@@ -259,6 +265,7 @@ async function inTransaction(fn: (tx: PgDb) => Promise<WriteOffChange>): Promise
     return await withTransaction(fn)
   } catch (error) {
     if (error instanceof WriteOffAbort) return error.result
+    if (error instanceof WarehouseRenamedError) return { error: error.message, status: 409 }
     throw error
   }
 }
@@ -270,15 +277,13 @@ function momentOf(value: string): string | null {
   const now = nowLocalMoment()
   if (!text) return now
   if (isIsoDay(text)) return saneYear(text) ? (text >= now.slice(0, 10) ? `${text}${now.slice(10)}` : `${text}T23:59:59`) : null
-  const parsed = parseAnyDate(text)
+  const parsed = parseDocInput(text)
   return parsed && saneYear(parsed) ? parsed : null
 }
 
-/** Years a write-off can sensibly carry (0001-01-01 or 9999-12-31 are typos → 400). */
+/** Years a write-off can sensibly carry (0001-01-01 or 9999-12-31 are typos → 400): the shared document rule. */
 function saneYear(moment: string): boolean {
-  const match = /^(\d{1,4})-/.exec(moment.trim())
-  const year = match ? Number(match[1]) : Number.NaN
-  return year >= 2000 && year <= 2100
+  return docYearOk(moment)
 }
 
 /** Lines with the canonical product, unit, blocks and the cost of goods of the day;
@@ -333,7 +338,8 @@ async function ledgerOrphans(db: PgDb, warehouse: string, lines: WriteOffLineInp
   return keys
 }
 
-/** Refuses lines the warehouse does not have on the write-off day, today and in the end. */
+/** Refuses lines the warehouse does not have on every day from the write-off day on
+ * (that day, each later day, today and the documents dated ahead): no day may go negative. */
 async function checkStock(tx: PgDb, warehouse: string, day: string, items: WriteOffItem[], index: CatalogIndex) {
   const stock = await warehouseStock(warehouse, day, tx)
   const shortages = findShortages(
@@ -346,26 +352,32 @@ async function checkStock(tx: PgDb, warehouse: string, day: string, items: Write
 }
 
 /** The registered, active warehouse of a write-off (the registry's spelling). */
-async function writeOffWarehouse(db: PgDb, name: string): Promise<string | WriteOffError> {
+async function writeOffWarehouse(db: PgDb, name: string): Promise<WarehouseRef | WriteOffError> {
   const found = await findWarehouse(db, name)
   if (!found) return { error: "Склад не найден", status: 400, field: "warehouse" }
   if (!found.active) return { error: "Склад неактивен", status: 400, field: "warehouse" }
-  return found.name
+  return found
 }
 
 export async function createWriteOff(input: WriteOffInput, userName: string): Promise<WriteOffChange> {
   await ensureWriteOffsSchema()
   if (!input.warehouse.trim()) return { error: "Склад не выбран", status: 400, field: "warehouse" }
   const db = getDb()
-  const warehouse = await writeOffWarehouse(db, input.warehouse)
-  if (isWriteOffError(warehouse)) return warehouse
+  const checked = await writeOffWarehouse(db, input.warehouse)
+  if (isWriteOffError(checked)) return checked
   const date = momentOf(input.date)
   if (!date) return { error: "Неверная дата", status: 400, field: "date" }
   if (date.slice(0, 10) > todayIso()) return { error: "Дата не может быть позже сегодняшнего дня", status: 400, field: "date" }
   const index = await catalogIndex(db)
-  const orphans = await ledgerOrphans(db, warehouse, input.items, index)
+  const checkedOrphans = await ledgerOrphans(db, checked.name, input.items, index)
   return inTransaction(async (tx) => {
-    await lockWarehouseStock(tx, [warehouse])
+    // Rename race: the warehouse's stock lock, then its name as it is now (lockDocumentWarehouses) —
+    // a rename committed meanwhile is written off from under its new name, whose stock it is.
+    const [locked] = await lockDocumentWarehouses(tx, [checked])
+    if (!locked) return { error: "Склад не найден", status: 400, field: "warehouse" }
+    if (!locked.active) return { error: "Склад неактивен", status: 400, field: "warehouse" }
+    const warehouse = locked.name
+    const orphans = locked.renamed ? await ledgerOrphans(tx, warehouse, input.items, index) : checkedOrphans
     const stock = await warehouseStock(warehouse, date.slice(0, 10), tx)
     const items = buildLines(input.items, index, stock, orphans)
     if (isWriteOffError(items)) return items
@@ -391,14 +403,15 @@ export async function createWriteOff(input: WriteOffInput, userName: string): Pr
   })
 }
 
-/** A confirmed inventory of the warehouse counted the stock after the write-off left
- * (a later day, or an end-of-day count of that day confirmed after the write-off). */
-async function linkedInventory(tx: PgDb, writeOff: WriteOff): Promise<boolean> {
+/** A confirmed inventory of the warehouse counted the written-off goods after they left
+ * (a later day, or an end-of-day count of that day confirmed after the write-off) —
+ * only counts of the write-off's own items, confirmed after it was finished. */
+async function linkedInventory(tx: PgDb, writeOff: WriteOff, index: CatalogIndex): Promise<boolean> {
   const day = parseAnyDay(writeOff.date) ?? writeOff.date.slice(0, 10)
   // The goods left when it was finished (that day), else at its date.
   const finished = parseAnyDate(writeOff.finishedAt)
   const moment = finished && finished.slice(0, 10) === day ? finished : (parseAnyDate(writeOff.date) ?? `${day}T00:00:00`)
-  return countedByInventory(tx, writeOff.warehouse, day, moment)
+  return countedByInventory(tx, writeOff.warehouse, day, moment, documentKeys(index, writeOff.items), { registeredAt: finished })
 }
 
 /** POST /api/write-offs/[id]/action: finish (ожидает → закрыт) / cancel (→ отменен). */
@@ -406,6 +419,8 @@ export async function writeOffAction(id: number, action: WriteOffAction, userNam
   await ensureWriteOffsSchema()
   const index = await catalogIndex()
   return inTransaction(async (tx) => {
+    // Lock order (C1): the warehouse's stock lock before the row lock.
+    if (action === "finish") await lockWarehousesOf(tx, "SELECT warehouse FROM write_offs WHERE id = @id", { id })
     const locked = (await tx.prepare("SELECT * FROM write_offs WHERE id = @id FOR UPDATE").get({ id })) as WriteOffRow | undefined
     if (!locked) return { error: "Списание не найдено", status: 404 }
     const current = rowToWriteOff(locked)
@@ -427,7 +442,7 @@ export async function writeOffAction(id: number, action: WriteOffAction, userNam
         .prepare("UPDATE write_offs SET status = 'закрыт', items = @items, finished_at = @at, finished_by = @by, updated_at = datetime('now') WHERE id = @id")
         .run({ id, items: JSON.stringify(items), at: now, by: userName })
     } else {
-      if (current.status === "закрыт" && (await linkedInventory(tx, current))) {
+      if (current.status === "закрыт" && (await linkedInventory(tx, current, index))) {
         return { error: "Отменение невозможно из-за связи с другими данными", status: 409 }
       }
       await tx.prepare("UPDATE write_offs SET status = 'отменен', cancelled_at = @at, cancelled_by = @by, updated_at = datetime('now') WHERE id = @id").run({ id, at: now, by: userName })

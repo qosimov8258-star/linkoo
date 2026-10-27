@@ -41,9 +41,6 @@ export function ledgerCurrency(code: string): string {
   return normCurrency(code).toLowerCase()
 }
 
-/** Default currency list when the currencies table is empty. */
-export const DEFAULT_CURRENCY_CODES = ["SUM", "USD", "EUR"] as const
-
 /** Demo rule (module 154): show only currencies that have a non-zero value in
  * any field of `totals`; if every currency is all-zero, keep only the first. */
 export function visibleCurrencyCodes(currencies: Pick<FinanceCurrency, "code">[], totals: Record<string, CurrencyBalance | Record<string, number> | undefined>): string[] {

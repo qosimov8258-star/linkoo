@@ -19,10 +19,15 @@ import {
 // stock/outcome_tasks, with history=true for the done ones), read straight
 // from the documents:
 //   Приемка           supplier_incomings 'ожидает'  + internal_transfers 'в пути'  (to_warehouse)
+//                     + client_returns 'pending' (the return warehouse)
 //   История Приемки   supplier_incomings 'принят'   + internal_transfers 'принят'  (to_warehouse)
+//                     + client_returns 'accepted' (accepted_at / accepted_by)
 //   Передача          internal_transfers 'потвержден' (from_warehouse) + orders 'Есть на складе' with a warehouse
 //   История Передачи  internal_transfers 'в пути' / 'принят' (from_warehouse) + orders 'В пути' / 'Доставлено' with a warehouse
-// Client returns ("Возврат") have no table yet, so that type never has rows.
+// Client returns ("Возврат", Продажи → Возвраты, contract 5) are accepted through
+// POST /api/client-returns/[id]/accept; an accepted return can be undone with
+// POST /api/client-returns/[id]/unaccept (back to pending) or cancelled, while its
+// warehouse still holds the goods.
 // The transfer columns given_* / accepted_* are created lazily by the
 // transfers module, so every optional column is checked first.
 
@@ -123,7 +128,29 @@ function taskSources(tab: PlanTaskTab, t: StockTables): string[] {
     }
   }
 
-  // Orders leave a warehouse only once they name it (orders.warehouse; the orders module does not set it yet).
+  // Client returns: the client's goods come back into the return's warehouse
+  // (pending → to receive; accepted → received). Returns without a warehouse
+  // cannot be received anywhere, so they are not listed.
+  if ((tab === "receive" || tab === "receive_history") && t.has("client_returns") && t.col("client_returns", "warehouse") && t.col("client_returns", "status")) {
+    const created = t.col("client_returns", "created_at") ? ts("r.created_at") : "NULL::timestamp"
+    const planned = t.col("client_returns", "return_date") ? `COALESCE(fin_ts(r.return_date), ${created})` : created
+    const fields = {
+      type: "order_return" as const,
+      party: columnOr(t, "client_returns", "client", "r", "''"),
+      warehouse: "r.warehouse",
+      request: created,
+      deliverer: columnOr(t, "client_returns", "deliverer", "r", "''"),
+    }
+    if (tab === "receive") {
+      parts.push(withIds(select({ ...fields, date: planned }, "FROM client_returns r WHERE btrim(r.warehouse) <> '' AND r.status = 'pending'"), "r"))
+    } else {
+      const accepted = t.col("client_returns", "accepted_at") ? `COALESCE(${ts("r.accepted_at")}, ${planned})` : planned
+      const by = columnOr(t, "client_returns", "accepted_by", "r", "''")
+      parts.push(withIds(select({ ...fields, date: accepted, doneBy: by, doneAt: accepted }, "FROM client_returns r WHERE btrim(r.warehouse) <> '' AND r.status = 'accepted'"), "r"))
+    }
+  }
+
+  // Orders leave a warehouse once they name it (orders.warehouse, contract 4).
   if ((tab === "transfer" || tab === "transfer_history") && t.has("orders") && t.col("orders", "warehouse")) {
     const created = orderCreated(t)
     const delivery = t.col("orders", "delivery") ? `COALESCE(fin_ts(o.delivery), ${created})` : created
@@ -368,6 +395,39 @@ export async function getPlanItem(type: PlanTaskType, id: number, db: PgDb = get
       acceptedAt: text(row, "pl_accepted"),
       comment: text(row, "comment"),
       products: jsonArray(row.items).map((line) => product(index, String(line.product ?? ""), lineQty(line.quantity ?? line.qty))),
+    }
+  }
+
+  if (type === "order_return" && t.has("client_returns")) {
+    const created = t.col("client_returns", "created_at") ? ts("r.created_at") : "NULL::timestamp"
+    const planned = t.col("client_returns", "return_date") ? "fin_ts(r.return_date)" : "NULL::timestamp"
+    const accepted = t.col("client_returns", "accepted_at") ? ts("r.accepted_at") : "NULL::timestamp"
+    const row = (await db
+      .prepare(`SELECT r.*, ${iso(created)} AS pl_created, ${iso(planned)} AS pl_planned, ${iso(accepted)} AS pl_accepted FROM client_returns r WHERE r.id = @pl_id`)
+      .get({ pl_id: id })) as DetailRow | undefined
+    if (!row) return null
+    const index = await catalogIndex(db)
+    const lines =
+      t.has("client_return_items") && t.col("client_return_items", "return_id")
+        ? ((await db.prepare("SELECT * FROM client_return_items WHERE return_id = @pl_id ORDER BY id").all({ pl_id: id })) as DetailRow[])
+        : []
+    return {
+      ...empty,
+      type,
+      id,
+      status: text(row, "status"),
+      fromName: text(row, "client"),
+      toName: text(row, "warehouse"),
+      createdBy: text(row, "created_by"),
+      createdAt: text(row, "pl_created"),
+      plannedDate: text(row, "pl_planned"),
+      deliverer: text(row, "deliverer"),
+      acceptedBy: text(row, "status") === "accepted" ? text(row, "accepted_by") : "",
+      acceptedAt: text(row, "status") === "accepted" ? text(row, "pl_accepted") : "",
+      comment: text(row, "comment"),
+      products: lines.map((line) =>
+        product(index, text(line, "product_name"), lineQty(line.quantity), line.product_id ? `product:${line.product_id}` : "", text(line, "unit")),
+      ),
     }
   }
 

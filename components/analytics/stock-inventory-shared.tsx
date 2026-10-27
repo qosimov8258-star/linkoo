@@ -38,10 +38,12 @@ export function diffColor(value: number): string | undefined {
   return undefined
 }
 
-/** Demo "Дата создания": date + time for "По факту проведения", the chosen day otherwise. */
-export function inventoryDateText(row: Pick<StockInventoryRow, "type" | "createdDate" | "invDate">, language: string): string {
+/** Demo "Дата создания": the chosen day for "На дату", the creation moment otherwise. Lists pass
+ * `withTime = false` so every row of a column has the same "20 окт. 2026" shape (custom-date
+ * inventories have no time of day); the detail card keeps the time. */
+export function inventoryDateText(row: Pick<StockInventoryRow, "type" | "createdDate" | "invDate">, language: string, withTime = true): string {
   if (row.type === "custom_date") return formatCashDate(row.invDate, language, false)
-  return row.createdDate ? formatCashDate(row.createdDate, language, row.createdDate.length > 10) : ""
+  return row.createdDate ? formatCashDate(row.createdDate, language, withTime && row.createdDate.length > 10) : ""
 }
 
 export function StatusLabel({ status }: { status: StockInventoryStatus }) {
@@ -62,7 +64,7 @@ export function inventoryListSheet(rows: StockInventoryRow[], t: Translate, lang
       row.id,
       row.warehouse,
       row.createdBy,
-      inventoryDateText(row, language),
+      inventoryDateText(row, language, false),
       row.comment || t("Комментариев нет"),
       t(STOCK_INVENTORY_STATUS_LABELS[row.status]),
       Math.round(row.totalPrice * 100) / 100,

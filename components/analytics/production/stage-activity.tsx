@@ -45,7 +45,7 @@ const SUB_TABS: Array<[SubTab, string, typeof ClipboardList]> = [
 ]
 
 export function ActivityTab({ stage, equipment, staff }: { stage: Stage; equipment: Equipment[]; staff: StaffMember[] }) {
-  const { t } = useLanguage()
+  const { t, language } = useLanguage()
   const [from, setFrom] = useState(todayIso())
   const [to, setTo] = useState(todayIso())
   const [subTab, setSubTab] = useState<SubTab>("overview")
@@ -140,7 +140,7 @@ export function ActivityTab({ stage, equipment, staff }: { stage: Stage; equipme
                 `${t(row.direction === "made" ? "Продукт" : "Сырье")}${row.isDefect ? ` (${t("Брак")})` : ""}`,
                 formatAmount(row.amount, row.unit),
                 row.partyId ? `№ ${row.partyId}` : [row.shift, row.worker].filter(Boolean).join(", ") || "-",
-                formatDateTime(row.createdAt),
+                formatDateTime(row.createdAt, language),
               ])}
               empty="Записей нет"
             />
@@ -148,7 +148,7 @@ export function ActivityTab({ stage, equipment, staff }: { stage: Stage; equipme
           {subTab === "shifts" && (
             <SimpleTable
               headers={["Дата", "Смена", "Работник", "Произведено", "Сырье"]}
-              rows={activity.shifts.map((row) => [formatDate(row.date), row.shift || "-", row.worker || "-", formatNumber(row.made), formatNumber(row.raw)])}
+              rows={activity.shifts.map((row) => [formatDate(row.date, language), row.shift || "-", row.worker || "-", formatNumber(row.made), formatNumber(row.raw)])}
               empty="В этом периоде не найдено смен"
             />
           )}
@@ -211,7 +211,7 @@ function SimpleTable({ headers, rows, empty }: { headers: string[]; rows: string
 }
 
 function InventoryList({ inventories }: { inventories: Inventory[] }) {
-  const { t } = useLanguage()
+  const { t, language } = useLanguage()
   const [open, setOpen] = useState<number | null>(null)
   if (!inventories.length) return <RobotEmpty text="В этом периоде не найдено инвентаризаций" size={110} />
   return (
@@ -221,7 +221,7 @@ function InventoryList({ inventories }: { inventories: Inventory[] }) {
         return (
           <li key={inventory.id} className="border-b border-dashed border-slate-200">
             <button onClick={() => setOpen(open === inventory.id ? null : inventory.id)} className="flex w-full flex-wrap items-center justify-between gap-3 py-3 text-left text-sm">
-              <span className="font-semibold">№ {inventory.id} · {formatDate(inventory.date)}</span>
+              <span className="font-semibold">№ {inventory.id} · {formatDate(inventory.date, language)}</span>
               <span className="text-slate-500">{inventory.userName}</span>
               <span>{t("Позиций")}: {inventory.lines.length}</span>
               <span className={changed ? "text-red-500" : "text-emerald-600"}>{t("Расхождений")}: {changed}</span>
@@ -297,7 +297,7 @@ function ActivityDialog({
       })
       onSaved()
     } catch (error) {
-      window.alert((error as Error).message)
+      window.alert(t((error as Error).message))
     } finally {
       setSaving(false)
     }
@@ -314,8 +314,16 @@ function ActivityDialog({
         <Field label="Оборудование">
           <select value={equipmentId} onChange={(event) => setEquipmentId(event.target.value)} className={inputClass}>
             <option value="">—</option>
-            {equipment.map((entry) => <option key={entry.id} value={entry.id}>{entry.name}</option>)}
+            {/* Work is booked only on working machines (the server refuses the others). */}
+            {equipment.map((entry) => (
+              <option key={entry.id} value={entry.id} disabled={entry.status !== "1"}>
+                {entry.status === "1" ? entry.name : `${entry.name} (${t("не работает")})`}
+              </option>
+            ))}
           </select>
+          {equipment.some((entry) => entry.status !== "1") && (
+            <p className="mt-1 text-xs text-slate-500">{t("Чтобы выбрать оборудование, отметьте его «работает» во вкладке «Оборудование»")}</p>
+          )}
         </Field>
         <Field label="Работник">
           <select value={worker} onChange={(event) => setWorker(event.target.value)} className={inputClass}>

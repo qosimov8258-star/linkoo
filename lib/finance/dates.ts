@@ -42,7 +42,9 @@ function utcToLocal(utcMs: number): string {
 
 /** Parses any stored date text into a local "YYYY-MM-DDTHH:mm:ss" string, or
  * null. `utc` = treat a zone-less "YYYY-MM-DD HH:MM:SS" as UTC (created_at /
- * updated_at columns); otherwise zone-less values are local business times. */
+ * updated_at columns); otherwise zone-less values are local business times.
+ * An ISO offset no time zone has (minutes above 59, beyond ±14:00, e.g. "+99:99")
+ * is unparseable, instead of silently moving the date by days. */
 export function parseAnyDate(value: string | null | undefined, utc = false): string | null {
   const text = String(value ?? "").replace(/[\u00a0\u202f]/g, " ").trim()
   if (!text) return null
@@ -57,7 +59,10 @@ export function parseAnyDate(value: string | null | undefined, utc = false): str
       if (zone && zone.toUpperCase() !== "Z") {
         const sign = zone.startsWith("-") ? -1 : 1
         const digits = zone.slice(1).replace(":", "")
-        offset = sign * (Number(digits.slice(0, 2)) * 60 + Number(digits.slice(2, 4) || 0))
+        const minutes = Number(digits.slice(2, 4) || 0)
+        const total = Number(digits.slice(0, 2)) * 60 + minutes
+        if (minutes > 59 || total > 14 * 60) return null
+        offset = sign * total
       }
       const utcMs = Date.UTC(parts[0], parts[1] - 1, parts[2], parts[3], parts[4], parts[5]) - offset * 60_000
       return utcToLocal(utcMs)

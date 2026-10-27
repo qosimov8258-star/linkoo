@@ -7,6 +7,7 @@ import type { PgDb } from "@/lib/db"
 import { defaultBalancePeriod, isIsoDay, monthStartIso } from "@/lib/finance/dates"
 import { getManagementBalance, NO_BRANCH_LABEL } from "@/lib/finance/management"
 import type { ManagementLine, ManagementSection } from "@/lib/finance/types"
+import { zodErrorResponse } from "@/lib/validation"
 import {
   MANAGEMENT_NAME_PREFIX,
   MANAGEMENT_NO_BRANCH,
@@ -50,7 +51,7 @@ export function parseManagementBalanceQuery(url: string): Parsed {
   if (division.length) raw.division = division
 
   const parsed = managementBalanceQuerySchema.safeParse(raw)
-  if (!parsed.success) return { error: NextResponse.json({ error: "Ma'lumotlar noto'g'ri", details: parsed.error.flatten() }, { status: 400 }) }
+  if (!parsed.success) return { error: zodErrorResponse(parsed.error) }
 
   // Demo menu default: 1st of the current month .. today (only an end date →
   // 1st of its month .. that day); a reversed range is swapped.

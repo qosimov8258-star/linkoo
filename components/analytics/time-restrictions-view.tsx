@@ -1,156 +1,209 @@
 "use client"
 
-import { ChevronLeft, ChevronRight, Pencil, Search, X } from "lucide-react"
-import { FormEvent, useEffect, useMemo, useState } from "react"
+import { ChevronLeft, ChevronRight, Pencil, Search } from "lucide-react"
+import { FormEvent, useCallback, useEffect, useState } from "react"
 
-type TimeRestriction = { id: number; name: string; from: string; to: string; fullDay: boolean }
+import { CashSnackbar, ErrorBlock, LoadingBlock, useCanManage, type SnackbarMessage } from "@/components/analytics/cash-management-shared"
+import { EmptyState, dottedRow } from "@/components/analytics/catalog-ui"
+import { TimeRestrictionDialog } from "@/components/analytics/time-restrictions-dialog"
+import { useLanguage } from "@/lib/i18n/language-context"
+import { ORDER_TIME_PAGE_SIZES, workingTimeText, type OrderTimeRestriction, type OrderTimeRestrictionPage } from "@/lib/order-time-restrictions-rules"
+
+// Ограничение времени (Персонал → Заказ; also Настройки → Разное): the two system order
+// time windows (Создания заказа, Редактировать заказ). Search, page size and page are kept in
+// the URL (?search=&page=&pageSize=) like the reference; the pencil opens "Время работы".
+// Only users who may change settings (settings.manage) see the pencil.
+
+type Query = { search: string; page: number; pageSize: number }
+type Loaded = { key: string; data: OrderTimeRestrictionPage | null; error: string | null }
+
+const DEFAULT_PAGE_SIZE = 25
+
+function queryFromUrl(): Query {
+  const params = new URLSearchParams(window.location.search)
+  const page = Number(params.get("page"))
+  const pageSize = Number(params.get("pageSize"))
+  return {
+    search: (params.get("search") ?? "").slice(0, 200),
+    page: Number.isInteger(page) && page >= 1 && page <= 1_000_000 ? page : 1,
+    pageSize: (ORDER_TIME_PAGE_SIZES as readonly number[]).includes(pageSize) ? pageSize : DEFAULT_PAGE_SIZE,
+  }
+}
+
+function queryString(query: Query): string {
+  const params = new URLSearchParams()
+  if (query.search) params.set("search", query.search)
+  params.set("page", String(query.page))
+  params.set("pageSize", String(query.pageSize))
+  return params.toString()
+}
 
 export function TimeRestrictionsView({ embedded = false }: { embedded?: boolean }) {
-  const [rows, setRows] = useState<TimeRestriction[]>([])
-  const [query, setQuery] = useState("")
-  const [page, setPage] = useState(1)
-  const [editing, setEditing] = useState<TimeRestriction | null>(null)
-  const [draft, setDraft] = useState({ fullDay: true, from: "00:00", to: "23:59" })
-  const [saving, setSaving] = useState(false)
-  const pageSize = 25
+  const { t } = useLanguage()
+  const canManage = useCanManage(["settings.manage"])
+  const [query, setQuery] = useState<Query | null>(null)
+  const [input, setInput] = useState("")
+  const [reload, setReload] = useState(0)
+  const [loaded, setLoaded] = useState<Loaded | null>(null)
+  const [editing, setEditing] = useState<OrderTimeRestriction | null>(null)
+  const [message, setMessage] = useState<SnackbarMessage | null>(null)
 
+  // The URL is read after mounting, so the server render and the first client render agree.
   useEffect(() => {
-    let cancelled = false
-    fetch("/api/order-time-restrictions")
-      .then(async (response) => {
-        if (!response.ok) throw new Error("Не удалось загрузить ограничения")
-        return (await response.json()) as TimeRestriction[]
-      })
-      .then((data) => {
-        if (!cancelled) setRows(data)
-      })
-      .catch(() => {})
-    return () => {
-      cancelled = true
-    }
+    const initial = queryFromUrl()
+    setInput(initial.search)
+    setQuery(initial)
   }, [])
 
-  const filtered = useMemo(() => rows.filter((row) => row.name.toLowerCase().includes(query.toLowerCase())), [rows, query])
-  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize))
-  const safePage = Math.min(page, pageCount)
-  const visible = filtered.slice((safePage - 1) * pageSize, safePage * pageSize)
+  const key = query ? `${queryString(query)}#${reload}` : ""
 
-  function openEdit(row: TimeRestriction) {
-    setDraft({ fullDay: row.fullDay, from: row.from, to: row.to })
-    setEditing(row)
+  useEffect(() => {
+    if (!query) return
+    const url = `${window.location.pathname}?${queryString(query)}${window.location.hash}`
+    if (`${window.location.pathname}${window.location.search}${window.location.hash}` !== url) window.history.replaceState(window.history.state, "", url)
+    const controller = new AbortController()
+    fetch(`/api/order-time-restrictions?${queryString(query)}`, { cache: "no-store", signal: controller.signal })
+      .then(async (response) => {
+        const body = (await response.json().catch(() => null)) as (OrderTimeRestrictionPage & { error?: string }) | null
+        if (!response.ok || !body || !Array.isArray(body.results)) throw new Error(body?.error || "Не удалось загрузить ограничения")
+        return body
+      })
+      .then((data) => {
+        if (controller.signal.aborted) return
+        // A page past the end (after a narrower search or an old link) goes to the last page.
+        if (!data.results.length && data.count > 0 && query.page > 1) {
+          setQuery({ ...query, page: Math.max(1, Math.ceil(data.count / query.pageSize)) })
+          return
+        }
+        setLoaded({ key, data, error: null })
+      })
+      .catch((error: Error) => {
+        if (controller.signal.aborted) return
+        setLoaded({ key, data: null, error: error.message || "Не удалось загрузить ограничения" })
+      })
+    return () => controller.abort()
+  }, [query, key])
+
+  const current = loaded?.key === key ? loaded : null
+  // While the next page loads, the previous rows stay (no flicker); the very first load shows a spinner.
+  const data = current?.data ?? (loaded?.data && !current ? loaded.data : null)
+  const error = current?.error ?? null
+  const count = data?.count ?? 0
+  const page = query?.page ?? 1
+  const pageSize = query?.pageSize ?? DEFAULT_PAGE_SIZE
+  const lastPage = Math.max(1, Math.ceil(count / pageSize))
+  const rows = data?.results ?? []
+  const from = rows.length ? (page - 1) * pageSize + 1 : 0
+  const to = rows.length ? from + rows.length - 1 : 0
+
+  function submitSearch(event: FormEvent) {
+    event.preventDefault()
+    const search = input.trim().slice(0, 200)
+    setQuery((value) => ({ search, page: 1, pageSize: value?.pageSize ?? DEFAULT_PAGE_SIZE }))
+    setReload((value) => value + 1)
   }
 
-  async function save(event: FormEvent) {
-    event.preventDefault()
-    if (!editing) return
-    setSaving(true)
-    try {
-      const response = await fetch(`/api/order-time-restrictions/${editing.id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: editing.name, ...draft }),
-      })
-      if (!response.ok) {
-        window.alert("Не удалось сохранить ограничение")
-        return
-      }
-      const saved = (await response.json()) as TimeRestriction
-      setRows((current) => current.map((row) => (row.id === saved.id ? saved : row)))
-      setEditing(null)
-    } catch {
-      window.alert("Сервер недоступен, попробуйте ещё раз")
-    } finally {
-      setSaving(false)
-    }
+  const closeDialog = useCallback(() => setEditing(null), [])
+  const closeMessage = useCallback(() => setMessage(null), [])
+
+  function saved() {
+    setEditing(null)
+    setMessage({ text: "Успешно сохранено", tone: "success" })
+    setReload((value) => value + 1)
   }
 
   return (
-    <main className={embedded ? "min-w-0 flex-1" : "min-h-[calc(100vh-4rem)] bg-[#f2f5f8] px-7 pb-7"}>
-      <div className={embedded ? "" : "overflow-hidden rounded bg-white shadow"}>
-        <div className="flex flex-wrap items-center gap-4 px-5 py-4">
-          <label className="relative w-72">
-            <input value={query} onChange={(event) => { setQuery(event.target.value); setPage(1) }} placeholder="Поиск" className="w-full border-b border-slate-300 py-2 pr-10 outline-none focus:border-[#4f71dc]" />
-            <Search className="absolute right-2 top-2 h-5 w-5 text-slate-300" />
-          </label>
-          <span className="ml-auto text-slate-500">25</span>
-          <span className="text-slate-500">
-            {filtered.length ? (safePage - 1) * pageSize + 1 : 0} - {Math.min(safePage * pageSize, filtered.length)} из {filtered.length}
-          </span>
-          <button type="button" onClick={() => setPage((value) => Math.max(1, value - 1))} disabled={safePage <= 1} aria-label="Назад" className="disabled:opacity-30">
-            <ChevronLeft className="h-5 w-5 text-slate-400" />
-          </button>
-          <button type="button" onClick={() => setPage((value) => Math.min(pageCount, value + 1))} disabled={safePage >= pageCount} aria-label="Вперед" className="disabled:opacity-30">
-            <ChevronRight className="h-5 w-5 text-slate-400" />
-          </button>
-        </div>
-
-        <table className="w-full text-left">
-          <thead className="bg-[#5d6474] text-white">
-            <tr>
-              <th className="px-9 py-5">Наименование</th>
-              <th className="px-5 py-5">Время работы</th>
-              <th className="w-16" />
-            </tr>
-          </thead>
-          <tbody>
-            {visible.map((row) => (
-              <tr key={row.id} className="border-b border-dashed border-slate-300 hover:bg-slate-50">
-                <td className="px-9 py-5">{row.name}</td>
-                <td className="px-5 py-5">{row.fullDay ? "Работает полный день" : `${row.from} — ${row.to}`}</td>
-                <td className="px-5 py-5 text-right">
-                  <button type="button" onClick={() => openEdit(row)} aria-label="Изменить" className="text-slate-500 hover:text-[#4f71dc]">
-                    <Pencil className="h-5 w-5" />
-                  </button>
-                </td>
-              </tr>
-            ))}
-            {visible.length === 0 && (
-              <tr>
-                <td colSpan={3} className="px-5 py-10 text-center text-slate-400">
-                  Ничего не найдено
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-
-      {editing && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 p-4">
-          <form onSubmit={save} className="w-full max-w-md rounded-lg bg-white p-6 shadow-xl">
-            <div className="mb-5 flex justify-between">
-              <h2 className="text-xl font-bold">{editing.name}</h2>
-              <button type="button" onClick={() => setEditing(null)} aria-label="Закрыть">
-                <X />
-              </button>
-            </div>
-            <label className="mb-4 flex items-center gap-2 font-medium">
-              <input type="checkbox" checked={draft.fullDay} onChange={(event) => setDraft((value) => ({ ...value, fullDay: event.target.checked }))} className="h-5 w-5" />
-              Работает полный день
-            </label>
-            {!draft.fullDay && (
-              <div className="mb-4 grid grid-cols-2 gap-4">
-                <label className="text-sm font-medium">
-                  От
-                  <input type="time" value={draft.from} onChange={(event) => setDraft((value) => ({ ...value, from: event.target.value }))} className="mt-1 block w-full rounded border border-slate-300 px-3 py-2" />
-                </label>
-                <label className="text-sm font-medium">
-                  До
-                  <input type="time" value={draft.to} onChange={(event) => setDraft((value) => ({ ...value, to: event.target.value }))} className="mt-1 block w-full rounded border border-slate-300 px-3 py-2" />
-                </label>
-              </div>
-            )}
-            <div className="mt-6 flex justify-end gap-3">
-              <button type="button" onClick={() => setEditing(null)} className="rounded border px-4 py-2">
-                Отмена
-              </button>
-              <button type="submit" disabled={saving} className="rounded bg-[#5474e6] px-4 py-2 font-semibold text-white disabled:opacity-60">
-                {saving ? "Сохранение..." : "Сохранить"}
-              </button>
-            </div>
+    <main className={embedded ? "min-w-0 flex-1 text-[13px] text-[#333]" : "min-h-[calc(100vh-4rem)] bg-[#f2f5f8] px-7 pb-7 text-[13px] text-[#333]"}>
+      <section className={embedded ? "" : "overflow-hidden rounded bg-white shadow"}>
+        <div className="flex min-h-[50px] flex-wrap items-center gap-x-[20px] gap-y-[6px] px-[16px] py-[6px] sm:px-[20px]">
+          <form role="search" onSubmit={submitSearch} className="relative w-full max-w-[300px]">
+            <input
+              value={input}
+              maxLength={200}
+              onChange={(event) => setInput(event.target.value)}
+              placeholder={t("Поиск")}
+              aria-label={t("Поиск")}
+              className="h-[30px] w-full border-b border-[#dfe3ea] bg-transparent pr-8 text-[13px] outline-none placeholder:text-[#b9c0cc] focus:border-[#4f71dc]"
+            />
+            <button type="submit" aria-label={t("Поиск")} className="absolute right-1 top-[5px] text-[#9aa3b6] hover:text-[#4f71dc]">
+              <Search className="h-[18px] w-[18px]" />
+            </button>
           </form>
+          <div className="ml-auto flex items-center gap-[12px] whitespace-nowrap">
+            <select
+              value={pageSize}
+              onChange={(event) => setQuery((value) => ({ search: value?.search ?? "", page: 1, pageSize: Number(event.target.value) }))}
+              aria-label={t("Строк на странице")}
+              className="h-[28px] bg-transparent pr-1 text-[13px] outline-none"
+            >
+              {ORDER_TIME_PAGE_SIZES.map((size) => (
+                <option key={size} value={size}>
+                  {size}
+                </option>
+              ))}
+            </select>
+            <span>
+              {from} - {to} {t("из")} {count}
+            </span>
+            <button
+              type="button"
+              onClick={() => query && setQuery({ ...query, page: Math.max(1, page - 1) })}
+              disabled={page <= 1}
+              aria-label={t("Назад")}
+              className="flex h-[22px] w-[22px] items-center justify-center rounded-full border border-slate-700 text-slate-700 disabled:border-slate-300 disabled:text-slate-300"
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              onClick={() => query && setQuery({ ...query, page: Math.min(lastPage, page + 1) })}
+              disabled={page >= lastPage}
+              aria-label={t("Вперед")}
+              className="flex h-[22px] w-[22px] items-center justify-center rounded-full border border-slate-700 text-slate-700 disabled:border-slate-300 disabled:text-slate-300"
+            >
+              <ChevronRight className="h-4 w-4" />
+            </button>
+          </div>
         </div>
-      )}
+
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[520px] table-fixed text-left">
+            <colgroup>
+              <col className="w-5/12" />
+              <col className="w-5/12" />
+              <col className="w-2/12" />
+            </colgroup>
+            <thead className="bg-[#5d6474] text-white">
+              <tr className="h-[50px]">
+                <th scope="col" className="pl-[30px] pr-[10px] text-[13px] font-semibold">{t("Наименование")}</th>
+                <th scope="col" className="px-[10px] text-[13px] font-semibold">{t("Время работы")}</th>
+                <th scope="col" className="pr-[30px]"><span className="sr-only">{t("Изменить")}</span></th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row) => (
+                <tr key={row.id} className={`h-[50px] hover:bg-[#f8f9fb] ${dottedRow}`}>
+                  <td className="truncate pl-[30px] pr-[10px]" title={t(row.name)}>{t(row.name)}</td>
+                  <td className="px-[10px]">{workingTimeText(row, t)}</td>
+                  <td className="pr-[30px] text-right">
+                    {canManage && (
+                      <button type="button" onClick={() => setEditing(row)} title={t("Изменить")} aria-label={t("Изменить")} className="inline-flex h-8 w-8 items-center justify-center rounded-full text-[#5d6474] hover:bg-[#eef0f4]">
+                        <Pencil className="h-[18px] w-[18px]" />
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        {!data && !error && <LoadingBlock />}
+        {error && !rows.length && <ErrorBlock error={error} onRetry={() => setReload((value) => value + 1)} />}
+        {data && !error && rows.length === 0 && <EmptyState />}
+      </section>
+
+      {editing && <TimeRestrictionDialog row={editing} onClose={closeDialog} onSaved={saved} />}
+      <CashSnackbar message={message} onClose={closeMessage} />
     </main>
   )
 }

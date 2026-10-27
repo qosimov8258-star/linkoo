@@ -132,14 +132,14 @@ export function AbcAnalysisView() {
         ) : (
         <div className="mt-3 overflow-x-auto border visits-scrollbar">
           <table className="min-w-[1250px] w-full border-collapse">
-            <thead className="bg-slate-50"><tr><th className="border px-4 py-5 text-left">ИД</th><th className="min-w-[600px] border px-4 py-5 text-center">Наименование</th><th className="border px-4 py-5 text-center">Кол-во проданного товара</th><th className="border px-4 py-5 text-center">Кол-во проданного товара в %</th><th className="border px-4 py-5 text-center">Сумма продаж</th><th className="border px-4 py-5 text-center">Сумма продаж в %</th><th className="border px-4 py-5 text-center">Класс</th></tr></thead>
+            <thead className="bg-slate-50"><tr><th className="border px-4 py-5 text-left">{t("ИД")}</th><th className="min-w-[600px] border px-4 py-5 text-center">{t("Наименование")}</th><th className="border px-4 py-5 text-center">{t("Кол-во проданного товара")}</th><th className="border px-4 py-5 text-center">{t("Кол-во проданного товара в %")}</th><th className="border px-4 py-5 text-center">{t("Сумма продаж")}</th><th className="border px-4 py-5 text-center">{t("Сумма продаж в %")}</th><th className="border px-4 py-5 text-center">{t("Класс")}</th></tr></thead>
             <tbody>
               {itemsLoading ? (
-                <tr><td colSpan={7} className="border px-2 py-16 text-center text-slate-400">Загрузка...</td></tr>
+                <tr><td colSpan={7} className="border px-2 py-16 text-center text-slate-400">{t("Загрузка...")}</td></tr>
               ) : itemsError ? (
                 <tr><td colSpan={7} className="border px-2 py-16 text-center text-red-600">{t(itemsError)}</td></tr>
               ) : rows.length === 0 ? (
-                <tr><td colSpan={7} className="border px-2 py-16 text-center text-slate-400">Нет данных за выбранный период</td></tr>
+                <tr><td colSpan={7} className="border px-2 py-16 text-center text-slate-400">{t("Нет данных за выбранный период")}</td></tr>
               ) : (
                 <>
                   {rows.map((row) => (
@@ -155,7 +155,7 @@ export function AbcAnalysisView() {
                   ))}
                   <tr className="bg-slate-50 font-semibold">
                     <td className="border" />
-                    <td className="border px-2 py-4">Итого</td>
+                    <td className="border px-2 py-4">{t("Итого")}</td>
                     <td className="border px-2 py-4 text-right">{totals.quantity.toLocaleString("ru-RU")}</td>
                     <td className="border px-2 py-4 text-right">100</td>
                     <td className="border px-2 py-4 text-right">{totals.sales.toLocaleString("ru-RU")}</td>
@@ -169,7 +169,7 @@ export function AbcAnalysisView() {
         </div>
         )}
       </ReportBand>
-      {overlayOpen && <button type="button" aria-label="Закрыть окно" onClick={() => setDashboardOpen(false)} className="fixed inset-0 z-[90] cursor-default bg-black/55" />}
+      {overlayOpen && <button type="button" aria-label={t("Закрыть окно")} onClick={() => setDashboardOpen(false)} className="fixed inset-0 z-[90] cursor-default bg-black/55" />}
       {dashboardOpen && <DashboardDialog reportSlug="abc-analysis" reportLabel="ABC анализ" visibility={visibility} setVisibility={setVisibility} dashboard={dashboard} setDashboard={setDashboard} onClose={() => setDashboardOpen(false)} />}
     </ReportPage>
   )

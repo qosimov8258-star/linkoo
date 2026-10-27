@@ -2,8 +2,8 @@ import "server-only"
 
 import { z } from "zod"
 
-import { getDb, withTransaction, type PgDb } from "@/lib/db"
-import { clientCashbackBalance, lockClientCashback, loyaltyCurrency, MAX_DB_ID, MAX_MONEY } from "@/lib/cash/common"
+import { getDb, outsideTransaction, withTransaction, type PgDb } from "@/lib/db"
+import { clientCashbackBalance, lockClientCashback, loyaltyCurrency, MAX_MONEY } from "@/lib/cash/common"
 import { loadCurrencyContext, withSeenCodes, type CurrencyContext } from "@/lib/finance/context"
 import { currencyLabel, normCurrency, roundMoney } from "@/lib/finance/currency"
 import { parseAnyDate } from "@/lib/finance/dates"
@@ -20,6 +20,7 @@ import type {
   LoyaltyHistoryRow,
   LoyaltyTransactionResult,
 } from "@/lib/loyalty-card-types"
+import { dbId, strictNum } from "@/lib/strict-number"
 
 // "Накопительная карта" (demo #/cumulative): every client's cashback balance
 // per currency, its movement history and manual accrual / write-off.
@@ -93,7 +94,7 @@ async function install(): Promise<void> {
 export async function ensureLoyaltySchema(db: PgDb = getDb()) {
   const cached = globalThis.__linkoLoyaltySchema
   if (!cached || cached.version !== LOYALTY_SCHEMA_VERSION) {
-    const ready = install().catch((error: unknown) => {
+    const ready = outsideTransaction(install).catch((error: unknown) => {
       globalThis.__linkoLoyaltySchema = undefined
       throw error
     })
@@ -109,7 +110,7 @@ export async function ensureLoyaltySchema(db: PgDb = getDb()) {
 
 const emptyToUndefined = (value: unknown) => (value === "" || value === null ? undefined : value)
 const text = (max: number) => z.preprocess(emptyToUndefined, z.string().trim().max(max).optional())
-const int = (min: number, max: number) => z.preprocess(emptyToUndefined, z.coerce.number().int().min(min).max(max).optional())
+const int = (min: number, max: number) => z.preprocess(emptyToUndefined, strictNum(z.number().int().min(min).max(max).optional()))
 
 export const loyaltyListQuerySchema = z.object({
   search: text(200),
@@ -131,10 +132,10 @@ export type LoyaltyDetailQuery = z.infer<typeof loyaltyDetailQuerySchema>
 
 /** Demo POST sales/cash_back/custom_price/ {price: ±price, currency, comment, client}. */
 export const loyaltyTransactionSchema = z.object({
-  clientId: z.coerce.number().int().positive().max(MAX_DB_ID),
+  clientId: dbId(),
   /** add = "Добавить" (приход), expense = "Списать" (расход). */
   kind: z.enum(["add", "expense"]),
-  amount: z.coerce.number().finite().positive().max(MAX_MONEY),
+  amount: strictNum(z.number().finite().positive().max(MAX_MONEY)),
   currency: z.string().trim().min(1).max(16),
   comment: z.string().trim().max(500).optional(),
 })

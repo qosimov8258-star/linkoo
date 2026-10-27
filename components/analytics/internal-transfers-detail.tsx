@@ -6,14 +6,14 @@ import { CheckCircle2, FileSpreadsheet, Pencil, Printer, Send, Trash2, Undo2 } f
 import { cashMutate, useCashJson } from "@/components/analytics/cash/use-cash"
 import { ConfirmDialog, EmptyBlock, ErrorBlock, FormField, LoadingBlock, inputClass, mutationError } from "@/components/analytics/cash-management-shared"
 import { TransferLogsPanel } from "@/components/analytics/internal-transfers-logs"
-import { InfoRow, TransferStatusLabel, docDate, formatQty, formatSum, formatWeight, transferItemsSheet } from "@/components/analytics/internal-transfers-shared"
+import { InfoRow, TransferStatusLabel, docDate, formatQty, formatSum, formatUnitTotals, formatWeight, transferItemsSheet } from "@/components/analytics/internal-transfers-shared"
 import { downloadExcelTable } from "@/lib/excel-export"
 import { todayIso } from "@/lib/finance/dates"
 import { useLanguage } from "@/lib/i18n/language-context"
 import { TRANSFER_EDITABLE, type Transfer, type TransferAction } from "@/lib/internal-transfers-types"
 
 // Demo StockTransferDetail (c7 module 4638) shown in place of the clicked row:
-// "Передача № N" + actions — "Подтвердить Запрос" (approved → give, given →
+// "Передача № N" + actions — "Передать" / "Принять" (approved → give, given →
 // accept; a dialog with "Дата"), "Скачать Excel", the printed "Накладная",
 // "Изменить", "Отменить передачу" / "Отменить приемку", "Удалить" (= cancel).
 // Left: Со склада, На склад, Прайс лист, Организация · Номер накладной, Номер
@@ -54,7 +54,11 @@ export function TransferDetailPanel({
   if (detail.error && !data) return <ErrorBlock error={detail.error} onRetry={detail.reload} />
   if (!data) return null
 
-  const request = `${t("Подтвердить Запрос")} №${data.id}`
+  // The send icon hands the goods over ("потвержден" → "в пути") or takes them in ("в пути" → "принят"):
+  // its tooltip, dialog title and button name that step instead of a generic "Подтвердить Запрос".
+  const giveTitle = `${t("Передать")} №${data.id}`
+  const acceptTitle = `${t("Принять")} №${data.id}`
+  const request = data.status === "потвержден" ? giveTitle : acceptTitle
   const open = (next: Pending) => {
     setError("")
     setComment("")
@@ -77,7 +81,8 @@ export function TransferDetailPanel({
 
   const status = data.status
   const editable = TRANSFER_EDITABLE.includes(status)
-  const qtyTotal = data.items.reduce((sum, item) => sum + item.quantity, 0)
+  // "Итого" per unit ("5 dona, 1,5 kg"): kilograms, pieces and litres are never added up.
+  const qtyTotal = formatUnitTotals(data.items.map((item) => ({ qty: item.quantity, unit: item.unit })), t)
   const iconButton = "flex h-10 w-10 items-center justify-center rounded-full text-[#666] hover:bg-[#f2f5f8] disabled:cursor-not-allowed disabled:opacity-40"
   const actionButton = "inline-flex h-[30px] items-center gap-1.5 rounded-sm px-3 text-[13px] font-semibold text-white hover:brightness-95 disabled:opacity-50"
   const who = (moment: string, name: string) =>
@@ -112,8 +117,8 @@ export function TransferDetailPanel({
               onClick={() =>
                 open(
                   status === "потвержден"
-                    ? { action: "give", title: request, text: `${t("Запрос")} № ${data.id} · ${t("Передан со склада")} ${data.fromWarehouse}`, withDate: true, tone: "blue", label: "Подтвердить", success: "Успешно передан" }
-                    : { action: "accept", title: request, text: `${t("Запрос")} № ${data.id} · ${t("Принять на склад")} ${data.toWarehouse}`, withDate: true, tone: "green", label: "Подтвердить", success: "Успешно сохранено" },
+                    ? { action: "give", title: giveTitle, text: `${t("Передача")} № ${data.id} · ${t("Передан со склада")} ${data.fromWarehouse}`, withDate: true, tone: "blue", label: "Передать", success: "Успешно передан" }
+                    : { action: "accept", title: acceptTitle, text: `${t("Передача")} № ${data.id} · ${t("Принять на склад")} ${data.toWarehouse}`, withDate: true, tone: "green", label: "Принять", success: "Успешно сохранено" },
                 )
               }
             >
@@ -216,7 +221,7 @@ export function TransferDetailPanel({
                         {item.product}
                         {item.article && <span className="block text-[12px] text-[#9aa3b6]">{item.article}</span>}
                       </td>
-                      <td className="whitespace-nowrap py-3 pr-3 text-right">{formatQty(item.quantity, item.unit)}</td>
+                      <td className="whitespace-nowrap py-3 pr-3 text-right">{formatQty(item.quantity, item.unit ? t(item.unit) : "")}</td>
                       <td className="whitespace-nowrap py-3 pr-3 text-right">{formatWeight(item.quantity * item.weight, t("кг"))}</td>
                       <td className="py-3 pr-3">{item.series || "-"}</td>
                       <td className="whitespace-nowrap py-3 pr-3 text-right">{formatSum(item.price)}</td>
@@ -227,7 +232,7 @@ export function TransferDetailPanel({
                 <tfoot>
                   <tr className="font-semibold">
                     <td className="pt-3 pr-3">{t("Итого")}</td>
-                    <td className="whitespace-nowrap pt-3 pr-3 text-right">{formatQty(qtyTotal)}</td>
+                    <td className="whitespace-nowrap pt-3 pr-3 text-right">{qtyTotal}</td>
                     <td className="whitespace-nowrap pt-3 pr-3 text-right">{formatWeight(data.weight, t("кг"))}</td>
                     <td colSpan={2} />
                     <td className="whitespace-nowrap pt-3 text-right">{formatSum(data.amount, data.currency)}</td>

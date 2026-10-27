@@ -624,7 +624,8 @@ export function EquipmentTab({ stage, equipment, reload }: { stage: Stage; equip
 function EquipmentDialog({ stage, entry, onClose, onSaved }: { stage: Stage; entry: Equipment | null; onClose: () => void; onSaved: () => void }) {
   const { t } = useLanguage()
   const [name, setName] = useState(entry?.name ?? "")
-  const [status, setStatus] = useState<Equipment["status"]>(entry?.status ?? "0")
+  // A new machine starts as working: shift entries are refused on one that is not.
+  const [status, setStatus] = useState<Equipment["status"]>(entry?.status ?? "1")
   const [image, setImage] = useState(entry?.image ?? "")
   const [saving, setSaving] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)

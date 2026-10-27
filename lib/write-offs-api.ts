@@ -7,6 +7,7 @@ import { isIsoDay } from "@/lib/finance/dates"
 import { parsePageParam } from "@/lib/stock/paging"
 import { WRITE_OFF_SORT_KEYS, isWriteOffError, type WriteOffChange, type WriteOffInput, type WriteOffListQuery } from "@/lib/write-offs-repo"
 import { WRITE_OFF_ACTIONS, WRITE_OFF_STATUSES, type WriteOffStatus } from "@/lib/write-offs-types"
+import { strictNumber } from "@/lib/strict-number"
 
 // Request parsing of /api/write-offs/** (the legacy body with reason / cost /
 // sum is still accepted; costs are always recomputed on the server).
@@ -41,10 +42,10 @@ export const writeOffBodySchema = z.object({
     .max(2000),
 })
 
-/** A number field ("1 000,5" accepted); blank = 0; anything else unparseable = NaN (the repo refuses it). */
+/** A number field ("1 000,5" accepted); blank = 0; anything else ("0x10", "12abc") = NaN (the repo refuses it). */
 const toNumber = (value: unknown) => {
   if (value === undefined || value === null || String(value).trim() === "") return 0
-  return Number(String(value).replace(/\s/g, "").replace(",", "."))
+  return strictNumber(value, { locale: true })
 }
 
 export function toWriteOffInput(body: z.infer<typeof writeOffBodySchema>): WriteOffInput {

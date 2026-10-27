@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 
 import { getCurrentUser } from "@/lib/current-user"
 import { requireRole } from "@/lib/rbac"
-import { parseJsonBody } from "@/lib/validation"
+import { notSignedInResponse, parseJsonBody } from "@/lib/validation"
 import { cashErrorResponse } from "@/lib/cash/api"
 import { clientBulkPaymentSchema, createClientBulkPayment, listClientBulkPayments, missingClientIds } from "@/lib/client-bulk-payments-repo"
 
@@ -13,7 +13,7 @@ import { clientBulkPaymentSchema, createClientBulkPayment, listClientBulkPayment
 // 201 { results, count, total }. DELETE /api/client-bulk-payments/[id] cancels a stored row.
 export async function GET() {
   const user = await getCurrentUser()
-  if (!user) return NextResponse.json({ error: "Tizimga kirilmagan" }, { status: 401 })
+  if (!user) return notSignedInResponse()
   return NextResponse.json(await listClientBulkPayments())
 }
 

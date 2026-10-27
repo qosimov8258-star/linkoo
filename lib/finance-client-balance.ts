@@ -1,6 +1,5 @@
 import "server-only"
 
-import { NextResponse } from "next/server"
 import { z } from "zod"
 
 import { getDb, type PgDb } from "@/lib/db"
@@ -12,6 +11,8 @@ import { sortBalanceRows } from "@/lib/finance/rows"
 import { ensureFinanceSchema } from "@/lib/finance/schema"
 import { MOVEMENT_COLUMNS, type BalanceListResult, type BalanceRow, type CurrencyBalance } from "@/lib/finance/types"
 import type { ClientBalanceOptions } from "@/lib/finance-client-balance-types"
+import { strictNum } from "@/lib/strict-number"
+import { zodErrorResponse } from "@/lib/validation"
 
 // "Баланс клиентов" (demo #/statistics/market) on top of the shared ledger:
 // getBalanceList("client") does all balance math; this layer adds the demo
@@ -44,7 +45,7 @@ const flag = z
   .enum(["1", "0", "true", "false"])
   .optional()
   .transform((value) => value === "1" || value === "true")
-const days = z.coerce.number().int().min(0).optional()
+const days = strictNum(z.number().int().min(0).optional())
 
 const extraQuery = z.object({
   deliveryMan: z.string().trim().optional(),
@@ -68,7 +69,7 @@ export function parseClientBalanceQuery(url: string): ParsedQuery<ClientBalanceP
     if (value !== null && value.trim() !== "") raw[name] = value
   }
   const extra = extraQuery.safeParse(raw)
-  if (!extra.success) return { error: NextResponse.json({ error: "Ma'lumotlar noto'g'ri", details: extra.error.flatten() }, { status: 400 }) }
+  if (!extra.success) return { error: zodErrorResponse(extra.error) }
   return { data: { ...base.data, ...extra.data } }
 }
 

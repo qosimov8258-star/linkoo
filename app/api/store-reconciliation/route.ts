@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 
 import { getCurrentUser } from "@/lib/current-user"
 import { getStoreReconciliationList, parseStoreReconciliationQuery } from "@/lib/finance-store-reconciliation"
+import { notSignedInResponse } from "@/lib/validation"
 
 // GET /api/store-reconciliation — "Сверка магазина через бот" (variant=client,
 // default; demo sales/market_balance) / "Сверка счетов" (variant=account; demo
@@ -10,7 +11,7 @@ import { getStoreReconciliationList, parseStoreReconciliationQuery } from "@/lib
 // the loaners / borrowers summary. Params: see parseStoreReconciliationQuery.
 export async function GET(request: Request) {
   const user = await getCurrentUser()
-  if (!user) return NextResponse.json({ error: "Tizimga kirilmagan" }, { status: 401 })
+  if (!user) return notSignedInResponse()
 
   const parsed = parseStoreReconciliationQuery(request.url)
   if (parsed.error) return parsed.error

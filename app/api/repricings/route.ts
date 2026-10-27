@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 
 import { getCurrentUser } from "@/lib/current-user"
 import { requireRole } from "@/lib/rbac"
-import { parseJsonBody } from "@/lib/validation"
+import { notSignedInResponse, parseJsonBody } from "@/lib/validation"
 import { parseRepricingListQuery, repricingCreateSchema, toRepricingInput } from "@/lib/repricings-api"
 import { createRepricing, listRepricings, listRepricingsPage, repricingErrorResponse } from "@/lib/repricings-repo"
 
@@ -11,7 +11,7 @@ import { createRepricing, listRepricings, listRepricingsPage, repricingErrorResp
 // ("product:12"), ?search, ordered by ?ordering — demo GET main/reprice/.
 export async function GET(request: Request) {
   const user = await getCurrentUser()
-  if (!user) return NextResponse.json({ error: "Tizimga kirilmagan" }, { status: 401 })
+  if (!user) return notSignedInResponse()
   const query = parseRepricingListQuery(request.url)
   return NextResponse.json(query ? await listRepricingsPage(query) : await listRepricings())
 }

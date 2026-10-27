@@ -30,6 +30,7 @@ const fields = {
   comment: text(1000).optional(),
   deliverer: text(200).optional(),
   agent: text(200).optional(),
+  organization: text(200).optional(),
   items: z.array(line).max(500, { error: "Слишком много позиций" }).optional(),
 }
 
@@ -41,15 +42,20 @@ export const clientReturnUpdateSchema = z.object(fields)
 
 export const clientReturnAcceptSchema = z.object({ ids: z.array(id).min(1, { error: "Выберите возвраты" }).max(500, { error: "Слишком много возвратов" }) })
 
+/** PATCH /api/client-returns/[id]: a status action (as PATCH /api/supplier-incomings/[id]). */
+export const clientReturnActionSchema = z.object({
+  action: z.enum(["accept", "unaccept", "cancel"], { error: "Действие: accept | unaccept | cancel" }),
+})
+
 const isoDay = /^\d{4}-\d{2}-\d{2}$/
 
 export function parseClientReturnQuery(url: string): { data?: import("@/lib/client-returns-repo").ClientReturnQuery; error?: string } {
   const search = new URL(url).searchParams
   const tab = search.get("tab") ?? "all"
-  if (!["pending", "accepted", "cancelled", "all"].includes(tab)) return { error: "tab: pending | accepted | cancelled | all" }
+  if (!["pending", "accepted", "cancelled", "all"].includes(tab)) return { error: "Неверные данные" }
   const from = search.get("from") ?? ""
   const to = search.get("to") ?? ""
-  if ((from && !isoDay.test(from)) || (to && !isoDay.test(to))) return { error: "from/to: YYYY-MM-DD" }
+  if ((from && !isoDay.test(from)) || (to && !isoDay.test(to))) return { error: "Неверная дата" }
   const num = (name: string) => {
     const raw = search.get(name)
     if (!raw) return undefined

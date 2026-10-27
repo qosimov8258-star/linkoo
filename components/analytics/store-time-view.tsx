@@ -5,6 +5,7 @@ import { downloadExcelTable } from "@/lib/excel-export"
 import { DashboardDialog } from "./dashboard-dialog"
 import { ReportBand, ReportDateField, ReportEmpty, ReportFilters, ReportHeader, ReportPage, ReportSelectField } from "@/components/ref/report-kit"
 import { useDirectoryNames } from "@/components/clients/use-directory"
+import { useLanguage } from "@/lib/i18n/language-context"
 
 // Filter lists come from the factory's own directories (branches, clients,
 // employees). Surveys have no directory yet, so that list is empty.
@@ -29,6 +30,7 @@ function monthEnd() {
 }
 
 export function StoreTimeView({ storeCheckMode = false, productCheckMode = false, title }: { storeCheckMode?: boolean; productCheckMode?: boolean; title?: string }) {
+  const { t } = useLanguage()
   const today = useMemo(() => inputDate(new Date()), [])
   const [from, setFrom] = useState(storeCheckMode || productCheckMode ? monthStart : today)
   const [to, setTo] = useState(storeCheckMode || productCheckMode ? monthEnd : today)
@@ -126,7 +128,7 @@ export function StoreTimeView({ storeCheckMode = false, productCheckMode = false
         <ReportEmpty />
       </ReportBand>
 
-      {overlayOpen && <button type="button" aria-label="Закрыть окно" onClick={() => setDashboardOpen(false)} className="fixed inset-0 z-[90] cursor-default bg-black/55" />}
+      {overlayOpen && <button type="button" aria-label={t("Закрыть окно")} onClick={() => setDashboardOpen(false)} className="fixed inset-0 z-[90] cursor-default bg-black/55" />}
       {dashboardOpen && (
         <DashboardDialog
           reportSlug="store-time"

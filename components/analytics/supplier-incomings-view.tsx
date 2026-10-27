@@ -24,6 +24,8 @@ import {
 import { ChangeEvent, Fragment, FormEvent, useEffect, useMemo, useRef, useState } from "react"
 import { useSearchParams } from "next/navigation"
 import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
+import { ConfirmDialog, useCanManage } from "@/components/analytics/cash-management-shared"
+import { formatUnitTotals } from "@/components/analytics/internal-transfers-picker"
 
 import { downloadExcelTable } from "@/lib/excel-export"
 import { mapHeaderColumns, readExcelRows } from "@/lib/excel-import"
@@ -41,7 +43,7 @@ import {
   type IncomingLog,
   type IncomingStatus as Status,
 } from "./supplier-incomings-data"
-import { IncomingExpenseDialog, IncomingRepriceDialog, LOG_LABELS } from "./supplier-incoming-dialogs"
+import { currencyChoices, IncomingExpenseDialog, IncomingRepriceDialog, LOG_LABELS, useCurrencyCodes } from "./supplier-incoming-dialogs"
 import { SupplyPaymentsDialog } from "./supplier-payments-supply-dialog"
 import { WarehouseFormModal } from "./warehouse-form-modal"
 
@@ -82,20 +84,30 @@ const statusDots: Record<Status, string> = {
 /** `source` = the e-invoice line the item was prefilled from ("Создать приход"). */
 type DraftItem = { id: number; product: string; qty: number; cost: number; source?: { name: string; ikpu: string; unit: string } }
 type Tab = "items" | "cost" | "expenses" | "logs"
+/** A status change / expense delete waiting for the confirm dialog. */
+type PendingAction = { text: string; confirmLabel: string; tone: "red" | "green"; url: string; init: RequestInit; failure: string }
+
+/** Older expense logs stored the amount unformatted ("Доставка: 250000 SUM"). */
+function logDetails(log: IncomingLog): string {
+  if (log.action !== "expense_added" && log.action !== "expense_deleted") return log.details
+  const match = /^(.*): (-?\d+(?:\.\d+)?) (\S+)$/.exec(log.details)
+  return match ? `${match[1]}: ${formatMoney(Number(match[2]), match[3])}` : log.details
+}
 
 /** A stored day as the value of an <input type="date"> ("" when it does not parse). */
 const isoDay = (value: string) => parseAnyDay(value) ?? ""
 
 /** A new supply starts with nothing picked: the storekeeper must choose the supplier,
  * branch, warehouse and organization (the lists are newest-first, so a preselected
- * first option would be whatever was created last). Dates are ISO (date pickers). */
-function emptyDraft() {
+ * first option would be whatever was created last). Dates are ISO (date pickers).
+ * The currency defaults to the base currency (Валюты). */
+function emptyDraft(currency = "SUM") {
   return {
     supplier: "",
     branch: "",
     warehouse: "",
     organization: "",
-    currency: "SUM",
+    currency,
     paymentType: paymentTypes[0] as string,
     date: todayIso(),
     expectedFactoryExit: "",
@@ -131,9 +143,14 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
   const [detailLogs, setDetailLogs] = useState<IncomingLog[]>([])
   const [detailVersion, setDetailVersion] = useState(0)
   const [busy, setBusy] = useState(false)
+  const [pending, setPending] = useState<PendingAction | null>(null)
+  const [pendingError, setPendingError] = useState("")
   const [modalOpen, setModalOpen] = useState(false)
   const [editingId, setEditingId] = useState<number | null>(null)
-  const [draft, setDraft] = useState(emptyDraft)
+  const [draft, setDraft] = useState(() => emptyDraft())
+  const currencies = useCurrencyCodes()
+  /** "Наценка" writes a price list: procurement.manage (this page) and catalog.manage (repricing). */
+  const canReprice = useCanManage(["procurement.manage", "catalog.manage"])
   const [draftItems, setDraftItems] = useState<DraftItem[]>([])
   const [pickerOpen, setPickerOpen] = useState(false)
   const [supplierOptions, setSupplierOptions] = useState<string[]>([])
@@ -260,7 +277,7 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
         return data as InvoiceSupplyDraft
       })
       .then((invoice) => {
-        const base = emptyDraft()
+        const base = emptyDraft(currencies.base)
         setDraft({
           ...base,
           supplier: invoice.supplier,
@@ -276,7 +293,7 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
         setModalOpen(true)
       })
       .catch((reason: unknown) => window.alert(t(reason instanceof Error ? reason.message : String(reason))))
-  }, [invoiceParam, optionsLoaded, t])
+  }, [invoiceParam, optionsLoaded, t, currencies.base])
 
   const filtered = useMemo(() => {
     return rows.filter((row) => {
@@ -314,35 +331,72 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
     setDetailVersion((value) => value + 1)
   }
 
-  /** PATCH status actions and the expense delete share this error handling. */
-  async function mutate(url: string, init: RequestInit, failure: string) {
+  /** PATCH status actions and the expense delete share this error handling: "" = done,
+   * else the (translated) reason, shown in the confirm dialog. */
+  async function mutate(url: string, init: RequestInit, failure: string): Promise<string> {
     setBusy(true)
     try {
       const response = await fetch(url, { ...init, headers: { "Content-Type": "application/json" } })
       const data = await response.json().catch(() => ({}))
-      if (!response.ok) {
-        window.alert(data.error ? t(data.error) : t(failure))
-        return
-      }
+      if (!response.ok) return data.error ? t(data.error) : t(failure)
       replaceRow(data as Incoming)
+      return ""
     } catch {
-      window.alert(t("Сервер недоступен, попробуйте ещё раз"))
+      return t("Сервер недоступен, попробуйте ещё раз")
     } finally {
       setBusy(false)
     }
   }
 
+  /** Accept / unaccept / cancel and the expense delete ask in the app's confirm dialog. */
+  function ask(action: PendingAction) {
+    setPendingError("")
+    setPending(action)
+  }
+
+  async function runPending() {
+    if (!pending || busy) return
+    const error = await mutate(pending.url, pending.init, pending.failure)
+    if (error) setPendingError(error)
+    else setPending(null)
+  }
+
   function changeStatus(row: Incoming, action: "accept" | "unaccept" | "cancel") {
-    const question =
+    const text =
       action === "accept" ? `${t("Принять на склад поставку №")} ${row.id}?` : action === "unaccept" ? `${t("Отменить приёмку поставки №")} ${row.id}?` : `${t("Отменить поставку №")} ${row.id}?`
-    if (!window.confirm(question)) return
-    void mutate(`/api/supplier-incomings/${row.id}`, { method: "PATCH", body: JSON.stringify({ action }) }, "Не удалось изменить статус поставки")
+    ask({
+      text,
+      confirmLabel: action === "accept" ? "Принять на склад" : action === "unaccept" ? "Отменить приёмку" : "Отменить",
+      tone: action === "accept" ? "green" : "red",
+      url: `/api/supplier-incomings/${row.id}`,
+      init: { method: "PATCH", body: JSON.stringify({ action }) },
+      failure: "Не удалось изменить статус поставки",
+    })
   }
 
   function removeExpense(row: Incoming, expense: IncomingExpense) {
-    if (!window.confirm(`${t("Удалить расход")} «${expense.description}»?`)) return
-    void mutate(`/api/supplier-incomings/${row.id}/expenses/${expense.id}`, { method: "DELETE" }, "Не удалось удалить расход")
+    ask({
+      text: `${t("Удалить расход")} «${expense.description}»?`,
+      confirmLabel: "Удалить",
+      tone: "red",
+      url: `/api/supplier-incomings/${row.id}/expenses/${expense.id}`,
+      init: { method: "DELETE" },
+      failure: "Не удалось удалить расход",
+    })
   }
+
+  // Escape closes the top layer of the supply dialog (the product list, else the
+  // dialog itself), like the other dialogs; a quick-add form on top keeps it.
+  useEffect(() => {
+    if (!modalOpen && !pickerOpen) return
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || quickAddSupplierOpen || quickAddWarehouseOpen || quickAddOrganizationOpen) return
+      if (pickerOpen) setPickerOpen(false)
+      else setModalOpen(false)
+    }
+    document.addEventListener("keydown", onKey)
+    return () => document.removeEventListener("keydown", onKey)
+  }, [modalOpen, pickerOpen, quickAddSupplierOpen, quickAddWarehouseOpen, quickAddOrganizationOpen])
 
   function toggleExpand(row: Incoming) {
     setExpandedId((current) => (current === row.id ? null : row.id))
@@ -350,7 +404,7 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
   }
 
   function openCreate() {
-    setDraft(emptyDraft())
+    setDraft(emptyDraft(currencies.base))
     setDraftItems([])
     setEditingId(null)
     setFromInvoice(null)
@@ -363,7 +417,7 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
       branch: row.branch,
       warehouse: row.warehouse,
       organization: row.organization,
-      currency: row.currency || "SUM",
+      currency: row.currency || currencies.base,
       paymentType: row.paymentType,
       date: isoDay(row.date) || todayIso(),
       expectedFactoryExit: "",
@@ -433,7 +487,11 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
   }
 
   const draftTotalCost = draftItems.reduce((sum, item) => sum + item.qty * item.cost, 0)
-  const draftTotalQty = draftItems.reduce((sum, item) => sum + item.qty, 0)
+  // One total per unit (kg and pieces are never added up): "500 kg, 600 dona".
+  const draftTotalQty = formatUnitTotals(
+    draftItems.filter((item) => item.product).map((item) => ({ qty: item.qty, unit: productUnits[item.product] ?? "" })),
+    t,
+  )
 
   async function save(event: FormEvent) {
     event.preventDefault()
@@ -654,7 +712,7 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
                                 <Receipt className="h-4 w-4" /> {t("Добавить расход")}
                               </button>
                             )}
-                            {row.status !== "отменен" && (
+                            {row.status !== "отменен" && canReprice && (
                               <button type="button" onClick={() => setMarkupTarget(row)} className="inline-flex items-center gap-2 rounded bg-[#4f70e7] px-4 py-2 text-sm font-semibold text-white hover:brightness-95">
                                 <Percent className="h-4 w-4" /> {t("Наценка")}
                               </button>
@@ -695,8 +753,8 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
                           <dl className="space-y-2 text-sm">
                             <div className="flex justify-between gap-4"><dt className="text-slate-500">{t("Поставщик")}:</dt><dd className="font-medium">{row.supplier}</dd></div>
                             <div className="flex justify-between gap-4"><dt className="text-slate-500">{t("Договор №")}</dt><dd className="font-medium">{row.contractNumber || t("Не указан")}</dd></div>
-                            <div className="flex justify-between gap-4"><dt className="text-slate-500">{t("Организация")}:</dt><dd className="font-medium">{row.organization}</dd></div>
-                            <div className="flex justify-between gap-4"><dt className="text-slate-500">{t("Филиал")}:</dt><dd className="font-medium">{row.branch}</dd></div>
+                            <div className="flex justify-between gap-4"><dt className="text-slate-500">{t("Организация")}:</dt><dd className="font-medium">{row.organization || t("Не указано")}</dd></div>
+                            <div className="flex justify-between gap-4"><dt className="text-slate-500">{t("Филиал")}:</dt><dd className="font-medium">{row.branch || t("Не указано")}</dd></div>
                             <div className="flex justify-between gap-4"><dt className="text-slate-500">{t("Телефон")}:</dt><dd className="font-medium">{row.phone}</dd></div>
                             <div className="flex justify-between gap-4"><dt className="text-slate-500">E-mail:</dt><dd className="font-medium">{row.email}</dd></div>
                             <div className="flex justify-between gap-4"><dt className="text-slate-500">{t("Инициатор")}:</dt><dd className="font-medium">{row.initiator}</dd></div>
@@ -782,7 +840,7 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
                                   <td className="py-2 pr-4">{item.id}</td>
                                   <td className="py-2 pr-4">{item.product}</td>
                                   <td className="py-2 pr-4">{item.expiry || "—"}</td>
-                                  <td className="py-2 pr-4">{item.qty.toLocaleString("ru-RU")} {productUnits[item.product] ?? ""}</td>
+                                  <td className="py-2 pr-4">{item.qty.toLocaleString("ru-RU")} {productUnits[item.product] ? t(productUnits[item.product]) : ""}</td>
                                   <td className="py-2 pr-4">{item.block}</td>
                                   <td className="py-2 pr-4">{lineKg(item).toLocaleString("ru-RU")}</td>
                                   <td className="py-2 pr-4">{item.netWeight}</td>
@@ -792,7 +850,7 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
                               ))}
                               <tr className="border-t border-slate-300 font-bold">
                                 <td className="py-2 pr-4" colSpan={3}>{t("Итого")}:</td>
-                                <td className="py-2 pr-4">{row.items.reduce((sum, item) => sum + item.qty, 0).toLocaleString("ru-RU")}</td>
+                                <td className="py-2 pr-4">{formatUnitTotals(row.items.map((item) => ({ qty: item.qty, unit: productUnits[item.product] ?? "" })), t)}</td>
                                 <td className="py-2 pr-4">0</td>
                                 <td className="py-2 pr-4">{(Math.round(row.items.reduce((sum, item) => sum + lineKg(item), 0) * 1000) / 1000).toLocaleString("ru-RU")}</td>
                                 <td className="py-2 pr-4" />
@@ -819,7 +877,7 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
                               {supplyCostLines(row).map((line, index) => (
                                 <tr key={`${line.product}-${index}`} className="border-t border-slate-100">
                                   <td className="py-2 pr-4">{line.product}</td>
-                                  <td className="py-2 pr-4">{line.qty.toLocaleString("ru-RU")} {productUnits[line.product] ?? ""}</td>
+                                  <td className="py-2 pr-4">{line.qty.toLocaleString("ru-RU")} {productUnits[line.product] ? t(productUnits[line.product]) : ""}</td>
                                   <td className="py-2 pr-4">{formatMoney(line.purchasePrice, row.currency)}</td>
                                   <td className="py-2 pr-4">{formatMoney(line.expensePerUnit, row.currency)}</td>
                                   <td className="py-2 pr-4 font-medium">{formatMoney(line.unitCost, row.currency)}</td>
@@ -875,7 +933,7 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
                               <li key={log.id} className="flex flex-wrap gap-x-2 border-b border-dashed border-slate-200 pb-2">
                                 <span className="text-slate-400">{formatTimestamp(log.createdAt, language)}</span>
                                 <span className="font-medium text-slate-700">{t(LOG_LABELS[log.action] ?? log.action)}</span>
-                                {log.details && <span>— {log.details}</span>}
+                                {log.details && <span>— {logDetails(log)}</span>}
                                 <span className="text-slate-400">({log.userName})</span>
                               </li>
                             ))}
@@ -898,6 +956,19 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
           </div>
         )}
       </section>
+
+      {pending && (
+        <ConfirmDialog
+          title={t("Подтверждение")}
+          text={pending.text}
+          confirmLabel={pending.confirmLabel}
+          tone={pending.tone}
+          busy={busy}
+          error={pendingError}
+          onConfirm={() => void runPending()}
+          onClose={() => setPending(null)}
+        />
+      )}
 
       {markupTarget && (
         <IncomingRepriceDialog
@@ -1015,9 +1086,11 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
                   <label className="block border-b border-slate-200 pb-2 font-medium">
                     {t("Валюта оплаты")} *
                     <select value={draft.currency} onChange={(event) => setDraft((value) => ({ ...value, currency: event.target.value }))} className="mt-2 block w-full bg-white outline-none">
-                      <option>SUM</option>
-                      <option>USD</option>
-                      {!["SUM", "USD"].includes(draft.currency) && <option>{draft.currency}</option>}
+                      {currencyChoices(currencies.codes, currencies.base, draft.currency).map((code) => (
+                        <option key={code} value={code}>
+                          {code}
+                        </option>
+                      ))}
                     </select>
                   </label>
                   <label className="block border-b border-slate-200 pb-2 font-medium">
@@ -1114,6 +1187,7 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
                           </td>
                           <td className="py-2 pr-4">
                             <input type="number" min={0} step="any" value={item.qty} onChange={(event) => updateDraftItem(item.id, { qty: Number(event.target.value) })} className={`w-20 border-b outline-none ${item.qty > 0 ? "border-slate-200" : "border-rose-400"}`} />
+                            {item.product && productUnits[item.product] && <span className="ml-1 text-slate-500">{t(productUnits[item.product])}</span>}
                           </td>
                           <td className="py-2 pr-4">
                             <input type="number" min={0} step="any" value={item.cost} onChange={(event) => updateDraftItem(item.id, { cost: Number(event.target.value) })} className="w-28 border-b border-slate-200 outline-none" />
@@ -1134,7 +1208,7 @@ export function SupplierIncomingsView({ embedded = false }: { embedded?: boolean
 
             <footer className="flex items-center justify-between border-t p-5">
               <div className="text-sm text-slate-600">
-                {t("Общая стоимость")}: <b>{formatMoney(draftTotalCost)}</b> &nbsp; {t("Общее кол-во")}: <b>{draftTotalQty} {t("ед")}</b>
+                {t("Общая стоимость")}: <b>{formatMoney(draftTotalCost, draft.currency || currencies.base)}</b> &nbsp; {t("Общее кол-во")}: <b>{draftTotalQty}</b>
               </div>
               <button type="submit" className="font-bold uppercase text-sky-500">
                 {t("Сохранить")}

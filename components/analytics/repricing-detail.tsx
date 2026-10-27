@@ -161,7 +161,8 @@ export function RepricingDetailPanel({
                   <td className="py-3 pr-3">{line.name}</td>
                   <td className="whitespace-nowrap py-3 pr-3">{formatQty(line.amount, line.unit)}</td>
                   <td className="whitespace-nowrap py-3 pr-3">
-                    {formatSum(line.totalOld, line.oldCurrency)} (<b>{line.oldPrice === null ? "—" : formatSum(line.oldPrice, line.oldCurrency)}</b>)
+                    {/* The sum is in the document currency; the old price keeps its own (an entry may be in another currency). */}
+                    {formatSum(line.totalOld, doc.currency)} (<b>{line.oldPrice === null ? "—" : formatSum(line.oldPrice, line.oldCurrency)}</b>)
                   </td>
                   <td className="whitespace-nowrap py-3 pr-3">
                     {formatSum(line.totalNew, doc.currency)} (<b>{formatSum(line.price, doc.currency)}</b>)

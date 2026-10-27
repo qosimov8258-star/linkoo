@@ -90,6 +90,8 @@ export type StockLevelSum = {
   currency: string
   /** Unit of the counts when every counted row shares one ("" = mixed units: no unit to show). */
   unit: string
+  /** Per-unit totals of the counts (never summed across units). */
+  byUnit?: Array<{ unit: string; total: number; reserved: number; defects: number; available: number; transit: number }>
 }
 
 export type StockLevelList = {

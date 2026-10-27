@@ -1,13 +1,15 @@
 "use client"
 
 import { Calendar, Check, ChevronDown, ChevronUp, Loader2, X } from "lucide-react"
-import { ChangeEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react"
+import { ChangeEvent, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 
+import { formatUnitTotals } from "@/components/analytics/internal-transfers-picker"
 import { readExcelRows } from "@/lib/excel-import"
 import { useLanguage } from "@/lib/i18n/language-context"
 
-import type { Order } from "./orders-data"
+import { useAllowedProductIds, useAllowedRows } from "./allowed-products"
+import { orderApiErrorText, type AgentLimitExceeded, type Order, type ProductRestrictionRefusal } from "./orders-data"
 
 type Option = { value: string; label: string }
 type ShopRow = { id: number; name: string; agent?: string; deliverer?: string; zone?: string; type?: string }
@@ -22,6 +24,8 @@ type ProductRow = {
   priceLists?: { name: string; cash?: number; nonCash?: number; currency?: string; nonCashCurrency?: string }[]
 }
 type LineItem = { productId: number; productName: string; unit: string; quantity: number; unitPrice: number }
+/** GET /api/orders/defaults (lib/orders-repo.ts getOrderDefaults). */
+type OrderDefaults = { agent: string; priceList: string; warehouse: string; organization: string }
 
 const paymentTypes = ["Наличные", "Перечисление"]
 const deliveryTypes = ["Самовывоз", "Доставка"]
@@ -59,6 +63,7 @@ export function AddOrderDialog({
   const [priceLists, setPriceLists] = useState<string[] | null>(null)
   const [currencies, setCurrencies] = useState<string[] | null>(null)
   const [products, setProducts] = useState<ProductRow[] | null>(null)
+  const [organizations, setOrganizations] = useState<string[] | null>(null)
 
   const [shopId, setShopId] = useState(initialShopId ? String(initialShopId) : "")
   const [date, setDate] = useState(toInputDate(today))
@@ -67,6 +72,9 @@ export function AddOrderDialog({
   const [currency, setCurrency] = useState("")
   const [priceList, setPriceList] = useState("")
   const [agent, setAgent] = useState("")
+  // Ограничение продуктов: an agent with a product / type list is offered only those products.
+  const sellable = useAllowedRows(products, useAllowedProductIds(agent))
+  const [organization, setOrganization] = useState("")
   const [lastPayDate, setLastPayDate] = useState(toInputDate(tomorrow))
   const [terms, setTerms] = useState<"standard" | "consignment">("standard")
   const [warehouse, setWarehouse] = useState("")
@@ -87,6 +95,33 @@ export function AddOrderDialog({
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState("")
   const importRef = useRef<HTMLInputElement>(null)
+  // Fields the user chose by hand keep their value; the others follow the client (applyDefaults).
+  const touched = useRef({ agent: false, priceList: false, warehouse: false, organization: false })
+  const hasItems = useRef(false)
+  const defaultsRequest = useRef(0)
+
+  /** Defaults of the server (GET /api/orders/defaults) for the client: its agent, the price
+   * list marked "default for orders" (else the client's branch list), the branch's single
+   * sales warehouse (else none) and the organization of its contracts / agent / warehouse.
+   * Without a client: no agent and no warehouse. Hand-picked fields are kept; the price
+   * list never changes under lines already added. */
+  const applyDefaults = useCallback((next: { shopId: string; agent?: string; warehouse?: string }) => {
+    const request = ++defaultsRequest.current
+    const params = new URLSearchParams()
+    if (next.shopId) params.set("clientId", next.shopId)
+    if (next.agent !== undefined) params.set("agent", next.agent)
+    if (next.warehouse !== undefined) params.set("warehouse", next.warehouse)
+    void fetch(`/api/orders/defaults?${params}`)
+      .then((response) => (response.ok ? (response.json() as Promise<OrderDefaults>) : null))
+      .catch(() => null)
+      .then((defaults) => {
+        if (!defaults || request !== defaultsRequest.current) return
+        if (!touched.current.agent) setAgent(defaults.agent)
+        if (!touched.current.warehouse) setWarehouse(defaults.warehouse)
+        if (!touched.current.priceList && !hasItems.current && defaults.priceList) setPriceList(defaults.priceList)
+        if (!touched.current.organization) setOrganization(defaults.organization)
+      })
+  }, [])
 
   useEffect(() => {
     const load = (url: string) => fetch(url).then((response) => (response.ok ? response.json() : []))
@@ -95,9 +130,38 @@ export function AddOrderDialog({
     load("/api/warehouses").then((rows: { name: string }[]) => setWarehouses(rows.map((row) => row.name)))
     load("/api/price-lists").then((rows: { name: string }[]) => setPriceLists(rows.map((row) => row.name)))
     load("/api/currencies").then((rows: { code: string }[]) => setCurrencies(rows.map((row) => row.code)))
+    load("/api/organizations").then((rows: { name: string }[]) => setOrganizations(rows.map((row) => row.name).filter(Boolean)))
     // Only products that can be sold (the API refuses the others).
     load("/api/products").then((rows: ProductRow[]) => setProducts(rows.filter((row) => row.canSell !== false && !row.deleted)))
-  }, [])
+    applyDefaults({ shopId: initialShopId ? String(initialShopId) : "" })
+  }, [applyDefaults, initialShopId])
+
+  useEffect(() => {
+    hasItems.current = items.length > 0
+  }, [items])
+
+  function chooseShop(value: string) {
+    setShopId(value)
+    applyDefaults({ shopId: value, agent: touched.current.agent ? agent : undefined, warehouse: touched.current.warehouse ? warehouse : undefined })
+  }
+
+  function chooseAgent(value: string) {
+    touched.current.agent = true
+    setAgent(value)
+    // The organization may follow the agent (its single organization).
+    if (!touched.current.organization) applyDefaults({ shopId, agent: value, warehouse: touched.current.warehouse ? warehouse : undefined })
+  }
+
+  function chooseWarehouse(value: string) {
+    touched.current.warehouse = true
+    setWarehouse(value)
+    if (!touched.current.organization) applyDefaults({ shopId, agent: touched.current.agent ? agent : undefined, warehouse: value })
+  }
+
+  function chooseOrganization(value: string) {
+    touched.current.organization = true
+    setOrganization(value)
+  }
 
   const shop = shops?.find((row) => String(row.id) === shopId)
   // Price lists come from the directory plus any named on products, so the picker is never empty when prices exist.
@@ -106,22 +170,11 @@ export function AddOrderDialog({
     return Array.from(new Set([...priceLists, ...products.flatMap((row) => (row.priceLists ?? []).map((entry) => entry.name))]))
   }, [priceLists, products])
 
-  // Defaults like the original app: first currency / price list / warehouse, the shop's agent.
+  // Currency: SUM (else the first one). Agent, price list, warehouse and organization come
+  // from applyDefaults: nothing is guessed before the client is chosen.
   useEffect(() => {
     if (currencies?.length && !currency) setCurrency(currencies.includes("SUM") ? "SUM" : currencies[0])
   }, [currencies, currency])
-  useEffect(() => {
-    if (allPriceLists?.length && !priceList) setPriceList(allPriceLists[0])
-  }, [allPriceLists, priceList])
-  useEffect(() => {
-    if (warehouses?.length && !warehouse) setWarehouse(warehouses[0])
-  }, [warehouses, warehouse])
-  useEffect(() => {
-    if (agent) return
-    if (shopId && !shops) return // wait for the shop so its agent wins over the first employee
-    if (shop?.agent && shop.agent !== "Не указано") setAgent(shop.agent)
-    else if (agents?.length) setAgent(agents[0])
-  }, [shop, shops, shopId, agents, agent])
   // The client's own deliverer is the default "Доставщик" of its orders.
   useEffect(() => {
     if (deliverer || !shop?.deliverer || shop.deliverer === "Не указано") return
@@ -147,7 +200,8 @@ export function AddOrderDialog({
 
   const ready = Boolean(paymentType && currency && (priceList || !allPriceLists?.length))
   const total = items.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0)
-  const totalQty = items.reduce((sum, item) => sum + item.quantity, 0)
+  // Quantities are totalled per unit (never one sum over kg and pieces).
+  const totalQty = formatUnitTotals(items.map((item) => ({ qty: item.quantity, unit: item.unit })), t)
 
   // A price list price is used only in the order currency (a SUM price is not a USD price).
   function priceOf(product: ProductRow, list = priceList, type = paymentType, inCurrency = currency) {
@@ -165,7 +219,10 @@ export function AddOrderDialog({
     const nextCurrency = next.currency ?? currency
     if (next.paymentType !== undefined) setPaymentType(next.paymentType)
     if (next.currency !== undefined) setCurrency(next.currency)
-    if (next.priceList !== undefined) setPriceList(next.priceList)
+    if (next.priceList !== undefined) {
+      touched.current.priceList = true
+      setPriceList(next.priceList)
+    }
     if (items.length) {
       setItems((current) =>
         current.map((item) => {
@@ -207,7 +264,7 @@ export function AddOrderDialog({
     void (async () => {
       const rows = await readExcelRows(file)
       const key = (value: string) => value.trim().toLowerCase().replace(/\s+/g, " ")
-      const byName = new Map((products ?? []).map((product) => [key(product.name), product]))
+      const byName = new Map((sellable ?? []).map((product) => [key(product.name), product]))
       const unknown: string[] = []
       const parsed: LineItem[] = []
       for (const [name, quantity, price] of rows) {
@@ -232,6 +289,7 @@ export function AddOrderDialog({
     if (!shop) return setError(t("Выберите клиента"))
     if (!paymentType) return setError(t("Выберите тип оплаты"))
     if (!agent) return setError(t("Выберите агента"))
+    if (organizations?.length && !organization) return setError(t("Выберите организацию"))
     if (!warehouse) return setError(t("Выберите склад"))
     if (!currency) return setError(t("Выберите валюту"))
     if (!items.length) return setError(t("Вы еще не выбрали ни одного товара."))
@@ -248,6 +306,7 @@ export function AddOrderDialog({
           type: shop.type,
           priceList,
           agent,
+          organization: organization || undefined,
           currency,
           warehouse,
           deliveryMan: deliverer || undefined,
@@ -261,8 +320,8 @@ export function AddOrderDialog({
           items: items.map((item) => ({ productId: item.productId, unit: item.unit, quantity: item.quantity, unitPrice: item.unitPrice, currency })),
         }),
       })
-      const body = (await response.json().catch(() => null)) as (Order & { error?: string }) | null
-      if (!response.ok || !body) throw new Error(body?.error ? t(body.error) : t("Не удалось создать заказ"))
+      const body = (await response.json().catch(() => null)) as (Order & { error?: string; agentLimit?: AgentLimitExceeded; productRestriction?: ProductRestrictionRefusal }) | null
+      if (!response.ok || !body) throw new Error(orderApiErrorText(body, t, "Не удалось создать заказ"))
       onCreated(body)
     } catch (caught) {
       setError(caught instanceof Error && caught.message ? caught.message : t("Не удалось создать заказ"))
@@ -290,7 +349,7 @@ export function AddOrderDialog({
           </div>
 
           <DateField label={t("Дата создания")} required value={date} onChange={setDate} first />
-          <SelectField label={t("Название клиента")} required placeholderLabel value={shopId} onChange={setShopId} loading={!shops} options={(shops ?? []).map((row) => ({ value: String(row.id), label: row.name }))} onClear={() => setShopId("")} />
+          <SelectField label={t("Название клиента")} required placeholderLabel value={shopId} onChange={chooseShop} loading={!shops} options={(shops ?? []).map((row) => ({ value: String(row.id), label: row.name }))} onClear={() => chooseShop("")} />
 
           <h3 className="mt-[14px] text-[13px] font-semibold">{t("Оплата")}</h3>
           <label className="mt-[20px] flex cursor-pointer items-center gap-2 text-[13px] font-semibold">
@@ -303,7 +362,10 @@ export function AddOrderDialog({
           </div>
           <SelectField label={t("Валюта")} required value={currency} onChange={(value) => changePricing({ currency: value })} loading={!currencies} options={(currencies ?? []).map((row) => ({ value: row, label: row }))} onClear={() => changePricing({ currency: "" })} />
           <SelectField label={t("Прайс лист")} required value={priceList} onChange={(value) => changePricing({ priceList: value })} loading={!allPriceLists} options={(allPriceLists ?? []).map((row) => ({ value: row, label: row }))} onClear={() => changePricing({ priceList: "" })} />
-          <SelectField label={t("Агент")} required value={agent} onChange={setAgent} loading={!agents} options={(agents ?? []).map((row) => ({ value: row, label: row }))} onClear={() => setAgent("")} />
+          <SelectField label={t("Агент")} required value={agent} onChange={chooseAgent} loading={!agents} options={(agents ?? []).map((row) => ({ value: row, label: row }))} onClear={() => chooseAgent("")} />
+          {(organizations === null || organizations.length > 0) && (
+            <SelectField label={t("Организация")} required value={organization} onChange={chooseOrganization} loading={!organizations} options={(organizations ?? []).map((row) => ({ value: row, label: row }))} onClear={() => chooseOrganization("")} />
+          )}
           <DateField label={t("Дата окончательной оплаты")} required value={lastPayDate} onChange={setLastPayDate} />
 
           <h3 className="mt-[22px] text-[13px] font-semibold">{t("Условия договора")}</h3>
@@ -318,7 +380,7 @@ export function AddOrderDialog({
               </label>
             ))}
           </div>
-          <SelectField label={t("Склад")} required value={warehouse} onChange={setWarehouse} loading={!warehouses} options={(warehouses ?? []).map((row) => ({ value: row, label: row }))} onClear={() => setWarehouse("")} />
+          <SelectField label={t("Склад")} required value={warehouse} onChange={chooseWarehouse} loading={!warehouses} options={(warehouses ?? []).map((row) => ({ value: row, label: row }))} onClear={() => chooseWarehouse("")} />
 
           <h3 className="mt-[22px] text-[13px] font-semibold">{t("Условия доставки")}</h3>
           <SelectField label={t("Тип доставки")} required value={deliveryType} onChange={setDeliveryType} options={deliveryTypes.map((row) => ({ value: row, label: t(row) }))} onClear={() => setDeliveryType("")} />
@@ -367,8 +429,8 @@ export function AddOrderDialog({
                     const product = products?.find((row) => String(row.id) === value)
                     setInline({ product: value, quantity: inline.quantity || "1", unitPrice: product ? String(priceOf(product)) : "" })
                   }}
-                  loading={!products}
-                  options={(products ?? []).map((row) => ({ value: String(row.id), label: row.name }))}
+                  loading={!sellable}
+                  options={(sellable ?? []).map((row) => ({ value: String(row.id), label: row.name }))}
                 />
               </div>
               <FlatInput label={t("Кол-во")} type="number" value={inline.quantity} onChange={(value) => setInline({ ...inline, quantity: value })} className="w-[200px]" />
@@ -423,7 +485,7 @@ export function AddOrderDialog({
       <footer className="flex h-[66px] shrink-0 items-center justify-between border-t border-slate-200 px-[30px]">
         <div className="flex items-center gap-6 text-[16px]">
           <span>{t("Общая сумма заказа:")} <b>{money(total)}{currency ? ` ${currency}` : ""}</b></span>
-          <span>{t("Общее кол-во:")} <b>{totalQty} {t("ед.")}</b></span>
+          <span>{t("Общее кол-во:")} <b>{totalQty}</b></span>
           {error && <span className="text-[13px] text-red-500">{error}</span>}
         </div>
         <button type="button" onClick={save} disabled={saving} className="text-[13px] font-bold uppercase text-[#0a9bd9] hover:underline disabled:opacity-50">
@@ -453,7 +515,7 @@ export function AddOrderDialog({
 
       {pickerOpen && (
         <ProductPicker
-          products={products}
+          products={sellable}
           priceOf={(product) => priceOf(product)}
           onClose={() => setPickerOpen(false)}
           onSave={(rows) => {
@@ -468,13 +530,14 @@ export function AddOrderDialog({
 }
 
 function Modal({ title, onClose, children }: { title?: string; onClose: () => void; children: ReactNode }) {
+  const { t } = useLanguage()
   return (
     <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/50">
       <div className="w-[500px] bg-white shadow-xl">
         {title && (
           <div className="flex items-center justify-between px-[30px] pt-5">
             <h3 className="text-[13px] font-bold uppercase">{title}</h3>
-            <button type="button" onClick={onClose} aria-label="close" className="text-slate-600"><X className="h-6 w-6" /></button>
+            <button type="button" onClick={onClose} aria-label={t("Закрыть")} className="text-slate-600"><X className="h-6 w-6" /></button>
           </div>
         )}
         {children}
@@ -596,6 +659,7 @@ export function SelectField({
   placeholderLabel?: boolean
   flat?: boolean
 }) {
+  const { t } = useLanguage()
   const [open, setOpen] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
   const selected = options.find((row) => row.value === value) ?? (value ? { value, label: value } : undefined)
@@ -621,7 +685,7 @@ export function SelectField({
         <span className="absolute right-0 flex items-center gap-2 text-slate-500">
           {loading && <Loader2 className="h-4 w-4 animate-spin" />}
           {selected && onClear && (
-            <span role="button" aria-label="clear" onClick={(event) => { event.stopPropagation(); onClear() }} className="hover:text-slate-800"><X className="h-3.5 w-3.5" /></span>
+            <span role="button" aria-label={t("Очистить")} onClick={(event) => { event.stopPropagation(); onClear() }} className="hover:text-slate-800"><X className="h-3.5 w-3.5" /></span>
           )}
           {open ? <ChevronUp className="h-4 w-4 fill-current" /> : <ChevronDown className="h-4 w-4 fill-current" />}
         </span>
@@ -629,7 +693,7 @@ export function SelectField({
       {open && (
         <ul className="absolute left-0 right-0 z-20 mt-0.5 max-h-60 overflow-y-auto bg-white py-1 shadow-[0_2px_10px_rgba(0,0,0,0.2)]">
           {options.length === 0 ? (
-            <li className="px-3 py-2 text-[13px] font-semibold text-slate-400">{loading ? "Загрузка..." : "—"}</li>
+            <li className="px-3 py-2 text-[13px] font-semibold text-slate-400">{loading ? t("Загрузка...") : "—"}</li>
           ) : (
             options.map((row, index) => (
               <li key={`${row.value}-${index}`}>
@@ -650,13 +714,14 @@ export function SelectField({
 }
 
 export function DateField({ label, required, value, onChange, first }: { label: string; required?: boolean; value: string; onChange: (value: string) => void; first?: boolean }) {
+  const { t } = useLanguage()
   return (
     <div className={first ? "mt-0" : "mt-[14px]"}>
       <span className="block h-3 text-[10px] font-semibold leading-3">
         {label}{required && <span className="text-red-500"> *</span>}
       </span>
       <label className="relative flex h-[34px] cursor-pointer items-center border-b border-slate-300 text-[13px]">
-        <span>{formatDate(value)}</span>
+        <span>{t(formatDate(value))}</span>
         <Calendar className="absolute right-0 h-4 w-4 text-slate-400" />
         <input type="date" value={value} onChange={(event) => onChange(event.target.value)} className="absolute inset-0 h-full w-full cursor-pointer opacity-0" />
       </label>

@@ -3,6 +3,8 @@
 import { useMemo, useState } from "react"
 
 import { FilterDate, FilterSelect, RI, RefFilterPanel, RefIconButton, SimpleListPage } from "@/components/ref/list-kit"
+import { csvText } from "@/lib/csv"
+import { formatDateText } from "@/lib/i18n/format-date"
 import { useLanguage } from "@/lib/i18n/language-context"
 import { refDateTime } from "@/lib/ref-date"
 
@@ -17,7 +19,7 @@ const WAITING = "В ожидании"
 const initialUsers: TgUser[] = []
 
 export function TelegramUsersView() {
-  const { t } = useLanguage()
+  const { t, language } = useLanguage()
   const [list, setList] = useState<TgUser[]>(initialUsers)
   const [filters, setFilters] = useState<Filters>(emptyFilters)
 
@@ -42,7 +44,7 @@ export function TelegramUsersView() {
 
   function download() {
     const a = document.createElement("a")
-    a.href = "data:text/csv;charset=utf-8," + encodeURIComponent(rows.map((u) => [u.id, u.name, u.handle, u.client, u.phone, u.lang, refDateTime(u.first), refDateTime(u.last)].join(";")).join("\n"))
+    a.href = "data:text/csv;charset=utf-8," + encodeURIComponent(csvText(rows.map((u) => [u.id, u.name, u.handle, u.client, u.phone, u.lang, formatDateText(refDateTime(u.first), language), formatDateText(refDateTime(u.last), language)])))
     a.download = "telegram-users.csv"
     a.click()
   }
@@ -77,8 +79,8 @@ export function TelegramUsersView() {
         u.client === WAITING ? t(WAITING) : <span key="c" className="font-semibold text-[#4f71dc]">{u.client}</span>,
         u.phone,
         u.lang,
-        refDateTime(u.first),
-        refDateTime(u.last),
+        formatDateText(refDateTime(u.first), language),
+        formatDateText(refDateTime(u.last), language),
         <button key="d" aria-label={t("Удалить")} onClick={() => setList((current) => current.filter((x) => x.id !== u.id))} className="opacity-0 transition-opacity group-hover:opacity-100">
           <svg viewBox="0 0 24 24" className="h-[22px] w-[22px] fill-[#ff5a4f]"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm5 11H7v-2h10v2z" /></svg>
         </button>,

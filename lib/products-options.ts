@@ -107,6 +107,10 @@ export async function getCatalogOptions(): Promise<CatalogOptions> {
   for (const row of itemTypes) addType(row.type, row.subcategory)
 
   const table = (name: string, sql: string) => (tables.has(name) ? values(db, sql) : Promise.resolve([] as string[]))
+  // Бренд / Поставщик / Организация pickers offer only their directories: the server accepts
+  // nothing else for a changed value (lib/products-validate.ts); an item's own legacy value
+  // stays visible in its form and is kept unchanged on save. The filter also lists the
+  // free-text values items still carry.
   const [units, brands, suppliers, organizations, employees, itemUnits, itemBrands, itemSuppliers, itemOrganizations, colors] = await Promise.all([
     table("units_of_measure", "SELECT name AS v FROM units_of_measure"),
     table("brands", "SELECT name AS v FROM brands"),
@@ -134,9 +138,14 @@ export async function getCatalogOptions(): Promise<CatalogOptions> {
     types: [...types.values()]
       .map((type) => ({ name: type.name, children: [...type.children.values()].sort((a, b) => a.localeCompare(b, "ru")) }))
       .sort((a, b) => a.name.localeCompare(b.name, "ru")),
-    brands: unique([...brands, ...itemBrands]),
-    suppliers: unique([...suppliers, ...itemSuppliers]),
-    organizations: unique([...organizations, ...itemOrganizations]),
+    brands: unique(brands),
+    suppliers: unique(suppliers),
+    organizations: unique(organizations),
+    filterValues: {
+      brands: unique([...brands, ...itemBrands]),
+      suppliers: unique([...suppliers, ...itemSuppliers]),
+      organizations: unique([...organizations, ...itemOrganizations]),
+    },
     colors: unique(colors),
     // "Добавить лимит" accepts employees only (POST …/limits checks the names).
     agents: unique(employees),

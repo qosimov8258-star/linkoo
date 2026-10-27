@@ -2,14 +2,14 @@ import { NextRequest, NextResponse } from "next/server"
 
 import { getCurrentUser } from "@/lib/current-user"
 import { requireRole } from "@/lib/rbac"
-import { parseIdSegment, parseJsonBody } from "@/lib/validation"
+import { notSignedInResponse, parseIdSegment, parseJsonBody } from "@/lib/validation"
 import { toTransferInput, transferBodySchema, transferResponse } from "@/lib/internal-transfers-api"
 import { deleteTransfer, getTransfer, updateTransfer } from "@/lib/internal-transfers-repo"
 
 type RouteParams = { params: Promise<{ id: string }> }
 
 export async function GET(_request: NextRequest, { params }: RouteParams) {
-  if (!(await getCurrentUser())) return NextResponse.json({ error: "Tizimga kirilmagan" }, { status: 401 })
+  if (!(await getCurrentUser())) return notSignedInResponse()
   const transfer = await getTransfer(parseIdSegment((await params).id) ?? 0)
   if (!transfer) return NextResponse.json({ error: "Передача не найдена" }, { status: 404 })
   return NextResponse.json(transfer)

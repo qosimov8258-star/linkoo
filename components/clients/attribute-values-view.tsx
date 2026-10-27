@@ -149,10 +149,11 @@ export function AttributeValuesView({ embedded = false }: { embedded?: boolean }
       setImportFile(null)
     }
   }
-  void embedded
   const listed = attributes.map((attr) => ({ attr, row: rows.find((row) => row.attribute === attr.name) }))
   return (
     <div className="min-h-[calc(100vh-50px)] min-w-0 flex-1 bg-white px-[30px] text-[13px] text-[#333]">
+      {/* Inside the settings layout the page names itself, like the reference's settings pages. */}
+      {embedded && <h1 className="pt-[22px] text-[18px] font-bold leading-[22px] text-[#5d6474]">{t("Значение атрибута")}</h1>}
       <CatalogHeader
         addLabel={t("Добавление значения")}
         onAdd={() => open()}

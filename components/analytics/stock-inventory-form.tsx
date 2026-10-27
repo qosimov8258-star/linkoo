@@ -5,6 +5,7 @@ import { Check, FileSpreadsheet, Info, Plus, Trash2 } from "lucide-react"
 
 import { buildCashQuery, cashMutate, useCashJson } from "@/components/analytics/cash/use-cash"
 import { CashModal, ConfirmDialog, FormField, PrimaryButton, SearchSelect, inputClass, mutationError, parseAmount } from "@/components/analytics/cash-management-shared"
+import { formatUnitTotals } from "@/components/analytics/internal-transfers-picker"
 import { InventoryImportDialog } from "@/components/analytics/stock-inventory-dialogs"
 import { InventoryProductPicker } from "@/components/analytics/stock-inventory-picker"
 import { diffColor, formatDiff, formatQty, formatSum } from "@/components/analytics/stock-inventory-shared"
@@ -143,10 +144,11 @@ export function InventoryFormDialog({
     downloadExcelTable(`${t("Инвентаризация")} ${warehouse}`, [header, ...balanceRows.map((row) => [row.name, row.article, row.unit, row.qty, ""])])
   }
 
-  const totalQty = lines.reduce((sum, line) => sum + parseAmount(line.amount), 0)
-  // The total's unit only when every line shares it (never "ед" over kg and pieces).
-  const lineUnits = new Set(lines.map((line) => line.unit.trim().toLowerCase()))
-  const totalUnit = lineUnits.size === 1 && lines[0]?.unit.trim() ? t(lines[0].unit.trim()) : ""
+  // One total per unit (pieces and kilograms are never added up): "52 870 dona, 9 846 kg".
+  const totalQty = formatUnitTotals(
+    lines.map((line) => ({ qty: parseAmount(line.amount), unit: line.unit })),
+    t,
+  )
   const totalSum = lines.reduce((sum, line) => {
     const row = balanceMap.get(line.key)
     return sum + (parseAmount(line.amount) - (row?.qty ?? 0)) * (row?.cost ?? 0)
@@ -197,7 +199,7 @@ export function InventoryFormDialog({
           <>
             <div className="mr-auto flex flex-wrap items-center gap-x-5 gap-y-1 text-[14px]">
               <span>
-                {t("Общее кол-во:")} <b className="text-[16px] text-[#129fdd]">{formatQty(totalQty, totalUnit)}</b>
+                {t("Общее кол-во:")} <b className="text-[16px] text-[#129fdd]">{totalQty}</b>
               </span>
               <span>
                 {t("Сумма")}: <b className="text-[16px]" style={{ color: diffColor(totalSum) ?? "#129fdd" }}>{formatSum(totalSum, currency)}</b>
@@ -227,7 +229,7 @@ export function InventoryFormDialog({
             <FormField label={t("Выберите склад")} required>
               <SearchSelect
                 value={warehouse}
-                options={(options?.warehouses ?? []).map((name) => ({ value: name, label: name }))}
+                options={[...new Set([...(options?.activeWarehouses ?? options?.warehouses ?? []), ...(inventory?.warehouse ? [inventory.warehouse] : [])])].map((name) => ({ value: name, label: name }))}
                 placeholder={t("Склад")}
                 allowClear={false}
                 selectedLabel={warehouse}

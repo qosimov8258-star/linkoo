@@ -6,6 +6,8 @@ import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from "re
 
 import { downloadExcelTable } from "@/lib/excel-export"
 import { mapHeaderColumns, readExcelRows } from "@/lib/excel-import"
+import { formatDateText } from "@/lib/i18n/format-date"
+import { useLanguage } from "@/lib/i18n/language-context"
 
 const IMPORT_HEADER_ALIASES: Record<string, string> = {
   "наименование": "name", "название": "name", "должность": "name", "position": "name", "name": "name",
@@ -16,6 +18,7 @@ type Position = { id: number; name: string; date: string }
 const seedPositions: Position[] = []
 
 export function PositionsView({ embedded = false }: { embedded?: boolean }) {
+  const { t, language } = useLanguage()
   const [positions, setPositions] = useState(seedPositions)
   const [query, setQuery] = useState("")
   useEffect(() => {
@@ -29,12 +32,12 @@ export function PositionsView({ embedded = false }: { embedded?: boolean }) {
         if (!cancelled) setPositions(data)
       })
       .catch(() => {
-        if (!cancelled) window.alert("Не удалось загрузить должности с сервера")
+        if (!cancelled) window.alert(t("Не удалось загрузить должности с сервера"))
       })
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [t])
   const [page, setPage] = useState(1)
   const [editing, setEditing] = useState<Position | null>(null)
   const [name, setName] = useState("")
@@ -71,7 +74,7 @@ export function PositionsView({ embedded = false }: { embedded?: boolean }) {
         })
         if (!response.ok) {
           const data = await response.json().catch(() => ({}))
-          window.alert(data.error || "Не удалось сохранить должность")
+          window.alert(t(data.error || "Не удалось сохранить должность"))
           return
         }
         const saved = (await response.json()) as Position
@@ -84,7 +87,7 @@ export function PositionsView({ embedded = false }: { embedded?: boolean }) {
         })
         if (!response.ok) {
           const data = await response.json().catch(() => ({}))
-          window.alert(data.error || "Не удалось создать должность")
+          window.alert(t(data.error || "Не удалось создать должность"))
           return
         }
         const saved = (await response.json()) as Position
@@ -92,7 +95,7 @@ export function PositionsView({ embedded = false }: { embedded?: boolean }) {
       }
       setEditing(null)
     } catch {
-      window.alert("Сервер недоступен, попробуйте ещё раз")
+      window.alert(t("Сервер недоступен, попробуйте ещё раз"))
     }
   }
 
@@ -102,13 +105,13 @@ export function PositionsView({ embedded = false }: { embedded?: boolean }) {
       if (!response.ok) {
         // 409 while other records use it: the usage list says where.
         const data = (await response.json().catch(() => ({}))) as { error?: string; usage?: { label: string; count: number }[] }
-        const usage = data.usage?.map((item) => `${item.label}: ${item.count}`).join(", ")
-        window.alert(`${data.error || "Не удалось удалить должность"}${usage ? ` (${usage})` : ""}`)
+        const usage = data.usage?.map((item) => `${t(item.label)}: ${item.count}`).join(", ")
+        window.alert(`${t(data.error || "Не удалось удалить должность")}${usage ? ` (${usage})` : ""}`)
         return
       }
       setPositions((list) => list.filter((position) => position.id !== id))
     } catch {
-      window.alert("Сервер недоступен, попробуйте ещё раз")
+      window.alert(t("Сервер недоступен, попробуйте ещё раз"))
     }
   }
 
@@ -126,7 +129,7 @@ export function PositionsView({ embedded = false }: { embedded?: boolean }) {
     try {
       const rows = await readExcelRows(importFile)
       if (!rows.length) {
-        window.alert("Не удалось найти данные для импорта в выбранном файле")
+        window.alert(t("Не удалось найти данные для импорта в выбранном файле"))
         return
       }
       const fieldByIndex = mapHeaderColumns(rows[0], IMPORT_HEADER_ALIASES)
@@ -147,7 +150,7 @@ export function PositionsView({ embedded = false }: { embedded?: boolean }) {
       }
 
       if (!names.length) {
-        window.alert("Не удалось найти данные для импорта в выбранном файле")
+        window.alert(t("Не удалось найти данные для импорта в выбранном файле"))
         return
       }
 
@@ -167,7 +170,7 @@ export function PositionsView({ embedded = false }: { embedded?: boolean }) {
         }
       }
       if (created.length) setPositions((list) => [...created, ...list])
-      if (failed) window.alert(`Импортировано ${created.length} из ${names.length}. Не удалось сохранить: ${failed}`)
+      if (failed) window.alert(`${t("Импортировано")} ${created.length} ${t("из")} ${names.length}. ${t("Не удалось сохранить")}: ${failed}`)
     } finally {
       setImportSaving(false)
       setImportOpen(false)
@@ -180,20 +183,20 @@ export function PositionsView({ embedded = false }: { embedded?: boolean }) {
       <div className={embedded ? "" : "overflow-hidden rounded bg-white shadow"}>
         <div className="flex flex-wrap items-center gap-4 px-5 py-4">
           <button type="button" onClick={openCreate} className="text-[13px] text-[#4f71dc] hover:underline">
-            + добавить должность
+            {t("+ добавить должность")}
           </button>
           <label className="relative ml-4 w-72">
-            <input value={query} onChange={(event) => { setQuery(event.target.value); setPage(1) }} placeholder="Поиск" className="w-full border-b border-slate-300 py-2 pr-10 outline-none focus:border-[#4f71dc]" />
+            <input value={query} onChange={(event) => { setQuery(event.target.value); setPage(1) }} placeholder={t("Поиск")} className="w-full border-b border-slate-300 py-2 pr-10 outline-none focus:border-[#4f71dc]" />
             <Search className="absolute right-2 top-2 h-5 w-5 text-slate-300" />
           </label>
           <span className="ml-auto text-slate-500">25</span>
           <span className="text-slate-500">
-            {filtered.length ? (safePage - 1) * pageSize + 1 : 0} - {Math.min(safePage * pageSize, filtered.length)} из {filtered.length}
+            {filtered.length ? (safePage - 1) * pageSize + 1 : 0} - {Math.min(safePage * pageSize, filtered.length)} {t("из")} {filtered.length}
           </span>
-          <button type="button" onClick={() => setPage((value) => Math.max(1, value - 1))} disabled={safePage <= 1} aria-label="Назад" className="disabled:opacity-30">
+          <button type="button" onClick={() => setPage((value) => Math.max(1, value - 1))} disabled={safePage <= 1} aria-label={t("Назад")} className="disabled:opacity-30">
             <ChevronLeft className="h-5 w-5 text-slate-400" />
           </button>
-          <button type="button" onClick={() => setPage((value) => Math.min(pageCount, value + 1))} disabled={safePage >= pageCount} aria-label="Вперед" className="disabled:opacity-30">
+          <button type="button" onClick={() => setPage((value) => Math.min(pageCount, value + 1))} disabled={safePage >= pageCount} aria-label={t("Вперед")} className="disabled:opacity-30">
             <ChevronRight className="h-5 w-5 text-slate-400" />
           </button>
         </div>
@@ -202,8 +205,8 @@ export function PositionsView({ embedded = false }: { embedded?: boolean }) {
           <thead className="bg-[#5d6474] text-white">
             <tr>
               <th className="px-9 py-4 text-[13px]">Id</th>
-              <th className="px-5 py-4 text-[13px]">Наименование</th>
-              <th className="px-5 py-4 text-[13px]">Дата создания</th>
+              <th className="px-5 py-4 text-[13px]">{t("Наименование")}</th>
+              <th className="px-5 py-4 text-[13px]">{t("Дата создания")}</th>
               <th className="w-24" />
             </tr>
           </thead>
@@ -212,13 +215,13 @@ export function PositionsView({ embedded = false }: { embedded?: boolean }) {
               <tr key={position.id} className="group border-b border-dashed border-slate-300 hover:bg-slate-50">
                 <td className="px-9 py-4">{position.id}</td>
                 <td className="px-5 py-4">{position.name}</td>
-                <td className="px-5 py-4">{position.date}</td>
+                <td className="px-5 py-4">{formatDateText(position.date, language)}</td>
                 <td>
                   <div className="hidden items-center justify-end gap-3 pr-4 text-slate-500 group-hover:flex">
-                    <button type="button" onClick={() => openEdit(position)} aria-label="Изменить">
+                    <button type="button" onClick={() => openEdit(position)} aria-label={t("Изменить")}>
                       <Pencil className="h-5 w-5" />
                     </button>
-                    <button type="button" onClick={() => remove(position.id)} aria-label="Удалить">
+                    <button type="button" onClick={() => remove(position.id)} aria-label={t("Удалить")}>
                       <Trash2 className="h-5 w-5" />
                     </button>
                   </div>
@@ -228,7 +231,7 @@ export function PositionsView({ embedded = false }: { embedded?: boolean }) {
             {visible.length === 0 && (
               <tr>
                 <td colSpan={4} className="px-5 py-10 text-center text-slate-400">
-                  Ничего не найдено
+                  {t("Ничего не найдено")}
                 </td>
               </tr>
             )}
@@ -237,7 +240,7 @@ export function PositionsView({ embedded = false }: { embedded?: boolean }) {
       </div>
 
       {editing && (
-        <Modal title={editing.id ? "Изменить должность" : "Добавить должность"} onClose={() => setEditing(null)} footer={<SaveButton onClick={() => void save({ preventDefault() {} } as FormEvent)}>Сохранить</SaveButton>}>
+        <Modal title={editing.id ? "Изменить должность" : "Добавить должность"} onClose={() => setEditing(null)} footer={<SaveButton onClick={() => void save({ preventDefault() {} } as FormEvent)}>{t("Сохранить")}</SaveButton>}>
           <LineField label="Наименование" required autoFocus value={name} onChange={setName} />
         </Modal>
       )}
@@ -246,14 +249,14 @@ export function PositionsView({ embedded = false }: { embedded?: boolean }) {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
           <div className="w-full max-w-md rounded bg-white">
             <header className="flex items-center justify-between border-b p-6">
-              <b className="uppercase">Импорт с Excel</b>
-              <button type="button" onClick={() => { setImportOpen(false); setImportFile(null) }} aria-label="Закрыть">
+              <b className="uppercase">{t("Импорт с Excel")}</b>
+              <button type="button" onClick={() => { setImportOpen(false); setImportFile(null) }} aria-label={t("Закрыть")}>
                 <X className="h-5 w-5" />
               </button>
             </header>
             <div className="p-8">
               <button type="button" onClick={downloadTemplate} className="mb-4 font-semibold text-[#4f71dc] hover:underline">
-                1. Скачать шаблон
+                {t("1. Скачать шаблон")}
               </button>
               <input ref={importInputRef} type="file" accept=".csv,.xls,.xlsx" onChange={pickImportFile} className="hidden" />
               <button
@@ -262,12 +265,12 @@ export function PositionsView({ embedded = false }: { embedded?: boolean }) {
                 className="flex w-full flex-col items-center justify-center gap-3 rounded border-2 border-dashed border-slate-300 py-10 text-slate-500 hover:border-[#4f71dc] hover:text-[#4f71dc]"
               >
                 <FileText className="h-8 w-8" />
-                {importFile ? importFile.name : "Добавьте файл Excel или нажмите для выбора"}
+                {importFile ? importFile.name : t("Добавьте файл Excel или нажмите для выбора")}
               </button>
             </div>
             <footer className="flex justify-end border-t p-5">
               <button type="button" disabled={!importFile || importSaving} onClick={saveImport} className="inline-flex items-center h-[30px] rounded-[5px] bg-[#71ce87] px-4 text-[13px] font-semibold text-white hover:brightness-95 disabled:opacity-40">
-                {importSaving ? "Импорт..." : "Сохранить"}
+                {importSaving ? t("Импорт...") : t("Сохранить")}
               </button>
             </footer>
           </div>

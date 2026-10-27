@@ -16,7 +16,8 @@ import {
 } from "@/components/products/catalog-form-parts"
 import { KIND_TEXT, Switch, catalogMutate, errorText } from "@/components/products/catalog-shared"
 import { useLanguage } from "@/lib/i18n/language-context"
-import { CATALOG_API, VAT_OPTIONS, leadingNumber, type CatalogDetail, type CatalogKind, type CatalogOptions } from "@/lib/products-types"
+import { CATALOG_API, VAT_OPTIONS, quantityInput, type CatalogDetail, type CatalogKind, type CatalogOptions } from "@/lib/products-types"
+import { strictNumber } from "@/lib/strict-number"
 
 // Demo ProductCreateDialog (module 1624; raw = the same with isRaw): "Добавить продукт" /
 // "Изменить продукт". Left: Наименование*, Мера*, "Указать группу" (Группа, Кол-во в
@@ -74,7 +75,13 @@ type Draft = {
 }
 
 const str = (value: number | null) => (value === null || value === 0 ? "" : String(value).replace(".", ","))
-const parseNum = (value: string) => leadingNumber(value)
+/** A typed number as the server reads it ("12,5", "1 000", "-" = 0; a stored "1e-7" too). A malformed
+ * entry ("12-15", "1,2,3", "5-") is NaN and refused on the field, never cut to its leading digits. */
+const parseNum = (value: string) => {
+  const quantity = quantityInput(value)
+  return Number.isNaN(quantity) ? strictNumber(value) : quantity
+}
+const NUMBER_KEYS = ["boxAmount", "minStock", "weight", "netWeight", "volume", "expirationDays", "notifyExpireDays", "saleMinPrice", "saleMaxPrice", "salePoints"] as const
 /** A stored price keeps "0" so saving the form does not drop the entry. */
 const priceStr = (value: number) => String(value).replace(".", ",")
 
@@ -250,8 +257,14 @@ export function CatalogFormDialog({
       if (!body.barcodes.length) local.barcodes = "Это поле обязательно для работы маркировки"
       if (!draft.ikpu.trim()) local.ikpu = "Это поле обязательно для работы маркировки"
     }
+    // A number field the server would refuse: marked here with the server's message instead of sending NaN (null).
+    let numberError = ""
+    for (const key of NUMBER_KEYS) if (Number.isNaN(body[key])) local[key] = numberError = "Некорректное число"
+    if (body.boxSizes.some((size) => [size.height, size.width, size.length].some(Number.isNaN))) numberError = "Некорректное число"
+    if (body.priceLists.some((entry) => [entry.cash, entry.nonCash, entry.min, entry.max].some(Number.isNaN))) local.priceLists = numberError = "Некорректная цена"
     setErrors(local)
-    if (Object.keys(local).length) return
+    setError(numberError ? t(numberError) : "")
+    if (Object.keys(local).length || numberError) return
     setBusy(true)
     setError("")
     const result = item ? await catalogMutate<{ id: number }>("PUT", `${CATALOG_API[kind]}/${item.id}`, body) : await catalogMutate<{ id: number }>("POST", CATALOG_API[kind], body)

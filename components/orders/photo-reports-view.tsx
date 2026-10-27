@@ -3,6 +3,7 @@
 import { Download, Filter, Search, X } from "lucide-react"
 import { RefHeader, RefPage, RefTabs } from "@/components/ref/list-kit"
 import { useState } from "react"
+import { csvText } from "@/lib/csv"
 import { useLanguage } from "@/lib/i18n/language-context"
 
 const tabs = ["Ожидает", "Не принят", "Принят", "Все"] as const
@@ -17,7 +18,7 @@ export function PhotoReportsView() {
   const [applied, setApplied] = useState(false)
 
   function download() {
-    const blob = new Blob(["Статус,Дата,Фотоотчеты\n" + `${tab},01.08.2026 - 31.08.2026,0\n`], { type: "text/csv;charset=utf-8" })
+    const blob = new Blob([csvText([["Статус", "Дата", "Фотоотчеты"], [tab, "01.08.2026 - 31.08.2026", 0]], ",") + "\n"], { type: "text/csv;charset=utf-8" })
     const url = URL.createObjectURL(blob)
     const link = document.createElement("a")
     link.href = url

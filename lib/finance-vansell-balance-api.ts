@@ -2,8 +2,10 @@ import "server-only"
 
 import { z } from "zod"
 
-import { MAX_ID, MAX_MONEY } from "@/lib/finance/api"
+import { DOC_DATE_INVALID, docDateCheck } from "@/lib/document-dates"
+import { MAX_MONEY } from "@/lib/finance/api"
 import { parseAnyDate } from "@/lib/finance/dates"
+import { dbId, decimalText } from "@/lib/strict-number"
 
 // Request bodies of the "Баланс вансел" write routes
 // (app/api/vansell-transactions/**). Dates are local Asia/Tashkent
@@ -16,12 +18,13 @@ import { parseAnyDate } from "@/lib/finance/dates"
 const localDateTime = z
   .string()
   .trim()
-  .refine((value) => /^\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2})?)?$/.test(value) && parseAnyDate(value) !== null, "YYYY-MM-DDTHH:mm")
+  .refine((value) => /^\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2})?)?$/.test(value) && parseAnyDate(value) !== null, DOC_DATE_INVALID)
 
-/** A number or a numeric string (JSON bodies of older callers send ids / amounts as text). Booleans, arrays and null are rejected. */
-const numeric = z.union([z.number(), z.string().trim().min(1).transform(Number)])
+/** A number or a plain decimal string (JSON bodies of older callers send ids / amounts as text). Booleans, arrays, null and "0x10" are rejected. */
+const numeric = z.union([z.number(), decimalText()])
 
-const employeeId = numeric.pipe(z.number().int().positive().max(MAX_ID))
+/** A number or a digit text within int4 ("2e9", "+5", true → 400 "Неверный идентификатор"). */
+const employeeId = dbId()
 const currency = z.string().trim().min(1).max(16)
 
 /** POST /api/vansell-transactions — "Добавить" (kind add, +amount) / "Добавить расход" (kind expense, −amount). */
@@ -33,7 +36,8 @@ export const vansellTransactionCreateSchema = z
     currency,
     amount: numeric.pipe(z.number().finite().positive().max(MAX_MONEY)),
     kind: z.enum(["add", "expense"]).default("add"),
-    date: localDateTime.optional(),
+    // A money document: year 2000..2100, never after today (lib/document-dates.ts).
+    date: localDateTime.superRefine(docDateCheck()).optional(),
     comment: z.string().trim().max(2000).optional(),
   })
   .refine((value) => value.employeeId !== undefined || value.vanselId !== undefined, { message: "employeeId", path: ["employeeId"] })
@@ -52,7 +56,8 @@ export const vansellTransactionUpdateSchema = z.object({
       .refine((value) => value !== 0, "≠ 0")
       .refine((value) => Math.abs(value) <= MAX_MONEY, "≤ 1e13"),
   ),
-  date: localDateTime.optional(),
+  // Year 2000..2100 here; a new day later than today is refused by the repo (an edit may keep its own day).
+  date: localDateTime.superRefine(docDateCheck({ allowFuture: true })).optional(),
   comment: z.string().trim().max(2000).optional(),
 })
 

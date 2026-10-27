@@ -1,6 +1,6 @@
 import "server-only"
 
-import { getDb, withTransaction, type PgDb } from "@/lib/db"
+import { getDb, outsideTransaction, withTransaction, type PgDb } from "@/lib/db"
 
 // Database plumbing of the finance ledger:
 // 1. SQL helper functions (fin_*) that normalise the inconsistent text dates,
@@ -11,7 +11,7 @@ import { getDb, withTransaction, type PgDb } from "@/lib/db"
 // 3. Introspection of which (lazily created) tables/columns exist, so a
 //    missing table reads as empty instead of failing with a 500.
 
-const FIN_SCHEMA_VERSION = 2
+const FIN_SCHEMA_VERSION = 3
 
 const FUNCTIONS_SQL = `
 CREATE OR REPLACE FUNCTION fin_key(t text) RETURNS text LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $$
@@ -117,6 +117,22 @@ $$;
 -- '[1, 2, 3]' (JSON id array stored as text) -> 1, 2, 3
 CREATE OR REPLACE FUNCTION fin_ids(t text) RETURNS SETOF integer LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $$
   SELECT (m[1])::int FROM regexp_matches(coalesce(t, ''), '(\\d{1,9})', 'g') AS m
+$$;
+
+-- The single organization of an employees.organizations value (JSON array text or a
+-- comma list), '' when none or several (same rule as cash_single_org / orders_single_org,
+-- available wherever the ledger runs).
+CREATE OR REPLACE FUNCTION fin_single_org(raw text) RETURNS text LANGUAGE plpgsql IMMUTABLE AS $$
+DECLARE n int; one_org text;
+BEGIN
+  IF raw IS NULL OR btrim(raw) = '' THEN RETURN ''; END IF;
+  BEGIN
+    SELECT count(DISTINCT fin_key(v)), min(fin_place(v)) INTO n, one_org FROM json_array_elements_text(raw::json) AS v WHERE fin_place(v) <> '';
+  EXCEPTION WHEN others THEN
+    SELECT count(DISTINCT fin_key(v)), min(fin_place(v)) INTO n, one_org FROM unnest(string_to_array(raw, ',')) AS v WHERE fin_place(v) <> '';
+  END;
+  RETURN CASE WHEN n = 1 THEN one_org ELSE '' END;
+END
 $$;
 
 CREATE OR REPLACE FUNCTION fin_schema_version() RETURNS integer LANGUAGE sql IMMUTABLE AS $$ SELECT ${FIN_SCHEMA_VERSION} $$;
@@ -300,6 +316,8 @@ const LEDGER_TABLES = [
   // client returns (Продажи → Возвраты, sales module): accepted ones credit the client
   "client_returns",
   "client_return_items",
+  // price list currencies: the currency of an internal transfer priced by a list
+  "price_lists",
 ]
 
 export type FinanceSchema = {
@@ -329,7 +347,7 @@ async function installFunctions(): Promise<void> {
 function ensureFunctions(): Promise<void> {
   // Keyed by version so a dev server picks up changed functions after HMR.
   if (globalThis.__linkoFinanceFunctions?.version !== FIN_SCHEMA_VERSION) {
-    const ready = installFunctions().catch((error) => {
+    const ready = outsideTransaction(installFunctions).catch((error) => {
       globalThis.__linkoFinanceFunctions = undefined
       throw error
     })

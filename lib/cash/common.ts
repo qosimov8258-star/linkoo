@@ -1,6 +1,7 @@
 import "server-only"
 
 import type { PgDb } from "@/lib/db"
+import { DOC_DATE_INVALID, DOC_MAX_YEAR, DOC_MIN_YEAR, docDateError, docYearOk, parseDocInput } from "@/lib/document-dates"
 import { loadCurrencyContext, type CurrencyContext } from "@/lib/finance/context"
 import { normCurrency, roundMoney } from "@/lib/finance/currency"
 import { nowLocalIso, parseAnyDate } from "@/lib/finance/dates"
@@ -33,9 +34,10 @@ export const MAX_MONEY = 1e13
 export const MAX_RATE = 1e9
 export const MAX_PAGE = 1_000_000
 export const MAX_PAGE_SIZE = 5000
-/** Business dates of money documents must fall in this year range (fin_ts reads 1900..2200). */
-export const CASH_MIN_YEAR = 2000
-export const CASH_MAX_YEAR = 2100
+/** Business dates of money documents must fall in this year range (fin_ts reads 1900..2200);
+ * the shared document-date rule (lib/document-dates.ts). */
+export const CASH_MIN_YEAR = DOC_MIN_YEAR
+export const CASH_MAX_YEAR = DOC_MAX_YEAR
 
 /** A positive id an INTEGER column can hold. */
 export function isDbId(value: unknown): value is number {
@@ -51,33 +53,31 @@ export function pageOf(page: number | undefined, pageSize: number | undefined, d
 }
 
 function checkYear(local: string, field: string): string {
-  const year = Number(local.slice(0, 4))
-  if (!(year >= CASH_MIN_YEAR && year <= CASH_MAX_YEAR)) throw new CashError("Неверная дата", 400, field)
+  if (!docYearOk(local)) throw new CashError(DOC_DATE_INVALID, 400, field)
   return local
 }
 
 /** Input date ("YYYY-MM-DD" or local date-time) → local "YYYY-MM-DDTHH:mm:ss".
  * A day without time gets the current local time of day (keeps the entry order
  * of one day). Empty → now. Invalid (impossible day, year outside
- * CASH_MIN_YEAR..CASH_MAX_YEAR) → CashError(date); a typed date is never replaced. */
-export function localDateTime(value: string | null | undefined, field = "date"): string {
+ * CASH_MIN_YEAR..CASH_MAX_YEAR) or later than today (a money document, see
+ * lib/document-dates.ts) → CashError(date); a typed date is never replaced.
+ * `current` = the date the edited document already has (keeping its day is allowed). */
+export function localDateTime(value: string | null | undefined, field = "date", current?: unknown): string {
   const text = String(value ?? "").trim()
   const now = nowLocalIso()
   if (!text) return now
-  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) {
-    if (!parseAnyDate(text)) throw new CashError("Неверная дата", 400, field)
-    return checkYear(`${text}T${now.slice(11, 19)}`, field)
-  }
-  const parsed = parseAnyDate(text)
-  if (!parsed) throw new CashError("Неверная дата", 400, field)
-  return checkYear(parsed, field)
+  const local = /^\d{4}-\d{2}-\d{2}$/.test(text) ? (parseAnyDate(text) ? `${text}T${now.slice(11, 19)}` : null) : parseDocInput(text)
+  const error = docDateError(local, { current })
+  if (error) throw new CashError(error, 400, field)
+  return local!
 }
 
 /** Optional ISO day ("" when empty). */
 export function isoDayOrEmpty(value: string | null | undefined, field: string): string {
   const text = String(value ?? "").trim()
   if (!text) return ""
-  const parsed = parseAnyDate(text)
+  const parsed = parseDocInput(text)
   if (!parsed) throw new CashError("Неверная дата", 400, field)
   return checkYear(parsed, field).slice(0, 10)
 }
@@ -86,8 +86,7 @@ export function isoDayOrEmpty(value: string | null | undefined, field: string): 
 export function cashDayOrNull(value: unknown): string | null {
   if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value.trim())) return null
   const day = value.trim()
-  const year = Number(day.slice(0, 4))
-  return parseAnyDate(day) && year >= CASH_MIN_YEAR && year <= CASH_MAX_YEAR ? day : null
+  return parseAnyDate(day) && docYearOk(day) ? day : null
 }
 
 export function paymentKind(value: unknown): CashPaymentType {
@@ -246,18 +245,43 @@ export async function loadSupply(db: PgDb, id: number | null | undefined, base: 
   return { id: row.id, supplier: row.supplier, status: row.status, currency: normCurrency(row.currency, base), amount: num(row.amount) }
 }
 
-export type SupplyExpenseInfo = { id: number; incomingId: number; description: string; amount: number; currency: string }
+export type SupplyExpenseInfo = {
+  id: number
+  incomingId: number
+  description: string
+  amount: number
+  currency: string
+  /** The rate of its currency frozen when the expense was added (contract 2); null on older rows. */
+  rateToBase: number | null
+}
 
 export async function loadSupplyExpense(db: PgDb, id: number | null | undefined, base: string): Promise<SupplyExpenseInfo> {
   const exists = (await db.prepare("SELECT to_regclass('supplier_incoming_expenses') IS NOT NULL AS ok").get()) as { ok: boolean }
+  // FOR UPDATE: this runs inside the cash write transaction (resolvePlan(tx, …)). It serialises
+  // the payments of one expense (the second one waits and then sees the first, so the unpaid rest
+  // check cannot be raced; a FOR SHARE taken by both would deadlock on the transaction_id stamp),
+  // and it holds off a concurrent deleteIncomingExpense / supply cancel (FOR UPDATE) until the
+  // payment commits, so they then see the payment (409).
   const row =
     id && exists.ok
-      ? ((await db.prepare("SELECT id, incoming_id, description, amount, currency FROM supplier_incoming_expenses WHERE id = @id").get({ id })) as
-          | { id: number; incoming_id: number; description: string; amount: number; currency: string }
-          | undefined)
+      ? ((await db
+          // to_jsonb: rate_to_base is added lazily by lib/supplier-incomings-repo.ts.
+          .prepare(
+            `SELECT e.id, e.incoming_id, e.description, e.amount, e.currency, (to_jsonb(e) ->> 'rate_to_base')::float8 AS rate_to_base
+             FROM supplier_incoming_expenses e WHERE e.id = @id FOR UPDATE`,
+          )
+          .get({ id })) as { id: number; incoming_id: number; description: string; amount: number; currency: string; rate_to_base: number | null } | undefined)
       : undefined
   if (!row) throw new CashError("Доп. расход не найден", 404, "supplyExpense")
-  return { id: row.id, incomingId: row.incoming_id, description: row.description, amount: num(row.amount), currency: normCurrency(row.currency, base) }
+  const rate = numOrNull(row.rate_to_base)
+  return {
+    id: row.id,
+    incomingId: row.incoming_id,
+    description: row.description,
+    amount: num(row.amount),
+    currency: normCurrency(row.currency, base),
+    rateToBase: rate !== null && rate > 0 ? rate : null,
+  }
 }
 
 export type ContractInfo = { id: number; label: string }
@@ -275,6 +299,34 @@ export async function loadContract(db: PgDb, id: number | null | undefined): Pro
   const number = `${text(row.contract_prefix)}${text(row.contract_number) || text(row.id)}${text(row.contract_suffix)}`
   const label = [`№ ${number}`, text(row.official_name), text(row.organization), text(row.year)].filter(Boolean).join(" · ")
   return { id: Number(row.id), label }
+}
+
+/** Whether contract `contractId` covers `client` — the same rule as the contract select of the
+ * payment dialogs (lib/contracts-repo.ts listContractOptions): a link to the client (or to a client
+ * of the same name), or, for a legacy contract without links, its stored client name. */
+export async function contractCoversClient(db: PgDb, contractId: number, client: ClientInfo): Promise<boolean> {
+  // contract_clients is created by lib/contracts-repo.ts; without it every contract is a legacy one.
+  const links = await tableExists(db, "contract_clients")
+  const linkSql = links
+    ? `EXISTS (SELECT 1 FROM contract_clients cc WHERE cc.contract_id = k.id
+         AND (cc.client_id = @clientId::int OR cc.client_id IN (SELECT id FROM clients WHERE fin_key(name) = fin_key(@name::text))))`
+    : "false"
+  const linkedSql = links ? "EXISTS (SELECT 1 FROM contract_clients cc WHERE cc.contract_id = k.id)" : "false"
+  const row = (await db
+    .prepare(
+      `SELECT (${linkSql}) OR (NOT (${linkedSql}) AND fin_key(COALESCE(to_jsonb(k) ->> 'client', '')) = fin_key(@name::text)) AS ok
+       FROM contracts k WHERE k.id = @id::int`,
+    )
+    .get({ id: contractId, clientId: client.id, name: client.name })) as { ok: boolean } | undefined
+  return Boolean(row?.ok)
+}
+
+/** Advisory lock that serialises everything that depends on the live payments of supply `supplyId`:
+ * its payments (lib/cash/write.ts) and the supply's cancel / delete (lib/supplier-incomings-repo.ts).
+ * Always taken before the supplier_incomings row lock (the payment writer locks that row last, in
+ * recomputeSupplyPaid), so the order is the same everywhere. */
+export async function lockSupplyPayments(db: PgDb, supplyId: number): Promise<void> {
+  await db.prepare("SELECT pg_advisory_xact_lock(hashtext(@key)) AS ok").get({ key: `linko-supply-pay:${supplyId}` })
 }
 
 /** Currency context (base + current rates). */

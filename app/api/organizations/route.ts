@@ -13,7 +13,7 @@ import {
   wantsPagedList,
 } from "@/lib/organizations-repo"
 import { requireRole } from "@/lib/rbac"
-import { parseJsonBody } from "@/lib/validation"
+import { notSignedInResponse, parseJsonBody, zodErrorResponse } from "@/lib/validation"
 
 // GET /api/organizations — plain array [{id, name, limitByDebt}] for the organization
 // selects of the other pages (optional ?search=). With ?page / ?pageSize (or ?paged=1)
@@ -21,10 +21,10 @@ import { parseJsonBody } from "@/lib/validation"
 // ?search and ordered by ?ordering (default name) — demo GET main/division/.
 export async function GET(request: Request) {
   const user = await getCurrentUser()
-  if (!user) return NextResponse.json({ error: "Tizimga kirilmagan" }, { status: 401 })
+  if (!user) return notSignedInResponse()
   const params = new URL(request.url).searchParams
   const query = organizationListQuerySchema.safeParse(searchParamsObject(params))
-  if (!query.success) return NextResponse.json({ error: "Ma'lumotlar noto'g'ri", details: query.error.flatten() }, { status: 400 })
+  if (!query.success) return zodErrorResponse(query.error)
   if (wantsPagedList(params)) return NextResponse.json(await listOrganizationsPage(query.data))
   return NextResponse.json(await listOrganizations(query.data.search ?? ""))
 }

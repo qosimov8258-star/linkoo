@@ -30,6 +30,8 @@ export type BalanceOverview = {
   salesByType: PnlGroupRow[]
   salesByBrand: PnlGroupRow[]
   salesByAgent: PnlGroupRow[]
-  /** Base currency, positive. */
+  /** Costs of the period by expense category (base currency, positive): plain cashbox expenses only —
+   * no settlements (supplier / client money, supply extra costs, cashback payouts or categories with
+   * those options) and no P&L-excluded categories (lib/finance/overview.ts). */
   expenses: { direct: Array<{ name: string; amount: number }>; indirect: Array<{ name: string; amount: number }> }
 }

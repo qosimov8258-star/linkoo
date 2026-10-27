@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 
-import { getCurrentUser } from "@/lib/current-user"
+import { requireRole } from "@/lib/rbac"
 import { parseJsonBody } from "@/lib/validation"
 import { cashErrorResponse, convertSchema, parseConvertQuery } from "@/lib/cash/api"
 import { convertCurrency } from "@/lib/cash/cashboxes"
@@ -8,8 +8,8 @@ import { convertCurrency } from "@/lib/cash/cashboxes"
 // GET  /api/cash/convert?from&to&amount&fromRate&toRate&cashboxId → ConvertResult
 // POST /api/cash/convert  { from, to, amount?, fromRate?, toRate?, cashboxId? } → ConvertResult
 export async function GET(request: Request) {
-  const user = await getCurrentUser()
-  if (!user) return NextResponse.json({ error: "Tizimga kirilmagan" }, { status: 401 })
+  const auth = await requireRole("viewer")
+  if ("error" in auth) return auth.error
   const parsed = parseConvertQuery(request.url)
   if (parsed.error) return parsed.error
   try {
@@ -20,8 +20,10 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const user = await getCurrentUser()
-  if (!user) return NextResponse.json({ error: "Tizimga kirilmagan" }, { status: 401 })
+  // A read-only calculation, but under /api/cash: the route checks cash.manage itself
+  // (the edge no longer checks access-right permissions).
+  const auth = await requireRole("manager")
+  if ("error" in auth) return auth.error
   const parsed = await parseJsonBody(request, convertSchema)
   if (parsed.error) return parsed.error
   try {

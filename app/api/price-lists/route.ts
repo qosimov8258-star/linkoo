@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 
 import { getCurrentUser } from "@/lib/current-user"
 import { requireRole } from "@/lib/rbac"
-import { parseJsonBody } from "@/lib/validation"
+import { notSignedInResponse, parseJsonBody } from "@/lib/validation"
 import { parsePriceListQuery, priceListBodySchema, toPriceListInput } from "@/lib/price-lists-api"
 import { createPriceList, listPriceLists, listPriceListsPage, priceListErrorResponse } from "@/lib/price-lists-repo"
 
@@ -13,7 +13,7 @@ import { createPriceList, listPriceLists, listPriceListsPage, priceListErrorResp
 // {count, results} with ?search, ?ordering, ?active (default all) — demo GET sales/price_list/.
 export async function GET(request: Request) {
   const user = await getCurrentUser()
-  if (!user) return NextResponse.json({ error: "Tizimga kirilmagan" }, { status: 401 })
+  if (!user) return notSignedInResponse()
   const { paged, active } = parsePriceListQuery(request.url)
   if (paged) return NextResponse.json(await listPriceListsPage(paged))
   return NextResponse.json(await listPriceLists({ active }))

@@ -3,6 +3,7 @@
 import { FormEvent, useEffect, useMemo, useState } from "react"
 import { RefHeader } from "@/components/ref/list-kit"
 import { ReportCheckboxField, ReportEmpty, ReportFilterPanel, ReportPage, ReportRangeField, ReportSearchBar, ReportSelectField, ReportSummaryCard, ReportTopRow } from "@/components/ref/report-kit"
+import { csvText } from "@/lib/csv"
 import { useLanguage } from "@/lib/i18n/language-context"
 import type { OrderItemWithOrder } from "@/lib/order-items-repo"
 import { useDirectoryNames } from "@/components/clients/use-directory"
@@ -179,9 +180,9 @@ export function SalesByAgentsView() {
   }
 
   function downloadCsv() {
-    const header = "Агент;Продажа кол-во;Продажа сумма;Возврат кол-во;Возврат сумма;Фактическая продажа кол-во;Фактическая продажа сумма;Скидки;Бонус"
-    const body = rows.map((row) => `${row.agent};${row.saleQty};${row.saleSum};${row.returnQty};${row.returnSum};${row.saleQty - row.returnQty};${row.saleSum - row.returnSum};${row.discountSum};${row.bonusSum}`)
-    const url = URL.createObjectURL(new Blob([`\uFEFF${[header, ...body].join("\n")}`], { type: "text/csv;charset=utf-8" }))
+    const header = ["Агент", "Продажа кол-во", "Продажа сумма", "Возврат кол-во", "Возврат сумма", "Фактическая продажа кол-во", "Фактическая продажа сумма", "Скидки", "Бонус"]
+    const body = rows.map((row) => [row.agent, row.saleQty, row.saleSum, row.returnQty, row.returnSum, row.saleQty - row.returnQty, row.saleSum - row.returnSum, row.discountSum, row.bonusSum])
+    const url = URL.createObjectURL(new Blob([`\uFEFF${csvText([header, ...body])}`], { type: "text/csv;charset=utf-8" }))
     const anchor = document.createElement("a")
     anchor.href = url
     anchor.download = "sales-by-agents.csv"

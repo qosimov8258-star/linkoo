@@ -4,7 +4,7 @@ import { getCurrentUser } from "@/lib/current-user"
 import { cashboxErrorResponse, createCashbox, listCashboxes, listCashboxesPage } from "@/lib/cashboxes-repo"
 import { cashboxInputSchema, cashboxListQuerySchema, cashboxQueryObject, wantsPagedCashboxes } from "@/lib/cashboxes-schema"
 import { requireRole } from "@/lib/rbac"
-import { parseJsonBody } from "@/lib/validation"
+import { notSignedInResponse, parseJsonBody, zodErrorResponse } from "@/lib/validation"
 
 // GET /api/cashboxes — plain array of Cashbox for every cashbox select (optional
 // ?search= / ?q=), in the demo order (position, "Не указано" last, then id desc).
@@ -12,10 +12,10 @@ import { parseJsonBody } from "@/lib/validation"
 // instead: {count, results} — demo GET finance/cashbox/?search&page&page_size.
 export async function GET(request: Request) {
   const user = await getCurrentUser()
-  if (!user) return NextResponse.json({ error: "Tizimga kirilmagan" }, { status: 401 })
+  if (!user) return notSignedInResponse()
   const params = new URL(request.url).searchParams
   const query = cashboxListQuerySchema.safeParse(cashboxQueryObject(params))
-  if (!query.success) return NextResponse.json({ error: "Ma'lumotlar noto'g'ri", details: query.error.flatten() }, { status: 400 })
+  if (!query.success) return zodErrorResponse(query.error)
   if (wantsPagedCashboxes(params)) return NextResponse.json(await listCashboxesPage(query.data))
   return NextResponse.json(await listCashboxes(query.data.search ?? ""))
 }

@@ -3,6 +3,8 @@ import "server-only"
 import { NextResponse } from "next/server"
 import { z } from "zod"
 
+import { dbErrorResponse } from "@/lib/db-errors"
+import { docYearOk } from "@/lib/document-dates"
 import { MAX_MONEY, MAX_QTY, OrderError } from "@/lib/orders-repo"
 import { ORDER_STATUSES } from "@/components/orders/orders-data"
 
@@ -16,11 +18,8 @@ const isCalendarDay = (value: string) => {
   const date = new Date(`${value}T00:00:00Z`)
   return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value
 }
-/** Years a business document can sensibly carry (0001-01-01 or 9999-12-31 are typos). */
-const saneYear = (value: string) => {
-  const year = Number(value.slice(0, 4))
-  return year >= 2000 && year <= 2100
-}
+/** Years a business document can sensibly carry (0001-01-01 or 9999-12-31 are typos): the shared document rule. */
+const saneYear = (value: string) => docYearOk(value)
 const isoDay = z.union([
   z
     .string()
@@ -98,5 +97,7 @@ export function routeId(raw: string): number | null {
 
 export function orderErrorResponse(error: unknown): NextResponse {
   if (error instanceof OrderError) return NextResponse.json({ error: error.message, ...(error.extra ?? {}) }, { status: error.status })
+  const busy = dbErrorResponse(error)
+  if (busy) return busy
   throw error
 }

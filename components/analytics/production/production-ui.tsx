@@ -4,7 +4,9 @@ import Image from "next/image"
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react"
 import { Check, ChevronDown, Pencil, Trash2, X } from "lucide-react"
 
+import { formatDate as formatLocalDate } from "@/lib/i18n/format-date"
 import { useLanguage } from "@/lib/i18n/language-context"
+import type { LanguageCode } from "@/lib/i18n/types"
 
 // Shared pieces of the production pages (Партии / Этапы производства).
 
@@ -70,22 +72,20 @@ export function todayIso() {
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`
 }
 
-/** "14 апр. 2026" from YYYY-MM-DD. */
-export function formatDate(value: string) {
+/** "14 апр. 2026" from YYYY-MM-DD, in the UI language ("14 apr 2026"). */
+export function formatDate(value: string, language: LanguageCode = "ru") {
   if (!value) return ""
   const date = new Date(`${value.slice(0, 10)}T12:00:00`)
   if (Number.isNaN(date.getTime())) return value
-  return new Intl.DateTimeFormat("ru-RU", { day: "2-digit", month: "short", year: "numeric" }).format(date).replace(" г.", "")
+  return formatLocalDate(date, language)
 }
 
-/** "14 апр. 2026, 18:30" from an ISO timestamp. */
-export function formatDateTime(value: string) {
+/** "14 апр. 2026, 18:30" from an ISO timestamp (browser time), in the UI language. */
+export function formatDateTime(value: string, language: LanguageCode = "ru") {
   if (!value) return ""
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return value
-  const day = new Intl.DateTimeFormat("ru-RU", { day: "2-digit", month: "short", year: "numeric" }).format(date).replace(" г.", "")
-  const time = new Intl.DateTimeFormat("ru-RU", { hour: "2-digit", minute: "2-digit" }).format(date)
-  return `${day}, ${time}`
+  return formatLocalDate(date, language, true)
 }
 
 export function Modal({

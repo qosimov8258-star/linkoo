@@ -7,6 +7,7 @@ import { CashError, loadCategories } from "@/lib/cash/common"
 import { ensureCashSchema } from "@/lib/cash/schema"
 import { createClientIncomes } from "@/lib/cash/write"
 import type { CashOperationInput, CashWriteResult } from "@/lib/cash/types"
+import { strictNumber } from "@/lib/strict-number"
 
 // "Груповой приход" of the cash page (demo /finance/group_client_payment/):
 // one customer payment (op 6) per row, all in one transaction, through the
@@ -108,7 +109,7 @@ export async function matchGroupPaymentRows(rows: GroupPaymentImportRow[]): Prom
   }
   const result: GroupPaymentMatch = { founds: [], notFounds: [] }
   for (const row of rows) {
-    const amount = Number(String(row.amount ?? "").replace(/\s/g, "").replace(",", "."))
+    const amount = strictNumber(row.amount, { locale: true })
     const client = byCode.get(nameKey(row.code)) ?? byInn.get(innKey(row.inn)) ?? byName.get(nameKey(row.client))
     if (!client || !(amount > 0)) {
       result.notFounds.push(row)

@@ -5,7 +5,7 @@ import { productTypeBodySchema, productTypeInput } from "@/lib/dictionaries-api"
 import { dictionaryWrite, parseDictionaryId } from "@/lib/dictionaries-schema"
 import { deleteProductType, getProductTypeDetail, updateProductType } from "@/lib/product-types-repo"
 import { requireRole } from "@/lib/rbac"
-import { parseJsonBody } from "@/lib/validation"
+import { notSignedInResponse, parseJsonBody } from "@/lib/validation"
 
 type RouteParams = { params: Promise<{ id: string }> }
 
@@ -14,7 +14,7 @@ const NOT_FOUND = { error: "Тип продукта не найден" }
 // GET /api/product-types/[id] — the type with parentName / childCount; ?usage=1 adds where it is used.
 export async function GET(request: Request, { params }: RouteParams) {
   const user = await getCurrentUser()
-  if (!user) return NextResponse.json({ error: "Tizimga kirilmagan" }, { status: 401 })
+  if (!user) return notSignedInResponse()
   const id = parseDictionaryId((await params).id)
   const type = id ? await getProductTypeDetail(id, new URL(request.url).searchParams.get("usage") === "1") : null
   if (!type) return NextResponse.json(NOT_FOUND, { status: 404 })

@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 
 import { getCurrentUser } from "@/lib/current-user"
 import { requireRole } from "@/lib/rbac"
-import { parseJsonBody } from "@/lib/validation"
+import { notSignedInResponse, parseJsonBody } from "@/lib/validation"
 import { priceGridSaveSchema } from "@/lib/price-lists-api"
 import { PriceGridError, parsePriceGridQuery, priceGrid, savePriceGrid } from "@/lib/price-lists-grid"
 
@@ -12,7 +12,7 @@ import { PriceGridError, parsePriceGridQuery, priceGrid, savePriceGrid } from "@
 // pageSize=0 returns every matching row (Excel template, markup); cost=1 adds the average cost.
 export async function GET(request: Request) {
   const user = await getCurrentUser()
-  if (!user) return NextResponse.json({ error: "Tizimga kirilmagan" }, { status: 401 })
+  if (!user) return notSignedInResponse()
   return NextResponse.json(await priceGrid(parsePriceGridQuery(request.url)))
 }
 

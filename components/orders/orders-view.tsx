@@ -5,14 +5,16 @@ import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
 import { compareText } from "@/components/ref/list-kit"
 
+import { csvCell } from "@/lib/csv"
 import { readExcelRows } from "@/lib/excel-import"
 import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
 import { useLanguage } from "@/lib/i18n/language-context"
+import { parseAnyDate } from "@/lib/finance/dates"
 
 import { AddOrderDialog } from "./add-order-dialog"
 import { OrderDetailCard } from "./order-detail"
 import { EMPTY_ORDER_FILTERS, OrderFilterPanel, countOrderFilters, matchesOrderFilters, type OrderFilters } from "./order-filter-panel"
-import type { Order } from "./orders-data"
+import { orderApiErrorText, type AgentLimitExceeded, type Order, type ProductRestrictionRefusal } from "./orders-data"
 
 export function OrdersView() {
   const router = useRouter()
@@ -62,7 +64,7 @@ export function OrdersView() {
         case "№": return String(row.id)
         case "Клиент": return row.client
         case "Тип": return row.type
-        case "Дата создания": return row.created
+        case "Дата создания": return row.createdAt || row.created
         case "Дата доставки": return row.delivery
         case "Агент": return row.agent
         case "Сумма заказа": return row.amount
@@ -262,9 +264,9 @@ export function OrdersView() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(patch),
       })
-      const body = (await response.json().catch(() => null)) as (Order & { error?: string }) | null
+      const body = (await response.json().catch(() => null)) as (Order & { error?: string; agentLimit?: AgentLimitExceeded; productRestriction?: ProductRestrictionRefusal }) | null
       if (!response.ok || !body) {
-        flash(body?.error ? t(body.error) : t("Не удалось сохранить изменения на сервере"))
+        flash(orderApiErrorText(body, t, "Не удалось сохранить изменения на сервере"))
         return false
       }
       setOrders((current) => current.map((row) => (row.id === id ? body : row)))
@@ -456,10 +458,10 @@ export function OrdersView() {
                 <svg viewBox="0 0 24 24" className="pointer-events-none absolute right-0 top-3 h-6 w-6 fill-black/30"><path d="M7 10l5 5 5-5z" /></svg>
               </div>
               <span className="mr-2">{pageStart + 1 > filtered.length ? 0 : pageStart + 1} - {Math.min(pageStart + pageSize, filtered.length)}  {t("из")}  {filtered.length}</span>
-              <button type="button" disabled={page <= 1} onClick={() => setPage((current) => current - 1)} aria-label="prev" className="px-[5px] disabled:opacity-100">
+              <button type="button" disabled={page <= 1} onClick={() => setPage((current) => current - 1)} aria-label={t("Назад")} className="px-[5px] disabled:opacity-100">
                 <svg viewBox="0 0 24 24" className={`h-6 w-6 ${page <= 1 ? "fill-black/30" : "fill-black/55"}`}><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm1-12l-5 4 5 4V8z" /></svg>
               </button>
-              <button type="button" disabled={page >= pageCount} onClick={() => setPage((current) => current + 1)} aria-label="next">
+              <button type="button" disabled={page >= pageCount} onClick={() => setPage((current) => current + 1)} aria-label={t("Вперед")}>
                 <svg viewBox="0 0 24 24" className={`h-6 w-6 ${page >= pageCount ? "fill-black/30" : "fill-black/55"}`}><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zM11 8v8l5-4-5-4z" /></svg>
               </button>
               {[
@@ -520,9 +522,9 @@ export function OrdersView() {
                       </div>
                       <div className="px-2 leading-[16.25px]">{row.client}<br /><span>{t("Зона")} : {row.zone || t("Не указано")}</span></div>
                       <div className="px-2 leading-[16.25px]">{row.type}<br /><b className="font-semibold">{row.product}</b></div>
-                      <div className="px-2">{row.created}</div>
+                      <div className="px-2">{t(createdText(row))}</div>
                       <div className="px-2 leading-[16.25px]">{delivererOf(row) || t("Не указано")}<br /><span className="text-[#4f71dc]">{row.deliveryType ? t(row.deliveryType) : t("Не указано")}</span></div>
-                      <div className="px-2">{displayDay(row.delivery)}</div>
+                      <div className="px-2">{t(displayDay(row.delivery))}</div>
                       <div className="px-2 leading-[16.25px]">{row.agent}<br /><span className="text-[#4f71dc]">{row.warehouse || t("Склад не указан")}</span></div>
                       <div className="px-2">{row.amount}</div>
                       <div className={`px-2 font-semibold ${row.negative ? "text-[#e57373]" : "text-[#48a34b]"}`}>{row.balance || "—"}</div>
@@ -635,18 +637,19 @@ function delivererOf(row: Order): string {
 
 const SHORT_MONTHS = ["янв.", "февр.", "мар.", "апр.", "мая", "июня", "июля", "авг.", "сент.", "окт.", "нояб.", "дек."]
 
+/** "20 окт. 15:31": the creation moment (created_at is stored in UTC) in local business time,
+ * like the stored `created` text but recomputed, so callers can pass it through t() and the month
+ * follows the UI language. Rows without created_at keep their stored text. */
+export function createdText(row: Pick<Order, "created" | "createdAt">): string {
+  const local = parseAnyDate(row.createdAt, true)
+  if (!local || local.length < 16) return row.created
+  return `${local.slice(8, 10)} ${SHORT_MONTHS[Number(local.slice(5, 7)) - 1] ?? ""} ${local.slice(11, 16)}`
+}
+
 /** "2026-10-21" → "21 окт. 2026"; other texts as they are. */
 export function displayDay(value: string): string {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value ?? "")
   return match ? `${match[3]} ${SHORT_MONTHS[Number(match[2]) - 1] ?? ""} ${match[1]}` : value
-}
-
-/** A CSV cell; texts that a spreadsheet would run as a formula (= + - @, tab, CR) are
- * prefixed with an apostrophe (plain numbers stay numbers). */
-export function csvCell(value: string | number): string {
-  let text = String(value ?? "")
-  if (/^[=+\-@\t\r]/.test(text) && !/^-?\d+([.,]\d+)?$/.test(text)) text = `'${text}`
-  return `"${text.replace(/"/g, '""')}"`
 }
 
 function totalsByCurrency(amounts: string[]): Map<string, number> {

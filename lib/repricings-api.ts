@@ -7,6 +7,7 @@ import { toNumber } from "@/lib/price-lists-api"
 import { REPRICING_SORT_KEYS, type RepricingInput, type RepricingListQuery } from "@/lib/repricings-repo"
 import { parsePageParam } from "@/lib/stock/paging"
 import type { RepricingStatus } from "@/components/analytics/repricing-data"
+import { strictId } from "@/lib/strict-number"
 
 // Request parsing of /api/repricings/**.
 
@@ -53,7 +54,9 @@ export function parseRepricingListQuery(url: string): RepricingListQuery | null 
     ordering: REPRICING_SORT_KEYS.includes(ordering.replace(/^-/, "")) ? ordering : "",
     page: parsePageParam(params.get("page")),
     pageSize: Number.isFinite(pageSize) && pageSize >= 0 ? Math.min(5000, Math.floor(pageSize)) : 25,
-    priceLists: list("priceList").map(Number).filter((id) => Number.isInteger(id) && id > 0 && id <= MAX_ID),
+    priceLists: list("priceList")
+      .map((value) => strictId(value))
+      .filter((id): id is number => id !== null),
     users: list("user"),
     status: status === "finished" || status === "canceled" ? (status as RepricingStatus) : "",
     products: list("product").filter((key) => /^(product|raw_material):\d+$/.test(key)),

@@ -4,7 +4,7 @@ import { Plus, Trash2 } from "lucide-react"
 import { useMemo, useState } from "react"
 
 import { buildCashQuery, useCashJson } from "@/components/analytics/cash/use-cash"
-import { CashModal, ConfirmDialog, FormField, PrimaryButton, SearchSelect, inputClass, parseAmount, useCashRates } from "@/components/analytics/cash-management-shared"
+import { CashModal, ConfirmDialog, FormField, PrimaryButton, SearchSelect, inputClass, parseAmount } from "@/components/analytics/cash-management-shared"
 import { formatQty, formatSum } from "@/components/analytics/internal-transfers-shared"
 import { currencyLabel, normCurrency } from "@/lib/finance/currency"
 import { useLanguage } from "@/lib/i18n/language-context"
@@ -17,8 +17,11 @@ import { REPRICINGS_API, type RepricingCreateBody, type RepricingCreateResult, t
 // прайс-листов" (when the list has linked lists); right "Список товаров" + "Импортировать c Excel",
 // an add row (Наименование with "Доступно", Цена до, Новая цена, Сумма переоценки, Применить) and the
 // lines Товар | Доступно | Цена до | Новая цена | Разница | Сумма до | Сумма после. Changing the
-// price list or currency with lines asks "При изменении прайс листа или валюты, очистится список
-// продуктов!". Saving finishes the repricing and applies the prices (POST /api/repricings).
+// price list with lines asks "При изменении прайс листа или валюты, очистится список продуктов!".
+// Валюта is the price list's currency (a document is in its list's currency; the server refuses
+// another one), and every sum is in it: an old price kept in another currency is compared through
+// its list-currency value (RepricingPickRow.listPrice). Saving finishes the repricing and applies
+// the prices (POST /api/repricings).
 
 type Line = { row: RepricingPickRow; price: string }
 
@@ -36,47 +39,43 @@ export function RepricingFormDialog({
   onSaved: (result: RepricingCreateResult) => void
 }) {
   const { t } = useLanguage()
-  const { codes } = useCashRates()
   const initialList = initial.priceListId ? String(initial.priceListId) : ""
   const [priceListId, setPriceListId] = useState(initialList)
-  const [currency, setCurrency] = useState(initial.currency ? normCurrency(initial.currency) : "")
   const [comment, setComment] = useState("")
   const [connected, setConnected] = useState(false)
   const [lines, setLines] = useState<Line[]>([])
   const [addKey, setAddKey] = useState("")
   const [addPrice, setAddPrice] = useState("")
-  const [pending, setPending] = useState<{ field: "priceList" | "currency"; value: string } | null>(null)
+  const [pending, setPending] = useState<string | null>(null)
   const [importOpen, setImportOpen] = useState(false)
   const [showErrors, setShowErrors] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState("")
 
   const list = options?.priceLists.find((item) => String(item.id) === priceListId) ?? null
-  // The currency defaults to the chosen list's currency.
-  const effectiveCurrency = currency || (list ? list.currency : "")
+  // Always the chosen list's currency (initial.currency of a deep link is not a choice).
+  const effectiveCurrency = list ? normCurrency(list.currency) : ""
   const picker = useCashJson<RepricingPickRow[]>(priceListId ? `${REPRICINGS_API}/products?${buildCashQuery({ priceList: priceListId })}` : null)
   const rows = useMemo(() => picker.data ?? [], [picker.data])
   const rowMap = useMemo(() => new Map(rows.map((row) => [row.key, row])), [rows])
   const ready = Boolean(priceListId && effectiveCurrency)
-  const currencyOptions = [...new Set([...codes, ...(effectiveCurrency ? [effectiveCurrency] : [])])].map((code) => ({ value: code, label: currencyLabel(code) }))
+  const currencyOptions = effectiveCurrency ? [{ value: effectiveCurrency, label: currencyLabel(effectiveCurrency) }] : []
   const listOptions = (options?.priceLists ?? []).filter((item) => item.isActive || String(item.id) === priceListId).map((item) => ({ value: String(item.id), label: item.name }))
 
-  const change = (field: "priceList" | "currency", value: string) => {
-    if (lines.length && value !== (field === "priceList" ? priceListId : effectiveCurrency)) return setPending({ field, value })
-    apply(field, value)
+  const change = (value: string) => {
+    if (lines.length && value !== priceListId) return setPending(value)
+    apply(value)
   }
-  function apply(field: "priceList" | "currency", value: string) {
-    if (field === "priceList") {
-      setPriceListId(value)
-      const next = options?.priceLists.find((item) => String(item.id) === value)
-      if (next && !currency) setCurrency(next.currency)
-    } else setCurrency(value)
+  function apply(value: string) {
+    setPriceListId(value)
     setLines([])
     setAddKey("")
   }
 
   const addRow = rowMap.get(addKey)
-  const oldPrice = (row: RepricingPickRow) => row.price ?? 0
+  // Old price in the list's currency (the entry may be kept in another one); 0 when there is none.
+  const oldPrice = (row: RepricingPickRow) => row.listPrice ?? 0
+  const oldLabel = (row: RepricingPickRow) => (row.price === null ? "—" : formatSum(row.price, row.currency))
   const lineDiff = (line: Line) => (parseAmount(line.price) - oldPrice(line.row)) * line.row.available
   const total = lines.reduce((sum, line) => sum + (valid(line.price) ? lineDiff(line) : 0), 0)
 
@@ -132,11 +131,12 @@ export function RepricingFormDialog({
       <div className="flex flex-col gap-6 lg:flex-row">
         <div className="flex flex-col gap-3 lg:w-[30%] lg:shrink-0 lg:border-r lg:border-[#efefef] lg:pr-6">
           <FormField label={t("Прайс лист")} required error={showErrors && !priceListId ? t("Это поле обязательно к заполнению") : undefined}>
-            <SearchSelect value={priceListId} options={listOptions} invalid={showErrors && !priceListId} onChange={(value) => change("priceList", value)} />
+            <SearchSelect value={priceListId} options={listOptions} invalid={showErrors && !priceListId} onChange={change} />
           </FormField>
-          <FormField label={t("Валюта")} required error={showErrors && !effectiveCurrency ? t("Это поле обязательно к заполнению") : undefined}>
-            <SearchSelect value={effectiveCurrency} options={currencyOptions} invalid={showErrors && !effectiveCurrency} onChange={(value) => change("currency", value)} />
+          <FormField label={t("Валюта")} required>
+            <SearchSelect value={effectiveCurrency} options={currencyOptions} disabled allowClear={false} onChange={() => {}} />
           </FormField>
+          {list && <p className="-mt-2 text-[12px] text-[#9aa3b6]">{t("Валюта переоценки — валюта прайс-листа")}</p>}
           <textarea value={comment} onChange={(event) => setComment(event.target.value)} rows={3} maxLength={2000} placeholder={`${t("Оставить комментарий")}...`} className={`${inputClass} h-auto py-2`} />
           {(list?.dependents ?? 0) > 0 && (
             <label className="flex items-start gap-3 text-[14px] text-[#17233b]">
@@ -169,7 +169,7 @@ export function RepricingFormDialog({
                 onChange={(value) => setAddKey(value)}
               />
             </FormField>
-            <span className="pb-2.5 text-[13px] text-[#586174]">{addRow ? formatSum(oldPrice(addRow), addRow.currency) : ""}</span>
+            <span className="pb-2.5 text-[13px] text-[#586174]">{addRow ? oldLabel(addRow) : ""}</span>
             <FormField label={t("Новая цена")}>
               <input value={addPrice} disabled={!ready} inputMode="decimal" onChange={(event) => setAddPrice(event.target.value)} onKeyDown={(event) => event.key === "Enter" && add()} className={inputClass} />
             </FormField>
@@ -202,7 +202,7 @@ export function RepricingFormDialog({
                       <tr key={line.row.key} className="border-b border-dashed border-[#e1e5eb]">
                         <td className={cell}>{line.row.name}</td>
                         <td className={`${cell} whitespace-nowrap`}>{formatQty(line.row.available, line.row.unit)}</td>
-                        <td className={`${cell} whitespace-nowrap`}>{formatSum(oldPrice(line.row), line.row.currency)}</td>
+                        <td className={`${cell} whitespace-nowrap`}>{oldLabel(line.row)}</td>
                         <td className={cell}>
                           <span className="flex items-center gap-1.5">
                             <input
@@ -218,7 +218,7 @@ export function RepricingFormDialog({
                         <td className={`${cell} whitespace-nowrap`} style={{ color: !bad && price < oldPrice(line.row) ? "#e57373" : undefined }}>
                           {bad ? "—" : formatSum(lineDiff(line), effectiveCurrency)}
                         </td>
-                        <td className={`${cell} whitespace-nowrap`}>{formatSum(oldPrice(line.row) * line.row.available, line.row.currency)}</td>
+                        <td className={`${cell} whitespace-nowrap`}>{formatSum(oldPrice(line.row) * line.row.available, effectiveCurrency)}</td>
                         <td className={`${cell} whitespace-nowrap`}>{bad ? "—" : formatSum(price * line.row.available, effectiveCurrency)}</td>
                         <td className="py-2 text-right">
                           <button type="button" onClick={() => setLines((current) => current.filter((_, i) => i !== index))} aria-label={t("Удалить")} className="text-[#9aa3b6] hover:text-[#e57373]">
@@ -244,7 +244,7 @@ export function RepricingFormDialog({
           confirmLabel="Подтвердить"
           tone="blue"
           onConfirm={() => {
-            apply(pending.field, pending.value)
+            apply(pending)
             setPending(null)
           }}
           onClose={() => setPending(null)}

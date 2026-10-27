@@ -4,6 +4,7 @@ import { Plus, Trash2, X } from "lucide-react"
 import { FormEvent, useEffect, useState } from "react"
 
 import { useLanguage } from "@/lib/i18n/language-context"
+import { currencyChoices, useCurrencyCodes } from "./supplier-incoming-dialogs"
 import type { Supplier } from "./suppliers-data"
 
 type Line = { key: number; product: string; qty: string; price: string; currency: string }
@@ -12,9 +13,11 @@ type Line = { key: number; product: string; qty: string; price: string; currency
  * for us. Without a manual price the product's current net cost is used. */
 export function SupplierReserveDialog({ supplier, onClose, onSaved }: { supplier: Supplier; onClose: () => void; onSaved: (supplier: Supplier) => void }) {
   const { t } = useLanguage()
+  // Configured currencies; an empty line currency means the base one (known once loaded).
+  const currencies = useCurrencyCodes()
   const [catalog, setCatalog] = useState<Array<{ name: string; cost: number }>>([])
   const [manual, setManual] = useState(false)
-  const [lines, setLines] = useState<Line[]>([{ key: 1, product: "", qty: "1", price: "", currency: "SUM" }])
+  const [lines, setLines] = useState<Line[]>([{ key: 1, product: "", qty: "1", price: "", currency: "" }])
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
@@ -45,7 +48,7 @@ export function SupplierReserveDialog({ supplier, onClose, onSaved }: { supplier
         product: line.product,
         qty: Number(line.qty.replace(",", ".")),
         price: manual ? Number(line.price.replace(",", ".")) || 0 : costOf(line.product),
-        currency: manual ? line.currency : "SUM",
+        currency: manual ? line.currency || currencies.base : currencies.base,
       }))
     if (!products.length) return
     setSaving(true)
@@ -107,14 +110,17 @@ export function SupplierReserveDialog({ supplier, onClose, onSaved }: { supplier
                     {manual ? (
                       <input required inputMode="decimal" value={line.price} onChange={(event) => update(line.key, { price: event.target.value })} className="w-28 border-b border-slate-200 py-1 outline-none" />
                     ) : (
-                      <span className="text-slate-600">{costOf(line.product).toLocaleString("ru-RU")} SUM</span>
+                      <span className="text-slate-600">{costOf(line.product).toLocaleString("ru-RU")} {currencies.base}</span>
                     )}
                   </td>
                   {manual && (
                     <td className="py-2 pr-3">
-                      <select value={line.currency} onChange={(event) => update(line.key, { currency: event.target.value })} className="border-b border-slate-200 bg-white py-1 outline-none">
-                        <option>SUM</option>
-                        <option>USD</option>
+                      <select value={line.currency || currencies.base} onChange={(event) => update(line.key, { currency: event.target.value })} className="border-b border-slate-200 bg-white py-1 outline-none">
+                        {currencyChoices(currencies.codes, currencies.base, line.currency).map((code) => (
+                          <option key={code} value={code}>
+                            {code}
+                          </option>
+                        ))}
                       </select>
                     </td>
                   )}
@@ -131,7 +137,7 @@ export function SupplierReserveDialog({ supplier, onClose, onSaved }: { supplier
           </table>
           <button
             type="button"
-            onClick={() => setLines((current) => [...current, { key: Math.max(...current.map((line) => line.key)) + 1, product: "", qty: "1", price: "", currency: "SUM" }])}
+            onClick={() => setLines((current) => [...current, { key: Math.max(...current.map((line) => line.key)) + 1, product: "", qty: "1", price: "", currency: "" }])}
             className="inline-flex items-center gap-1 text-sm text-[#4f70e7] hover:underline"
           >
             <Plus className="h-4 w-4" /> {t("добавить товар")}

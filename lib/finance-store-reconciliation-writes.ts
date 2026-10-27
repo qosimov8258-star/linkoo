@@ -2,12 +2,14 @@ import "server-only"
 
 import { z } from "zod"
 
+import { resolveOrganization } from "@/lib/cash/common"
 import { getDb, withTransaction, type PgDb } from "@/lib/db"
-import { MAX_ID, MAX_MONEY } from "@/lib/finance/api"
+import { docDateCheck, parseDocDate } from "@/lib/document-dates"
+import { MAX_MONEY } from "@/lib/finance/api"
 import { loadCurrencyContext } from "@/lib/finance/context"
 import { convertAmount, currencyLabel, formatMoney, normCurrency, roundMoney } from "@/lib/finance/currency"
 import { customerPaymentColumns } from "@/lib/finance/customer-payment"
-import { formatDotDate, isIsoDay, nowLocalIso, parseAnyDate, todayIso } from "@/lib/finance/dates"
+import { formatDotDate, isIsoDay, nowLocalIso, todayIso } from "@/lib/finance/dates"
 import { innKey, loadContractNames, nameKey, placeName } from "@/lib/finance/entities"
 import { FinanceInputError } from "@/lib/finance/group-payment"
 import { ensureFinanceSchema, type FinanceSchema } from "@/lib/finance/schema"
@@ -33,6 +35,7 @@ import {
   type ReconciliationStatus,
   type ReconciliationVariant,
 } from "@/lib/finance-store-reconciliation-types"
+import { dbId, strictNum } from "@/lib/strict-number"
 
 // Writes of "Сверка магазина через бот" / "Сверка счетов": reconciliation
 // requests (no Telegram bot exists, so a request is only recorded) and debt
@@ -48,7 +51,7 @@ export { FinanceInputError }
 export const TELEGRAM_BOT_CONNECTED = false
 
 const day = z.string().refine(isIsoDay, "YYYY-MM-DD")
-const clientId = z.coerce.number().int().positive().max(MAX_ID)
+const clientId = dbId()
 
 // --- clients -----------------------------------------------------------------------
 
@@ -277,7 +280,7 @@ export const correctionSchema = z.object({
   /** expense = "Списать" (none_type −), income = "Добавить" / Прочие приходы (none_type +),
    * payment = "Добавить" / Оплата (Кассир не принял) (customer payment waiting for the cashier). */
   kind: z.enum(["expense", "income", "payment"]),
-  amount: z.coerce.number().finite().positive().max(MAX_MONEY),
+  amount: strictNum(z.number().finite().positive().max(MAX_MONEY)),
   /** A currency of the currencies table (checked on write: 400 "Валюта не найдена"). */
   currency: z.string().trim().min(1).max(16),
   paymentType: z.enum(["cash", "bank", ""]).optional(),
@@ -290,7 +293,7 @@ export const correctionSchema = z.object({
 
 export type CorrectionInput = z.infer<typeof correctionSchema>
 
-/** Canonical code of a currency of the currencies table (SUM / USD / EUR when the table is empty). */
+/** Canonical code of a currency of the currencies table (none while the table is empty). */
 async function knownCurrency(db: PgDb, value: string): Promise<string> {
   const code = normCurrency(value)
   const context = await loadCurrencyContext(db)
@@ -313,11 +316,24 @@ export async function deleteClientCorrection(id: number, deletedBy: string): Pro
   return { id: Number(row.id), deleted: true }
 }
 
+/** A correction / payment is a money document: year 2000..2100, never after today (lib/document-dates.ts). */
 function localDate(value: string | undefined): string {
   if (!value) return nowLocalIso().slice(0, 16)
-  const parsed = parseAnyDate(value)
-  if (!parsed) throw new FinanceInputError("Неверная дата")
-  return parsed.slice(0, 16)
+  const parsed = parseDocDate(value)
+  if (!parsed.ok) throw new FinanceInputError(parsed.error)
+  return parsed.date.slice(0, 16)
+}
+
+/** Organization of a client movement written without one: the client's contracts with one
+ * organization → the client's agent's single organization → the only organization ("" when
+ * unknown), the same rules as orders (resolveOrderOrganization) and the ledger's fallback. */
+async function defaultClientOrganization(db: PgDb, clientId: number): Promise<string> {
+  try {
+    const row = (await db.prepare("SELECT agent FROM clients WHERE id = @id").get({ id: clientId })) as { agent: string | null } | undefined
+    return await resolveOrganization(db, "", { clientId, employeeName: placeName(row?.agent) || null }, "organization")
+  } catch {
+    return ""
+  }
 }
 
 /** One manual movement of a client: a correction row, or (kind "payment") an
@@ -330,7 +346,7 @@ export async function createClientCorrection(input: CorrectionInput, createdBy: 
   const currency = await knownCurrency(db, input.currency)
   const date = localDate(input.date)
   const amount = roundMoney(Math.abs(input.amount))
-  const organization = placeName(input.organization)
+  const organization = placeName(input.organization) || (await defaultClientOrganization(db, client.id))
 
   if (input.kind === "payment") {
     const context = await loadCurrencyContext(db)
@@ -429,7 +445,7 @@ export async function getDebtTemplate(params: DebtTemplateParams, db: PgDb = get
 }
 
 const importLine = z.object({
-  line: z.coerce.number().int().min(1),
+  line: strictNum(z.number().int().min(1)),
   id: z.string().max(100).default(""),
   name: z.string().max(500).default(""),
   organization: z.string().max(500).default(""),
@@ -439,7 +455,8 @@ const importLine = z.object({
 })
 
 export const debtImportSchema = z.object({
-  debtDate: day,
+  /** The day the imported debts are booked on: a balance correction (money document), never after today. */
+  debtDate: day.superRefine(docDateCheck()),
   currency: z.string().trim().min(1),
   organizations: z.array(z.string().trim().min(1)).default([]),
   byPaymentType: z.boolean().default(false),

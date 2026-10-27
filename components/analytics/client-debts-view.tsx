@@ -199,7 +199,7 @@ export function ClientDebtsView() {
           <ReportGridTable
             minWidth={1900}
             emptyText={t("Нет данных")}
-            heads={heads.map((head, index) => index === 1 ? <input key="all" type="checkbox" className="h-[14px] w-[14px] accent-[#444]" aria-label="all" /> : t(head))}
+            heads={heads.map((head, index) => index === 1 ? <input key="all" type="checkbox" className="h-[14px] w-[14px] accent-[#444]" aria-label={t("Выбрать все")} /> : t(head))}
             rows={visibleOrders.map((row) => [
               row.id,
               <input key="c" type="checkbox" checked={selected.has(row.id)} onChange={() => toggleOne(row.id)} className="h-[14px] w-[14px] accent-[#444]" />,

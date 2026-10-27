@@ -3,11 +3,13 @@ import "server-only"
 import { NextResponse } from "next/server"
 import { z } from "zod"
 
+import { dbErrorResponse } from "@/lib/db-errors"
 import { MAX_PRICE } from "@/lib/item-prices"
 import type { CatalogListQuery } from "@/lib/products-catalog"
-import { CATALOG_ORDERINGS, EMPTY_CATALOG_FILTERS, cleanText, leadingNumber, type CatalogBoxSize, type CatalogKind, type CatalogPrice, type CatalogTab } from "@/lib/products-types"
+import { CATALOG_ORDERINGS, EMPTY_CATALOG_FILTERS, cleanText, quantityInput, type CatalogBoxSize, type CatalogKind, type CatalogPrice, type CatalogTab } from "@/lib/products-types"
 import { CatalogError, type CatalogPatch } from "@/lib/products-write"
 import { parseIdSegment } from "@/lib/validation"
+import { strictId } from "@/lib/strict-number"
 
 // Request schemas and parsers of /api/products/** and /api/raw-materials/**.
 // The item body accepts the new field names and the old payload of the previous forms /
@@ -24,15 +26,16 @@ export function parseCatalogId(value: string): number | null {
 }
 
 const text = (max: number) => z.string().max(max, `Не более ${max} символов`)
-/** Number or numeric text ("0 шт.", "1,5") → finite number ≥ 0. */
+/** Number or numeric text ("0 шт.", "1,5", placeholder "-" = 0) → finite number ≥ 0;
+ * other text ("abc", "12abc") is refused, never stored as 0 / 12 (quantityInput). */
 const amount = z
   .union([z.number(), z.string().max(64)])
-  .transform((value) => leadingNumber(value))
+  .transform((value) => quantityInput(value))
   .refine((value) => Number.isFinite(value) && value >= 0 && value < 1e15, "Некорректное число")
 const days = z.union([z.number(), z.string().max(16), z.null()]).transform((value, ctx) => {
   if (value === null || value === "") return null
-  const parsed = Math.trunc(leadingNumber(value))
-  if (parsed < 0 || parsed > 100_000) {
+  const parsed = Math.trunc(quantityInput(value))
+  if (!Number.isFinite(parsed) || parsed < 0 || parsed > 100_000) {
     ctx.addIssue({ code: "custom", message: "Некорректное число" })
     return z.NEVER
   }
@@ -68,7 +71,13 @@ export const catalogItemSchema = z.object({
   boxUnit: text(100).optional(),
   group: text(100).optional(),
   boxAmount: amount.optional(),
-  subUnit: text(100).optional(),
+  /** Old alias of boxAmount ("12 шт."): a number with an optional unit word, else 400 (never a silent 0 / 12). */
+  subUnit: text(100)
+    .refine((value) => {
+      const parsed = quantityInput(value)
+      return Number.isFinite(parsed) && parsed >= 0 && parsed < 1e15
+    }, "Некорректное число")
+    .optional(),
   orderNumber: text(32).optional(),
   supplier: text(255).optional(),
   brand: text(255).optional(),
@@ -128,7 +137,7 @@ export function catalogPatch(body: CatalogItemBody): CatalogPatch {
   set("unit", body.unit === undefined ? undefined : body.unit.trim())
   const boxUnit = first(body.boxUnit, body.group)
   set("boxUnit", boxUnit === undefined ? undefined : cleanText(boxUnit))
-  set("boxAmount", first(body.boxAmount, body.subUnit === undefined ? undefined : leadingNumber(body.subUnit)))
+  set("boxAmount", first(body.boxAmount, body.subUnit === undefined ? undefined : quantityInput(body.subUnit)))
   set("orderNumber", body.orderNumber)
   set("minStock", body.minStock)
   set("weight", first(body.weight, body.mass))
@@ -223,8 +232,8 @@ export function catalogListQuery(params: URLSearchParams, kind: CatalogKind): Ca
       isPerfectStore: flag("isPerfectStore"),
     },
     ids: list("ids")
-      .map(Number)
-      .filter((id) => Number.isInteger(id) && id > 0 && id <= MAX_INT),
+      .map((value) => strictId(value))
+      .filter((id): id is number => id !== null),
   }
 }
 
@@ -276,7 +285,7 @@ export const importSchema = z.object({
 
 /** JSON response of a CatalogError ({error, fields?, usage?, stock?}); null for other errors. */
 export function catalogErrorResponse(error: unknown): NextResponse | null {
-  if (!(error instanceof CatalogError)) return null
+  if (!(error instanceof CatalogError)) return dbErrorResponse(error)
   return NextResponse.json(
     { error: error.message, ...(error.fields ? { fields: error.fields } : {}), ...(error.usage ? { usage: error.usage } : {}), ...(error.stock ? { stock: error.stock } : {}) },
     { status: error.status },

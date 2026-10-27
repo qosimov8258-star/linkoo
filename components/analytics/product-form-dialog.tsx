@@ -320,6 +320,7 @@ function Field({ label, value, onChange, required, numeric, autoFocus }: { label
 }
 
 function Select({ label, value, onChange, options, onClear, required }: { label: string; value: string; onChange: (value: string) => void; options: string[]; onClear: () => void; required?: boolean }) {
+  const { t } = useLanguage()
   const [open, setOpen] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
@@ -339,7 +340,7 @@ function Select({ label, value, onChange, options, onClear, required }: { label:
         </span>
         {value && <span className="absolute inset-x-0 bottom-[6px] truncate pr-12 text-[13px]">{value}</span>}
         <span className="absolute bottom-[8px] right-0 flex items-center gap-[10px] text-slate-500">
-          {value && <span role="button" aria-label="clear" onClick={(event) => { event.stopPropagation(); onClear() }}><X className="h-3.5 w-3.5" /></span>}
+          {value && <span role="button" aria-label={t("Очистить")} onClick={(event) => { event.stopPropagation(); onClear() }}><X className="h-3.5 w-3.5" /></span>}
           {open ? <ChevronUp className="h-4 w-4 fill-current" /> : <ChevronDown className="h-4 w-4 fill-current" />}
         </span>
       </button>

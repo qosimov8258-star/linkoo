@@ -3,11 +3,13 @@ import "server-only"
 import { NextResponse } from "next/server"
 import { z, type ZodType } from "zod"
 
+import { dbErrorResponse } from "@/lib/db-errors"
 import type { PgDb } from "@/lib/db"
 import { loadCurrencyContext } from "@/lib/finance/context"
 import { normCurrency } from "@/lib/finance/currency"
 import { ensureFinanceSchema } from "@/lib/finance/schema"
-import { cleanJsonText } from "@/lib/validation"
+import { cleanJsonText, zodErrorBody, zodIssueMessage } from "@/lib/validation"
+import { strictNum } from "@/lib/strict-number"
 
 // Shared plumbing of the procurement documents (Поставщики, Категории
 // поставщиков, Приход от поставщиков, Возврат поставщикам, Баланс
@@ -28,14 +30,14 @@ export const optionalText = (max: number) => z.preprocess(emptyToUndefined, z.st
 /** Optional non-negative number (Блок, Кг., Вес нетто); '' / null → undefined. */
 export const optionalAmount = z.preprocess(
   emptyToUndefined,
-  z.coerce.number({ error: "Должно быть числом" }).min(0, "Не может быть отрицательным").max(MAX_QTY, "Слишком большое значение").optional(),
+  strictNum(z.number({ error: "Должно быть числом" }).min(0, "Не может быть отрицательным").max(MAX_QTY, "Слишком большое значение").optional(), "Должно быть числом"),
 )
 
 /** A document line quantity: 0 < x ≤ 1e9. */
-export const quantitySchema = z.coerce.number({ error: "Количество должно быть числом" }).gt(0, "Количество должно быть больше 0").max(MAX_QTY, "Слишком большое количество")
+export const quantitySchema = strictNum(z.number({ error: "Количество должно быть числом" }).gt(0, "Количество должно быть больше 0").max(MAX_QTY, "Слишком большое количество"), "Количество должно быть числом")
 
 /** A unit price / cost: 0 ≤ x ≤ 1e13. */
-export const priceSchema = z.coerce.number({ error: "Цена должна быть числом" }).min(0, "Цена не может быть отрицательной").max(MAX_MONEY, "Слишком большая цена")
+export const priceSchema = strictNum(z.number({ error: "Цена должна быть числом" }).min(0, "Цена не может быть отрицательной").max(MAX_MONEY, "Слишком большая цена"), "Цена должна быть числом")
 
 /** Route param → positive int4 id, or null (non-numeric, 0, negative, too large). */
 export function parseRouteId(value: string | undefined | null): number | null {
@@ -65,7 +67,7 @@ export function fieldError(field: string, message: string, status = 400): Procur
 
 /** JSON response of a ProcurementError ({error, fields?, …extra}); null for other errors. */
 export function procurementErrorResponse(error: unknown): NextResponse | null {
-  if (!(error instanceof ProcurementError)) return null
+  if (!(error instanceof ProcurementError)) return dbErrorResponse(error)
   return NextResponse.json({ error: error.message, ...(error.fields ? { fields: error.fields } : {}), ...(error.extra ?? {}) }, { status: error.status })
 }
 
@@ -103,11 +105,11 @@ export async function parseProcurementBody<T>(request: Request, schema: ZodType<
   const fields: Record<string, string> = {}
   for (const issue of result.error.issues) {
     const path = issue.path.map(String).join(".") || "_"
-    if (!(path in fields)) fields[path] = issue.message
+    if (!(path in fields)) fields[path] = zodIssueMessage(issue)
   }
-  const first = result.error.issues[0]
+  const body = zodErrorBody(result.error)
   return {
-    error: NextResponse.json({ error: first?.message || "Неверные данные", fields, details: result.error.flatten() }, { status: 400 }),
+    error: NextResponse.json({ error: body.error, fields, details: body.details }, { status: 400 }),
   }
 }
 
@@ -197,7 +199,7 @@ export type CurrencyInfo = {
   base: string
 }
 
-/** A configured currency (currencies table, or the default list when it is empty); null when unknown. */
+/** A configured currency of the currencies table; null when unknown (always while the table is empty). */
 export async function findCurrency(db: PgDb, code: string | null | undefined): Promise<CurrencyInfo | null> {
   const ctx = await loadCurrencyContext(db)
   const wanted = normCurrency(code, ctx.base)

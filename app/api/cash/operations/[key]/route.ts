@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 
 import { getCurrentUser } from "@/lib/current-user"
 import { requireRole } from "@/lib/rbac"
-import { parseJsonBody } from "@/lib/validation"
+import { notSignedInResponse, parseJsonBody } from "@/lib/validation"
 import { cashErrorResponse, cashOperationSchema } from "@/lib/cash/api"
 import { getCashOperation, getOperationDetails } from "@/lib/cash/list"
 import { deleteCashOperation, getOperationInput, updateCashOperation } from "@/lib/cash/write"
@@ -14,7 +14,7 @@ type Params = { params: Promise<{ key: string }> }
 // DELETE /api/cash/operations/[key] → { key, deleted: [keys] } (soft delete)
 export async function GET(_request: Request, { params }: Params) {
   const user = await getCurrentUser()
-  if (!user) return NextResponse.json({ error: "Tizimga kirilmagan" }, { status: 401 })
+  if (!user) return notSignedInResponse()
   const { key } = await params
   const operation = await getCashOperation(key)
   if (!operation) return NextResponse.json({ error: "Операция не найдена" }, { status: 404 })

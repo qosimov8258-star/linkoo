@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 
 import { getCurrentUser } from "@/lib/current-user"
 import { requireRole } from "@/lib/rbac"
-import { parseJsonBody } from "@/lib/validation"
+import { notSignedInResponse, parseJsonBody } from "@/lib/validation"
 import { listLinkedRepricings } from "@/lib/linked-repricings-repo"
 import { repricingConnectedSchema } from "@/lib/repricings-api"
 import { createConnectedRepricings, repricingErrorResponse } from "@/lib/repricings-repo"
@@ -10,7 +10,7 @@ import { createConnectedRepricings, repricingErrorResponse } from "@/lib/reprici
 // GET /api/linked-repricings — journal of the "Переоценку связанных" runs.
 export async function GET() {
   const user = await getCurrentUser()
-  if (!user) return NextResponse.json({ error: "Tizimga kirilmagan" }, { status: 401 })
+  if (!user) return notSignedInResponse()
   return NextResponse.json(await listLinkedRepricings())
 }
 

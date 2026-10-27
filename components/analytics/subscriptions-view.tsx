@@ -3,6 +3,7 @@
 import { CreditCard, Pencil, Plus, Search, Trash2, X } from "lucide-react"
 import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
 import { FormEvent, useEffect, useMemo, useState } from "react"
+import { useLanguage } from "@/lib/i18n/language-context"
 
 const SUBSCRIPTION_PERIODS = ["Месяц", "Год"] as const
 const SUBSCRIPTION_STATUSES = ["Активна", "Приостановлена", "Отменена"] as const
@@ -37,6 +38,7 @@ function formatSum(value: number) {
 }
 
 export function SubscriptionsView({ embedded = false }: { embedded?: boolean }) {
+  const { t } = useLanguage()
   const [items, setItems] = useState<Subscription[]>([])
   const [query, setQuery] = useState("")
   const [editing, setEditing] = useState<Subscription | null>(null)
@@ -53,12 +55,12 @@ export function SubscriptionsView({ embedded = false }: { embedded?: boolean }) 
         if (!cancelled) setItems(data)
       })
       .catch(() => {
-        if (!cancelled) window.alert("Не удалось загрузить подписки с сервера")
+        if (!cancelled) window.alert(t("Не удалось загрузить подписки с сервера"))
       })
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [t])
 
   const rows = useMemo(() => items.filter((item) => item.planName.toLowerCase().includes(query.toLowerCase())), [items, query])
 
@@ -105,7 +107,7 @@ export function SubscriptionsView({ embedded = false }: { embedded?: boolean }) 
       }
       setEditing(null)
     } catch {
-      window.alert("Сервер недоступен, попробуйте ещё раз")
+      window.alert(t("Сервер недоступен, попробуйте ещё раз"))
     }
   }
 
@@ -119,7 +121,7 @@ export function SubscriptionsView({ embedded = false }: { embedded?: boolean }) 
       }
       setItems((list) => list.filter((row) => row.id !== id))
     } catch {
-      window.alert("Сервер недоступен, попробуйте ещё раз")
+      window.alert(t("Сервер недоступен, попробуйте ещё раз"))
     }
   }
 
@@ -129,7 +131,7 @@ export function SubscriptionsView({ embedded = false }: { embedded?: boolean }) 
         <header className="flex h-[60px] flex-wrap items-center justify-between gap-3">
           <h1 className="flex items-center text-[18px] font-bold text-[#5d6474]">
             <FavoritesButton className="flex items-center gap-[5px] text-[18px] font-bold text-[#4f71dc]" />
-            <span className="mx-[11px] inline-block h-[21px] w-[2px] bg-[#5d6474]" /> Подписки
+            <span className="mx-[11px] inline-block h-[21px] w-[2px] bg-[#5d6474]" /> {t("Подписки")}
           </h1>
         </header>
       )}
@@ -137,25 +139,25 @@ export function SubscriptionsView({ embedded = false }: { embedded?: boolean }) 
       <section className="overflow-hidden rounded bg-white shadow">
         <div className="flex flex-wrap items-center gap-4 px-5 py-4">
           <button type="button" onClick={() => open()} className="text-[17px] text-[#4f71dc] hover:underline">
-            + добавить
+            {t("+ добавить")}
           </button>
           <label className="relative ml-4 w-72">
-            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Поиск" className="w-full border-b border-slate-300 py-2 pr-10 outline-none focus:border-[#4f71dc]" />
+            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("Поиск")} className="w-full border-b border-slate-300 py-2 pr-10 outline-none focus:border-[#4f71dc]" />
             <Search className="absolute right-2 top-2 h-5 w-5 text-slate-300" />
           </label>
           <span className="ml-auto text-slate-500">
-            {rows.length} из {items.length}
+            {rows.length} {t("из")} {items.length}
           </span>
         </div>
 
         <table className="w-full text-left">
           <thead className="bg-[#5d6474] text-white">
             <tr>
-              <th className="px-9 py-4 text-[13px]">Тариф</th>
-              <th className="px-5 py-4 text-[13px]">Цена</th>
-              <th className="px-5 py-4 text-[13px]">Период</th>
-              <th className="px-5 py-4 text-[13px]">Продление</th>
-              <th className="px-5 py-4 text-[13px]">Статус</th>
+              <th className="px-9 py-4 text-[13px]">{t("Тариф")}</th>
+              <th className="px-5 py-4 text-[13px]">{t("Цена")}</th>
+              <th className="px-5 py-4 text-[13px]">{t("Период")}</th>
+              <th className="px-5 py-4 text-[13px]">{t("Продление")}</th>
+              <th className="px-5 py-4 text-[13px]">{t("Статус")}</th>
               <th className="w-24" />
             </tr>
           </thead>
@@ -178,10 +180,10 @@ export function SubscriptionsView({ embedded = false }: { embedded?: boolean }) 
                 </td>
                 <td>
                   <div className="hidden items-center justify-end gap-3 pr-4 text-slate-500 group-hover:flex">
-                    <button type="button" onClick={() => open(item)} aria-label="Изменить">
+                    <button type="button" onClick={() => open(item)} aria-label={t("Изменить")}>
                       <Pencil className="h-5 w-5" />
                     </button>
-                    <button type="button" onClick={() => remove(item.id)} aria-label="Удалить">
+                    <button type="button" onClick={() => remove(item.id)} aria-label={t("Удалить")}>
                       <Trash2 className="h-5 w-5" />
                     </button>
                   </div>
@@ -191,7 +193,7 @@ export function SubscriptionsView({ embedded = false }: { embedded?: boolean }) 
             {rows.length === 0 && (
               <tr>
                 <td colSpan={6} className="px-5 py-10 text-center text-slate-400">
-                  Ничего не найдено
+                  {t("Ничего не найдено")}
                 </td>
               </tr>
             )}
@@ -203,16 +205,16 @@ export function SubscriptionsView({ embedded = false }: { embedded?: boolean }) 
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 p-4">
           <form onSubmit={save} className="w-full max-w-md rounded-lg bg-white p-6 shadow-xl">
             <div className="mb-5 flex justify-between">
-              <h2 className="text-xl font-bold">{editing.id ? "Изменить подписку" : "Добавить подписку"}</h2>
-              <button type="button" onClick={() => setEditing(null)} aria-label="Закрыть">
+              <h2 className="text-xl font-bold">{editing.id ? t("Изменить подписку") : t("Добавить подписку")}</h2>
+              <button type="button" onClick={() => setEditing(null)} aria-label={t("Закрыть")}>
                 <X />
               </button>
             </div>
-            <label className="mb-2 block font-medium">Тариф</label>
+            <label className="mb-2 block font-medium">{t("Тариф")}</label>
             <input autoFocus value={draft.planName} onChange={(event) => setDraft({ ...draft, planName: event.target.value })} className="mb-4 w-full rounded border border-slate-300 px-3 py-2.5" />
-            <label className="mb-2 block font-medium">Цена</label>
+            <label className="mb-2 block font-medium">{t("Цена")}</label>
             <input type="number" min={0} value={draft.price} onChange={(event) => setDraft({ ...draft, price: Number(event.target.value) })} className="mb-4 w-full rounded border border-slate-300 px-3 py-2.5" />
-            <label className="mb-2 block font-medium">Период</label>
+            <label className="mb-2 block font-medium">{t("Период")}</label>
             <select value={draft.billingPeriod} onChange={(event) => setDraft({ ...draft, billingPeriod: event.target.value })} className="mb-4 w-full rounded border border-slate-300 px-3 py-2.5">
               {SUBSCRIPTION_PERIODS.map((period) => (
                 <option key={period} value={period}>
@@ -220,9 +222,9 @@ export function SubscriptionsView({ embedded = false }: { embedded?: boolean }) 
                 </option>
               ))}
             </select>
-            <label className="mb-2 block font-medium">Дата продления</label>
+            <label className="mb-2 block font-medium">{t("Дата продления")}</label>
             <input type="date" value={draft.renewsAt} onChange={(event) => setDraft({ ...draft, renewsAt: event.target.value })} className="mb-4 w-full rounded border border-slate-300 px-3 py-2.5" />
-            <label className="mb-2 block font-medium">Статус</label>
+            <label className="mb-2 block font-medium">{t("Статус")}</label>
             <select value={draft.status} onChange={(event) => setDraft({ ...draft, status: event.target.value })} className="mb-4 w-full rounded border border-slate-300 px-3 py-2.5">
               {SUBSCRIPTION_STATUSES.map((status) => (
                 <option key={status} value={status}>
@@ -230,15 +232,15 @@ export function SubscriptionsView({ embedded = false }: { embedded?: boolean }) 
                 </option>
               ))}
             </select>
-            <label className="mb-2 block font-medium">Примечание</label>
+            <label className="mb-2 block font-medium">{t("Примечание")}</label>
             <input value={draft.note} onChange={(event) => setDraft({ ...draft, note: event.target.value })} className="w-full rounded border border-slate-300 px-3 py-2.5" />
             <div className="mt-6 flex justify-end gap-3">
               <button type="button" onClick={() => setEditing(null)} className="rounded border px-4 py-2">
-                Отмена
+                {t("Отмена")}
               </button>
               <button type="submit" className="inline-flex items-center gap-2 rounded bg-[#5474e6] px-4 py-2 font-semibold text-white">
                 <Plus className="h-4 w-4" />
-                Сохранить
+                {t("Сохранить")}
               </button>
             </div>
           </form>

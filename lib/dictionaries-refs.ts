@@ -40,6 +40,7 @@ const LABELS: Record<string, string> = {
   raw_materials: "Сырье",
   product_types: "Подкатегории",
   units_of_measure: "Дочерние единицы измерения",
+  product_type_restrictions: "Ограничение продуктов",
 }
 
 function label(table: string): string {
@@ -113,6 +114,12 @@ export async function productTypeUsage(db: PgDb, type: { id: number } & TypePath
     addUsage(usage, table, await count(db, `SELECT COUNT(*) AS n FROM ${table} WHERE ${typeMatch(type)}`, { name: type.name, parent: type.parent }))
   }
   addUsage(usage, "product_types", await count(db, "SELECT COUNT(*) AS n FROM product_types WHERE parent_id = @id", { id: type.id }))
+  // Ограничение продуктов: an agent's product type list (the FK would cascade the type away and
+  // silently lift the agent's restriction).
+  const restrictions = (await db.prepare("SELECT to_regclass('product_type_restrictions') IS NOT NULL AS ok").get()) as { ok: boolean } | undefined
+  if (restrictions?.ok) {
+    addUsage(usage, "product_type_restrictions", await count(db, "SELECT COUNT(*) AS n FROM product_type_restrictions WHERE product_type_id = @id", { id: type.id }))
+  }
   return usageList(usage)
 }
 

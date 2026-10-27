@@ -1,14 +1,22 @@
 import "server-only"
 
 import { isUniqueViolation } from "@/lib/auth-request"
-import { getDb, withTransaction, type PgDb } from "@/lib/db"
+import { getDb, outsideTransaction, withTransaction, type PgDb } from "@/lib/db"
+import { loadCurrencyContext } from "@/lib/finance/context"
+import { normCurrency } from "@/lib/finance/currency"
 import { cascadeNameRename, discoverReferences, keySql, nameKey, usageOf, type Usage } from "@/lib/platform-refs"
+
+// Филиалы. The default price list must be a price list of Прайс-листы ('' = none)
+// and the currency a currency of Валюты (stored as its code: SUM, USD, EUR, …);
+// both are stored in the directory's own spelling. An update keeps an unchanged
+// legacy value (a renamed / removed list, an older "Euro"), so old rows stay editable.
 
 let schemaReady: Promise<void> | null = null
 
-async function ensureSchema(db: ReturnType<typeof getDb>) {
+async function ensureSchema() {
   if (!schemaReady) {
-    schemaReady = (async () => {
+    schemaReady = outsideTransaction(async () => {
+      const db = getDb()
       await db.exec(`
         CREATE TABLE IF NOT EXISTS branches (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -41,7 +49,7 @@ async function ensureSchema(db: ReturnType<typeof getDb>) {
           END IF;
         END $$;
       `)
-    })().catch((error) => {
+    }).catch((error) => {
       schemaReady = null
       throw error
     })
@@ -49,7 +57,8 @@ async function ensureSchema(db: ReturnType<typeof getDb>) {
   await schemaReady
 }
 
-export type BranchCurrency = "SUM" | "USD" | "Euro"
+/** Currency code of Валюты (older rows may still hold "Euro"; read as EUR). */
+export type BranchCurrency = string
 
 export type BranchRecord = {
   id: number
@@ -91,7 +100,7 @@ function formatDate(raw: string): string {
 }
 
 function toCurrency(value: string): BranchCurrency {
-  return value === "USD" || value === "Euro" ? value : "SUM"
+  return normCurrency(value)
 }
 
 function rowToBranch(row: Row): BranchRecord {
@@ -109,6 +118,7 @@ function rowToBranch(row: Row): BranchRecord {
 export type BranchInput = {
   name: string
   priceList: string
+  /** A currency of Валюты; empty = the base currency. */
   currency: BranchCurrency
   debtTracking: boolean
   isMain: boolean
@@ -131,13 +141,13 @@ function branchReferences(db: PgDb) {
 
 export async function listBranches(): Promise<BranchRecord[]> {
   const db = getDb()
-  await ensureSchema(db)
+  await ensureSchema()
   return ((await db.prepare("SELECT * FROM branches ORDER BY LOWER(name) COLLATE \"C\" ASC").all()) as Row[]).map(rowToBranch)
 }
 
 export async function getBranch(id: number): Promise<BranchRecord | null> {
   const db = getDb()
-  await ensureSchema(db)
+  await ensureSchema()
   const row = (await db.prepare("SELECT * FROM branches WHERE id = ?").get(id)) as Row | undefined
   return row ? rowToBranch(row) : null
 }
@@ -156,18 +166,50 @@ async function assertNameFree(db: PgDb, name: string, exceptId: number) {
   if (twin) throw new BranchError("Филиал с таким названием уже существует", 409)
 }
 
+const NOT_SET = new Set(["", "не указано", "не указан", "—", "-"])
+
+/** The default price list as Прайс-листы spells it ('' = none); an unchanged stored value is kept. */
+async function resolvePriceList(db: PgDb, value: string | undefined, current?: Row): Promise<string> {
+  if (current && (value === undefined || nameKey(value) === nameKey(current.price_list))) return current.price_list
+  const name = (value ?? "").trim()
+  if (NOT_SET.has(nameKey(name))) return ""
+  const table = (await db.prepare("SELECT to_regclass('price_lists') IS NOT NULL AS ok").get()) as { ok: boolean }
+  const row = table.ok
+    ? ((await db.prepare(`SELECT name FROM price_lists WHERE ${keySql("name")} = ${keySql("?::text")} ORDER BY id LIMIT 1`).get(name)) as { name: string } | undefined)
+    : undefined
+  if (!row) throw new BranchError("Прайс-лист не найден", 400)
+  return row.name
+}
+
+/** The currency code of Валюты; empty = the base currency on create, unchanged on update.
+ * A company that has no currency yet can only use its base unit. */
+async function resolveCurrency(db: PgDb, value: string | undefined, current?: Row): Promise<string> {
+  const text = (value ?? "").trim()
+  if (current && (!text || normCurrency(text) === normCurrency(current.currency))) return current.currency
+  const context = await loadCurrencyContext(db)
+  if (!text) return context.base
+  const code = normCurrency(text)
+  if (context.currencies.some((currency) => currency.code === code)) return code
+  if (code === context.base) {
+    const any = (await db.prepare("SELECT EXISTS (SELECT 1 FROM currencies) AS ok").get()) as { ok: boolean }
+    if (!any.ok) return code
+  }
+  throw new BranchError("Валюта не найдена", 400)
+}
+
 function duplicateGuard(error: unknown): never {
   if (isUniqueViolation(error)) throw new BranchError("Филиал с таким названием уже существует", 409)
   throw error
 }
 
 export async function createBranch(input: BranchInput): Promise<BranchRecord> {
-  const db = getDb()
-  await ensureSchema(db)
+  await ensureSchema()
   try {
     const id = await withTransaction(async (tx) => {
       await lockBranches(tx)
       await assertNameFree(tx, input.name, 0)
+      const priceList = await resolvePriceList(tx, input.priceList)
+      const currency = await resolveCurrency(tx, input.currency)
       // The first branch of a company is its main branch; a new main replaces the old one.
       const hasMain = await tx.prepare("SELECT 1 FROM branches WHERE is_main = 1").get()
       const isMain = input.isMain || !hasMain
@@ -179,8 +221,8 @@ export async function createBranch(input: BranchInput): Promise<BranchRecord> {
         )
         .run({
           name: input.name,
-          priceList: input.priceList,
-          currency: input.currency,
+          priceList,
+          currency,
           debtTracking: input.debtTracking ? 1 : 0,
           isMain: isMain ? 1 : 0,
         })
@@ -196,8 +238,7 @@ export async function createBranch(input: BranchInput): Promise<BranchRecord> {
  * branch by name; making it main unsets the previous main branch; the main
  * branch cannot be "un-mained" directly (make another branch main instead). */
 export async function updateBranch(id: number, patch: BranchPatch): Promise<BranchRecord | null> {
-  const db = getDb()
-  await ensureSchema(db)
+  await ensureSchema()
   try {
     const found = await withTransaction(async (tx) => {
       await lockBranches(tx)
@@ -208,6 +249,8 @@ export async function updateBranch(id: number, patch: BranchPatch): Promise<Bran
       if (!isMain && current.is_main === 1) {
         throw new BranchError("Нельзя снять признак основного филиала: сделайте основным другой филиал", 400)
       }
+      const priceList = await resolvePriceList(tx, patch.priceList, current)
+      const currency = await resolveCurrency(tx, patch.currency, current)
       if (isMain && current.is_main !== 1) {
         await tx.prepare("UPDATE branches SET is_main = 0, updated_at = datetime('now') WHERE is_main = 1 AND id <> ?").run(id)
       }
@@ -220,8 +263,8 @@ export async function updateBranch(id: number, patch: BranchPatch): Promise<Bran
         .run({
           id,
           name: patch.name,
-          priceList: patch.priceList ?? current.price_list,
-          currency: patch.currency ?? toCurrency(current.currency),
+          priceList,
+          currency,
           debtTracking: (patch.debtTracking ?? current.debt_tracking === 1) ? 1 : 0,
           isMain: isMain ? 1 : 0,
         })
@@ -237,8 +280,7 @@ export async function updateBranch(id: number, patch: BranchPatch): Promise<Bran
 /** Refused while anything references the branch (409 with the usage list) and
  * always for the main branch. */
 export async function deleteBranch(id: number): Promise<boolean> {
-  const db = getDb()
-  await ensureSchema(db)
+  await ensureSchema()
   return withTransaction(async (tx) => {
     await lockBranches(tx)
     const current = (await tx.prepare("SELECT * FROM branches WHERE id = ?").get(id)) as Row | undefined

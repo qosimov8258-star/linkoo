@@ -3,6 +3,7 @@ import "server-only"
 import type { PgDb } from "@/lib/db"
 import { parseItemPrices } from "@/lib/item-prices"
 import { CATALOG_TABLE, KIND_COLUMNS, catalogDb } from "@/lib/products-schema"
+import { withCostOfGoods } from "@/lib/stock/costs"
 import {
   EMPTY_CATALOG_FILTERS,
   catalogKey,
@@ -18,9 +19,11 @@ import {
   type CatalogPrice,
   type CatalogTab,
 } from "@/lib/products-types"
+import { strictId } from "@/lib/strict-number"
 
 // Read side of the catalog pages: stored row → CatalogItem, the paged list of
-// GET /api/{products|raw-materials}?view=list and the item detail.
+// GET /api/{products|raw-materials}?view=list and the item detail. The list and the detail
+// answer `cost` = the one cost of goods (lib/stock/costs.ts); products.cost is its cache.
 
 export type CatalogRow = Record<string, unknown> & { id: number; name: string }
 
@@ -207,9 +210,11 @@ function listWhere(kind: CatalogKind, query: CatalogListQuery, params: Record<st
   if (f.isMML) where.push("t.only_mml = 1")
   if (f.isGear) where.push(`t.${columns.isInventory} = 1`)
   if (f.isPerfectStore) where.push("t.perfect_store = 1")
-  const supply = Number(f.supply)
-  if (Number.isInteger(supply) && supply > 0) {
-    params.supply = supply
+  const supply = String(f.supply ?? "").trim()
+  if (/^\d+$/.test(supply) && Number(supply) > 0) {
+    // A digit id only ("0x10" is no filter); an id beyond int4 belongs to no supply, so the
+    // filter matches nothing instead of failing in Postgres.
+    params.supply = strictId(supply) ?? 0
     where.push(`fin_key(t.name) IN (SELECT fin_key(l.j ->> 'product') FROM supplier_incomings s
       CROSS JOIN LATERAL jsonb_array_elements(${jsonArray("s.items")}) AS l(j) WHERE s.id = @supply AND jsonb_typeof(l.j) = 'object')`)
   }
@@ -250,7 +255,7 @@ export async function listCatalog(kind: CatalogKind, query: CatalogListQuery): P
     paging = "LIMIT @limit OFFSET @offset"
   }
   const rows = (await db.prepare(`${itemSelect(kind)} WHERE ${where} ORDER BY ${order} ${paging}`).all(...args())) as CatalogRow[]
-  return { results: rows.map((row) => rowToItem(kind, row)), count }
+  return { results: await withCostOfGoods(kind, rows.map((row) => rowToItem(kind, row)), db), count }
 }
 
 // --- detail ----------------------------------------------------------------------------
@@ -276,7 +281,7 @@ async function itemLimits(db: PgDb, item: CatalogItem): Promise<CatalogLimit[]> 
           `SELECT COALESCE(SUM(oi.quantity), 0) AS n FROM orders o JOIN order_items oi ON oi.order_id = o.id
             WHERE fin_key(o.agent) = fin_key(@agent) AND o.status NOT ILIKE 'отмен%'
               AND ((@kind = 'product' AND oi.product_id = @id) OR (oi.product_id IS NULL AND fin_key(oi.product_name) = fin_key(@name)))
-              AND COALESCE(fin_ts(o.created_at, true), now()) >= COALESCE(fin_ts(@since, true), '-infinity'::timestamp)`,
+              AND COALESCE(fin_ts(o.created_at, true), fin_ts(datetime('now'), true)) >= COALESCE(fin_ts(@since, true), '-infinity'::timestamp)`,
         )
         .get({ agent: row.agent, kind: item.kind, id: item.id, name: item.name, since: row.created_at })) as { n: string | number } | undefined
       realized = num(sold?.n)
@@ -290,7 +295,7 @@ export async function getCatalogDetail(kind: CatalogKind, id: number): Promise<C
   const db = await catalogDb()
   const row = await readCatalogRow(db, kind, id)
   if (!row) return null
-  const item = rowToItem(kind, row)
+  const [item] = await withCostOfGoods(kind, [rowToItem(kind, row)], db)
   const images = (await db
     .prepare("SELECT id, is_primary, created_at FROM product_images WHERE item_kind = @kind AND item_id = @id ORDER BY is_primary DESC, id")
     .all({ kind, id })) as Array<{ id: number; is_primary: number; created_at: string }>

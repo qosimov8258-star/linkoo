@@ -4,6 +4,7 @@ import Image from "next/image"
 import { ChevronLeft, ChevronRight, Search } from "lucide-react"
 import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
 import { useMemo, useState } from "react"
+import { useLanguage } from "@/lib/i18n/language-context"
 
 type Shift = {
   id: number
@@ -26,6 +27,7 @@ function formatSum(value: number) {
 }
 
 export function ShiftsView({ embedded = false }: { embedded?: boolean }) {
+  const { t } = useLanguage()
   const [shifts] = useState(seed)
   const [query, setQuery] = useState("")
 
@@ -40,7 +42,7 @@ export function ShiftsView({ embedded = false }: { embedded?: boolean }) {
         <header className="flex h-[60px] flex-wrap items-center justify-between gap-3">
           <h1 className="flex items-center text-[18px] font-bold text-[#5d6474]">
             <FavoritesButton className="flex items-center gap-[5px] text-[18px] font-bold text-[#4f71dc]" />
-            <span className="mx-[11px] inline-block h-[21px] w-[2px] bg-[#5d6474]" /> Смена
+            <span className="mx-[11px] inline-block h-[21px] w-[2px] bg-[#5d6474]" /> {t("Смена")}
           </h1>
         </header>
       )}
@@ -48,12 +50,12 @@ export function ShiftsView({ embedded = false }: { embedded?: boolean }) {
       <section className="overflow-hidden rounded bg-white shadow">
         <div className="flex flex-wrap items-center gap-4 px-5 py-3">
           <label className="relative w-64">
-            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Поиск" className="w-full border-b border-slate-300 py-3 pr-10 outline-none focus:border-[#4f71dc]" />
+            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("Поиск")} className="w-full border-b border-slate-300 py-3 pr-10 outline-none focus:border-[#4f71dc]" />
             <Search className="absolute right-2 top-3 h-5 w-5 text-slate-300" />
           </label>
           <span className="ml-auto text-slate-500">25</span>
           <span className="text-slate-500">
-            1 - {rows.length} из {rows.length}
+            {rows.length ? 1 : 0} - {rows.length} {t("из")} {rows.length}
           </span>
           <ChevronLeft className="h-5 w-5 text-slate-300" />
           <ChevronRight className="h-5 w-5 text-slate-300" />
@@ -62,16 +64,16 @@ export function ShiftsView({ embedded = false }: { embedded?: boolean }) {
         <table className="w-full text-left">
           <thead className="bg-[#5d6474] text-white">
             <tr>
-              <th className="px-9 py-4 text-[13px]">Смена</th>
-              <th className="px-5 py-4 text-[13px]">Пользователь</th>
-              <th className="px-5 py-4 text-[13px]">Дата создания</th>
-              <th className="px-5 py-4 text-[13px]">В начале</th>
-              <th className="px-5 py-4 text-[13px]">Пришло</th>
-              <th className="px-5 py-4 text-[13px]">Расход</th>
-              <th className="px-5 py-4 text-[13px]">Ожидается</th>
-              <th className="px-5 py-4 text-[13px]">Фактически</th>
-              <th className="px-5 py-4 text-[13px]">Разнится</th>
-              <th className="px-5 py-4 text-[13px]">Дата закрытия</th>
+              <th className="px-9 py-4 text-[13px]">{t("Смена")}</th>
+              <th className="px-5 py-4 text-[13px]">{t("Пользователь")}</th>
+              <th className="px-5 py-4 text-[13px]">{t("Дата создания")}</th>
+              <th className="px-5 py-4 text-[13px]">{t("В начале")}</th>
+              <th className="px-5 py-4 text-[13px]">{t("Пришло")}</th>
+              <th className="px-5 py-4 text-[13px]">{t("Расход")}</th>
+              <th className="px-5 py-4 text-[13px]">{t("Ожидается")}</th>
+              <th className="px-5 py-4 text-[13px]">{t("Фактически")}</th>
+              <th className="px-5 py-4 text-[13px]">{t("Разнится")}</th>
+              <th className="px-5 py-4 text-[13px]">{t("Дата закрытия")}</th>
             </tr>
           </thead>
           <tbody>
@@ -94,8 +96,8 @@ export function ShiftsView({ embedded = false }: { embedded?: boolean }) {
 
         {rows.length === 0 && (
           <div className="flex min-h-[340px] flex-col items-center justify-center gap-4 py-10">
-            <Image src="/robot-empty.png" alt="Робот-помощник" width={150} height={150} priority className="h-36 w-36 object-contain" />
-            <p className="text-lg text-slate-400">По вашему запросу ничего не найдено</p>
+            <Image src="/robot-empty.png" alt={t("Робот-помощник")} width={150} height={150} priority className="h-36 w-36 object-contain" />
+            <p className="text-lg text-slate-400">{t("По вашему запросу ничего не найдено")}</p>
           </div>
         )}
       </section>

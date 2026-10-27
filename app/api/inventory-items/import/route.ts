@@ -12,6 +12,7 @@ export async function POST(request: Request) {
   const parsed = await parseJsonBody(request, inventoryImportSchema)
   if (parsed.error) return parsed.error
   try {
+    // Inactive warehouses are refused per line, with the file's other errors (importInventoryItems).
     return NextResponse.json(await importInventoryItems(parsed.data.rows, auth.user), { status: 201 })
   } catch (error) {
     return inventoryErrorResponse(error)

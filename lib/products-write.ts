@@ -252,7 +252,17 @@ export async function assertNameAvailable(tx: PgDb, kind: CatalogKind, id: numbe
   if (row) throw new CatalogError(DUPLICATE_NAME, 409, { name: DUPLICATE_NAME })
 }
 
-/** Waits for stock documents being written right now (they lock their warehouses). */
+/** Waits for stock documents being written right now (they lock their warehouses).
+ *
+ * Lock order (C1) — one global order, so no two writers can wait on each other in a cycle:
+ * linko-catalog → linko-stock:<warehouse> (sorted) → stock_inventory:<warehouse> (sorted) →
+ * document rows. Catalog writers take linko-catalog first and then these stock locks
+ * (lockWarehouseNames sorts them); no stock writer takes linko-catalog. Stock writers take
+ * their warehouse's stock lock BEFORE their document's row lock (lockWarehousesOf in
+ * lib/internal-transfers-stock.ts), so the rename's cascade below never waits for a row whose
+ * holder waits for a stock lock the rename holds. The product row this transaction locked
+ * before (readCatalogRow FOR UPDATE) is never locked by a stock writer while it holds a stock
+ * lock (products.cost is refreshed after the stock document committed). */
 async function lockStockWrites(tx: PgDb): Promise<void> {
   const warehouses = (await tx.prepare("SELECT name FROM warehouses").all()) as Array<{ name: string }>
   await lockWarehouseNames(

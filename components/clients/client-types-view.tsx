@@ -5,6 +5,7 @@ import { ChangeEvent, FormEvent, useEffect, useState } from "react"
 import { downloadExcelTable } from "@/lib/excel-export"
 import { mapHeaderColumns, readExcelRows } from "@/lib/excel-import"
 import { CheckBox, EmptyState, HoverActions, ImportDialog, LineField, LineSelect, ListToolbar, Modal, SaveLink, ToggleRow, grayHead, listRow } from "@/components/analytics/catalog-ui"
+import { formatDateText } from "@/lib/i18n/format-date"
 import { useLanguage } from "@/lib/i18n/language-context"
 import { refDate } from "@/lib/ref-date"
 
@@ -17,10 +18,6 @@ const IMPORT_HEADER_ALIASES: Record<string, string> = {
   "доставщик": "supplier", "supplier": "supplier",
 }
 
-function todayLabel() {
-  return new Intl.DateTimeFormat("ru-RU", { day: "2-digit", month: "short", year: "numeric" }).format(new Date())
-}
-
 /** The server's message (409: duplicate name, or the usage list of a type in use). */
 async function errorOf(response: Response, t: (key: string) => string): Promise<string> {
   const body = (await response.json().catch(() => null)) as { error?: string; usage?: Array<{ label: string; count: number }> } | null
@@ -29,7 +26,7 @@ async function errorOf(response: Response, t: (key: string) => string): Promise<
 }
 
 export function ClientTypesView({ embedded = false }: { embedded?: boolean }) {
-  const { t } = useLanguage()
+  const { t, language } = useLanguage()
   const [items, setItems] = useState(initialTypes)
   const [query, setQuery] = useState("")
   const [parentCategory, setParentCategory] = useState(false)
@@ -190,7 +187,7 @@ export function ClientTypesView({ embedded = false }: { embedded?: boolean }) {
         <div key={item.id} className={`${listRow} ${gridCols}`}>
           <span className="pr-4 font-bold">{item.name}</span>
           <span>{item.supplier}</span>
-          <span>{refDate(item.date) || item.date.replace(/\s*г\.$/, "")}</span>
+          <span>{formatDateText(refDate(item.date) || item.date, language)}</span>
           <HoverActions offset={70} onEdit={() => openEdit(item)} onDelete={() => void remove(item.id)} />
         </div>
       ))}

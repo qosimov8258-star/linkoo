@@ -2,18 +2,20 @@ import { NextRequest, NextResponse } from "next/server"
 import { z } from "zod"
 
 import { getCurrentUser } from "@/lib/current-user"
+import { dbErrorResponse } from "@/lib/db-errors"
 import { MAX_PRICE } from "@/lib/item-prices"
 import { parseCatalogId } from "@/lib/products-api"
 import { requireRole } from "@/lib/rbac"
-import { parseJsonBody } from "@/lib/validation"
+import { notSignedInResponse, parseJsonBody } from "@/lib/validation"
 import { getProductCostInfo, setProductInitialCost } from "@/lib/supplier-incomings-repo"
+import { strictNum } from "@/lib/strict-number"
 
 type RouteParams = { params: Promise<{ id: string }> }
 
 const NOT_FOUND = () => NextResponse.json({ error: "Товар не найден" }, { status: 404 })
 
 const bodySchema = z.object({
-  initialCost: z.coerce.number({ error: "Введите число" }).min(0, "Цена не может быть отрицательной").max(MAX_PRICE, "Слишком большая цена"),
+  initialCost: strictNum(z.number({ error: "Введите число" }).min(0, "Цена не может быть отрицательной").max(MAX_PRICE, "Слишком большая цена"), "Введите число"),
 })
 
 /** A refused write of the cost module ({message, status 4xx, fields?}) → its JSON response. */
@@ -26,7 +28,7 @@ function clientError(error: unknown): NextResponse | null {
 
 /** Initial cost, accepted supplies with running average, current net cost (the one cost of goods). */
 export async function GET(_request: NextRequest, { params }: RouteParams) {
-  if (!(await getCurrentUser())) return NextResponse.json({ error: "Tizimga kirilmagan" }, { status: 401 })
+  if (!(await getCurrentUser())) return notSignedInResponse()
   const id = parseCatalogId((await params).id)
   if (!id) return NOT_FOUND()
   const info = await getProductCostInfo(id)
@@ -44,7 +46,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     const info = await setProductInitialCost(id, parsed.data.initialCost)
     return info ? NextResponse.json(info) : NOT_FOUND()
   } catch (error) {
-    const response = clientError(error)
+    const response = clientError(error) ?? dbErrorResponse(error)
     if (response) return response
     throw error
   }

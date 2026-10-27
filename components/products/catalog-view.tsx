@@ -16,6 +16,7 @@ import { KIND_TEXT, RowMenu, SortIcon, UsageList, catalogMutate, errorText, imag
 import { EMPTY_CATALOG_FILTERS, PAGE_SIZES, listUrl, stateFromParams, stateToSearch, type CatalogViewState } from "@/components/products/catalog-state"
 import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
 import { downloadExcelTable } from "@/lib/excel-export"
+import { formatDateText } from "@/lib/i18n/format-date"
 import { useLanguage } from "@/lib/i18n/language-context"
 import {
   CATALOG_API,
@@ -42,7 +43,7 @@ import {
 type Confirm = { action: "delete" | "hard" | "restore"; id: number; name: string; usage?: CatalogUsage[]; error?: string } | null
 
 export function CatalogView({ kind }: { kind: CatalogKind }) {
-  const { t } = useLanguage()
+  const { t, language } = useLanguage()
   const text = KIND_TEXT[kind]
   const api = CATALOG_API[kind]
   const searchParams = useSearchParams()
@@ -375,7 +376,7 @@ export function CatalogView({ kind }: { kind: CatalogKind }) {
                         <strong>{unit.main}</strong>
                         {unit.sub && <span className="block text-[rgb(79,113,220)]">{unit.sub}</span>}
                       </td>
-                      <td className={`${td} whitespace-nowrap`}>{row.createdDate}</td>
+                      <td className={`${td} whitespace-nowrap`}>{formatDateText(row.createdDate, language)}</td>
                       <td className={td}>{row.orderNumber}</td>
                       <td className="pr-4 text-right">
                         {canEdit && (

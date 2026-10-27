@@ -41,13 +41,14 @@ export function RefPage({ children }: { children: ReactNode }) {
 }
 
 export function RefHeader({ title, children, left }: { title: ReactNode; children?: ReactNode; left?: ReactNode }) {
+  const { t } = useLanguage()
   return (
     <div className="flex h-[60px] items-center justify-between">
       <div className="flex items-center">
         <h1 className="flex items-center text-[18px] font-bold text-[#5d6474]">
           <FavoritesButton className="flex items-center gap-[5px] text-[18px] font-bold text-[#4f71dc]" />
           <span className="mx-[11px] h-[21px] w-[2px] bg-[#5d6474]" />
-          {title}
+          {typeof title === "string" ? t(title) : title}
         </h1>
         {left}
       </div>
@@ -73,6 +74,7 @@ export function RefButton({
   disabled?: boolean
   type?: "button" | "submit"
 }) {
+  const { t } = useLanguage()
   return (
     <button
       type={type}
@@ -85,14 +87,15 @@ export function RefButton({
           <path d={icon} />
         </svg>
       )}
-      <span className={icon ? "pl-2 pr-4" : ""}>{label}</span>
+      <span className={icon ? "pl-2 pr-4" : ""}>{typeof label === "string" ? t(label) : label}</span>
     </button>
   )
 }
 
 export function RefIconButton({ path, label, onClick, color = "#666", active }: { path: string; label: string; onClick?: () => void; color?: string; active?: boolean }) {
+  const { t } = useLanguage()
   return (
-    <button type="button" title={label} aria-label={label} onClick={onClick} className={`flex h-12 w-12 items-center justify-center ${active ? "bg-[#e8efff]" : ""}`}>
+    <button type="button" title={t(label)} aria-label={t(label)} onClick={onClick} className={`flex h-12 w-12 items-center justify-center ${active ? "bg-[#e8efff]" : ""}`}>
       <svg viewBox="0 0 24 24" className="h-6 w-6" style={{ fill: color }}>
         <path d={path} />
       </svg>
@@ -213,10 +216,10 @@ export function RefToolbar({
           <svg viewBox="0 0 24 24" className="pointer-events-none absolute right-0 top-3 h-6 w-6 fill-black/30"><path d="M7 10l5 5 5-5z" /></svg>
         </div>
         <span className="mr-2 whitespace-nowrap">{from} - {to}  {t("из")}  {total}</span>
-        <button type="button" disabled={page <= 1} onClick={() => onPage(page - 1)} aria-label="prev" className="px-[5px]">
+        <button type="button" disabled={page <= 1} onClick={() => onPage(page - 1)} aria-label={t("Назад")} className="px-[5px]">
           <svg viewBox="0 0 24 24" className={`h-6 w-6 ${page <= 1 ? "fill-black/30" : "fill-black/55"}`}><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm1-12l-5 4 5 4V8z" /></svg>
         </button>
-        <button type="button" disabled={page >= pageCount} onClick={() => onPage(page + 1)} aria-label="next">
+        <button type="button" disabled={page >= pageCount} onClick={() => onPage(page + 1)} aria-label={t("Вперед")}>
           <svg viewBox="0 0 24 24" className={`h-6 w-6 ${page >= pageCount ? "fill-black/30" : "fill-black/55"}`}><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zM11 8v8l5-4-5-4z" /></svg>
         </button>
         {icons && <div className="ml-5 flex items-center">{icons}</div>}
@@ -272,6 +275,7 @@ export function RefTable<T>({
   expanded?: (row: T) => ReactNode
 }) {
   const pathname = usePathname()
+  const { t } = useLanguage()
   const measured = REF_COLUMNS[pathname]
   const gridCols = measured && measured.n === heads.length ? measured.cols : cols
   const inset = measured && measured.n === heads.length ? measured.inset : undefined
@@ -293,7 +297,7 @@ export function RefTable<T>({
             <div key={index} className="px-2 leading-[16px]">
               {typeof head === "string" && head ? (
                 <button type="button" onClick={() => toggleSort(index)} className="text-left font-bold hover:opacity-80">
-                  {head}
+                  {t(head)}
                   {sort?.col === index ? <span className="ml-1 text-[10px]">{sort.desc ? "▼" : "▲"}</span> : null}
                 </button>
               ) : (
@@ -448,12 +452,13 @@ export function SimpleListPage<T>({
 
 /** Compact floating-label select used by report filter forms (4 per row). */
 export function RefFilterSelect({ label, value, onChange, options }: { label: string; value: string; onChange: (value: string) => void; options: string[] }) {
+  const { t } = useLanguage()
   return (
     <label className="relative block h-[52px] border-b border-[#e0e0e0]">
-      <span className="absolute left-0 top-0 text-[10px] font-bold leading-3">{label}</span>
+      <span className="absolute left-0 top-0 text-[10px] font-bold leading-3">{t(label)}</span>
       <select value={value} onChange={(event) => onChange(event.target.value)} className="absolute inset-x-0 bottom-0 h-[30px] appearance-none bg-transparent pr-6 text-[13px] font-semibold outline-none">
         {options.map((option) => (
-          <option key={option}>{option}</option>
+          <option key={option} value={option}>{t(option)}</option>
         ))}
       </select>
       <svg viewBox="0 0 24 24" className="pointer-events-none absolute bottom-0 right-0 h-6 w-6 fill-black/30"><path d="M7 10l5 5 5-5z" /></svg>
@@ -462,20 +467,22 @@ export function RefFilterSelect({ label, value, onChange, options }: { label: st
 }
 
 export function RefFilterDate({ label, value, onChange, min, max }: { label: string; value: string; onChange: (value: string) => void; min?: string; max?: string }) {
+  const { t } = useLanguage()
   return (
     <label className="relative block h-[52px] border-b border-[#e0e0e0]">
-      <span className="absolute left-0 top-0 text-[10px] font-bold leading-3">{label}</span>
+      <span className="absolute left-0 top-0 text-[10px] font-bold leading-3">{t(label)}</span>
       <input type="date" value={value} min={min} max={max} onChange={(event) => onChange(event.target.value)} className="absolute inset-x-0 bottom-0 h-[30px] bg-transparent text-[13px] font-semibold outline-none" />
     </label>
   )
 }
 
 export function RefEmpty({ text }: { text: ReactNode }) {
+  const { t } = useLanguage()
   return (
     <div className="flex flex-col items-center bg-white pb-10 pt-8 text-[#888]">
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img src="/robot-empty.png" alt="" className="w-[120px]" />
-      <span className="-mt-[22px] text-[13px]">{text}</span>
+      <span className="-mt-[22px] text-[13px]">{typeof text === "string" ? t(text) : text}</span>
     </div>
   )
 }
@@ -565,11 +572,11 @@ export function FilterSelect({
       >
         {value ? (
           <>
-            <span className="absolute left-0 top-[-8px] text-[10px] font-bold leading-3">{label}</span>
+            <span className="absolute left-0 top-[-8px] text-[10px] font-bold leading-3">{t(label)}</span>
             <span className="absolute inset-x-0 top-[10px] truncate pr-8">{value}</span>
           </>
         ) : (
-          <span className="absolute left-0 top-[13px] leading-4">{label}</span>
+          <span className="absolute left-0 top-[13px] leading-4">{t(label)}</span>
         )}
       </button>
       <FieldCaret compact={compact} />
@@ -626,12 +633,13 @@ export function FilterText({
   type?: "text" | "number"
   className?: string
 }) {
+  const { t } = useLanguage()
   const [focused, setFocused] = useState(false)
   const floating = focused || value !== ""
   return (
     <div className={`relative h-[62px] ${className}`}>
       <div className="absolute inset-x-0 top-[18px] h-[36px] border-b border-[#e8e8e8]">
-        <span className={`pointer-events-none absolute left-0 font-bold text-black transition-all ${floating ? "top-[-8px] text-[10px] leading-3" : "top-[13px] text-[13px] font-semibold leading-4"}`}>{label}</span>
+        <span className={`pointer-events-none absolute left-0 font-bold text-black transition-all ${floating ? "top-[-8px] text-[10px] leading-3" : "top-[13px] text-[13px] font-semibold leading-4"}`}>{t(label)}</span>
         <input
           type={type}
           value={value}
@@ -646,7 +654,8 @@ export function FilterText({
 }
 
 export function FilterCaption({ children, className = "" }: { children: ReactNode; className?: string }) {
-  return <div className={`text-[13px] text-[#666] ${className}`}>{children}</div>
+  const { t } = useLanguage()
+  return <div className={`text-[13px] text-[#666] ${className}`}>{typeof children === "string" ? t(children) : children}</div>
 }
 
 export function FilterRange({ caption, from, to, onFrom, onTo }: { caption: string; from: string; to: string; onFrom: (value: string) => void; onTo: (value: string) => void }) {
@@ -663,12 +672,13 @@ export function FilterRange({ caption, from, to, onFrom, onTo }: { caption: stri
 }
 
 export function FilterCheck({ label, checked, onChange, className = "" }: { label: string; checked: boolean; onChange: (value: boolean) => void; className?: string }) {
+  const { t } = useLanguage()
   return (
     <button type="button" onClick={() => onChange(!checked)} aria-pressed={checked} className={`flex items-start gap-1 text-left text-[13px] font-semibold text-black ${className}`}>
       <svg viewBox="0 0 24 24" className="h-6 w-6 shrink-0 fill-[#333]">
         <path d={checked ? "M19 3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.11 0 2-.9 2-2V5c0-1.1-.89-2-2-2zm-9 14l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z" : "M19 5v14H5V5h14m0-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2z"} />
       </svg>
-      <span className="pt-[3px] leading-5">{label}</span>
+      <span className="pt-[3px] leading-5">{t(label)}</span>
     </button>
   )
 }
@@ -727,7 +737,7 @@ export function FilterDate({
     <div className={`relative h-[62px] ${className}`}>
       <button type="button" onClick={() => setOpen((current) => !current)} className="absolute inset-x-0 top-[18px] h-[36px] w-full border-b border-[#e8e8e8] text-left text-[13px]">
         <span className="absolute left-0 top-[-3px] flex items-center gap-[2px] text-[10px] font-bold leading-3 text-black">
-          {label}
+          {t(label)}
           <svg viewBox="0 0 24 24" className="h-[14px] w-[14px] fill-[#ccc]"><path d="M19 4h-1V2h-2v2H8V2H6v2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2zm0 16H5V9h14v11z" /></svg>
         </span>
         <span className="absolute left-0 top-[14px] font-medium text-black">{begin ? `${formatFilterDate(begin)} - ${formatFilterDate(end || begin)}` : t("Укажите дату")}</span>

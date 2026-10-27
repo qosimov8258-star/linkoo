@@ -40,6 +40,10 @@ const MODES: Array<{ mode: StockLevelMode; label: string }> = [
   { mode: "price", label: "Прайс лист" },
 ]
 
+/** Per-unit totals of the counts (GET /api/stock/balances `sum.byUnit`, lib/stock/level.ts). */
+type UnitTotal = { unit: string; total: number; reserved: number; defects: number; available: number; transit: number }
+type UnitPart = "total" | "reserved" | "defects" | "available" | "transit"
+
 const UNITS: Array<{ unit: StockLevelUnit; label: string }> = [
   { unit: "amount", label: "Количество" },
   { unit: "box", label: "Блок" },
@@ -142,19 +146,38 @@ export function StockLevelView() {
   }
 
   // --- cards ----------------------------------------------------------------------------
-  // The unit only when every counted row shares it (kg, litre and pieces are never added up under one label).
+  // Counts are never added up across units: one unit → "1 234 dona"; mixed units
+  // (kg, litre, pieces…) → one total per unit ("12 dona", "3,5 kg").
+  const byUnit = ((sum as { byUnit?: UnitTotal[] } | undefined)?.byUnit ?? []).filter((line) => line && typeof line.unit === "string")
+  const mixedUnits = !sum?.unit && byUnit.length > 1
   const pcs = sum?.unit ? ` ${t(sum.unit)}` : ""
-  const count = (value: number) => `${formatQty(value)}${pcs}`
+  const unitCounts = (part: UnitPart) =>
+    byUnit.filter((line) => Math.abs(line[part]) > 1e-9).map((line) => `${formatQty(line[part])}${line.unit ? ` ${t(line.unit)}` : ""}`)
+  const count = (value: number, part: UnitPart) => {
+    if (!mixedUnits) return `${formatQty(value)}${pcs}`
+    const parts = unitCounts(part)
+    return parts.length ? parts.join(", ") : formatQty(0)
+  }
+  const bigCount = (value: number, part: UnitPart, className: string) =>
+    mixedUnits && unitCounts(part).length > 1 ? (
+      <ul className={className}>
+        {unitCounts(part).map((text, index) => (
+          <li key={index}>{text}</li>
+        ))}
+      </ul>
+    ) : (
+      <p className={className}>{count(value, part)}</p>
+    )
   const money = (value: number) => `${formatMoney(value, 2)} ${currencyLabel(currency)}`
-  const card = (label: string, amount: number, value: number) => (
+  const card = (label: string, amount: number, value: number, part: UnitPart) => (
     <div key={label}>
       <p className="text-[#586174]">{t(label)}</p>
       {state.mode === "amount" ? (
-        <p className="text-lg font-semibold text-[#17233b]">{count(amount)}</p>
+        bigCount(amount, part, "text-lg font-semibold text-[#17233b]")
       ) : (
         <>
           <p className="text-lg font-semibold text-[#17233b]">{money(value)}</p>
-          <p className="text-sm text-[#586174]">({count(amount)})</p>
+          <p className="text-sm text-[#586174]">({count(amount, part)})</p>
         </>
       )}
     </div>
@@ -193,17 +216,17 @@ export function StockLevelView() {
           <p className="font-semibold text-[#e57373] sm:col-span-2 lg:col-span-4">{t("Пожалуйста выберите прайс лист")}</p>
         ) : (
           <>
-            {card("Общая сумма", sum?.total.count ?? 0, sum?.total.price ?? 0)}
-            {card("Сумма забронированных", sum?.reserved.count ?? 0, sum?.reserved.price ?? 0)}
+            {card("Общая сумма", sum?.total.count ?? 0, sum?.total.price ?? 0, "total")}
+            {card("Сумма забронированных", sum?.reserved.count ?? 0, sum?.reserved.price ?? 0, "reserved")}
             {state.mode === "amount" ? (
               <div>
                 <p className="text-[#586174]">{t("В пути")}</p>
-                <p className="text-lg font-semibold text-[#f0ad4e]">{count(sum?.given ?? 0)}</p>
+                {bigCount(sum?.given ?? 0, "transit", "text-lg font-semibold text-[#f0ad4e]")}
               </div>
             ) : (
-              card("Сумма забракованных", sum?.defected.count ?? 0, sum?.defected.price ?? 0)
+              card("Сумма забракованных", sum?.defected.count ?? 0, sum?.defected.price ?? 0, "defects")
             )}
-            <div className="lg:text-right">{card("Сумма доступных", sum?.available.count ?? 0, sum?.available.price ?? 0)}</div>
+            <div className="lg:text-right">{card("Сумма доступных", sum?.available.count ?? 0, sum?.available.price ?? 0, "available")}</div>
           </>
         )}
       </section>

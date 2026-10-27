@@ -10,15 +10,15 @@ import {
 } from "@/lib/cashback-withdrawal-requests-repo"
 import { getCurrentUser } from "@/lib/current-user"
 import { requireRole } from "@/lib/rbac"
-import { parseJsonBody } from "@/lib/validation"
+import { notSignedInResponse, parseJsonBody, zodErrorResponse } from "@/lib/validation"
 
 // GET /api/cashback-withdrawal-requests?search&status&currency&ordering&page&pageSize
 // — "Запросы на снятие кэшбэка" (demo GET telegram/cashback_request/).
 export async function GET(request: Request) {
   const user = await getCurrentUser()
-  if (!user) return NextResponse.json({ error: "Tizimga kirilmagan" }, { status: 401 })
+  if (!user) return notSignedInResponse()
   const query = cashbackRequestListQuerySchema.safeParse(searchParamsObject(new URL(request.url).searchParams))
-  if (!query.success) return NextResponse.json({ error: "Ma'lumotlar noto'g'ri", details: query.error.flatten() }, { status: 400 })
+  if (!query.success) return zodErrorResponse(query.error)
   return NextResponse.json(await listCashbackRequests(query.data))
 }
 

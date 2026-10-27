@@ -5,7 +5,7 @@ import { unitBodySchema, unitInput } from "@/lib/dictionaries-api"
 import { dictionaryListQuery, dictionaryWrite, wantsDictionaryPage } from "@/lib/dictionaries-schema"
 import { requireRole } from "@/lib/rbac"
 import { createUnitOfMeasure, listUnitTree, listUnitsOfMeasure } from "@/lib/units-of-measure-repo"
-import { parseJsonBody } from "@/lib/validation"
+import { notSignedInResponse, parseJsonBody } from "@/lib/validation"
 import { UNIT_ORDERINGS } from "@/components/analytics/units-of-measure-data"
 
 // GET /api/units-of-measure — plain array [{id, name, createdDate, parentId, isWeighted,
@@ -15,7 +15,7 @@ import { UNIT_ORDERINGS } from "@/components/analytics/units-of-measure-data"
 // ordered by ?ordering (name | created_date, "-" = descending; default newest first).
 export async function GET(request: Request) {
   const user = await getCurrentUser()
-  if (!user) return NextResponse.json({ error: "Tizimga kirilmagan" }, { status: 401 })
+  if (!user) return notSignedInResponse()
   const params = new URL(request.url).searchParams
   if (!wantsDictionaryPage(params)) return NextResponse.json(await listUnitsOfMeasure())
   const query = dictionaryListQuery(params, UNIT_ORDERINGS)

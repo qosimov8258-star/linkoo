@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 
+import { dateReasonFirst } from "@/lib/document-dates"
 import { createDelivererCorrection } from "@/lib/finance-deliverer-debts"
 import { delivererCorrectionSchema } from "@/lib/finance-deliverer-debts-api"
 import { requireRole } from "@/lib/rbac"
@@ -12,7 +13,8 @@ export async function POST(request: Request) {
   if ("error" in auth) return auth.error
 
   const parsed = await parseJsonBody(request, delivererCorrectionSchema)
-  if (parsed.error) return parsed.error
+  // A refusal caused only by the date answers the date reason (error + field "date").
+  if (parsed.error) return dateReasonFirst(parsed.error)
 
   const result = await createDelivererCorrection(parsed.data, auth.user.displayName)
   if (result === "employee_not_found") return NextResponse.json({ error: "Доставщик не найден" }, { status: 404 })

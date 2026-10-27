@@ -3,14 +3,16 @@ import "server-only"
 import { NextResponse } from "next/server"
 import { z } from "zod"
 
+import { dbErrorResponse } from "@/lib/db-errors"
 import { MAX_PAGE } from "@/lib/stock/paging"
-import { cleanJsonText, parseIdSegment } from "@/lib/validation"
+import { cleanJsonText, invalidFieldResponse, NOT_JSON_MESSAGE, parseIdSegment, zodErrorResponse } from "@/lib/validation"
 import {
   STOCK_INVENTORY_STATUSES,
   type StockInventoryListQuery,
   type StockInventoryOrdering,
   type StockInventoryStatus,
 } from "@/lib/stock-inventories-types"
+import { strictNumber } from "@/lib/strict-number"
 
 // HTTP helpers of /api/stock/inventories/** (route files export only handlers).
 // Error messages are Russian i18n keys; the UI shows them through t().
@@ -31,13 +33,15 @@ export function stockInventoryErrorResponse(error: unknown): NextResponse {
   if (error instanceof StockInventoryError) {
     return NextResponse.json({ error: error.message, field: error.field ?? null, ...(error.extra ?? {}) }, { status: error.status })
   }
+  const busy = dbErrorResponse(error)
+  if (busy) return busy
   throw error
 }
 
 export type Parsed<T> = { data: T; error?: undefined } | { data?: undefined; error: NextResponse }
 
 function bad(name: string, hint: string) {
-  return NextResponse.json({ error: "Ma'lumotlar noto'g'ri", details: { fieldErrors: { [name]: [hint] } } }, { status: 400 })
+  return invalidFieldResponse(name, hint)
 }
 
 const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/
@@ -101,9 +105,9 @@ export function parseBalancesQuery(url: string): Parsed<{ warehouse: string; dat
 
 const REQUIRED = "Обязательное поле"
 
-/** Counted amount: number ≥ 0 ("1 000,5" strings accepted). */
+/** Counted amount: number ≥ 0 ("1 000,5" strings accepted, blank = 0; "0x10" / "12abc" are refused). */
 const amountSchema = z.preprocess(
-  (value) => (typeof value === "string" ? Number(value.replace(/[\s  ]/g, "").replace(",", ".")) : value),
+  (value) => (typeof value === "string" ? (value.trim() ? strictNumber(value, { locale: true }) : 0) : value),
   z.number({ error: "Введите число" }).finite("Введите число").min(0, "Количество не может быть отрицательным").max(1e9, "Слишком большое число"),
 )
 
@@ -157,17 +161,13 @@ export async function parseInventoryBody<T>(request: Request, schema: z.ZodType<
     try {
       json = JSON.parse(text)
     } catch {
-      return { error: NextResponse.json({ error: "So'rov tanasi JSON emas" }, { status: 400 }) }
+      return { error: NextResponse.json({ error: NOT_JSON_MESSAGE }, { status: 400 }) }
     }
   }
   // Zero-width / bidi characters are dropped from every text; NUL and broken Unicode answer 400.
   const cleaned = cleanJsonText(json)
   if (cleaned.issue) return { error: NextResponse.json({ error: cleaned.issue.message, field: cleaned.issue.field || null }, { status: 400 }) }
   const result = schema.safeParse(cleaned.value)
-  if (!result.success) {
-    const issue = result.error.issues[0]
-    const field = issue?.path.map(String).join(".") ?? ""
-    return { error: NextResponse.json({ error: issue?.message || "Ma'lumotlar noto'g'ri", field: field || null, details: result.error.flatten() }, { status: 400 }) }
-  }
+  if (!result.success) return { error: zodErrorResponse(result.error) }
   return { data: result.data }
 }

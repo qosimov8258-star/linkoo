@@ -12,9 +12,10 @@ import { PlanTaskFilterDialog, type PlanFilterChanges } from "@/components/analy
 import { CLEAR_PLAN_FILTERS, countPlanFilters, planDate, taskApiQuery, type PlanState } from "@/components/analytics/stock-plan-state"
 import { downloadExcelTable } from "@/lib/excel-export"
 import { useLanguage } from "@/lib/i18n/language-context"
-import { PLAN_PAGE_SIZES, PLAN_TAB_LABELS, PLAN_TYPE_LABELS, type PlanTaskListResult, type PlanTaskRow, type PlanTaskTab } from "@/lib/stock-plan-types"
+import { PLAN_PAGE_SIZES, PLAN_TAB_LABELS, PLAN_TYPE_LABELS, type PlanRights, type PlanTaskListResult, type PlanTaskRow, type PlanTaskTab } from "@/lib/stock-plan-types"
 
 // The four task tabs of "План приемок и передач" (demo c88 / c89 grids):
+//   (Тип: Поставка / Передача / Возврат on the receive tabs, Заказ / Передача on the transfer tabs)
 //   Приемка           № | От кого | Тип | Дата приемки | Склад
 //   История Приемки   № | От кого | Тип | Дата приемки | Принял | Склад
 //   Передача          № | Дата запроса | Склад | Тип | Кому | Доставщик | Дата передачи
@@ -59,7 +60,7 @@ export function StockPlanTasks({
   tab,
   state,
   update,
-  canWrite,
+  rights,
   options,
   onOptionsWanted,
   notify,
@@ -68,7 +69,7 @@ export function StockPlanTasks({
   tab: PlanTaskTab
   state: PlanState
   update: (changes: UrlChanges) => void
-  canWrite: boolean
+  rights: PlanRights
   options: StockOptions
   onOptionsWanted: () => void
   notify: (text: string, error?: boolean) => void
@@ -206,7 +207,7 @@ export function StockPlanTasks({
                         <StockPlanDetail
                           tab={tab}
                           row={row}
-                          canWrite={canWrite}
+                          rights={rights}
                           onClose={() => update({ id: null })}
                           onDone={(message) => {
                             notify(message)
@@ -229,14 +230,7 @@ export function StockPlanTasks({
                   ) : list.error ? (
                     ""
                   ) : (
-                    <div className="flex flex-col items-center gap-2">
-                      <span>{t(countPlanFilters(state) || state.search ? "По вашему запросу ничего не найдено" : EMPTY_TEXT[tab])}</span>
-                      {(tab === "transfer" || tab === "transfer_history") && (
-                        <span className="max-w-[560px] text-[13px]">
-                          {t("Заказы появятся здесь, когда в заказе будет указан склад: модуль заказов пока не указывает склад")}
-                        </span>
-                      )}
-                    </div>
+                    <span>{t(countPlanFilters(state) || state.search ? "По вашему запросу ничего не найдено" : EMPTY_TEXT[tab])}</span>
                   )}
                 </td>
               </tr>

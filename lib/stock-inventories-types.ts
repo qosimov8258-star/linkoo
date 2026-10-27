@@ -137,7 +137,10 @@ export type StockInventoryBalances = {
 
 /** GET /api/stock/inventories/options: warehouse select, "Создал" filter, base currency. */
 export type StockInventoryOptions = {
+  /** Every warehouse (filters), inactive and document-only ones included. */
   warehouses: string[]
+  /** What a new count may use (the form's select): active warehouses plus document-only ones. */
+  activeWarehouses: string[]
   users: string[]
   currency: string
 }

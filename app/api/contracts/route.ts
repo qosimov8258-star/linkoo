@@ -5,13 +5,13 @@ import { contractBodySchema, contractErrorResponse, parseContractListQuery } fro
 import { createContract, listContracts } from "@/lib/contracts-repo"
 import type { ContractStatus } from "@/lib/contracts-types"
 import { requireRole } from "@/lib/rbac"
-import { parseJsonBody } from "@/lib/validation"
+import { notSignedInResponse, parseJsonBody } from "@/lib/validation"
 
 // GET /api/contracts?status&search&ordering&page&pageSize&fromDate&toDate&client*&zone*&agent*&ids → ContractListResult
 // (demo GET /sales/contract/?debt=true…). POST → ContractDetail (demo ContractsCreateForm).
 export async function GET(request: Request) {
   const user = await getCurrentUser()
-  if (!user) return NextResponse.json({ error: "Tizimga kirilmagan" }, { status: 401 })
+  if (!user) return notSignedInResponse()
   const parsed = parseContractListQuery(request.url)
   if (parsed.error) return parsed.error
   return NextResponse.json(await listContracts(parsed.data))

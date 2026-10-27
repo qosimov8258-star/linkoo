@@ -4,7 +4,7 @@ import { getCurrentUser } from "@/lib/current-user"
 import { createEmployeeBalanceTransaction, listEmployeeBalanceTransactions } from "@/lib/employee-balance-repo"
 import { employeeBalanceTransactionSchema } from "@/lib/finance-employee-balance-api"
 import { requireRole } from "@/lib/rbac"
-import { parseIdSegment, parseJsonBody } from "@/lib/validation"
+import { notSignedInResponse, parseIdSegment, parseJsonBody } from "@/lib/validation"
 
 // Manual employee movements ("Баланс сотрудников"). Balances / the act are
 // served by the shared ledger: GET /api/balances/employee[/statement].
@@ -12,7 +12,7 @@ import { parseIdSegment, parseJsonBody } from "@/lib/validation"
 /** GET ?employeeId= → manual movements, newest first. */
 export async function GET(request: Request) {
   const user = await getCurrentUser()
-  if (!user) return NextResponse.json({ error: "Tizimga kirilmagan" }, { status: 401 })
+  if (!user) return notSignedInResponse()
   const param = (new URL(request.url).searchParams.get("employeeId") ?? "").trim()
   if (!param) return NextResponse.json(await listEmployeeBalanceTransactions({}))
   // An id that is not a positive int4 matches no employee (never a 500).

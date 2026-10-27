@@ -3,10 +3,13 @@ import "server-only"
 import { NextResponse } from "next/server"
 import { z } from "zod"
 
+import { docDateCheck } from "@/lib/document-dates"
 import { defaultBalancePeriod, isIsoDay } from "@/lib/finance/dates"
 import type { BalanceListParams, StatementParams } from "@/lib/finance/ledger"
 import type { ManagementParams } from "@/lib/finance/management"
 import { BALANCE_ENTITY_KINDS, type BalanceEntityKind } from "@/lib/finance/types"
+import { dbId, strictNum } from "@/lib/strict-number"
+import { zodErrorResponse } from "@/lib/validation"
 
 // Query-string / body schemas of the shared /api/balances/** routes. List
 // values (organization, branch, key, …) are repeated params
@@ -19,7 +22,7 @@ const flag = z
   .enum(["1", "0", "true", "false"])
   .optional()
   .transform((value) => value === "1" || value === "true")
-const int = (min: number) => z.coerce.number().int().min(min).optional()
+const int = (min: number) => strictNum(z.number().int().min(min).optional())
 const list = z.array(z.string().trim().min(1)).optional()
 
 const movementQuery = {
@@ -95,7 +98,7 @@ function queryObject(url: string, arrays: string[]): Record<string, string | str
 }
 
 function invalid(error: z.ZodError) {
-  return NextResponse.json({ error: "Ma'lumotlar noto'g'ri", details: error.flatten() }, { status: 400 })
+  return zodErrorResponse(error)
 }
 
 function period(from?: string, to?: string) {
@@ -191,11 +194,12 @@ export function routeId(value: string): number | null {
   return id > 0 && id <= MAX_ID ? id : null
 }
 
-const positiveId = z.coerce.number().int().positive().max(MAX_ID)
+const positiveId = dbId()
 
 /** Body of POST /api/balances/group-payment. */
 export const groupPaymentSchema = z.object({
-  date: z.string().trim().max(40).optional(),
+  /** A money document: year 2000..2100, never after today (lib/document-dates.ts). */
+  date: z.string().trim().max(40).optional().superRefine(docDateCheck()),
   cashboxId: positiveId,
   organization: z.string().trim().min(1).max(200),
   branch: z.string().trim().max(200).optional(),
@@ -206,13 +210,13 @@ export const groupPaymentSchema = z.object({
   deliveryMan: z.string().trim().max(200).optional(),
   isVerified: z.boolean().optional(),
   rateType: z.enum(["current", "custom"]).optional(),
-  customRate: z.coerce.number().positive().max(MAX_RATE).optional(),
+  customRate: strictNum(z.number().positive().max(MAX_RATE).optional()),
   comment: z.string().trim().max(2000).optional(),
   items: z
     .array(
       z.object({
         key: z.union([z.string().trim().min(1).max(200), z.number().int().positive().max(MAX_ID).transform(String)]),
-        amount: z.coerce.number().finite().positive().max(MAX_MONEY),
+        amount: strictNum(z.number().finite().positive().max(MAX_MONEY)),
         comment: z.string().trim().max(2000).optional(),
       }),
     )

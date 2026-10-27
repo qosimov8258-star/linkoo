@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
 
-import { requiredPermission } from "@/lib/capabilities-catalog"
 import { checkRateLimit, clientIp } from "@/lib/rate-limit"
 import { SESSION_COOKIE, verifySession } from "@/lib/session"
 
@@ -24,6 +23,10 @@ const WINDOW_MS = 60_000
 // Never throttled: signing out must always work, and /me is the cheap probe
 // every page uses to learn who is signed in.
 const RATE_LIMIT_EXEMPT = new Set(["/api/auth/logout", "/api/auth/me"])
+// While the password must be changed (session claim, lib/session.ts) only these
+// stay open besides /api/auth/** (sign-in/out, /me, the password change): the
+// account's own sessions. Pages still render, so the change dialog can show.
+const PASSWORD_CHANGE_OPEN_PREFIXES = ["/api/user-sessions"]
 
 // Headers the route handlers read (lib/rbac.ts, app/layout.tsx). Always
 // overwritten here, so a client cannot supply them.
@@ -31,7 +34,16 @@ const PATH_HEADER = "x-linko-path"
 const METHOD_HEADER = "x-linko-method"
 const URL_HEADER = "x-linko-url"
 
-type MessageKey = "origin" | "tooLarge" | "lengthRequired" | "tooManyLogins" | "tooMany" | "notSignedIn" | "forbidden" | "badText"
+type MessageKey =
+  | "origin"
+  | "tooLarge"
+  | "lengthRequired"
+  | "tooManyLogins"
+  | "tooMany"
+  | "notSignedIn"
+  | "forbidden"
+  | "badText"
+  | "passwordChangeRequired"
 type Lang = "ru" | "uz" | "en" | "tk"
 
 // The edge cannot load the full dictionaries, so its few messages are kept here
@@ -84,6 +96,13 @@ const MESSAGES: Record<MessageKey, Record<Lang, string>> = {
     uz: "Matnda ruxsat etilmagan belgilar bor",
     en: "The text contains invalid characters",
     tk: "Tekstde rugsat berilmeýän nyşanlar bar",
+  },
+  // Same Russian key as lib/rbac.ts PASSWORD_CHANGE_REQUIRED.
+  passwordChangeRequired: {
+    ru: "Для продолжения работы задайте новый пароль.",
+    uz: "Ishni davom ettirish uchun yangi parol o'rnating.",
+    en: "Set a new password to continue.",
+    tk: "Işi dowam etmek üçin täze parol belläň.",
   },
 }
 
@@ -248,6 +267,14 @@ export async function middleware(request: NextRequest) {
   }
 
   if (isApi) {
+    // A password set by an administrator (or the seeded / a too weak one) must
+    // be changed before anything else; lib/rbac.ts re-checks it in Postgres, and
+    // lib/current-user.ts ends a session whose token lacks this mark while the
+    // account must change its password (a token issued before that was required).
+    if (session.mustChangePassword && !PASSWORD_CHANGE_OPEN_PREFIXES.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`))) {
+      return fail(request, "passwordChangeRequired", 403)
+    }
+
     // Coarse, edge-level RBAC gate for admin-only resources. Each of these
     // routes also re-checks the role against Postgres via requireRole("admin")
     // so a stale JWT claim can never grant access on its own.
@@ -260,11 +287,12 @@ export async function middleware(request: NextRequest) {
     if (MUTATING_METHODS.has(method) && session.role === "viewer") return fail(request, "forbidden", 403)
 
     // Users restricted by an access right (Права доступа) may only change the
-    // resources their permissions cover (lib/capabilities-catalog.ts).
-    if (session.permissions && session.role !== "admin") {
-      const code = requiredPermission(pathname, method)
-      if (code && !session.permissions.includes(code)) return fail(request, "forbidden", 403)
-    }
+    // resources their permissions cover (lib/capabilities-catalog.ts). That is
+    // decided by the route (lib/rbac.ts requireRole / requirePermission, which
+    // every write handler calls) from the grants in Postgres, not here: the edge
+    // cannot read them, and a list copied into the token at sign-in kept
+    // refusing a permission an administrator had just added until the user
+    // signed in again. Removals apply at once there too.
 
     const refused = await refuseBadBody(request, method)
     if (refused) return refused

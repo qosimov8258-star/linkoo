@@ -111,7 +111,7 @@ export function PhotoReportReviewView() {
       <header className="relative pl-[30px] pr-[38px]">
         <RefHeader title={t("Проверка фотоотчетов")}>
           <strong className="mr-[10px] text-[13px] font-bold text-[#4f71dc]">
-            {formatDate(range.from)} - {formatDate(range.to)}
+            {t(`${formatDate(range.from)} - ${formatDate(range.to)}`)}
           </strong>
           <button
             type="button"
@@ -121,7 +121,7 @@ export function PhotoReportReviewView() {
             className="flex h-[30px] items-center rounded-[5px] bg-[#4f71dc] pl-3 pr-4 text-[13px] font-semibold text-white hover:brightness-95"
           >
             <svg viewBox="0 0 24 24" className="mr-2 h-[18px] w-[18px] fill-white" aria-hidden><path d={RI.filter} /></svg>
-            Показать фильтр
+            {t("Показать фильтр")}
           </button>
         </RefHeader>
 
@@ -132,28 +132,28 @@ export function PhotoReportReviewView() {
             className="absolute right-5 top-[calc(100%-4px)] z-50 w-[min(376px,calc(100vw-32px))] rounded-sm bg-white px-6 py-6 shadow-[0_7px_18px_rgba(15,23,42,0.35)] sm:right-10"
           >
             <div className="mb-7 flex items-center justify-between">
-              <h2 className="text-xl font-normal text-slate-500">Фильтр</h2>
-              <button type="button" onClick={() => setFiltersOpen(false)} aria-label="Закрыть фильтр" className="rounded-full border-2 border-slate-400 p-0.5 text-slate-400 hover:bg-slate-100">
+              <h2 className="text-xl font-normal text-slate-500">{t("Фильтр")}</h2>
+              <button type="button" onClick={() => setFiltersOpen(false)} aria-label={t("Закрыть фильтр")} className="rounded-full border-2 border-slate-400 p-0.5 text-slate-400 hover:bg-slate-100">
                 <X className="h-5 w-5" strokeWidth={3} />
               </button>
             </div>
 
             <fieldset>
-              <legend className="text-sm font-semibold">Дата</legend>
+              <legend className="text-sm font-semibold">{t("Дата")}</legend>
               <div className="mt-2 grid grid-cols-2 gap-3 border-b border-slate-300 pb-2">
-                <input aria-label="Дата от" type="date" value={draftFrom} max={draftTo} onChange={(event) => setDraftFrom(event.target.value)} className="min-w-0 border-0 bg-transparent text-sm outline-none" />
-                <input aria-label="Дата до" type="date" value={draftTo} min={draftFrom} onChange={(event) => setDraftTo(event.target.value)} className="min-w-0 border-0 bg-transparent text-sm outline-none" />
+                <input aria-label={t("Дата от")} type="date" value={draftFrom} max={draftTo} onChange={(event) => setDraftFrom(event.target.value)} className="min-w-0 border-0 bg-transparent text-sm outline-none" />
+                <input aria-label={t("Дата до")} type="date" value={draftTo} min={draftFrom} onChange={(event) => setDraftTo(event.target.value)} className="min-w-0 border-0 bg-transparent text-sm outline-none" />
               </div>
             </fieldset>
 
             <label className="relative mt-12 block border-b border-slate-300 pb-2 text-base font-semibold">
-              <span className="sr-only">Тип клиента</span>
+              <span className="sr-only">{t("Тип клиента")}</span>
               <select
                 value={draftClientType}
                 onChange={(event) => setDraftClientType(event.target.value)}
                 className="w-full appearance-none border-0 bg-white py-1 pr-8 text-base font-semibold outline-none"
               >
-                <option value="">Тип клиента</option>
+                <option value="">{t("Тип клиента")}</option>
                 {["horeca", "market", "market100", "market101", "market102", "market103", "optom", "retail"].map((type) => (
                   <option key={type} value={type}>{type}</option>
                 ))}
@@ -162,21 +162,21 @@ export function PhotoReportReviewView() {
             </label>
 
             <label className="relative mt-12 block border-b border-slate-300 pb-2 text-base font-semibold">
-              <span className="sr-only">Магазин с оборудованием</span>
+              <span className="sr-only">{t("Магазин с оборудованием")}</span>
               <select
                 value={draftEquipment}
                 onChange={(event) => setDraftEquipment(event.target.value)}
                 className="w-full appearance-none border-0 bg-white py-1 pr-8 text-base font-semibold outline-none"
               >
-                <option value="">Магазин с оборудованием</option>
-                <option value="yes">Да</option>
-                <option value="no">Нет</option>
+                <option value="">{t("Магазин с оборудованием")}</option>
+                <option value="yes">{t("Да")}</option>
+                <option value="no">{t("Нет")}</option>
               </select>
               <ChevronDown className="pointer-events-none absolute right-1 top-1 h-5 w-5 text-slate-400" />
             </label>
 
             <button type="submit" disabled={draftFrom > draftTo} className="mt-7 rounded-md bg-slate-500 px-5 py-3 font-medium uppercase text-white shadow-md hover:bg-slate-600 disabled:opacity-50">
-              Применить
+              {t("Применить")}
             </button>
           </form>
         )}
@@ -192,7 +192,7 @@ export function PhotoReportReviewView() {
             <span className="flex h-[35px] w-[35px] items-center justify-center rounded-full bg-[#a8adb7] text-white">
               <svg viewBox="0 0 24 24" className="h-[22px] w-[22px] fill-white" aria-hidden><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z" /></svg>
             </span>
-            <span className="text-[13px] font-bold leading-[17px]">Все<span className="block font-normal">0</span></span>
+            <span className="text-[13px] font-bold leading-[17px]">{t("Все")}<span className="block font-normal">0</span></span>
           </button>
           {employeeNames.map((name, index) => (
             <button
@@ -208,11 +208,11 @@ export function PhotoReportReviewView() {
           ))}
         </div>
         {scrolled && (
-          <button type="button" onClick={() => scrollEmployees(-1)} aria-label="Предыдущие сотрудники" className="absolute left-0 top-0 z-20 flex h-full w-10 items-center justify-center bg-black/25 text-white hover:bg-black/40">
+          <button type="button" onClick={() => scrollEmployees(-1)} aria-label={t("Предыдущие сотрудники")} className="absolute left-0 top-0 z-20 flex h-full w-10 items-center justify-center bg-black/25 text-white hover:bg-black/40">
             <ChevronLeft className="h-6 w-6" />
           </button>
         )}
-        <button type="button" onClick={() => scrollEmployees(1)} aria-label="Следующие сотрудники" className="absolute right-0 top-[1px] z-20 flex h-[65px] w-[40px] items-center justify-center rounded-l-full bg-[#a8a8a8]/80 text-[15px] font-bold text-[#2f3a87]">
+        <button type="button" onClick={() => scrollEmployees(1)} aria-label={t("Следующие сотрудники")} className="absolute right-0 top-[1px] z-20 flex h-[65px] w-[40px] items-center justify-center rounded-l-full bg-[#a8a8a8]/80 text-[15px] font-bold text-[#2f3a87]">
           »
         </button>
       </section>

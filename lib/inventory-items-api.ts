@@ -14,6 +14,9 @@ import {
   type InventoryRequestType,
   type InventoryStatusParam,
 } from "@/lib/inventory-items-types"
+import { dbErrorResponse } from "@/lib/db-errors"
+import { strictId, strictNum } from "@/lib/strict-number"
+import { invalidFieldResponse } from "@/lib/validation"
 
 // HTTP helpers of /api/inventory-items/** (route files export only handlers).
 // Error messages are Russian i18n keys; the UI shows them through t().
@@ -34,6 +37,8 @@ export function inventoryErrorResponse(error: unknown): NextResponse {
   if (error instanceof InventoryError) {
     return NextResponse.json({ error: error.message, field: error.field ?? null, ...(error.extra ?? {}) }, { status: error.status })
   }
+  const busy = dbErrorResponse(error)
+  if (busy) return busy
   throw error
 }
 
@@ -81,7 +86,7 @@ export type InventoryQuery = {
 export type Parsed<T> = { data: T; error?: undefined } | { data?: undefined; error: NextResponse }
 
 function bad(name: string, hint: string) {
-  return NextResponse.json({ error: "Ma'lumotlar noto'g'ri", details: { fieldErrors: { [name]: [hint] } } }, { status: 400 })
+  return invalidFieldResponse(name, hint)
 }
 
 const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/
@@ -92,8 +97,8 @@ function texts(values: string[]): string[] {
 
 function ids(values: string[]): number[] {
   return texts(values)
-    .map(Number)
-    .filter((id) => Number.isInteger(id) && id > 0 && id <= 2_147_483_647)
+    .map((value) => strictId(value))
+    .filter((id): id is number => id !== null)
 }
 
 function pick<T extends string>(values: string[], allowed: readonly T[]): T[] {
@@ -220,7 +225,7 @@ export const inventoryImportSchema = z.object({
   rows: z
     .array(
       z.object({
-        line: z.coerce.number().int().min(1).max(100000),
+        line: strictNum(z.number().int().min(1).max(100000)),
         clientId: z.coerce.string().max(30).optional(),
         client: z.coerce.string().max(300).optional(),
         product: z.coerce.string().max(300).default(""),

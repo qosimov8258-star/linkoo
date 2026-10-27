@@ -132,6 +132,37 @@ function entryCounts(ctx: SourceContext): string {
   return `${alive(ctx, "e", CME)} AND ${verified(ctx, "e", CME)}`
 }
 
+/** (id, org): the default organization of each client, for client documents that carry
+ * none (opening balance, corrections without one), by the order rules (lib/orders-repo.ts
+ * ORGANIZATION_BACKFILL): the client's not cancelled contracts when they name one
+ * organization → the client's agent's single organization (first employee of that name)
+ * → the only organization → ''. Also used by the corrections backfill
+ * (lib/finance-store-reconciliation.ts). Needs the fin_* helpers (fin_single_org). */
+export function clientDefaultOrgSql(s: FinanceSchema): string {
+  const joins: string[] = []
+  const picks: string[] = []
+  if (s.has("contracts")) {
+    joins.push(`LEFT JOIN (
+      SELECT fin_key(to_jsonb(k) ->> 'client') AS ck, min(fin_place(to_jsonb(k) ->> 'organization')) AS org
+        FROM contracts k
+       WHERE COALESCE(to_jsonb(k) ->> 'status', '') <> 'cancelled' AND fin_place(to_jsonb(k) ->> 'organization') <> ''
+       GROUP BY 1 HAVING count(DISTINCT fin_key(to_jsonb(k) ->> 'organization')) = 1) dko ON dko.ck = fin_key(c.name)`)
+    picks.push("dko.org")
+  }
+  if (s.has("employees") && s.col("clients", "agent")) {
+    joins.push(`LEFT JOIN (
+      SELECT DISTINCT ON (fin_key(e.first_name || ' ' || e.last_name)) fin_key(e.first_name || ' ' || e.last_name) AS ek,
+             NULLIF(fin_single_org(to_jsonb(e) ->> 'organizations'), '') AS org
+        FROM employees e ORDER BY fin_key(e.first_name || ' ' || e.last_name), e.id) deo ON deo.ek = fin_key(c.agent) AND deo.ek <> ''`)
+    picks.push("deo.org")
+  }
+  if (s.has("organizations") && s.col("organizations", "name")) {
+    joins.push("CROSS JOIN (SELECT CASE WHEN count(*) = 1 THEN min(btrim(name)) END AS org FROM organizations) doo")
+    picks.push("doo.org")
+  }
+  return `SELECT c.id, COALESCE(${[...picks, "''"].join(", ")}) AS org FROM clients c ${joins.join(" ")}`
+}
+
 const CTE_SQL: Record<string, (ctx: SourceContext) => string> = {
   rates: () => "SELECT fin_cur(code) AS code, MAX(rate)::double precision AS rate FROM currencies WHERE fin_cur(code) IS NOT NULL GROUP BY 1",
   client_keys: () => "SELECT fin_key(name) AS k, MIN(id) AS id FROM clients GROUP BY 1",
@@ -139,6 +170,11 @@ const CTE_SQL: Record<string, (ctx: SourceContext) => string> = {
   emp_keys: () => "SELECT fin_key(first_name || ' ' || last_name) AS k, MIN(id) AS id FROM employees GROUP BY 1",
   cashbox_keys: () => "SELECT fin_key(name) AS k, MIN(id) AS id FROM cashboxes GROUP BY 1",
   branch_keys: (ctx) => (ctx.s.has("branches") ? "SELECT fin_key(name) AS k, MIN(id) AS id FROM branches GROUP BY 1" : "SELECT NULL::text AS k, NULL::int AS id WHERE false"),
+  // Currency of each price list by name (the first one of a duplicated name).
+  price_list_cur: (ctx) =>
+    ctx.s.has("price_lists") && ctx.s.col("price_lists", "currency")
+      ? "SELECT DISTINCT ON (fin_key(name)) fin_key(name) AS k, fin_cur(currency) AS cur FROM price_lists WHERE fin_key(name) <> '' ORDER BY fin_key(name), id"
+      : "SELECT NULL::text AS k, NULL::text AS cur WHERE false",
   wh: () =>
     `SELECT DISTINCT ON (fin_key(w.name)) fin_key(w.name) AS k, fin_key(w.manager) AS manager_k, bk.id AS branch_id
      FROM warehouses w LEFT JOIN branch_keys bk ON bk.k = fin_key(w.branch) ORDER BY fin_key(w.name), w.id`,
@@ -147,6 +183,7 @@ const CTE_SQL: Record<string, (ctx: SourceContext) => string> = {
             SUM(quantity::double precision * unit_price::double precision * (1 - discount_percent::double precision / 100)) AS amount
      FROM order_items GROUP BY 1, 2`,
   oi_orders: () => "SELECT DISTINCT order_id FROM order_items",
+  client_default_org: (ctx) => clientDefaultOrgSql(ctx.s),
   transfer_legs: (ctx) =>
     `SELECT e.id, e.cashbox_id, e.amount::double precision AS a, e.entry_date, e.created_at, cb.name, cb.branch,
             COALESCE(fin_cur(cb.currency), @base) AS cur, ${col(ctx, "e", CME, "transfer_id", "NULL::int")} AS tid
@@ -182,6 +219,42 @@ function need(ctx: SourceContext, ...names: string[]) {
 
 const utcTs = (expr: string) => `fin_ts(${expr}, true)`
 const ts = (...exprs: string[]) => `COALESCE(${exprs.join(", ")})`
+
+// --- internal transfers (branch and van-sell ledgers) ------------------------
+
+const IT = "internal_transfers"
+
+/** One leg of an internal transfer `t`, booked like the stock core
+ * (lib/stock/sources.ts): the goods leave the sender once the transfer was
+ * given (в пути / принят), on the given moment; they reach the receiver only
+ * once it was accepted (принят), on the acceptance moment. Rows from before
+ * the given_at / accepted_at columns fall back to the document dates (the
+ * planned «Дата доставки» only for the receiver, as the stock core does).
+ * `side` = the warehouse column of the entity: "from" = sender, "to" = receiver. */
+function transferLeg(ctx: SourceContext, side: "from" | "to"): { ts: string; where: string } {
+  const local = (column: string) => (ctx.s.col(IT, column) ? [`fin_ts(t.${column})`] : [])
+  const moments =
+    side === "from"
+      ? [...local("given_at"), ...local("created_at_label"), utcTs("t.created_at")]
+      : [...local("accepted_at"), ...local("delivered_at"), ...local("created_at_label"), utcTs("t.created_at")]
+  return { ts: ts(...moments), where: side === "from" ? "t.status IN ('в пути', 'принят')" : "t.status = 'принят'" }
+}
+
+/** Currency of an internal transfer's amount `t.amount`, with the join it needs
+ * (alias plc). The amount is priced by the transfer module, not by the free
+ * «Валюта» field of the form (internal_transfers.currency): without a price
+ * list the lines are priced at the cost of goods, in the base currency; with
+ * one, at that price list's prices, in its currency. Only a price list that no
+ * longer resolves falls back to the stored currency, then to base. */
+function transferCurrency(ctx: SourceContext): { cur: string; join: string } {
+  if (!ctx.s.col(IT, "price_list")) return { cur: "@base", join: "" }
+  need(ctx, "price_list_cur")
+  const stored = ctx.s.col(IT, "currency") ? "fin_cur(t.currency), " : ""
+  return {
+    cur: `CASE WHEN fin_key(t.price_list) = '' THEN @base ELSE COALESCE(plc.cur, ${stored}@base) END`,
+    join: "LEFT JOIN price_list_cur plc ON plc.k = fin_key(t.price_list)",
+  }
+}
 
 // --- orders (shared by the client ledger, Долги с заказов, branch KPI, P&L) ---
 
@@ -351,7 +424,7 @@ function orderStatusFilter(ctx: SourceContext): string {
 
 function clientSources(ctx: SourceContext): string[] {
   const out: string[] = []
-  need(ctx, "client_keys")
+  need(ctx, "client_keys", "client_default_org")
   const realization = ctx.o.mode === "realization"
 
   out.push(
@@ -362,13 +435,16 @@ function clientSources(ctx: SourceContext): string[] {
         ts: utcTs("c.created_at"),
         col: "CASE WHEN c.balance >= 0 THEN 'none_type_plus' ELSE 'none_type_minus' END",
         amt: "c.balance",
+        // No organization of its own: the client's default one, so the opening balance
+        // stays under the Организация filter.
+        org: "d.org",
         src: "'client_opening'",
         src_id: "c.id",
         title: "'Первоначальный баланс'",
         cp: "c.name",
         href: "'/clients'",
       },
-      "FROM clients c WHERE c.balance IS NOT NULL AND c.balance <> 0",
+      "FROM clients c JOIN client_default_org d ON d.id = c.id WHERE c.balance IS NOT NULL AND c.balance <> 0",
     ),
   )
 
@@ -412,7 +488,8 @@ function clientSources(ctx: SourceContext): string[] {
   // Client returns (Продажи → Возвраты, owned by the sales module): an
   // accepted return credits the client by its amount on the acceptance day
   // (both date modes); pending and cancelled returns have no effect. The
-  // organization / payment type come from the returned order, if any.
+  // organization is the return's own (client_returns.organization), else the
+  // returned order's; the payment type comes from the returned order, if any.
   const CR = "client_returns"
   if (ctx.s.has(CR) && ctx.s.col(CR, "status") && ctx.s.col(CR, "amount")) {
     const returnOrder = ctx.s.col(CR, "order_id") && ctx.s.has("orders")
@@ -435,7 +512,14 @@ function clientSources(ctx: SourceContext): string[] {
           ts: acceptedTs.length ? ts(...acceptedTs) : "NULL::timestamp",
           col: "'order_return'",
           amt: "r.amount",
-          org: returnOrder && ctx.s.col("orders", "organization") ? "fin_place(ro.organization)" : "''",
+          // The return's own organization first (returns without an order carry one too).
+          org: ctx.s.col(CR, "organization")
+            ? returnOrder && ctx.s.col("orders", "organization")
+              ? "COALESCE(NULLIF(fin_place(r.organization), ''), fin_place(ro.organization))"
+              : "fin_place(r.organization)"
+            : returnOrder && ctx.s.col("orders", "organization")
+              ? "fin_place(ro.organization)"
+              : "''",
           pt: returnOrder && ctx.s.col("orders", "payment_type") ? "fin_pt(ro.payment_type)" : "''",
           src: "'client_return'",
           src_id: "r.id",
@@ -583,7 +667,7 @@ function clientSources(ctx: SourceContext): string[] {
           ts: ts("fin_ts(k.correction_date)", utcTs("k.created_at")),
           col: "CASE WHEN k.amount >= 0 THEN 'none_type_plus' ELSE 'none_type_minus' END",
           amt: "k.amount",
-          org: "fin_place(k.organization)",
+          org: "COALESCE(NULLIF(fin_place(k.organization), ''), d.org)",
           pt: "fin_pt(k.payment_type)",
           src: "'client_correction'",
           src_id: "k.id",
@@ -593,7 +677,7 @@ function clientSources(ctx: SourceContext): string[] {
           cby: "k.created_by",
           href: "'/analytics/store-reconciliation-bot'",
         },
-        "FROM client_balance_corrections k JOIN clients c ON c.id = k.client_id WHERE COALESCE(k.is_deleted, 0) = 0",
+        "FROM client_balance_corrections k JOIN clients c ON c.id = k.client_id JOIN client_default_org d ON d.id = c.id WHERE COALESCE(k.is_deleted, 0) = 0",
       ),
     )
   }
@@ -758,16 +842,20 @@ function vansellSources(ctx: SourceContext): string[] {
     )
   }
   // Goods: a van is a warehouse whose manager is the agent (heuristic link).
+  // Loading the van (side "to") is booked when the van accepted the goods,
+  // unloading it (side "from") when the van gave them (transferLeg).
   need(ctx, "wh")
-  const transferTs = ts("fin_ts(t.delivered_at)", "fin_ts(t.created_at_label)", utcTs("t.created_at"))
   for (const side of ["to", "from"] as const) {
     const other = side === "to" ? "from" : "to"
+    const leg = transferLeg(ctx, side)
+    const currency = transferCurrency(ctx)
     out.push(
       select(
         ctx,
         {
           ek: "ek.id",
-          ts: transferTs,
+          cur: currency.cur,
+          ts: leg.ts,
           col: side === "to" ? "'stock_transfer_minus'" : "'stock_transfer_plus'",
           amt: side === "to" ? "-t.amount" : "t.amount",
           org: "fin_place(t.organization)",
@@ -781,8 +869,8 @@ function vansellSources(ctx: SourceContext): string[] {
           href: "'/analytics/internal-transfers'",
         },
         `FROM internal_transfers t JOIN wh w ON w.k = fin_key(t.${side}_warehouse) JOIN emp_keys ek ON ek.k = w.manager_k
-         LEFT JOIN wh w2 ON w2.k = fin_key(t.${other}_warehouse)
-         WHERE t.status IN ('в пути', 'принят') AND w.manager_k <> '' AND w2.manager_k IS DISTINCT FROM w.manager_k`,
+         LEFT JOIN wh w2 ON w2.k = fin_key(t.${other}_warehouse) ${currency.join}
+         WHERE ${leg.where} AND w.manager_k <> '' AND w2.manager_k IS DISTINCT FROM w.manager_k`,
       ),
     )
   }
@@ -846,18 +934,22 @@ function branchSources(ctx: SourceContext): string[] {
       ),
     )
   }
-  // Goods moved between warehouses of different branches: the receiver owes
-  // (stock_transfer_minus), the sender is credited (stock_transfer_plus).
-  // Only transfers that left the warehouse count (given / accepted).
-  const transferTs = ts("fin_ts(t.delivered_at)", "fin_ts(t.created_at_label)", utcTs("t.created_at"))
+  // Goods moved between warehouses of different branches: the sender is
+  // credited (stock_transfer_plus) when the goods left its warehouse (given),
+  // the receiver owes (stock_transfer_minus) once it accepted them — the
+  // moments the stock core moves the goods (transferLeg), so each branch's
+  // claim / debt appears together with its stock change.
   for (const side of ["to", "from"] as const) {
     const other = side === "to" ? "from" : "to"
+    const leg = transferLeg(ctx, side)
+    const currency = transferCurrency(ctx)
     out.push(
       select(
         ctx,
         {
           ek: "w.branch_id",
-          ts: transferTs,
+          cur: currency.cur,
+          ts: leg.ts,
           col: side === "to" ? "'stock_transfer_minus'" : "'stock_transfer_plus'",
           amt: side === "to" ? "-t.amount" : "t.amount",
           org: "fin_place(t.organization)",
@@ -870,8 +962,8 @@ function branchSources(ctx: SourceContext): string[] {
           cby: "t.created_by",
           href: "'/analytics/internal-transfers'",
         },
-        `FROM internal_transfers t JOIN wh w ON w.k = fin_key(t.${side}_warehouse) LEFT JOIN wh w2 ON w2.k = fin_key(t.${other}_warehouse)
-         WHERE t.status IN ('в пути', 'принят') AND w.branch_id IS NOT NULL AND w2.branch_id IS DISTINCT FROM w.branch_id`,
+        `FROM internal_transfers t JOIN wh w ON w.k = fin_key(t.${side}_warehouse) LEFT JOIN wh w2 ON w2.k = fin_key(t.${other}_warehouse) ${currency.join}
+         WHERE ${leg.where} AND w.branch_id IS NOT NULL AND w2.branch_id IS DISTINCT FROM w.branch_id`,
       ),
     )
   }

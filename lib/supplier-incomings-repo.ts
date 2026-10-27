@@ -1,14 +1,22 @@
 import "server-only"
 
-import { getDb, withTransaction, type PgDb } from "@/lib/db"
+import { getDb, outsideTransaction, withTransaction, type PgDb } from "@/lib/db"
 import { supplyCostLines, type Incoming, type IncomingExpense, type IncomingItem, type IncomingLog } from "@/components/analytics/supplier-incomings-data"
 import type { SupplyPaymentsResult } from "@/components/analytics/supplier-payments-data"
 import { listSupplyPayments, paidBySupply } from "@/lib/cash/supplier-payments"
+import { lockSupplyPayments } from "@/lib/cash/common"
 import { ensureCashSchema } from "@/lib/cash/schema"
+import { parseDocDay, type DocDate } from "@/lib/document-dates"
+import { formatMoney } from "@/lib/finance/currency"
 import { nowLocalIso, parseAnyDate, parseAnyDay, todayIso } from "@/lib/finance/dates"
 import {
   catalogIndex,
+  countedByInventory,
+  documentKeys,
   findShortages,
+  findWarehouse,
+  lockNamedWarehouse,
+  lockWarehousesOf,
   lockWarehouseStock,
   resolveLine,
   shortageMessage,
@@ -19,7 +27,8 @@ import { claimInvoiceForIncoming, ensureInvoiceIncomingsSchema } from "@/lib/inv
 import { ensureRepricingsSchema } from "@/lib/repricings-read"
 import { availableByKey } from "@/lib/repricings-items"
 import { createRepricingTx } from "@/lib/repricings-repo"
-import { getItemCosts } from "@/lib/stock/costs"
+import { getItemCosts, refreshProductCostCache } from "@/lib/stock/costs"
+import { ensureStockSchema } from "@/lib/stock/schema"
 import type { SupplierIncomingBody, IncomingExpenseBody } from "@/lib/supplier-incomings-api"
 import {
   currencyRates,
@@ -29,14 +38,12 @@ import {
   findCurrency,
   findOrganization,
   findSupplier,
-  findWarehouse,
   isPlaceholder,
   MAX_MONEY,
   MAX_QTY,
   nameKey,
   ProcurementError,
   rateToBase,
-  tableColumns,
 } from "@/lib/supplier-refs"
 
 // Supplier incomings ("Приход от поставщиков"). A supply is created
@@ -138,7 +145,7 @@ async function installSchema(): Promise<void> {
 
 async function ensureSchema() {
   if (!globalThis.__linkoIncomingsSchemaReadyV3) {
-    globalThis.__linkoIncomingsSchemaReadyV3 = installSchema().catch((error) => {
+    globalThis.__linkoIncomingsSchemaReadyV3 = outsideTransaction(installSchema).catch((error) => {
       globalThis.__linkoIncomingsSchemaReadyV3 = undefined
       throw error
     })
@@ -155,12 +162,14 @@ async function incomingsDb(): Promise<PgDb> {
   const db = getDb()
   await ensureSchema()
   // "Оплачено" reads supplier_payments (cash core columns); installing that schema
-  // here, before any transaction below, keeps its DDL out of locked sections.
+  // here, before any transaction below, keeps its DDL out of locked sections — and so
+  // for the stock core's (read by the unaccept check).
   await ensureCashSchema(db)
+  await ensureStockSchema()
   // products.cost was a currency-mixing average of supplies: bring every product to
   // the one cost of goods once per process (afterwards each event refreshes it).
   if (!globalThis.__linkoProductCostsResyncV1) {
-    globalThis.__linkoProductCostsResyncV1 = refreshProductCosts(null).catch((error) => {
+    globalThis.__linkoProductCostsResyncV1 = outsideTransaction(() => refreshProductCosts(null)).catch((error) => {
       console.error("[supplier-incomings] products.cost resync failed", error)
     })
   }
@@ -378,13 +387,16 @@ export function parseIncomingInput(body: SupplierIncomingBody): IncomingInput {
 type Resolved = { input: IncomingInput; supplierId: number }
 
 /** Resolves every reference of the draft (canonical names, ISO dates); throws a 400
- * ProcurementError with all field errors when something is unknown. */
-async function resolveIncoming(tx: PgDb, input: IncomingInput, index: CatalogIndex): Promise<Resolved> {
+ * ProcurementError with all field errors when something is unknown. The warehouse must be active
+ * (an inactive one is closed to new receipts), except the one an edited supply already has
+ * (`keepWarehouse`): accepting it is refused until the warehouse is active again. */
+async function resolveIncoming(tx: PgDb, input: IncomingInput, index: CatalogIndex, keepWarehouse?: string, keepDate?: string): Promise<Resolved> {
   const fields: Record<string, string> = {}
   const supplier = await findSupplier(tx, input.supplier)
   if (!supplier) fields.supplier = "Поставщик не найден"
   const warehouse = await findWarehouse(tx, input.warehouse)
   if (!warehouse) fields.warehouse = "Склад не найден"
+  else if (!warehouse.active && !(keepWarehouse !== undefined && nameKey(keepWarehouse) === nameKey(warehouse.name))) fields.warehouse = "Склад неактивен"
   let branch = input.branch
   if (!isPlaceholder(branch)) {
     const found = await findBranch(tx, branch)
@@ -399,10 +411,15 @@ async function resolveIncoming(tx: PgDb, input: IncomingInput, index: CatalogInd
   }
   const currency = await findCurrency(tx, input.currency || null)
   if (!currency) fields.currency = "Неизвестная валюта"
-  const date = input.date ? parseAnyDay(input.date) : todayIso()
-  if (!date) fields.date = "Неверная дата"
-  const invoiceDate = input.invoiceDate ? parseAnyDay(input.invoiceDate) : ""
-  if (invoiceDate === null) fields.invoiceDate = "Неверная дата"
+  // A supply document: year 2000..2100 and never after today (an edit may keep its own day);
+  // the supplier's invoice date only needs a sane year (lib/document-dates.ts). Both are
+  // stored as canonical "YYYY-MM-DD".
+  const supplyDay: DocDate = input.date ? parseDocDay(input.date, { current: keepDate }) : { ok: true, date: todayIso() }
+  if (!supplyDay.ok) fields.date = supplyDay.error
+  const date = supplyDay.ok ? supplyDay.date : null
+  const invoiceDay: DocDate = input.invoiceDate ? parseDocDay(input.invoiceDate, { allowFuture: true }) : { ok: true, date: "" }
+  if (!invoiceDay.ok) fields.invoiceDate = invoiceDay.error
+  const invoiceDate = invoiceDay.ok ? invoiceDay.date : null
   const items = input.items.map((item, position) => {
     const line = resolveLine(index, { key: item.key, product: item.product })
     if (!line.item) fields[`items.${position}.product`] = "Товар не найден в каталоге"
@@ -455,10 +472,13 @@ const timeLabel = (day: string) => `${day} ${nowLocalIso().slice(11, 16)}`
 export async function createIncoming(draft: IncomingInput, userName: string): Promise<Incoming> {
   await incomingsDb()
   if (draft.invoiceId) await ensureInvoiceIncomingsSchema()
+  // The warehouse as the request found it, read again under its lock below (rename race).
+  const seen = await findWarehouse(getDb(), draft.warehouse)
   return withTransaction(async (tx) => {
-    // Same lock as the warehouse rename / stock documents: the name cannot change under us.
-    await lockWarehouseStock(tx, [draft.warehouse])
-    const { input, supplierId } = await resolveIncoming(tx, draft, await catalogIndex(tx))
+    // Same lock as the warehouse rename / stock documents: the name cannot change under us, and a
+    // rename that committed since `seen` resolves to the new name (lockNamedWarehouse).
+    const warehouse = await lockNamedWarehouse(tx, draft.warehouse, seen)
+    const { input, supplierId } = await resolveIncoming(tx, { ...draft, warehouse }, await catalogIndex(tx))
     const contact = await supplierContact(tx, supplierId)
     const invoice = input.invoiceId ? await claimInvoiceForIncoming(tx, input.invoiceId) : null
     const result = await tx
@@ -507,12 +527,14 @@ async function lockIncoming(db: PgDb, id: number): Promise<Incoming | null> {
 /** Only a supply that hasn't reached the warehouse yet can be edited. */
 export async function updateIncoming(id: number, draft: IncomingInput, userName: string): Promise<IncomingChange> {
   await incomingsDb()
+  const seen = await findWarehouse(getDb(), draft.warehouse)
   return withTransaction(async (tx) => {
+    // Lock order (C1): the stock lock before the row lock (rename race: see createIncoming).
+    const warehouse = await lockNamedWarehouse(tx, draft.warehouse, seen)
     const current = await lockIncoming(tx, id)
     if (!current) return "not_found"
     if (current.status !== "ожидает") return "locked"
-    await lockWarehouseStock(tx, [draft.warehouse])
-    const { input, supplierId } = await resolveIncoming(tx, draft, await catalogIndex(tx))
+    const { input, supplierId } = await resolveIncoming(tx, { ...draft, warehouse }, await catalogIndex(tx), current.warehouse, current.date)
     const contact = await supplierContact(tx, supplierId)
     await tx
       .prepare(
@@ -546,19 +568,32 @@ export async function updateIncoming(id: number, draft: IncomingInput, userName:
   })
 }
 
+/** Whether live money points at the supply: supplier payments linked to it, or cash entries paying
+ * one of its additional expenses. Run under lockSupplyPayments (a supply payment being recorded is
+ * waited for); the expense rows are locked too, so an expense payment being recorded (which holds
+ * its expense row) is waited for as well. */
+async function supplyHasPayments(tx: PgDb, id: number): Promise<boolean> {
+  const payments = (await tx
+    .prepare("SELECT COUNT(*) AS n FROM supplier_payments WHERE supply_id = @id AND COALESCE(is_deleted, 0) = 0")
+    .get({ id })) as { n: string | number } | undefined
+  if (Number(payments?.n ?? 0) > 0) return true
+  const expenses = (await tx.prepare("SELECT id FROM supplier_incoming_expenses WHERE incoming_id = @id ORDER BY id FOR UPDATE").all({ id })) as Array<{ id: number }>
+  return (await expensePayments(tx, expenses.map((row) => Number(row.id)))) > 0
+}
+
 /** Hard delete of a supply that never reached the warehouse. Locked (FOR UPDATE) so a
  * concurrent acceptance either wins (→ "locked") or waits for the delete. A supply that
- * live payments point at is refused ("has_payments"). */
+ * live payments point at is refused ("has_payments"); paid additional expenses count as
+ * payments too (their rows go with the supply). */
 export async function deleteIncoming(id: number): Promise<"ok" | "not_found" | "locked" | "has_payments"> {
   await incomingsDb()
   return withTransaction(async (tx) => {
+    // The payments' lock before the row lock (lib/cash/common.ts lockSupplyPayments).
+    await lockSupplyPayments(tx, id)
     const current = await lockIncoming(tx, id)
     if (!current) return "not_found"
     if (current.status === "принят") return "locked"
-    const payments = (await tx
-      .prepare("SELECT COUNT(*) AS n FROM supplier_payments WHERE supply_id = @id AND COALESCE(is_deleted, 0) = 0")
-      .get({ id })) as { n: string | number } | undefined
-    if (Number(payments?.n ?? 0) > 0) return "has_payments"
+    if (await supplyHasPayments(tx, id)) return "has_payments"
     await tx.prepare("DELETE FROM supplier_incomings WHERE id = ?").run(id)
     return "ok"
   })
@@ -572,11 +607,14 @@ const TRANSITIONS: Record<StatusAction, { from: Incoming["status"]; to: Incoming
   cancel: { from: "ожидает", to: "отменен" },
 }
 
-/** A supply may only reach the warehouse with sane lines of catalog items. */
+/** A supply may only reach an active warehouse, with sane lines of catalog items. */
 async function assertAcceptable(tx: PgDb, current: Incoming, index: CatalogIndex) {
+  const warehouse = await findWarehouse(tx, current.warehouse)
+  // An inactive warehouse is closed to new movements (as for write-offs and transfers).
+  if (warehouse && !warehouse.active) throw fieldError("warehouse", "Склад неактивен", 400)
   const fields: Record<string, string> = {}
   if (!(await findSupplier(tx, current.supplier))) fields.supplier = "Поставщик не найден"
-  if (!(await findWarehouse(tx, current.warehouse))) fields.warehouse = "Склад не найден"
+  if (!warehouse) fields.warehouse = "Склад не найден"
   if (!current.items.length) fields.items = "Добавьте товары"
   current.items.forEach((item, position) => {
     const qty = Number(item.qty)
@@ -597,6 +635,10 @@ export async function changeIncomingStatus(id: number, action: StatusAction, use
   const transition = TRANSITIONS[action]
   let products: string[] = []
   const result = await withTransaction(async (tx): Promise<IncomingChange> => {
+    // A cancel depends on the supply's payments: their lock before the row lock (lib/cash/common.ts lockSupplyPayments).
+    if (action === "cancel") await lockSupplyPayments(tx, id)
+    // Lock order (C1): accepting / unaccepting moves stock — the warehouse's stock lock before the row lock.
+    else await lockWarehousesOf(tx, "SELECT warehouse FROM supplier_incomings WHERE id = @id", { id })
     const current = await lockIncoming(tx, id)
     if (!current) return "not_found"
     if (current.status !== transition.from) return "locked"
@@ -621,14 +663,22 @@ export async function changeIncomingStatus(id: number, action: StatusAction, use
         stock,
       )
       if (shortages.length) throw new ProcurementError(`Не возможно отменить. ${shortageMessage(current.warehouse, shortages)}`, 409, undefined, { shortages })
-      // A confirmed inventory counted the warehouse with the receipt: undoing it would break the count.
-      if (day && (await countedByInventory(tx, current.warehouse, day, parseAnyDate(current.acceptedAt) ?? `${day}T00:00:00`))) {
+      // A confirmed inventory counted the received items after the acceptance (dated after the day
+      // the receipt is booked on, or an end-of-day count of that day): undoing it would break the
+      // count. A count confirmed before the acceptance never saw the goods; counts of other items
+      // do not matter.
+      const accepted = parseAnyDate(current.acceptedAt) ?? (day ? `${day}T00:00:00` : "")
+      const keys = documentKeys(index, current.items)
+      if (day && (await countedByInventory(tx, current.warehouse, day, accepted, keys, { registeredAt: accepted }))) {
         throw new ProcurementError("Отменение невозможно из-за связи с другими данными", 409, undefined, { reason: "inventory" })
       }
       await tx
         .prepare("UPDATE supplier_incomings SET status = 'ожидает', accepted_at = '', accepted_by = '', rate_to_base = NULL, updated_at = datetime('now') WHERE id = @id")
         .run({ id })
     } else {
+      // As for a delete: the payments would stay on a supply that never comes (the supplier's
+      // balance keeps them as paid for it). Delete or move them first.
+      if (await supplyHasPayments(tx, id)) throw new ProcurementError("По поставке есть оплаты — отменить нельзя", 409, undefined, { reason: "has_payments" })
       await tx.prepare("UPDATE supplier_incomings SET status = 'отменен', updated_at = datetime('now') WHERE id = @id").run({ id })
     }
     await addLog(tx, id, action === "accept" ? "accepted" : action === "unaccept" ? "unaccepted" : "cancelled", userName)
@@ -637,33 +687,6 @@ export async function changeIncomingStatus(id: number, action: StatusAction, use
   })
   if (typeof result !== "string" && action !== "cancel") await refreshProductCostsByName(products)
   return result
-}
-
-/** A confirmed inventory of `warehouse` counted the stock WITH the receipt: confirmed at or
- * after the acceptance (local moment "YYYY-MM-DDTHH:mm:ss") and dated after the day the
- * receipt is booked on (or an end-of-day count of that day). Undoing the receipt would then
- * make the stock differ from the count. A count confirmed before the acceptance never saw
- * the goods, so it does not block the undo. Missing lazy columns are tolerated. */
-async function countedByInventory(tx: PgDb, warehouse: string, day: string, moment: string): Promise<boolean> {
-  const columns = (await tableColumns(tx, ["stock_inventories"])).get("stock_inventories")
-  if (!columns?.has("inv_date") || !columns.has("status") || !columns.has("warehouse")) return false
-  const sameDay = columns.has("for_day_end") ? " OR (fin_ts(inv_date)::date = @day::date AND COALESCE(for_day_end, 0) = 1)" : ""
-  const stamps = [
-    columns.has("confirmed_at") ? "fin_ts(NULLIF(btrim(confirmed_at), ''), true)" : null,
-    columns.has("created_at") ? "fin_ts(created_at, true)" : null,
-  ].filter(Boolean)
-  // No usable timestamp: assume the count came after the receipt (refuse rather than corrupt).
-  const confirmed = `COALESCE(${[...stamps, "'infinity'::timestamp"].join(", ")})`
-  const row = await tx
-    .prepare(
-      `SELECT 1 AS hit FROM stock_inventories
-        WHERE status = 'confirmed' AND fin_key(warehouse) = fin_key(@warehouse)
-          AND (fin_ts(inv_date)::date > @day::date${sameDay})
-          AND ${confirmed} >= fin_ts(@moment)
-        LIMIT 1`,
-    )
-    .get({ warehouse, day, moment })
-  return Boolean(row)
 }
 
 // ---------------------------------------------------------------------------
@@ -716,8 +739,10 @@ export async function addIncomingExpense(incomingId: number, input: ExpenseInput
     const currency = await findCurrency(tx, input.currency || current.currency)
     if (!currency) throw fieldError("currency", "Неизвестная валюта")
     const rate = await rateToBase(tx, currency.code)
-    const date = input.date ? parseAnyDay(input.date) : todayIso()
-    if (!date) throw fieldError("date", "Неверная дата")
+    // A money document: year 2000..2100 and never after today (lib/document-dates.ts).
+    const day: DocDate = input.date ? parseDocDay(input.date) : { ok: true, date: todayIso() }
+    if (!day.ok) throw fieldError("date", day.error)
+    const date = day.date
     const description = input.description.trim()
     await tx
       .prepare(
@@ -735,7 +760,8 @@ export async function addIncomingExpense(incomingId: number, input: ExpenseInput
         createdAt: new Date().toISOString(),
         rate,
       })
-    await addLog(tx, incomingId, "expense_added", userName, `${description}: ${input.amount} ${currency.code}`)
+    // The amount as the page shows money ("250 000 SUM", up to 3 decimals like the supply view).
+    await addLog(tx, incomingId, "expense_added", userName, `${description}: ${formatMoney(input.amount, 3)} ${currency.code}`)
     if (current.status === "принят") products = current.items.map((item) => item.product)
     return (await getIncoming(incomingId, tx))!
   })
@@ -743,19 +769,38 @@ export async function addIncomingExpense(incomingId: number, input: ExpenseInput
   return result
 }
 
-export async function deleteIncomingExpense(incomingId: number, expenseId: number, userName: string): Promise<IncomingChange> {
+/** Live cash entries («Доп. расход на поставку») paying any of these additional expenses:
+ * linked by cash_management_entries.supply_expense_id, or the expense's transaction_id. */
+async function expensePayments(tx: PgDb, expenseIds: number[]): Promise<number> {
+  if (!expenseIds.length) return 0
+  const row = (await tx
+    .prepare(
+      `SELECT COUNT(*) AS n FROM cash_management_entries c
+       WHERE COALESCE(c.is_deleted, 0) = 0
+         AND (c.supply_expense_id = ANY(@ids::int[])
+              OR c.id IN (SELECT e.transaction_id FROM supplier_incoming_expenses e WHERE e.id = ANY(@ids::int[]) AND e.transaction_id IS NOT NULL))`,
+    )
+    .get({ ids: expenseIds })) as { n: string | number } | undefined
+  return Number(row?.n ?? 0)
+}
+
+/** "Удалить расход". Refused ("has_payments") while a live cash entry pays the expense: the
+ * payment would point at a deleted expense and the supply cost would drop under it. */
+export async function deleteIncomingExpense(incomingId: number, expenseId: number, userName: string): Promise<IncomingChange | "has_payments"> {
   await incomingsDb()
   let products: string[] = []
-  const result = await withTransaction(async (tx): Promise<IncomingChange> => {
+  const result = await withTransaction(async (tx): Promise<IncomingChange | "has_payments"> => {
     const current = await lockIncoming(tx, incomingId)
     if (!current) return "not_found"
     if (!Number.isInteger(expenseId) || expenseId <= 0 || expenseId > 2_147_483_647) return "not_found"
-    const expense = (await tx.prepare("SELECT * FROM supplier_incoming_expenses WHERE id = ? AND incoming_id = ?").get(expenseId, incomingId)) as
+    // Row-locked, so a cash payment being recorded for it (which stamps transaction_id) is seen.
+    const expense = (await tx.prepare("SELECT * FROM supplier_incoming_expenses WHERE id = ? AND incoming_id = ? FOR UPDATE").get(expenseId, incomingId)) as
       | ExpenseRow
       | undefined
     if (!expense) return "not_found"
+    if ((await expensePayments(tx, [expenseId])) > 0) return "has_payments"
     await tx.prepare("DELETE FROM supplier_incoming_expenses WHERE id = ?").run(expenseId)
-    await addLog(tx, incomingId, "expense_deleted", userName, `${expense.description}: ${expense.amount} ${expense.currency}`)
+    await addLog(tx, incomingId, "expense_deleted", userName, `${expense.description}: ${formatMoney(Number(expense.amount), 3)} ${expense.currency}`)
     if (current.status === "принят") products = current.items.map((item) => item.product)
     return (await getIncoming(incomingId, tx))!
   })
@@ -767,35 +812,14 @@ export async function deleteIncomingExpense(incomingId: number, expenseId: numbe
 // Net cost (contract 1: lib/stock/costs.ts is the one cost of goods)
 // ---------------------------------------------------------------------------
 
-/** Brings products.cost to the cost of goods (base currency, today) inside `tx`:
- * the initial ("по умолчанию") cost is frozen first, and the cost is reset to it so an
- * item never received falls back to it instead of a stale average. */
+/** Brings products.cost to the cost of goods (base currency, today) inside `tx`
+ * (refreshProductCostCache: the initial ("по умолчанию") cost is frozen where still
+ * NULL; an item never received falls back to it instead of a stale average).
+ * null = every live product. */
 async function refreshProductCostsIn(tx: PgDb, ids: number[] | null): Promise<void> {
-  const rows = (await (ids === null
-    ? tx.prepare("SELECT id FROM products WHERE COALESCE(deleted, 0) = 0 ORDER BY id FOR UPDATE").all()
-    : tx.prepare("SELECT id FROM products WHERE id = ANY(@ids::int[]) ORDER BY id FOR UPDATE").all({ ids }))) as Array<{ id: number }>
-  const productIds = rows.map((row) => Number(row.id))
-  if (!productIds.length) return
-  await tx
-    .prepare("UPDATE products SET initial_cost = COALESCE(initial_cost, cost), cost = COALESCE(initial_cost, cost) WHERE id = ANY(@ids::int[])")
-    .run({ ids: productIds })
-  const costs = await getItemCosts({}, tx)
-  const values: number[] = []
-  const targets: number[] = []
-  for (const id of productIds) {
-    const cost = costs.get(`product:${id}`)
-    if (cost === undefined || !Number.isFinite(cost)) continue
-    targets.push(id)
-    values.push(round6(cost))
-  }
-  if (!targets.length) return
-  await tx
-    .prepare(
-      `UPDATE products p SET cost = v.cost
-         FROM unnest(@ids::int[], @costs::double precision[]) AS v(id, cost)
-        WHERE p.id = v.id AND p.cost IS DISTINCT FROM v.cost`,
-    )
-    .run({ ids: targets, costs: values })
+  const productIds =
+    ids ?? ((await tx.prepare("SELECT id FROM products WHERE COALESCE(deleted, 0) = 0 ORDER BY id").all()) as Array<{ id: number }>).map((row) => Number(row.id))
+  await refreshProductCostCache(tx, productIds)
 }
 
 /** null = every live product (once-per-process resync). */

@@ -2,8 +2,10 @@ import "server-only"
 
 import { NextResponse } from "next/server"
 
-import { getDb, type PgDb } from "@/lib/db"
-import { normCurrency } from "@/lib/finance/currency"
+import { dbErrorResponse } from "@/lib/db-errors"
+import { getDb, outsideTransaction, type PgDb } from "@/lib/db"
+import { loadCurrencyContext } from "@/lib/finance/context"
+import { convertAmount, normCurrency } from "@/lib/finance/currency"
 import type { ItemPriceEntry } from "@/lib/item-prices"
 import { ensurePriceListsSchema } from "@/lib/price-lists-repo"
 import { itemNames } from "@/lib/repricings-items"
@@ -30,7 +32,7 @@ export class RepricingError extends Error {
   constructor(
     message: string,
     readonly status = 400,
-    readonly extra: { conflicts?: number[]; missing?: string[] } = {},
+    readonly extra: { conflicts?: number[]; missing?: string[]; currency?: string } = {},
   ) {
     super(message)
   }
@@ -39,7 +41,7 @@ export class RepricingError extends Error {
 export function repricingErrorResponse(error: unknown): NextResponse | null {
   if (error instanceof RepricingError) return NextResponse.json({ error: error.message, ...error.extra }, { status: error.status })
   if (error instanceof RangeError) return NextResponse.json({ error: error.message }, { status: 400 })
-  return null
+  return dbErrorResponse(error)
 }
 
 // ---------------------------------------------------------------------------
@@ -69,7 +71,7 @@ async function install(): Promise<void> {
 
 export function ensureRepricingsSchema(): Promise<void> {
   if (globalThis.__linkoRepricingsSchema?.version !== SCHEMA_VERSION) {
-    const ready = install().catch((error) => {
+    const ready = outsideTransaction(install).catch((error) => {
       globalThis.__linkoRepricingsSchema = undefined
       throw error
     })
@@ -95,6 +97,10 @@ export type StoredLine = {
   amount: number
   oldPrice: number | null
   oldCurrency: string
+  /** Units of the document currency per 1 unit of oldCurrency when the line was saved (1 = same
+   * currency; null = no rate then). Absent on lines saved before it was kept: the current rates. */
+  oldRate?: number | null
+  /** In the document currency (= the price list's currency for documents saved now). */
   price: number
   /** Entry of the price list before this repricing (null = there was none). Absent on legacy lines. */
   oldEntry?: ItemPriceEntry | null
@@ -181,24 +187,81 @@ const round = (value: number, digits = 2) => {
   return Object.is(result, -0) ? 0 : result
 }
 
-function lineTotals(line: StoredLine): { totalOld: number; totalNew: number; diff: number } {
+/** Rates of the currencies table: units of base per 1 unit (base = 1; null = unknown). */
+export type RateMap = Record<string, number | null | undefined>
+
+/**
+ * Factor that puts a line's old price (oldCurrency) into the document currency: the rate kept when
+ * the line was saved (null kept = there was no rate: unknown), 1 for the same currency, else (a line
+ * saved before the rate was kept) the current rates; null = unknown.
+ */
+function oldPriceFactor(line: StoredLine, currency: string, rates?: RateMap): number | null {
+  if (typeof line.oldRate === "number" && Number.isFinite(line.oldRate) && line.oldRate > 0) return line.oldRate
+  const from = normCurrency(line.oldCurrency, currency)
+  if (from === currency) return 1
+  if (line.oldRate === null) return null
+  return rates ? convertAmount(1, from, currency, rates) : null
+}
+
+/**
+ * True when a line's old price is in another currency and the line was saved before the rate was
+ * kept (lines of documents saved before currencies were checked): the current rates are needed, and
+ * the totals stored on such a document may mix currencies (they are recomputed on read).
+ */
+function needsRates(lines: StoredLine[], currency: string): boolean {
+  return lines.some((line) => line.oldPrice !== null && line.oldPrice !== undefined && line.oldRate === undefined && normCurrency(line.oldCurrency, currency) !== currency)
+}
+
+/** Current rates, loaded only when a line needs them. */
+export async function ratesFor(db: PgDb, lines: StoredLine[], currency: string): Promise<RateMap | undefined> {
+  return needsRates(lines, currency) ? (await loadCurrencyContext(db)).rates : undefined
+}
+
+/**
+ * "Сумма до" / "Сумма после" / "Разница" of a line, all in the DOCUMENT currency: the old price is
+ * converted from its own currency (an entry may be kept in another currency than its list); when
+ * that is impossible (no rate) or the old price is unknown, the line counts as unchanged.
+ */
+function lineTotals(line: StoredLine, currency: string, rates?: RateMap): { totalOld: number; totalNew: number; diff: number } {
   const totalNew = round(line.price * line.amount)
-  const totalOld = round((line.oldPrice ?? line.price) * line.amount)
+  const factor = line.oldPrice === null || line.oldPrice === undefined ? null : oldPriceFactor(line, currency, rates)
+  const totalOld = factor === null ? totalNew : round(Number(line.oldPrice) * factor * line.amount)
   return { totalOld, totalNew, diff: round(totalNew - totalOld) }
 }
 
-export function docTotals(lines: StoredLine[]): { total: number; totalOld: number; totalNew: number } {
+/** Σ over the lines in the document currency `currency` (see lineTotals). */
+export function docTotals(lines: StoredLine[], currency: string, rates?: RateMap): { total: number; totalOld: number; totalNew: number } {
+  const code = normCurrency(currency)
   let totalOld = 0
   let totalNew = 0
   for (const line of lines) {
-    const totals = lineTotals(line)
+    const totals = lineTotals(line, code, rates)
     totalOld += totals.totalOld
     totalNew += totals.totalNew
   }
   return { total: round(totalNew - totalOld), totalOld: round(totalOld), totalNew: round(totalNew) }
 }
 
-function rowToRepricing(row: Row): Repricing {
+type Totals = { total: number; totalOld: number; totalNew: number }
+
+/**
+ * Totals of a document saved before currencies were checked whose old prices are in another
+ * currency (its stored "Сумма переоценки" mixes currencies): recomputed in the document currency
+ * with the current rates, like its lines (detailOf) and "Перерасчет по текущей дате". null = the
+ * stored totals are right (every other document).
+ */
+function staleTotals(row: Row, rates: RateMap | undefined): Totals | null {
+  const lines = parseLines(row)
+  const currency = normCurrency(row.currency)
+  return needsRates(lines, currency) ? docTotals(lines, currency, rates) : null
+}
+
+/** Current rates when one of the rows has stale totals (see staleTotals), else undefined. */
+async function ratesForRows(db: PgDb, rows: Row[]): Promise<RateMap | undefined> {
+  return rows.some((row) => needsRates(parseLines(row), normCurrency(row.currency))) ? (await loadCurrencyContext(db)).rates : undefined
+}
+
+function rowToRepricing(row: Row, totals: Totals | null = null): Repricing {
   return {
     id: Number(row.id),
     createdBy: row.created_by || row.user || "",
@@ -208,9 +271,9 @@ function rowToRepricing(row: Row): Repricing {
     currency: normCurrency(row.currency),
     comment: row.comment ?? "",
     status: statusOf(row.status),
-    total: Number(row.total) || 0,
-    totalOld: Number(row.total_old) || 0,
-    totalNew: Number(row.total_new) || 0,
+    total: totals ? totals.total : Number(row.total) || 0,
+    totalOld: totals ? totals.totalOld : Number(row.total_old) || 0,
+    totalNew: totals ? totals.totalNew : Number(row.total_new) || 0,
     lineCount: Number(row.line_count) || 0,
     source: sourceOf(row),
     parentId: row.parent_id === null ? null : Number(row.parent_id),
@@ -227,7 +290,9 @@ export async function readRow(db: PgDb, id: number, lock = false): Promise<Row |
 
 export async function detailOf(db: PgDb, row: Row): Promise<RepricingDetail> {
   const stored = parseLines(row)
+  const currency = normCurrency(row.currency)
   const names = await itemNames(db, stored.map((line) => line.key))
+  const rates = await ratesFor(db, stored, currency)
   const lines: RepricingLine[] = stored.map((line) => ({
     kind: line.kind,
     id: Number(line.id),
@@ -236,12 +301,14 @@ export async function detailOf(db: PgDb, row: Row): Promise<RepricingDetail> {
     unit: names.get(line.key)?.unit ?? line.unit,
     amount: Number(line.amount) || 0,
     oldPrice: line.oldPrice === null || line.oldPrice === undefined ? null : Number(line.oldPrice),
-    oldCurrency: normCurrency(line.oldCurrency, normCurrency(row.currency)),
+    oldCurrency: normCurrency(line.oldCurrency, currency),
     price: Number(line.price) || 0,
-    ...lineTotals(line),
+    ...lineTotals(line, currency, rates),
   }))
   const children = (await db.prepare("SELECT id FROM repricings WHERE parent_id = ? ORDER BY id").all(row.id)) as Array<{ id: number }>
-  return { ...rowToRepricing(row), lines, children: children.map((child) => Number(child.id)) }
+  // The header's sums are Σ of these lines (a document saved before currencies were checked keeps
+  // mixed totals in the table until "Перерасчет").
+  return { ...rowToRepricing(row, staleTotals(row, rates)), lines, children: children.map((child) => Number(child.id)) }
 }
 
 // ---------------------------------------------------------------------------
@@ -288,7 +355,8 @@ export async function listRepricingsPage(query: RepricingListQuery): Promise<Rep
   const rows = (await db
     .prepare(`${SELECT} ${where} ORDER BY ${orderBy(query.ordering)}${paging}`)
     .all({ ...params, limit: query.pageSize, offset: (query.page - 1) * query.pageSize })) as Row[]
-  return { count: Number(count?.n ?? 0), results: rows.map(rowToRepricing) }
+  const rates = await ratesForRows(db, rows)
+  return { count: Number(count?.n ?? 0), results: rows.map((row) => rowToRepricing(row, staleTotals(row, rates))) }
 }
 
 /** Plain array (the original GET /api/repricings shape: newest first). */

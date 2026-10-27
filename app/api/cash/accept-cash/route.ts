@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 
 import { getCurrentUser } from "@/lib/current-user"
 import { requireRole } from "@/lib/rbac"
-import { parseJsonBody } from "@/lib/validation"
+import { notSignedInResponse, parseJsonBody } from "@/lib/validation"
 import { acceptCash, listAcceptGroups } from "@/lib/cash/accept"
 import { acceptCashSchema, cashErrorResponse, parseAcceptGroupsQuery } from "@/lib/cash/api"
 
@@ -10,7 +10,7 @@ import { acceptCashSchema, cashErrorResponse, parseAcceptGroupsQuery } from "@/l
 // POST /api/cash/accept-cash  { cashboxId, date?, comment?, ids | group } → 201 AcceptCashResult.
 export async function GET(request: Request) {
   const user = await getCurrentUser()
-  if (!user) return NextResponse.json({ error: "Tizimga kirilmagan" }, { status: 401 })
+  if (!user) return notSignedInResponse()
   const parsed = parseAcceptGroupsQuery(request.url)
   if (parsed.error) return parsed.error
   return NextResponse.json({ groups: await listAcceptGroups(parsed.data) })

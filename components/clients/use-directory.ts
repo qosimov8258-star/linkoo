@@ -14,14 +14,13 @@ const URLS: Record<Source, string> = {
   clientTypes: "/api/client-types",
   warehouses: "/api/warehouses",
   branches: "/api/branches",
-  zones: "/api/clients?balances=0",
+  zones: "/api/clients/zones",
   organizations: "/api/organizations",
   productTypes: "/api/product-types",
   brands: "/api/brands",
 }
 
 function nameOf(source: Source, row: Record<string, unknown>): string {
-  if (source === "zones") return String(row.zone ?? "").trim()
   if (source === "employees") return `${String(row.firstName ?? "")} ${String(row.lastName ?? "")}`.trim() || String(row.name ?? "")
   return String(row.name ?? "")
 }
@@ -45,6 +44,11 @@ function load(source: Source): Promise<string[]> {
     cache.set(source, pending)
   }
   return pending
+}
+
+/** Drops the cached names of `source` (after adding to that directory). */
+export function invalidateDirectory(source: Source): void {
+  cache.delete(source)
 }
 
 /** Sorted, distinct names of a directory ([] while loading or on error). */

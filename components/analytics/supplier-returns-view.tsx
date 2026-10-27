@@ -22,11 +22,17 @@ import {
 } from "lucide-react"
 import { ChangeEvent, Fragment, FormEvent, ReactElement, useEffect, useMemo, useRef, useState } from "react"
 
+import { ConfirmDialog } from "@/components/analytics/cash-management-shared"
+import { formatUnitTotals } from "@/components/analytics/internal-transfers-picker"
 import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
 import { downloadExcelTable } from "@/lib/excel-export"
 import { mapHeaderColumns, readExcelRows } from "@/lib/excel-import"
+import { formatMoney as formatAmount, roundMoney } from "@/lib/finance/currency"
+import { formatStatementDate, parseAnyDay, todayIso } from "@/lib/finance/dates"
+import { formatDateText } from "@/lib/i18n/format-date"
 import { useLanguage } from "@/lib/i18n/language-context"
 import { OrganizationFormModal } from "./organization-form-modal"
+import { currencyChoices, useCurrencyCodes } from "./supplier-incoming-dialogs"
 import { returnPaymentTypes as paymentTypes, type ReturnStatus as Status, type SupplierReturn } from "./supplier-returns-data"
 import { SupplierFormModal } from "./supplier-form-modal"
 import { WarehouseFormModal } from "./warehouse-form-modal"
@@ -38,8 +44,9 @@ const ITEM_IMPORT_HEADER_ALIASES: Record<string, string> = {
   "цена": "cost", "стоимость": "cost", "сумма": "cost", "сумма за единицу": "cost", "цена за единицу": "cost", "cost": "cost", "price": "cost", "unit price": "cost",
 }
 
-function formatMoney(value: number) {
-  return `${value.toLocaleString("ru-RU")} SUM`
+/** Money as everywhere in the app: ru grouping, at most 2 decimals ("2 567,14 SUM"). */
+function formatMoney(value: number, currency: string) {
+  return `${formatAmount(value, 2)} ${currency}`
 }
 
 const statusIcon: Record<Status, ReactElement> = {
@@ -49,28 +56,32 @@ const statusIcon: Record<Status, ReactElement> = {
 }
 
 type DraftItem = { id: number; product: string; qty: number; series: string; price: number }
+/** "Передать" / "Отменить" / delete waiting for the confirm dialog. */
+type PendingAction = { text: string; confirmLabel: string; tone: "red" | "green"; run: () => Promise<string> }
 
-function formatToday() {
-  const date = new Date()
-  return date.toLocaleDateString("ru-RU", { day: "2-digit", month: "long", year: "numeric" })
+/** A stored return day (YYYY-MM-DD; older rows "19.10.2026", "20 октября 2026") in the page language. */
+function formatDay(value: string, language: string) {
+  const day = parseAnyDay(value)
+  return day ? formatStatementDate(day, language, false).replace(/\s*г\.$/, "") : value
 }
 
-function emptyDraft() {
+/** The currency defaults to the base currency (Валюты); the date is an ISO day (date picker, today). */
+function emptyDraft(currency = "SUM") {
   return {
     supplier: "",
     warehouse: "",
     organization: "",
     branch: "",
-    currency: "SUM",
+    currency,
     priceList: "",
     paymentType: paymentTypes[0],
-    date: formatToday(),
+    date: todayIso(),
     comment: "",
   }
 }
 
 export function SupplierReturnsView({ embedded = false }: { embedded?: boolean }) {
-  const { t } = useLanguage()
+  const { t, language } = useLanguage()
   const [rows, setRows] = useState<SupplierReturn[]>([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState("")
@@ -82,7 +93,8 @@ export function SupplierReturnsView({ embedded = false }: { embedded?: boolean }
   const [expandedId, setExpandedId] = useState<number | null>(null)
   const [modalOpen, setModalOpen] = useState(false)
   const [editingId, setEditingId] = useState<number | null>(null)
-  const [draft, setDraft] = useState(emptyDraft)
+  const [draft, setDraft] = useState(() => emptyDraft())
+  const currencies = useCurrencyCodes()
   const [draftItems, setDraftItems] = useState<DraftItem[]>([])
   const [pickerOpen, setPickerOpen] = useState(false)
   const [pickerQuery, setPickerQuery] = useState("")
@@ -94,7 +106,11 @@ export function SupplierReturnsView({ embedded = false }: { embedded?: boolean }
   const [branchOptions, setBranchOptions] = useState<string[]>([])
   // Return price defaults to the product's current net cost.
   const [productCosts, setProductCosts] = useState<Record<string, number>>({})
+  /** Unit of each product / raw material by name (per-unit totals). */
+  const [productUnits, setProductUnits] = useState<Record<string, string>>({})
   const [busy, setBusy] = useState(false)
+  const [pending, setPending] = useState<PendingAction | null>(null)
+  const [pendingError, setPendingError] = useState("")
   const [quickAddSupplierOpen, setQuickAddSupplierOpen] = useState(false)
   const [quickAddWarehouseOpen, setQuickAddWarehouseOpen] = useState(false)
   const [quickAddOrganizationOpen, setQuickAddOrganizationOpen] = useState(false)
@@ -143,11 +159,12 @@ export function SupplierReturnsView({ embedded = false }: { embedded?: boolean }
       if (organizationsRes?.ok) setOrganizationOptions(((await organizationsRes.json()) as { name: string }[]).map((item) => item.name))
       if (priceListsRes?.ok) setPriceListOptions(((await priceListsRes.json()) as { name: string }[]).map((item) => item.name))
       if (branchesRes?.ok) setBranchOptions(((await branchesRes.json()) as { name: string }[]).map((item) => item.name))
-      const catalog: { name: string; cost?: number }[] = []
-      if (productsRes?.ok) catalog.push(...((await productsRes.json()) as { name: string; cost: number; deleted?: boolean }[]).filter((item) => !item.deleted))
-      if (rawMaterialsRes?.ok) catalog.push(...((await rawMaterialsRes.json()) as { name: string }[]))
+      const catalog: { name: string; cost?: number; unit?: string }[] = []
+      if (productsRes?.ok) catalog.push(...((await productsRes.json()) as { name: string; cost: number; unit?: string; deleted?: boolean }[]).filter((item) => !item.deleted))
+      if (rawMaterialsRes?.ok) catalog.push(...((await rawMaterialsRes.json()) as { name: string; unit?: string }[]))
       setProductOptions(Array.from(new Set(catalog.map((item) => item.name))).sort((a, b) => a.localeCompare(b, "ru")))
       setProductCosts(Object.fromEntries(catalog.filter((item) => item.cost).map((item) => [item.name, Number(item.cost)])))
+      setProductUnits(Object.fromEntries(catalog.map((item) => [item.name, String(item.unit ?? "")])))
     }
     void loadOptions()
     return () => {
@@ -176,7 +193,7 @@ export function SupplierReturnsView({ embedded = false }: { embedded?: boolean }
   }
 
   function openCreate() {
-    setDraft(emptyDraft())
+    setDraft(emptyDraft(currencies.base))
     setDraftItems([])
     setEditingId(null)
     setModalOpen(true)
@@ -188,10 +205,10 @@ export function SupplierReturnsView({ embedded = false }: { embedded?: boolean }
       warehouse: row.warehouse,
       organization: row.organization,
       branch: row.branch,
-      currency: row.currency || "SUM",
+      currency: row.currency || currencies.base,
       priceList: row.priceList,
       paymentType: row.paymentType,
-      date: row.date,
+      date: parseAnyDay(row.date) ?? row.date,
       comment: row.reason,
     })
     setDraftItems(row.items.map((item) => ({ id: item.id, product: item.product, qty: item.qty, series: item.series, price: item.price })))
@@ -199,44 +216,76 @@ export function SupplierReturnsView({ embedded = false }: { embedded?: boolean }
     setModalOpen(true)
   }
 
-  async function changeStatus(row: SupplierReturn, action: "give" | "cancel") {
-    const question = action === "give" ? `${t("Передать возврат №")} ${row.id} ${t("поставщику?")}` : `${t("Отменить возврат №")} ${row.id}?`
-    if (!window.confirm(question)) return
+  /** Asks in the app's confirm dialog; a refusal is shown there ("" = done). */
+  function ask(action: PendingAction) {
+    setPendingError("")
+    setPending(action)
+  }
+
+  async function runPending() {
+    if (!pending || busy) return
     setBusy(true)
     try {
-      const response = await fetch(`/api/supplier-returns/${row.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action }),
-      })
-      const data = await response.json().catch(() => ({}))
-      if (!response.ok) {
-        window.alert(data.error ? t(data.error) : t("Не удалось изменить статус возврата"))
-        return
-      }
-      setRows((current) => current.map((item) => (item.id === row.id ? (data as SupplierReturn) : item)))
+      const error = await pending.run()
+      if (error) setPendingError(error)
+      else setPending(null)
     } catch {
-      window.alert(t("Сервер недоступен, попробуйте ещё раз"))
+      setPendingError(t("Сервер недоступен, попробуйте ещё раз"))
     } finally {
       setBusy(false)
     }
   }
 
-  async function removeRow(row: SupplierReturn) {
-    if (!window.confirm(`${t("Удалить возврат №")} ${row.id}?`)) return
-    try {
-      const response = await fetch(`/api/supplier-returns/${row.id}`, { method: "DELETE" })
-      if (!response.ok) {
+  function changeStatus(row: SupplierReturn, action: "give" | "cancel") {
+    ask({
+      text: action === "give" ? `${t("Передать возврат №")} ${row.id} ${t("поставщику?")}` : `${t("Отменить возврат №")} ${row.id}?`,
+      confirmLabel: action === "give" ? "Передать" : "Отменить",
+      tone: action === "give" ? "green" : "red",
+      run: async () => {
+        const response = await fetch(`/api/supplier-returns/${row.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action }),
+        })
         const data = await response.json().catch(() => ({}))
-        window.alert(data.error ? t(data.error) : t("Не удалось удалить возврат"))
-        return
-      }
-      setRows((current) => current.filter((item) => item.id !== row.id))
-      if (expandedId === row.id) setExpandedId(null)
-    } catch {
-      window.alert(t("Сервер недоступен, попробуйте ещё раз"))
-    }
+        if (!response.ok) return data.error ? t(data.error) : t("Не удалось изменить статус возврата")
+        setRows((current) => current.map((item) => (item.id === row.id ? (data as SupplierReturn) : item)))
+        return ""
+      },
+    })
   }
+
+  function removeRow(row: SupplierReturn) {
+    ask({
+      text: `${t("Удалить возврат №")} ${row.id}?`,
+      confirmLabel: "Удалить",
+      tone: "red",
+      run: async () => {
+        const response = await fetch(`/api/supplier-returns/${row.id}`, { method: "DELETE" })
+        if (!response.ok) {
+          const data = await response.json().catch(() => ({}))
+          return data.error ? t(data.error) : t("Не удалось удалить возврат")
+        }
+        setRows((current) => current.filter((item) => item.id !== row.id))
+        if (expandedId === row.id) setExpandedId(null)
+        return ""
+      },
+    })
+  }
+
+  // Escape closes the top layer (product list / status filter, else the return dialog);
+  // a quick-add form on top keeps it.
+  useEffect(() => {
+    if (!modalOpen && !pickerOpen && !filterEditorOpen) return
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || quickAddSupplierOpen || quickAddWarehouseOpen || quickAddOrganizationOpen) return
+      if (pickerOpen) setPickerOpen(false)
+      else if (filterEditorOpen) setFilterEditorOpen(false)
+      else setModalOpen(false)
+    }
+    document.addEventListener("keydown", onKey)
+    return () => document.removeEventListener("keydown", onKey)
+  }, [modalOpen, pickerOpen, filterEditorOpen, quickAddSupplierOpen, quickAddWarehouseOpen, quickAddOrganizationOpen])
 
   function addBlankItem() {
     setDraftItems((current) => [...current, { id: Math.max(0, ...current.map((item) => item.id)) + 1, product: productOptions[0] ?? "", qty: 1, series: "", price: productCosts[productOptions[0] ?? ""] ?? 0 }])
@@ -292,7 +341,11 @@ export function SupplierReturnsView({ embedded = false }: { embedded?: boolean }
   }
 
   const draftTotalCost = draftItems.reduce((sum, item) => sum + item.qty * item.price, 0)
-  const draftTotalQty = draftItems.reduce((sum, item) => sum + item.qty, 0)
+  // One total per unit (kg and pieces are never added up).
+  const draftTotalQty = formatUnitTotals(
+    draftItems.filter((item) => item.product).map((item) => ({ qty: item.qty, unit: productUnits[item.product] ?? "" })),
+    t,
+  )
 
   async function save(event: FormEvent) {
     event.preventDefault()
@@ -339,7 +392,7 @@ export function SupplierReturnsView({ embedded = false }: { embedded?: boolean }
   function downloadList() {
     downloadExcelTable("vozvrat-postavshikam", [
       [t("№"), t("От кого"), t("Склад"), t("Добавил"), t("Дата возврата"), t("Сумма возврата"), t("Статус")],
-      ...filtered.map((row) => [row.id, row.fromWhom, row.warehouse, row.addedBy, `${row.date}, ${row.time}`, row.amount, row.status]),
+      ...filtered.map((row) => [row.id, row.fromWhom, row.warehouse, row.addedBy, `${formatDay(row.date, language)}, ${row.time}`, roundMoney(row.amount, 2), row.status === "завершен" ? t("Завершен") : row.status === "в процессе" ? t("В процессе") : t("Отменен")]),
     ])
   }
 
@@ -421,8 +474,8 @@ export function SupplierReturnsView({ embedded = false }: { embedded?: boolean }
                     <td className="px-5 py-4 text-[#4f70e7]">{row.fromWhom}</td>
                     <td className="px-5 py-4">{row.warehouse}</td>
                     <td className="px-5 py-4">{row.addedBy}</td>
-                    <td className="px-5 py-4">{row.date}, {row.time}</td>
-                    <td className="px-5 py-4">{formatMoney(row.amount)}</td>
+                    <td className="px-5 py-4">{formatDay(row.date, language)}, {row.time}</td>
+                    <td className="px-5 py-4">{formatMoney(row.amount, row.currency || currencies.base)}</td>
                     <td className="px-5 py-4">{statusIcon[row.status]}</td>
                   </tr>
                 )}
@@ -466,24 +519,24 @@ export function SupplierReturnsView({ embedded = false }: { embedded?: boolean }
                         <div className="grid gap-6 sm:grid-cols-[1fr_2fr]">
                           <div>
                             <dl className="space-y-2 text-sm">
-                              <div className="flex justify-between gap-4"><dt className="text-slate-500">{t("Добавил:")}</dt><dd className="font-medium">{row.addedBy}</dd></div>
-                              <div className="flex justify-between gap-4"><dt className="text-slate-500">{t("Поставщик:")}</dt><dd className="font-medium">{row.fromWhom}</dd></div>
-                              <div className="flex justify-between gap-4"><dt className="text-slate-500">{t("Организация:")}</dt><dd className="font-medium">{row.organization}</dd></div>
-                              <div className="flex justify-between gap-4"><dt className="text-slate-500">{t("Валюта:")}</dt><dd className="font-medium">{row.currency}</dd></div>
-                              <div className="flex justify-between gap-4"><dt className="text-slate-500">{t("Тип оплаты:")}</dt><dd className="font-medium">{t(row.paymentType)}</dd></div>
-                              <div className="flex justify-between gap-4"><dt className="text-slate-500">{t("Прайс лист:")}</dt><dd className="font-medium">{row.priceList}</dd></div>
-                              <div className="flex justify-between gap-4"><dt className="text-slate-500">{t("Дата возврата:")}</dt><dd className="font-medium">{row.date}, {row.time}</dd></div>
-                              <div className="flex justify-between gap-4"><dt className="text-slate-500">{t("Филиал:")}</dt><dd className="font-medium">{row.branch}</dd></div>
+                              <div className="flex justify-between gap-4"><dt className="text-slate-500">{t("Добавил:")}</dt><dd className="font-medium">{row.addedBy || t("Не указано")}</dd></div>
+                              <div className="flex justify-between gap-4"><dt className="text-slate-500">{t("Поставщик:")}</dt><dd className="font-medium">{row.fromWhom || t("Не указано")}</dd></div>
+                              <div className="flex justify-between gap-4"><dt className="text-slate-500">{t("Организация:")}</dt><dd className="font-medium">{row.organization || t("Не указано")}</dd></div>
+                              <div className="flex justify-between gap-4"><dt className="text-slate-500">{t("Валюта:")}</dt><dd className="font-medium">{row.currency || t("Не указано")}</dd></div>
+                              <div className="flex justify-between gap-4"><dt className="text-slate-500">{t("Тип оплаты:")}</dt><dd className="font-medium">{row.paymentType ? t(row.paymentType) : t("Не указано")}</dd></div>
+                              <div className="flex justify-between gap-4"><dt className="text-slate-500">{t("Прайс лист:")}</dt><dd className="font-medium">{row.priceList || t("Не указано")}</dd></div>
+                              <div className="flex justify-between gap-4"><dt className="text-slate-500">{t("Дата возврата:")}</dt><dd className="font-medium">{formatDay(row.date, language)}, {row.time}</dd></div>
+                              <div className="flex justify-between gap-4"><dt className="text-slate-500">{t("Филиал:")}</dt><dd className="font-medium">{row.branch || t("Не указано")}</dd></div>
                             </dl>
 
                             <p className="mb-2 mt-5 font-bold uppercase tracking-wide text-slate-700">{t("Склад")}</p>
                             <dl className="space-y-2 text-sm">
-                              <div className="flex justify-between gap-4"><dt className="text-slate-500">{t("Склад:")}</dt><dd className="font-medium">{row.warehouse}</dd></div>
-                              <div className="flex justify-between gap-4"><dt className="text-slate-500">{t("Время передачи:")}</dt><dd className="font-medium">{row.transferTime || t("Не передано")}</dd></div>
+                              <div className="flex justify-between gap-4"><dt className="text-slate-500">{t("Склад:")}</dt><dd className="font-medium">{row.warehouse || t("Не указано")}</dd></div>
+                              <div className="flex justify-between gap-4"><dt className="text-slate-500">{t("Время передачи:")}</dt><dd className="font-medium">{row.transferTime ? formatDateText(row.transferTime, language) : t("Не передано")}</dd></div>
                               <div className="flex justify-between gap-4"><dt className="text-slate-500">{t("Передал:")}</dt><dd className="font-medium">{row.transferredBy || "—"}</dd></div>
                               <div className="flex justify-between gap-4"><dt className="text-slate-500">{t("Статус:")}</dt><dd className={`font-medium ${row.status === "завершен" ? "text-emerald-500" : row.status === "в процессе" ? "text-amber-500" : "text-rose-500"}`}>{row.status === "завершен" ? t("Завершен") : row.status === "в процессе" ? t("В процессе") : t("Отменен")}</dd></div>
                               {row.status === "отменен" && row.cancelledBy && (
-                                <div className="flex justify-between gap-4"><dt className="text-slate-500">{t("Отменил:")}</dt><dd className="font-medium">{row.cancelledBy}, {row.cancelledAt}</dd></div>
+                                <div className="flex justify-between gap-4"><dt className="text-slate-500">{t("Отменил:")}</dt><dd className="font-medium">{row.cancelledBy}, {formatDateText(row.cancelledAt, language)}</dd></div>
                               )}
                             </dl>
 
@@ -502,8 +555,8 @@ export function SupplierReturnsView({ embedded = false }: { embedded?: boolean }
                                   <th className="py-2 pr-4">{t("Товар")}</th>
                                   <th className="py-2 pr-4">{t("Количество")}</th>
                                   <th className="py-2 pr-4">{t("Серия")}</th>
-                                  <th className="py-2 pr-4">{t("Цена (SUM)")}</th>
-                                  <th className="py-2 pr-4">{t("Сумма (SUM)")}</th>
+                                  <th className="py-2 pr-4">{`${t("Цена")} (${row.currency || currencies.base})`}</th>
+                                  <th className="py-2 pr-4">{`${t("Сумма")} (${row.currency || currencies.base})`}</th>
                                 </tr>
                               </thead>
                               <tbody>
@@ -511,18 +564,18 @@ export function SupplierReturnsView({ embedded = false }: { embedded?: boolean }
                                   <tr key={item.id} className="border-t border-slate-100">
                                     <td className="py-2 pr-4">{item.id}</td>
                                     <td className="py-2 pr-4">{item.product}</td>
-                                    <td className="py-2 pr-4">{item.qty}</td>
+                                    <td className="py-2 pr-4">{item.qty.toLocaleString("ru-RU")} {productUnits[item.product] ? t(productUnits[item.product]) : ""}</td>
                                     <td className="py-2 pr-4">{item.series || "—"}</td>
-                                    <td className="py-2 pr-4">{item.price.toLocaleString("ru-RU")}</td>
-                                    <td className="py-2 pr-4">{item.total.toLocaleString("ru-RU")}</td>
+                                    <td className="py-2 pr-4">{formatAmount(item.price, 2)}</td>
+                                    <td className="py-2 pr-4">{formatAmount(item.total, 2)}</td>
                                   </tr>
                                 ))}
                                 <tr className="border-t border-slate-300 font-bold">
                                   <td className="py-2 pr-4" colSpan={2}>{t("Итого:")}</td>
-                                  <td className="py-2 pr-4">{row.items.reduce((sum, item) => sum + item.qty, 0)}</td>
+                                  <td className="py-2 pr-4">{formatUnitTotals(row.items.map((item) => ({ qty: item.qty, unit: productUnits[item.product] ?? "" })), t)}</td>
                                   <td className="py-2 pr-4" />
                                   <td className="py-2 pr-4" />
-                                  <td className="py-2 pr-4">{row.items.reduce((sum, item) => sum + item.total, 0).toLocaleString("ru-RU")}</td>
+                                  <td className="py-2 pr-4">{formatAmount(row.items.reduce((sum, item) => sum + item.total, 0), 2)}</td>
                                 </tr>
                               </tbody>
                             </table>
@@ -628,8 +681,11 @@ export function SupplierReturnsView({ embedded = false }: { embedded?: boolean }
                   <label className="block border-b border-slate-200 pb-2 font-medium">
                     {t("Валюта")} *
                     <select value={draft.currency} onChange={(event) => setDraft((value) => ({ ...value, currency: event.target.value }))} className="mt-2 block w-full bg-white outline-none">
-                      <option>SUM</option>
-                      <option>USD</option>
+                      {currencyChoices(currencies.codes, currencies.base, draft.currency).map((code) => (
+                        <option key={code} value={code}>
+                          {code}
+                        </option>
+                      ))}
                     </select>
                   </label>
                   <label className="block border-b border-slate-200 pb-2 font-medium">
@@ -647,7 +703,7 @@ export function SupplierReturnsView({ embedded = false }: { embedded?: boolean }
                   </label>
                   <label className="block border-b border-slate-200 pb-2 font-medium">
                     {t("Дата создания")} *
-                    <input value={draft.date} onChange={(event) => setDraft((value) => ({ ...value, date: event.target.value }))} className="mt-2 block w-full outline-none" />
+                    <input required type="date" value={draft.date} onChange={(event) => setDraft((value) => ({ ...value, date: event.target.value }))} className="mt-2 block w-full outline-none" />
                   </label>
                   <label className="block font-medium">
                     {t("Оставить комментарий...")}
@@ -713,6 +769,7 @@ export function SupplierReturnsView({ embedded = false }: { embedded?: boolean }
                             </td>
                             <td className="py-2 pr-4">
                               <input type="number" min={0} step="any" value={item.qty} onChange={(event) => updateDraftItem(item.id, { qty: Number(event.target.value) })} className="w-16 border-b border-slate-200 outline-none" />
+                              {item.product && productUnits[item.product] && <span className="ml-1 text-slate-500">{t(productUnits[item.product])}</span>}
                             </td>
                             <td className="py-2 pr-4">
                               <input value={item.series} onChange={(event) => updateDraftItem(item.id, { series: event.target.value })} className="w-24 border-b border-slate-200 outline-none" />
@@ -720,7 +777,7 @@ export function SupplierReturnsView({ embedded = false }: { embedded?: boolean }
                             <td className="py-2 pr-4">
                               <input type="number" min={0} step="any" value={item.price} onChange={(event) => updateDraftItem(item.id, { price: Number(event.target.value) })} className="w-24 border-b border-slate-200 outline-none" />
                             </td>
-                            <td className="py-2 pr-4">{(item.qty * item.price).toLocaleString("ru-RU")}</td>
+                            <td className="py-2 pr-4">{formatAmount(item.qty * item.price, 2)}</td>
                             <td className="py-2 pr-4 text-right">
                               <button type="button" onClick={() => removeDraftItem(item.id)} aria-label={t("Удалить")} className="text-slate-400 hover:text-rose-500">
                                 <X className="h-4 w-4" />
@@ -737,7 +794,7 @@ export function SupplierReturnsView({ embedded = false }: { embedded?: boolean }
 
             <footer className="flex items-center justify-between border-t p-5">
               <div className="text-sm text-slate-600">
-                {t("Общая стоимость:")} <b>{draftTotalCost.toLocaleString("ru-RU")}</b> &nbsp; {t("Общее кол-во:")} <b>{draftTotalQty} {t("ед")}</b>
+                {t("Общая стоимость:")} <b>{formatMoney(draftTotalCost, draft.currency || currencies.base)}</b> &nbsp; {t("Общее кол-во:")} <b>{draftTotalQty}</b>
               </div>
               <button type="submit" className="font-bold uppercase text-sky-500">
                 {t("Оформить")}
@@ -745,6 +802,19 @@ export function SupplierReturnsView({ embedded = false }: { embedded?: boolean }
             </footer>
           </form>
         </div>
+      )}
+
+      {pending && (
+        <ConfirmDialog
+          title={t("Подтверждение")}
+          text={pending.text}
+          confirmLabel={pending.confirmLabel}
+          tone={pending.tone}
+          busy={busy}
+          error={pendingError}
+          onConfirm={() => void runPending()}
+          onClose={() => setPending(null)}
+        />
       )}
 
       {pickerOpen && (

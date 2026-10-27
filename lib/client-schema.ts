@@ -3,6 +3,9 @@ import "server-only"
 import { NextResponse } from "next/server"
 import { z } from "zod"
 
+import { dbErrorResponse } from "@/lib/db-errors"
+import { nameField, textField } from "@/lib/auth-request"
+import { ClientZoneError, type ClientZoneInput } from "@/lib/client-zones-repo"
 import { ClientError, type ClientInput } from "@/lib/clients-repo"
 
 // Request schema of POST /api/clients and PUT /api/clients/[id] (messages are Russian i18n keys).
@@ -84,5 +87,56 @@ export function clientInputOf(body: ClientBody): ClientInput {
 
 export function clientErrorResponse(error: unknown): NextResponse {
   if (error instanceof ClientError) return NextResponse.json({ error: error.message, ...(error.extra ?? {}) }, { status: error.status })
+  const busy = dbErrorResponse(error)
+  if (busy) return busy
+  throw error
+}
+
+// Request schema of POST /api/clients/zones and PUT /api/clients/zones/[id].
+
+const latitude = z
+  .number({ error: "Неверные координаты" })
+  .finite({ error: "Неверные координаты" })
+  .min(-90, { error: "Широта должна быть от -90 до 90" })
+  .max(90, { error: "Широта должна быть от -90 до 90" })
+const longitude = z
+  .number({ error: "Неверные координаты" })
+  .finite({ error: "Неверные координаты" })
+  .min(-180, { error: "Долгота должна быть от -180 до 180" })
+  .max(180, { error: "Долгота должна быть от -180 до 180" })
+
+export const clientZoneSchema = z.object({
+  name: nameField("Укажите название зоны", 200),
+  branch: textField(200).optional(),
+  parentId: z
+    .number({ error: "Родительская зона не найдена" })
+    .int({ error: "Родительская зона не найдена" })
+    .positive({ error: "Родительская зона не найдена" })
+    .max(2_147_483_647, { error: "Родительская зона не найдена" })
+    .nullable()
+    .optional(),
+  polygon: z
+    .array(z.tuple([latitude, longitude], { error: "Неверные координаты" }), { error: "Неверные координаты" })
+    .max(1000, { error: "Слишком много точек в контуре зоны" })
+    .refine((ring) => ring.length === 0 || ring.length >= 3, { error: "Контур зоны должен содержать не менее 3 точек" })
+    .nullable()
+    .optional(),
+  reassignClients: z.boolean({ error: "Неверные данные" }).optional(),
+})
+
+export function clientZoneInputOf(body: z.infer<typeof clientZoneSchema>): ClientZoneInput {
+  return {
+    name: body.name,
+    branch: body.branch,
+    parentId: body.parentId,
+    polygon: body.polygon,
+    reassignClients: body.reassignClients,
+  }
+}
+
+export function clientZoneErrorResponse(error: unknown): NextResponse {
+  if (error instanceof ClientZoneError) return NextResponse.json({ error: error.message, ...(error.extra ?? {}) }, { status: error.status })
+  const busy = dbErrorResponse(error)
+  if (busy) return busy
   throw error
 }

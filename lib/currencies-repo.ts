@@ -41,6 +41,7 @@ export class CurrencyError extends Error {
 }
 
 const DUPLICATE = "Валюта с таким кодом уже существует"
+export const FIRST_IS_BASE = "Базовой валюты ещё нет: первая валюта становится базовой, её курс должен быть 1"
 
 // Spellings the documents use for the same currency (the finance core's fin_cur()).
 const ALIASES: string[][] = [
@@ -88,18 +89,26 @@ function duplicateGuard(error: unknown): never {
   throw error
 }
 
+/** Creates a currency. There is always exactly one base currency: while the company has
+ * none (a fresh install: the table is empty), the currency created becomes the base one,
+ * as the first branch becomes the main branch; `isBase` moves the base to it. A currency
+ * sent with another rate than 1 and without `isBase` is refused then (400) instead of being
+ * made the base with its rate dropped: a rate against a base that does not exist yet
+ * (an Excel row "USD 12650") would make every conversion wrong. */
 export async function createCurrency(input: CurrencyInput): Promise<Currency> {
-  const rate = input.isBase ? 1 : input.rate
   try {
     const result = await withTransaction(async (db) => {
       await db.prepare("LOCK TABLE currencies IN SHARE ROW EXCLUSIVE MODE").run()
       await assertCodeFree(db, input.code, 0)
-      if (input.isBase) {
+      const hasBase = Boolean(await db.prepare("SELECT 1 AS ok FROM currencies WHERE is_base = 1 LIMIT 1").get())
+      if (!hasBase && !input.isBase && Math.abs(input.rate - 1) > 1e-9) throw new CurrencyError(FIRST_IS_BASE, 400)
+      const isBase = input.isBase || !hasBase
+      if (isBase && hasBase) {
         await db.prepare("UPDATE currencies SET is_base = 0 WHERE is_base = 1").run()
       }
       return db
         .prepare("INSERT INTO currencies (name, code, rate, is_base) VALUES (?, ?, ?, ?)")
-        .run(input.name, input.code, rate, input.isBase ? 1 : 0)
+        .run(input.name, input.code, isBase ? 1 : input.rate, isBase ? 1 : 0)
     })
     return (await getCurrency(Number(result.lastInsertRowid)))!
   } catch (error) {

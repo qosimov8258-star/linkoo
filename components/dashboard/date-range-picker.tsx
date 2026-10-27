@@ -59,6 +59,7 @@ function Month({
   onPrev?: () => void
   onNext?: () => void
 }) {
+  const { t } = useLanguage()
   const first = new Date(year, month, 1)
   const offset = (first.getDay() + 6) % 7
   const cells = Array.from({ length: 42 }, (_, i) => new Date(year, month, 1 - offset + i))
@@ -69,11 +70,11 @@ function Month({
   return (
     <div className="w-[280px]">
       <div className="flex h-[26px] items-center justify-between bg-[#5d6474] px-[10px] text-[13px] font-semibold text-white">
-        <button type="button" onClick={onPrev} className={`flex h-[18px] w-[18px] items-center justify-center rounded-[3px] bg-white/90 ${onPrev ? "" : "invisible"}`} aria-label="prev">
+        <button type="button" onClick={onPrev} className={`flex h-[18px] w-[18px] items-center justify-center rounded-[3px] bg-white/90 ${onPrev ? "" : "invisible"}`} aria-label={t("Назад")}>
           <svg viewBox="0 0 24 24" className="h-4 w-4 fill-[#333]"><path d="M15 6v12l-8-6z" /></svg>
         </button>
         <span>{MONTHS[month]} - {year}</span>
-        <button type="button" onClick={onNext} className={`flex h-[18px] w-[18px] items-center justify-center rounded-[3px] bg-white/90 ${onNext ? "" : "invisible"}`} aria-label="next">
+        <button type="button" onClick={onNext} className={`flex h-[18px] w-[18px] items-center justify-center rounded-[3px] bg-white/90 ${onNext ? "" : "invisible"}`} aria-label={t("Вперед")}>
           <svg viewBox="0 0 24 24" className="h-4 w-4 fill-[#333]"><path d="M9 6v12l8-6z" /></svg>
         </button>
       </div>
@@ -152,7 +153,7 @@ export function DateRangePicker({
 
   return (
     <>
-      <button type="button" aria-label="close" onClick={onClose} className="fixed inset-0 z-30 cursor-default" />
+      <button type="button" aria-label={t("Закрыть")} onClick={onClose} className="fixed inset-0 z-30 cursor-default" />
       <div className={`absolute left-0 ${placement === "above" ? "bottom-[calc(100%+8px)]" : "top-[calc(100%+8px)]"} z-40 flex w-[750px] gap-[10px] rounded-[10px] bg-white p-[10px] font-sans text-[#333] shadow-[0_1px_6px_rgba(0,0,0,0.2),0_1px_4px_rgba(0,0,0,0.2)]`}>
         <div className="flex w-[140px] shrink-0 flex-col gap-[6px] pt-[2px]">
           {PRESETS.map((item) => (
@@ -172,14 +173,14 @@ export function DateRangePicker({
             </button>
           ))}
           <div className="mt-auto flex gap-[10px] pb-1 pt-14">
-            <button type="button" onClick={onClose} aria-label="cancel" className="flex h-[26px] w-[60px] items-center justify-center rounded-[3px] bg-[#5d6474]">
+            <button type="button" onClick={onClose} aria-label={t("Отмена")} className="flex h-[26px] w-[60px] items-center justify-center rounded-[3px] bg-[#5d6474]">
               <svg viewBox="0 0 24 24" className="h-4 w-4 fill-white"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" /></svg>
             </button>
             <button
               type="button"
               disabled={!start}
               onClick={() => start && onApply(iso(start), iso(stop ?? start))}
-              aria-label="apply"
+              aria-label={t("Применить")}
               className="flex h-[26px] w-[60px] items-center justify-center rounded-[3px] bg-[#5d6474] disabled:opacity-50"
             >
               <svg viewBox="0 0 24 24" className="h-4 w-4 fill-white"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" /></svg>

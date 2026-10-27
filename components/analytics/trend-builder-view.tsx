@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo, useRef, useState, type ReactNode } from "react"
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import { useRouter } from "next/navigation"
 import { Download, FolderOpen, Plus, Trash2 } from "lucide-react"
 import { RefHeader } from "@/components/ref/list-kit"
@@ -8,100 +8,126 @@ import { ReportChipField, ReportEmpty, ReportPage } from "@/components/ref/repor
 import { downloadExcelTable } from "@/lib/excel-export"
 import { useLanguage } from "@/lib/i18n/language-context"
 import { CheckRow, DEFAULT_OPTIONS, OptionsPanelBody, Panel, toggleIn, usePanelDismiss, type TableOptions } from "./builder-panels"
+import { currentMonthRange, isCountedOrder, useBuilderOrders, type BuilderLine } from "./builder-orders"
 
-type Rec = Record<string, string | number>
+export type Rec = BuilderLine & { brand: string; article: string; barcode: string; collector: string; inn: string }
 type PanelKey = "columns" | "table" | "vertical" | "filters"
-type DateFilter = { from: string; to: string }
+export type DateFilter = { from: string; to: string }
+type ProductInfo = { id: number; brand?: string; article?: string; barcode?: string }
+type ClientInfo = { id: number; collector?: string; inn?: string }
 
 const measures = ["Сумма заказов", "Количество заказов", "Количество клиентов", "Средний чек"]
-
-const AGENTS = ["Алишер", "Бобур", "Дилшод", "Азиз"]
-const DRIVERS = ["Рустам", "Сардор", "Жасур"]
-const COLLECTORS = ["Нодира", "Комила"]
-const STORES = ["Магазин Off", "Мини-маркет Сафо", "Оптовик Анвар", "Гастроном 7", "Супермаркет Олтин"]
-const BRANDS = ["Coca-Cola", "Nestle", "Pepsi", "Lays"]
-const BRANCHES = ["Ташкент", "Самарканд"]
-const WAREHOUSES = ["Главный склад", "Склад №2"]
-const ORGS = ["Linko Distribution", "Linko Trade"]
-const PRODUCTS = ["Сок яблочный 1л", "Вода 0.5л", "Чипсы 150г", "Шоколад 90г", "Лимонад 1.5л", "Печенье 200г"]
-
-/** Deterministic demo dataset of order products so the table is stable between renders. */
-const RECORDS: Rec[] = Array.from({ length: 90 }, (_, i) => {
-  const day = 1 + ((i * 7) % 31)
-  const store = i % STORES.length
-  const product = (i * 3) % PRODUCTS.length
-  return {
-    date: `2026-08-${String(day).padStart(2, "0")}`,
-    orderId: 1000 + Math.floor(i / 2),
-    clientId: 200 + store * 11 + (i % 3),
-    agent: AGENTS[i % AGENTS.length],
-    driver: DRIVERS[i % DRIVERS.length],
-    collector: COLLECTORS[i % COLLECTORS.length],
-    store: STORES[store],
-    storeNo: store + 1,
-    inn: `30${1000000 + store * 7919}`,
-    brand: BRANDS[product % BRANDS.length],
-    org: ORGS[i % ORGS.length],
-    branch: BRANCHES[i % BRANCHES.length],
-    warehouse: WAREHOUSES[i % WAREHOUSES.length],
-    product: PRODUCTS[product],
-    productId: 500 + product,
-    code: `P-${100 + product}`,
-    article: `ART-${product + 1}`,
-    barcode: `478${String(1000000000 + product * 12345).slice(0, 10)}`,
-    qty: 3 + ((i * 5) % 17),
-    amount: 90000 + ((i * 37) % 23) * 21000,
-  }
-})
+/** Measures in money: their figures are only meaningful with the currency next to them. */
+const MONEY_MEASURES = new Set(["Сумма заказов", "Средний чек"])
+const NOT_SET = "Не указано"
+const CURRENCY_LABEL = "Валюта"
 
 const DAY = 86400000
 const toTime = (iso: string) => new Date(`${iso}T00:00:00`).getTime()
-const fmtDate = (ms: number) => new Date(ms).toLocaleDateString("ru-RU")
+const fmtDate = (ms: number) => { const d = new Date(ms); return `${String(d.getDate()).padStart(2, "0")}.${String(d.getMonth() + 1).padStart(2, "0")}.${d.getFullYear()}` }
 const weekStart = (iso: string) => { const d = new Date(`${iso}T00:00:00`); d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); return fmtDate(d.getTime()) }
+const orNotSet = (value: string) => value.trim() || NOT_SET
 
-/** Vertical grouping label -> accessor. Labels are Russian i18n keys. */
+/** Vertical grouping label (a Russian i18n key) -> accessor over the factory's real order lines. */
 const GROUPINGS: [string, (r: Rec) => string | number][] = [
-  ["Дата по дням", (r) => fmtDate(toTime(String(r.date)))],
-  ["Дата по неделям", (r) => weekStart(String(r.date))],
-  ["Дата по месяцам", (r) => String(r.date).slice(0, 7)],
-  ["Дата по годам", (r) => String(r.date).slice(0, 4)],
-  ["Доставщик", (r) => r.driver],
-  ["Коллектор", (r) => r.collector],
-  ["Магазин", (r) => r.store],
-  ["ИНН магазина", (r) => r.inn],
-  ["№ магазина", (r) => r.storeNo],
-  ["Бренд", (r) => r.brand],
-  ["Организация", (r) => r.org],
-  ["Филиал", (r) => r.branch],
-  ["Склад", (r) => r.warehouse],
-  ["Ответственный агент магазина", (r) => r.agent],
-  ["ИД продукта", (r) => r.productId],
-  ["Продукт", (r) => r.product],
-  ["Артикул продукта", (r) => r.article],
-  ["Код продукта", (r) => r.code],
-  ["Штрих-код продукта", (r) => r.barcode],
+  ["Дата по дням", (r) => fmtDate(toTime(r.day))],
+  ["Дата по неделям", (r) => weekStart(r.day)],
+  ["Дата по месяцам", (r) => r.day.slice(0, 7)],
+  ["Дата по годам", (r) => r.day.slice(0, 4)],
+  ["Доставщик", (r) => orNotSet(r.deliveryMan)],
+  ["Коллектор", (r) => orNotSet(r.collector)],
+  ["Магазин", (r) => orNotSet(r.client)],
+  ["ИНН магазина", (r) => orNotSet(r.inn)],
+  ["№ магазина", (r) => r.clientId ?? NOT_SET],
+  ["Бренд", (r) => orNotSet(r.brand)],
+  ["Организация", (r) => orNotSet(r.organization)],
+  ["Филиал", (r) => orNotSet(r.branch)],
+  ["Склад", (r) => orNotSet(r.warehouse)],
+  ["Агент", (r) => orNotSet(r.agent)],
+  ["Статус", (r) => orNotSet(r.status)],
+  ["ИД продукта", (r) => r.productId ?? NOT_SET],
+  ["Продукт", (r) => orNotSet(r.product)],
+  ["Артикул продукта", (r) => orNotSet(r.article)],
+  ["Штрих-код продукта", (r) => orNotSet(r.barcode)],
 ]
 const GROUPING_KEYS = new Map(GROUPINGS)
 
 function aggregate(measure: string, rows: Rec[]): number {
   if (!rows.length) return 0
-  const sum = rows.reduce((s, r) => s + Number(r.amount), 0)
-  const orders = new Set(rows.map((r) => r.orderId)).size
-  if (measure === "Сумма заказов") return sum
+  const sum = rows.reduce((s, r) => s + r.lineTotal, 0)
+  const orders = new Set(rows.map((r) => r.id)).size
+  if (measure === "Сумма заказов") return Math.round(sum * 100) / 100
   if (measure === "Количество заказов") return orders
-  if (measure === "Количество клиентов") return new Set(rows.map((r) => r.clientId)).size
+  if (measure === "Количество клиентов") return new Set(rows.map((r) => (r.clientId != null ? `id:${r.clientId}` : `name:${r.client}`))).size
   return orders ? Math.round(sum / orders) : 0
+}
+
+export type TrendSettings = { selected: string[]; from: string; to: string; dateFilters: DateFilter[]; vertical: string[] }
+
+/** The trend table over the order lines of real sales (see `records`), in up to 12 period columns. */
+export function trendTable(records: Rec[], settings: TrendSettings) {
+  const { selected, from, to, dateFilters, vertical } = settings
+  const start = toTime(from)
+  const end = toTime(to)
+  const spanDays = Math.max(1, Math.round((end - start) / DAY) + 1)
+  const step = Math.max(7, Math.ceil(spanDays / 12))
+  const periodCount = Math.ceil(spanDays / step)
+  const periods = Array.from({ length: periodCount }, (_, i) => fmtDate(start + i * step * DAY))
+  const inScope = records.filter((r) => {
+    const time = toTime(r.day)
+    return time >= start && time <= end && dateFilters.every((f) => time >= toTime(f.from) && time <= toTime(f.to))
+  })
+  // Money is never shown without its currency, and money of different currencies is never added
+  // up: with a money measure chosen, the currency is the last grouping column and the bottom
+  // totals come one row per currency ("Итого SUM"), even when the table holds a single currency.
+  const byCurrency = selected.some((measure) => MONEY_MEASURES.has(measure))
+  const accessors = [
+    ...vertical.map((label) => GROUPING_KEYS.get(label)).filter((fn): fn is (r: Rec) => string | number => !!fn),
+    ...(byCurrency ? [(r: Rec) => r.currency] : []),
+  ]
+  const groups = new Map<string, { keys: (string | number)[]; rows: Rec[] }>()
+  for (const rec of inScope) {
+    const keys = accessors.map((fn) => fn(rec))
+    const id = keys.join("\u0000")
+    const group = groups.get(id) ?? { keys, rows: [] }
+    group.rows.push(rec)
+    groups.set(id, group)
+  }
+  const sorted = [...groups.values()].sort((a, b) => a.keys.join("\u0000").localeCompare(b.keys.join("\u0000"), "ru", { numeric: true }))
+  // Without groupings every line falls into the one group with no keys (a single "Все" row).
+  const periodOf = (r: Rec) => Math.min(periodCount - 1, Math.floor((toTime(r.day) - start) / DAY / step))
+  const cellsFor = (rows: Rec[]) => selected.map((measure) => ({
+    periods: periods.map((_, p) => aggregate(measure, rows.filter((r) => periodOf(r) === p))),
+    total: aggregate(measure, rows),
+  }))
+  const body = sorted.map((g) => ({ keys: g.keys, cells: cellsFor(g.rows) }))
+  const currencies = [...new Set(inScope.map((r) => r.currency))].sort()
+  const totals = byCurrency
+    ? currencies.map((currency) => ({ label: currency, cells: cellsFor(inScope.filter((r) => r.currency === currency)) }))
+    : [{ label: "", cells: cellsFor(inScope) }]
+  // rowSpan for "Объединение ячеек": a cell starts a span when its key prefix differs from the previous row
+  const spans = body.map((row, i) => row.keys.map((_, c) => {
+    const sameAsPrev = (j: number) => j > 0 && body[j].keys.slice(0, c + 1).join("\u0000") === body[j - 1].keys.slice(0, c + 1).join("\u0000")
+    if (sameAsPrev(i)) return 0
+    let n = 1
+    while (i + n < body.length && sameAsPrev(i + n)) n++
+    return n
+  }))
+  return { periods, body, totals, spans, byCurrency, count: inScope.length }
 }
 
 export function TrendBuilderView() {
   const router = useRouter()
   const { t } = useLanguage()
+  const { lines, loading, error } = useBuilderOrders(true)
+  const [products, setProducts] = useState<Map<number, ProductInfo>>(new Map())
+  const [clients, setClients] = useState<Map<number, ClientInfo>>(new Map())
   const [columns, setColumns] = useState<string[]>([])
   const [model, setModel] = useState("Продукты заказов по дате создания")
   const [saved, setSaved] = useState(false)
   const [dateOpen, setDateOpen] = useState(false)
-  const [from, setFrom] = useState("2026-08-01")
-  const [to, setTo] = useState("2026-08-31")
+  const [from, setFrom] = useState(() => currentMonthRange().from)
+  const [to, setTo] = useState(() => currentMonthRange().to)
   const [options, setOptions] = useState<TableOptions>(DEFAULT_OPTIONS)
   const [vertical, setVertical] = useState<string[]>([])
   const [dateFilters, setDateFilters] = useState<DateFilter[]>([])
@@ -127,54 +153,42 @@ export function TrendBuilderView() {
 
   usePanelDismiss(open !== null, toolbarRef, () => setOpen(null))
 
-  const selected = columns
-  const table = useMemo(() => {
-    const start = toTime(from)
-    const end = toTime(to)
-    const spanDays = Math.max(1, Math.round((end - start) / DAY) + 1)
-    const step = Math.max(7, Math.ceil(spanDays / 12))
-    const periodCount = Math.ceil(spanDays / step)
-    const periods = Array.from({ length: periodCount }, (_, i) => fmtDate(start + i * step * DAY))
-    const inScope = RECORDS.filter((r) => {
-      const time = toTime(String(r.date))
-      return time >= start && time <= end && dateFilters.every((f) => time >= toTime(f.from) && time <= toTime(f.to))
+  // Product brand / article / barcode and the store's collector for the groupings.
+  useEffect(() => {
+    let cancelled = false
+    const load = <T,>(url: string) => fetch(url).then((response) => (response.ok ? (response.json() as Promise<T[]>) : [])).catch(() => [] as T[])
+    void Promise.all([load<ProductInfo>("/api/products"), load<ClientInfo>("/api/clients?balances=0")]).then(([productRows, clientRows]) => {
+      if (cancelled) return
+      setProducts(new Map((Array.isArray(productRows) ? productRows : []).map((row) => [row.id, row])))
+      setClients(new Map((Array.isArray(clientRows) ? clientRows : []).map((row) => [row.id, row])))
     })
-    const accessors = vertical.map((label) => GROUPING_KEYS.get(label)).filter((fn): fn is (r: Rec) => string | number => !!fn)
-    const groups = new Map<string, { keys: (string | number)[]; rows: Rec[] }>()
-    for (const rec of inScope) {
-      const keys = accessors.map((fn) => fn(rec))
-      const id = keys.join("\u0000")
-      const group = groups.get(id) ?? { keys, rows: [] }
-      group.rows.push(rec)
-      groups.set(id, group)
+    return () => { cancelled = true }
+  }, [])
+
+  // Order lines of real sales (cancelled / unconfirmed orders are left out, like on the dashboard).
+  const records = useMemo<Rec[]>(() => lines.filter((line) => isCountedOrder(line.status) && line.day).map((line) => {
+    const product = line.productId != null ? products.get(line.productId) : undefined
+    const barcode = product?.barcode && !/не установлен/i.test(product.barcode) ? product.barcode : ""
+    return {
+      ...line,
+      brand: product?.brand && product.brand !== "No brand" ? product.brand : "",
+      article: product?.article ?? "",
+      barcode,
+      collector: (line.clientId != null ? clients.get(line.clientId)?.collector : "") ?? "",
+      inn: (line.clientId != null ? clients.get(line.clientId)?.inn : "") ?? "",
     }
-    const sorted = [...groups.values()].sort((a, b) => a.keys.join("\u0000").localeCompare(b.keys.join("\u0000"), "ru", { numeric: true }))
-    if (!accessors.length) sorted.push({ keys: [], rows: inScope })
-    const periodOf = (r: Rec) => Math.min(periodCount - 1, Math.floor((toTime(String(r.date)) - start) / DAY / step))
-    const cellsFor = (rows: Rec[]) => selected.map((measure) => ({
-      periods: periods.map((_, p) => aggregate(measure, rows.filter((r) => periodOf(r) === p))),
-      total: aggregate(measure, rows),
-    }))
-    const body = sorted.map((g) => ({ keys: g.keys, cells: cellsFor(g.rows) }))
-    const totals = cellsFor(inScope)
-    // rowSpan for "Объединение ячеек": a cell starts a span when its key prefix differs from the previous row
-    const spans = body.map((row, i) => row.keys.map((_, c) => {
-      const sameAsPrev = (j: number) => j > 0 && body[j].keys.slice(0, c + 1).join("\u0000") === body[j - 1].keys.slice(0, c + 1).join("\u0000")
-      if (sameAsPrev(i)) return 0
-      let n = 1
-      while (i + n < body.length && sameAsPrev(i + n)) n++
-      return n
-    }))
-    return { periods, body, totals, spans }
-  }, [from, to, dateFilters, vertical, selected])
+  }), [lines, products, clients])
+
+  const selected = columns
+  const table = useMemo(() => trendTable(records, { selected, from, to, dateFilters, vertical }), [records, from, to, dateFilters, vertical, selected])
 
   const fmt = (value: number) => (options.formatted ? value.toLocaleString("ru-RU") : String(value))
-  const groupLabels = vertical.length ? vertical : ["Все"]
+  const groupLabels = [...(vertical.length ? vertical : ["Все"]), ...(table.byCurrency ? [CURRENCY_LABEL] : [])]
 
   const exportExcel = () => {
     const header = [...groupLabels.map((g) => t(g)), ...selected.flatMap((m) => [...table.periods.map((p) => `${t(m)} ${p}`), ...(options.totalsRight ? [`${t(m)} ${t("Итого")}`] : [])])]
-    const rows = table.body.map((row) => [...(vertical.length ? row.keys : [t("Все")]), ...row.cells.flatMap((c) => [...c.periods, ...(options.totalsRight ? [c.total] : [])])])
-    const footer = options.totalsBottom ? [[t("Итого"), ...groupLabels.slice(1).map(() => ""), ...table.totals.flatMap((c) => [...c.periods, ...(options.totalsRight ? [c.total] : [])])]] : []
+    const rows = table.body.map((row) => [...(vertical.length ? [] : [t("Все")]), ...row.keys.map((key) => (typeof key === "string" ? t(key) : key)), ...row.cells.flatMap((c) => [...c.periods, ...(options.totalsRight ? [c.total] : [])])])
+    const footer = options.totalsBottom ? table.totals.map((total) => [`${t("Итого")}${total.label ? ` ${total.label}` : ""}`, ...groupLabels.slice(1).map(() => ""), ...total.cells.flatMap((c) => [...c.periods, ...(options.totalsRight ? [c.total] : [])])]) : []
     downloadExcelTable("trend-report.xls", [header, ...rows, ...footer])
   }
   const addToReports = async () => {
@@ -213,14 +227,14 @@ export function TrendBuilderView() {
               </div>
             )}
           </div>
-          <div className="absolute left-[518px] top-[8px] w-[270px]"><ReportChipField label={t("Модель")} value={model} options={["Продукты заказов по дате создания", "Заказы и возвраты"]} onChange={setModel} /></div>
+          <div className="absolute left-[518px] top-[8px] w-[270px]"><ReportChipField label={t("Модель")} value={model} options={["Продукты заказов по дате создания"]} onChange={setModel} /></div>
         </div>
 
         <div ref={toolbarRef} className="relative flex flex-wrap items-center gap-[14px] px-[30px] py-[8px]">
           <button onClick={() => openPanel("columns")} className={`${SMALL} bg-[#4f71dc]`}>⌄ <span className="ml-2">{t("Колонки")}</span></button>
           <button onClick={exportExcel} className={`${SMALL} bg-[#71ce87]`}><Download className="mr-2 h-4 w-4" />{t("Сформировать Excel")}</button>
           <button onClick={addToReports} className={`${SMALL} bg-[#ff8a6f]`}><span className="mr-2">★</span>{saved ? t("Добавлено") : t("Добавить в отчеты")}</button>
-          <button onClick={() => router.push("/analytics/report-list")} className={`${SMALL} bg-[#ff8a6f]`}><FolderOpen className="mr-2 h-4 w-4 fill-white" />{t("Отчеты")} (1)</button>
+          <button onClick={() => router.push("/analytics/report-list")} className={`${SMALL} bg-[#ff8a6f]`}><FolderOpen className="mr-2 h-4 w-4 fill-white" />{t("Отчеты")}</button>
           <div className="ml-auto flex items-center gap-[14px]">
             <button onClick={() => openPanel("table")} className={CHIP}>{t("Оптимизация таблицы")} ⌄</button>
             <button onClick={() => openPanel("vertical")} className={CHIP}>{t("Вертикальная группировка")} ⌄</button>
@@ -263,6 +277,12 @@ export function TrendBuilderView() {
       <section className={`mx-7 mt-[20px] ${CARD}`}>
         {selected.length === 0 ? (
           <ReportEmpty className="pb-[34px] pt-[10px]" text={t("Выберите замеры и группировки, затем примените изменения")} />
+        ) : loading ? (
+          <ReportEmpty className="pb-[34px] pt-[10px]" text={t("Загрузка...")} />
+        ) : error ? (
+          <ReportEmpty className="pb-[34px] pt-[10px]" text={t(error)} />
+        ) : table.count === 0 ? (
+          <ReportEmpty className="pb-[34px] pt-[10px]" text={t("Нет данных за выбранный период")} />
         ) : (
           <div className="overflow-x-auto p-6">
             <table className="w-full border-collapse text-[13px]">
@@ -286,8 +306,9 @@ export function TrendBuilderView() {
                     {vertical.length === 0 && <td className={cell}>{t("Все")}</td>}
                     {row.keys.map((key, c) => {
                       const span = table.spans[i][c]
-                      if (options.merge) return span ? <td key={c} rowSpan={span} className={`${cell} align-top`}>{key}</td> : null
-                      return <td key={c} className={cell}>{key}</td>
+                      const shown = typeof key === "string" ? t(key) : key
+                      if (options.merge) return span ? <td key={c} rowSpan={span} className={`${cell} align-top`}>{shown}</td> : null
+                      return <td key={c} className={cell}>{shown}</td>
                     })}
                     {row.cells.map((c, m) => (
                       <FragmentCols key={m}>
@@ -297,17 +318,17 @@ export function TrendBuilderView() {
                     ))}
                   </tr>
                 ))}
-                {options.totalsBottom && (
-                  <tr className="bg-[#f2f5f8] font-bold">
-                    <td colSpan={groupLabels.length} className={cell}>{t("Итого")}</td>
-                    {table.totals.map((c, m) => (
+                {options.totalsBottom && table.totals.map((total) => (
+                  <tr key={total.label || "total"} className="bg-[#f2f5f8] font-bold">
+                    <td colSpan={groupLabels.length} className={cell}>{t("Итого")}{total.label ? ` ${total.label}` : ""}</td>
+                    {total.cells.map((c, m) => (
                       <FragmentCols key={m}>
                         {c.periods.map((v, p) => <td key={p} className={`${cell} text-right`}>{fmt(v)}</td>)}
                         {options.totalsRight && <td className={`${cell} text-right`}>{fmt(c.total)}</td>}
                       </FragmentCols>
                     ))}
                   </tr>
-                )}
+                ))}
               </tbody>
             </table>
           </div>

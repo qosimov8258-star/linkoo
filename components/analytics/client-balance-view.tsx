@@ -14,6 +14,7 @@ import { GroupPaymentDialog } from "@/components/analytics/balance/group-payment
 import { BalancePagination } from "@/components/analytics/balance/pagination"
 import { BalanceSummaryCards, type SummaryBox } from "@/components/analytics/balance/summary-cards"
 import { buildBalanceQuery } from "@/components/analytics/balance/use-balance"
+import { useCanManage } from "@/components/analytics/cash-management-shared"
 import {
   ClientBalanceFilterButton,
   ClientBalanceFilterFields,
@@ -103,7 +104,8 @@ export function ClientBalanceView() {
   const [groupOpen, setGroupOpen] = useState(false)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [options, setOptions] = useState<ClientBalanceOptions | null>(null)
-  const [canGroupPay, setCanGroupPay] = useState(false)
+  // "Групповая оплата" (POST /api/balances/group-payment) needs a manager/admin with cash.manage.
+  const canGroupPay = useCanManage(["cash.manage"])
   const [notice, setNotice] = useState<{ text: string; error: boolean } | null>(null)
   const [more, setMore] = useState<{ key: string; rows: BalanceRow[]; pages: number }>({ key: "", rows: [], pages: 0 })
   const [moreLoading, setMoreLoading] = useState(false)
@@ -123,10 +125,6 @@ export function ClientBalanceView() {
     fetchJson<ClientBalanceOptions>(`${LIST_URL}/options`)
       .then(setOptions)
       .catch(() => setOptions(null))
-    // "Групповая оплата" needs the demo permission can_see_group_payment = manager or admin here (POST requires manager).
-    fetchJson<{ role?: string }>("/api/auth/me")
-      .then((user) => setCanGroupPay(user.role === "manager" || user.role === "admin"))
-      .catch(() => setCanGroupPay(false))
   }, [])
 
   useEffect(() => {
@@ -399,8 +397,11 @@ export function ClientBalanceView() {
         open={groupOpen}
         rows={selectedRows}
         currencies={groupCurrencies}
+        deliverers={options?.deliverers}
         onClose={() => setGroupOpen(false)}
         onSaved={() => {
+          // The paid clients are done: the selection starts over (as on Долги по счетам).
+          setSelected(new Set())
           reload()
           setNotice({ text: t("Успешно сохранено"), error: false })
         }}

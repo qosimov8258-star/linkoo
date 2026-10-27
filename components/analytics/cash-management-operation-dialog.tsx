@@ -1,7 +1,7 @@
 "use client"
 
 import Link from "next/link"
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { Plus, Search, Trash2 } from "lucide-react"
 
 import { cashMutate, useCashJson, useCashOperation } from "@/components/analytics/cash/use-cash"
@@ -37,6 +37,8 @@ import { useLanguage } from "@/lib/i18n/language-context"
 // The category's FIRST applicable option decides which counterparty the
 // form collects (client / order / provider / supply / supply expense /
 // staff / detalization / amortization), exactly as the core validates it.
+// "Касса" lists the cashboxes of the chosen "Филиал" (and those without a
+// branch); a new operation starts on the cashbox selected on the page.
 
 export type OperationDialogState = {
   kind: "income" | "expense"
@@ -45,6 +47,28 @@ export type OperationDialogState = {
   operationKey?: string
   /** pay: the approved money request. */
   request?: MoneyRequest
+  /** create: the cashbox selected on the page — preselected, with its branch. */
+  cashboxId?: number
+}
+
+const NO_BRANCH = new Set(["", "-", "—", "не указано", "не указан", "все", "все филиалы"])
+
+/** Comparable branch name ("" = no branch). */
+function branchKey(value: string | null | undefined): string {
+  const key = String(value ?? "").replace(/\s+/g, " ").trim().toLowerCase()
+  return NO_BRANCH.has(key) ? "" : key
+}
+
+/** A cashbox belongs to `branch` when either has no branch or both name the same one. */
+function inBranch(cashbox: Pick<CashboxWithBalance, "branch">, branch: string): boolean {
+  const wanted = branchKey(branch)
+  const own = branchKey(cashbox.branch)
+  return !wanted || !own || own === wanted
+}
+
+/** The cashbox's own branch as the form stores it ("" when it has none). */
+function branchOf(cashbox: Pick<CashboxWithBalance, "branch">): string {
+  return branchKey(cashbox.branch) ? cashbox.branch.trim() : ""
 }
 
 type Values = {
@@ -215,11 +239,16 @@ export function CashOperationDialog({
       />
     )
   }
-  return <OperationForm state={state} operation={null} initial={initialFor(state)} cashboxes={cashboxes} onClose={onClose} onSaved={onSaved} />
+  return <OperationForm state={state} operation={null} initial={initialFor(state, cashboxes)} cashboxes={cashboxes} onClose={onClose} onSaved={onSaved} />
 }
 
-function initialFor(state: OperationDialogState): Values {
+function initialFor(state: OperationDialogState, cashboxes: CashboxWithBalance[]): Values {
   const values = emptyValues()
+  const selected = state.mode === "create" && state.cashboxId ? cashboxes.find((item) => item.id === state.cashboxId) : undefined
+  if (selected) {
+    values.cashboxId = String(selected.id)
+    values.branch = branchOf(selected)
+  }
   if (state.mode === "pay" && state.request) {
     values.supplierId = str(state.request.supplier.id)
     values.amount = String(state.request.amount)
@@ -269,6 +298,16 @@ function OperationForm({
     if (state.mode === "create" && branches.length === 1) setValues((current) => (current.branch ? current : { ...current, branch: branches[0].name }))
   }, [branches, state.mode])
 
+  // The page's selected cashbox when the dialog opened before the cashbox list had loaded (once).
+  const preselected = useRef(Boolean(initial.cashboxId))
+  useEffect(() => {
+    if (preselected.current || state.mode !== "create" || !state.cashboxId) return
+    const selected = cashboxes.find((item) => item.id === state.cashboxId)
+    if (!selected) return
+    preselected.current = true
+    setValues((current) => (current.cashboxId ? current : { ...current, cashboxId: String(selected.id), branch: current.branch || branchOf(selected) }))
+  }, [cashboxes, state.mode, state.cashboxId])
+
   const category = categories.find((item) => String(item.id) === values.categoryId)
   const options = applicableOptions(category, kind)
   const first = options[0]
@@ -314,7 +353,10 @@ function OperationForm({
   const debtCurrency = payMode || values.moneyRequestId ? values.debtCurrency : showDebt && values.debtCurrency && values.debtCurrency !== cashCurrency ? values.debtCurrency : ""
 
   // --- options ---------------------------------------------------------------------
-  const cashboxOptions: PickOption[] = cashboxes.map((item) => ({ value: String(item.id), label: `${item.name} (${currencyLabel(item.currency)})`, hint: item.branch }))
+  // Only the chosen branch's cashboxes (the one already on the form stays listed, e.g. an older entry).
+  const cashboxOptions: PickOption[] = cashboxes
+    .filter((item) => inBranch(item, values.branch) || String(item.id) === values.cashboxId)
+    .map((item) => ({ value: String(item.id), label: `${item.name} (${currencyLabel(item.currency)})`, hint: item.branch }))
   const supplierName = suppliers.find((item) => String(item.id) === values.supplierId)?.name ?? (payMode ? (state.request?.supplier.name ?? "") : (operation?.supplier?.name ?? ""))
   const supplyOptions: PickOption[] = supplies
     .filter((supply) => supply.status !== "отменен" || String(supply.id) === values.supplyId)
@@ -484,15 +526,37 @@ function OperationForm({
             <input type="datetime-local" value={values.date} onChange={(event) => set("date", event.target.value)} className={inputClass} />
           </FormField>
           <FormField label={t("Филиал")}>
-            <SearchSelect value={values.branch} onChange={(value) => set("branch", value)} options={branches.map((item) => ({ value: item.name, label: item.name }))} placeholder={t("Филиал")} />
+            <SearchSelect
+              value={values.branch}
+              onChange={(value) => {
+                // A cashbox of another branch does not stay chosen.
+                setValues((current) => {
+                  const chosen = cashboxes.find((item) => String(item.id) === current.cashboxId)
+                  const keep = !chosen || inBranch(chosen, value)
+                  return { ...current, branch: value, ...(keep ? {} : { cashboxId: "", individualRate: false, customRate: "", debtRate: "" }) }
+                })
+                setErrors((current) => ({ ...current, branch: undefined, form: undefined }))
+              }}
+              options={branches.map((item) => ({ value: item.name, label: item.name }))}
+              placeholder={t("Филиал")}
+            />
           </FormField>
           <FormField label={t("Касса")} required error={errors.cashboxId}>
             <SearchSelect
               value={values.cashboxId}
               invalid={Boolean(errors.cashboxId)}
               onChange={(value) => {
-                // Demo: changing the cashbox resets the rate to "current".
-                setValues((current) => ({ ...current, cashboxId: value, individualRate: false, customRate: "", debtRate: "" }))
+                // Demo: changing the cashbox resets the rate to "current". With no branch chosen
+                // yet, the cashbox's own branch fills it.
+                const chosen = cashboxes.find((item) => String(item.id) === value)
+                setValues((current) => ({
+                  ...current,
+                  cashboxId: value,
+                  branch: current.branch || (chosen ? branchOf(chosen) : ""),
+                  individualRate: false,
+                  customRate: "",
+                  debtRate: "",
+                }))
                 setErrors((current) => ({ ...current, cashboxId: undefined, rate: undefined }))
               }}
               options={cashboxOptions}

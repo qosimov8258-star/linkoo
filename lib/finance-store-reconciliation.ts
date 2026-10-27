@@ -1,9 +1,8 @@
 import "server-only"
 
-import { NextResponse } from "next/server"
 import { z } from "zod"
 
-import { getDb, type PgDb } from "@/lib/db"
+import { getDb, outsideTransaction, withTransaction, type PgDb } from "@/lib/db"
 import type { ParsedQuery } from "@/lib/finance/api"
 import { loadCurrencyContext } from "@/lib/finance/context"
 import { convertAmount, roundMoney, visibleCurrencyCodes } from "@/lib/finance/currency"
@@ -11,7 +10,7 @@ import { isIsoDay, todayIso } from "@/lib/finance/dates"
 import { nameKey, placeName } from "@/lib/finance/entities"
 import { getBalanceList } from "@/lib/finance/ledger"
 import { ensureFinanceSchema, type FinanceSchema } from "@/lib/finance/schema"
-import { movementCte } from "@/lib/finance/sources"
+import { clientDefaultOrgSql, movementCte } from "@/lib/finance/sources"
 import { MOVEMENT_COLUMNS, type BalanceDateMode, type FinanceCurrency } from "@/lib/finance/types"
 import { getClientBalanceOptions } from "@/lib/finance-client-balance"
 import {
@@ -25,6 +24,8 @@ import {
   type StoreReconciliationOptions,
   type StoreReconciliationRow,
 } from "@/lib/finance-store-reconciliation-types"
+import { strictNum } from "@/lib/strict-number"
+import { zodErrorResponse } from "@/lib/validation"
 
 // "Сверка магазина через бот" (demo #/sales-market-balance, sales/market_balance;
 // variant "client") and "Сверка счетов" (demo #/client-balance,
@@ -136,20 +137,49 @@ CREATE TABLE IF NOT EXISTS account_payment_deadlines (
 CREATE INDEX IF NOT EXISTS account_payment_deadlines_key_idx ON account_payment_deadlines (account_key)`
 
 declare global {
-  // v2: + account_* tables; v3: + corrections deleted_at / deleted_by (a new
-  // name so a running process applies the change too).
-  var __linkoStoreReconciliationSchemaV3: Promise<void> | undefined
+  // v2: + account_* tables; v3: + corrections deleted_at / deleted_by; v4: + the
+  // corrections organization backfill (a new name so a running process applies the change too).
+  var __linkoStoreReconciliationSchemaV4: Promise<void> | undefined
 }
 
-/** Creates the pages' own tables once per process. */
-export async function ensureStoreReconciliationSchema(db: PgDb = getDb()): Promise<void> {
-  if (!globalThis.__linkoStoreReconciliationSchemaV3) {
-    globalThis.__linkoStoreReconciliationSchemaV3 = db.exec(SCHEMA_SQL).catch((error: unknown) => {
-      globalThis.__linkoStoreReconciliationSchemaV3 = undefined
-      throw error
+/** Corrections written without an organization get the client's default one
+ * (clientDefaultOrgSql: the client's contracts with one organization → the client's
+ * agent's single organization → the only organization), in the canonical spelling
+ * of a known organization. Fills EMPTY values only (fin_place(organization) = ''),
+ * never changes a set one; idempotent and deterministic. A failure only logs a warning. */
+async function backfillCorrectionOrganizations(): Promise<void> {
+  try {
+    const s = await ensureFinanceSchema(getDb())
+    if (!s.has(CLIENT_CORRECTIONS_TABLE) || !s.has("clients")) return
+    const known = s.has("organizations") && s.col("organizations", "name")
+    await withTransaction(async (tx) => {
+      await tx.exec("SET LOCAL lock_timeout = '5s'")
+      await tx.exec(
+        `UPDATE ${CLIENT_CORRECTIONS_TABLE} k SET organization = ${known ? "COALESCE(kn.name, y.org)" : "y.org"}
+           FROM (SELECT k2.id, d.org
+                   FROM ${CLIENT_CORRECTIONS_TABLE} k2 JOIN (${clientDefaultOrgSql(s)}) d ON d.id = k2.client_id
+                  WHERE fin_place(k2.organization) = '' AND fin_place(d.org) <> '') y
+           ${known ? "LEFT JOIN (SELECT DISTINCT ON (fin_key(name)) fin_key(name) AS k, btrim(name) AS name FROM organizations WHERE fin_place(name) <> '' ORDER BY fin_key(name), id) kn ON kn.k = fin_key(y.org)" : ""}
+          WHERE k.id = y.id AND fin_place(k.organization) = ''`,
+      )
     })
+  } catch (error) {
+    console.warn("[store-reconciliation] corrections organization backfill skipped:", (error as Error).message)
   }
-  await globalThis.__linkoStoreReconciliationSchemaV3
+}
+
+/** Creates the pages' own tables once per process: the DDL and the backfill run on the
+ * maintenance pool (outsideTransaction → getDb(), like every other schema install), never on
+ * the caller's transaction or the request pool — the callers' `db` is accepted but not used. */
+export async function ensureStoreReconciliationSchema(db?: PgDb): Promise<void>
+export async function ensureStoreReconciliationSchema(): Promise<void> {
+  if (!globalThis.__linkoStoreReconciliationSchemaV4) {
+    globalThis.__linkoStoreReconciliationSchemaV4 = outsideTransaction(() => getDb().exec(SCHEMA_SQL).then(backfillCorrectionOrganizations)).catch((error: unknown) => {
+        globalThis.__linkoStoreReconciliationSchemaV4 = undefined
+        throw error
+      })
+  }
+  await globalThis.__linkoStoreReconciliationSchemaV4
 }
 
 /** Per-variant tables of reconciliation requests / debt terms; `key` = the
@@ -207,7 +237,7 @@ export type StoreReconciliationParams = {
 }
 
 const day = z.string().refine(isIsoDay, "YYYY-MM-DD")
-const days = z.coerce.number().int().min(0).optional()
+const days = strictNum(z.number().int().min(0).optional())
 const list = z.array(z.string().trim().min(1)).optional()
 
 const listQuery = z.object({
@@ -239,8 +269,8 @@ const listQuery = z.object({
   clientCreatedFrom: day.optional(),
   clientCreatedTo: day.optional(),
   ordering: list,
-  page: z.coerce.number().int().min(1).optional(),
-  pageSize: z.coerce.number().int().min(0).max(100000).optional(),
+  page: strictNum(z.number().int().min(1).optional()),
+  pageSize: strictNum(z.number().int().min(0).max(100000).optional()),
 })
 
 const LIST_ARRAYS = ["branch", "zone", "agent", "clientType", "organization", "createdBy", "messageStatus", "orderStatus", "ordering"]
@@ -257,7 +287,7 @@ export function parseStoreReconciliationQuery(url: string): ParsedQuery<StoreRec
     }
   }
   const parsed = listQuery.safeParse(raw)
-  if (!parsed.success) return { error: NextResponse.json({ error: "Ma'lumotlar noto'g'ri", details: parsed.error.flatten() }, { status: 400 }) }
+  if (!parsed.success) return { error: zodErrorResponse(parsed.error) }
   const q = parsed.data
   return {
     data: {

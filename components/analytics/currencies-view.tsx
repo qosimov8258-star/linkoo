@@ -5,6 +5,8 @@ import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from "re
 
 import { downloadExcelTable } from "@/lib/excel-export"
 import { mapHeaderColumns, readExcelRows } from "@/lib/excel-import"
+import { formatDateText } from "@/lib/i18n/format-date"
+import { useLanguage } from "@/lib/i18n/language-context"
 import type { Currency } from "./currencies-data"
 import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
 
@@ -20,7 +22,22 @@ function emptyDraft() {
 
 const number = (value: number) => new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 2 }).format(value)
 
+/** Codes of the national currency (the import's base currency when there is none yet). */
+const NATIONAL_CODES = new Set(["SUM", "UZS"])
+
+/** The order to save imported rows in while the company has no base currency: the first
+ * currency saved becomes the base one and must have rate 1 (lib/currencies-repo.ts), so the
+ * national currency with rate 1 (else another row with rate 1) goes first. null = the file
+ * has no row that can be the base currency. */
+export function baseCurrencyFirst<T extends { code: string; rate: number }>(rows: T[]): T[] | null {
+  const national = rows.findIndex((row) => row.rate === 1 && NATIONAL_CODES.has(row.code))
+  const index = national >= 0 ? national : rows.findIndex((row) => row.rate === 1)
+  if (index < 0) return null
+  return [rows[index], ...rows.slice(0, index), ...rows.slice(index + 1)]
+}
+
 export function CurrenciesView({ embedded = false }: { embedded?: boolean }) {
+  const { t, language } = useLanguage()
   const [currencies, setCurrencies] = useState<Currency[]>([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState("")
@@ -67,6 +84,14 @@ export function CurrenciesView({ embedded = false }: { embedded?: boolean }) {
     return currencies.filter((currency) => currency.name.toLocaleLowerCase("ru").includes(q) || currency.code.toLocaleLowerCase("ru").includes(q))
   }, [currencies, query])
 
+  // There is always one base currency: while there is none (a fresh install) the first
+  // currency created becomes the base one, and it must have rate 1 (lib/currencies-repo.ts
+  // createCurrency). Nothing is pre-ticked here: the list may still be loading or have
+  // failed to load, and "Базовая валюта" would then move the base of the company.
+  const baseCode = currencies.find((currency) => currency.isBase)?.code ?? ""
+  const noBase = !loading && !loadError && !baseCode
+  const rateLabel = t(baseCode && baseCode.toUpperCase() !== "SUM" ? "Курс к базовой валюте" : "Курс к SUM")
+
   const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize))
   const safePage = Math.min(page, pageCount)
   const visible = filtered.slice((safePage - 1) * pageSize, safePage * pageSize)
@@ -88,22 +113,22 @@ export function CurrenciesView({ embedded = false }: { embedded?: boolean }) {
   async function remove(id: number) {
     const target = currencies.find((currency) => currency.id === id)
     if (target?.isBase) {
-      window.alert("Нельзя удалить базовую валюту")
+      window.alert(t("Нельзя удалить базовую валюту"))
       return
     }
-    if (!window.confirm("Удалить валюту?")) return
+    if (!window.confirm(t("Удалить валюту?"))) return
     try {
       const response = await fetch(`/api/currencies/${id}`, { method: "DELETE" })
       if (!response.ok) {
         // 409 while other records use it: the usage list says where.
         const data = (await response.json().catch(() => ({}))) as { error?: string; usage?: { label: string; count: number }[] }
-        const usage = data.usage?.map((item) => `${item.label}: ${item.count}`).join(", ")
-        window.alert(`${data.error || "Не удалось удалить валюту"}${usage ? ` (${usage})` : ""}`)
+        const usage = data.usage?.map((item) => `${t(item.label)}: ${item.count}`).join(", ")
+        window.alert(`${t(data.error || "Не удалось удалить валюту")}${usage ? ` (${usage})` : ""}`)
         return
       }
       setCurrencies((current) => current.filter((currency) => currency.id !== id))
     } catch {
-      window.alert("Сервер недоступен, попробуйте ещё раз")
+      window.alert(t("Сервер недоступен, попробуйте ещё раз"))
     }
   }
 
@@ -130,7 +155,7 @@ export function CurrenciesView({ embedded = false }: { embedded?: boolean }) {
       }
       const saved = (await response.json()) as Currency
       setCurrencies((current) => {
-        const withoutBaseConflict = draft.isBase ? current.map((currency) => ({ ...currency, isBase: false })) : current
+        const withoutBaseConflict = saved.isBase ? current.map((currency) => ({ ...currency, isBase: false })) : current
         if (isEdit) {
           return withoutBaseConflict.map((currency) => (currency.id === editingId ? saved : currency))
         }
@@ -159,7 +184,7 @@ export function CurrenciesView({ embedded = false }: { embedded?: boolean }) {
     try {
       const rows = await readExcelRows(importFile)
       if (!rows.length) {
-        window.alert("Не удалось найти данные для импорта в выбранном файле")
+        window.alert(t("Не удалось найти данные для импорта в выбранном файле"))
         return
       }
       const fieldByIndex = mapHeaderColumns(rows[0], IMPORT_HEADER_ALIASES)
@@ -185,13 +210,26 @@ export function CurrenciesView({ embedded = false }: { embedded?: boolean }) {
       }
 
       if (!parsed.length) {
-        window.alert("Не удалось найти данные для импорта в выбранном файле")
+        window.alert(t("Не удалось найти данные для импорта в выбранном файле"))
         return
+      }
+
+      // Without a base currency the first row saved becomes the base one and must have rate 1:
+      // save the national currency (or another row with rate 1) first, never a row whose
+      // rate is against a base that does not exist yet (the server refuses those then).
+      let ordered = parsed
+      if (!baseCode) {
+        const withBase = baseCurrencyFirst(parsed)
+        if (!withBase && noBase) {
+          window.alert(t("Базовой валюты ещё нет: добавьте в файл базовую валюту с курсом 1"))
+          return
+        }
+        if (withBase) ordered = withBase
       }
 
       const created: Currency[] = []
       let failed = 0
-      for (const item of parsed) {
+      for (const item of ordered) {
         try {
           const response = await fetch("/api/currencies", {
             method: "POST",
@@ -204,8 +242,8 @@ export function CurrenciesView({ embedded = false }: { embedded?: boolean }) {
           failed += 1
         }
       }
-      if (created.length) setCurrencies((current) => [...created, ...current])
-      if (failed) window.alert(`Импортировано ${created.length} из ${parsed.length}. Не удалось сохранить: ${failed}`)
+      if (created.length) setCurrencies((current) => [...created, ...current].sort((a, b) => Number(b.isBase) - Number(a.isBase)))
+      if (failed) window.alert(`${t("Импортировано")} ${created.length} ${t("из")} ${parsed.length}. ${t("Не удалось сохранить")}: ${failed}`)
     } finally {
       setImportSaving(false)
       setImportOpen(false)
@@ -219,7 +257,7 @@ export function CurrenciesView({ embedded = false }: { embedded?: boolean }) {
         <header className="flex min-h-[76px] items-center border-b border-[#d8dee7] bg-[#f2f5f8] px-6 md:px-9">
           <div className="flex items-center gap-3">
             <FavoritesButton className="flex items-center gap-2 text-2xl font-bold text-[#4f71dc]" /><span className="text-3xl font-light text-[#586174]">|</span>
-            <span className="text-2xl font-bold text-[#586174]">Валюты</span>
+            <span className="text-2xl font-bold text-[#586174]">{t("Валюты")}</span>
           </div>
         </header>
       )}
@@ -227,28 +265,28 @@ export function CurrenciesView({ embedded = false }: { embedded?: boolean }) {
       <div className="px-9 py-5">
         <div className="mb-4 flex flex-wrap items-center gap-4">
           <button type="button" onClick={openCreate} className="text-[16px] text-[#4f71dc] hover:underline">
-            + добавить валюту
+            {t("+ добавить валюту")}
           </button>
           <button type="button" onClick={() => setImportOpen(true)} className="inline-flex items-center gap-2 rounded bg-[#4f71dc] px-5 py-2.5 font-semibold text-white hover:brightness-95">
-            <FileText className="h-4 w-4" /> Импорт с Excel
+            <FileText className="h-4 w-4" /> {t("Импорт с Excel")}
           </button>
           <label className="relative ml-auto w-64">
             <input
               value={query}
               onChange={(event) => { setQuery(event.target.value); setPage(1) }}
-              placeholder="Поиск"
+              placeholder={t("Поиск")}
               className="w-full border-b border-slate-300 py-2 pr-10 outline-none focus:border-[#4f71dc]"
             />
             <Search className="absolute right-2 top-2 h-5 w-5 text-slate-300" />
           </label>
           <span className="text-slate-500">25</span>
           <span className="text-slate-500">
-            {filtered.length ? (safePage - 1) * pageSize + 1 : 0} - {Math.min(safePage * pageSize, filtered.length)} из {filtered.length}
+            {filtered.length ? (safePage - 1) * pageSize + 1 : 0} - {Math.min(safePage * pageSize, filtered.length)} {t("из")} {filtered.length}
           </span>
-          <button type="button" onClick={() => setPage((value) => Math.max(1, value - 1))} disabled={safePage <= 1} aria-label="Назад" className="disabled:opacity-30">
+          <button type="button" onClick={() => setPage((value) => Math.max(1, value - 1))} disabled={safePage <= 1} aria-label={t("Назад")} className="disabled:opacity-30">
             <ChevronLeft className="h-5 w-5 text-slate-400" />
           </button>
-          <button type="button" onClick={() => setPage((value) => Math.min(pageCount, value + 1))} disabled={safePage >= pageCount} aria-label="Вперед" className="disabled:opacity-30">
+          <button type="button" onClick={() => setPage((value) => Math.min(pageCount, value + 1))} disabled={safePage >= pageCount} aria-label={t("Вперед")} className="disabled:opacity-30">
             <ChevronRight className="h-5 w-5 text-slate-400" />
           </button>
         </div>
@@ -256,19 +294,19 @@ export function CurrenciesView({ embedded = false }: { embedded?: boolean }) {
         <table className="w-full text-left">
           <thead className="bg-[#5d6474] text-white">
             <tr>
-              <th className="px-9 py-5">Наименование</th>
-              <th className="px-5 py-5">Код</th>
-              <th className="px-5 py-5">Курс к SUM</th>
-              <th className="px-5 py-5">Базовая</th>
-              <th className="px-5 py-5">Дата создания</th>
+              <th className="px-9 py-5">{t("Наименование")}</th>
+              <th className="px-5 py-5">{t("Код")}</th>
+              <th className="px-5 py-5">{rateLabel}</th>
+              <th className="px-5 py-5">{t("Базовая")}</th>
+              <th className="px-5 py-5">{t("Дата создания")}</th>
               <th className="w-20" />
             </tr>
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={6} className="px-9 py-10 text-center text-slate-400">Загрузка валют...</td></tr>
+              <tr><td colSpan={6} className="px-9 py-10 text-center text-slate-400">{t("Загрузка валют...")}</td></tr>
             ) : loadError ? (
-              <tr><td colSpan={6} className="px-9 py-10 text-center text-red-600">{loadError}</td></tr>
+              <tr><td colSpan={6} className="px-9 py-10 text-center text-red-600">{t(loadError)}</td></tr>
             ) : visible.map((currency) => (
               <tr key={currency.id} className="group border-b border-dashed border-slate-300 hover:bg-slate-50">
                 <td className="px-9 py-4 font-medium">{currency.name}</td>
@@ -277,15 +315,15 @@ export function CurrenciesView({ embedded = false }: { embedded?: boolean }) {
                 </td>
                 <td className="px-5 py-4">{number(currency.rate)}</td>
                 <td className="px-5 py-4">
-                  {currency.isBase && <span className="inline-block rounded bg-emerald-50 px-3 py-1.5 text-sm font-semibold text-emerald-600">Базовая</span>}
+                  {currency.isBase && <span className="inline-block rounded bg-emerald-50 px-3 py-1.5 text-sm font-semibold text-emerald-600">{t("Базовая")}</span>}
                 </td>
-                <td className="px-5 py-4">{currency.createdDate}</td>
+                <td className="px-5 py-4">{formatDateText(currency.createdDate, language)}</td>
                 <td className="px-5 py-4">
                   <div className="hidden items-center justify-end gap-3 text-slate-500 group-hover:flex">
-                    <button type="button" onClick={() => openEdit(currency)} aria-label="Изменить">
+                    <button type="button" onClick={() => openEdit(currency)} aria-label={t("Изменить")}>
                       <Pencil className="h-5 w-5" />
                     </button>
-                    <button type="button" onClick={() => remove(currency.id)} aria-label="Удалить">
+                    <button type="button" onClick={() => remove(currency.id)} aria-label={t("Удалить")}>
                       <Trash2 className="h-5 w-5" />
                     </button>
                   </div>
@@ -295,7 +333,7 @@ export function CurrenciesView({ embedded = false }: { embedded?: boolean }) {
             {!loading && !loadError && visible.length === 0 && (
               <tr>
                 <td colSpan={6} className="px-9 py-10 text-center text-slate-400">
-                  Ничего не найдено
+                  {t("Ничего не найдено")}
                 </td>
               </tr>
             )}
@@ -307,18 +345,18 @@ export function CurrenciesView({ embedded = false }: { embedded?: boolean }) {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
           <form onSubmit={save} className="w-full max-w-lg rounded bg-white">
             <header className="flex items-center justify-between border-b p-6">
-              <b className="uppercase">{editingId !== null ? "Изменить валюту" : "Добавить валюту"}</b>
-              <button type="button" onClick={() => setModalOpen(false)} aria-label="Закрыть">
+              <b className="uppercase">{editingId !== null ? t("Изменить валюту") : t("Добавить валюту")}</b>
+              <button type="button" onClick={() => setModalOpen(false)} aria-label={t("Закрыть")}>
                 <X className="h-5 w-5" />
               </button>
             </header>
             <div className="space-y-5 p-8">
               <label className="block border-b border-slate-200 pb-2 font-medium">
-                Наименование <span className="text-red-500">*</span>
+                {t("Наименование")} <span className="text-red-500">*</span>
                 <input autoFocus value={draft.name} onChange={(event) => setDraft((value) => ({ ...value, name: event.target.value }))} className="mt-2 block w-full outline-none" />
               </label>
               <label className="block border-b border-slate-200 pb-2 font-medium">
-                Код <span className="text-red-500">*</span>
+                {t("Код")} <span className="text-red-500">*</span>
                 <input value={draft.code} onChange={(event) => setDraft((value) => ({ ...value, code: event.target.value }))} placeholder="USD" maxLength={5} className="mt-2 block w-full uppercase outline-none" />
               </label>
               <label className="flex items-center gap-2">
@@ -328,11 +366,12 @@ export function CurrenciesView({ embedded = false }: { embedded?: boolean }) {
                   onChange={(event) => setDraft((value) => ({ ...value, isBase: event.target.checked }))}
                   className="h-4 w-4 accent-[#4f71dc]"
                 />
-                Базовая валюта
+                {t("Базовая валюта")}
               </label>
+              {editingId === null && noBase && <p className="text-sm text-slate-500">{t("Базовой валюты ещё нет: первая валюта станет базовой, поэтому её курс должен быть 1.")}</p>}
               {!draft.isBase && (
                 <label className="block border-b border-slate-200 pb-2 font-medium">
-                  Курс к SUM
+                  {rateLabel}
                   <input
                     type="number"
                     min={0}
@@ -343,11 +382,11 @@ export function CurrenciesView({ embedded = false }: { embedded?: boolean }) {
                   />
                 </label>
               )}
-              {formError && <p className="text-sm font-medium text-rose-600">{formError}</p>}
+              {formError && <p className="text-sm font-medium text-rose-600">{t(formError)}</p>}
             </div>
             <footer className="flex justify-end border-t p-5">
               <button type="submit" disabled={saving} className="rounded bg-[#71ce87] px-6 py-3 font-semibold text-white hover:brightness-95 disabled:opacity-60">
-                {saving ? "Сохранение..." : "Сохранить"}
+                {saving ? t("Сохранение...") : t("Сохранить")}
               </button>
             </footer>
           </form>
@@ -358,14 +397,14 @@ export function CurrenciesView({ embedded = false }: { embedded?: boolean }) {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
           <div className="w-full max-w-md rounded bg-white">
             <header className="flex items-center justify-between border-b p-6">
-              <b className="uppercase">Импорт с Excel</b>
-              <button type="button" onClick={() => { setImportOpen(false); setImportFile(null) }} aria-label="Закрыть">
+              <b className="uppercase">{t("Импорт с Excel")}</b>
+              <button type="button" onClick={() => { setImportOpen(false); setImportFile(null) }} aria-label={t("Закрыть")}>
                 <X className="h-5 w-5" />
               </button>
             </header>
             <div className="p-8">
               <button type="button" onClick={downloadTemplate} className="mb-4 font-semibold text-[#4f71dc] hover:underline">
-                1. Скачать шаблон
+                {t("1. Скачать шаблон")}
               </button>
               <input ref={importInputRef} type="file" accept=".csv,.xls,.xlsx" onChange={pickImportFile} className="hidden" />
               <button
@@ -374,12 +413,12 @@ export function CurrenciesView({ embedded = false }: { embedded?: boolean }) {
                 className="flex w-full flex-col items-center justify-center gap-3 rounded border-2 border-dashed border-slate-300 py-10 text-slate-500 hover:border-[#4f71dc] hover:text-[#4f71dc]"
               >
                 <FileText className="h-8 w-8" />
-                {importFile ? importFile.name : "Добавьте файл Excel или нажмите для выбора"}
+                {importFile ? importFile.name : t("Добавьте файл Excel или нажмите для выбора")}
               </button>
             </div>
             <footer className="flex justify-end border-t p-5">
               <button type="button" disabled={!importFile || importSaving} onClick={saveImport} className="rounded bg-[#71ce87] px-5 py-3 font-semibold text-white hover:brightness-95 disabled:opacity-40">
-                {importSaving ? "Импорт..." : "Сохранить"}
+                {importSaving ? t("Импорт...") : t("Сохранить")}
               </button>
             </footer>
           </div>

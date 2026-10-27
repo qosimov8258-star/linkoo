@@ -5,6 +5,7 @@ import { getClient } from "@/lib/clients-repo"
 import { getCurrentUser } from "@/lib/current-user"
 import { todayIso } from "@/lib/finance/dates"
 import { getBalanceList } from "@/lib/finance/ledger"
+import { invalidFieldResponse } from "@/lib/validation"
 
 type RouteParams = { params: Promise<{ id: string }> }
 
@@ -39,7 +40,8 @@ export async function GET(request: Request, { params }: RouteParams) {
   const search = new URL(request.url).searchParams
   const to = search.get("to") ?? todayIso()
   const from = search.get("from") ?? shift(to, -30)
-  if (!validDay(from) || !validDay(to) || from > to) return NextResponse.json({ error: "from/to: YYYY-MM-DD, from ≤ to" }, { status: 400 })
+  if (!validDay(from) || !validDay(to)) return invalidFieldResponse(validDay(from) ? "to" : "from", "YYYY-MM-DD")
+  if (from > to) return invalidFieldResponse("from", "from ≤ to", "Неверный период")
 
   const keys = [String(id)]
   const [created, realized] = await Promise.all([

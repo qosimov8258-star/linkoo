@@ -13,6 +13,7 @@ import { z } from "zod"
 
 import { isOfferedOption, optionOfParameter, type CategoryKind } from "@/lib/category-options"
 import { normalizeOptions, type CategoryOptionKey } from "@/lib/cash/types"
+import { dbId, INVALID_ID, strictNum } from "@/lib/strict-number"
 
 /** Where a category is referenced (label = Russian i18n key of the section). */
 export type CategoryUsage = { table: string; label: string; count: number }
@@ -102,7 +103,8 @@ export type ExpenseCategoryInput = {
   excludeFromPnl: boolean
 }
 
-const idField = z.preprocess(emptyToNull, z.coerce.number().int("Неверное значение").positive("Неверное значение").max(2_147_483_647).nullable()).optional()
+/** A parent id: a number or a digit text within int4, or empty / null (no parent); "2e9", true, 0 → "Неверный идентификатор". */
+const idField = z.preprocess(emptyToNull, dbId(INVALID_ID).nullable()).optional()
 
 export const expenseCategoryInputSchema = z
   .object({
@@ -133,7 +135,7 @@ export const expenseCategoryInputSchema = z
 // --- list query --------------------------------------------------------------------
 
 const text = (max: number) => z.preprocess(emptyToUndefined, z.string().trim().max(max).optional())
-const int = (min: number, max: number) => z.preprocess(emptyToUndefined, z.coerce.number().int().min(min).max(max).optional())
+const int = (min: number, max: number) => z.preprocess(emptyToUndefined, strictNum(z.number().int().min(min).max(max).optional()))
 
 export const categoryListQuerySchema = z.object({
   search: text(200),

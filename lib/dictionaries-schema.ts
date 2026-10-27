@@ -3,10 +3,12 @@ import "server-only"
 import { NextResponse } from "next/server"
 import { z } from "zod"
 
-import type { PgDb } from "@/lib/db"
+import { dbErrorResponse } from "@/lib/db-errors"
+import { outsideTransaction, type PgDb } from "@/lib/db"
 import { catalogDb } from "@/lib/products-schema"
 import { dictionaryKey, type DictionaryUsage } from "@/components/analytics/dictionaries-data"
-import { parseIdSegment } from "@/lib/validation"
+import { parseIdSegment, zodErrorResponse } from "@/lib/validation"
+import { strictNum } from "@/lib/strict-number"
 
 // Shared server plumbing of the three catalog dictionaries (Типы продуктов, Ед.измерения,
 // Бренд): the lazy schema additions, errors, list-query parsing and pictures.
@@ -36,7 +38,7 @@ async function install(): Promise<void> {
 export async function dictionariesDb(): Promise<PgDb> {
   const db = await catalogDb()
   if (globalThis.__linkoDictionariesSchema?.version !== SCHEMA_VERSION) {
-    const ready = install().catch((error) => {
+    const ready = outsideTransaction(install).catch((error) => {
       globalThis.__linkoDictionariesSchema = undefined
       throw error
     })
@@ -71,7 +73,7 @@ export class DictionaryError extends Error {
 
 /** JSON response of a DictionaryError ({error, fields?, usage?}); null for other errors. */
 export function dictionaryErrorResponse(error: unknown): NextResponse | null {
-  if (!(error instanceof DictionaryError)) return null
+  if (!(error instanceof DictionaryError)) return dbErrorResponse(error)
   return NextResponse.json(
     { error: error.message, ...(error.fields ? { fields: error.fields } : {}), ...(error.usage ? { usage: error.usage } : {}) },
     { status: error.status },
@@ -203,8 +205,8 @@ export function dictionaryListQuery(params: URLSearchParams, orderings: readonly
       .trim()
       .optional()
       .refine((value) => !value || allowed.has(value), "Неизвестная сортировка"),
-    page: z.coerce.number().int().min(1).max(1_000_000).optional(),
-    pageSize: z.coerce.number().int().min(1).max(2000).optional(),
+    page: strictNum(z.number().int().min(1).max(1_000_000).optional()),
+    pageSize: strictNum(z.number().int().min(1).max(2000).optional()),
   })
   const raw = {
     search: params.get("search") ?? params.get("name") ?? undefined,
@@ -213,7 +215,7 @@ export function dictionaryListQuery(params: URLSearchParams, orderings: readonly
     pageSize: params.get("pageSize") || params.get("page_size") || undefined,
   }
   const parsed = schema.safeParse(raw)
-  if (!parsed.success) return NextResponse.json({ error: "Ma'lumotlar noto'g'ri", details: parsed.error.flatten() }, { status: 400 })
+  if (!parsed.success) return zodErrorResponse(parsed.error)
   return { search: parsed.data.search ?? "", ordering: parsed.data.ordering ?? "", page: parsed.data.page ?? 1, pageSize: parsed.data.pageSize ?? defaultPageSize }
 }
 

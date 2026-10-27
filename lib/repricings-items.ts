@@ -1,7 +1,8 @@
 import "server-only"
 
 import { getDb, type PgDb } from "@/lib/db"
-import { normCurrency } from "@/lib/finance/currency"
+import { loadCurrencyContext } from "@/lib/finance/context"
+import { convertAmount, normCurrency } from "@/lib/finance/currency"
 import { findItemPrice, itemPriceEntries, type ItemPriceEntry } from "@/lib/item-prices"
 import { getStockBalances, getStockPending } from "@/lib/stock/ledger"
 import type { RepricingItemKind, RepricingPickRow } from "@/components/analytics/repricing-data"
@@ -69,15 +70,21 @@ export async function availableByKey(db: PgDb = getDb()): Promise<Map<string, nu
   return available
 }
 
-/** Picker rows for one price list: current cash price (in the entry's currency) + available quantity. */
+/**
+ * Picker rows for one price list: current cash price (in the entry's currency), the same price in
+ * the LIST's currency (the currency of a repricing of this list) and the available quantity.
+ */
 export async function repricingPickRows(priceList: { name: string; currency: string }, search = ""): Promise<RepricingPickRow[]> {
   const db = getDb()
-  const [catalog, available] = await Promise.all([repricingCatalog(db), availableByKey(db)])
+  const [catalog, available, context] = await Promise.all([repricingCatalog(db), availableByKey(db), loadCurrencyContext(db)])
+  const listCurrency = normCurrency(priceList.currency)
   const needle = search.trim().toLowerCase()
   return catalog
     .filter((item) => !needle || `${item.name} ${item.article} ${item.barcode}`.toLowerCase().includes(needle))
     .map((item) => {
       const entry = findItemPrice(item.entries, priceList.name)
+      const currency = normCurrency(entry?.currency, listCurrency)
+      const listPrice = entry ? convertAmount(entry.cash, currency, listCurrency, context.rates) : null
       return {
         kind: item.kind,
         id: item.id,
@@ -88,7 +95,8 @@ export async function repricingPickRows(priceList: { name: string; currency: str
         unit: item.unit,
         available: available.get(item.key) ?? 0,
         price: entry ? entry.cash : null,
-        currency: normCurrency(entry?.currency, priceList.currency),
+        currency,
+        listPrice: listPrice === null ? null : Math.round(listPrice * 1e6) / 1e6,
       }
     })
 }

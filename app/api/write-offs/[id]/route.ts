@@ -3,12 +3,12 @@ import { NextRequest, NextResponse } from "next/server"
 import { getCurrentUser } from "@/lib/current-user"
 import { requireRole } from "@/lib/rbac"
 import { deleteWriteOff, getWriteOff } from "@/lib/write-offs-repo"
-import { parseIdSegment } from "@/lib/validation"
+import { notSignedInResponse, parseIdSegment } from "@/lib/validation"
 
 type RouteParams = { params: Promise<{ id: string }> }
 
 export async function GET(_request: NextRequest, { params }: RouteParams) {
-  if (!(await getCurrentUser())) return NextResponse.json({ error: "Tizimga kirilmagan" }, { status: 401 })
+  if (!(await getCurrentUser())) return notSignedInResponse()
   const writeOff = await getWriteOff(parseIdSegment((await params).id) ?? 0)
   if (!writeOff) return NextResponse.json({ error: "Списание не найдено" }, { status: 404 })
   return NextResponse.json(writeOff)

@@ -21,7 +21,10 @@ export async function GET(_request: Request, { params }: RouteParams) {
 
 // PUT /api/employees/[id] — a changed name is carried into cashboxes,
 // warehouses, clients (agent / deliverer / collector), documents and production
-// staff that store it.
+// staff that store it. Deactivating the employee or turning "Доступ к системе"
+// off blocks the linked account's sign-in and ends its sessions; refused for
+// one's own account (400), an administrator's account unless an administrator
+// does it (403) and the last administrator (409).
 export async function PUT(request: Request, { params }: RouteParams) {
   const auth = await requireRole("manager")
   if ("error" in auth) return auth.error
@@ -32,7 +35,7 @@ export async function PUT(request: Request, { params }: RouteParams) {
   if (parsed.error) return parsed.error
 
   try {
-    const employee = await updateEmployee(id, toEmployeeInput(parsed.data))
+    const employee = await updateEmployee(id, toEmployeeInput(parsed.data), { id: auth.user.id, role: auth.user.role })
     if (!employee) return NextResponse.json(NOT_FOUND, { status: 404 })
     return NextResponse.json(employee)
   } catch (error) {
@@ -43,7 +46,8 @@ export async function PUT(request: Request, { params }: RouteParams) {
 }
 
 // DELETE /api/employees/[id] — 409 {error: "Удаление невозможно из-за связи с другими данными", usage}
-// while a cashbox, warehouse, client, document or production record refers to the employee.
+// while a cashbox, warehouse, client, document, production record or a sign-in
+// account (Пользователи) refers to the employee.
 export async function DELETE(_request: Request, { params }: RouteParams) {
   const auth = await requireRole("manager")
   if ("error" in auth) return auth.error

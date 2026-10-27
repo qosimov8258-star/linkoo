@@ -3,12 +3,13 @@ import { NextResponse } from "next/server"
 import { getCurrentUser } from "@/lib/current-user"
 import { optionalNumberParam } from "@/lib/contracts-api"
 import { getNextContractNumber } from "@/lib/contracts-repo"
+import { notSignedInResponse } from "@/lib/validation"
 
 // GET /api/contracts/next-number?year&prefix&suffix → ContractNextNumber (demo /sales/contract/contract_number/).
 // Without prefix / suffix params the ones of the latest numbered contract are used.
 export async function GET(request: Request) {
   const user = await getCurrentUser()
-  if (!user) return NextResponse.json({ error: "Tizimga kirilmagan" }, { status: 401 })
+  if (!user) return notSignedInResponse()
   const search = new URL(request.url).searchParams
   return NextResponse.json(
     await getNextContractNumber({

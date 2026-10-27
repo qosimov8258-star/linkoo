@@ -3,10 +3,13 @@ import "server-only"
 import { NextResponse } from "next/server"
 import { z, type ZodType } from "zod"
 
+import { dbErrorResponse } from "@/lib/db-errors"
 import { getCurrentUser } from "@/lib/current-user"
+import { docYearOk } from "@/lib/document-dates"
 import { isIsoDay } from "@/lib/finance/dates"
 import { isProductionError, parseItemKey } from "@/lib/production-schema"
-import { cleanJsonText, parseIdSegment, type ParsedBody } from "@/lib/validation"
+import { cleanJsonText, NOT_JSON_MESSAGE, notSignedInResponse, type ParsedBody, parseIdSegment, zodErrorBody } from "@/lib/validation"
+import { dbId, strictNum } from "@/lib/strict-number"
 
 export type RouteParams = { params: Promise<{ id: string }> }
 
@@ -17,7 +20,7 @@ export async function routeId({ params }: RouteParams): Promise<number | null> {
 
 export async function requireViewer() {
   const user = await getCurrentUser()
-  return user ? null : NextResponse.json({ error: "Tizimga kirilmagan" }, { status: 401 })
+  return user ? null : notSignedInResponse()
 }
 
 export function errorResponse(message: string, status = 400, extra?: Record<string, unknown>) {
@@ -39,6 +42,8 @@ export function routeError(error: unknown): NextResponse {
   if (code === "23503") return errorResponse("Связанная запись не найдена", 400)
   if (code === "23505") return errorResponse("Такая запись уже существует", 409)
   if (code === "22P02" || code === "22003" || code === "22001") return errorResponse("Неверные данные", 400)
+  const busy = dbErrorResponse(error)
+  if (busy) return busy
   throw error
 }
 
@@ -58,15 +63,15 @@ export async function parseBody<T>(request: Request, schema: ZodType<T>): Promis
   try {
     json = await request.json()
   } catch {
-    return { error: errorResponse("Тело запроса не является JSON") }
+    return { error: errorResponse(NOT_JSON_MESSAGE) }
   }
   // Zero-width / bidi characters are dropped from every text; NUL and broken Unicode answer 400.
   const cleaned = cleanJsonText(json)
   if (cleaned.issue) return { error: errorResponse(cleaned.issue.message, 400, { field: cleaned.issue.field || null }) }
   const result = schema.safeParse(cleaned.value)
   if (!result.success) {
-    const message = result.error.issues.map((issue) => issue.message).find((text) => /[А-Яа-яЁё]/.test(text))
-    return { error: errorResponse(message ?? "Неверные данные", 400, { details: z.flattenError(result.error) }) }
+    const body = zodErrorBody(result.error)
+    return { error: errorResponse(body.error, 400, { field: body.field, details: body.details }) }
   }
   return { data: result.data }
 }
@@ -76,15 +81,19 @@ export const MAX_QTY = 1e9
 
 const DATE_ERROR = "Неверная дата"
 /** A real calendar day "YYYY-MM-DD" (2026-13-45 and 2026-02-31 are refused). */
-const dateString = z.string({ error: DATE_ERROR }).regex(/^\d{4}-\d{2}-\d{2}$/, DATE_ERROR).refine((value) => isIsoDay(value), DATE_ERROR)
+const dateString = z
+  .string({ error: DATE_ERROR })
+  .regex(/^\d{4}-\d{2}-\d{2}$/, DATE_ERROR)
+  // A real day of a sane year (2000..2100, lib/document-dates.ts).
+  .refine((value) => isIsoDay(value) && docYearOk(value), DATE_ERROR)
 const QTY_ERROR = "Количество должно быть больше 0 и не больше 1 000 000 000"
-const amount = z.coerce.number({ error: QTY_ERROR }).finite(QTY_ERROR).positive(QTY_ERROR).max(MAX_QTY, QTY_ERROR)
+const amount = strictNum(z.number({ error: QTY_ERROR }).finite(QTY_ERROR).positive(QTY_ERROR).max(MAX_QTY, QTY_ERROR), QTY_ERROR)
 const name = z.string({ error: "Заполните наименование" }).trim().min(1, "Заполните наименование").max(255, "Не более 255 символов")
 const text = () => z.string().trim().max(2000, "Не более 2000 символов").default("")
 const TIME_ERROR = "Время должно быть в формате ЧЧ:ММ"
 const time = z.string().trim().refine((value) => value === "" || /^([01]\d|2[0-3]):[0-5]\d$/.test(value), TIME_ERROR).default("")
-const id = z.coerce.number().int().positive()
-const optionalId = z.coerce.number().int().positive().nullable().default(null)
+const id = dbId()
+const optionalId = dbId().nullable().default(null)
 
 /** "product:12" / "raw_material:5" catalog key, validated and split. */
 export const itemKeySchema = z
@@ -110,13 +119,14 @@ export const schemas = {
   equipment: z.object({
     stageId: id,
     name,
-    status: z.enum(["0", "1"]).default("0"),
+    // Omitted: a new machine is "работает" (as the form starts it), an edit keeps its status.
+    status: z.enum(["0", "1"]).optional(),
     image: z.string().max(3_000_000).default(""),
   }),
   operation: z.object({
     stageId: id,
     title: name,
-    duration: z.coerce.number().int().min(0).max(MAX_QTY).default(0),
+    duration: strictNum(z.number().int().min(0).max(MAX_QTY).default(0)),
     type: z.enum(["equipment", "human"]),
     equipmentId: optionalId,
   }),
@@ -188,7 +198,7 @@ export const schemas = {
       .array(
         z.object({
           key: itemKeySchema,
-          actual: z.coerce.number({ error: "Фактическое количество: от 0 до 1 000 000 000" }).finite().min(0, "Фактическое количество: от 0 до 1 000 000 000").max(MAX_QTY, "Фактическое количество: от 0 до 1 000 000 000"),
+          actual: strictNum(z.number({ error: "Фактическое количество: от 0 до 1 000 000 000" }).finite().min(0, "Фактическое количество: от 0 до 1 000 000 000").max(MAX_QTY, "Фактическое количество: от 0 до 1 000 000 000"), "Фактическое количество: от 0 до 1 000 000 000"),
         }),
       )
       .min(1, "Нет строк для сверки")

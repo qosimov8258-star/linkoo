@@ -2,13 +2,13 @@ import { NextResponse } from "next/server"
 
 import { getCurrentUser } from "@/lib/current-user"
 import { requireRole } from "@/lib/rbac"
-import { parseJsonBody } from "@/lib/validation"
+import { notSignedInResponse, parseJsonBody } from "@/lib/validation"
 import { getOrderDebtConfig, orderDebtConfigSchema, orderDebtErrorResponse, setOrderDebtConfig } from "@/lib/finance-order-debts"
 
 // GET /api/order-debts/settings → OrderDebtConfig (aging periods, default 7 / 30 / 120).
 export async function GET() {
   const user = await getCurrentUser()
-  if (!user) return NextResponse.json({ error: "Tizimga kirilmagan" }, { status: 401 })
+  if (!user) return notSignedInResponse()
   return NextResponse.json(await getOrderDebtConfig())
 }
 

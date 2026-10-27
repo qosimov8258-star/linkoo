@@ -13,7 +13,10 @@ import { AddReturnDialog } from "./add-return-dialog"
 // Продажи → Возвраты: client returns stored by /api/client-returns. A return
 // is created "pending"; "Принять на склад" accepts it — only then the goods
 // come back into its warehouse (stock) and the client is credited by its
-// amount (client balance). A pending return can be edited or cancelled.
+// amount (client balance). A pending return can be edited or cancelled. An
+// accepted one can be undone ("Отменить приемку", after a confirmation): it goes
+// back to pending while its warehouse still holds the goods (else the server
+// answers 409 with the shortage).
 
 export type ClientReturnItem = { id: number; productId: number | null; productName: string; unit: string; quantity: number; price: number; total: number; orderItemId: number | null }
 
@@ -35,6 +38,8 @@ export type ClientReturnRow = {
   createdAt: string
   acceptedAt: string | null
   acceptedBy: string
+  unacceptedAt?: string | null
+  unacceptedBy?: string
   items?: ClientReturnItem[]
   itemCount?: number
 }
@@ -61,19 +66,32 @@ function money(value: number) {
   return value.toLocaleString("ru-RU", { maximumFractionDigits: 2 })
 }
 
-async function call<T>(url: string, init?: { method?: string; body?: unknown }): Promise<{ ok: true; body: T } | { ok: false; error: string }> {
+/** A line the warehouse no longer holds (409 of "Отменить приемку" / cancel of an accepted return). */
+type Shortage = { product: string; unit: string; required: number; available: number }
+
+async function call<T>(url: string, init?: { method?: string; body?: unknown }): Promise<{ ok: true; body: T } | { ok: false; error: string; shortages?: Shortage[] }> {
   try {
     const response = await fetch(url, {
       method: init?.method ?? "GET",
       headers: init?.body !== undefined ? { "Content-Type": "application/json" } : undefined,
       body: init?.body !== undefined ? JSON.stringify(init.body) : undefined,
     })
-    const body = (await response.json().catch(() => null)) as (T & { error?: string }) | null
-    if (!response.ok || body === null) return { ok: false, error: body?.error ?? "Не удалось сохранить изменения на сервере" }
+    const body = (await response.json().catch(() => null)) as (T & { error?: string; shortages?: Shortage[] }) | null
+    if (!response.ok || body === null) return { ok: false, error: body?.error ?? "Не удалось сохранить изменения на сервере", shortages: body?.shortages }
     return { ok: true, body }
   } catch {
     return { ok: false, error: "Не удалось сохранить изменения на сервере" }
   }
+}
+
+/** Error text of a failed call: a stock shortage is composed from translated parts
+ * (product names stay as they are), anything else is translated as a whole. */
+function errorText(result: { error: string; shortages?: Shortage[] }, warehouse: string, t: (text: string) => string): string {
+  if (!result.shortages?.length) return t(result.error)
+  const parts = result.shortages
+    .slice(0, 5)
+    .map((line) => `${line.product} — ${t("доступно")} ${money(line.available)} ${line.unit}, ${t("требуется")} ${money(line.required)} ${line.unit}`.trim())
+  return `${t("Не возможно отменить.")} ${t("Недостаточно товара на складе")} «${warehouse}»: ${parts.join("; ")}${result.shortages.length > 5 ? "; …" : ""}`
 }
 
 export function ReturnsView() {
@@ -258,9 +276,9 @@ export function ReturnsView() {
             </>,
             row.deliverer || t("Не указано"),
             <>
-              {displayDay(row.returnDate)}
+              {t(displayDay(row.returnDate))}
               <br />
-              <span className="text-[#4f71dc]">{displayMoment(row.acceptedAt)}</span>
+              <span className="text-[#4f71dc]">{t(displayMoment(row.acceptedAt))}</span>
             </>,
             row.createdBy || "—",
             row.agent || t("Не указано"),
@@ -302,6 +320,48 @@ export function ReturnsView() {
   )
 }
 
+/** The return card over another page (Активность → Возврат card): the same Detail as
+ * Продажи → Возвраты, with its own notices. Escape or the backdrop closes it. */
+export function ClientReturnDialog({ id, onClose }: { id: number; onClose: () => void }) {
+  const { t } = useLanguage()
+  const warehouses = useDirectoryNames("warehouses")
+  const [notice, setNotice] = useState<{ tone: "ok" | "error"; text: string } | null>(null)
+  const onChanged = useCallback((message?: string) => setNotice(message ? { tone: "ok", text: message } : null), [])
+  const onError = useCallback((message: string) => setNotice({ tone: "error", text: message }), [])
+
+  useEffect(() => {
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape" && !event.defaultPrevented) onClose()
+    }
+    document.addEventListener("keydown", closeOnEscape)
+    return () => document.removeEventListener("keydown", closeOnEscape)
+  }, [onClose])
+
+  return (
+    <div
+      className="fixed inset-0 z-[90] overflow-y-auto bg-black/45 p-4"
+      role="dialog"
+      aria-modal="true"
+      aria-label={t("Возврат №")}
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose()
+      }}
+    >
+      <div className="mx-auto my-6 w-full max-w-[1200px]">
+        {notice && (
+          <div className={`flex items-center justify-between rounded px-4 py-3 text-sm ${notice.tone === "ok" ? "bg-[#e9f8ed] text-[#278549]" : "bg-[#fdecea] text-[#c62828]"}`}>
+            {notice.text}
+            <button type="button" onClick={() => setNotice(null)} aria-label={t("Закрыть уведомление")}>
+              <X size={18} />
+            </button>
+          </div>
+        )}
+        <Detail id={id} warehouses={warehouses} close={onClose} onChanged={onChanged} onError={onError} />
+      </div>
+    </div>
+  )
+}
+
 function Detail({
   id,
   warehouses,
@@ -320,6 +380,7 @@ function Detail({
   const [editOpen, setEditOpen] = useState(false)
   const [edit, setEdit] = useState({ warehouse: "", returnDate: "", comment: "" })
   const [busy, setBusy] = useState(false)
+  const [confirmUndo, setConfirmUndo] = useState(false)
 
   const load = useCallback(async () => {
     const result = await call<ClientReturnRow>(`/api/client-returns/${id}`)
@@ -333,12 +394,14 @@ function Detail({
 
   if (!row) return null
   const pending = row.status === "pending"
+  const accepted = row.status === "accepted"
 
-  async function act(path: "accept" | "cancel", message: string) {
+  async function act(path: "accept" | "cancel" | "unaccept", message: string) {
     setBusy(true)
     const result = await call<ClientReturnRow>(`/api/client-returns/${id}/${path}`, { method: "POST" })
     setBusy(false)
-    if (!result.ok) return onError(t(result.error))
+    setConfirmUndo(false)
+    if (!result.ok) return onError(errorText(result, row?.warehouse ?? "", t))
     setRow({ ...result.body })
     onChanged(message)
   }
@@ -375,6 +438,7 @@ function Detail({
               <RefButton red label={`⊖　${t("Отменить запрос")}`} disabled={busy} onClick={() => act("cancel", t("Возврат отменен"))} />
             </>
           )}
+          {accepted && <RefButton red label={`⟲　${t("Отменить приемку")}`} disabled={busy} onClick={() => setConfirmUndo(true)} />}
           <button type="button" onClick={close} aria-label={t("Закрыть")}>
             <X />
           </button>
@@ -390,7 +454,7 @@ function Detail({
           <br />
           {t("Заказ")}: <b className="float-right">{row.orderId ? `№${row.orderId}` : t("Не указан")}</b>
           <br />
-          {t("Дата возврата")}: <b className="float-right">{displayDay(row.returnDate)}</b>
+          {t("Дата возврата")}: <b className="float-right">{t(displayDay(row.returnDate))}</b>
           <br />
           {t("Доставщик")}: <b className="float-right">{row.deliverer || t("Не указано")}</b>
           <br />
@@ -406,7 +470,13 @@ function Detail({
           <br />
           {row.acceptedAt && (
             <>
-              {t("Принял")}: <b className="float-right">{`${row.acceptedBy || "—"}, ${displayMoment(row.acceptedAt)}`}</b>
+              {t("Принял")}: <b className="float-right">{`${row.acceptedBy || "—"}, ${t(displayMoment(row.acceptedAt))}`}</b>
+              <br />
+            </>
+          )}
+          {row.unacceptedAt && (
+            <>
+              {t("Приемка отменена")}: <b className="float-right">{`${row.unacceptedBy || "—"}, ${t(displayMoment(row.unacceptedAt))}`}</b>
             </>
           )}
         </aside>
@@ -446,6 +516,41 @@ function Detail({
           </table>
         </div>
       </div>
+
+      {confirmUndo && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/45 p-4" role="dialog" aria-modal="true" aria-label={t("Отменить приемку")}>
+          <div className="w-full max-w-md rounded-md bg-white p-6 shadow-xl">
+            <div className="mb-4 flex items-center justify-between">
+              <h3 className="text-lg font-bold">
+                {t("Отменить приемку возврата №")}
+                {row.id}?
+              </h3>
+              <button type="button" onClick={() => setConfirmUndo(false)} aria-label={t("Закрыть")}>
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <p className="mb-2 text-[13px] text-slate-600">
+              {t("Товары возврата будут списаны со склада")} «{row.warehouse}».
+            </p>
+            <p className="mb-5 text-[13px] text-slate-600">
+              {t("Сумма возврата будет снята с баланса клиента")}: <b>{`${money(row.amount)} ${row.currency}`}</b>. {t("Возврат вернется в статус «Ожидает».")}
+            </p>
+            <div className="flex justify-end gap-3">
+              <button type="button" disabled={busy} onClick={() => setConfirmUndo(false)} className="h-[34px] rounded-[5px] border border-[#d0d5dd] px-4 text-[13px] font-semibold text-slate-700 disabled:opacity-50">
+                {t("Отмена")}
+              </button>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => act("unaccept", t("Приемка возврата отменена"))}
+                className="h-[34px] rounded-[5px] bg-[#e57373] px-4 text-[13px] font-semibold text-white disabled:opacity-50"
+              >
+                {t("Подтвердить")}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {editOpen && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/45 p-4">

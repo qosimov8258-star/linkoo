@@ -17,8 +17,14 @@ type AccountRow = {
   role: Role
   accessRightId: number | null
   mustChangePassword: boolean
+  employeeId: number | null
+  employeeName: string | null
+  /** False when the linked employee is deactivated or has no system access. */
+  canSignIn: boolean
   createdAt: string
 }
+
+type EmployeeOption = { id: number; name: string; position: string; active: boolean; systemAccess: boolean }
 
 const ROLE_LABELS: Record<Role, string> = {
   admin: "Администратор",
@@ -26,9 +32,9 @@ const ROLE_LABELS: Record<Role, string> = {
   viewer: "Только просмотр",
 }
 
-type Draft = { username: string; displayName: string; password: string; role: Role; accessRightId: string }
+type Draft = { username: string; displayName: string; password: string; role: Role; accessRightId: string; employeeId: string }
 
-const emptyDraft = (): Draft => ({ username: "", displayName: "", password: "", role: "manager", accessRightId: "" })
+const emptyDraft = (): Draft => ({ username: "", displayName: "", password: "", role: "manager", accessRightId: "", employeeId: "" })
 
 /**
  * "Пользователи": the accounts that sign in to the system. Each account has a
@@ -36,7 +42,10 @@ const emptyDraft = (): Draft => ({ username: "", displayName: "", password: "", 
  * доступа): a restricted account may only change the resources that the access
  * right's capabilities allow (e.g. a sales agent without "Касса" cannot move or
  * delete cash). An administrator can also reset a password here; the user must
- * then choose a new one at the next sign-in.
+ * then choose a new one at the next sign-in (so must a new account).
+ *
+ * An account can be tied to an employee (Сотрудники): while the employee is
+ * deactivated or "Доступ к системе" is off, the account cannot sign in.
  */
 export function UsersPanel({ accessRights }: { accessRights: AccessRight[] }) {
   const { t } = useLanguage()
@@ -46,6 +55,7 @@ export function UsersPanel({ accessRights }: { accessRights: AccessRight[] }) {
   const [draft, setDraft] = useState<Draft>(emptyDraft)
   const [formError, setFormError] = useState("")
   const [saving, setSaving] = useState(false)
+  const [employees, setEmployees] = useState<EmployeeOption[]>([])
 
   useEffect(() => {
     let cancelled = false
@@ -57,12 +67,30 @@ export function UsersPanel({ accessRights }: { accessRights: AccessRight[] }) {
       .catch(() => {
         if (!cancelled) setLoadError("Не удалось загрузить пользователей")
       })
+    fetch("/api/employees")
+      .then((response) => (response.ok ? (response.json() as Promise<EmployeeOption[]>) : []))
+      .then((rows) => {
+        if (!cancelled) setEmployees(rows.map(({ id, name, position, active, systemAccess }) => ({ id, name, position, active, systemAccess })))
+      })
+      .catch(() => {})
     return () => {
       cancelled = true
     }
   }, [])
 
   const accessRightName = useMemo(() => new Map(accessRights.map((item) => [item.id, item.name])), [accessRights])
+  const sortedEmployees = useMemo(() => [...employees].sort((a, b) => a.name.localeCompare(b.name)), [employees])
+
+  // Employees already tied to another account cannot be chosen again.
+  function linkedElsewhere(employeeId: number): boolean {
+    const ownId = editing && editing !== "new" ? editing.id : null
+    return users.some((user) => user.employeeId === employeeId && user.id !== ownId)
+  }
+
+  function employeeLabel(employee: EmployeeOption): string {
+    const note = !employee.active ? t("Удален") : !employee.systemAccess ? t("Нет доступа к системе") : ""
+    return `${employee.name}${employee.position ? ` — ${employee.position}` : ""}${note ? ` (${note})` : ""}`
+  }
 
   function openCreate() {
     setDraft(emptyDraft())
@@ -77,6 +105,7 @@ export function UsersPanel({ accessRights }: { accessRights: AccessRight[] }) {
       password: "",
       role: user.role,
       accessRightId: user.accessRightId ? String(user.accessRightId) : "",
+      employeeId: user.employeeId ? String(user.employeeId) : "",
     })
     setFormError("")
     setEditing(user)
@@ -98,12 +127,14 @@ export function UsersPanel({ accessRights }: { accessRights: AccessRight[] }) {
       if (weak) return setFormError(t(weak))
     }
     const accessRightId = draft.accessRightId ? Number(draft.accessRightId) : null
+    const employeeId = draft.employeeId ? Number(draft.employeeId) : null
     const body = isNew
-      ? { username, displayName: draft.displayName.trim(), password: draft.password, role: draft.role, accessRightId }
+      ? { username, displayName: draft.displayName.trim(), password: draft.password, role: draft.role, accessRightId, employeeId }
       : {
           displayName: draft.displayName.trim(),
           role: draft.role,
           accessRightId,
+          employeeId,
           ...(draft.password ? { password: draft.password } : {}),
         }
     setSaving(true)
@@ -160,6 +191,7 @@ export function UsersPanel({ accessRights }: { accessRights: AccessRight[] }) {
             <tr className="border-b border-slate-200">
               <th className="px-5 py-3 text-[13px] font-bold text-black">{t("Логин")}</th>
               <th className="px-5 py-3 text-[13px] font-bold text-black">{t("Имя")}</th>
+              <th className="px-5 py-3 text-[13px] font-bold text-black">{t("Сотрудник")}</th>
               <th className="px-5 py-3 text-[13px] font-bold text-black">{t("Роль")}</th>
               <th className="px-5 py-3 text-[13px] font-bold text-black">{t("Права доступа")}</th>
               <th className="w-20" />
@@ -173,6 +205,16 @@ export function UsersPanel({ accessRights }: { accessRights: AccessRight[] }) {
                 </td>
                 <td className="px-5 py-[12px] text-[13px]" data-no-translate>
                   {user.displayName}
+                </td>
+                <td className="px-5 py-[12px] text-[13px]">
+                  {user.employeeId ? (
+                    <>
+                      <span data-no-translate>{user.employeeName ?? `#${user.employeeId}`}</span>
+                      {!user.canSignIn && <span className="block text-[12px] text-rose-600">{t("Доступ к системе отключен")}</span>}
+                    </>
+                  ) : (
+                    <span className="text-slate-400">—</span>
+                  )}
                 </td>
                 <td className="whitespace-nowrap px-5 py-[12px] text-[13px]">
                   {t(ROLE_LABELS[user.role])}
@@ -205,7 +247,7 @@ export function UsersPanel({ accessRights }: { accessRights: AccessRight[] }) {
             ))}
             {!loadError && users.length === 0 && (
               <tr>
-                <td colSpan={5} className="px-5 py-10 text-center text-slate-400">
+                <td colSpan={6} className="px-5 py-10 text-center text-slate-400">
                   {t("Ничего не найдено")}
                 </td>
               </tr>
@@ -274,6 +316,24 @@ export function UsersPanel({ accessRights }: { accessRights: AccessRight[] }) {
                 {t("Пользователь с правами доступа может изменять только разделы, разрешенные его возможностями. Администратор не ограничивается.")}
               </p>
               <label className="block border-b border-[#d5dae1] pb-[4px] text-[10px] font-semibold">
+                {t("Сотрудник")}
+                <select
+                  value={draft.employeeId}
+                  onChange={(event) => setDraft((value) => ({ ...value, employeeId: event.target.value }))}
+                  className={fieldClass}
+                >
+                  <option value="">{t("Не указано")}</option>
+                  {sortedEmployees.map((employee) => (
+                    <option key={employee.id} value={String(employee.id)} disabled={linkedElsewhere(employee.id)} data-no-translate>
+                      {employeeLabel(employee)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <p className="text-[12px] text-slate-400">
+                {t("Пользователь, привязанный к сотруднику, не сможет войти, пока сотрудник удален или у него отключен доступ к системе.")}
+              </p>
+              <label className="block border-b border-[#d5dae1] pb-[4px] text-[10px] font-semibold">
                 {isNew ? t("Пароль") : t("Новый пароль")} {isNew && <span className="text-red-500">*</span>}
                 <input
                   type="password"
@@ -285,7 +345,9 @@ export function UsersPanel({ accessRights }: { accessRights: AccessRight[] }) {
                 />
               </label>
               <p className="text-[12px] text-slate-400">
-                {isNew ? t("Не менее 8 символов; пароль не может состоять только из цифр.") : t("Оставьте пустым, чтобы не менять. Новый пароль нужно будет сменить при следующем входе.")}
+                {isNew
+                  ? `${t("Не менее 8 символов; пароль не может состоять только из цифр.")} ${t("Этот пароль нужно будет сменить при первом входе.")}`
+                  : t("Оставьте пустым, чтобы не менять. Новый пароль нужно будет сменить при следующем входе.")}
               </p>
               {formError && <p className="text-sm font-medium text-rose-600">{formError}</p>}
             </div>

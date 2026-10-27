@@ -1,6 +1,7 @@
 import { z } from "zod"
 
 import { WAREHOUSE_ORDERINGS, type WarehouseOrdering, type WarehouseStockType } from "@/components/analytics/warehouses-data"
+import { strictNum } from "@/lib/strict-number"
 
 // Request schemas of /api/warehouses. The body accepts our camelCase names, the
 // demo stock/stock/ serializer names (full_name, stock_type, stock_manager,
@@ -141,7 +142,7 @@ export function activeFilterOf(value: string | null | undefined, fallback: Wareh
 }
 
 const text = (max: number) => z.preprocess(emptyToUndefined, z.string().trim().max(max).optional())
-const int = (min: number, max: number) => z.preprocess(emptyToUndefined, z.coerce.number().int().min(min).max(max).optional())
+const int = (min: number, max: number) => z.preprocess(emptyToUndefined, strictNum(z.number().int().min(min).max(max).optional()))
 const ORDERING_VALUES = new Set<string>(WAREHOUSE_ORDERINGS.flatMap((field) => [field, `-${field}`]))
 
 export const warehouseListQuerySchema = z.object({

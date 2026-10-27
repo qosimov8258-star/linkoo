@@ -2,6 +2,7 @@ import "server-only"
 
 import type { PgDb } from "@/lib/db"
 import type { CatalogKind, CatalogUsage } from "@/lib/products-types"
+import { usageTableLabel } from "@/lib/usage-labels"
 
 // Where products and raw materials are referenced, for the hard-delete check and the
 // rename cascade. Documents mostly store the item NAME (the demo links by id), and the
@@ -18,7 +19,9 @@ import type { CatalogKind, CatalogUsage } from "@/lib/products-types"
 //   (a keyed line follows its item, an unkeyed one goes by name): write_offs.items,
 //     internal_transfers.items, internal_transfer_logs.items (history snapshot),
 //     repricings.items (field "product"), production_inventories.lines (field "name")
-//   JSON TEXT array of names: product_restrictions.items (scope = 'products')
+//   JSON TEXT array of names: product_restrictions.items (scope = 'products') — the older
+//     name-based table, only until lib/product-restrictions-repo.ts migrates it; the id-based
+//     product_restrictions.product_id is found as an id ref (a hard delete is refused)
 //   plain text with an exact companion reference (the name follows the id):
 //     order_items.product_name (+ product_id), production_movements / production_recipes /
 //     production_recipe_items.item_name (+ item_kind, item_id), stock_inventory_items.item_name
@@ -104,8 +107,10 @@ const TABLE_LABELS: Record<string, string> = {
   production_movements: "Производство",
   production_recipes: "Рецепты",
   production_recipe_items: "Рецепты",
-  product_restrictions: "Ограничения продуктов",
+  product_restrictions: "Ограничение продуктов",
   order_items: "Заказы",
+  client_returns: "Возвраты",
+  client_return_items: "Возвраты",
   stock_inventory_items: "Инвентаризация",
   inventory_items: "Работа с инвентарем",
   inventory_item_requests: "Заявки по инвентарю",
@@ -116,7 +121,7 @@ const TABLE_LABELS: Record<string, string> = {
 }
 
 export function catalogRefLabel(table: string): string {
-  return TABLE_LABELS[table] ?? table
+  return usageTableLabel(table, TABLE_LABELS)
 }
 
 const isHistoryTable = (table: string) => /_logs?$/.test(table)

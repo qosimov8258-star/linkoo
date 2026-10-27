@@ -425,7 +425,7 @@ async function applyAcceptanceUpdate(tx: PgDb, id: number, header: Record<string
     .all({ id })) as Array<{ id: number; amount: number; currency: string; real_amount: number | null; real_currency: string; custom_rate: number | null; debt_rate: number | null }>
   const edits = new Map((input.payments ?? []).map((item) => [item.id, Number(item.amount)]))
   for (const paymentId of edits.keys()) if (!rows.some((row) => row.id === paymentId)) throw new CashError("Оплата не входит в эту приемку", 400, "payments")
-  const date = input.date ? localDateTime(input.date) : String(header.date)
+  const date = input.date ? localDateTime(input.date, "date", header.date) : String(header.date)
   const cashRate = pickRate(cashbox.currency, cc)
   let total = 0
   for (const row of rows) {

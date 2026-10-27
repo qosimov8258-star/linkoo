@@ -166,7 +166,7 @@ export function ReportSelectField({
         ))}
       </select>
       {hasValue && clearable && (
-        <button type="button" aria-label="clear" onClick={() => onChange("")} className="absolute bottom-[8px] right-[22px] z-10 flex h-5 w-5 items-center justify-center text-[18px] leading-none text-[#999]">
+        <button type="button" aria-label={t("Очистить")} onClick={() => onChange("")} className="absolute bottom-[8px] right-[22px] z-10 flex h-5 w-5 items-center justify-center text-[18px] leading-none text-[#999]">
           ×
         </button>
       )}
@@ -239,13 +239,13 @@ export function ReportMultiChipField({
       <span className="absolute left-0 top-[23px] z-10 flex items-center gap-[5px] text-[13px] font-semibold leading-5 text-white">
         {values.map((value) => (
           <span key={value} className="flex h-5 items-stretch overflow-hidden">
-            <button type="button" aria-label="remove" onClick={() => onChange(values.filter((item) => item !== value))} className="border-r border-white/30 bg-[#5c6df3] px-[5px] text-[12px]">×</button>
+            <button type="button" aria-label={t("Удалить")} onClick={() => onChange(values.filter((item) => item !== value))} className="border-r border-white/30 bg-[#5c6df3] px-[5px] text-[12px]">×</button>
             <span className="bg-[#5c6df3] px-[5px]">{t(value)}</span>
           </span>
         ))}
       </span>
       {values.length > 0 && (
-        <button type="button" aria-label="clear" onClick={() => onChange([])} className="absolute bottom-[8px] right-[22px] z-10 text-[18px] leading-none text-[#999]">×</button>
+        <button type="button" aria-label={t("Очистить")} onClick={() => onChange([])} className="absolute bottom-[8px] right-[22px] z-10 text-[18px] leading-none text-[#999]">×</button>
       )}
       <svg viewBox="0 0 24 24" className="pointer-events-none absolute bottom-[6px] right-0 h-6 w-6 fill-[#999]" aria-hidden>
         {CARET}
@@ -284,7 +284,7 @@ export function ReportEmpty({ text, className = "pb-[44px] pt-[65px]" }: { text?
     <div className={`flex flex-col items-center ${className}`}>
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img src="/robot-empty.png" alt="" className="w-[157px]" />
-      <span className="mt-[14px] text-[13px] text-[#8c8c8c]">{text ?? t("По вашему запросу ничего не найдено...")}</span>
+      <span className="mt-[14px] text-[13px] text-[#8c8c8c]">{typeof text === "string" ? t(text) : (text ?? t("По вашему запросу ничего не найдено..."))}</span>
     </div>
   )
 }

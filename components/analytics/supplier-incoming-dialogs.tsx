@@ -3,6 +3,7 @@
 import { X } from "lucide-react"
 import { FormEvent, useEffect, useMemo, useState, type ReactNode } from "react"
 
+import { todayIso } from "@/lib/finance/dates"
 import { useLanguage } from "@/lib/i18n/language-context"
 import { incomingPaymentTypes, supplyCostLines, type Incoming } from "./supplier-incomings-data"
 
@@ -17,13 +18,50 @@ export const LOG_LABELS: Record<string, string> = {
   repriced: "Наценка проставлена",
 }
 
-function todayLabel() {
-  const date = new Date()
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`
+type CurrencyRow = { code?: string; isBase?: boolean }
+
+/** Every configured currency (Валюты, GET /api/currencies, base first) for the currency selects of
+ * supplies, their expenses, "Наценка" and supplier returns. `base` is the base currency, the
+ * default of a new document ("SUM" until the list has loaded). */
+export function useCurrencyCodes(): { base: string; codes: string[] } {
+  const [state, setState] = useState<{ base: string; codes: string[] }>({ base: "SUM", codes: [] })
+  useEffect(() => {
+    let cancelled = false
+    fetch("/api/currencies", { cache: "no-store" })
+      .then((response) => (response.ok ? (response.json() as Promise<CurrencyRow[]>) : []))
+      .then((rows) => {
+        if (cancelled || !Array.isArray(rows)) return
+        const codes = Array.from(new Set(rows.map((row) => String(row.code ?? "").trim()).filter(Boolean)))
+        const base = String(rows.find((row) => row.isBase)?.code ?? "").trim() || codes[0] || "SUM"
+        setState({ base, codes })
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [])
+  return state
+}
+
+/** Options of a currency select: the configured codes (the base one when none is configured yet)
+ * plus the document's own code when it is not configured any more (an old document stays editable). */
+export function currencyChoices(codes: string[], base: string, current: string): string[] {
+  const list = codes.length ? [...codes] : [base]
+  const value = current.trim()
+  if (value && !list.includes(value)) list.push(value)
+  return list
 }
 
 function Dialog({ title, onClose, onSubmit, children, footer, wide }: { title: string; onClose: () => void; onSubmit: (event: FormEvent) => void; children: ReactNode; footer: ReactNode; wide?: boolean }) {
   const { t } = useLanguage()
+  // Escape closes the dialog, like the other dialogs of the app.
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose()
+    }
+    document.addEventListener("keydown", onKey)
+    return () => document.removeEventListener("keydown", onKey)
+  }, [onClose])
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
       <form onSubmit={onSubmit} className={`flex max-h-[90vh] w-full ${wide ? "max-w-5xl" : "max-w-md"} flex-col rounded bg-white`}>
@@ -44,10 +82,14 @@ const fieldClass = "mt-2 block w-full border-b border-slate-200 bg-white pb-1 ou
  * spread over the lines' net cost. */
 export function IncomingExpenseDialog({ incoming, onClose, onSaved }: { incoming: Incoming; onClose: () => void; onSaved: (incoming: Incoming) => void }) {
   const { t } = useLanguage()
-  const [date, setDate] = useState(todayLabel())
+  // The business day (Asia/Tashkent): the server refuses a day after it.
+  const [date, setDate] = useState(() => todayIso())
   const [description, setDescription] = useState("")
   const [amount, setAmount] = useState("")
-  const [currency, setCurrency] = useState(incoming.currency || "SUM")
+  const currencies = useCurrencyCodes()
+  // "" = the default: the supply's currency, else the base currency.
+  const [currencyChoice, setCurrency] = useState(incoming.currency || "")
+  const currency = currencyChoice || currencies.base
   const [paymentType, setPaymentType] = useState<string>(incomingPaymentTypes[0])
   const [saving, setSaving] = useState(false)
 
@@ -98,8 +140,7 @@ export function IncomingExpenseDialog({ incoming, onClose, onSaved }: { incoming
         <label className="block text-sm font-medium">
           {t("Валюта")}
           <select value={currency} onChange={(event) => setCurrency(event.target.value)} className={fieldClass}>
-            <option>SUM</option>
-            <option>USD</option>
+            {currencyChoices(currencies.codes, currencies.base, currency).map((code) => <option key={code} value={code}>{code}</option>)}
           </select>
         </label>
       </div>
@@ -134,7 +175,10 @@ export function IncomingRepriceDialog({ incoming, units, onClose, onSaved }: { i
   const [baseCurrency, setBaseCurrency] = useState("SUM")
   const [productNames, setProductNames] = useState<Set<string> | null>(null)
   const [priceListId, setPriceListId] = useState("")
-  const [currency, setCurrency] = useState(incoming.currency || "SUM")
+  const currencies = useCurrencyCodes()
+  // "" = the default: the supply's currency, else the base currency.
+  const [currencyChoice, setCurrency] = useState(incoming.currency || "")
+  const currency = currencyChoice || currencies.base
   const [rate, setRate] = useState("")
   const [markup, setMarkup] = useState("")
   const [perProduct, setPerProduct] = useState(false)
@@ -232,7 +276,7 @@ export function IncomingRepriceDialog({ incoming, units, onClose, onSaved }: { i
     }
   }
 
-  const money = (value: number) => `${(Math.round(value * 100) / 100).toLocaleString("ru-RU")} ${incoming.currency || "SUM"}`
+  const money = (value: number) => `${(Math.round(value * 100) / 100).toLocaleString("ru-RU")} ${incoming.currency || currencies.base}`
 
   return (
     <Dialog
@@ -256,8 +300,7 @@ export function IncomingRepriceDialog({ incoming, units, onClose, onSaved }: { i
             <label className="block text-sm font-medium">
               {t("Валюта")}
               <select value={currency} onChange={(event) => setCurrency(event.target.value)} className={fieldClass}>
-                <option>SUM</option>
-                <option>USD</option>
+                {currencyChoices(currencies.codes, currencies.base, currency).map((code) => <option key={code} value={code}>{code}</option>)}
               </select>
             </label>
             <label className="block text-sm font-medium">

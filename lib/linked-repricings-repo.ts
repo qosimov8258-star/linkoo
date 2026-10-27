@@ -1,6 +1,6 @@
 import "server-only"
 
-import { getDb } from "@/lib/db"
+import { getDb, outsideTransaction } from "@/lib/db"
 
 // Journal of "Переоценку связанных" runs (demo POST main/reprice/connected/): which price list was
 // chosen, who ran it and which repricing documents it created (lib/repricings-repo.ts
@@ -30,7 +30,7 @@ declare global {
 
 function ensureSchema(): Promise<void> {
   if (!globalThis.__linkoLinkedRepricingsSchema) {
-    globalThis.__linkoLinkedRepricingsSchema = (async () => {
+    globalThis.__linkoLinkedRepricingsSchema = outsideTransaction(async () => {
       const db = getDb()
       await db.exec(`
         CREATE TABLE IF NOT EXISTS linked_repricings (
@@ -42,7 +42,7 @@ function ensureSchema(): Promise<void> {
         );
       `)
       await db.exec(`ALTER TABLE linked_repricings ADD COLUMN IF NOT EXISTS repricing_ids TEXT NOT NULL DEFAULT '[]'`)
-    })().catch((error) => {
+    }).catch((error) => {
       globalThis.__linkoLinkedRepricingsSchema = undefined
       throw error
     })

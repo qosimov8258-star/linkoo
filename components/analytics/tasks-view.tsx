@@ -1,312 +1,397 @@
 "use client"
 
-import { CheckBox, LineField, LineSelect, Modal, SaveButton } from "@/components/analytics/catalog-ui"
-import { Clock3, FileText, Pencil, PlusCircle, X } from "lucide-react"
-import Image from "next/image"
-import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react"
+import { Loader2 } from "lucide-react"
+import { usePathname, useSearchParams } from "next/navigation"
+import { useCallback, useEffect, useMemo, useState, type MouseEvent } from "react"
 
-import { RI, RefButton, RefCard, RefHeader, RefPage, RefTable, RefTabs, RefToolbar } from "@/components/ref/list-kit"
-import { mapHeaderColumns, readExcelRows } from "@/lib/excel-import"
-import { taskResponsibles as responsibles, taskStatusLabels as statusLabels, taskStores as stores, type Task } from "./tasks-data"
+import { CashSnackbar, useCanManage, type SnackbarMessage } from "@/components/analytics/cash-management-shared"
+import { RI, RefButton, RefCard, RefEmpty, RefHeader, RefPage, RefTabs } from "@/components/ref/list-kit"
+import { formatDateText } from "@/lib/i18n/format-date"
+import { useLanguage } from "@/lib/i18n/language-context"
+import {
+  TASK_DEFAULT_PAGE_SIZE,
+  TASK_PAGE_SIZES,
+  TASK_TABS,
+  monthRange,
+  todayTaskDate,
+  type TaskDetail,
+  type TaskListResponse,
+  type TaskOptions,
+  type TaskTab,
+} from "./tasks-data"
+import { TaskDialog } from "./tasks-dialog"
+import { TaskDrawer, TaskStatusIcon } from "./tasks-drawer"
+import { TaskFilterControl, type TaskFilterValue } from "./tasks-filter"
+import { TasksImportDialog } from "./tasks-import"
 
-const IMPORT_HEADER_ALIASES: Record<string, string> = {
-  "ответственный": "responsible", "responsible": "responsible",
-  "магазин": "store", "store": "store",
-  "описание": "description", "description": "description",
+// "Задачи" (/analytics/tasks), the reference app's "#/task-management/": tabs В процессе / Выполнено /
+// Завершенный / Все, the filter (opens on the current month of "Дата задачи"), search, server-side
+// paging, the task drawer (?task=<id>), "Добавить" / "Импортировать". The view state lives in the
+// URL (status, search, page, pageSize, responsible, createdBy, client, createdFrom, createdTo,
+// taskFrom, taskTo, task), so a reload or a shared link shows the same list.
+
+type ViewState = TaskFilterValue & { tab: TaskTab; search: string; page: number; pageSize: number; task: number | null }
+
+const LIST_KEYS = ["responsible", "createdBy", "client"] as const
+const DAY_KEYS = ["createdFrom", "createdTo", "taskFrom", "taskTo"] as const
+
+const ids = (raw: string | null) =>
+  (raw ?? "")
+    .split(",")
+    .map((part) => part.trim())
+    .filter((part) => /^\d{1,10}$/.test(part))
+const day = (raw: string | null) => (/^\d{4}-\d{2}-\d{2}$/.test(raw ?? "") ? (raw as string) : "")
+const positive = (raw: string | null, fallback: number) => (/^\d{1,7}$/.test(raw ?? "") && Number(raw) > 0 ? Number(raw) : fallback)
+
+/** The state of the URL; "Период задачи" defaults to the current month until the URL says otherwise. */
+function stateOf(params: URLSearchParams, today: string): ViewState {
+  const tabText = params.get("status") ?? ""
+  const tab = (TASK_TABS.some((item) => item.key === tabText) ? tabText : "all") as TaskTab
+  const [monthFrom, monthTo] = monthRange(today)
+  const hasTaskPeriod = params.has("taskFrom") || params.has("taskTo")
+  const size = positive(params.get("pageSize"), TASK_DEFAULT_PAGE_SIZE)
+  return {
+    tab,
+    search: (params.get("search") ?? "").slice(0, 200),
+    page: positive(params.get("page"), 1),
+    pageSize: (TASK_PAGE_SIZES as readonly number[]).includes(size) ? size : TASK_DEFAULT_PAGE_SIZE,
+    responsible: ids(params.get("responsible")),
+    createdBy: ids(params.get("createdBy")),
+    client: ids(params.get("client")),
+    createdFrom: day(params.get("createdFrom")),
+    createdTo: day(params.get("createdTo")),
+    taskFrom: hasTaskPeriod ? day(params.get("taskFrom")) : monthFrom,
+    taskTo: hasTaskPeriod ? day(params.get("taskTo")) : monthTo,
+    task: /^\d{1,10}$/.test(params.get("task") ?? "") ? Number(params.get("task")) : null,
+  }
 }
 
-function emptyDraft() {
-  return { responsible: responsibles[0], store: stores[0], description: "" }
+/** The URL of a state (defaults left out; a cleared task period is kept as empty values). */
+function paramsOf(state: ViewState, today: string): URLSearchParams {
+  const params = new URLSearchParams()
+  if (state.tab !== "all") params.set("status", state.tab)
+  if (state.search) params.set("search", state.search)
+  if (state.page > 1) params.set("page", String(state.page))
+  if (state.pageSize !== TASK_DEFAULT_PAGE_SIZE) params.set("pageSize", String(state.pageSize))
+  for (const key of LIST_KEYS) if (state[key].length) params.set(key, state[key].join(","))
+  if (state.createdFrom) params.set("createdFrom", state.createdFrom)
+  if (state.createdTo) params.set("createdTo", state.createdTo)
+  const [monthFrom, monthTo] = monthRange(today)
+  if (state.taskFrom !== monthFrom || state.taskTo !== monthTo) {
+    params.set("taskFrom", state.taskFrom)
+    params.set("taskTo", state.taskTo)
+  }
+  if (state.task !== null) params.set("task", String(state.task))
+  return params
 }
+
+/** The API query of a state (GET /api/tasks). */
+function apiParamsOf(state: ViewState): URLSearchParams {
+  const params = new URLSearchParams()
+  if (state.tab !== "all") params.set("status", state.tab)
+  if (state.search) params.set("search", state.search)
+  for (const key of LIST_KEYS) if (state[key].length) params.set(key, state[key].join(","))
+  for (const key of DAY_KEYS) if (state[key]) params.set(key, state[key])
+  return params
+}
+
+const EMPTY_OPTIONS: TaskOptions = { clients: [], employees: [], creators: [] }
 
 export function TasksView() {
-  const [tasks, setTasks] = useState<Task[]>([])
+  const { t, language } = useLanguage()
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
+  const today = useMemo(() => todayTaskDate(), [])
+  const state = useMemo(() => stateOf(new URLSearchParams(searchParams.toString()), today), [searchParams, today])
+  const canManage = useCanManage(["clients.manage"])
+
+  const [searchText, setSearchText] = useState(state.search)
+  const [data, setData] = useState<TaskListResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState("")
-  const [tab, setTab] = useState<"in_progress" | "fulfilled" | "closed" | "all">("all")
-  const [query, setQuery] = useState("")
-  const [page, setPage] = useState(1)
-  const [filterActive, setFilterActive] = useState(true)
-  const [filterEditOpen, setFilterEditOpen] = useState(false)
-  const [storeFilter, setStoreFilter] = useState("Все магазины")
-  const [editing, setEditing] = useState<"new" | null>(null)
-  const [draft, setDraft] = useState(emptyDraft)
-  const [repeatPlan, setRepeatPlan] = useState(false)
-  const [taskDate, setTaskDate] = useState("")
-  const [saving, setSaving] = useState(false)
+  const [reloadKey, setReloadKey] = useState(0)
+  const [options, setOptions] = useState<TaskOptions>(EMPTY_OPTIONS)
+  const [optionsKey, setOptionsKey] = useState(0)
+  const [dialog, setDialog] = useState<{ task: TaskDetail | null } | null>(null)
   const [importOpen, setImportOpen] = useState(false)
-  const [importFile, setImportFile] = useState<File | null>(null)
-  const [importSaving, setImportSaving] = useState(false)
-  const importInputRef = useRef<HTMLInputElement>(null)
-  const [pageSize, setPageSize] = useState(25)
+  const [drawerKey, setDrawerKey] = useState(0)
+  const [message, setMessage] = useState<SnackbarMessage | null>(null)
+
+  // The search box follows the URL (back / forward, a cleared filter).
+  useEffect(() => setSearchText(state.search), [state.search])
+
+  /** Writes a new state into the URL (Next.js keeps useSearchParams in sync, no server round-trip). */
+  const navigate = useCallback(
+    (patch: Partial<ViewState>, mode: "push" | "replace" = "replace") => {
+      const next = paramsOf({ ...state, ...patch }, today).toString()
+      const url = `${pathname}${next ? `?${next}` : ""}`
+      if (mode === "push") window.history.pushState(null, "", url)
+      else window.history.replaceState(null, "", url)
+    },
+    [state, pathname, today],
+  )
+
+  const apiQuery = useMemo(() => apiParamsOf(state), [state])
+  const apiKey = apiQuery.toString()
+
+  useEffect(() => {
+    const controller = new AbortController()
+    setLoading(true)
+    const params = new URLSearchParams(apiKey)
+    params.set("page", String(state.page))
+    params.set("pageSize", String(state.pageSize))
+    fetch(`/api/tasks?${params.toString()}`, { cache: "no-store", signal: controller.signal })
+      .then(async (response) => {
+        const body = (await response.json().catch(() => ({}))) as TaskListResponse & { error?: string }
+        if (!response.ok) throw new Error(body.error || "Не удалось загрузить задачи")
+        setData(body)
+        setLoadError("")
+      })
+      .catch((error: unknown) => {
+        if (controller.signal.aborted) return
+        setData(null)
+        setLoadError(error instanceof Error && error.message ? error.message : "Не удалось загрузить задачи")
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoading(false)
+      })
+    return () => controller.abort()
+  }, [apiKey, state.page, state.pageSize, reloadKey])
 
   useEffect(() => {
     let cancelled = false
-    setLoading(true)
-    fetch("/api/tasks")
-      .then(async (response) => {
-        if (!response.ok) throw new Error("Не удалось загрузить задачи")
-        return (await response.json()) as Task[]
+    fetch("/api/tasks/options", { cache: "no-store" })
+      .then((response) => (response.ok ? (response.json() as Promise<TaskOptions>) : EMPTY_OPTIONS))
+      .then((body) => {
+        if (!cancelled) setOptions({ clients: body.clients ?? [], employees: body.employees ?? [], creators: body.creators ?? [] })
       })
-      .then((data) => {
-        if (cancelled) return
-        setTasks(data)
-        setLoadError("")
-      })
-      .catch(() => {
-        if (!cancelled) setLoadError("Не удалось загрузить задачи с сервера")
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false)
-      })
+      .catch(() => {})
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [optionsKey])
 
-  const filtered = useMemo(
-    () =>
-      tasks
-        .filter((task) => tab === "all" || task.status === tab)
-        .filter((task) => storeFilter === "Все магазины" || task.store === storeFilter)
-        .filter((task) => !filterActive || task.date.startsWith(new Date().toISOString().slice(0, 7)))
-        .filter((task) => `${task.responsible} ${task.store} ${task.description}`.toLowerCase().includes(query.toLowerCase())),
-    [tasks, tab, storeFilter, query, filterActive],
-  )
-  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize))
-  const safePage = Math.min(page, pageCount)
-  const visible = filtered.slice((safePage - 1) * pageSize, safePage * pageSize)
+  const count = data?.count ?? 0
+  const pageCount = Math.max(1, Math.ceil(count / state.pageSize))
+  const rows = data?.results ?? []
+  const from = count ? (state.page - 1) * state.pageSize + 1 : 0
+  const to = Math.min(state.page * state.pageSize, count)
 
-  async function cycleStatus(id: number) {
-    const task = tasks.find((item) => item.id === id)
-    if (!task) return
-    const order: Task["status"][] = ["in_progress", "fulfilled", "closed"]
-    const status = order[(order.indexOf(task.status) + 1) % order.length]
-    try {
-      const response = await fetch(`/api/tasks/${id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ responsible: task.responsible, store: task.store, description: task.description, status }),
-      })
-      if (!response.ok) return
-      const saved = (await response.json()) as Task
-      setTasks((current) => current.map((item) => (item.id === id ? saved : item)))
-    } catch {
-      window.alert("Сервер недоступен, попробуйте ещё раз")
-    }
+  // A page beyond the end (the list shrank) goes back to the last page.
+  useEffect(() => {
+    if (!loading && data && state.page > pageCount) navigate({ page: pageCount })
+  }, [loading, data, state.page, pageCount, navigate])
+
+  const filterValue: TaskFilterValue = {
+    responsible: state.responsible,
+    createdBy: state.createdBy,
+    client: state.client,
+    createdFrom: state.createdFrom,
+    createdTo: state.createdTo,
+    taskFrom: state.taskFrom,
+    taskTo: state.taskTo,
   }
 
-  async function save(event: FormEvent) {
+  const employeeOptions = useMemo(() => options.employees.map(({ id, name, hint }) => ({ id, name, hint })), [options.employees])
+  const clientOptions = useMemo(() => options.clients.map(({ id, name, hint }) => ({ id, name, hint })), [options.clients])
+
+  const taskHref = (id: number) => {
+    const params = paramsOf({ ...state, task: id }, today).toString()
+    return `${pathname}?${params}`
+  }
+
+  const openTask = (event: MouseEvent<HTMLAnchorElement>, id: number) => {
+    if (event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) return
     event.preventDefault()
-    if (!draft.description.trim()) return
-    setSaving(true)
-    try {
-      const response = await fetch("/api/tasks", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ responsible: draft.responsible, store: draft.store, description: draft.description.trim(), status: "in_progress" }),
+    navigate({ task: id }, "push")
+  }
+
+  const afterSave = (saved: TaskDetail, created: boolean) => {
+    setDialog(null)
+    setMessage({ text: "Задача сохранена", tone: "success" })
+    setOptionsKey((value) => value + 1)
+    setDrawerKey((value) => value + 1)
+    if (created) {
+      // Show the new task: the first page of "Все", without filters that would hide it.
+      const [monthFrom, monthTo] = monthRange(saved.taskDate || today)
+      const keepPeriod = !state.taskFrom && !state.taskTo
+      navigate({
+        tab: "all",
+        search: "",
+        page: 1,
+        responsible: [],
+        createdBy: [],
+        client: [],
+        createdFrom: "",
+        createdTo: "",
+        taskFrom: keepPeriod ? "" : monthFrom,
+        taskTo: keepPeriod ? "" : monthTo,
       })
-      if (!response.ok) {
-        const data = await response.json().catch(() => ({}))
-        window.alert(data.error || "Не удалось создать задачу")
-        return
-      }
-      const saved = (await response.json()) as Task
-      setTasks((current) => [saved, ...current])
-      setEditing(null)
-    } catch {
-      window.alert("Сервер недоступен, попробуйте ещё раз")
-    } finally {
-      setSaving(false)
     }
+    setReloadKey((value) => value + 1)
   }
-
-  function pickImportFile(event: ChangeEvent<HTMLInputElement>) {
-    setImportFile(event.target.files?.[0] ?? null)
-  }
-
-  async function saveImport() {
-    if (!importFile) return
-    setImportSaving(true)
-    try {
-      const rows = await readExcelRows(importFile)
-      if (!rows.length) {
-        window.alert("Не удалось найти задачи для импорта в выбранном файле")
-        return
-      }
-      const fieldByIndex = mapHeaderColumns(rows[0], IMPORT_HEADER_ALIASES)
-      const hasHeader = Array.from(fieldByIndex.values()).includes("description") || Array.from(fieldByIndex.values()).includes("store")
-      const dataRows = hasHeader ? rows.slice(1) : rows
-
-      const parsed: { responsible: string; store: string; description: string }[] = []
-      for (const row of dataRows) {
-        const record: Record<string, string> = {}
-        if (hasHeader) {
-          row.forEach((cell, index) => {
-            const field = fieldByIndex.get(index)
-            if (field) record[field] = cell
-          })
-        } else {
-          record.responsible = row[0] ?? ""
-          record.store = row[1] ?? ""
-          record.description = row[2] ?? ""
-        }
-        if (!record.description && !record.store) continue
-        parsed.push({
-          responsible: record.responsible || responsibles[0],
-          store: record.store || stores[0],
-          description: record.description || "",
-        })
-      }
-
-      if (!parsed.length) {
-        window.alert("Не удалось найти задачи для импорта в выбранном файле")
-        return
-      }
-
-      const created: Task[] = []
-      let failed = 0
-      for (const item of parsed) {
-        try {
-          const response = await fetch("/api/tasks", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ ...item, status: "in_progress" }),
-          })
-          if (response.ok) created.push((await response.json()) as Task)
-          else failed += 1
-        } catch {
-          failed += 1
-        }
-      }
-      if (created.length) setTasks((current) => [...created, ...current])
-      if (failed) window.alert(`Импортировано ${created.length} из ${parsed.length}. Не удалось сохранить: ${failed}`)
-    } finally {
-      setImportSaving(false)
-      setImportOpen(false)
-      setImportFile(null)
-    }
-  }
-
-  const tabs: { key: typeof tab; label: string }[] = [
-    { key: "in_progress", label: "В процессе" },
-    { key: "fulfilled", label: "Выполнено" },
-    { key: "closed", label: "Завершенный" },
-    { key: "all", label: "Все" },
-  ]
 
   return (
     <RefPage>
-      <input ref={importInputRef} type="file" accept=".csv,.xls,.xlsx" onChange={pickImportFile} className="hidden" />
       <RefHeader title="Задачи">
-        <RefButton icon={RI.chart} label="Импортировать" onClick={() => setImportOpen(true)} />
-        <RefButton icon={RI.add} green label="Добавить" onClick={() => { setDraft(emptyDraft()); setEditing("new") }} />
+        {canManage && <RefButton icon={RI.chart} label="Импортировать" onClick={() => setImportOpen(true)} />}
+        {canManage && <RefButton icon={RI.add} green label="Добавить" onClick={() => setDialog({ task: null })} />}
       </RefHeader>
 
       <RefCard className="bg-white">
-        <RefTabs labels={tabs.map((item) => item.label)} value={tabs.find((item) => item.key === tab)?.label ?? ""} onChange={(label) => { setTab(tabs.find((item) => item.label === label)?.key ?? tab); setPage(1) }} />
-      </RefCard>
-
-      <RefCard className="mt-[20px] bg-white">
-        <RefToolbar
-          leftSlot={
-            filterActive ? (
-              <div className="relative mr-[10px] flex h-[40px] items-center bg-[#f2f5f8] pl-[12px] text-[13px] text-[#5d6474]">
-                <span>Фильтр: 1 элемента</span>
-                <button type="button" onClick={() => setFilterEditOpen((value) => !value)} aria-label="Изменить фильтр" className="ml-[8px] flex h-[40px] w-[40px] items-center justify-center"><Pencil className="h-4 w-4 text-[#5d6474]" /></button>
-                <button type="button" onClick={() => setFilterActive(false)} aria-label="Очистить фильтр" className="flex h-[40px] w-[40px] items-center justify-center"><X className="h-5 w-5 rounded-full border border-[#5d6474] p-0.5 text-[#5d6474]" /></button>
-                {filterEditOpen && (
-                  <div className="absolute left-0 top-full z-20 mt-1 w-64 border border-slate-200 bg-white p-4 shadow-xl">
-                    <label className="block text-[10px] font-bold">
-                      Магазин
-                      <select value={storeFilter} onChange={(event) => setStoreFilter(event.target.value)} className="mt-1 block w-full border-b border-[#e0e0e0] bg-white py-2 text-[13px] font-normal outline-none">
-                        <option>Все магазины</option>
-                        {stores.map((item) => <option key={item}>{item}</option>)}
-                      </select>
-                    </label>
-                    <button type="button" onClick={() => setFilterEditOpen(false)} className="mt-4 h-[30px] w-full rounded-[5px] bg-[#4f71dc] text-[13px] font-semibold text-white">Применить</button>
-                  </div>
-                )}
-              </div>
-            ) : (
-              <button type="button" onClick={() => setFilterActive(true)} className="pl-[5px] text-[13px] text-[#4f71dc]">Показать фильтр ⌄</button>
-            )
-          }
-          query={query}
-          onQuery={(value) => { setQuery(value); setPage(1) }}
-          pageSize={pageSize}
-          onPageSize={(value) => { setPageSize(value); setPage(1) }}
-          from={filtered.length ? (safePage - 1) * pageSize + 1 : 0}
-          to={Math.min(safePage * pageSize, filtered.length)}
-          total={filtered.length}
-          page={safePage}
-          pageCount={pageCount}
-          onPage={setPage}
+        <RefTabs
+          labels={TASK_TABS.map((item) => item.label)}
+          value={TASK_TABS.find((item) => item.key === state.tab)?.label ?? "Все"}
+          onChange={(label) => navigate({ tab: TASK_TABS.find((item) => item.label === label)?.key ?? "all", page: 1 })}
         />
-        {loadError && <p className="px-5 pb-3 text-sm text-red-500">{loadError}</p>}
-        <RefTable
-          cols="110px 207px 103px 206px minmax(0,1fr) 60px"
-          heads={["№", "Ответственный", "Дата задачи", "Магазин", "Описание", ""]}
-          rows={visible}
-          rowKey={(task) => task.id}
-          empty={loading ? "" : <div className="flex min-h-[200px] flex-col items-center justify-center gap-3"><Image src="/robot-empty.png" alt="" width={120} height={120} className="h-[110px] w-[110px] object-contain" /><p className="text-[13px] text-[#666]">По вашему запросу ничего не найдено</p></div>}
-          render={(task) => [
-            task.id,
-            task.responsible,
-            task.date ? new Date(`${task.date}T00:00:00`).toLocaleDateString("ru-RU", { day: "2-digit", month: "short", year: "numeric" }).replace(" г.", "") : "",
-            task.store,
-            task.description,
-            <button
-              key="s"
-              type="button"
-              onClick={() => cycleStatus(task.id)}
-              aria-label={`Статус: ${statusLabels[task.status]}`}
-              title={statusLabels[task.status]}
-              className={task.status === "in_progress" ? "text-amber-500" : task.status === "fulfilled" ? "text-[#71ce87]" : "text-slate-400"}
-            >
-              <Clock3 className="h-5 w-5" />
-            </button>,
-          ]}
-        />
-      </RefCard>
 
-      {editing === "new" && (
-        <Modal title="Добавить задачу" onClose={() => setEditing(null)} footer={<SaveButton disabled={saving} onClick={() => void save({ preventDefault() {} } as FormEvent)}>{saving ? "Сохранение..." : "Сохранить"}</SaveButton>}>
-          <LineField label="Описание" required autoFocus value={draft.description} onChange={(value) => setDraft((current) => ({ ...current, description: value }))} />
-          <div className="mt-[10px]"><LineSelect label="Магазин" required value={draft.store} onChange={(value) => setDraft((current) => ({ ...current, store: value }))} options={stores} /></div>
-          <div className="mt-[10px]"><LineSelect label="Ответственный пользователь" required value={draft.responsible} onChange={(value) => setDraft((current) => ({ ...current, responsible: value }))} options={responsibles} /></div>
-          <div className="mt-[10px]"><LineField label="Дата задачи" required value={taskDate} onChange={setTaskDate} /></div>
-          <div className="mt-[18px]"><CheckBox checked={repeatPlan} onChange={setRepeatPlan} label="Повторить план" /></div>
-        </Modal>
-      )}
-
-      {importOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
-          <div className="w-full max-w-md rounded bg-white">
-            <header className="flex items-center justify-between border-b p-6">
-              <b className="uppercase">Импорт с Excel</b>
-              <button type="button" onClick={() => { setImportOpen(false); setImportFile(null) }} aria-label="Закрыть">
-                <X className="h-5 w-5" />
-              </button>
-            </header>
-            <div className="p-8">
-              <button
-                type="button"
-                onClick={() => importInputRef.current?.click()}
-                className="flex w-full flex-col items-center justify-center gap-3 rounded border-2 border-dashed border-slate-300 py-10 text-slate-500 hover:border-[#4f71dc] hover:text-[#4f71dc]"
+        <div className="relative flex h-[50px] items-center border-t border-[#efefef] bg-white px-[5px]">
+          <div className="w-[355px] shrink-0">
+            <TaskFilterControl
+              value={filterValue}
+              employees={employeeOptions}
+              creators={options.creators}
+              clients={clientOptions}
+              onApply={(next) => navigate({ ...next, page: 1 })}
+            />
+          </div>
+          <form
+            role="search"
+            className="relative ml-[18px] flex w-[300px] items-center border-b border-[#e0e0e0] focus-within:border-[#5d6474]"
+            onSubmit={(event) => {
+              event.preventDefault()
+              navigate({ search: searchText.trim().slice(0, 200), page: 1 })
+            }}
+          >
+            <input
+              value={searchText}
+              maxLength={200}
+              onChange={(event) => {
+                setSearchText(event.target.value)
+                // An emptied box shows everything again at once.
+                if (!event.target.value && state.search) navigate({ search: "", page: 1 })
+              }}
+              placeholder={t("Поиск")}
+              aria-label={t("Поиск")}
+              className="h-12 min-w-0 flex-1 bg-transparent text-[13px] outline-none placeholder:text-black/30"
+            />
+            <button type="submit" aria-label={t("Поиск")} className="shrink-0">
+              <svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#ccc]" aria-hidden>
+                <path d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z" />
+              </svg>
+            </button>
+          </form>
+          <div className="ml-auto flex items-center text-[#5d6474]">
+            <div className="relative mr-[27px]">
+              <select
+                value={state.pageSize}
+                aria-label={t("Строк на странице")}
+                onChange={(event) => navigate({ pageSize: Number(event.target.value), page: 1 })}
+                className="h-12 w-[52px] appearance-none bg-transparent text-[13px] text-[#333] outline-none"
               >
-                <FileText className="h-8 w-8" />
-                {importFile ? importFile.name : "Добавьте файл Excel или нажмите для выбора"}
-              </button>
+                {TASK_PAGE_SIZES.map((size) => (
+                  <option key={size} value={size}>
+                    {size}
+                  </option>
+                ))}
+              </select>
+              <svg viewBox="0 0 24 24" className="pointer-events-none absolute right-0 top-3 h-6 w-6 fill-black/30" aria-hidden>
+                <path d="M7 10l5 5 5-5z" />
+              </svg>
             </div>
-            <footer className="flex justify-end border-t p-5">
-              <button type="button" disabled={!importFile || importSaving} onClick={saveImport} className="inline-flex items-center h-[30px] rounded-[5px] bg-[#71ce87] px-4 text-[13px] font-semibold text-white hover:brightness-95 disabled:opacity-40">
-                {importSaving ? "Импорт..." : "Сохранить"}
-              </button>
-            </footer>
+            <span className="mr-2 whitespace-nowrap">
+              {from} - {to} {t("из")} {count}
+            </span>
+            <button type="button" disabled={state.page <= 1} onClick={() => navigate({ page: state.page - 1 })} aria-label={t("Назад")} className="px-[5px]">
+              <svg viewBox="0 0 24 24" className={`h-6 w-6 ${state.page <= 1 ? "fill-black/30" : "fill-black/55"}`} aria-hidden>
+                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm1-12l-5 4 5 4V8z" />
+              </svg>
+            </button>
+            <button type="button" disabled={state.page >= pageCount} onClick={() => navigate({ page: state.page + 1 })} aria-label={t("Вперед")}>
+              <svg viewBox="0 0 24 24" className={`h-6 w-6 ${state.page >= pageCount ? "fill-black/30" : "fill-black/55"}`} aria-hidden>
+                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zM11 8v8l5-4-5-4z" />
+              </svg>
+            </button>
           </div>
         </div>
+
+        <div className="overflow-x-auto bg-white">
+          <div className="min-w-[900px]">
+            <div className="grid h-[50px] grid-cols-[minmax(0,1fr)_minmax(0,2fr)_minmax(0,1fr)_minmax(0,2fr)_minmax(0,5fr)_minmax(0,1fr)] items-center bg-[#5d6474] px-[30px] text-[13px] font-semibold text-white">
+              <div className="px-2">№</div>
+              <div className="px-2">{t("Ответственный")}</div>
+              <div className="px-2">{t("Дата задачи")}</div>
+              <div className="px-2">{t("Магазин")}</div>
+              <div className="px-2">{t("Описание")}</div>
+              <div className="px-2" />
+            </div>
+            {loading && !data ? (
+              <div className="flex min-h-[200px] items-center justify-center text-[#5d6474]">
+                <Loader2 className="h-7 w-7 animate-spin" aria-label={t("Загрузка...")} />
+              </div>
+            ) : loadError ? (
+              <div className="flex min-h-[200px] flex-col items-center justify-center gap-3 text-[13px]">
+                <p className="text-[#e57373]">{t(loadError)}</p>
+                <button type="button" onClick={() => setReloadKey((value) => value + 1)} className="text-[#4f71dc] hover:underline">
+                  {t("Повторить")}
+                </button>
+              </div>
+            ) : rows.length === 0 ? (
+              <RefEmpty text="По вашему запросу ничего не найдено" />
+            ) : (
+              <div className={loading ? "opacity-60" : ""}>
+                {rows.map((task) => (
+                  <a
+                    key={task.id}
+                    href={taskHref(task.id)}
+                    onClick={(event) => openTask(event, task.id)}
+                    className={`grid min-h-[50px] grid-cols-[minmax(0,1fr)_minmax(0,2fr)_minmax(0,1fr)_minmax(0,2fr)_minmax(0,5fr)_minmax(0,1fr)] items-center border-b border-dashed border-[#d6d6d6] px-[30px] py-[7px] text-[13px] text-[#333] hover:bg-[#f2f5f8] ${state.task === task.id ? "bg-[#f2f5f8]" : ""}`}
+                  >
+                    <div className="px-2">{task.id}</div>
+                    <div className="truncate px-2">{task.responsible || t("Не указано")}</div>
+                    <div className="px-2">{task.taskDate ? formatDateText(task.taskDate, language, { withTime: false }) : t("Не указано")}</div>
+                    <div className="truncate px-2">{task.client || t("Не указано")}</div>
+                    <div className="line-clamp-2 break-words px-2">{task.title}</div>
+                    <div className="flex justify-end px-2">
+                      <TaskStatusIcon status={task.status} />
+                    </div>
+                  </a>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </RefCard>
+
+      {state.task !== null && (
+        <TaskDrawer
+          taskId={state.task}
+          canManage={canManage}
+          paused={dialog !== null}
+          refreshKey={drawerKey}
+          onClose={() => navigate({ task: null })}
+          onEdit={(task) => setDialog({ task })}
+          onChanged={() => setReloadKey((value) => value + 1)}
+          onNotify={setMessage}
+        />
       )}
+
+      {dialog && <TaskDialog task={dialog.task} options={options} onClose={() => setDialog(null)} onSaved={(saved) => afterSave(saved, dialog.task === null)} />}
+
+      {importOpen && (
+        <TasksImportDialog
+          query={apiQuery}
+          onClose={() => setImportOpen(false)}
+          onImported={() => {
+            setImportOpen(false)
+            setOptionsKey((value) => value + 1)
+            setReloadKey((value) => value + 1)
+          }}
+          onNotify={setMessage}
+        />
+      )}
+
+      <CashSnackbar message={message} onClose={() => setMessage(null)} />
     </RefPage>
   )
 }

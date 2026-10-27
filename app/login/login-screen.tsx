@@ -160,7 +160,8 @@ function LoginForm({ from, reason, mustChangeFor }: LoginScreenProps) {
   const [changeFor, setChangeFor] = useState<{ username: string; currentPassword: string } | null>(
     mustChangeFor ? { username: mustChangeFor, currentPassword: "" } : null,
   )
-  const [server, setServer] = useState("time3")
+  // No demo tenant prefilled: the last server this browser signed in to, else this site's host.
+  const [server, setServer] = useState("")
   const [login, setLogin] = useState("")
   const [password, setPassword] = useState("")
   const [remember, setRemember] = useState(false)
@@ -170,7 +171,9 @@ function LoginForm({ from, reason, mustChangeFor }: LoginScreenProps) {
   const [savedServers, setSavedServers] = useState<SavedServer[]>([])
 
   useEffect(() => {
-    setSavedServers(loadSavedServers())
+    const saved = loadSavedServers()
+    setSavedServers(saved)
+    setServer((current) => current || saved[0]?.server || window.location.hostname || "local")
   }, [])
 
   const canSubmit = server.trim().length > 0 && login.trim().length > 0 && password.length > 0 && !submitting

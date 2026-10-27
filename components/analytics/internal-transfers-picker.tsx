@@ -4,11 +4,15 @@ import { useEffect, useMemo, useRef, useState } from "react"
 import { FileSpreadsheet, Search, Upload, X } from "lucide-react"
 
 import { MiniPager, PrimaryButton, SearchSelect, inputClass, parseAmount } from "@/components/analytics/cash-management-shared"
-import { formatQty, formatSum } from "@/components/analytics/internal-transfers-shared"
+import { formatQty, formatSum, formatUnitTotals } from "@/components/analytics/internal-transfers-shared"
 import { downloadExcelTable } from "@/lib/excel-export"
 import { mapHeaderColumns, readExcelRows } from "@/lib/excel-import"
 import { useLanguage } from "@/lib/i18n/language-context"
 import type { StockPickRow } from "@/lib/internal-transfers-types"
+
+// Per-unit totals live in internal-transfers-shared (the detail, the invoice and
+// the Excel sheet use them too); re-exported for the forms that import them here.
+export { formatUnitTotals, unitTotals } from "@/components/analytics/internal-transfers-shared"
 
 // Product pickers of "Передачи между складами" (demo "добавить из списка",
 // module 622 with fromAllBalances: the source warehouse's balances, "Фильтр по
@@ -195,7 +199,8 @@ export function StockProductPicker({
 
       <div className="flex flex-wrap items-center justify-end gap-x-6 gap-y-2 border-t border-[#efefef] px-4 py-3 md:px-[30px]">
         <span className="mr-auto text-[13px] text-[#586174]">
-          {t("Общее кол-во")}: {chosen.length} · {t("Общая сумма")}: {formatSum(total, currency)}
+          {t("Позиций")}: {chosen.length} · {t("Общее кол-во")}: {formatUnitTotals(chosen.map((row) => ({ qty: parseAmount(values[row.key].quantity), unit: row.unit })), t)} · {t("Общая сумма")}:{" "}
+          {formatSum(total, currency)}
         </span>
         <PrimaryButton
           onClick={() =>

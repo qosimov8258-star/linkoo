@@ -7,7 +7,7 @@ import { nameKey, placeName } from "@/lib/finance/entities"
 import { ensureFinanceSchema, type FinanceSchema } from "@/lib/finance/schema"
 import { orderClientJoin, orderCountedSql, orderRealizationTs, orderReleasedSql } from "@/lib/finance/sources"
 import type { AbcResult, AbcRow, PnlGroupRow, PnlResult, PnlTotals, SalesReportOptions } from "@/lib/finance/pnl-types"
-import { costsFromLedger, loadCostLedger } from "@/lib/stock/costs"
+import { costsFromLedger, documentLineUnit, documentLineValues, loadCostLedger } from "@/lib/stock/costs"
 
 // Server side of the sales reports "P&L" (/analytics/pnl) and "ABC анализ"
 // (/analytics/abc-analysis), computed from the same documents as the client
@@ -21,9 +21,13 @@ import { costsFromLedger, loadCostLedger } from "@/lib/stock/costs"
 //   module), dated by the acceptance day.
 // - money is converted to the base currency with the currencies' rates;
 //   lines in a currency without a rate are left out (missingRates).
-// - cost of goods = quantity × the item's unit cost at the end of that day
-//   (lib/stock/costs.ts, the one cost of goods of the app: getItemCosts's
-//   ledger, loaded once per report).
+// - cost of goods = the value the cost ledger (lib/stock/costs.ts, the one cost
+//   of goods of the app) moved the document's goods at: an order's issue / a
+//   return's receipt at the moving average of their real moment, per unit of the
+//   item on that document. So the P&L cost of sales and of returns equals the change
+//   of stock value they caused ("Остаток на определенную дату" in cost mode).
+//   A line the ledger did not move (an order without a warehouse) falls back to
+//   quantity × the item's average at the end of that day.
 
 export type SalesLine = {
   kind: "sale" | "return"
@@ -39,7 +43,7 @@ export type SalesLine = {
   quantity: number
   /** Base currency. */
   amount: number
-  /** Base currency (quantity × unit cost of the day). */
+  /** Base currency (quantity × the ledger's unit cost of the document's goods). */
   cost: number
 }
 
@@ -55,6 +59,8 @@ export type SalesFilters = {
 
 type RawLine = {
   kind: "sale" | "return"
+  /** orders.id / client_returns.id. */
+  doc_id: number | string | null
   day: string | null
   branch: string | null
   zone: string | null
@@ -138,7 +144,7 @@ async function loadLines(db: PgDb, s: FinanceSchema, base: string, from: string,
     for (const cte of product.ctes) if (!ctes.includes(cte)) ctes.push(cte)
     const discount = s.col("order_items", "discount_percent") ? "(1 - COALESCE(oi.discount_percent, 0)::float8 / 100)" : "1"
     const currency = s.col("order_items", "currency") ? "COALESCE(fin_cur(oi.currency), @base)" : "@base"
-    parts.push(`SELECT 'sale' AS kind, to_char(${orderTs}, 'YYYY-MM-DD') AS day, ${orderBranch} AS branch,
+    parts.push(`SELECT 'sale' AS kind, o.id AS doc_id, to_char(${orderTs}, 'YYYY-MM-DD') AS day, ${orderBranch} AS branch,
         COALESCE(NULLIF(fin_place(o.zone), ''), ${clientZone}) AS zone, COALESCE(NULLIF(fin_place(o.agent), ''), ${clientAgent}) AS agent, ${orderOrg} AS organization,
         ${product.type} AS product_type, ${product.brand} AS brand, ${product.name} AS product, ${product.key} AS item_key,
         oi.quantity::float8 AS qty, oi.quantity::float8 * oi.unit_price::float8 * ${discount} AS amount, ${currency} AS cur
@@ -146,7 +152,7 @@ async function loadLines(db: PgDb, s: FinanceSchema, base: string, from: string,
       WHERE ${orderWhere}`)
   }
   // Orders without lines (legacy free-text amount "1 000 SUM, 12 USD").
-  parts.push(`SELECT 'sale' AS kind, to_char(${orderTs}, 'YYYY-MM-DD') AS day, ${orderBranch} AS branch,
+  parts.push(`SELECT 'sale' AS kind, o.id AS doc_id, to_char(${orderTs}, 'YYYY-MM-DD') AS day, ${orderBranch} AS branch,
       COALESCE(NULLIF(fin_place(o.zone), ''), ${clientZone}) AS zone, COALESCE(NULLIF(fin_place(o.agent), ''), ${clientAgent}) AS agent, ${orderOrg} AS organization,
       '' AS product_type, '' AS brand, '' AS product, '' AS item_key, 0::float8 AS qty, a.amount AS amount, COALESCE(a.currency, @base) AS cur
     FROM orders o ${orderJoins} CROSS JOIN LATERAL fin_amounts(o.amount) a
@@ -168,7 +174,7 @@ async function loadLines(db: PgDb, s: FinanceSchema, base: string, from: string,
     const withOrder = s.col(CR, "order_id")
     const returnWarehouse = hasWarehouses && s.col(CR, "warehouse")
     const branch = returnWarehouse ? `COALESCE(NULLIF(wr.branch, ''), ${clientBranch})` : clientBranch
-    parts.push(`SELECT 'return' AS kind, to_char(${tsExpr}, 'YYYY-MM-DD') AS day, ${branch} AS branch,
+    parts.push(`SELECT 'return' AS kind, r.id AS doc_id, to_char(${tsExpr}, 'YYYY-MM-DD') AS day, ${branch} AS branch,
         COALESCE(${withOrder ? "NULLIF(fin_place(ro.zone), ''), " : ""}${clientZone}) AS zone,
         COALESCE(${withOrder ? "NULLIF(fin_place(ro.agent), ''), " : ""}${clientAgent}) AS agent,
         ${withOrder && s.col("orders", "organization") ? "fin_place(ro.organization)" : "''"} AS organization,
@@ -209,8 +215,10 @@ export async function loadSalesLines(
   const cc = await loadCurrencyContext(db)
   const raw = await loadLines(db, s, cc.base, params.from, params.to, params.basis)
   const missing = new Set<string>()
-  // Unit costs at the end of each sale / return day, from one load of the cost ledger.
+  // Unit costs of each document's goods in the cost ledger (one load per report); the
+  // end-of-day average only for lines the ledger did not move.
   const ledger = params.withCost && raw.some((row) => row.day && row.item_key) ? await loadCostLedger(db) : null
+  const moved = ledger ? documentLineValues(ledger) : null
   const costCache = new Map<string, Map<string, number>>()
   const costs = (day: string): Map<string, number> => {
     let entry = costCache.get(day)
@@ -227,7 +235,9 @@ export async function loadSalesLines(
       continue
     }
     const quantity = Number(row.qty ?? 0)
-    const unitCost = ledger && row.item_key ? (costs(row.day).get(row.item_key) ?? 0) : 0
+    const docType = row.kind === "return" ? "client_returns" : "orders"
+    const unitCost =
+      ledger && moved && row.item_key ? (documentLineUnit(moved, docType, Number(row.doc_id), row.item_key) ?? costs(row.day).get(row.item_key) ?? 0) : 0
     lines.push({
       kind: row.kind,
       day: row.day,

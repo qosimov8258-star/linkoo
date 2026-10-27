@@ -1,6 +1,6 @@
 import "server-only"
 
-import { getDb } from "@/lib/db"
+import { getDb, outsideTransaction } from "@/lib/db"
 
 export type UserSession = {
   id: string
@@ -24,10 +24,11 @@ type Row = {
 
 let schemaReady: Promise<void> | null = null
 
-async function ensureSchema(db: ReturnType<typeof getDb>) {
+async function ensureSchema() {
   if (!schemaReady) {
-    schemaReady = db
-      .exec(`
+    // Process-wide DDL: never inside (and rolled back with) one caller's transaction.
+    schemaReady = outsideTransaction(() =>
+      getDb().exec(`
         CREATE TABLE IF NOT EXISTS user_sessions (
           id TEXT PRIMARY KEY,
           user_id INTEGER NOT NULL,
@@ -38,11 +39,11 @@ async function ensureSchema(db: ReturnType<typeof getDb>) {
           revoked_at TEXT
         );
         CREATE INDEX IF NOT EXISTS user_sessions_user_idx ON user_sessions (user_id);
-      `)
-      .catch((error) => {
-        schemaReady = null
-        throw error
-      })
+      `),
+    ).catch((error) => {
+      schemaReady = null
+      throw error
+    })
   }
   await schemaReady
 }
@@ -61,7 +62,7 @@ function rowToSession(row: Row): UserSession {
 
 export async function recordSession(input: { id: string; userId: number; ip: string; userAgent: string }): Promise<void> {
   const db = getDb()
-  await ensureSchema(db)
+  await ensureSchema()
   await db.prepare(
     "INSERT INTO user_sessions (id, user_id, ip, user_agent) VALUES (@id, @userId, @ip, @userAgent)",
   ).run(input)
@@ -69,7 +70,7 @@ export async function recordSession(input: { id: string; userId: number; ip: str
 
 export async function touchSession(id: string): Promise<void> {
   const db = getDb()
-  await ensureSchema(db)
+  await ensureSchema()
   await db.prepare("UPDATE user_sessions SET last_seen_at = datetime('now') WHERE id = ?").run(id)
 }
 
@@ -78,7 +79,7 @@ export async function touchSession(id: string): Promise<void> {
  * no row cannot be trusted either. */
 export async function isSessionRevoked(id: string): Promise<boolean> {
   const db = getDb()
-  await ensureSchema(db)
+  await ensureSchema()
   const row = (await db.prepare("SELECT revoked_at FROM user_sessions WHERE id = ?").get(id)) as
     | { revoked_at: string | null }
     | undefined
@@ -88,7 +89,7 @@ export async function isSessionRevoked(id: string): Promise<boolean> {
 
 export async function listSessionsForUser(userId: number): Promise<UserSession[]> {
   const db = getDb()
-  await ensureSchema(db)
+  await ensureSchema()
   return (
     (await db
       .prepare("SELECT * FROM user_sessions WHERE user_id = ? AND revoked_at IS NULL ORDER BY last_seen_at DESC")
@@ -98,7 +99,7 @@ export async function listSessionsForUser(userId: number): Promise<UserSession[]
 
 export async function revokeSession(id: string, userId: number): Promise<boolean> {
   const db = getDb()
-  await ensureSchema(db)
+  await ensureSchema()
   const result = await db
     .prepare("UPDATE user_sessions SET revoked_at = datetime('now') WHERE id = ? AND user_id = ? AND revoked_at IS NULL")
     .run(id, userId)
@@ -107,7 +108,7 @@ export async function revokeSession(id: string, userId: number): Promise<boolean
 
 export async function revokeOtherSessions(userId: number, exceptId: string): Promise<number> {
   const db = getDb()
-  await ensureSchema(db)
+  await ensureSchema()
   const result = await db
     .prepare(
       "UPDATE user_sessions SET revoked_at = datetime('now') WHERE user_id = ? AND id != ? AND revoked_at IS NULL",
@@ -119,7 +120,7 @@ export async function revokeOtherSessions(userId: number, exceptId: string): Pro
 /** Revokes every live session of a user (password reset, account change), except `exceptId`. */
 export async function revokeAllSessionsForUser(userId: number, exceptId?: string): Promise<number> {
   const db = getDb()
-  await ensureSchema(db)
+  await ensureSchema()
   const result = await db
     .prepare("UPDATE user_sessions SET revoked_at = datetime('now') WHERE user_id = ? AND id != ? AND revoked_at IS NULL")
     .run(userId, exceptId ?? "")

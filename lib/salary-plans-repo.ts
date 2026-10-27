@@ -2,10 +2,11 @@ import "server-only"
 
 import { z } from "zod"
 
-import { getDb, withTransaction, type PgDb } from "@/lib/db"
-import { MAX_ID, MAX_MONEY } from "@/lib/finance/api"
+import { getDb, outsideTransaction, withTransaction, type PgDb } from "@/lib/db"
+import { MAX_MONEY } from "@/lib/finance/api"
 import { todayIso } from "@/lib/finance/dates"
 import { ensureFinanceSchema } from "@/lib/finance/schema"
+import { dbId, strictNum } from "@/lib/strict-number"
 
 // "Зарплата и установка планов": one plan per employee per month (year,
 // month). Crediting a plan ("Зачислить") accrues its salary and KPI bonus on
@@ -104,16 +105,19 @@ async function createSchema(db: PgDb) {
   }
   // One plan per employee and month. Legacy duplicates keep the index from
   // being created; the API refuses new duplicates either way.
+  // Only while missing: CREATE INDEX locks the table even when the index exists.
   await db.exec(`
     DO $$ BEGIN
-      CREATE UNIQUE INDEX IF NOT EXISTS salary_plans_employee_period_uq ON salary_plans (employee_id, year, month) WHERE employee_id IS NOT NULL;
+      IF to_regclass('salary_plans_employee_period_uq') IS NULL THEN
+        CREATE UNIQUE INDEX IF NOT EXISTS salary_plans_employee_period_uq ON salary_plans (employee_id, year, month) WHERE employee_id IS NOT NULL;
+      END IF;
     EXCEPTION WHEN unique_violation THEN NULL;
     END $$;
   `)
 }
 
-function ensureSchema(db: PgDb = getDb()): Promise<void> {
-  globalThis.__linkoSalaryPlansSchema ??= createSchema(db).catch((error: unknown) => {
+function ensureSchema(): Promise<void> {
+  globalThis.__linkoSalaryPlansSchema ??= outsideTransaction(() => createSchema(getDb())).catch((error: unknown) => {
     globalThis.__linkoSalaryPlansSchema = undefined
     throw error
   })
@@ -143,19 +147,20 @@ function rowToPlan(row: Row): SalaryPlan {
 
 // --- validation ----------------------------------------------------------------------------------
 
-const money = (message: string) => z.coerce.number({ error: message }).finite(message).min(0, message).max(MAX_MONEY, message)
+const money = (message: string) =>
+  strictNum(z.number({ error: message }).finite(message).min(0, "Сумма не может быть отрицательной").max(MAX_MONEY, "Слишком большая сумма"), message)
 
 /** Body of POST /api/salary-plans and PUT /api/salary-plans/[id]. The employee
  * is given by id (preferred) or by full name; it must exist. */
 export const salaryPlanSchema = z
   .object({
-    employeeId: z.coerce.number().int().positive().max(MAX_ID).optional().nullable(),
+    employeeId: dbId().optional().nullable(),
     employee: z.string().trim().max(200).optional(),
-    year: z.coerce.number({ error: "Неверный период" }).int("Неверный период").min(2000, "Неверный период").max(2100, "Неверный период").optional(),
-    month: z.coerce.number({ error: "Неверный период" }).int("Неверный период").min(1, "Неверный период").max(12, "Неверный период").optional(),
+    year: strictNum(z.number({ error: "Неверный период" }).int("Неверный период").min(2000, "Неверный период").max(2100, "Неверный период").optional(), "Неверный период"),
+    month: strictNum(z.number({ error: "Неверный период" }).int("Неверный период").min(1, "Неверный период").max(12, "Неверный период").optional(), "Неверный период"),
     salary: money("Введите сумму"),
     bonus: money("Введите сумму").optional(),
-    kpi: z.coerce.number({ error: "Неверный KPI" }).finite("Неверный KPI").min(0, "Неверный KPI").max(1000, "Неверный KPI").optional(),
+    kpi: strictNum(z.number({ error: "Неверный KPI" }).finite("Неверный KPI").min(0, "Неверный KPI").max(1000, "Неверный KPI").optional(), "Неверный KPI"),
     credited: z.boolean().optional(),
   })
   .refine((value) => Boolean(value.employeeId) || Boolean(value.employee), { message: "Выберите сотрудника", path: ["employee"] })
@@ -164,8 +169,8 @@ export type SalaryPlanInput = z.infer<typeof salaryPlanSchema>
 
 /** GET ?year=&month= (both or none). */
 export const salaryPlanListQuery = z.object({
-  year: z.coerce.number().int().min(2000).max(2100).optional(),
-  month: z.coerce.number().int().min(1).max(12).optional(),
+  year: strictNum(z.number().int().min(2000).max(2100).optional()),
+  month: strictNum(z.number().int().min(1).max(12).optional()),
 })
 
 export class SalaryPlanError extends Error {
@@ -200,7 +205,7 @@ async function assertNoDuplicate(db: PgDb, employeeId: number, year: number, mon
 
 export async function listSalaryPlans(period: { year?: number; month?: number } = {}): Promise<SalaryPlan[]> {
   const db = getDb()
-  await ensureSchema(db)
+  await ensureSchema()
   const rows = (
     period.year && period.month
       ? await db.prepare("SELECT * FROM salary_plans WHERE year = @year AND month = @month ORDER BY id ASC").all({ year: period.year, month: period.month })
@@ -212,14 +217,13 @@ export async function listSalaryPlans(period: { year?: number; month?: number } 
 }
 
 export async function getSalaryPlan(id: number, db: PgDb = getDb()): Promise<SalaryPlan | null> {
-  await ensureSchema(db)
+  await ensureSchema()
   const row = (await db.prepare("SELECT * FROM salary_plans WHERE id = ?").get(id)) as Row | undefined
   return row ? rowToPlan(row) : null
 }
 
 export async function createSalaryPlan(input: SalaryPlanInput): Promise<SalaryPlan> {
-  const db = getDb()
-  await ensureSchema(db)
+  await ensureSchema()
   return withTransaction(async (tx) => {
     const employee = await resolveEmployee(tx, input)
     const period = { ...currentPeriod(), ...(input.year ? { year: input.year } : {}), ...(input.month ? { month: input.month } : {}) }
@@ -246,8 +250,7 @@ export async function createSalaryPlan(input: SalaryPlanInput): Promise<SalaryPl
 }
 
 export async function updateSalaryPlan(id: number, input: SalaryPlanInput): Promise<SalaryPlan | null> {
-  const db = getDb()
-  await ensureSchema(db)
+  await ensureSchema()
   return withTransaction(async (tx) => {
     const current = (await tx.prepare("SELECT * FROM salary_plans WHERE id = @id FOR UPDATE").get({ id })) as Row | undefined
     if (!current) return null
@@ -289,7 +292,7 @@ export async function updateSalaryPlan(id: number, input: SalaryPlanInput): Prom
 /** Deletes a plan that is not credited ("not_found" / "credited" otherwise). */
 export async function deleteSalaryPlan(id: number): Promise<true | "not_found" | "credited"> {
   const db = getDb()
-  await ensureSchema(db)
+  await ensureSchema()
   const plan = await getSalaryPlan(id, db)
   if (!plan) return "not_found"
   if (plan.credited) return "credited"

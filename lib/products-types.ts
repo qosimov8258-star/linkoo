@@ -169,9 +169,12 @@ export type CatalogOptions = {
   baseCurrency: string
   units: string[]
   types: Array<{ name: string; children: string[] }>
+  /** Pickers (form, bulk edit): the directories only — the server refuses any other changed value. */
   brands: string[]
   suppliers: string[]
   organizations: string[]
+  /** The list filter: the directory values plus the free-text ones older items still carry. */
+  filterValues: { brands: string[]; suppliers: string[]; organizations: string[] }
   colors: string[]
   agents: string[]
   supplies: Array<{ id: number; label: string }>
@@ -218,6 +221,23 @@ const PLACEHOLDERS = new Set(["", "-", "—", "не указано", "не ук�
 export function cleanText(value: unknown): string {
   const text = String(value ?? "").trim()
   return PLACEHOLDERS.has(catalogKey(text)) ? "" : text
+}
+
+/** Longest quantity text quantityInput reads ("1 000 000,5 кг" is 14 chars). */
+const MAX_QUANTITY_TEXT = 100
+
+/** A typed quantity: a number, a placeholder ("", "-", "Не указано") = 0, or a text that is
+ * a whole number with an optional unit word after a space ("12,5", "1 000", "0 шт.", "1.5 кг").
+ * Anything else ("abc", "12abc", "0x10", "1e3") → NaN, so a request body is refused
+ * instead of silently storing 0 or the leading digits (unlike leadingNumber, the reader of stored texts). */
+export function quantityInput(value: unknown): number {
+  if (typeof value === "number") return Number.isFinite(value) ? value : Number.NaN
+  if (typeof value !== "string") return Number.NaN
+  // No real quantity text is this long; refuse before any regex runs on a huge request string.
+  if (value.trim().length > MAX_QUANTITY_TEXT) return Number.NaN
+  if (!cleanText(value)) return 0
+  const match = /^([+-]?\d(?:[\d\s  ]*\d)?(?:[.,]\d+)?)(?:\s+\p{L}[\p{L}\p{M}\p{N}.\s/]*)?$/u.exec(value.trim())
+  return match ? Number(match[1].replace(/[\s  ]/g, "").replace(",", ".")) : Number.NaN
 }
 
 /** Leading number of a free-text quantity ("12,5 шт." → 12.5, "Не указано" → 0). */

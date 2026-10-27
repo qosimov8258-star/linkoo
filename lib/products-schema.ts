@@ -1,6 +1,6 @@
 import "server-only"
 
-import { getDb, type PgDb } from "@/lib/db"
+import { getDb, outsideTransaction, type PgDb } from "@/lib/db"
 import { ensureFinanceSchema } from "@/lib/finance/schema"
 import { loadPriceCurrencyContext, parseItemPrices, priceBounds } from "@/lib/item-prices"
 import type { CatalogKind } from "@/lib/products-types"
@@ -139,7 +139,7 @@ async function createSchema(db: PgDb): Promise<void> {
 export async function catalogDb(): Promise<PgDb> {
   const db = getDb()
   if (!globalThis.__linkoCatalogSchema) {
-    globalThis.__linkoCatalogSchema = createSchema(db).catch((error) => {
+    globalThis.__linkoCatalogSchema = outsideTransaction(() => createSchema(getDb())).catch((error) => {
       globalThis.__linkoCatalogSchema = undefined
       throw error
     })

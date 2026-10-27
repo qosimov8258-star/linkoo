@@ -3,6 +3,7 @@ import { z } from "zod"
 
 import { getCurrentUser } from "@/lib/current-user"
 import { requireRole } from "@/lib/rbac"
+import { dbId } from "@/lib/strict-number"
 import { parseJsonBody } from "@/lib/validation"
 import { listDashboardWidgets, saveDashboardWidget, type DashboardWidgetInput } from "@/lib/dashboard-widgets-repo"
 
@@ -11,8 +12,9 @@ const dashboardWidgetSchema = z.object({
   reportLabel: z.string().trim().optional(),
   dashboard: z.string().trim().optional(),
   visibility: z.string().trim().optional(),
-  employeeIds: z.array(z.number()).optional(),
-  accessRightIds: z.array(z.number()).optional(),
+  // Record ids (positive int4), as everywhere else (lib/strict-number.ts dbId).
+  employeeIds: z.array(dbId()).max(10_000).optional(),
+  accessRightIds: z.array(dbId()).max(10_000).optional(),
 })
 
 export async function GET(request: NextRequest) {

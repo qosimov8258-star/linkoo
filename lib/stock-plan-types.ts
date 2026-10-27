@@ -2,10 +2,10 @@ import type { StockMoveKind } from "@/lib/stock/types"
 
 // "План приемок и передач" (demo #/stock/receive …, chunks c88 / c89 / c90):
 // shared (client-safe) types and labels of /api/stock/plan/**.
-//   receive          Приемка          — supplies 'ожидает' + transfers 'в пути' to the warehouse (+ client returns: no table yet)
+//   receive          Приемка          — supplies 'ожидает' + transfers 'в пути' to the warehouse + client returns 'pending'
 //   transfer         Передача         — transfers 'потвержден' from the warehouse + orders 'Есть на складе' with a warehouse
 //   movement         Движение товаров — every line of the stock ledger (lib/stock stockMovementsSql)
-//   receive_history  История Приемки  — accepted supplies and transfers
+//   receive_history  История Приемки  — accepted supplies, transfers and client returns
 //   transfer_history История Передачи — given transfers and shipped orders
 
 export const PLAN_TABS = ["receive", "transfer", "movement", "receive_history", "transfer_history"] as const
@@ -41,6 +41,15 @@ export const PLAN_TAB_TYPES: Record<PlanTaskTab, PlanTaskType[]> = {
 
 export const isReceiveTab = (tab: PlanTaskTab) => tab === "receive" || tab === "receive_history"
 export const isHistoryTab = (tab: PlanTaskTab) => tab === "receive_history" || tab === "transfer_history"
+
+/** Permissions (lib/capabilities-catalog.ts) the plan's row actions need: supplies
+ * go to /api/supplier-incomings (procurement.manage); transfers and client returns
+ * to /api/internal-transfers and /api/stock/plan/returns (stock.manage). */
+export type PlanPermission = "stock.manage" | "procurement.manage"
+/** What the signed-in user may do on the plan (role manager / admin and, for a user
+ * restricted by an access right, the permission granted). All false while loading. */
+export type PlanRights = Record<PlanPermission, boolean>
+export const NO_PLAN_RIGHTS: PlanRights = { "stock.manage": false, "procurement.manage": false }
 
 /** One row of a task tab. Dates are local "YYYY-MM-DDTHH:mm:ss" ("" = unknown). */
 export type PlanTaskRow = {
