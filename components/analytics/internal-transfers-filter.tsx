@@ -48,13 +48,13 @@ export function transferFilterCount(filters: TransferFilters): number {
 }
 
 /** "Показать фильтр" / "Фильтр: N элемента" toggle shared by both pages. */
-export function FilterToggle({ count, open, onOpen, onClose, onClear }: { count: number; open: boolean; onOpen: () => void; onClose: () => void; onClear: () => void }) {
+export function FilterToggle({ count, open, onOpen, onClose, onClear, barWidth = 346.5 }: { count: number; open: boolean; onOpen: () => void; onClose: () => void; onClear: () => void; barWidth?: number }) {
   const { t } = useLanguage()
   // The reference's applied-filter bar: a 347x48 grey block flush with the toolbar's left edge,
   // the text 30px in, then two 48px icon buttons (edit, clear) at its right end.
   if (count > 0)
     return (
-      <div className="-ml-[5px] flex h-12 w-[346.5px] items-center bg-[#efefef] pl-[30px] text-[13px] text-[#666]">
+      <div style={{ width: barWidth }} className="-ml-[5px] flex h-12 items-center bg-[#efefef] pl-[30px] text-[13px] text-[#666]">
         <span className="whitespace-nowrap">
           {t("Фильтр")}: {count} {t("элемента")}
         </span>

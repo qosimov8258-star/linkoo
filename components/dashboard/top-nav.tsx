@@ -411,7 +411,7 @@ export function TopNav() {
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src="/nav/logo.svg" alt="linko" className="h-7 w-[55px]" />
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src="/nav/caret.svg" alt="" className="relative top-[5.8px] h-5 w-5" />
+                <img src="/nav/caret.svg" alt="" className="relative top-[5.8px] -mr-5 h-5 w-5" />
               </span>
               <span className="mt-[3px] text-[10px] font-normal leading-[12.5px]">
                 {workspace === "distribution"
@@ -445,7 +445,7 @@ export function TopNav() {
           )}
         </div>
 
-        <nav ref={navRef} className="ml-[91px] min-[1440px]:ml-[calc(50vw-697.6px)] max-[1439px]:ml-[max(20px,calc(50vw-582.1px))] hidden h-full min-w-0 shrink-0 items-stretch border-l border-white/[0.12] lg:flex">
+        <nav ref={navRef} className="ml-[91px] min-[1440px]:ml-[calc(50vw-697.87px)] max-[1439px]:ml-[max(20px,calc(50vw-582.37px))] hidden h-full min-w-0 shrink-0 items-stretch border-l border-white/[0.12] lg:flex">
           {navItems.map(({ label }) => {
             const isOpen = openMenu === label
 

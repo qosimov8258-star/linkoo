@@ -280,7 +280,7 @@ const LEDGER_TABLES = [
   "employees",
   "vansell_transactions",
   "employee_balance_transactions",
-  "salary_plans",
+  "salary_credits",
   "branches",
   "branch_balance_transactions",
   "warehouses",

@@ -18,5 +18,5 @@ export async function GET() {
        ORDER BY COALESCE(o.position, 100000 + e.id), e.id`,
     )
     .all()) as Array<{ id: number; name: string }>
-  return NextResponse.json(rows.map((row) => ({ id: Number(row.id), name: row.name })).filter((row) => row.name))
+  return NextResponse.json(rows.map((row) => ({ id: Number(row.id), name: row.name })))
 }

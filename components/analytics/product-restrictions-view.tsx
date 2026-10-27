@@ -89,7 +89,9 @@ export function ProductRestrictionsView() {
   useEffect(() => {
     if (!dialog) return
     const load = (url: string) => fetch(url).then((response) => (response.ok ? response.json() : []))
-    if (tab === "products" && !products) load("/api/products").then((data: PickerItem[]) => setProducts(data))
+    if (tab === "products" && !products) load("/api/products").then((data: Array<PickerItem & { deleted?: boolean; isInventory?: boolean }>) =>
+      // The reference's list (main/product/for_select/) leaves out deleted products and inventory items.
+      setProducts(data.filter((item) => !item.deleted && !item.isInventory)))
     if (tab === "types" && !productTypes) load("/api/product-types").then((data: PickerItem[]) => setProductTypes(sortByName(data)))
   }, [dialog, tab, products, productTypes])
 
@@ -142,28 +144,33 @@ export function ProductRestrictionsView() {
 
   return (
     <RefPage>
-      <RefHeader title={t("Ограничение продуктов")} />
+      <RefHeader title={t("Ограничение продуктов")} titleTop={1} />
 
-      <RefTabStrip
-        tabs={[{ value: "products", label: copy.products.tab }, { value: "types", label: copy.types.tab }]}
-        value={tab}
-        onChange={switchTab}
-      />
+      <div className="relative">
+        <RefTabStrip
+          tabs={[{ value: "products", label: copy.products.tab }, { value: "types", label: copy.types.tab }]}
+          value={tab}
+          onChange={switchTab}
+          weightClass="font-medium"
+        />
+        <span className="pointer-events-none absolute inset-x-0 bottom-0 h-px bg-[#f1f4f7]" />
+      </div>
 
-      <section className="bg-white">
+      <section className="relative z-20 bg-white [box-shadow:0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
         <div className="relative flex h-[50px] items-center whitespace-nowrap px-[5px]">
-          <div className="absolute left-[377.5px] top-0 flex h-12 w-[300px] items-center border-b border-[#e0e0e0] focus-within:border-[#5d6474]">
+          <div className="absolute left-[377.5px] top-0 flex h-[40px] w-[300px] items-start border-b border-[#e0e0e0] focus-within:border-[#5d6474]">
             <input
               value={query}
               onChange={(event) => { setQuery(event.target.value); setPage(1) }}
               placeholder={t("Поиск")}
-              className="h-12 w-[262px] bg-transparent text-[13px] outline-none placeholder:text-black/30"
+              className="h-12 w-[262px] shrink-0 bg-transparent text-[13px] outline-none placeholder:text-black/30"
             />
-            <svg viewBox="0 0 24 24" className="ml-[12px] h-6 w-6 shrink-0 fill-[#ccc]"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z" /></svg>
+            <svg viewBox="0 0 24 24" className="ml-[12px] mt-[12px] h-6 w-6 shrink-0 fill-[#ccc]"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z" /></svg>
           </div>
 
           <div className="relative z-10 ml-auto flex shrink-0 items-center text-[#5d6474]">
             <RefPager
+              flushMenu
               pageSize={pageSize}
               onPageSize={(size) => { setPageSize(size); setPage(1) }}
               from={filtered.length ? (safePage - 1) * pageSize + 1 : 0}
@@ -178,7 +185,6 @@ export function ProductRestrictionsView() {
               <button type="button" onClick={toggleSelectMode} aria-label={t("Выбрать из списка")} className="flex h-12 w-12 items-center justify-center">
                 <SolidIcon d={selectMode ? ICON_EYE_OFF : ICON_LIST_CHECK} className="h-6 w-6 text-[#5d6474]" />
               </button>
-              <span className="pointer-events-none absolute right-[calc(100%-12px)] top-[7px] hidden h-[33px] whitespace-nowrap rounded-[2px] bg-[#2d3037] px-5 text-[13px] font-bold leading-[33px] text-white opacity-90 group-hover:block">{t("Выбрать из списка")}</span>
             </div>
 
             <div className="flex shrink-0 items-center gap-[5px]">
@@ -207,10 +213,10 @@ export function ProductRestrictionsView() {
                 <SolidIcon d={ICON_DONE_ALL} className="h-6 w-6" />
               </button>
             )}
-            <span>№</span>
+            <span className="leading-[18px]">№</span>
           </div>
-          <span className="pl-2">{t("Сотрудник")}</span>
-          <span className="pl-2">{t(labels.count)}</span>
+          <span className="pl-2 leading-[16.3px]">{t("Сотрудник")}</span>
+          <span className="pl-2 leading-[16.3px]">{t(labels.count)}</span>
         </div>
 
         {error && <p className="px-[30px] py-3 text-red-500">{error}</p>}
@@ -240,7 +246,7 @@ export function ProductRestrictionsView() {
 
         {visible.length === 0 && (
           <div className="flex h-[276.3px] flex-col items-center pt-[57px]">
-            <img src="/robot-empty.png" alt="" className="h-[162px] w-[162px] object-contain" />
+            <img src="/robot-empty.png" alt="" className="relative left-px h-[162px] w-[162px] object-contain" />
             <p className="mt-[11px] text-[13px] leading-[16.25px] text-[#666]">{t("По вашему запросу ничего не найдено")}</p>
           </div>
         )}

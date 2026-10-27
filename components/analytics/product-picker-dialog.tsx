@@ -95,7 +95,7 @@ export function ProductPickerDialog({
             value={query}
             onChange={(event) => { setQuery(event.target.value); setPage(1) }}
             placeholder={t("Поиск товаров...")}
-            className="mr-[91px] h-10 w-[280px] border border-[#dfe4ea] bg-[#eef1f5] px-[10px] text-[13px] text-black outline-none placeholder:text-black/30"
+            className="relative -left-[0.6px] -top-[0.5px] mr-[91px] h-[42px] w-[280px] border border-[#d9e0e5] bg-[#f2f5f8] px-[10px] text-[13px] text-black outline-none placeholder:text-black/30"
           />
           <RefPager
             pageSize={pageSize}

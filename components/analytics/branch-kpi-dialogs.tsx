@@ -1,8 +1,8 @@
 "use client"
 
 import Link from "next/link"
-import { useEffect, useMemo, useState } from "react"
-import { ArrowLeft, PlusCircle, Trash2 } from "lucide-react"
+import { useEffect, useMemo, useRef, useState } from "react"
+import { ArrowLeft } from "lucide-react"
 
 import {
   BRANCH_KPI_API,
@@ -10,17 +10,12 @@ import {
   KpiDialogAction,
   KpiDialogFrame,
   KpiMonthYearFilter,
-  kpiNumber,
   sendJson,
   useMonthName,
 } from "@/components/analytics/branch-kpi-shared"
 import {
-  BRANCH_KPI_CALC_TYPES,
   BRANCH_KPI_MONTHS,
-  branchKpiCalcTypeName,
-  type BranchKpiCalcType,
   type BranchKpiIndicator,
-  type BranchKpiLevel,
   type BranchKpiListRow,
 } from "@/lib/branch-kpi-types"
 import { useLanguage } from "@/lib/i18n/language-context"
@@ -29,7 +24,6 @@ import { useLanguage } from "@/lib/i18n/language-context"
 // - "Изменить план филиалов на <Месяц> <Год>" (demo 5083): step 1 "Все активные KPI" /
 //   "Выбранные KPI" → "Далее"; step 2 full screen: Месяц/Год + grid branch × KPI ("Количество").
 // - "Дублировать с месяца <Месяц> <Год>" (demo 5082): Месяц + Год → copy.
-// - "Уровень вознаграждения" of a KPI (demo KPI card stages, module 5183).
 
 function parsePlan(text: string): number | null {
   const normalized = text.replace(/\s/g, "").replace(",", ".")
@@ -151,7 +145,7 @@ export function BranchKpiBulkDialog({
     const filtered = active.filter((item) => item.name.toLowerCase().includes(kpiSearch.trim().toLowerCase()))
     return (
       <KpiDialogFrame title={title} width={600} onClose={onClose} footerPadRight={17} footer={<KpiDialogAction label={t("Далее")} onClick={goNext} disabled={!indicators} />}>
-        <div className="min-h-[214px] space-y-4 px-[32px] pt-[27px] text-[13px] text-[#333]">
+        <div className="min-h-[214px] space-y-4 px-[30px] pt-[27px] text-[13px] text-[#333]">
           {loadError && <p className="text-[#e57373]">{t(loadError)}</p>}
           {!indicators && !loadError && <p className="text-[#999]">{t("Загрузка...")}</p>}
           {indicators && !active.length && (
@@ -166,9 +160,10 @@ export function BranchKpiBulkDialog({
             <>
               <div className="flex items-center">
                 {(["allKpi", "selectedKpi"] as const).map((value) => (
-                  <label key={value} className="flex w-[270px] cursor-pointer items-center gap-[18px]">
-                    <input type="radio" name="kpi-type" checked={kpiType === value} onChange={() => setKpiType(value)} className="h-5 w-5 accent-[#757575]" />
-                    {t(value === "allKpi" ? "Все активные KPI" : "Выбранные KPI")}
+                  <label key={value} className="flex w-[270px] cursor-pointer items-center gap-[16px]">
+                    <input type="radio" name="kpi-type" checked={kpiType === value} onChange={() => setKpiType(value)} className="peer sr-only" />
+                    <svg viewBox="0 0 24 24" className={`relative -top-[2px] h-6 w-6 shrink-0 ${kpiType === value ? "fill-[#5d6474]" : "fill-[#333]"}`}><path d={kpiType === value ? "M12 7c-2.76 0-5 2.24-5 5s2.24 5 5 5 5-2.24 5-5-2.24-5-5-5zm0-5C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8z" : "M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8z"} /></svg>
+                    <span className="relative -top-px text-black">{t(value === "allKpi" ? "Все активные KPI" : "Выбранные KPI")}</span>
                   </label>
                 ))}
               </div>
@@ -220,51 +215,112 @@ export function BranchKpiBulkDialog({
       }
       titleActions={<KpiDialogAction label={saving ? t("Сохранение...") : t("Сохранить")} onClick={() => void save()} disabled={saving || !values} />}
     >
-      <div className="flex shrink-0 flex-wrap items-end gap-6 px-[15px] pb-3 pt-[10px]">
-        <KpiMonthYearFilter month={month} year={year} onChange={onPeriodChange} monthWidth={200} yearWidth={151} gap={10} />
+      <div className="flex shrink-0 flex-wrap items-end gap-6 px-[15px] pb-2 pt-[10px]">
+        <KpiMonthYearFilter dialog month={month} year={year} onChange={onPeriodChange} monthWidth={200} yearWidth={151} gap={10} />
         {error && <span className="pb-1 text-[13px] text-[#e57373]">{error}</span>}
       </div>
-      <div className="min-h-0 flex-1 overflow-auto px-[10px] pb-10 text-[13px] text-[#333]">
-        {!values ? (
+      {!values ? (
+        <div className="min-h-0 flex-1 overflow-auto px-[10px] pb-10 text-[13px] text-[#333]">
           <div className="py-16 text-center text-[#999]">{branches.length ? t("Загрузка...") : t("Выберите хотя бы один сотрудник !")}</div>
-        ) : (
-          <table className="w-full min-w-[600px] border-collapse">
-            <thead>
-              <tr className="h-[50px] border-b border-[#f2f5f8] text-left font-semibold">
-                <th className="sticky left-0 w-[248px] min-w-[248px] bg-white pr-3 font-semibold">{t("Филиал")}</th>
-                {kpis.map((item) => (
-                  <th key={item.id} className="min-w-[250px] pr-[16px] font-semibold" title={t(item.planType)}>
-                    <span className="line-clamp-2">{item.name}</span>
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {branches.map((row) => (
-                <tr key={row.id} className="h-[50px] border-b border-[#f2f5f8] hover:bg-[#f2f5f8]">
-                  <td className="sticky left-0 bg-inherit pr-3 font-semibold">{row.name}</td>
-                  {kpis.map((item) => (
-                    <td key={item.id} className="pr-[16px]">
-                      <div className="relative">
-                      {(values[row.id]?.[item.id] ?? "") !== "" && <span className="pointer-events-none absolute -top-[4px] left-0 text-[10px] font-semibold leading-3 text-black">{t("Количество")}</span>}
+        </div>
+      ) : (
+        <BranchKpiPlanGrid branches={branches} kpis={kpis} values={values} onCell={setCell} />
+      )}
+    </KpiDialogFrame>
+  )
+}
+
+/** Step 2 grid: branches × KPI columns (250px each); the reference scrolls the columns while the pointer rests on the "»" / "«" discs. */
+function BranchKpiPlanGrid({
+  branches,
+  kpis,
+  values,
+  onCell,
+}: {
+  branches: BranchKpiListRow[]
+  kpis: BranchKpiIndicator[]
+  values: Draft
+  onCell: (branchId: number, kpiId: number, text: string) => void
+}) {
+  const { t } = useLanguage()
+  const scroller = useRef<HTMLDivElement>(null)
+  const timer = useRef<number | null>(null)
+  const [scrolled, setScrolled] = useState(false)
+  const stop = () => {
+    if (timer.current !== null) window.clearInterval(timer.current)
+    timer.current = null
+  }
+  const start = (direction: 1 | -1) => {
+    stop()
+    timer.current = window.setInterval(() => {
+      const element = scroller.current
+      if (!element) return stop()
+      element.scrollLeft += 90 * direction
+      setScrolled(element.scrollLeft > 0)
+      if (direction === -1 && element.scrollLeft <= 0) stop()
+    }, 100)
+  }
+  useEffect(() => stop, [])
+  const disc = "fixed top-[265px] z-[12] h-[60px] w-[40px] cursor-pointer bg-black/[0.31] opacity-80 transition-all duration-300"
+  const chevron = "M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z"
+  const cell = "flex h-[50px] w-[250px] shrink-0 items-center border-b border-[#f2f5f8]"
+  return (
+    <div className="relative min-h-0 flex-1 text-[13px] text-[#333]">
+      <div ref={scroller} onScroll={(event) => setScrolled(event.currentTarget.scrollLeft > 0)} className="h-full overflow-x-hidden overflow-y-auto">
+        <div className="w-max min-w-full">
+          <div className="flex font-semibold leading-[16.3px]">
+            <div className={`${cell} pl-[10px]`}>{t("Филиал")}</div>
+            {kpis.map((item) => (
+              <div key={item.id} className={`${cell} px-[8px]`}>
+                <span className="line-clamp-2">{item.name}</span>
+              </div>
+            ))}
+          </div>
+          {branches.map((row) => (
+            <div key={row.id} className="flex hover:bg-[#f2f5f8]">
+              <div className={`${cell} pl-[10px] font-semibold`}>{row.name}</div>
+              {kpis.map((item) => {
+                const value = values[row.id]?.[item.id] ?? ""
+                return (
+                  <div key={item.id} className={`${cell} px-[8px]`}>
+                    <div className="group relative h-[45px] w-[234px] translate-y-[3px]">
+                      {value !== "" && <span className="pointer-events-none absolute -top-[6px] left-0 origin-top-left scale-75 text-[13px] font-semibold leading-[18px] text-black">{t("Количество")}</span>}
                       <input
-                        value={values[row.id]?.[item.id] ?? ""}
-                        onChange={(event) => setCell(row.id, item.id, event.target.value)}
+                        value={value}
+                        onChange={(event) => onCell(row.id, item.id, event.target.value)}
                         placeholder={t("Количество")}
                         aria-label={`${row.name} · ${item.name}`}
                         inputMode="decimal"
-                        className="h-9 w-full border-b border-[#e0e0e0] bg-transparent text-[13px] font-semibold outline-none placeholder:font-semibold placeholder:text-black focus:border-[#4f71dc]"
+                        className="peer h-[45px] w-full bg-transparent pb-[8px] pt-[8px] text-[13px] font-semibold leading-[18px] outline-none placeholder:font-semibold placeholder:text-black"
                       />
-                      </div>
-                    </td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
+                      <span className="pointer-events-none absolute inset-x-0 top-[36.5px] h-px bg-[#e0e0e0] peer-focus:bg-[#4f71dc]" />
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          ))}
+        </div>
       </div>
-    </KpiDialogFrame>
+      {scrolled && (
+        <div
+          onMouseEnter={() => start(-1)}
+          onMouseLeave={stop}
+          className={`${disc} left-0 rounded-r-[60px] hover:scale-90`}
+        >
+          <svg viewBox="0 0 24 24" className="absolute left-[6px] top-[16.4px] h-6 w-6 fill-white"><path d={chevron} /></svg>
+          <svg viewBox="0 0 24 24" className="absolute left-[13px] top-[16.4px] h-6 w-6 fill-white"><path d={chevron} /></svg>
+        </div>
+      )}
+      <div
+        onMouseEnter={() => start(1)}
+        onMouseLeave={stop}
+        className={`${disc} right-0 rotate-180 rounded-r-[60px] hover:rotate-180 hover:scale-90`}
+      >
+        <svg viewBox="0 0 24 24" className="absolute left-[6px] top-[16.4px] h-6 w-6 fill-white"><path d={chevron} /></svg>
+        <svg viewBox="0 0 24 24" className="absolute left-[13px] top-[16.4px] h-6 w-6 fill-white"><path d={chevron} /></svg>
+      </div>
+    </div>
   )
 }
 
@@ -356,221 +412,6 @@ export function BranchKpiDuplicateDialog({
         {selected.length > 0 && <p className="mt-3 text-[12px] text-[#999]">{`${t("Выбрано")}: ${selected.length}`}</p>}
         {error && <p className="mt-3 text-[#e57373]">{error}</p>}
       </form>
-    </KpiDialogFrame>
-  )
-}
-
-type LevelDraft = { toAmount: string; bonus: string; calculationType: BranchKpiCalcType | ""; excludeLowLevel: boolean }
-
-const EMPTY_LEVEL: LevelDraft = { toAmount: "", bonus: "", calculationType: "", excludeLowLevel: false }
-
-/** Reward levels + bonus fund of one KPI (stored by this page; demo: the KPI card stages). */
-export function BranchKpiLevelsDialog({
-  indicatorId,
-  month,
-  year,
-  canEdit,
-  onClose,
-  onSaved,
-}: {
-  indicatorId: number
-  month: number
-  year: number
-  canEdit: boolean
-  onClose: () => void
-  onSaved: (message: string) => void
-}) {
-  const { t } = useLanguage()
-  const { indicators, error: loadError } = useKpiIndicators()
-  const indicator = indicators?.find((item) => item.id === indicatorId) ?? null
-  const [state, setState] = useState<{ id: number; bonusFund: string; levels: BranchKpiLevel[] } | null>(null)
-  const [levelDraft, setLevelDraft] = useState<LevelDraft>(EMPTY_LEVEL)
-  const [saving, setSaving] = useState(false)
-  const [error, setError] = useState("")
-
-  if (indicator && state?.id !== indicator.id) setState({ id: indicator.id, bonusFund: indicator.bonusFund ? String(indicator.bonusFund) : "", levels: indicator.levels })
-
-  const levels = state?.levels ?? []
-  const fromInitial = levels.length ? levels[levels.length - 1].toAmount : 0
-
-  const addLevel = () => {
-    const toAmount = parsePlan(levelDraft.toAmount)
-    const bonus = parsePlan(levelDraft.bonus)
-    if (toAmount === null || bonus === null || !levelDraft.calculationType || Number.isNaN(toAmount) || Number.isNaN(bonus)) {
-      setError(t("Заполните «До», «Бонус» и «Тип расчета»"))
-      return
-    }
-    if (toAmount <= fromInitial) {
-      setError(t("«До» должно быть больше «От»"))
-      return
-    }
-    setError("")
-    setState((current) =>
-      current
-        ? {
-            ...current,
-            levels: [
-              ...current.levels,
-              { id: current.levels.length + 1, fromAmount: fromInitial, toAmount, bonus, calculationType: levelDraft.calculationType as BranchKpiCalcType, excludeLowLevel: levelDraft.excludeLowLevel },
-            ],
-          }
-        : current,
-    )
-    setLevelDraft(EMPTY_LEVEL)
-  }
-
-  const removeLevel = (index: number) =>
-    setState((current) => (current ? { ...current, levels: current.levels.filter((_, position) => position !== index).map((level, position) => ({ ...level, id: position + 1 })) } : current))
-
-  const save = async () => {
-    if (!state) return
-    const bonusFund = parsePlan(state.bonusFund)
-    if (Number.isNaN(bonusFund)) {
-      setError(t("Введите корректное число"))
-      return
-    }
-    setSaving(true)
-    setError("")
-    try {
-      await sendJson(`${BRANCH_KPI_API}/indicators/${indicatorId}`, "PUT", {
-        bonusFund: bonusFund ?? 0,
-        levels: state.levels.map(({ fromAmount, toAmount, bonus, calculationType, excludeLowLevel }) => ({ fromAmount, toAmount, bonus, calculationType, excludeLowLevel })),
-        month,
-        year,
-      })
-      onSaved(t("Успешно обновлено"))
-    } catch (reason) {
-      setError(reason instanceof Error ? t(reason.message) : String(reason))
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  const field = "h-9 w-full border-b border-[#e0e0e0] bg-transparent text-[13px] text-[#333] outline-none focus:border-[#4f71dc] disabled:text-[#999]"
-  return (
-    <KpiDialogFrame
-      title={indicator ? `KPI: ${indicator.name}` : "KPI"}
-      width={820}
-      onClose={onClose}
-      footer={canEdit ? <KpiDialogAction label={saving ? t("Сохранение...") : t("Сохранить")} onClick={() => void save()} disabled={saving || !state} /> : undefined}
-    >
-      <div className="space-y-4 px-[30px] py-5 text-[13px] text-[#333]">
-        {loadError && <p className="text-[#e57373]">{t(loadError)}</p>}
-        {!indicators && !loadError && <p className="text-[#999]">{t("Загрузка...")}</p>}
-        {indicators && !indicator && <p className="text-[#e57373]">{t("KPI не найден")}</p>}
-        {indicator && state && (
-          <>
-            <ul className="space-y-1.5">
-              <li className="flex justify-between gap-4">
-                <span className="text-[#666]">{t("Тип плана")}</span>
-                <span className="text-right font-semibold">{t(indicator.planType)}</span>
-              </li>
-              {!indicator.supported && <li className="text-[12px] text-[#e57373]">{t("нет данных в системе")}</li>}
-              <li className="flex justify-between gap-4">
-                <span className="text-[#666]">{t("Активный")}</span>
-                <span className="font-semibold">{indicator.active ? t("Да") : t("Нет")}</span>
-              </li>
-            </ul>
-            <label className="block max-w-[260px] text-[12px] text-[#999]">
-              {t("Бонусный фонд")}
-              <input
-                value={state.bonusFund}
-                disabled={!canEdit}
-                inputMode="decimal"
-                onChange={(event) => setState({ ...state, bonusFund: cleanNumberInput(event.target.value) })}
-                className={field}
-              />
-            </label>
-            <h3 className="pt-2 font-semibold">{t("Уровень вознаграждения")}</h3>
-            {canEdit && (
-              <div className="-mx-[30px] flex flex-wrap items-end gap-4 bg-[#f1f5f8] px-[30px] pb-2.5 pt-3">
-                <div className="flex items-end gap-1.5 whitespace-nowrap">
-                  {t("от")} <b>{kpiNumber(fromInitial, "%")}</b> - {t("до")}
-                  <input
-                    value={levelDraft.toAmount}
-                    inputMode="decimal"
-                    aria-label={t("До")}
-                    onChange={(event) => setLevelDraft({ ...levelDraft, toAmount: cleanNumberInput(event.target.value) })}
-                    onKeyDown={(event) => event.key === "Enter" && addLevel()}
-                    className={`${field} w-[80px]`}
-                  />
-                  %
-                </div>
-                <label className="block w-[140px] text-[12px] text-[#999]">
-                  {t("Бонус")}
-                  <input
-                    value={levelDraft.bonus}
-                    inputMode="decimal"
-                    onChange={(event) => setLevelDraft({ ...levelDraft, bonus: cleanNumberInput(event.target.value) })}
-                    onKeyDown={(event) => event.key === "Enter" && addLevel()}
-                    className={field}
-                  />
-                </label>
-                <label className="block w-[220px] text-[12px] text-[#999]">
-                  {t("Тип расчета")}
-                  <select value={levelDraft.calculationType} onChange={(event) => setLevelDraft({ ...levelDraft, calculationType: event.target.value as BranchKpiCalcType })} className={field}>
-                    <option value="" />
-                    {BRANCH_KPI_CALC_TYPES.map((item) => (
-                      <option key={item.id} value={item.id}>
-                        {t(item.name)}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="flex items-center gap-2 pb-2 text-[13px]">
-                  <input
-                    type="checkbox"
-                    checked={levelDraft.excludeLowLevel}
-                    onChange={(event) => setLevelDraft({ ...levelDraft, excludeLowLevel: event.target.checked })}
-                    className="h-4 w-4 accent-[#4f71dc]"
-                  />
-                  {t("Обнулить предыдущие уровни")}
-                </label>
-                <button type="button" onClick={addLevel} aria-label={t("Добавить")} title={t("Добавить")} className="ml-auto pb-1.5 text-[#4f71dc]">
-                  <PlusCircle className="h-7 w-7" />
-                </button>
-              </div>
-            )}
-            {levels.length ? (
-              <table className="w-full border-collapse text-left">
-                <thead>
-                  <tr className="h-[50px] border-b-2 border-dotted border-[#dbe0e8] font-semibold">
-                    <th className="font-semibold">№</th>
-                    <th className="font-semibold">{t("От")}</th>
-                    <th className="font-semibold">{t("До")}</th>
-                    <th className="font-semibold">{t("Бонус")}</th>
-                    <th className="font-semibold">{t("Тип расчета")}</th>
-                    <th className="font-semibold">{t("Обнуление уровней")}</th>
-                    {canEdit && <th className="w-10" />}
-                  </tr>
-                </thead>
-                <tbody>
-                  {levels.map((level, index) => (
-                    <tr key={`${level.id}-${level.fromAmount}`} className="h-[50px] border-b-2 border-dotted border-[#dbe0e8] font-semibold last:border-b-0">
-                      <td>{level.id}</td>
-                      <td>{kpiNumber(level.fromAmount, "%")}</td>
-                      <td>{kpiNumber(level.toAmount, "%")}</td>
-                      <td>{kpiNumber(level.bonus)}</td>
-                      <td>{t(branchKpiCalcTypeName(level.calculationType))}</td>
-                      <td>{level.excludeLowLevel ? t("Включено") : t("Отключено")}</td>
-                      {canEdit && (
-                        <td>
-                          <button type="button" onClick={() => removeLevel(index)} aria-label={t("Удалить")} title={t("Удалить")} className="p-2 text-[#666] hover:text-[#e57373]">
-                            <Trash2 className="h-4 w-4" />
-                          </button>
-                        </td>
-                      )}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            ) : (
-              <p className="py-6 text-center text-[#999]">{t("Нет уровней вознаграждения")}</p>
-            )}
-          </>
-        )}
-        {error && <p className="text-[#e57373]">{error}</p>}
-      </div>
     </KpiDialogFrame>
   )
 }

@@ -24,7 +24,7 @@ export function CatalogSidebar({ width = 225 }: { width?: number }) {
             return (
               <li key={`${item.label}-${index}`} className="pl-[20px] pt-[10px] last:pb-[10px]">
                 {item.href ? (
-                  <Link href={item.href} className={`${cls} hover:text-[#4f71dc]`}>
+                  <Link href={item.query ? `${item.href}?${item.query}` : item.href} className={`${cls} hover:text-[#4f71dc]`}>
                     {t(item.label)}
                   </Link>
                 ) : (

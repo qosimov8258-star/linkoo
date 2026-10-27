@@ -66,7 +66,12 @@ export function ClientTypesView({ embedded = false }: { embedded?: boolean }) {
   }
 
   async function save() {
-    if (!editing || !valid) return
+    if (!editing) return
+    // The reference keeps "Сохранить" enabled and answers an incomplete form with the API field error.
+    if (!valid) {
+      setError(t("Это поле обязательно к заполнению"))
+      return
+    }
     setSaving(true)
     setError("")
     try {
@@ -116,9 +121,9 @@ export function ClientTypesView({ embedded = false }: { embedded?: boolean }) {
           title={editing.id ? t("Изменить тип клиента") : t("Добавить тип клиента")}
           onClose={() => setEditing(null)}
           bodyClassName="px-[30px] pb-[24px] pt-[17px]"
-          footer={<SaveLink disabled={saving || !valid} onClick={() => void save()}>{t("Сохранить")}</SaveLink>}
+          footer={<SaveLink disabled={saving} onClick={() => void save()}>{t("Сохранить")}</SaveLink>}
         >
-          <div className="min-h-[258px]">
+          <div className="min-h-[259px]">
             <ToggleRow checked={draft.hasParent} onChange={(hasParent) => setDraft({ ...draft, hasParent })} label={t("Добавить родительскую категорию")} />
             {draft.hasParent && <div className="mt-[31px]"><LineSelect label={t("Родительская категория")} value={draft.parent} onChange={(parent) => setDraft({ ...draft, parent })} options={parentOptions} onClear={() => setDraft({ ...draft, parent: "" })} /></div>}
             <div className={draft.hasParent ? "mt-[12px]" : "mt-[20px]"}><LineField label={t("Наименование")} required value={draft.name} onChange={(value) => setDraft({ ...draft, name: value })} /></div>

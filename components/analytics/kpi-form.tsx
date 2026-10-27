@@ -4,7 +4,6 @@ import { FormEvent, useEffect, useMemo, useState } from "react"
 import { createPortal } from "react-dom"
 
 import { Check, Line, MonthField, MultiSelect, Radio, RefSelect, type PickItem } from "@/components/analytics/kpi-form-fields"
-import { RI } from "@/components/ref/list-kit"
 import { useLanguage } from "@/lib/i18n/language-context"
 import { KPI_ATTENDANCE_STATUSES, KPI_ORDER_STATUSES, KPI_PLANS, KPI_PLAN_RULES, KPI_RETURN_STATUSES, KPI_USER_TYPES, kpiPlanCode, type KpiPlanCode } from "@/lib/kpi-form-rules"
 
@@ -90,7 +89,7 @@ function asItems(value: unknown): PickItem[] {
 const asCodes = (value: unknown): string[] => (Array.isArray(value) ? value.map(String) : [])
 
 /** The reference's full-screen "ДОБАВЛЕНИЕ KPI" / "ИЗМЕНЕНИЕ KPI" form. */
-export function KpiFormDialog({ editing, onClose, onSave }: { editing?: KpiFormEditing | null; onClose: () => void; onSave: (value: KpiFormValue) => void | Promise<void> }) {
+export function KpiFormDialog({ editing, duplicate, onClose, onSave }: { editing?: KpiFormEditing | null; /** Pre-filled like `editing`, but saved as a new KPI (the reference's "Дублируйте этот KPI"). */ duplicate?: boolean; onClose: () => void; onSave: (value: KpiFormValue) => void | Promise<void> }) {
   const { t } = useLanguage()
   const old = (editing?.detail ?? {}) as Record<string, unknown>
   const [name, setName] = useState(editing?.name ?? "")
@@ -298,8 +297,8 @@ export function KpiFormDialog({ editing, onClose, onSave }: { editing?: KpiFormE
   return createPortal(
     <form onSubmit={submit} className="fixed inset-0 z-[1400] flex flex-col bg-white font-sans text-[13px] text-[#333]">
       <div className="flex h-[60px] shrink-0 items-center justify-between border-b border-[#eee] pl-[30px] pr-[10px]">
-        <h2 className="text-[13px] font-bold uppercase">{t(editing ? "Изменение KPI" : "Добавление KPI")}</h2>
-        <button type="button" onClick={onClose} aria-label={t("Закрыть")} className="flex h-12 w-12 items-center justify-center"><svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#333]"><path d={RI.close} /></svg></button>
+        <h2 className="relative top-[0.6px] text-[13px] font-bold uppercase">{t(editing && !duplicate ? "Изменение KPI" : "Добавление KPI")}</h2>
+        <button type="button" onClick={onClose} aria-label={t("Закрыть")} className="flex h-12 w-12 items-center justify-center"><svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#666]"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" /></svg></button>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="grid h-[93px] grid-cols-3 gap-x-[29.2px] border-b border-[#eee] pl-[30px] pr-[10px] pt-[14px]">
@@ -310,10 +309,10 @@ export function KpiFormDialog({ editing, onClose, onSave }: { editing?: KpiFormE
         <div className="flex">
           <div className="w-[450px] shrink-0 border-r border-[#eee] pb-[24px] pl-[30px] pr-[10px] pt-[19px]">
             <div className="flex">
-              <MonthField className="mx-[10px] w-[190px]" popupLeft={-10} label={t("Дата начала")} value={startDate} onChange={setStartDate} />
-              <MonthField className="w-[198.5px]" padLeft={9.5} label={t("Дата окончания")} value={tillDate} onChange={setTillDate} />
+              <MonthField className="w-[200px]" padLeft={10} popupLeft={0} label={t("Дата начала")} value={startDate} onChange={setStartDate} />
+              <MonthField className="ml-[10px] w-[198.5px]" padLeft={9.5} label={t("Дата окончания")} value={tillDate} onChange={setTillDate} />
             </div>
-            <div className="relative mt-[24px]">
+            <div className="relative mt-[23px]">
               <RefSelect clearable className="w-[384px]" label={t("Валюта")} value={currency} onChange={setCurrency} options={currencyNames} />
               <svg viewBox="0 0 24 24" className="absolute left-[385.5px] top-0 h-6 w-6 fill-[#4f71dc]"><path d="M11 7h2v2h-2zm0 4h2v6h-2zm1-9C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z" /></svg>
             </div>
@@ -406,15 +405,15 @@ export function KpiFormDialog({ editing, onClose, onSave }: { editing?: KpiFormE
             {showMml && (
               <button type="button" onClick={() => setMml((current) => !current)} className="ml-[30px] flex h-[24px] items-center font-semibold text-[#333]">
                 <span className="relative block h-[24px] w-[44px]"><span className={`absolute left-0 top-[5px] h-[14px] w-[36px] rounded-full ${mml ? "bg-[#9fb3ef]" : "bg-[#b9bcc1]"}`} /><span className={`absolute top-[2px] h-[20px] w-[20px] rounded-full shadow ${mml ? "left-[16px] bg-[#4f71dc]" : "left-0 bg-white"}`} /></span>
-                {t("Учитывать только ММЛ продукты")}
+                <span className="relative top-[0.6px]">{t("Учитывать только ММЛ продукты")}</span>
               </button>
             )}
             <p className="ml-[30px] mt-[15px] font-bold leading-[16.3px] text-[#333]">{t("Уровень вознаграждения")}</p>
-            <div className="relative mt-[29.7px] flex h-[84px] items-start bg-[#f2f5f8] pl-[38px]">
-              <span className="mt-[41.1px] block w-[112.8px] shrink-0 text-[13px] leading-[16.3px]">{t("от")} <b>{nextFrom} %</b> -{t("до")}</span>
-              <input type="number" value={draftTo} onChange={(event) => setDraftTo(event.target.value.replace(/[^\d.]/g, ""))} className="mt-[30.3px] h-[36px] w-[112.8px] shrink-0 border-b border-[#e0e0e0] bg-transparent text-right text-[13px] font-semibold text-black outline-none focus:border-[#5d6474] [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none" />
-              <span className="mt-[23.3px] block w-[26.7px] shrink-0 pl-[4.4px] text-[13px] leading-[52px]">%</span>
-              <label className="relative mt-[30.3px] block h-[45px] w-[152.2px] shrink-0"><span className={`pointer-events-none absolute left-0 font-semibold transition-all ${draftBonus ? "top-[2px] text-[10px]" : "top-[13px] text-[13px]"}`}>{t("Бонус")}</span><input value={draftBonus} onChange={(event) => setDraftBonus(event.target.value.replace(/[^\d.]/g, ""))} className="absolute inset-x-0 top-0 h-[36px] border-b border-[#e0e0e0] bg-transparent pt-[10px] text-[13px] font-semibold text-black outline-none focus:border-[#5d6474]" /></label>
+            <div className="relative mt-[29.7px] flex h-[85px] items-start bg-[#f1f5f8] pl-[38px]">
+              <span className="mt-[41.1px] block w-[112.8px] shrink-0 text-[13px] leading-[16.3px]">{t("от")}<b className="ml-[9.8px]">{`${nextFrom} %`}</b>-<span className="ml-[6.5px]">{t("до")}</span></span>
+              <input type="number" value={draftTo} onChange={(event) => setDraftTo(event.target.value.replace(/[^\d.]/g, ""))} className="mt-[31.3px] h-[36px] w-[112.8px] shrink-0 border-b border-[#e0e0e0] bg-transparent text-right text-[13px] font-semibold text-black outline-none focus:border-[#5d6474] [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none" />
+              <span className="mt-[23.3px] block w-[26.7px] shrink-0 text-[13px] leading-[52px]">%</span>
+              <label className="relative mt-[31.3px] block h-[45px] w-[152.2px] shrink-0"><span className={`pointer-events-none absolute left-0 font-semibold text-black transition-all ${draftBonus ? "top-[1px] text-[10px]" : "top-[12px] text-[13px]"}`}>{t("Бонус")}</span><input value={draftBonus} onChange={(event) => setDraftBonus(event.target.value.replace(/[^\d.]/g, ""))} className="absolute inset-x-0 top-0 h-[36px] border-b border-[#e0e0e0] bg-transparent pt-[10px] text-[13px] font-semibold text-black outline-none focus:border-[#5d6474]" /></label>
               <RefSelect clearable className="ml-[15.9px] mt-[31.3px] w-[236.3px] shrink-0" label={t("Тип расчета")} value={draftCalc} onChange={setDraftCalc} options={Object.values(CALC_LABELS).map((label) => t(label))} />
               <Check className="ml-[16px] mt-[25.3px] w-[236.3px] shrink-0 !items-center" labelClass="w-[176.3px]" checked={draftExclude} label={t("Обнулить предыдущие уровни")} onToggle={() => setDraftExclude((current) => !current)} />
               <button type="button" onClick={addLevel} aria-label={t("Добавить уровень")} className="absolute right-[19px] top-[27.3px] flex h-[48px] w-[48px] items-center justify-center"><svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#4f71dc]"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" /></svg></button>
@@ -441,7 +440,7 @@ export function KpiFormDialog({ editing, onClose, onSave }: { editing?: KpiFormE
           </div>
         </div>
       </div>
-      <div className="flex h-[60px] shrink-0 items-center justify-end border-t border-[#eee] pb-[3px] pr-[10px]">
+      <div className="flex h-[60px] shrink-0 items-center justify-end border-t border-[#eee] pb-[1.6px] pr-[10px]">
         <button type="submit" disabled={saving} className="h-[36px] px-4 text-[13px] font-semibold uppercase text-[#129fdd] disabled:opacity-50">{t("Сохранить")}</button>
       </div>
     </form>,

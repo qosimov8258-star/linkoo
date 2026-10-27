@@ -26,7 +26,7 @@ import { notify } from "@/lib/notify"
 
 type Position = { id: number; name: string; date: string; createdAt: string }
 
-const COLUMNS = "240fr 608fr 427fr"
+const COLUMNS = "240.5fr 607.5fr 427fr"
 
 function PositionDialog({ position, onClose, onSaved }: { position: Position | null; onClose: () => void; onSaved: () => void }) {
   const { t } = useLanguage()
@@ -34,7 +34,12 @@ function PositionDialog({ position, onClose, onSaved }: { position: Position | n
   const [saving, setSaving] = useState(false)
 
   async function save() {
-    if (saving || !name.trim()) return
+    if (saving) return
+    // The reference keeps "Сохранить" enabled and answers an empty name with the API field error.
+    if (!name.trim()) {
+      notify(`name: ${t("Это поле обязательно к заполнению")}`)
+      return
+    }
     setSaving(true)
     try {
       const response = await fetch(position ? `/api/job-positions/${position.id}` : "/api/job-positions", {
@@ -62,7 +67,7 @@ function PositionDialog({ position, onClose, onSaved }: { position: Position | n
       closeInset="pr-[10px]"
       onClose={onClose}
       bodyClassName="px-[30px] pb-[42px] pt-[18px]"
-      footer={<SaveButton disabled={saving || !name.trim()} onClick={() => void save()}>{t("Сохранить")}</SaveButton>}
+      footer={<SaveButton disabled={saving} onClick={() => void save()}>{t("Сохранить")}</SaveButton>}
     >
       <LineField label={t("Наименование")} required value={name} onChange={setName} />
     </Modal>

@@ -2,6 +2,7 @@ import "server-only"
 
 import { getDb } from "@/lib/db"
 import { getEmployee } from "@/lib/employees-repo"
+import { nowLocalIso } from "@/lib/finance/dates"
 
 /**
  * "Зарплата и установка планов" (the reference's staff/salary): one record per employee and month with the fixed salary,
@@ -16,6 +17,8 @@ export type SalaryRecord = {
   id: number
   userId: number
   name: string
+  firstName: string
+  secondName: string
   position: string
   phone: string
   month: number
@@ -71,6 +74,24 @@ async function ensureSchema(db: ReturnType<typeof getDb>) {
     );
   `)
   await db.exec(`CREATE TABLE IF NOT EXISTS salary_last_dates (month INTEGER NOT NULL, year INTEGER NOT NULL, last_date TEXT, PRIMARY KEY (month, year))`)
+  // The employee-balance transactions made by "Зачислить" (type monthly = the salary, performance_bonus = the KPI bonus); the finance
+  // ledger ("Баланс сотрудников", reports) reads them. Dated with the last day of the record's month, like the reference.
+  await db.exec(
+    `CREATE TABLE IF NOT EXISTS salary_credits (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, month INTEGER NOT NULL, year INTEGER NOT NULL, type TEXT NOT NULL,
+      currency TEXT NOT NULL DEFAULT 'SUM', amount DOUBLE PRECISION NOT NULL DEFAULT 0, created_date TEXT NOT NULL, comment TEXT NOT NULL DEFAULT '')`,
+  )
+  // KPI statistics of the "Скачать EXCEL" sheet (the reference computes them from orders; here they are stored per month).
+  await db.exec(`CREATE TABLE IF NOT EXISTS salary_kpi_columns (month INTEGER NOT NULL, year INTEGER NOT NULL, pos INTEGER NOT NULL, name TEXT NOT NULL, PRIMARY KEY (month, year, pos))`)
+  await db.exec(
+    `CREATE TABLE IF NOT EXISTS salary_kpi_rows (user_id INTEGER NOT NULL, month INTEGER NOT NULL, year INTEGER NOT NULL, work_days INTEGER, worked_days INTEGER, PRIMARY KEY (user_id, month, year))`,
+  )
+  await db.exec(
+    `CREATE TABLE IF NOT EXISTS salary_kpi_facts (
+      user_id INTEGER NOT NULL, month INTEGER NOT NULL, year INTEGER NOT NULL, kpi_name TEXT NOT NULL,
+      plan DOUBLE PRECISION, sale DOUBLE PRECISION, returns DOUBLE PRECISION, fact DOUBLE PRECISION, percent DOUBLE PRECISION, level DOUBLE PRECISION, bonus DOUBLE PRECISION,
+      PRIMARY KEY (user_id, month, year, kpi_name))`,
+  )
 }
 
 function parseJson<T>(text: string, fallback: T): T {
@@ -86,6 +107,8 @@ function rowToRecord(row: Row): SalaryRecord {
     id: row.id,
     userId: row.user_id,
     name: `${row.first_name} ${row.second_name}`.trim(),
+    firstName: row.first_name,
+    secondName: row.second_name,
     position: row.position,
     phone: row.phone ?? "",
     month: row.month,
@@ -197,15 +220,33 @@ export async function setSalaries(month: number, year: number, currency: string,
   return done
 }
 
+/** Last day of the month at the current local time: the date of the "Зачислить" transactions (the reference dates them that way). */
+function creditDate(month: number, year: number) {
+  const day = new Date(Date.UTC(year, month, 0)).getUTCDate()
+  const time = nowLocalIso().replace("T", " ").slice(11, 19) || "00:00:00"
+  return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}T${time}`
+}
+
+/** "Зачислить" writes the salary and the KPI bonus of the record to the employee's balance, "Отменить зачисление" removes them. */
 export async function setApproved(month: number, year: number, userIds: number[], approved: boolean): Promise<number> {
   const db = getDb()
   await ensureSchema(db)
   let done = 0
   for (const userId of userIds) {
+    const existing = await findRow(db, userId, month, year)
+    if (!existing) continue
     const result = await db
       .prepare("UPDATE salary_records SET is_approved = ?, updated_at = datetime('now') WHERE user_id = ? AND month = ? AND year = ?")
       .run(approved ? 1 : 0, userId, month, year)
     done += result.changes
+    if (approved === (existing.is_approved === 1)) continue
+    await db.prepare("DELETE FROM salary_credits WHERE user_id = ? AND month = ? AND year = ?").run(userId, month, year)
+    if (!approved) continue
+    const record = rowToRecord(existing)
+    const date = creditDate(month, year)
+    const insert = db.prepare("INSERT INTO salary_credits (user_id, month, year, type, currency, amount, created_date, comment) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+    if (record.salary) await insert.run(userId, month, year, "monthly", record.currency, record.salary, date, "Зарплата")
+    for (const item of record.currencies) if (item.totalBonus) await insert.run(userId, month, year, "performance_bonus", item.name, item.totalBonus, date, "КПИ")
   }
   return done
 }
@@ -308,4 +349,28 @@ export async function recalculate(month: number, year: number): Promise<number> 
   }
   await touchLastDate(db, month, year)
   return records.length
+}
+
+/** KPI statistics of one month for the "Скачать EXCEL" sheet: the KPI columns (reference order) and, per employee, the work days and the facts. */
+export type SalaryKpiStats = {
+  columns: string[]
+  rows: Record<number, { workDays: number | null; workedDays: number | null; facts: Record<string, Array<number | null>> }>
+}
+
+export async function salaryKpiStats(month: number, year: number): Promise<SalaryKpiStats> {
+  const db = getDb()
+  await ensureSchema(db)
+  const columns = (await db.prepare("SELECT name FROM salary_kpi_columns WHERE month = ? AND year = ? ORDER BY pos ASC").all(month, year)) as Array<{ name: string }>
+  const rows = (await db.prepare("SELECT user_id, work_days, worked_days FROM salary_kpi_rows WHERE month = ? AND year = ?").all(month, year)) as Array<{ user_id: number; work_days: number | null; worked_days: number | null }>
+  const facts = (await db
+    .prepare("SELECT user_id, kpi_name, plan, sale, returns, fact, percent, level, bonus FROM salary_kpi_facts WHERE month = ? AND year = ?")
+    .all(month, year)) as Array<{ user_id: number; kpi_name: string; plan: number | null; sale: number | null; returns: number | null; fact: number | null; percent: number | null; level: number | null; bonus: number | null }>
+  const num = (value: number | string | null) => (value === null ? null : Number(value))
+  const result: SalaryKpiStats = { columns: columns.map((item) => item.name), rows: {} }
+  for (const row of rows) result.rows[row.user_id] = { workDays: row.work_days, workedDays: row.worked_days, facts: {} }
+  for (const fact of facts) {
+    const entry = (result.rows[fact.user_id] ??= { workDays: null, workedDays: null, facts: {} })
+    entry.facts[fact.kpi_name] = [fact.plan, fact.sale, fact.returns, fact.fact, fact.percent, fact.level, fact.bonus].map(num)
+  }
+  return result
 }

@@ -26,6 +26,8 @@ export const employeeSchema = z
     gpsCheck: z.boolean().default(true),
     startPoint: z.boolean().default(false),
     locationPointIds: ids,
+    cashboxIds: ids,
+    requestCashboxIds: ids,
     login: z.string().trim().max(255).default(""),
     accessRightId: optionalId,
     password: z.string().max(255).default(""),

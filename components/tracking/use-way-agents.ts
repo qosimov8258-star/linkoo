@@ -9,6 +9,7 @@ type WayRow = {
   user_fullname: string
   todo_count: number
   done_count: number
+  no_plan_count?: number
   color: string
   is_online: boolean
   last_activity: string | null
@@ -51,6 +52,9 @@ function toAgent(row: WayRow, language: string, category: "agents" | AgentCatego
     color: row.color,
     timestamp: formatLastActivity(row.last_activity, language),
     ratio: `${row.done_count} / ${row.todo_count}`,
+    todo: row.todo_count,
+    done: row.done_count,
+    noPlan: row.no_plan_count ?? 0,
     battery: row.battery ?? 0,
     online: row.is_online,
     position: located ? [located.lat, located.lon] : undefined,

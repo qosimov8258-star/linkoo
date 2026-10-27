@@ -118,7 +118,7 @@ export function TitleTooltips() {
       const centered = rect.left + rect.width / 2 - width / 2
       let left = centered
       // The reference's own icon button is a 30 × 25 box; ours are 24 × 24, so small icons sit 1px higher.
-      let top = rect.bottom + (rect.height <= 28 ? 10.5 : 9.5)
+      let top = rect.bottom + (rect.height <= 24 ? 10.5 : 9.5)
       if (top + height > window.innerHeight - 4) top = rect.top - 9.5 - height
       // react-tooltip moves a bubble that would leave the window to the side of the icon (12px gap, vertically centered).
       // Some toolbars (e.g. the plan pages) pin it to the left of the icon in the reference (`data-tip-side="left"`).

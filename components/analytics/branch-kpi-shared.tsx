@@ -1,7 +1,6 @@
 "use client"
 
-import { useEffect, useState, type ReactNode } from "react"
-import { X } from "lucide-react"
+import { useState, type ReactNode } from "react"
 
 import { BRANCH_KPI_MONTHS } from "@/lib/branch-kpi-types"
 import { useLanguage } from "@/lib/i18n/language-context"
@@ -33,7 +32,7 @@ export function kpiNumber(value: number | null | undefined, suffix?: string, dig
   return suffix ? `${text} ${suffix}` : text
 }
 
-const RU_SHORT_MONTHS = ["янв.", "февр.", "мар.", "апр.", "мая", "июн.", "июл.", "авг.", "сент.", "окт.", "нояб.", "дек."]
+const RU_SHORT_MONTHS = ["янв.", "февр.", "мар.", "апр.", "мая", "июня", "июля", "авг.", "сент.", "окт.", "нояб.", "дек."]
 const EN_SHORT_MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 
 /** Demo dateFormat (module 59) "DD MMM YYYY, HH:mm" of a local "YYYY-MM-DDTHH:mm:ss" (uz → ru months, like the demo). */
@@ -58,6 +57,7 @@ export function KpiMonthYearFilter({
   monthWidth = 192,
   yearWidth = 120,
   gap = 8,
+  dialog = false,
 }: {
   month: number
   year: number
@@ -66,13 +66,15 @@ export function KpiMonthYearFilter({
   monthWidth?: number
   yearWidth?: number
   gap?: number
+  /** The reference's full-screen "Изменить планы" step lays the two fields out a little differently. */
+  dialog?: boolean
 }) {
   const { t } = useLanguage()
   const now = new Date()
   return (
-    <div className={`flex h-[50px] items-start ${className}`} style={{ gap }}>
-      <label className="relative block h-[50px] border-b border-[#e0e0e0] focus-within:border-[#4f71dc]" style={{ width: monthWidth }}>
-        <span className="absolute left-0 top-[2.5px] text-[10px] font-bold leading-3 text-black">{t("Месяц")}</span>
+    <div className={`flex ${dialog ? "h-[54px]" : "h-[50px]"} items-start ${className}`} style={{ gap }}>
+      <label className={`relative block ${dialog ? "h-[52px] border-[#e8e8e8]" : "h-[50px] border-[#e0e0e0]"} border-b focus-within:border-[#4f71dc]`} style={{ width: monthWidth }}>
+        <span className={dialog ? "absolute left-0 top-[2.5px] origin-top-left scale-75 text-[13px] font-semibold leading-[16.3px] text-black" : "absolute left-0 top-[2.8px] origin-top-left scale-75 text-[13px] font-semibold leading-[16.3px] text-black"}>{t("Месяц")}</span>
         <span className="absolute left-0 top-[28.5px] text-[13px] font-semibold leading-[18px] text-[#333]">{t(BRANCH_KPI_MONTHS[month - 1] ?? "")}</span>
         <select value={month} onChange={(event) => onChange({ month: Number(event.target.value), year })} aria-label={t("Месяц")} className="absolute inset-0 h-full w-full cursor-pointer opacity-0">
           {BRANCH_KPI_MONTHS.map((name, index) => (
@@ -87,23 +89,27 @@ export function KpiMonthYearFilter({
           title="Clear value"
           data-native-tip=""
           onClick={() => onChange({ month: now.getMonth() + 1, year })}
-          className="absolute left-[156.3px] top-[29.4px] z-10 text-[18px] leading-[18px] text-[#999] hover:text-[#666]"
+          className={`absolute top-[29.4px] z-10 text-[18px] leading-[18px] text-[#999] hover:text-[#666] left-[161.3px]`}
         >
           ×
         </button>
-        <svg viewBox="0 0 10 7" className="pointer-events-none absolute right-[8px] top-[33px] h-[7px] w-[10px] fill-[#888]"><path d="M0 0l5 5.5L10 0z" /></svg>
+        {dialog ? (
+          <svg viewBox="0 0 24 24" className="pointer-events-none absolute left-[173px] top-[27px] h-6 w-6 fill-[#999]"><path d="M7 10l5 5 5-5z" /></svg>
+        ) : (
+          <svg viewBox="0 0 10 7" className="pointer-events-none absolute right-[8px] top-[33px] h-[7px] w-[10px] fill-[#888]"><path d="M0 0l5 5.5L10 0z" /></svg>
+        )}
       </label>
-      <KpiYearField key={year} year={year} label={t("Год")} width={yearWidth} onApply={(value) => onChange({ month, year: value })} />
+      <KpiYearField key={year} year={year} label={t("Год")} width={yearWidth} dialog={dialog} onApply={(value) => onChange({ month, year: value })} />
     </div>
   )
 }
 
 /** "Год" text field: applies a complete 4-digit year (2000…2100); remounted (key) when the year changes outside. */
-function KpiYearField({ year, label, onApply, width = 120 }: { year: number; label: string; onApply: (year: number) => void; width?: number }) {
+function KpiYearField({ year, label, onApply, width = 120, dialog = false }: { year: number; label: string; onApply: (year: number) => void; width?: number; dialog?: boolean }) {
   const [draft, setDraft] = useState(String(year))
   return (
-    <label className="relative block h-[50px] border-b border-[#e0e0e0] focus-within:border-[#4f71dc]" style={{ width }}>
-      <span className="absolute left-0 top-[8px] text-[10px] font-bold leading-3 text-black">{label}</span>
+    <label className={`relative block ${dialog ? "h-[54px]" : "h-[50px]"} border-b border-[#e0e0e0] focus-within:border-[#4f71dc]`} style={{ width }}>
+      <span className={dialog ? "absolute left-0 top-[9px] origin-top-left scale-75 text-[13px] font-semibold leading-[16.3px] text-black" : "absolute left-0 top-[9.5px] origin-top-left scale-75 text-[13px] font-semibold leading-[16.3px] text-black"}>{label}</span>
       <input
         value={draft}
         inputMode="numeric"
@@ -149,26 +155,20 @@ export function KpiDialogFrame({
   footerPadRight?: number
 }) {
   const { t } = useLanguage()
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose()
-    }
-    window.addEventListener("keydown", onKey)
-    return () => window.removeEventListener("keydown", onKey)
-  }, [onClose])
+  // The reference dialogs close only by their X / actions: neither Escape nor a click on the backdrop dismisses them.
   const frame = (
     <div
       role="dialog"
       aria-modal="true"
-      className={fullScreen ? "flex h-full w-full flex-col bg-white" : "w-full rounded bg-white shadow-xl"}
+      className={fullScreen ? "flex h-full w-full flex-col bg-white" : "w-full rounded bg-white shadow-[0_11px_15px_-7px_rgba(0,0,0,0.2),0_24px_38px_3px_rgba(0,0,0,0.14),0_9px_46px_8px_rgba(0,0,0,0.12)]"}
       style={fullScreen ? undefined : { maxWidth: width ?? 450 }}
       onClick={(event) => event.stopPropagation()}
     >
       <div className={`flex min-h-[60px] shrink-0 items-center justify-between gap-4 border-b border-[#efefef] pl-[30px] ${titleActions ? "pr-[10px]" : "pr-[15px]"}`}>
         <h2 className="flex min-w-0 items-center gap-2 py-2 text-[13px] font-bold uppercase leading-snug text-[#333]">{title}</h2>
         {titleActions ?? (
-          <button type="button" onClick={onClose} aria-label={t("Закрыть")} className="flex h-[38px] w-[38px] shrink-0 items-center justify-center text-[#333]">
-            <X className="h-6 w-6" />
+          <button type="button" onClick={onClose} aria-label={t("Закрыть")} className="flex h-[38px] w-[38px] shrink-0 items-center justify-center text-[#666]">
+            <svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#666]"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" /></svg>
           </button>
         )}
       </div>
@@ -178,7 +178,7 @@ export function KpiDialogFrame({
   )
   if (fullScreen) return <div className="fixed inset-0 z-[110] bg-white">{frame}</div>
   return (
-    <div className="fixed inset-0 z-[110] flex items-start justify-center overflow-y-auto bg-black/50 px-4 pb-10 pt-16" onClick={onClose}>
+    <div className="fixed inset-0 z-[110] flex items-start justify-center overflow-y-auto bg-black/[0.54] px-4 pb-10 pt-16">
       {frame}
     </div>
   )
@@ -187,7 +187,7 @@ export function KpiDialogFrame({
 /** Demo dialog footer action ("Сохранить", "Далее"): blue-ish text button. */
 export function KpiDialogAction({ label, onClick, disabled = false, type = "button" }: { label: string; onClick?: () => void; disabled?: boolean; type?: "button" | "submit" }) {
   return (
-    <button type={type} onClick={onClick} disabled={disabled} className="rounded px-4 py-2 text-[13px] font-semibold uppercase text-[#129fdd] hover:bg-[#f2f5f8] disabled:opacity-40">
+    <button type={type} onClick={onClick} disabled={disabled} className="rounded px-4 pb-[7px] pt-[9px] text-[13px] font-semibold uppercase text-[#129fdd] hover:bg-[#f2f5f8] disabled:opacity-40">
       {label}
     </button>
   )

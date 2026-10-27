@@ -49,10 +49,10 @@ export function MonthField({ label, value, onChange, className = "", padLeft = 0
   }
   return (
     <div className={`relative ${className}`}>
-      <button type="button" onClick={() => setOpen((state) => !state)} className="relative block h-[50px] w-full border-b border-[#e0e0e0] text-left">
+      <button type="button" onClick={() => setOpen((state) => !state)} className="relative block h-[51px] w-full border-b border-[#e0e0e0] text-left">
         <span className="absolute top-[12px] text-[11px] leading-[13.8px] text-[#333]" style={{ left: padLeft }}>{label}</span>
-        <span className={`absolute top-[28.8px] text-[13px] leading-[16.3px] ${text ? "text-black" : "text-[#bdbdbd]"}`} style={{ left: padLeft }}><span data-no-translate>{text || "Выберите месяц"}</span></span>
-        <svg viewBox="0 0 24 24" className="absolute right-[0.5px] top-[14px] h-5 w-5 fill-[#ccc]"><path d="M19 4h-1V2h-2v2H8V2H6v2H5c-1.11 0-1.99.9-1.99 2L3 20c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 16H5V9h14v11z" /></svg>
+        <span className={`absolute top-[27.8px] text-[13px] leading-[16.3px] ${text ? "text-black" : "text-[#bdbdbd]"}`} style={{ left: padLeft }}><span data-no-translate>{text || "Выберите месяц"}</span></span>
+        <svg viewBox="0 0 24 24" className="absolute right-[0.5px] top-[14px] h-5 w-5 fill-[#ccc]"><path d="M9 11H7v2h2v-2zm4 0h-2v2h2v-2zm4 0h-2v2h2v-2zm2-7h-1V2h-2v2H8V2H6v2H5c-1.11 0-1.99.9-1.99 2L3 20c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 16H5V9h14v11z" /></svg>
       </button>
       {open && (
         <>
@@ -206,11 +206,7 @@ export function MultiSelect({ label, items, selected, onChange, className = "" }
 export function Radio({ checked, label, onSelect, indent = 0, labelClass = "text-black" }: { checked: boolean; label: string; onSelect: () => void; indent?: number; labelClass?: string }) {
   return (
     <button type="button" onClick={onSelect} className={`flex h-[34px] w-full items-start gap-[16px] text-left text-[13px] leading-[24px] ${labelClass}`} style={{ paddingLeft: indent }}>
-      <span className="flex h-[24px] w-[24px] shrink-0 items-center justify-center">
-        <span className={`flex h-[20px] w-[20px] items-center justify-center rounded-full border-2 ${checked ? "border-[#5d6474]" : "border-[#333]"}`}>
-          {checked && <span className="h-[10px] w-[10px] rounded-full bg-[#5d6474]" />}
-        </span>
-      </span>
+      <svg viewBox="0 0 24 24" className={`h-[24px] w-[24px] shrink-0 ${checked ? "fill-[#5d6474]" : "fill-[#333]"}`}><path d={checked ? "M12 7c-2.76 0-5 2.24-5 5s2.24 5 5 5 5-2.24 5-5-2.24-5-5-5zm0-5C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8z" : "M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8z"} /></svg>
       {label}
     </button>
   )
@@ -219,9 +215,7 @@ export function Radio({ checked, label, onSelect, indent = 0, labelClass = "text
 export function Check({ checked, label, onToggle, className = "mb-[10px]", labelClass = "", indent = 0 }: { checked: boolean; label: string; onToggle: () => void; className?: string; labelClass?: string; indent?: number }) {
   return (
     <button type="button" onClick={onToggle} className={`flex min-h-[20px] w-full items-start gap-[6px] text-left text-[13px] font-semibold leading-[20px] text-black ${className}`} style={{ paddingLeft: indent }}>
-      <span className={`m-px mt-px flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-[2px] border-2 ${checked ? "border-[#666] bg-[#666]" : "border-[#666]"}`}>
-        {checked && <svg viewBox="0 0 24 24" className="h-4 w-4 fill-white"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" /></svg>}
-      </span>
+      <svg viewBox="0 0 24 24" className="h-5 w-5 shrink-0 fill-[#666]"><path d={checked ? "M19 3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-9 14l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z" : "M19 5v14H5V5h14m0-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2z"} /></svg>
       <span className={labelClass}>{label}</span>
     </button>
   )

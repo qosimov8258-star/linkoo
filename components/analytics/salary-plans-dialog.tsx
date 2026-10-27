@@ -4,7 +4,8 @@ import { useEffect, useMemo, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 
 import { SALARY_MONTHS, SalaryMonthSelect, SalaryYearField } from "@/components/analytics/salary-fields"
-import { FilterSelect, RI } from "@/components/ref/list-kit"
+import { RefSelect } from "@/components/analytics/ref-select"
+import { RI } from "@/components/ref/list-kit"
 import { useLanguage } from "@/lib/i18n/language-context"
 
 export type SalaryKpi = { id: number; name: string; planType: string }
@@ -16,9 +17,9 @@ const RADIO_OFF = "M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 
 
 function Radio({ checked, label, onClick }: { checked: boolean; label: string; onClick: () => void }) {
   return (
-    <button type="button" onClick={onClick} className="flex h-6 items-center text-left text-[13px] text-[#333]">
-      <svg viewBox="0 0 24 24" className="mr-[16px] h-6 w-6 fill-[#333]"><path d={checked ? RADIO_ON : RADIO_OFF} /></svg>
-      {label}
+    <button type="button" onClick={onClick} className="flex h-6 items-center text-left text-[13px] text-black">
+      <svg viewBox="0 0 24 24" className={`mr-[16px] h-6 w-6 ${checked ? "fill-[#5d6474]" : "fill-[#333]"}`}><path d={checked ? RADIO_ON : RADIO_OFF} /></svg>
+      <span className="leading-6">{label}</span>
     </button>
   )
 }
@@ -30,46 +31,54 @@ function formatDigits(raw: string) {
   return frac === undefined ? grouped : `${grouped}.${frac}`
 }
 
-/** KPI multi-select of the "Выбранные KPI" step. */
-function KpiMultiSelect({ options, value, onChange }: { options: SalaryKpi[]; value: number[]; onChange: (value: number[]) => void }) {
-  const [open, setOpen] = useState(false)
-  const names = options.filter((item) => value.includes(item.id)).map((item) => item.name)
+const CHEVRONS = "M6.41 6L5 7.41 9.58 12 5 16.59 6.41 18l6-6zM13 6l-1.41 1.41L16.17 12l-4.58 4.59L13 18l6-6z"
+
+/** The reference's "»" / "«" tabs: they scroll the table sideways while the pointer rests on them (about 1800px per second). */
+function ScrollArrow({ side, scroller }: { side: "left" | "right"; scroller: React.RefObject<HTMLDivElement | null> }) {
+  const [hover, setHover] = useState(false)
+  const [state, setState] = useState({ canLeft: false, canRight: false })
+  const frame = useRef(0)
+
+  useEffect(() => {
+    const element = scroller.current
+    if (!element) return
+    const update = () => setState({ canLeft: element.scrollLeft > 1, canRight: element.scrollLeft + element.clientWidth < element.scrollWidth - 1 })
+    update()
+    element.addEventListener("scroll", update)
+    window.addEventListener("resize", update)
+    const observer = new ResizeObserver(update)
+    observer.observe(element)
+    if (element.firstElementChild) observer.observe(element.firstElementChild)
+    return () => {
+      element.removeEventListener("scroll", update)
+      window.removeEventListener("resize", update)
+      observer.disconnect()
+    }
+  }, [scroller])
+
+  useEffect(() => {
+    if (!hover) return
+    let last = performance.now()
+    const tick = (now: number) => {
+      const element = scroller.current
+      if (element) element.scrollLeft += (side === "right" ? 1 : -1) * (now - last) * 1.8
+      last = now
+      frame.current = requestAnimationFrame(tick)
+    }
+    frame.current = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(frame.current)
+  }, [hover, scroller, side])
+
+  const visible = side === "right" ? state.canRight || hover : state.canLeft
+  if (!visible && !(side === "right" && state.canLeft)) return null
+  const dim = side === "right" && !state.canRight
   return (
-    <div className="relative h-[62px]">
-      <button type="button" onClick={() => setOpen((current) => !current)} className="absolute inset-x-0 top-[18px] h-[36px] border-b border-[#e8e8e8] text-left text-[13px] font-semibold text-black">
-        {names.length ? (
-          <>
-            <span className="absolute left-0 top-[-8px] text-[10px] font-bold leading-3">KPI</span>
-            <span className="absolute inset-x-0 top-[10px] truncate pr-8">{names.join(", ")}</span>
-          </>
-        ) : (
-          <span className="absolute left-0 top-[13px] leading-4">KPI</span>
-        )}
-      </button>
-      <svg viewBox="0 0 10 7" className="pointer-events-none absolute right-[14px] top-[36px] h-[7px] w-[10px] fill-[#888]"><path d="M0 0l5 5.5L10 0z" /></svg>
-      {open && (
-        <>
-          <button type="button" aria-hidden className="fixed inset-0 z-40 cursor-default" onClick={() => setOpen(false)} />
-          <div className="absolute inset-x-0 top-[54px] z-50 max-h-[205px] overflow-y-auto bg-white py-1 shadow-[0_1px_6px_rgba(0,0,0,0.2),0_1px_4px_rgba(0,0,0,0.2)]">
-            {options.map((item) => {
-              const checked = value.includes(item.id)
-              return (
-                <button
-                  key={item.id}
-                  type="button"
-                  onClick={() => onChange(checked ? value.filter((id) => id !== item.id) : [...value, item.id])}
-                  className="flex h-9 w-full items-center gap-[10px] px-[10px] text-left text-[13px] text-[#333] hover:bg-[#f2f5f8]"
-                >
-                  <span className={`flex h-[18px] w-[18px] shrink-0 items-center justify-center border-2 ${checked ? "border-[#5d6474] bg-[#5d6474]" : "border-[#5d6474]"}`}>
-                    {checked && <svg viewBox="0 0 24 24" className="h-4 w-4 fill-white"><path d="M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4L9 16.2z" /></svg>}
-                  </span>
-                  <span className="truncate">{item.name}</span>
-                </button>
-              )
-            })}
-          </div>
-        </>
-      )}
+    <div
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      className={`fixed flex items-center justify-center bg-black/[0.31] transition-all duration-150 ${side === "right" ? "right-0 rounded-l-[60px] pl-[2px]" : "left-0 rounded-r-[60px] pr-[2px]"} top-[265px] h-[60px] w-[40px] ${dim ? "opacity-30" : "opacity-80"}`}
+    >
+      <svg viewBox="0 0 24 24" className={`h-6 w-6 fill-white ${side === "left" ? "-scale-x-100" : ""}`}><path d={CHEVRONS} /></svg>
     </div>
   )
 }
@@ -103,6 +112,7 @@ export function SalaryPlansDialog({
   const [picked, setPicked] = useState<number[]>([])
   const [step, setStep] = useState<1 | 2>(1)
   const [salary, setSalary] = useState("")
+  const [salaryFocused, setSalaryFocused] = useState(false)
   const [currency, setCurrency] = useState("")
   const [targetMonth, setTargetMonth] = useState<number | null>(month)
   const [targetYear, setTargetYear] = useState(year)
@@ -160,59 +170,48 @@ export function SalaryPlansDialog({
   if (step === 2) {
     return createPortal(
       <div className="fixed inset-0 z-[1400] flex flex-col bg-white font-sans text-[13px] text-[#333]">
-        <div className="flex h-[60px] shrink-0 items-center justify-between border-b border-[#eee] pl-[24px] pr-[26px]">
+        <div className="flex h-[60px] shrink-0 items-center justify-between border-b border-[#e8e8e8] pl-[10px] pr-[10px]">
           <div className="flex items-center">
-            <button type="button" onClick={() => setStep(1)} aria-label={t("Назад")} className="mr-[10px] flex h-6 w-6 items-center justify-center">
+            <button type="button" onClick={() => setStep(1)} aria-label={t("Назад")} className="flex h-12 w-12 items-center justify-center">
               <svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#5d6474]"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z" /></svg>
             </button>
             <span className="text-[13px] font-bold uppercase text-[#333]">{title}</span>
           </div>
-          <button type="button" disabled={saving} onClick={() => void save()} className="text-[13px] font-semibold uppercase text-[#129fdd] disabled:opacity-50">{t("Сохранить")}</button>
+          <button type="button" disabled={saving} onClick={() => void save()} className="mr-[16px] h-9 pt-[2px] text-[13px] font-bold uppercase text-[#129fdd] disabled:opacity-50">{t("Сохранить")}</button>
         </div>
-        <div className="flex h-[70px] shrink-0 items-start gap-[10px] px-[15px] pt-[8px]">
-          <SalaryMonthSelect className="w-[200px]" value={targetMonth} onChange={setTargetMonth} />
-          <SalaryYearField className="w-[150px]" value={targetYear} onChange={setTargetYear} />
+        <div className="flex h-[72px] shrink-0 items-start gap-[10px] px-[15px] pt-[7.5px]">
+          <SalaryMonthSelect rs className="w-[200px]" value={targetMonth} onChange={setTargetMonth} />
+          <SalaryYearField rs className="w-[151px]" lower value={targetYear} onChange={setTargetYear} />
         </div>
         <div ref={tableRef} className="min-h-0 flex-1 overflow-auto">
-          <table className="border-collapse text-[13px]" style={{ minWidth: 258 + 250 * columns.length }}>
-            <thead>
-              <tr className="h-[50px]">
-                <th className="w-[258px] min-w-[258px] border-b border-[#f1f1f1] pl-[10px] pr-[8px] text-left font-semibold text-[#333]">{t("Сотрудник")}</th>
-                {columns.map((kpi) => <th key={kpi.id} className="w-[250px] min-w-[250px] max-w-[250px] border-b border-[#f1f1f1] pr-[16px] text-left align-middle font-semibold leading-[16px] text-[#333]"><span className="block break-words">{kpi.name}</span></th>)}
-              </tr>
-            </thead>
-            <tbody>
-              {targets.map((target) => (
-                <tr key={target.userId} className="h-[50px]">
-                  <td className="w-[258px] min-w-[258px] border-b border-[#f1f1f1] pl-[10px] pr-[8px]">{target.name}</td>
-                  {columns.map((kpi) => {
-                    const key = `${target.userId}:${kpi.id}`
-                    return (
-                      <td key={kpi.id} className="border-b border-[#f1f1f1] pr-[16px]">
-                        <input
-                          value={formatDigits(values[key] ?? "")}
-                          inputMode="decimal"
-                          onChange={(event) => setValues((current) => ({ ...current, [key]: event.target.value.replace(/[^\d.]/g, "") }))}
-                          className="mt-[4px] h-[36px] w-full border-b border-[#e0e0e0] bg-transparent text-[13px] font-semibold text-black outline-none focus:border-[#5d6474]"
-                        />
-                      </td>
-                    )
-                  })}
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <div style={{ width: 250 * (1 + columns.length) }}>
+            <div className="flex h-[50px] border-b border-[#f2f5f8] font-semibold text-[#333]">
+              <div className="flex w-[250px] shrink-0 items-center pl-[10px]">{t("Сотрудник")}</div>
+              {columns.map((kpi) => <div key={kpi.id} className="flex w-[250px] shrink-0 items-center px-[8px] leading-[16.25px]"><span className="block break-words">{kpi.name}</span></div>)}
+            </div>
+            {targets.map((target) => (
+              <div key={target.userId} className="flex h-[50px] border-b border-[#f2f5f8]">
+                <div className="flex w-[250px] shrink-0 items-center pl-[10px] font-semibold">{target.name}</div>
+                {columns.map((kpi) => {
+                  const key = `${target.userId}:${kpi.id}`
+                  return (
+                    <div key={kpi.id} className="relative mt-[5.5px] h-[45px] w-[250px] shrink-0 px-[8px]">
+                      <input
+                        value={formatDigits(values[key] ?? "")}
+                        inputMode="decimal"
+                        onChange={(event) => setValues((current) => ({ ...current, [key]: event.target.value.replace(/[^\d.]/g, "") }))}
+                        className="peer block h-[45px] w-full bg-transparent text-[13px] font-semibold leading-6 text-black outline-none"
+                      />
+                      <span className="pointer-events-none absolute inset-x-[8px] top-[36.5px] h-px bg-[#e0e0e0] peer-focus:h-[2px] peer-focus:bg-[#5d6474]" />
+                    </div>
+                  )
+                })}
+              </div>
+            ))}
+          </div>
         </div>
-        {columns.length > 4 && (
-          <button
-            type="button"
-            aria-label=">>"
-            onClick={() => tableRef.current?.scrollBy({ left: 750, behavior: "smooth" })}
-            className="fixed right-0 top-[265px] flex h-[60px] w-[40px] items-center justify-center rounded-l-full bg-[#ccc] pl-[6px] text-[22px] font-bold leading-none text-white"
-          >
-            »
-          </button>
-        )}
+        <ScrollArrow side="right" scroller={tableRef} />
+        <ScrollArrow side="left" scroller={tableRef} />
       </div>,
       document.body,
     )
@@ -221,11 +220,11 @@ export function SalaryPlansDialog({
   return createPortal(
     <div className="fixed inset-0 z-[1400] flex items-start justify-center bg-black/[0.54] pt-[64px]" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
       <div role="dialog" aria-modal="true" className="w-[600px] max-w-full bg-white shadow-[0_10px_30px_rgba(0,0,0,0.3)]">
-        <header className="flex h-[60px] items-center justify-between border-b border-[#efefef] pl-[30px] pr-[30px]">
+        <header className="flex h-[60px] items-center justify-between border-b border-[#efefef] pl-[30px] pr-[27px]">
           <b className="text-[13px] font-bold uppercase text-[#333]">{title}</b>
-          <button type="button" onClick={onClose} aria-label={t("Закрыть")}><svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#333]"><path d={RI.close} /></svg></button>
+          <button type="button" onClick={onClose} aria-label={t("Закрыть")}><svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#666]"><path d={RI.close} /></svg></button>
         </header>
-        <div className="h-[300px] px-[30px] pt-[26px]">
+        <div className="h-[300px] overflow-hidden px-[30px] pt-[25px]">
           <div className="grid grid-cols-[270px_1fr]">
             <Radio checked={kind === "kpi"} label={t("Установить KPI")} onClick={() => setKind("kpi")} />
             <Radio checked={kind === "salary"} label={t("Установить зарплату")} onClick={() => setKind("salary")} />
@@ -236,20 +235,28 @@ export function SalaryPlansDialog({
                 <Radio checked={scope === "all"} label={t("Все активные KPI")} onClick={() => setScope("all")} />
                 <Radio checked={scope === "selected"} label={t("Выбранные KPI")} onClick={() => setScope("selected")} />
               </div>
-              {scope === "selected" && <div className="mt-[20px]"><KpiMultiSelect options={kpis} value={picked} onChange={setPicked} /></div>}
+              {scope === "selected" && <div className="mt-[10px]"><RefSelect multi label="KPI" options={kpis.map((item) => ({ key: item.id, label: item.name }))} value={picked} onChange={(next) => setPicked(next as number[])} /></div>}
             </>
           ) : (
-            <div className="mt-[16px]">
-              <label className="relative block h-[50px]">
-                <span className="absolute left-0 top-[8px] text-[13px] font-bold text-black">{salary ? "" : t("Зарплата")}</span>
-                {salary && <span className="absolute left-0 top-[-2px] text-[10px] font-bold leading-3 text-black">{t("Зарплата")}</span>}
-                <input value={formatDigits(salary)} inputMode="decimal" onChange={(event) => setSalary(event.target.value.replace(/[^\d.]/g, ""))} className="absolute inset-x-0 top-[16px] h-[36px] border-b border-[#e8e8e8] bg-transparent text-[13px] font-semibold text-black outline-none focus:border-[#5d6474]" />
+            <div className="pt-[25px]">
+              <label className="group relative mt-[7px] block h-[45px]">
+                <span className={`pointer-events-none absolute left-0 origin-top-left text-[13px] font-semibold leading-[18px] text-black transition-all duration-200 ${salary || salaryFocused ? "top-[-7.25px] scale-75" : "top-[13px]"}`}>{t("Зарплата")}</span>
+                <input
+                  value={formatDigits(salary)}
+                  inputMode="decimal"
+                  onFocus={() => setSalaryFocused(true)}
+                  onBlur={() => setSalaryFocused(false)}
+                  onChange={(event) => setSalary(event.target.value.replace(/[^\d.]/g, ""))}
+                  className="block h-[45px] w-full bg-transparent text-[13px] font-semibold text-black outline-none"
+                />
+                <span className="pointer-events-none absolute inset-x-0 top-[36px] h-px bg-[#e0e0e0]" />
+                <span className={`pointer-events-none absolute inset-x-0 top-[35px] h-[2px] origin-center bg-[#5d6474] transition-transform duration-200 ${salaryFocused ? "scale-x-100" : "scale-x-0"}`} />
               </label>
-              <FilterSelect className="mt-[15px]" label={t("Валюта")} value={currency} onChange={setCurrency} options={currencies} />
+              <RefSelect label={t("Валюта")} options={currencies.map((name) => ({ key: name, label: name }))} value={currency ? [currency] : []} onChange={(next) => setCurrency(String(next[0] ?? ""))} />
             </div>
           )}
         </div>
-        <footer className={`flex h-[57px] items-center justify-end border-t border-[#efefef] ${kind === "salary" ? "pr-[26px]" : "pr-[33px]"}`}>
+        <footer className={`flex h-[57px] items-center justify-end border-t border-[#efefef] pt-[2px] ${kind === "salary" ? "pr-[26px]" : "pr-[33px]"}`}>
           <button type="button" disabled={saving} onClick={next} className="text-[13px] font-semibold uppercase text-[#129fdd] disabled:opacity-50">{kind === "salary" ? t("Сохранить") : t("Далее")}</button>
         </footer>
       </div>

@@ -4,7 +4,7 @@ import { z } from "zod"
 import { getCurrentUser } from "@/lib/current-user"
 import { requireRole } from "@/lib/rbac"
 import { parseJsonBody } from "@/lib/validation"
-import { allSalaryRecords, listSalaryRecords, setSalaries } from "@/lib/salary-records-repo"
+import { allSalaryRecords, listSalaryRecords, salaryKpiStats, setSalaries } from "@/lib/salary-records-repo"
 
 function clampMonth(value: string | null) {
   const month = Number(value)
@@ -23,6 +23,7 @@ export async function GET(request: Request) {
   const url = new URL(request.url)
   const month = clampMonth(url.searchParams.get("month"))
   const year = clampYear(url.searchParams.get("year"))
+  if (url.searchParams.get("stats") === "1") return NextResponse.json(await salaryKpiStats(month, year))
   if (url.searchParams.get("all") === "1") return NextResponse.json({ results: await allSalaryRecords(month, year) })
   const tabParam = url.searchParams.get("tab")
   const tab = tabParam === "true" || tabParam === "false" ? tabParam : "all"

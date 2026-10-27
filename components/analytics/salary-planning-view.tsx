@@ -1,10 +1,9 @@
 "use client"
 
 import Image from "next/image"
-import { useEffect, useMemo, useState } from "react"
-import { Copy } from "lucide-react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { FilterSelect, RI, RefButton, RefCard, RefHeader, RefImportDialog, RefPage, RefTabs } from "@/components/ref/list-kit"
-import { RefPager } from "@/components/ref/pager-controls"
+import { REF_PAGE_SIZES, RefPager } from "@/components/ref/pager-controls"
 import { RefTip } from "@/components/ref/ref-tip"
 import { SalaryAddDialog } from "@/components/analytics/salary-add-dialog"
 import { SalaryCopyDialog } from "@/components/analytics/salary-copy-dialog"
@@ -12,6 +11,7 @@ import { SalaryMonthSelect, SalaryYearField } from "@/components/analytics/salar
 import { SalaryPlansDialog, type PlanSavePayload, type SalaryKpi } from "@/components/analytics/salary-plans-dialog"
 
 import { downloadExcelTable } from "@/lib/excel-export"
+import { buildKpiSheet, type KpiSheetStats } from "@/lib/salary-kpi-sheet"
 import { mapHeaderColumns, readExcelRows } from "@/lib/excel-import"
 import { useLanguage } from "@/lib/i18n/language-context"
 import { notify } from "@/lib/notify"
@@ -23,6 +23,8 @@ type SalaryRecord = {
   id: number
   userId: number
   name: string
+  firstName: string
+  secondName: string
   position: string
   month: number
   year: number
@@ -115,12 +117,43 @@ export function SalaryPlanningView() {
 
   const effMonth = (month ?? today.getMonth()) + 1
 
+  // The reference keeps its filters in the address (?month=&year=&showTab=&search=&page=&pageSize=): read them once, then write back the ones
+  // that were given or changed.
+  const touched = useRef(new Set<string>())
+  const [ready, setReady] = useState(false)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const num = (key: string) => (/^\d+$/.test(params.get(key) ?? "") ? Number(params.get(key)) : null)
+    const m = num("month")
+    if (m && m >= 1 && m <= 12) { setMonth(m - 1); touched.current.add("month") }
+    const y = num("year")
+    if (y && y >= 1970 && y <= 2200) { setYear(y); touched.current.add("year") }
+    const showTab = Object.entries(TAB_PARAM).find(([, value]) => value === params.get("showTab"))?.[0]
+    if (showTab) { setTab(showTab); touched.current.add("showTab") }
+    const search = params.get("search")
+    if (search) { setQuery(search); setDebounced(search); touched.current.add("search") }
+    const size = num("pageSize")
+    if (size && (REF_PAGE_SIZES as readonly number[]).includes(size)) { setPageSize(size); touched.current.add("pageSize") }
+    const pg = num("page")
+    if (pg && pg > 0) { setPage(pg); touched.current.add("page") }
+    setReady(true)
+  }, [])
+  useEffect(() => {
+    if (!ready) return
+    const values: Record<string, string> = { month: String(effMonth), page: String(page), pageSize: String(pageSize), search: debounced, showTab: TAB_PARAM[tab], year: String(year) }
+    const params = new URLSearchParams()
+    for (const key of Object.keys(values).sort()) if (touched.current.has(key) && values[key] !== "") params.set(key, values[key])
+    const query = params.toString()
+    window.history.replaceState(window.history.state, "", `${window.location.pathname}${query ? `?${query}` : ""}`)
+  }, [ready, effMonth, year, tab, debounced, page, pageSize])
+
   useEffect(() => {
     const timer = window.setTimeout(() => setDebounced(query), 300)
     return () => window.clearTimeout(timer)
   }, [query])
 
   useEffect(() => {
+    if (!ready) return
     let cancelled = false
     const params = new URLSearchParams({ month: String(effMonth), year: String(year), tab: TAB_PARAM[tab], search: debounced, page: String(page), pageSize: String(pageSize) })
     fetch(`/api/salary-records?${params}`)
@@ -139,7 +172,7 @@ export function SalaryPlanningView() {
     return () => {
       cancelled = true
     }
-  }, [effMonth, year, tab, debounced, page, pageSize, reload])
+  }, [ready, effMonth, year, tab, debounced, page, pageSize, reload])
 
   // Active KPIs and currencies are needed by the "Изменить планы" step and by the Excel template.
   useEffect(() => {
@@ -173,8 +206,9 @@ export function SalaryPlanningView() {
 
   const refresh = () => setReload((current) => current + 1)
 
-  function changeFilter<T>(setter: (value: T) => void) {
+  function changeFilter<T>(setter: (value: T) => void, key: string) {
     return (value: T) => {
+      touched.current.add(key)
       setter(value)
       setPage(1)
     }
@@ -240,29 +274,12 @@ export function SalaryPlanningView() {
     return response.ok ? (((await response.json()) as { results: SalaryRecord[] }).results) : []
   }
 
-  /** "Скачать EXCEL": the reference's KPI statistics sheet (plan columns per KPI; facts are not stored here, so they stay empty). */
+  /** "Скачать EXCEL": the reference's KPI statistics sheet (plan, sales, returns, fact, %, level and bonus per KPI). */
   async function exportExcel() {
-    const records = await monthRecords(effMonth, year)
-    const names = [...new Set(records.flatMap((record) => record.indicators.map((item) => item.name)))].sort(kpiOrder)
-    const groupHead = ["План", "Продажа", "Возврат", "Факт", "% выполнения", "Уровень", "Сумма Бонуса"].map((label) => t(label))
-    const head1: (string | number)[] = ["№", t("КПИ / Сотрудник"), t("Фиксированный оклад"), t("Рабочие дни"), t("Отработанные дни"), t("Зарплата")]
-    const head2: (string | number)[] = ["", "", "", "", "", ""]
-    for (const name of names) {
-      head1.push(name, "", "", "", "", "", "")
-      head2.push(...groupHead)
-    }
-    head1.push(t("Итоговая сумма"))
-    head2.push("")
-    const body = records.map((record, index) => {
-      const line: (string | number)[] = [index + 1, record.name, record.salary || "", "", "", ""]
-      for (const name of names) {
-        const plan = record.indicators.find((item) => item.name === name)?.plan
-        line.push(plan ?? "", "", "", "", "", "", "")
-      }
-      line.push(record.totalSalary)
-      return line
-    })
-    downloadExcelTable("kpi", [head1, head2, ...body])
+    const [records, statsResponse] = await Promise.all([monthRecords(effMonth, year), fetch(`/api/salary-records?month=${effMonth}&year=${year}&stats=1`)])
+    const stats: KpiSheetStats = statsResponse.ok ? ((await statsResponse.json()) as KpiSheetStats) : { columns: [], rows: {} }
+    const sheet = buildKpiSheet(records, stats, t)
+    downloadExcelTable("kpi", sheet.rows, { merges: sheet.merges, widths: sheet.widths })
   }
 
   async function activeEmployees(): Promise<Employee[]> {
@@ -349,39 +366,40 @@ export function SalaryPlanningView() {
     <>
       <RefTip text={hasSelection ? "" : tip} side="left" gap={12.5}><RefButton exact green label={t("Зачислить")} onClick={() => void setApproved(true)} /></RefTip>
       <RefTip text={hasSelection ? "" : tip} side="left" gap={12.5}><RefButton exact red label={t("Отменить зачисление")} onClick={() => void setApproved(false)} /></RefTip>
-      <RefTip text={hasSelection ? "" : tip} side="left" gap={12.5}><RefButton exact icon={RI.edit} label={t("Изменить планы")} onClick={() => hasSelection && setPlansOpen(true)} /></RefTip>
+      <RefTip text={hasSelection ? "" : tip} side="left" gap={12.5}><RefButton exact iconLow icon={RI.edit} label={t("Изменить планы")} onClick={() => hasSelection && setPlansOpen(true)} /></RefTip>
       <RefTip text={t("Дублировать")} side="left" gap={12.5}>
-        <button type="button" aria-label={t("Дублировать")} onClick={() => setCopyOpen(true)} className="flex h-12 w-12 items-center justify-center text-[#5d6474]"><Copy className="h-6 w-6" /></button>
+        <button type="button" aria-label={t("Дублировать")} onClick={() => setCopyOpen(true)} className="flex h-12 w-12 items-center justify-center text-[#5d6474]"><svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#666]"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z" /></svg></button>
       </RefTip>
     </>
   )
   const pager = (
     <RefPager
+      lowered
       pageSize={pageSize}
-      onPageSize={(size) => { setPageSize(size); setPage(1) }}
+      onPageSize={(size) => { touched.current.add("pageSize"); setPageSize(size); setPage(1) }}
       from={data.count ? (page - 1) * pageSize + 1 : 1}
       to={Math.min(page * pageSize, data.count)}
       total={data.count}
       page={page}
       pageCount={pageCount}
-      onPage={setPage}
+      onPage={(next) => { touched.current.add("page"); setPage(next) }}
     />
   )
 
   return (
     <RefPage>
-      <RefHeader title={t("Зарплата и установка планов")}>
-        <div className="mr-[9px] flex items-center">
+      <RefHeader title={t("Зарплата и установка планов")} titleTop={0.8}>
+        <div className="mr-[8px] flex items-center">
           {data.lastDate && <span className="mr-[10px] whitespace-nowrap text-[13px] font-semibold text-black"><span className="uppercase">{t("Данные за")}</span> {refDateTime(data.lastDate)}</span>}
           <span className={data.lastDate ? "flex w-[130px] justify-center [&>button]:px-[15px]" : ""}><RefButton exact green label={t("Перерасчет KPI")} onClick={() => void recalc()} /></span>
-          <span className={data.lastDate ? "ml-[25px]" : "ml-[33px]"}><RefButton exact icon={RI.sync} label={t("Обновить с excel")} onClick={() => setImportOpen(true)} /></span>
+          <span className={data.lastDate ? "ml-[25px]" : "ml-[33px]"}><RefButton exact icon={RI.autorenew} label={t("Обновить с excel")} onClick={() => { setImpMonth(month); setImpYear(year); setImportOpen(true) }} /></span>
           <span className="ml-[15px]"><RefButton exact icon={RI.download} green label={t("Скачать EXCEL")} onClick={() => void exportExcel()} /></span>
           <span className="ml-[10px]"><RefButton exact icon={RI.add} green label={t("Добавить зарплату")} onClick={() => setAddOpen(true)} /></span>
         </div>
       </RefHeader>
 
-      <RefCard className="bg-white">
-        <RefTabs labels={TABS} value={tab} onChange={(value) => { setTab(value); setPage(1) }} />
+      <RefTabs stacked labels={TABS} value={tab} onChange={(value) => { touched.current.add("showTab"); setTab(value); setPage(1) }} />
+      <RefCard className="relative bg-white">
         {inSelection && (
           <div className="flex h-[30px] items-center justify-between bg-[#09890f] pl-[5px] pr-[33px] text-[13px] font-semibold text-white">
             <span>{t("Зарплата:")} {sums.salary}</span>
@@ -402,18 +420,18 @@ export function SalaryPlanningView() {
           </div>
         ) : (
           <div className="relative flex h-[50px] items-center whitespace-nowrap px-[5px]">
-            <div className="absolute left-[5px] top-0 w-[200px]"><SalaryMonthSelect bare value={month} onChange={changeFilter(setMonth)} /></div>
-            <div className="absolute left-[205px] top-0 w-[100px]"><SalaryYearField bare value={year} onChange={changeFilter(setYear)} /></div>
-            <div className="absolute left-[377.5px] top-0 flex h-12 w-[300px] items-center border-b border-[#e0e0e0] focus-within:border-[#5d6474]">
+            <div className="absolute left-[5px] top-[-2.5px] w-[200px]"><SalaryMonthSelect bare rs value={month} onChange={changeFilter(setMonth, "month")} /></div>
+            <div className="absolute left-[205px] top-[-2.2px] w-[100px]"><SalaryYearField bare rs lower value={year} onChange={changeFilter(setYear, "year")} /></div>
+            <div className="absolute left-[377.5px] top-0 flex h-[40px] w-[300px] items-start border-b border-[#e0e0e0] focus-within:border-[#5d6474]">
               <input
                 value={query}
-                onChange={(event) => { setQuery(event.target.value); setPage(1) }}
+                onChange={(event) => { touched.current.add("search"); setQuery(event.target.value); setPage(1) }}
                 placeholder={t("Поиск")}
                 className="h-12 w-[262px] bg-transparent text-[13px] outline-none placeholder:text-black/30"
               />
-              <svg viewBox="0 0 24 24" className="ml-[12px] h-6 w-6 shrink-0 fill-[#ccc]"><path d={SEARCH} /></svg>
+              <svg viewBox="0 0 24 24" className="ml-[12px] mt-[12px] h-6 w-6 shrink-0 fill-[#ccc]"><path d={SEARCH} /></svg>
             </div>
-            <div className="relative z-10 ml-auto flex shrink-0 items-center text-[#5d6474]">
+            <div className="relative top-[1px] z-10 ml-auto flex shrink-0 items-center text-[#5d6474]">
               {pager}
               <RefTip text={t("Выбрать из списка")} side="left" gap={12.5} className="ml-5 shrink-0">
                 <button type="button" aria-label={t("Выбрать из списка")} onClick={() => { setSelectMode((current) => !current); setSelected([]) }} className="flex h-12 w-12 items-center justify-center">
@@ -443,9 +461,9 @@ export function SalaryPlanningView() {
             </div>
             {rows.length === 0 ? (
               loaded && (
-                <div className="flex min-h-[276px] flex-col items-center justify-center gap-[26px] pt-[34px]">
-                  <Image src="/robot-empty.png" alt={t("Робот-помощник")} width={150} height={150} priority className="h-36 w-36 object-contain" />
-                  <p className="text-[13px] text-[#666]">{t("По вашему запросу ничего не найдено")}</p>
+                <div className="flex min-h-[276.25px] flex-col items-center gap-[12px] pt-[58.2px]">
+                  <Image src="/robot-empty.png" alt={t("Робот-помощник")} width={155} height={160} priority unoptimized className="h-[159.8px] w-[155px] object-contain" />
+                  <p className="text-[13px] leading-[16.25px] text-[#666]">{t("По вашему запросу ничего не найдено")}</p>
                 </div>
               )
             ) : (
@@ -495,12 +513,13 @@ export function SalaryPlanningView() {
           onSave={() => void saveImport()}
           onClose={() => { setImportOpen(false); setImportFile(null) }}
           saving={importSaving}
+          bigTitle
           top={
-            <div className="h-[273px]">
-              <SalaryMonthSelect className="-mt-[5px]" value={impMonth} onChange={setImpMonth} />
-              <SalaryYearField className="mt-[20px]" value={impYear} onChange={setImpYear} />
-              <FilterSelect className="mt-[19px]" label={t("Организация")} value={impOrg} onChange={setImpOrg} options={orgOptions} />
-              <FilterSelect className="mt-[4px]" label={t("Валюта")} value={impCur} onChange={setImpCur} options={currencies} />
+            <div className="h-[278px]">
+              <SalaryMonthSelect rs className="-mt-[5px] w-[340px]" value={impMonth} onChange={setImpMonth} />
+              <SalaryYearField rs lower className="mt-[20px]" value={impYear} onChange={setImpYear} />
+              <FilterSelect className="mt-[18px]" label={t("Организация")} value={impOrg} onChange={setImpOrg} options={orgOptions} />
+              <FilterSelect className="mt-[5px]" label={t("Валюта")} value={impCur} onChange={setImpCur} options={currencies} />
             </div>
           }
         />

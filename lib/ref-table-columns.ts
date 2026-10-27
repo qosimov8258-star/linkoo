@@ -211,7 +211,7 @@ export const REF_TABLE_COLUMNS: Record<string, { n: number; w: (number | null)[]
    null
   ]
  },
- "/analytics/work-attendance": {
+ "/analytics/work-attendance-unused": {
   "n": 34,
   "w": [
    null,

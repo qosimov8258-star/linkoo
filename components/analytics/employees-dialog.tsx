@@ -38,6 +38,8 @@ type Draft = {
   supervisorId: string
   deliveryManId: string
   auditAgentIds: string[]
+  cashboxIds: string[]
+  requestCashboxIds: string[]
   stockIds: string[]
   requestStockIds: string[]
   priceListIds: string[]
@@ -73,6 +75,8 @@ function draftFrom(employee: Employee | null): Draft {
     supervisorId: employee?.supervisorId ? String(employee.supervisorId) : "",
     deliveryManId: employee?.deliveryManId ? String(employee.deliveryManId) : "",
     auditAgentIds: toStrings(employee?.auditAgentIds ?? []),
+    cashboxIds: toStrings(employee?.cashboxIds ?? []),
+    requestCashboxIds: toStrings(employee?.requestCashboxIds ?? []),
     stockIds: toStrings(employee?.stockIds ?? []),
     requestStockIds: toStrings(employee?.requestStockIds ?? []),
     priceListIds: toStrings(employee?.priceListIds ?? []),
@@ -91,7 +95,7 @@ function CheckGrid({ items, value, onChange, columns = 3 }: { items: Option[]; v
             className="min-w-0"
             checked={set.has(item.value)}
             onChange={(checked) => onChange(checked ? [...value, item.value] : value.filter((id) => id !== item.value))}
-            label={<span className="block max-w-[170px] truncate" title={item.label}>{item.label}</span>}
+            label={<span className="relative top-[1.3px] block max-w-[170px] truncate" title={item.label}>{item.label}</span>}
           />
         </div>
       ))}
@@ -101,11 +105,11 @@ function CheckGrid({ items, value, onChange, columns = 3 }: { items: Option[]; v
 
 /** The reference keeps the label 2 px after the 24 px checkbox glyph in this dialog. */
 function Check(props: Parameters<typeof StaffCheck>[0]) {
-  return <StaffCheck {...props} className={`!gap-[2px] ${props.className ?? ""}`} />
+  return <StaffCheck {...props} className={`leading-[20px] ${props.className ?? ""}`} />
 }
 
 function Caption({ children, required }: { children: ReactNode; required?: boolean }) {
-  return <p className="mb-[6px] mt-[29px] text-[14px] italic text-[#666]">{children}{required && <span className="text-[#f44336]">*</span>}</p>
+  return <p className="mb-[7px] mt-[29px] text-[13px] italic text-[#333]">{children}{required && <span className="text-[#f00]">*</span>}</p>
 }
 
 function Field({ children, error }: { children: ReactNode; error?: string }) {
@@ -145,6 +149,7 @@ export function EmployeeDialog({
   const required = t("Обязательное поле")
   const accessRight = options.accessRights.find((item) => String(item.id) === draft.accessRightId)
   const isManager = Boolean(accessRight?.groups.includes("Завсклад"))
+  const isCashier = Boolean(accessRight?.groups.includes("Кассир"))
   const peopleWithGroup = (group: string): Option[] => {
     const rightIds = new Set(options.accessRights.filter((item) => item.groups.includes(group)).map((item) => item.id))
     return options.employees.filter((item) => item.id !== employee?.id && (rightIds.size === 0 || rightIds.has(item.accessRightId ?? -1))).map((item) => ({ value: String(item.id), label: item.name }))
@@ -156,6 +161,7 @@ export function EmployeeDialog({
   const jobOptions = options.jobs.map((item) => ({ value: String(item.id), label: item.name }))
   const branchOptions = options.branches.map((item) => ({ value: String(item.id), label: item.name }))
   const orgItems = options.organizations.map((item) => ({ value: String(item.id), label: item.name }))
+  const cashboxItems = options.cashboxes.map((item) => ({ value: String(item.id), label: item.name }))
   const stockItems = options.warehouses.map((item) => ({ value: String(item.id), label: item.name }))
   const priceItems = options.priceLists.map((item) => ({ value: String(item.id), label: item.name }))
   const currencyItems = options.currencies.map((item) => ({ value: String(item.id), label: item.name }))
@@ -210,6 +216,8 @@ export function EmployeeDialog({
           supervisorId: draft.supervisorId ? Number(draft.supervisorId) : null,
           deliveryManId: draft.deliveryManId ? Number(draft.deliveryManId) : null,
           auditAgentIds: toNumbers(draft.auditAgentIds),
+          cashboxIds: toNumbers(draft.cashboxIds),
+          requestCashboxIds: toNumbers(draft.requestCashboxIds),
           stockIds: toNumbers(draft.stockIds),
           requestStockIds: toNumbers(draft.requestStockIds),
           priceListIds: toNumbers(draft.priceListIds),
@@ -232,47 +240,47 @@ export function EmployeeDialog({
   }
 
   return createPortal(
-    <div className="fixed inset-0 z-[100] flex items-start justify-center overflow-y-auto bg-black/50 pt-[80px]" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
-      <div role="dialog" aria-modal="true" className="w-[768px] max-w-full bg-white text-[13px] text-[#333] shadow-xl">
+    <div className="fixed inset-0 z-[100] flex items-start justify-center overflow-y-auto bg-black/[0.54] pt-[80px]" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+      <div role="dialog" aria-modal="true" className="w-[768px] max-w-full bg-white text-[13px] text-black shadow-xl">
         <header className="flex h-[60px] items-center justify-between border-b border-[#e8ebf0] pl-[30px] pr-[10px]">
-          <h3 className="text-[13px] font-bold uppercase">{employee ? t("Изменить сотрудника") : t("Добавить сотрудника")}</h3>
+          <h3 className="text-[13px] font-bold uppercase leading-[16.25px] text-[#333]">{employee ? t("Изменить сотрудника") : t("Добавить сотрудника")}</h3>
           <button type="button" onClick={onClose} aria-label={t("Закрыть")} className="flex h-12 w-12 items-center justify-center text-[#333] hover:opacity-70"><X className="h-6 w-6" strokeWidth={1.6} /></button>
         </header>
-        <div className="px-[30px] pb-[14px] pt-[14px]">
+        <div className="px-[30px] pb-[14px] pt-[13px]">
           <div className="flex items-start gap-[27px] pr-[16px]">
             <div className="min-w-0 flex-1 space-y-[12px]">
-              <Field error={errors.firstName}><LineField label={t("Имя")} required value={draft.firstName} onChange={(firstName) => patch({ firstName })} /></Field>
-              <Field error={errors.lastName}><LineField label={t("Фамилия")} required value={draft.lastName} onChange={(lastName) => patch({ lastName })} /></Field>
-              <Field error={errors.phone}><LineField label={t("Телефон")} required value={draft.phone} onChange={(phone) => patch({ phone })} /></Field>
-              <LineField label={t("Код для интеграции")} value={draft.integrationCode} onChange={(integrationCode) => patch({ integrationCode })} />
-              <div className="pt-[16px]">
-                <Field error={errors.jobId}><LinePick label={t("Должность")} required value={draft.jobId} options={jobOptions} onChange={(jobId) => patch({ jobId })} /></Field>
+              <Field error={errors.firstName}><LineField flush label={t("Имя")} required value={draft.firstName} onChange={(firstName) => patch({ firstName })} /></Field>
+              <Field error={errors.lastName}><LineField flush label={t("Фамилия")} required value={draft.lastName} onChange={(lastName) => patch({ lastName })} /></Field>
+              <Field error={errors.phone}><LineField flush label={t("Телефон")} required value={draft.phone} onChange={(phone) => patch({ phone })} /></Field>
+              <LineField flush label={t("Код для интеграции")} value={draft.integrationCode} onChange={(integrationCode) => patch({ integrationCode })} />
+              <div className="pt-[14px]">
+                <Field error={errors.jobId}><LinePick flush label={t("Должность")} required value={draft.jobId} options={jobOptions} onChange={(jobId) => patch({ jobId })} /></Field>
               </div>
-              <Field error={errors.branchIds}><div className="-mt-[6px]"><MultiSelectField label={t("Филиалы")} required options={branchOptions} value={draft.branchIds} onChange={(branchIds) => patch({ branchIds })} /></div></Field>
+              <Field error={errors.branchIds}><div className="-mt-[5px]"><MultiSelectField flush label={t("Филиалы")} required options={branchOptions} value={draft.branchIds} onChange={(branchIds) => patch({ branchIds })} /></div></Field>
             </div>
-            <div className="mt-[16px] flex h-[145px] w-[150px] shrink-0 flex-col items-center justify-center gap-[3px] border border-dashed border-[#ddd] text-[13px] text-[#555]">
-              <svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#bdbdbd]"><path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z" /></svg>
+            <div className="mt-[17px] flex h-[145px] w-[150px] shrink-0 flex-col items-center justify-center gap-[0px] border-2 border-dashed border-[#e8e8e8] pt-[1.4px] text-[13px] text-[#333]">
+              <svg viewBox="0 0 24 24" className="h-[30px] w-[30px] fill-[#bdbdbd]"><path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z" /></svg>
               {t("Добавьте фото")}
             </div>
           </div>
 
-          <div className="mt-[15px] flex w-[692px] max-w-full items-center justify-between">
-            <Check className="!pr-[14px]" checked={draft.systemAccess} onChange={(systemAccess) => patch({ systemAccess })} label={t("Доступ к системе")} />
-            <Check className="!pr-[14px]" checked={draft.showInTracking} onChange={(showInTracking) => patch({ showInTracking })} label={t("Показывать в отслеживании")} />
-            <Check className="!pr-[14px]" checked={draft.twoStepCheck} onChange={(twoStepCheck) => patch({ twoStepCheck })} label={t("Двухэтапная проверка")} />
+          <div className="mt-[19px] flex w-[692px] max-w-full items-center">
+            <div className="w-[214.2px]"><Check checked={draft.systemAccess} onChange={(systemAccess) => patch({ systemAccess })} label={t("Доступ к системе")} /></div>
+            <div className="w-[292.05px]"><Check checked={draft.showInTracking} onChange={(showInTracking) => patch({ showInTracking })} label={t("Показывать в отслеживании")} /></div>
+            <div className="flex-1"><Check checked={draft.twoStepCheck} onChange={(twoStepCheck) => patch({ twoStepCheck })} label={t("Двухэтапная проверка")} /></div>
           </div>
-          <div className="mt-[26px]">
+          <div className="mt-[30px]">
             <Check checked={draft.sessionLimit} onChange={(sessionLimit) => patch({ sessionLimit })} label={t("Поставить ограничения на сессию (может работать только на одном устройстве)")} />
           </div>
-          <div className="-ml-[5px] mt-[22px]">
-            <Switch checked={draft.gpsCheck} onChange={(gpsCheck) => patch({ gpsCheck })} label={draft.gpsCheck ? t("Проверка GPS включена") : t("Проверка GPS отключено")} tone={draft.gpsCheck ? "#71ce87" : "#fa8072"} />
+          <div className="-ml-[5px] mt-[24px]">
+            <Switch checked={draft.gpsCheck} onChange={(gpsCheck) => patch({ gpsCheck })} label={draft.gpsCheck ? t("Проверка GPS включена") : t("Проверка GPS отключено")} tone={draft.gpsCheck ? "#8acb8d" : "#fa8072"} />
           </div>
           <div className="-ml-[5px] mt-[19px]">
             <Switch checked={draft.startPoint} onChange={(startPoint) => patch({ startPoint })} label={t("Указать исходную точку")} hint={t("Для автоматического формирования маршрута")} />
           </div>
           {draft.startPoint && (
             <div className="mt-[20px] w-[400px] max-w-full">
-              <MultiSelectField label={t("Точки локации")} options={locationOptions} value={draft.locationPointIds} onChange={(locationPointIds) => patch({ locationPointIds })} />
+              <MultiSelectField flush label={t("Точки локации")} options={locationOptions} value={draft.locationPointIds} onChange={(locationPointIds) => patch({ locationPointIds })} />
               <div className="mt-[6px]"><Check checked={draft.otherLocation} onChange={(otherLocation) => patch({ otherLocation })} label={t("Другая локация")} /></div>
             </div>
           )}
@@ -285,12 +293,12 @@ export function EmployeeDialog({
           {draft.systemAccess && (
             <>
               <div className="mt-[16px] grid grid-cols-2 gap-x-[20px] gap-y-[8px]">
-                <Field error={errors.login}><LineField label={t("Логин")} required value={draft.login} onChange={(login) => patch({ login })} /></Field>
-                <LineField label={employee ? t("Изменить пароль") : t("Пароль")} value={draft.password} onChange={(password) => patch({ password })} />
+                <Field error={errors.login}><LineField flush label={t("Логин")} required value={draft.login} onChange={(login) => patch({ login })} /></Field>
+                <LineField flush label={employee ? t("Изменить пароль") : t("Пароль")} value={draft.password} onChange={(password) => patch({ password })} />
                 <Field error={errors.accessRightId}>
-                  <LinePick label={t("Права доступа")} required value={draft.accessRightId} options={options.accessRights.map((item) => ({ value: String(item.id), label: item.name }))} onChange={(accessRightId) => patch({ accessRightId })} />
+                  <LinePick flush label={t("Права доступа")} required value={draft.accessRightId} options={options.accessRights.map((item) => ({ value: String(item.id), label: item.name }))} onChange={(accessRightId) => patch({ accessRightId })} />
                 </Field>
-                <Field error={errors.passwordConfirm}><LineField label={t("Подтвердите пароль")} value={draft.passwordConfirm} onChange={(passwordConfirm) => patch({ passwordConfirm })} /></Field>
+                <Field error={errors.passwordConfirm}><LineField flush label={t("Подтвердите пароль")} value={draft.passwordConfirm} onChange={(passwordConfirm) => patch({ passwordConfirm })} /></Field>
               </div>
               {!employee && (
                 <div className="mt-[8px]">
@@ -302,9 +310,15 @@ export function EmployeeDialog({
                   />
                 </div>
               )}
-              <div className="mt-[8px]"><LinePick label={t("Супервайзер")} value={draft.supervisorId} options={supervisors} onChange={(supervisorId) => patch({ supervisorId })} /></div>
-              <div className="mt-[8px]"><LinePick label={t("Связанный доставщик")} value={draft.deliveryManId} options={deliverers} onChange={(deliveryManId) => patch({ deliveryManId })} /></div>
-              <div className="mt-[8px]"><MultiSelectField label={t("Агенты для аудита")} options={agents} value={draft.auditAgentIds} onChange={(auditAgentIds) => patch({ auditAgentIds })} /></div>
+              <div className="mt-[15px]"><LinePick flush label={t("Супервайзер")} value={draft.supervisorId} options={supervisors} onChange={(supervisorId) => patch({ supervisorId })} /></div>
+              <div className="mt-[15px]"><LinePick flush label={t("Связанный доставщик")} value={draft.deliveryManId} options={deliverers} onChange={(deliveryManId) => patch({ deliveryManId })} /></div>
+              <div className="mt-[15px]"><MultiSelectField flush label={t("Агенты для аудита")} options={agents} value={draft.auditAgentIds} onChange={(auditAgentIds) => patch({ auditAgentIds })} /></div>
+              {isCashier && (
+                <>
+                  <div className="mt-[8px]"><MultiSelectField flush pills label={t("Какие кассы будут доступны?")} options={cashboxItems} value={draft.cashboxIds} onChange={(cashboxIds) => patch({ cashboxIds })} /></div>
+                  <div className="mt-[2px]"><MultiSelectField flush label={t("Кассы для запроса")} options={cashboxItems} value={draft.requestCashboxIds} onChange={(requestCashboxIds) => patch({ requestCashboxIds })} /></div>
+                </>
+              )}
               {accessRight && (
                 <>
                   <Caption>{t("Связанные склады")}</Caption>
@@ -320,14 +334,14 @@ export function EmployeeDialog({
               <Caption>{t("Поддерживаемый прайс лист")}</Caption>
               <CheckGrid items={priceItems} value={draft.priceListIds} onChange={(priceListIds) => patch({ priceListIds })} />
               <div className="mt-[16px]">
-                <MultiSelectField label={t("Поддерживаемый прайс лист клиентов")} placeholder={t("Выберите из списка")} options={priceItems} value={draft.marketPriceListIds} onChange={(marketPriceListIds) => patch({ marketPriceListIds })} />
+                <MultiSelectField flush label={t("Поддерживаемый прайс лист клиентов")} placeholder={t("Выберите из списка")} options={priceItems} value={draft.marketPriceListIds} onChange={(marketPriceListIds) => patch({ marketPriceListIds })} />
               </div>
               <Caption>{t("Валюты")}</Caption>
               <CheckGrid items={currencyItems} value={draft.currencyIds} onChange={(currencyIds) => patch({ currencyIds })} />
             </>
           )}
         </div>
-        <footer className="sticky bottom-0 flex h-[57px] items-center justify-end border-t border-[#e8ebf0] bg-white pr-[10px]">
+        <footer className="flex h-[59px] items-start justify-end border-t border-[#e8ebf0] bg-white pr-[10px] pt-[11px]">
           <button type="button" onClick={() => void save()} disabled={saving} className="h-9 px-[16px] text-[13px] font-semibold uppercase text-[#129fdd] hover:opacity-80 disabled:opacity-40">{t("Сохранить")}</button>
         </footer>
       </div>

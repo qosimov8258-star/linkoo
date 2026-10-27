@@ -923,29 +923,28 @@ function employeeSources(ctx: SourceContext): string[] {
       ),
     )
   }
-  if (ctx.s.has("salary_plans")) {
-    need(ctx, "emp_keys")
-    for (const [field, column, title] of [
-      ["salary", "monthly", "Зарплата"],
-      ["bonus", "performance_bonus", "Зачислено KPI"],
-    ] as const) {
-      out.push(
-        select(
-          ctx,
-          {
-            ek: "ek.id",
-            ts: utcTs("sp.updated_at"),
-            col: `'${column}'`,
-            amt: `sp.${field}`,
-            src: "'salary_plan'",
-            src_id: "sp.id",
-            title: `'${title}'`,
-            href: "'/analytics/salary-planning'",
-          },
-          `FROM salary_plans sp JOIN emp_keys ek ON ek.k = fin_key(sp.employee) WHERE sp.credited = 1 AND sp.${field} <> 0`,
-        ),
-      )
-    }
+  // "Зачислить" of "Зарплата и установка планов": the salary ("Зарплата") and the KPI bonus ("Зачислено KPI") of an approved record,
+  // dated with the last day of its month (lib/salary-records-repo.ts, table salary_credits).
+  if (ctx.s.has("salary_credits")) {
+    const creditType = "c.type"
+    out.push(
+      select(
+        ctx,
+        {
+          ek: "e.id",
+          cur: "COALESCE(fin_cur(c.currency), @base)",
+          ts: ts("fin_ts(c.created_date)"),
+          col: "c.type",
+          amt: "c.amount",
+          src: "'salary_credit'",
+          src_id: "c.id",
+          title: `CASE ${creditType} WHEN 'monthly' THEN 'Зарплата' WHEN 'performance_bonus' THEN 'Зачислено KPI'
+                  ELSE 'Нет типа' END`,
+          href: "'/analytics/salary-planning'",
+        },
+        "FROM salary_credits c JOIN employees e ON e.id = c.user_id WHERE c.amount <> 0 AND c.type IN ('monthly', 'performance_bonus')",
+      ),
+    )
   }
   return out
 }

@@ -2,10 +2,10 @@
 
 import { RefTip } from "@/components/ref/ref-tip"
 import { useCallback, useEffect, useMemo, useState } from "react"
-import { useSearchParams } from "next/navigation"
+import { useRouter, useSearchParams } from "next/navigation"
 
 import { BranchKpiDetailPanel } from "@/components/analytics/branch-kpi-detail"
-import { BranchKpiBulkDialog, BranchKpiDuplicateDialog, BranchKpiLevelsDialog } from "@/components/analytics/branch-kpi-dialogs"
+import { BranchKpiBulkDialog, BranchKpiDuplicateDialog } from "@/components/analytics/branch-kpi-dialogs"
 import { BRANCH_KPI_API, fetchJson, formatKpiDate, KPI_COLORS, KpiMonthYearFilter, kpiNumber, sendJson } from "@/components/analytics/branch-kpi-shared"
 import { ListBTable } from "@/components/analytics/list-b-table"
 import { RI, RefCard, RefHeader, RefIconButton, RefPage, RefToolbar } from "@/components/ref/list-kit"
@@ -75,7 +75,7 @@ function listQuery(state: ViewState): string {
   return params.toString()
 }
 
-type Dialog = { kind: "bulk" } | { kind: "duplicate" } | { kind: "levels"; indicatorId: number } | null
+type Dialog = { kind: "bulk" } | { kind: "duplicate" } | null
 
 const COPY_ICON = "M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"
 const CLEAR_SELECTION_ICON = "M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-2 10H7v-2h10v2z"
@@ -85,10 +85,17 @@ const SELECT_ALL_ICON = "M3 5h2V3c-1.1 0-2 .9-2 2zm0 8h2v-2H3v2zm4 8h2v-2H7v2zM3
 export function BranchKpiPlansView() {
   const { t, language } = useLanguage()
   const searchParams = useSearchParams()
+  const router = useRouter()
   const [state, setState] = useState<ViewState>(() => stateFromParams(searchParams))
   const [searchDraft, setSearchDraft] = useState(state.search)
-  const [selected, setSelected] = useState<number[]>([])
-  const [dialog, setDialog] = useState<Dialog>(null)
+  // Like the reference the selection lives in the URL (?select=7-34) and "Изменить планы" adds ?openUpdateDialog=true.
+  const [selected, setSelected] = useState<number[]>(() =>
+    (searchParams.get("select") ?? "")
+      .split("-")
+      .map(Number)
+      .filter((id) => Number.isInteger(id) && id > 0),
+  )
+  const [dialog, setDialog] = useState<Dialog>(() => (searchParams.get("openUpdateDialog") === "true" && searchParams.get("select") ? { kind: "bulk" } : searchParams.get("openDuplicateDialog") === "true" ? { kind: "duplicate" } : null))
   const [canEdit, setCanEdit] = useState(false)
   const [recalculating, setRecalculating] = useState(false)
   const [notice, setNotice] = useState<{ text: string; error: boolean } | null>(null)
@@ -116,9 +123,13 @@ export function BranchKpiPlansView() {
 
   // The demo keeps the list state in the URL query.
   useEffect(() => {
-    const search = stateToSearch(state)
+    const params = new URLSearchParams(stateToSearch(state))
+    if (selected.length) params.set("select", selected.join("-"))
+    if (dialog?.kind === "bulk") params.set("openUpdateDialog", "true")
+    if (dialog?.kind === "duplicate") params.set("openDuplicateDialog", "true")
+    const search = params.toString()
     if (window.location.search.slice(1) !== search) window.history.replaceState(window.history.state, "", `${window.location.pathname}?${search}`)
-  }, [state])
+  }, [state, selected, dialog])
 
   useEffect(() => {
     // Writes need manager (or admin), like the POST routes.
@@ -167,7 +178,9 @@ export function BranchKpiPlansView() {
     </button>
   )
   const checkbox = (checked: boolean, onChange: () => void, label: string) => (
-    <input type="checkbox" checked={checked} onChange={onChange} aria-label={label} className="block h-[18px] w-[18px] accent-[#333]" />
+    <button type="button" role="checkbox" aria-checked={checked} aria-label={label} onClick={onChange} className={`-ml-px flex h-[18px] w-[18px] items-center justify-center rounded-[2px] ${checked ? "bg-[#5d6474]" : "border-2 border-[#333]"}`}>
+      {checked && <svg viewBox="0 0 24 24" className="h-[18px] w-[18px] fill-white"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" /></svg>}
+    </button>
   )
   const selecting = selected.length > 0
   const headCols = state.showCheckboxes ? "26px 463px 227px 1fr" : undefined
@@ -176,7 +189,7 @@ export function BranchKpiPlansView() {
 
   return (
     <RefPage>
-      <RefHeader title={t("KPI план филиалов")}>
+      <RefHeader title={t("KPI план филиалов")} titleTop={0.8}>
         {data?.lastDate && (
           <div className="font-semibold text-[#333]">
             {t("ДАННЫЕ ЗА")} <span>{formatKpiDate(data.lastDate, language)}</span>
@@ -204,8 +217,8 @@ export function BranchKpiPlansView() {
             !selecting ? (
               <KpiMonthYearFilter month={state.month} year={state.year} onChange={({ month, year }) => update({ month, year, page: 1 })} />
             ) : (
-              <strong className="font-semibold text-[#333]">
-                {t("Выбрано")} : {selected.length}
+              <strong className="relative top-[1px] font-semibold text-[#333]">
+                {t("Выбрано")}: {selected.length}
               </strong>
             )
           }
@@ -330,7 +343,7 @@ export function BranchKpiPlansView() {
                   year={state.year}
                   version={version}
                   onClose={() => update({ id: null })}
-                  onOpenIndicator={(indicatorId) => setDialog({ kind: "levels", indicatorId })}
+                  onOpenIndicator={(indicatorId) => router.push(`/analytics/kpi-tasks?id=${indicatorId}&month=${state.month}&pageSize=${state.pageSize}&year=${state.year}`)}
                 />
               ) : null
             }
@@ -365,21 +378,6 @@ export function BranchKpiPlansView() {
           }}
         />
       )}
-      {dialog?.kind === "levels" && (
-        <BranchKpiLevelsDialog
-          indicatorId={dialog.indicatorId}
-          month={state.month}
-          year={state.year}
-          canEdit={canEdit}
-          onClose={() => setDialog(null)}
-          onSaved={(text) => {
-            setDialog(null)
-            setNotice({ text, error: false })
-            reload()
-          }}
-        />
-      )}
-
       {notice && (
         <div
           role="status"

@@ -27,8 +27,9 @@ export function FilterChip({ count, onEdit, onClear }: { count: number; onEdit: 
 export function FilterLink({ onClick }: { onClick: () => void }) {
   const { t } = useLanguage()
   return (
-    <button type="button" onClick={onClick} className="pl-[0px] pt-[2px] text-[13px] text-[#4f71dc]">
-      {t("Показать фильтр")} ⌄
+    <button type="button" onClick={onClick} className="relative top-[1.9px] flex text-[13px] leading-[16.25px] text-[#4f71dc]">
+      <span>{t("Показать фильтр")}</span>
+      <svg viewBox="0 0 24 24" className="ml-px h-[20px] w-[13px] shrink fill-[#4f71dc]" aria-hidden><path d="M7.41 7.84L12 12.42l4.59-4.58L18 9.25l-6 6-6-6z" /></svg>
     </button>
   )
 }
@@ -59,7 +60,13 @@ export function MultiSelectField({
   searchable = true,
   placeholder,
   error,
+  flush = false,
+  pills = false,
 }: {
+  /** Reference "Какие кассы будут доступны?" look: caption on a line, picked items as grey ⊗ pills below. */
+  pills?: boolean
+  /** Reference look: flat 36px menu that keeps picked items (highlighted), caret flips while open. */
+  flush?: boolean
   label: string
   options: Option[]
   value: string[]
@@ -75,19 +82,47 @@ export function MultiSelectField({
   const [search, setSearch] = useState("")
   const ref = useOutsideClose(open, () => setOpen(false))
   const selected = value.map((id) => options.find((option) => option.value === id)).filter((option): option is Option => Boolean(option))
-  const rest = options.filter((option) => !value.includes(option.value) && option.label.toLowerCase().includes(search.trim().toLowerCase()))
+  const rest = options.filter((option) => (flush || pills || !value.includes(option.value)) && option.label.toLowerCase().includes(search.trim().toLowerCase()))
+  if (pills) {
+    return (
+      <div ref={ref} className="relative pt-[40px]">
+        <div onClick={() => setOpen(true)} className="relative cursor-pointer border-b border-[#e0e0e0] pb-[5px] pr-[30px] text-[13px] leading-[16px]">
+          {label}
+          <svg viewBox="0 0 10 5" className={`absolute right-[10px] top-[5px] h-[5px] w-[10px] fill-[#ccc] ${open ? "rotate-180" : ""}`}><path d="M0 0l5 5 5-5z" /></svg>
+        </div>
+        <div className="flex flex-wrap pt-[10px]">
+          {selected.map((option) => (
+            <span key={option.value} className="mb-[7px] mr-[6px] inline-flex h-[32px] items-center rounded-full border border-[#ddd] bg-[#eee] pl-[13px] pr-[5px] text-[13px] text-[#666]">
+              {option.label}
+              <button type="button" aria-label={t("Удалить")} onClick={() => onChange(value.filter((id) => id !== option.value))} className="ml-[6px] flex h-[20px] w-[20px] items-center justify-center rounded-full bg-[#bdbdbd] text-[14px] leading-none text-white">×</button>
+            </span>
+          ))}
+        </div>
+        {open && (
+          <ul className="absolute left-0 right-0 top-[63px] z-30 max-h-[240px] overflow-y-auto bg-white py-0 [box-shadow:0_1px_6px_rgba(0,0,0,0.2),0_1px_4px_rgba(0,0,0,0.2)]">
+            {rest.length === 0 && <li className="h-[36px] px-[10px] text-[13px] leading-[36px] text-[#999]">{t("Ничего не найдено")}</li>}
+            {rest.map((option) => (
+              <li key={option.value}>
+                <button type="button" onClick={() => { onChange(value.includes(option.value) ? value.filter((id) => id !== option.value) : [...value, option.value]); setSearch("") }} className={`block h-[36px] w-full truncate px-[10px] text-left text-[13px] font-semibold ${value.includes(option.value) ? "bg-[#e3effd] text-[#333]" : "text-[#333] hover:bg-[#f2f5f8]"}`}>{option.label}</button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    )
+  }
   return (
     <div ref={ref} className="relative min-h-[56px]">
-      <div onClick={() => setOpen(true)} className="relative min-h-[56px] cursor-pointer border-b border-[#d5dae1] pb-[6px] pr-[50px] pt-[16px]">
-        <span className={`absolute left-0 ${selected.length || placeholder ? "top-0 text-[10px] font-semibold leading-3" : "top-[33px] text-[13px] font-semibold leading-4"}`}>
-          {label}{required && <span className="text-[#f44336]"> *</span>}
+      <div onClick={() => setOpen(true)} className={`relative min-h-[56px] cursor-pointer border-b pb-[6px] pr-[50px] ${open && flush ? "border-[#5d6474] shadow-[0_1px_0_#5d6474]" : "border-[#d5dae1]"} ${flush && selected.length ? "pt-[26px]" : "pt-[16px]"}`}>
+        <span className={`absolute left-0 ${selected.length || placeholder ? `${flush && selected.length ? "top-[8.2px]" : "top-0"} text-[10px] font-semibold leading-3` : "top-[33px] text-[13px] font-semibold leading-4"}`}>
+          {label}{required && <span className="text-[#e57373]"> *</span>}
         </span>
         {placeholder && selected.length === 0 && !open && <span className="absolute left-0 top-[26px] text-[13px] text-[#999]">{placeholder}</span>}
-        <div className="flex flex-wrap gap-[6px]">
+        <div className={`flex flex-wrap ${flush ? "" : "gap-[6px]"}`}>
           {selected.map((option) => (
-            <span key={option.value} className="flex items-center bg-[#5869f0] text-[12px] font-semibold text-white">
-              <button type="button" aria-label={t("Удалить")} onClick={(event) => { event.stopPropagation(); onChange(value.filter((id) => id !== option.value)) }} className="px-[6px] py-[3px] hover:bg-[#4658d8]">×</button>
-              <span className="border-l border-white/30 py-[3px] pl-[6px] pr-[8px]">{option.label}</span>
+            <span key={option.value} className={flush ? "mr-[5px] mt-[5px] flex h-[22.4px] items-center rounded-[2px] bg-[#5868f0] text-[11.7px] font-semibold leading-[16.38px] text-white" : "flex items-center bg-[#5869f0] text-[12px] font-semibold text-white"}>
+              <button type="button" aria-label={t("Удалить")} onClick={(event) => { event.stopPropagation(); onChange(value.filter((id) => id !== option.value)) }} className={flush ? "px-[5px] py-[2px]" : "px-[6px] py-[3px] hover:bg-[#4658d8]"}>×</button>
+              <span className={flush ? "my-[2px] border-l border-white px-[5px] py-0 leading-[17px]" : "border-l border-white/30 py-[3px] pl-[6px] pr-[8px]"}>{option.label}</span>
             </span>
           ))}
           {open && searchable && (
@@ -96,16 +131,16 @@ export function MultiSelectField({
         </div>
         <span className="absolute bottom-[8.6px] right-[10px] flex items-center gap-[10px] text-[#999]">
           {selected.length > 0 && <button type="button" aria-label="clear" onClick={(event) => { event.stopPropagation(); onChange([]) }}><X className="h-3.5 w-3.5" /></button>}
-          <svg viewBox="0 0 10 5" className="h-[5px] w-[10px] fill-[#999]"><path d="M0 0l5 5 5-5z" /></svg>
+          <svg viewBox="0 0 10 5" className={`h-[5px] w-[10px] fill-[#999] ${flush && open ? "rotate-180" : ""}`}><path d="M0 0l5 5 5-5z" /></svg>
         </span>
       </div>
       {error && <span className="mt-[2px] block text-[12px] text-[#e57373]">{error}</span>}
       {open && (
-        <ul className="absolute left-0 right-0 top-full z-30 max-h-[240px] overflow-y-auto bg-white py-[6px] shadow-[0_2px_10px_rgba(0,0,0,0.2)]">
+        <ul className={`absolute left-0 right-0 top-full z-30 max-h-[240px] overflow-y-auto bg-white ${flush ? "py-0 [box-shadow:0_1px_6px_rgba(0,0,0,0.2),0_1px_4px_rgba(0,0,0,0.2)]" : "py-[6px] shadow-[0_2px_10px_rgba(0,0,0,0.2)]"}`}>
           {rest.length === 0 && <li className="h-[32px] px-[10px] text-[13px] leading-[32px] text-[#999]">{t("Ничего не найдено")}</li>}
           {rest.map((option) => (
             <li key={option.value}>
-              <button type="button" onClick={() => { onChange([...value, option.value]); setSearch("") }} className="block h-[32px] w-full truncate px-[10px] text-left text-[13px] font-semibold text-[#666] hover:bg-[#f2f5f8]">{option.label}</button>
+              <button type="button" onClick={() => { if (flush && value.includes(option.value)) onChange(value.filter((id) => id !== option.value)); else onChange([...value, option.value]); setSearch("") }} className={`block w-full truncate px-[10px] text-left text-[13px] font-semibold ${flush ? `h-[36px] ${value.includes(option.value) ? "bg-[#e3effd] text-[#333]" : "text-[#333] hover:bg-[#f2f5f8]"}` : "h-[32px] text-[#666] hover:bg-[#f2f5f8]"}`}>{option.label}</button>
             </li>
           ))}
         </ul>
@@ -203,13 +238,13 @@ export function FilterPick({ label, value, options, onChange }: { label: string;
 export function Switch({ checked, onChange, label, hint, tone }: { checked: boolean; onChange: (value: boolean) => void; label: ReactNode; hint?: ReactNode; tone?: string }) {
   return (
     <label className="flex cursor-pointer items-center gap-[10px]">
-      <span className={`relative inline-block h-[14px] w-[34px] shrink-0 rounded-full ${checked ? "bg-[#9fb1f5]" : "bg-[#c8c8c8]"}`}>
-        <span className={`absolute top-[-3px] h-[20px] w-[20px] rounded-full shadow transition-all ${checked ? "left-[16px] bg-[#4f71dc]" : "left-[-2px] bg-[#f1f1f1]"}`} />
+      <span className={`relative inline-block h-[14px] w-[34px] shrink-0 rounded-full ${checked ? "bg-[#9fb1f5]" : "bg-[#bdbdbd]"}`}>
+        <span className={`absolute top-[-3px] h-[20px] w-[20px] rounded-full [box-shadow:0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)] transition-all ${checked ? "left-[16px] bg-[#4f71dc]" : "left-[-2px] bg-[#f1f5f8]"}`} />
         <input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} className="sr-only" />
       </span>
-      <span className="text-[13px] font-semibold leading-[16px]" style={tone ? { color: tone } : undefined}>
+      <span className="text-[13px] font-semibold leading-[16px] text-[#333]" style={tone ? { color: tone } : undefined}>
         {label}
-        {hint && <span className="block text-[12px] font-normal text-[#666]">{hint}</span>}
+        {hint && <span className="block text-[13px] font-normal text-[#333]">{hint}</span>}
       </span>
     </label>
   )

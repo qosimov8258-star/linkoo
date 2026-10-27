@@ -1,7 +1,6 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
-import { ChevronDown, ChevronsUpDown, ChevronUp } from "lucide-react"
 
 import { BRANCH_KPI_API, fetchJson, kpiNumber, useMonthName } from "@/components/analytics/branch-kpi-shared"
 import type { BranchKpiBalance, BranchKpiDetail } from "@/lib/branch-kpi-types"
@@ -156,9 +155,17 @@ export function BranchKpiDetailPanel({
     downloadExcelTable(`KPI ${data.name} ${monthName(month)} ${year}`, [header, ...rows])
   }
 
+  // Reference: two stacked 15px triangles (up, down); the one that is not the current direction turns transparent.
   const sortIcon = (key: SortKey) => {
-    if (sort?.key !== key) return <ChevronsUpDown className="h-[15px] w-[15px] opacity-70" />
-    return sort.desc ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronUp className="h-3.5 w-3.5" />
+    const active = sort?.key === key
+    const upFill = active && !sort.desc ? "transparent" : "#fff"
+    const downFill = active && sort.desc ? "transparent" : "#fff"
+    return (
+      <span className="inline-block h-[20px] w-[20px] align-top">
+        <svg viewBox="0 0 24 24" className="ml-[5px] block h-[15px] w-[15px] overflow-hidden" style={{ fill: upFill }}><path d="M7 14l5-5 5 5z" /></svg>
+        <svg viewBox="0 0 24 24" className="ml-[5px] -mt-[5px] block h-[15px] w-[15px] overflow-hidden" style={{ fill: downFill }}><path d="M7 10l5 5 5-5z" /></svg>
+      </span>
+    )
   }
 
   if (loading && !data) return <div className="flex h-[160px] items-center justify-center text-[#999]">{t("Загрузка...")}</div>
@@ -221,7 +228,7 @@ export function BranchKpiDetailPanel({
               const forecastStyle = supported ? { background: percentColor(line.forecastPercent), color: "#fff" } : undefined
               return (
                 <tr key={line.performanceIndicator.id}>
-                  <td className={`${cell} cursor-pointer hover:underline`} onClick={() => onOpenIndicator(line.performanceIndicator.id)} title={t(line.performanceIndicator.planType)}>
+                  <td className={`${cell} cursor-pointer`} onClick={() => onOpenIndicator(line.performanceIndicator.id)}>
                     {line.performanceIndicator.name}
                     {!supported && <span className="block text-[11px] font-normal text-[#999]">{t("нет данных в системе")}</span>}
                   </td>

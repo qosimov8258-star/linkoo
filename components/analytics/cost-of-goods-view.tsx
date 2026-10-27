@@ -102,13 +102,13 @@ function NetCostFilter({ filters, options, onClose, onApply }: { filters: Filter
             const [fromDate, toDate] = orderedPeriod(draft.fromDate, draft.toDate)
             onApply({ ...draft, fromDate, toDate })
           }}
-          applyClassName="mt-1"
+          applyClassName="mt-[16px]"
         >
-          <RefSearchSelect multi label={t("Продукт")} items={items} selected={pick(items, draft.products)} onChange={(next) => set({ products: next.map((item) => item.value) })} />
-          <RefSearchSelect multi label={t("Склад")} items={warehouses} selected={pick(warehouses, draft.stocks)} onChange={(next) => set({ stocks: next.map((item) => item.value) })} />
-          <RefSearchSelect label={t("Статус")} items={statuses} selected={pick(statuses, draft.isCorrect ? [draft.isCorrect] : [])} onChange={(next) => set({ isCorrect: (next[0]?.value ?? "") as Filters["isCorrect"] })} />
-          <FilterDate label={t("Период создания")} begin={draft.fromDate} end={draft.toDate} onChange={(fromDate, toDate) => set({ fromDate, toDate })} />
-          <RefSearchSelect multi label="Ошибки" items={faults} selected={pick(faults, draft.faults)} onChange={(next) => set({ faults: next.map((item) => item.value) as NetCostCheckKey[] })} />
+          <RefSearchSelect panelCaret className="-mt-[2px]" multi label={t("Продукт")} items={items} selected={pick(items, draft.products)} onChange={(next) => set({ products: next.map((item) => item.value) })} />
+          <RefSearchSelect panelCaret multi label={t("Склад")} items={warehouses} selected={pick(warehouses, draft.stocks)} onChange={(next) => set({ stocks: next.map((item) => item.value) })} />
+          <RefSearchSelect panelCaret label={t("Статус")} items={statuses} selected={pick(statuses, draft.isCorrect ? [draft.isCorrect] : [])} onChange={(next) => set({ isCorrect: (next[0]?.value ?? "") as Filters["isCorrect"] })} />
+          <FilterDate roomy iconLeft={194} label={t("Период создания")} begin={draft.fromDate} end={draft.toDate} onChange={(fromDate, toDate) => set({ fromDate, toDate })} />
+          <RefSearchSelect panelCaret multi label="Ошибки" items={faults} selected={pick(faults, draft.faults)} onChange={(next) => set({ faults: next.map((item) => item.value) as NetCostCheckKey[] })} />
         </RefFilterPanel>
       </div>
     </>

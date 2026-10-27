@@ -14,7 +14,7 @@ import { notify } from "@/lib/notify"
 
 type Shift = { id: number; name: string; beginTime: string; endTime: string }
 
-const COLUMNS = "139fr 405fr 304fr 427fr"
+const COLUMNS = "134fr 385fr 289fr 407fr"
 
 const hhmm = (value: string) => value.slice(0, 5)
 
@@ -126,6 +126,8 @@ export function ShiftsView() {
         left={<AddLink onClick={() => setDialog({ shift: null })}>{t("добавить смену")}</AddLink>}
         query={controls.query}
         onQuery={controls.setQuery}
+        searchClassName="left-[320.3px] top-[20px]"
+        searchWidth={280}
         pager={{
           pageSize: controls.pageSize,
           onPageSize: controls.setPageSize,
@@ -148,7 +150,7 @@ export function ShiftsView() {
           <span className="pr-4">{shift.name}</span>
           <span>{hhmm(shift.beginTime)}</span>
           <span>{hhmm(shift.endTime)}</span>
-          <RowActions always onEdit={() => setDialog({ shift })} onDelete={() => setDeleting(shift)} />
+          <RowActions always right={60.2} onEdit={() => setDialog({ shift })} onDelete={() => setDeleting(shift)} />
         </div>
       ))}
       {shifts && paged.rows.length === 0 && <EmptyRows />}

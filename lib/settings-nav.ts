@@ -1,6 +1,6 @@
 // Single source of truth for the settings navigation, shared by the gear-icon
 // panel and the catalog pages' left sidebar so the two cannot drift apart.
-export type SettingsNavLink = { label: string; href?: string }
+export type SettingsNavLink = { label: string; href?: string; /** Query the reference appends to the sidebar link (not to the top-menu one). */ query?: string }
 export type SettingsNavGroup = { title: string; items: SettingsNavLink[] }
 
 export const settingsNavGroups: SettingsNavGroup[] = [
@@ -11,7 +11,7 @@ export const settingsNavGroups: SettingsNavGroup[] = [
       { label: "Сотрудники", href: "/analytics/employees" },
       { label: "Смены", href: "/analytics/shifts" },
       { label: "Должности", href: "/analytics/positions" },
-      { label: "Права доступа", href: "/analytics/access-rights" },
+      { label: "Права доступа", href: "/analytics/access-rights", query: "page=1&pageSize=100" },
       { label: "Транспорт", href: "/analytics/transport" },
       { label: "Сессия", href: "/analytics/sessions" },
     ],

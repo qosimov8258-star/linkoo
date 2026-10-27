@@ -116,6 +116,7 @@ export function DateRangePicker({
   onClose,
   placement = "below",
   positionClassName,
+  highlightPreset = true,
 }: {
   begin: string
   end: string
@@ -124,6 +125,8 @@ export function DateRangePicker({
   placement?: "below" | "above"
   /** overrides the default anchor classes (used where the reference opens the picker at an exact offset) */
   positionClassName?: string
+  /** false: no preset button is highlighted for a matching period (the reference's Activity filter) */
+  highlightPreset?: boolean
 }) {
   const { t, language } = useLanguage()
   const weekdays = weekdayLabels(language, WEEKDAYS)
@@ -136,7 +139,7 @@ export function DateRangePicker({
   // the preset matching the selected range is highlighted, as in the reference picker
   const activePreset = PRESETS.find((item) => {
     const [from, to] = presetRange(item)
-    return !!start && !!stop && sameDay(from, start) && sameDay(to, stop)
+    return highlightPreset && !!start && !!stop && sameDay(from, start) && sameDay(to, stop)
   })
 
   const normalized = useMemo(() => {

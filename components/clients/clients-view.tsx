@@ -18,6 +18,7 @@ import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
 import { downloadExcelTable } from "@/lib/excel-export"
 import { mapHeaderColumns, readExcelRows } from "@/lib/excel-import"
 import { useLanguage } from "@/lib/i18n/language-context"
+import { shortRuDate } from "@/lib/ref-date"
 
 import { AddOrderDialog } from "@/components/orders/add-order-dialog"
 
@@ -969,7 +970,7 @@ export function ClientsView() {
               </div>
 
               {/* Pagination */}
-              <span className="whitespace-nowrap">
+              <span className="whitespace-nowrap leading-[16.25px]">
                 {rangeStart} - {rangeEnd}  {t("из")}  {total}
               </span>
               <button type="button" onClick={() => { pagingTouched.current = true; setPage((p) => Math.max(1, p - 1)) }} disabled={currentPage <= 1} aria-label={t("Предыдущая страница")} className="pl-[10px] pr-[5px]">
@@ -1905,13 +1906,17 @@ export function ClientDetail({
   onClose,
   onEdit,
   onDelete,
+  variant,
 }: {
   client: Client
   onClose: () => void
   onEdit: () => void
   onDelete: () => void
+  /** "activity": the card as the reference opens it from «Активность» (no delete icon, no «Позвонить», balance tiles only with a balance). */
+  variant?: "activity"
 }) {
   const { t } = useLanguage()
+  const fromActivity = variant === "activity"
   const [tab, setTab] = useState<(typeof DETAIL_TABS)[number]>("АКТИВНОСТЬ")
   const [subTab, setSubTab] = useState<(typeof CLIENT_SUBTABS)[number]>("ДЕТАЛИ")
   const [logFilter, setLogFilter] = useState("Все")
@@ -2017,7 +2022,7 @@ export function ClientDetail({
       <aside className="fixed right-0 top-0 z-50 h-full w-[580px] max-w-full overflow-y-auto bg-white font-sans text-[13px] leading-[1.25] text-[#333] shadow-[0_3px_10px_rgba(0,0,0,0.16),0_3px_10px_rgba(0,0,0,0.23)]">
         <header className="flex h-[59px] items-center justify-between border-b border-[#efefef] px-[30px] py-[5px]">
           <div className="flex items-center gap-[10px] text-[13px] font-semibold uppercase">
-            <svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#92ce95]">
+            <svg viewBox="0 0 24 24" className={`h-6 w-6 ${fromActivity && client.isActive === false ? "fill-[#e57373]" : "fill-[#92ce95]"}`}>
               <circle cx="12" cy="12" r="8" />
             </svg>
             <span>{client.name}</span>
@@ -2028,11 +2033,11 @@ export function ClientDetail({
                 <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z" />
               </svg>
             </button>
-            <button type="button" aria-label={t("Удалить")} onClick={onDelete} className="flex h-12 w-12 items-center justify-center">
+            {!fromActivity && <button type="button" aria-label={t("Удалить")} onClick={onDelete} className="flex h-12 w-12 items-center justify-center">
               <svg viewBox="0 0 24 24" className="h-5 w-5 fill-[#666]">
                 <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z" />
               </svg>
-            </button>
+            </button>}
             <button type="button" aria-label={t("Закрыть")} onClick={onClose} className="flex h-12 w-12 items-center justify-center">
               <svg viewBox="0 0 24 24" className="h-5 w-5 fill-[#666]">
                 <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" />
@@ -2074,7 +2079,7 @@ export function ClientDetail({
             </div>
 
             <div className="mt-5 flex gap-[10px]">
-              <button
+              {!fromActivity && <button
                 type="button"
                 disabled={!hasPhone}
                 onClick={() => hasPhone && (window.location.href = `tel:${primaryPhone}`)}
@@ -2084,7 +2089,7 @@ export function ClientDetail({
                   <path d="M6.62 10.79c1.44 2.83 3.76 5.14 6.59 6.59l2.2-2.2c.27-.27.67-.36 1.02-.24 1.12.37 2.33.57 3.57.57.55 0 1 .45 1 1V20c0 .55-.45 1-1 1-9.39 0-17-7.61-17-17 0-.55.45-1 1-1h3.5c.55 0 1 .45 1 1 0 1.25.2 2.45.57 3.57.11.35.03.74-.25 1.02l-2.2 2.2z" />
                 </svg>
                 <span className="pl-2 pr-4">{t("Позвонить")}</span>
-              </button>
+              </button>}
               <button type="button" onClick={() => setOrderOpen(true)} className={`${actionButton} bg-[#4f71dc]`}>
                 <svg viewBox="0 0 24 24" className="mb-1 h-[18px] w-[18px] fill-white">
                   <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1.41 16.09V20h-2.67v-1.93c-1.71-.36-3.16-1.46-3.27-3.4h1.96c.1 1.05.82 1.87 2.65 1.87 1.96 0 2.4-.98 2.4-1.59 0-.83-.44-1.61-2.67-2.14-2.48-.6-4.18-1.62-4.18-3.67 0-1.72 1.39-2.84 3.11-3.21V4h2.67v1.95c1.86.45 2.79 1.86 2.85 3.39H14.3c-.05-1.11-.64-1.87-2.22-1.87-1.5 0-2.4.68-2.4 1.64 0 .84.65 1.39 2.67 1.91s4.18 1.39 4.18 3.91c-.01 1.83-1.38 2.83-3.12 3.16z" />
@@ -2191,6 +2196,13 @@ export function ClientDetail({
                   </div>
                 </div>
                 {/* only a client that really has a route is listed: the agent of the client (the visit days are not stored per client) */}
+                {fromActivity && !(client.inRoute && client.agent && client.agent !== "Не указано") && (
+                  <div className="relative h-[118px]">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src="/robot-empty.png" alt="" className="absolute left-1/2 top-[10px] h-[103px] w-[100px] -translate-x-1/2 object-contain" />
+                    <div className="absolute inset-x-0 top-[101px] text-center text-[13px] leading-[16.25px] text-[#666]">{t("Маршрут отсутствует")}</div>
+                  </div>
+                )}
                 {client.inRoute && client.agent && client.agent !== "Не указано" && (
                   <div className="-mx-2 mr-[12px] flex items-center border-b border-dotted border-[#ccc] py-[17px]">
                     <div className="w-[134px] shrink-0 px-2">{client.agent}</div>
@@ -2200,14 +2212,14 @@ export function ClientDetail({
                 )}
               </div>
 
-              <div className="mt-[21px]">
+              <div className={fromActivity ? "mt-[21px] pb-[15px]" : "mt-[21px]"}>
                 <div className="mb-[22px] flex h-[35px] items-center justify-between">
                   <span className="text-base font-bold leading-[35px]">{t("Баланс")}</span>
                   <span className="mr-[15px] w-[200px] text-right text-[13px] font-bold text-[#4f71dc]">
                     {formatDetailDate(periodStart)} - {formatDetailDate(periodEnd)}
                   </span>
                 </div>
-                <div className="grid grid-cols-2 gap-[15.5px]">
+                <div className={`grid grid-cols-2 gap-[15.5px] ${fromActivity && balance === 0 ? "hidden" : ""}`}>
                   {[t("Баланс на начало периода"), t("Баланс на конец периода")].map((label) => (
                     <div key={label} className="rounded-[10px] bg-[#f3f3f3] p-[10px]">
                       <div className="ml-[9px]">
@@ -2220,7 +2232,7 @@ export function ClientDetail({
                 {clientPayments.length > 0 && (
                   <div className="mt-[15px]">
                     {t("Последняя дата платежа")}:
-                    <span className="ml-[9px] font-semibold">{clientPayments[0].paidAt.split(",")[0]}</span>
+                    <span className="ml-[9px] font-semibold">{fromActivity ? shortRuDate(clientPayments[0].paidAt.split(",")[0]) : clientPayments[0].paidAt.split(",")[0]}</span>
                   </div>
                 )}
               </div>

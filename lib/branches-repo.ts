@@ -171,7 +171,18 @@ export async function deleteBranch(id: number): Promise<boolean> {
   const db = getDb()
   await ensureSchema(db)
   await db.prepare("DELETE FROM branch_plans WHERE branch_id = ?").run(id)
-  return (await db.prepare("DELETE FROM branches WHERE id = ?").run(id)).changes > 0
+  const removed = (await db.prepare("DELETE FROM branches WHERE id = ?").run(id)).changes > 0
+  if (removed) {
+    // "KPI план филиалов" rows of the branch go with it (those tables are created lazily by the KPI plans module).
+    for (const table of ["branch_kpi_plans", "branch_kpi_balances"]) {
+      try {
+        await db.prepare(`DELETE FROM ${table} WHERE branch_id = ?`).run(id)
+      } catch {
+        // table not created yet — nothing to remove
+      }
+    }
+  }
+  return removed
 }
 
 export type BranchPlan = { id: number; branchId: number; weight: string; amount: string; price: string }
@@ -183,7 +194,12 @@ const rowToPlan = (row: PlanRow): BranchPlan => ({ id: row.id, branchId: row.bra
 export async function listBranchPlans(branchId: number): Promise<BranchPlan[]> {
   const db = getDb()
   await ensureSchema(db)
-  return ((await db.prepare("SELECT * FROM branch_plans WHERE branch_id = ? ORDER BY id").all(branchId)) as PlanRow[]).map(rowToPlan)
+  // Plans inserted by the demo seed (registered in demo_seed_rows) are not real data: the reference's branches have none.
+  try {
+    return ((await db.prepare("SELECT * FROM branch_plans WHERE branch_id = ? AND CAST(id AS TEXT) NOT IN (SELECT row_id FROM demo_seed_rows WHERE table_name = 'branch_plans') ORDER BY id").all(branchId)) as PlanRow[]).map(rowToPlan)
+  } catch {
+    return ((await db.prepare("SELECT * FROM branch_plans WHERE branch_id = ? ORDER BY id").all(branchId)) as PlanRow[]).map(rowToPlan)
+  }
 }
 
 export async function createBranchPlan(branchId: number, input: { weight: string; amount: string; price: string }): Promise<BranchPlan | null> {

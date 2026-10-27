@@ -167,7 +167,7 @@ function CashboxesGrid() {
           onNext: state.page < lastPage ? () => update({ page: state.page + 1 }) : undefined,
         }}
         right={
-          <Link href={CASH_MANAGEMENT_URL} className="ml-[21px] mr-[9px] flex h-[30px] items-center gap-[8px] rounded-[3px] bg-[#71ce87] px-[16px] text-[13px] font-semibold text-white hover:brightness-95">
+          <Link href={CASH_MANAGEMENT_URL} className="ml-[16px] mr-[8px] flex h-[30px] items-center gap-[8px] rounded-[3px] bg-[#71ce87] px-[16px] text-[13px] font-semibold text-white hover:brightness-95">
             <svg viewBox="0 0 24 24" className="h-[18px] w-[18px] fill-white"><path d="M3.5 18.49l6-6.01 4 4L22 6.92l-1.41-1.41-7.09 7.97-4-4L2 16.99z" /></svg>
             {t("Управлять кассами")}
           </Link>

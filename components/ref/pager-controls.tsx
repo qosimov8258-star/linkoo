@@ -23,6 +23,8 @@ export function RefPager({
   pageCount,
   onPage,
   sizes = REF_PAGE_SIZES,
+  lowered,
+  flushMenu,
 }: {
   pageSize: number
   onPageSize: (size: number) => void
@@ -33,6 +35,10 @@ export function RefPager({
   pageCount: number
   onPage: (page: number) => void
   sizes?: readonly number[]
+  /** The salary toolbar of the reference sits -0.3 / 2 px off the toolbar flow (size, arrows). */
+  lowered?: boolean
+  /** Reference "Ограничение продуктов": the size menu is 96px wide and starts flush with the "25" box, 1px above it. */
+  flushMenu?: boolean
 }) {
   const { t } = useLanguage()
   const [open, setOpen] = useState(false)
@@ -50,12 +56,12 @@ export function RefPager({
   return (
     <>
       <div ref={rootRef} className="relative mr-[27px] h-12 w-[40px] shrink-0">
-        <button type="button" onClick={() => setOpen((current) => !current)} aria-label={t("Количество строк")} className="flex h-12 w-full items-center text-[13px] text-[#333]">
+        <button type="button" onClick={() => setOpen((current) => !current)} aria-label={t("Количество строк")} className={`flex h-12 w-full items-center text-[13px] text-[#333] ${lowered ? "relative top-[-0.3px]" : ""}`}>
           {pageSize}
         </button>
         <svg viewBox="0 0 24 24" className="pointer-events-none absolute left-[16px] top-3 h-6 w-6 fill-[#e0e0e0]"><path d="M7 10l5 5 5-5z" /></svg>
         {open && (
-          <ul className="absolute -left-1 -top-1 z-30 m-0 w-[88px] list-none rounded-[2px] bg-white py-[5px] shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
+          <ul className={`absolute z-30 m-0 list-none rounded-[2px] bg-white shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)] ${flushMenu ? "left-0 top-[-1px] w-[96px] py-[4px]" : "-left-1 -top-1 w-[88px] py-[5px]"}`}>
             {sizes.map((size) => (
               <li key={size}>
                 <button
@@ -64,7 +70,7 @@ export function RefPager({
                     onPageSize(size)
                     setOpen(false)
                   }}
-                  className={`block h-8 w-full px-6 text-left text-[13px] leading-8 hover:bg-[#f2f5f8] ${size === pageSize ? "text-[#5d6474]" : "text-[#333]"}`}
+                  className={`block h-8 w-full text-left text-[13px] leading-8 ${flushMenu ? "pl-[28px]" : "px-6 hover:bg-[#f2f5f8]"} ${size === pageSize ? "text-[#5d6474]" : "text-[#333]"}`}
                 >
                   {size}
                 </button>
@@ -77,11 +83,11 @@ export function RefPager({
       <span className="shrink-0 whitespace-nowrap text-[13px] leading-[16.25px]">
         {total === 0 ? 1 : from} - {to} {t("из")} {total}
       </span>
-      <button type="button" disabled={page <= 1} onClick={() => onPage(page - 1)} aria-label={t("Назад")} className="flex h-7 w-[39px] shrink-0 items-center pl-[10px]">
+      <button type="button" disabled={page <= 1} onClick={() => onPage(page - 1)} aria-label={t("Назад")} className={`flex h-7 w-[39px] shrink-0 items-center pl-[10px] ${lowered ? "relative top-[0px]" : ""}`}>
         <svg viewBox="0 0 24 24" className={`h-6 w-6 ${page <= 1 ? "fill-black/30" : "fill-black/55"}`}><path d={ARROW_PREV} /></svg>
       </button>
-      <button type="button" disabled={page >= pageCount} onClick={() => onPage(page + 1)} aria-label={t("Вперед")} className="flex h-7 w-6 shrink-0 items-center">
-        <svg viewBox="0 0 24 24" className={`h-6 w-6 ${page >= pageCount ? "fill-black/30" : "fill-black/55"}`}><path d={ARROW_NEXT} /></svg>
+      <button type="button" disabled={page >= pageCount && !(lowered && total === 0)} onClick={() => { if (page < pageCount) onPage(page + 1) }} aria-label={t("Вперед")} className={`flex h-7 w-6 shrink-0 items-center ${lowered ? "relative top-[0px]" : ""}`}>
+        <svg viewBox="0 0 24 24" className={`h-6 w-6 ${page >= pageCount && !(lowered && total === 0) ? "fill-black/30" : "fill-black/55"}`}><path d={ARROW_NEXT} /></svg>
       </button>
     </>
   )

@@ -53,6 +53,8 @@ export type EmployeeInput = {
   gpsCheck: boolean
   startPoint: boolean
   locationPointIds: number[]
+  cashboxIds?: number[]
+  requestCashboxIds?: number[]
   login: string
   accessRightId: number | null
   password: string

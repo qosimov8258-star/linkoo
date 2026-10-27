@@ -8,6 +8,10 @@ export type Agent = {
   color: string
   timestamp: string
   ratio: string
+  /** Counters of the day: clients to visit, visited and the ones visited without a plan. */
+  todo: number
+  done: number
+  noPlan: number
   battery: number
   /** map marker position [lat, lng] — only online-ish agents shown on map */
   position?: [number, number]

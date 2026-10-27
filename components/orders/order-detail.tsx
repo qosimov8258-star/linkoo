@@ -14,7 +14,7 @@ import { orderOrganization, type Order } from "./orders-data"
 /* Types & constants                                                   */
 /* ------------------------------------------------------------------ */
 
-type OrderLineItem = {
+export type OrderLineItem = {
   id: number
   productName: string
   unit: string
@@ -29,7 +29,7 @@ type OrderLineItem = {
   returnQuantity?: number
 }
 
-type ApiOrderLog = {
+export type ApiOrderLog = {
   id: number
   action: string
   status: string
@@ -46,7 +46,7 @@ type ApiOrderLog = {
 type InvoiceDetails = { number: string; date: string; contract: string; active: boolean }
 
 /** Reference action codes -> badge label and colour of the "Логи" tab. */
-const LOG_ACTIONS: Record<string, { label: string; tone: "success" | "begin" | "error" }> = {
+export const LOG_ACTIONS: Record<string, { label: string; tone: "success" | "begin" | "error" }> = {
   created: { label: "Создан", tone: "success" },
   updated: { label: "Обновленный", tone: "begin" },
   given: { label: "Передан доставщику", tone: "begin" },
@@ -59,7 +59,7 @@ const LOG_ACTIONS: Record<string, { label: string; tone: "success" | "begin" | "
 }
 
 /** Reference status codes of a log entry -> the order status label used by STATUS_MENU, and the label the log prints. */
-const LOG_STATUS: Record<string, { status: string; label: string; color: string }> = {
+export const LOG_STATUS: Record<string, { status: string; label: string; color: string }> = {
   "0": { status: "В процессе", label: "В процессе", color: "#f0ad4e" },
   "1": { status: "Есть на складе", label: "Есть на складе", color: "#f0ad4e" },
   "2": { status: "В пути", label: "Передан доставщику", color: "#f0ad4e" },
@@ -70,7 +70,7 @@ const LOG_STATUS: Record<string, { status: string; label: string; color: string 
 const STATUS_CODE_OF: Record<string, string> = { "В процессе": "0", "Есть на складе": "1", "В пути": "2", "Доставлено": "3", "Отменен": "4", "Не подтвержден": "5" }
 
 /** "2026-08-17T13:47:59" -> "17 авг. 2026, 13:47" */
-function formatLogDate(iso: string) {
+export function formatLogDate(iso: string) {
   const date = new Date(iso)
   if (Number.isNaN(date.getTime())) return iso
   return `${formatRuDate(date)}, ${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`
@@ -596,7 +596,7 @@ export function OrderDetailCard({
             {row(`${t("Склад")}:`, order.stockName || t("Не указан"))}
             {row(`${t("Договор")}:`, invoiceContract || t("Не указан"))}
             {row(`${t("Счет фактура")}:`, invoiceActive ? t("Активный") : t("Не активный"), invoiceActive ? "text-[#81c784]" : "text-[#e57373]")}
-            {row(`${t("Номер счет фактура")}:`, invoiceNumber || t("Не указан"))}
+            {row("Номер счет фактура:", invoiceNumber || t("Не указан"))}
             {row(`${t("Дата счет фактуры")}:`, invoiceDate ? fromInputDate(invoiceDate) : t("Не указан"))}
           </ul>
         </div>
@@ -605,7 +605,7 @@ export function OrderDetailCard({
             {row(`${t("Прайс-лист")}:`, order.priceList || t("Не указан"))}
             {row(`${t("Организация")}:`, orderOrganization(order) || t("Не указан"))}
             {row(`${t("Дата окончательной оплаты")}:`, order.dueDate ? fromInputDate(order.dueDate) : order.delivery)}
-            {row(`${t("Тип оплаты")}:`, order.payTypeName || t(order.payMethod === "bank" ? "Перечисление" : "Наличные"))}
+            {row(`${t("Тип оплаты")}:`, order.payTypeName || (order.payMethod === "bank" ? "Перечисление" : t("Наличные")))}
             {row(t("Общая стоимость"), order.amount)}
             {order.discount && row(t("Скидка"), order.discount, "text-[#278549]")}
             {row(
@@ -622,7 +622,7 @@ export function OrderDetailCard({
             <li className="flex min-h-[25px] items-center justify-between font-semibold leading-[25px]">
               <span className="flex items-center gap-[5px]">
                 <Mi d={ICONS.info} className="h-6 w-6 fill-[#4f71dc]" />
-                {t("Оперативный долг клиента")}:
+                Оперативный долг клиента:
               </span>
               <span className="text-right">
                 {operativeLines.map((line) => (
@@ -633,7 +633,7 @@ export function OrderDetailCard({
             <li className="flex min-h-[25px] items-center justify-between font-semibold leading-[25px]">
               <span className="flex items-center gap-[5px]">
                 <Mi d={ICONS.info} className="h-6 w-6 fill-[#4f71dc]" />
-                {t("Фактический долг клиента")}:
+                Фактический долг клиента:
               </span>
               <span className="text-right">
                 {actualLines.map((line) => (
@@ -647,7 +647,7 @@ export function OrderDetailCard({
           <ul>
             {row(`${t("Создал")}:`, order.agent)}
             {row(`${t("Доставщик")}:`, order.deliveryMan || order.agent)}
-            {row(`${t("Экспедитор")}:`, order.expeditor || t("Не указано"))}
+            {row("Экспедитор:", order.expeditor || t("Не указано"))}
             {row(t("Дата создания"), createdDate)}
             {row(`${t("Дата реализации")}:`, order.acceptedDate ? fromInputDate(order.acceptedDate) : order.status === "Доставлено" ? order.delivery : t("Не реализовано"))}
             {row(`${t("Текущий статус")}:`, t(order.status === "Доставлено" ? "Доставлен" : order.status === "В пути" ? "Передан доставщику" : order.status), statusColor)}
@@ -658,7 +658,7 @@ export function OrderDetailCard({
           </ul>
           {order.wrongDebt && (
           <div>
-            <b className="block leading-[25px] text-[#e57373]">{t("У этого клиента остаток, требуется перасчет")}</b>
+            <b className="block leading-[25px] text-[#e57373]">У этого клиента остаток, требуется перасчет</b>
             <button
               type="button"
               onClick={() => onNavigate("/analytics/client-debts")}
@@ -677,7 +677,7 @@ export function OrderDetailCard({
           {TABS.map((label, index) => (
             <button key={label} type="button" onClick={() => setTab(label)} className="h-12 text-left text-[13px] font-medium text-black">
               <span className="block text-center" style={{ width: `${(TAB_COLUMNS[0] / TAB_COLUMNS[index]) * 100}%` }}>
-                {t(label)}
+                {label === "Серии" ? label : t(label)}
               </span>
             </button>
           ))}
@@ -951,7 +951,7 @@ export function OrderDetailCard({
   )
 }
 
-function StatusIcon({ status, color, size = 20 }: { status: string; color?: string; size?: number }) {
+export function StatusIcon({ status, color, size = 20 }: { status: string; color?: string; size?: number }) {
   const item = STATUS_MENU.find((entry) => entry.status === status) ?? STATUS_MENU[0]
   return (
     <svg viewBox="0 0 24 24" style={{ width: size, height: size }} aria-hidden>
@@ -961,7 +961,7 @@ function StatusIcon({ status, color, size = 20 }: { status: string; color?: stri
 }
 
 /** "Детали изменений заказа": one column per log entry that changed products, one block per product. */
-function LogDetailsSheet({ orderId, logs, onClose }: { orderId: number; logs: ApiOrderLog[]; onClose: () => void }) {
+export function LogDetailsSheet({ orderId, logs, onClose }: { orderId: number; logs: ApiOrderLog[]; onClose: () => void }) {
   const { t } = useLanguage()
   const [show, setShow] = useState({ amount: true, price: true, total: true })
   useEffect(() => {
@@ -1119,7 +1119,7 @@ function ItemsTable({ items, loading }: { items: OrderLineItem[]; loading: boole
             <SortHead width="30%">{t("Товар")}</SortHead>
             <SortHead>{t("Количество")}</SortHead>
             <SortHead>{t("Блок")}</SortHead>
-            <SortHead>{t("Кг.")}</SortHead>
+            <SortHead>Кг.</SortHead>
             <SortHead>{t("Возврат")}</SortHead>
             <SortHead>{`${t("Цена")} ${currency}`}</SortHead>
             <SortHead>{`${t("Сумма")} ${currency}`}</SortHead>

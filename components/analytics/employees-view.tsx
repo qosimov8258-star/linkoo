@@ -38,7 +38,7 @@ const IMPORT_ALIASES: Record<string, string> = {
 }
 const TEMPLATE = ["Имя", "Фамилия", "Телефон", "Должность", "Филиал", "Код для интеграции"]
 
-const COLS = "139px 203px 202px 202px 203px 101px 1fr"
+const COLS = "139.25px 202.5px 202.5px 202.5px 202.5px 101.25px 1fr"
 const COLS_SELECT = "162px 199px 198px 198px 198px 99px 1fr"
 
 const SELECT_ALL = "M3 5h2V3c-1.1 0-2 .9-2 2zm0 8h2v-2H3v2zm4 8h2v-2H7v2zM3 9h2V7H3v2zm10-6h-2v2h2V3zm6 0v2h2c0-1.1-.9-2-2-2zM5 21v-2H3c0 1.1.9 2 2 2zm-2-4h2v-2H3v2zM9 3H7v2h2V3zm2 18h2v-2h-2v2zm8-8h2v-2h-2v2zm0 8c1.1 0 2-.9 2-2h-2v2zm0-12h2V7h-2v2zm0 8h2v-2h-2v2zm-4 4h2v-2h-2v2zm0-16h2V3h-2v2zM7 17h10V7H7v10zm2-8h6v6H9V9z"
@@ -184,27 +184,27 @@ export function EmployeesView() {
 
   return (
     <div className="min-w-0 flex-1 bg-white text-[13px] text-[#333]">
-      <div className="flex h-[72px] items-center justify-between border-b border-[#efefef] pl-[20px] pr-[61px] pt-[3px]">
-        <button type="button" onClick={() => setDialog({ employee: null })} className="flex h-[30px] items-center rounded-[3px] bg-[#4f71dc] pl-[14px] pr-[16px] text-[13px] font-semibold text-white hover:brightness-95">
-          <svg viewBox="0 0 24 24" className="mr-[12px] h-[18px] w-[18px] fill-white"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z" /></svg>
+      <div className="relative flex h-[73px] items-center justify-between border-b border-[#efefef] pl-[20px] pr-[60px]">
+        <button type="button" onClick={() => setDialog({ employee: null })} className="flex h-[30px] items-center rounded-[5px] bg-[#4f71dc] pl-[12px] leading-[30px] pr-[16px] text-[13px] font-semibold text-white hover:brightness-95">
+          <svg viewBox="0 0 24 24" className="relative top-[1.5px] mr-[8px] h-[24px] w-[24px] shrink-0 fill-white"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z" /></svg>
           {t("Добавить пользователя")}
         </button>
         <div className="flex items-center gap-[18px]">
-          <button type="button" onClick={() => setDialogs("import")} className="flex h-[30px] items-center rounded-[3px] bg-[#4f71dc] pl-[14px] pr-[16px] text-[13px] font-semibold text-white hover:brightness-95">
-            <svg viewBox="0 0 24 24" className="mr-[12px] h-[18px] w-[18px] fill-white"><path d={RI.chart} /></svg>
+          <button type="button" onClick={() => setDialogs("import")} className="flex h-[30px] items-center rounded-[5px] bg-[#4f71dc] pl-[12px] leading-[30px] pr-[16px] text-[13px] font-semibold text-white hover:brightness-95">
+            <svg viewBox="0 0 24 24" className="relative top-[1.5px] mr-[8px] h-[24px] w-[24px] shrink-0 fill-white"><path d={RI.chart} /></svg>
             {t("Импортировать")}
           </button>
-          <div className="flex h-[32px] overflow-hidden rounded-[3px] shadow-[0_1px_6px_rgba(0,0,0,0.15)]">
-            <button type="button" onClick={() => switchTab("active")} className={`w-[104px] text-[13px] font-medium uppercase ${tab === "active" ? "bg-[#4f71dc] text-white" : "bg-white text-black"}`}>{t("Активный")}</button>
-            <button type="button" onClick={() => switchTab("deleted")} className={`w-[109px] text-[13px] font-medium uppercase ${tab === "deleted" ? "bg-[#4f71dc] text-white" : "bg-white text-black"}`}>{t("Удаленные")}</button>
+          <div className="flex h-[32px]">
+            <button type="button" onClick={() => switchTab("active")} className={`h-[32px] overflow-hidden rounded-[5px] px-[16px] text-[13px] uppercase leading-[28px] ${tab === "active" ? "bg-[#4f71dc] text-white [box-shadow:0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]" : "bg-white text-black [box-shadow:inset_0_0_2px_rgba(0,0,0,0.12),inset_0_0_2px_rgba(0,0,0,0.12)]"}`}>{t("Активный")}</button>
+            <button type="button" onClick={() => switchTab("deleted")} className={`h-[32px] overflow-hidden rounded-[5px] px-[16px] text-[13px] uppercase leading-[28px] ${tab === "deleted" ? "bg-[#4f71dc] text-white [box-shadow:0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]" : "bg-white text-black [box-shadow:inset_0_0_2px_rgba(0,0,0,0.12),inset_0_0_2px_rgba(0,0,0,0.12)]"}`}>{t("Удаленные")}</button>
           </div>
-          <button type="button" onClick={() => setDialogs("block")} aria-label={t("Ограничить доступ")} title={t("Ограничить доступ")} className="absolute right-[24px]">
-            <svg viewBox="0 0 24 24" className="h-[22px] w-[22px] fill-[#555]"><path d={MINUS_CIRCLE} /></svg>
+          <button type="button" onClick={() => setDialogs("block")} aria-label={t("Ограничить доступ")} title={t("Ограничить доступ")} className="absolute right-[20px] top-[23.5px] flex h-[25px] w-[30px] items-start justify-center">
+            <svg viewBox="0 0 24 24" className="h-[22px] w-[22px] fill-[#666]"><path d={MINUS_CIRCLE} /></svg>
           </button>
         </div>
       </div>
 
-      <div className="relative flex h-[61px] items-center pr-[18px] pt-[10px]">
+      <div className="relative flex h-[60px] items-center pr-[18px] pt-[10px]">
         {hasSelection ? (
           <span className="pl-[5px] text-[13px] font-bold">{t("Выбрано")}: {selected.length}</span>
         ) : selectMode ? null : (
@@ -216,19 +216,21 @@ export function EmployeesView() {
                 <FilterLink onClick={() => { setDraft(filters); setFilterOpen((open) => !open) }} />
               )}
             </div>
-            <label className="relative w-[295px] border-b border-[#e0e0e0] focus-within:border-[#5d6474] focus-within:shadow-[0_1px_0_#5d6474]">
-              <input value={query} onChange={(event) => { setQuery(event.target.value); setPage(1) }} placeholder={t("Поиск")} className="h-[30px] w-full bg-transparent pr-8 text-[13px] outline-none placeholder:text-[#b9c0cc]" />
-              <svg viewBox="0 0 24 24" className="absolute right-1 top-[4px] h-[20px] w-[20px] fill-[#c4cad4]"><path d="M15.5 14h-.79l-.28-.27A6.47 6.47 0 0016 9.5 6.5 6.5 0 109.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z" /></svg>
+            <label className="group/search relative -mt-[2px] block h-[48px] w-[294.3px]">
+              <input value={query} onChange={(event) => { setQuery(event.target.value); setPage(1) }} placeholder={t("Поиск")} className="relative h-full w-full bg-transparent pr-[34px] text-[13px] leading-[24px] outline-none placeholder:text-black/30" />
+              <span className="pointer-events-none absolute inset-x-0 bottom-[8px] h-px bg-[#e0e0e0]" />
+              <span className="pointer-events-none absolute inset-x-0 bottom-[8px] h-[2px] origin-center scale-x-0 bg-[#5d6474] transition-transform duration-[450ms] group-focus-within/search:scale-x-100" />
+              <svg viewBox="0 0 24 24" className="pointer-events-none absolute left-[268.2px] top-[12px] h-[24px] w-[24px] fill-[#ccc]"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z" /></svg>
             </label>
           </>
         )}
         <div className="ml-auto flex items-center">
-          <PageSizeSelect value={pageSize} onChange={(size) => { setPageSize(size); setPage(1) }} />
+          <PageSizeSelect numberClassName="text-[#333]" value={pageSize} onChange={(size) => { setPageSize(size); setPage(1) }} />
           {selectMode && !hasSelection ? (
             <span className="ml-[40px] flex h-[34px] items-center rounded-[3px] bg-[#4a4a4a] px-[20px] text-[13px] font-semibold text-white">{t("Выбрать из списка")}</span>
           ) : (
             <>
-              <span className="ml-[33px] mr-[10px]">{from} - {to} {t("из")} {filtered.length}</span>
+              <span className="ml-[27px] mr-[10px] leading-[16.25px] text-[#5d6474]">{from} - {to} {t("из")} {filtered.length}</span>
               <span className="flex gap-[5px]"><PagerArrow dir="prev" onClick={safePage > 1 ? () => setPage(safePage - 1) : undefined} />
               <PagerArrow dir="next" onClick={safePage < pageCount ? () => setPage(safePage + 1) : undefined} /></span>
             </>
@@ -247,9 +249,9 @@ export function EmployeesView() {
             onClick={() => { if (hasSelection) setSelected([]); else { setSelectMode((current) => !current); setSelected([]) } }}
             aria-label={t("Выбрать из списка")}
             title={hasSelection ? t("Снять выделение") : t("Выбрать из списка")}
-            className="ml-[31px] flex h-6 w-6 items-center justify-center"
+            className="ml-[32px] flex h-6 w-6 items-center justify-center"
           >
-            <svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#555]"><path d={hasSelection ? MINUS_BOX : selectMode ? EYE_OFF : RI.checklist} /></svg>
+            <svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#5d6474]"><path d={hasSelection ? MINUS_BOX : selectMode ? EYE_OFF : RI.checklist} /></svg>
           </button>
         </div>
         {filterOpen && (
@@ -276,9 +278,9 @@ export function EmployeesView() {
               <svg viewBox="0 0 24 24" className="h-6 w-6 fill-white"><path d={SELECT_ALL} /></svg>
             </button>
           )}
-          <span className={selectMode ? "" : "pl-[8px]"}><SortHead label="№" field="id" ordering={ordering} onSort={(field) => setOrdering(toggleOrdering(ordering, field))} /></span>
+          <span className={selectMode ? "" : "pl-[8px]"}><SortHead className="!font-semibold" label="№" field="id" ordering={ordering} onSort={(field) => setOrdering(toggleOrdering(ordering, field))} /></span>
         </span>
-        <SortHead label={t("Сотрудник")} field="first_name" ordering={ordering} onSort={(field) => setOrdering(toggleOrdering(ordering, field))} />
+        <SortHead className="!font-semibold" label={t("Сотрудник")} field="first_name" ordering={ordering} onSort={(field) => setOrdering(toggleOrdering(ordering, field))} />
         {head("Логин")}
         {head("Права доступа")}
         {head("Телефон")}
@@ -289,7 +291,7 @@ export function EmployeesView() {
         <div key={employee.id} className="group relative grid min-h-[50px] items-center py-px after:pointer-events-none after:absolute after:inset-x-0 after:bottom-0 after:h-[2px] after:bg-[linear-gradient(to_right,#d9e0e5_2px,transparent_2px)] after:bg-[length:8px_2px] after:content-[''] hover:bg-[#f2f5f8]" style={{ gridTemplateColumns: cols }}>
           <span className="flex items-center pl-[22px]">
             {selectMode && <span className="mr-[6px] shrink-0"><Check checked={selectedSet.has(employee.id)} onChange={() => toggleSelected(employee.id)} /></span>}
-            <span className={selectMode ? "" : "pl-[8px]"}>{employee.id}</span>
+            <span className={`leading-[16px] ${selectMode ? "" : "pl-[8px]"}`}>{employee.id}</span>
           </span>
           <span className="min-w-0 break-words pr-3 leading-[16px]">{employee.name}</span>
           <span className="min-w-0 break-words pr-3 leading-[16px]">{employee.active ? employee.login : t("Не указано")}</span>
@@ -302,8 +304,8 @@ export function EmployeesView() {
             )}
           </span>
           <span className="min-w-0 break-words pr-3 leading-[16px]">{employee.phone || "-"}</span>
-          <span className="min-w-0 truncate pr-2" title={employee.job}>{employee.job}</span>
-          <span>{employee.active ? t("Активный") : t("Неактивный")}</span>
+          <span className="min-w-0 truncate pr-2 leading-[16px]" title={employee.job}>{employee.job}</span>
+          <span className="leading-[16px]">{employee.active ? t("Активный") : t("Неактивный")}</span>
           <RowActions right={64} gap={8} onEdit={() => setDialog({ employee })} onDelete={() => setDeleting(employee)} />
         </div>
       ))}

@@ -114,9 +114,9 @@ export function BulkChangeDialog({ ids, options, onClose, onDone }: { ids: numbe
               {on && (
                 <div className="pb-[14px]">
                   {group.single ? (
-                    <LinePick label={group.caption} value={values[group.key][0] ?? ""} options={group.options} onChange={(value) => setValues((current) => ({ ...current, [group.key]: value ? [value] : [] }))} />
+                    <LinePick flush label={group.caption} value={values[group.key][0] ?? ""} options={group.options} onChange={(value) => setValues((current) => ({ ...current, [group.key]: value ? [value] : [] }))} />
                   ) : (
-                    <MultiSelectField label={group.caption} options={group.options} value={values[group.key]} onChange={(value) => setValues((current) => ({ ...current, [group.key]: value }))} />
+                    <MultiSelectField flush label={group.caption} options={group.options} value={values[group.key]} onChange={(value) => setValues((current) => ({ ...current, [group.key]: value }))} />
                   )}
                 </div>
               )}

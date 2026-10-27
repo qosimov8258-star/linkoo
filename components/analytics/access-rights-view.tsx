@@ -1,6 +1,7 @@
 "use client"
 
 import { X } from "lucide-react"
+import { useSearchParams } from "next/navigation"
 import { useCallback, useEffect, useMemo, useState } from "react"
 
 import { LineField, Modal, SaveButton } from "@/components/analytics/catalog-ui"
@@ -8,6 +9,7 @@ import {
   ConfirmDeleteDialog,
   EmptyRows,
   LinePick,
+  PAGE_SIZES,
   ROW_ICONS,
   RowActions,
   SettingsToolbar,
@@ -162,7 +164,7 @@ function CapabilityDialog({
           </div>
         </div>
       </div>
-      <footer className="flex h-[66px] shrink-0 items-center justify-end border-t border-[#e8ebf0] pr-[15px]">
+      <footer className="flex h-[67px] shrink-0 items-center justify-end border-t border-[#e8ebf0] pr-[15px]">
         <SaveButton disabled={saving || !name.trim()} onClick={() => void save()}>{t("Сохранить")}</SaveButton>
       </footer>
     </div>
@@ -188,7 +190,12 @@ function AccessRightDialog({
   const [saving, setSaving] = useState(false)
 
   async function save() {
-    if (saving || !name.trim()) return
+    if (saving) return
+    // The reference keeps "Сохранить" enabled here and answers an empty name with the API field error.
+    if (!name.trim()) {
+      notify(`name: ${t("Это поле обязательно к заполнению")}`)
+      return
+    }
     setSaving(true)
     try {
       const response = await fetch(role ? `/api/access-rights/${role.id}` : "/api/access-rights", {
@@ -215,17 +222,18 @@ function AccessRightDialog({
       width={1000}
       anchorTop={50}
       onClose={onClose}
-      bodyClassName="flex h-[643px] flex-col px-[20px] pt-[4px]"
+      bodyClassName="flex h-[640px] flex-col px-[20px] pt-[4px]"
       headerClassName="pl-[30px]"
-      footer={<SaveButton disabled={saving || !name.trim()} onClick={() => void save()}>{t("Сохранить")}</SaveButton>}
+      footerClassName="mb-[3px]"
+      footer={<SaveButton disabled={saving} onClick={() => void save()}>{t("Сохранить")}</SaveButton>}
     >
-      <LineField label={t("Наименование")} required value={name} onChange={setName} />
-      <div className="mt-[9px] grid min-h-0 flex-1 grid-cols-2 content-start overflow-y-auto">
+      <div className="-mt-px"><LineField label={t("Наименование")} required value={name} onChange={setName} /></div>
+      <div className="mb-[12px] mt-[9px] grid min-h-0 flex-1 grid-cols-2 content-start overflow-y-auto">
         {capabilities.map((capability) => (
           <div key={capability.id} className="relative flex h-[40px] items-center">
-            <Check className="!gap-[4px] -ml-[2px]" checked={ids.includes(capability.id)} onChange={(checked) => setIds((current) => (checked ? [...current, capability.id] : current.filter((id) => id !== capability.id)))} label={capability.name} />
-            <button type="button" onClick={() => onEditCapability(capability)} aria-label={`${t("Изменить")} ${capability.name}`} className="absolute right-[46px] top-1/2 -translate-y-1/2 text-[#555] hover:text-[#222]">
-              <svg viewBox="0 0 24 24" className="h-5 w-5 fill-current"><path d={PENCIL} /></svg>
+            <Check checked={ids.includes(capability.id)} onChange={(checked) => setIds((current) => (checked ? [...current, capability.id] : current.filter((id) => id !== capability.id)))} label={capability.name} />
+            <button type="button" onClick={() => onEditCapability(capability)} aria-label={`${t("Изменить")} ${capability.name}`} className="absolute right-[45.5px] top-[calc(50%-1.5px)] -translate-y-1/2 text-[#666] hover:text-[#222]">
+              <svg viewBox="0 0 24 24" className="h-[22px] w-[22px] fill-current"><path d={PENCIL} /></svg>
             </button>
           </div>
         ))}
@@ -243,7 +251,9 @@ export function AccessRightsView({ embedded = false }: { embedded?: boolean }) {
   const [dialog, setDialog] = useState<{ role: AccessRight | null } | null>(null)
   const [capabilityDialog, setCapabilityDialog] = useState<{ capability: Capability | null } | null>(null)
   const [deleting, setDeleting] = useState<AccessRight | null>(null)
-  const controls = useListControls()
+  // The sidebar link of the reference opens this list with ?page=1&pageSize=100, the top menu without a size (25).
+  const requestedSize = Number(useSearchParams().get("pageSize"))
+  const controls = useListControls(PAGE_SIZES.includes(requestedSize) ? requestedSize : 25)
 
   const load = useCallback(async () => {
     try {
@@ -300,14 +310,14 @@ export function AccessRightsView({ embedded = false }: { embedded?: boolean }) {
       <SettingsToolbar
         left={
           <>
-            <button type="button" onClick={() => setDialog({ role: null })} className="ml-[45px] text-[13px] text-[#4f71dc] hover:underline">+ {t("создать права доступа")}</button>
-            <button type="button" onClick={() => openCapability(null)} className="ml-[33px] text-[13px] text-[#4f71dc] hover:underline">+ {t("создать возможности")}</button>
+            <button type="button" onClick={() => setDialog({ role: null })} className="ml-[42px] flex h-[36px] items-center pt-[3px] text-[13px] leading-[36px] text-[#4f71dc] hover:underline"><svg viewBox="0 0 24 24" className="mr-[2px] h-[14px] w-[14px] fill-[#4f71dc]" aria-hidden><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z" /></svg>{t("создать права доступа")}</button>
+            <button type="button" onClick={() => openCapability(null)} className="ml-[28px] flex h-[36px] items-center pt-[3px] text-[13px] leading-[36px] text-[#4f71dc] hover:underline"><svg viewBox="0 0 24 24" className="mr-[2px] h-[14px] w-[14px] fill-[#4f71dc]" aria-hidden><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z" /></svg>{t("создать возможности")}</button>
           </>
         }
         query={controls.query}
         onQuery={controls.setQuery}
-        searchClassName="left-[595px] top-[22px] !w-[250px]"
-        className="h-[67px] pr-[27px] pt-[10px]"
+        searchClassName="left-[596.4px] top-[23px] !w-[250.5px]"
+        className="h-[67px] pr-[26px] pt-[7px]"
         pager={{
           pageSize: controls.pageSize,
           onPageSize: controls.setPageSize,
@@ -318,20 +328,20 @@ export function AccessRightsView({ embedded = false }: { embedded?: boolean }) {
           onNext: paged.page < paged.pageCount ? () => controls.setPage(paged.page + 1) : undefined,
         }}
       />
-      <div className="grid h-[48px] items-center border-b-2 border-dotted border-[#d9e0e5] font-semibold text-[#333]" style={{ gridTemplateColumns: COLUMNS }}>
+      <div className="grid h-[48px] items-center border-b-2 border-dotted border-[#d9e0e5] font-semibold leading-[18px] text-[#333]" style={{ gridTemplateColumns: COLUMNS }}>
         <span className="pl-[30px]">{t("Права доступа")}</span>
         <span>{t("Возможности")}</span>
       </div>
       {paged.rows.map((role) => (
-        <div key={role.id} className={`${kitRow} !min-h-[50px] py-[5px]`} style={{ gridTemplateColumns: COLUMNS }}>
+        <div key={role.id} className={`${kitRow} !min-h-[50px] py-[5px] hover:!bg-transparent after:!left-[30px] after:!right-[31px]`} style={{ gridTemplateColumns: COLUMNS }}>
           <span className="pl-[30px] pr-2">{role.name}</span>
-          <div className="flex flex-wrap gap-x-[10px] gap-y-[10px] pr-[133.5px]">
+          <div className="flex flex-wrap gap-y-[10px] pr-[133.5px]">
             {role.capabilityIds.map((id) => {
               const capability = capabilityById.get(id)
-              return capability ? <span key={id} className="bg-[#e9ecef] px-[10px] py-[5px] text-[13px] leading-[18px] text-[#333]">{capability.name}</span> : null
+              return capability ? <span key={id} className="mr-[10px] rounded-[2px] bg-[#e9ecef] px-[10px] py-[5px] text-[13px] leading-[18px] text-[#333]">{capability.name}</span> : null
             })}
           </div>
-          <RowActions right={60} gap={6} onEdit={() => setDialog({ role })} onDelete={() => setDeleting(role)} />
+          <RowActions right={60.5} gap={6} onEdit={() => setDialog({ role })} onDelete={() => setDeleting(role)} />
         </div>
       ))}
       {roles && paged.rows.length === 0 && <EmptyRows />}

@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useState } from "react"
 import dynamic from "next/dynamic"
 import {
-  ChevronDown,
   ChevronLeft,
   ChevronRight,
 } from "lucide-react"
@@ -11,6 +10,10 @@ import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
 import { FilterCheck, FilterDate, FilterRange, FilterSelect, RI, RefButton, RefHeader } from "@/components/ref/list-kit"
 import { useLanguage } from "@/lib/i18n/language-context"
 import { AgentsSidebar } from "./agents-sidebar"
+import { DEFAULT_LEGEND, EMPTY_TIME_FILTER, useAgentDay, type LegendState, type TimeFilter } from "./agent-day"
+import { isoDay } from "./use-way-agents"
+import { RingSpinner } from "./agent-plans-panel"
+import type { AgentCategory } from "./tracking-data"
 import { TerritoryPanel } from "./territory-panel"
 
 const TrackingMap = dynamic(() => import("./tracking-map").then((m) => m.TrackingMap), {
@@ -19,6 +22,8 @@ const TrackingMap = dynamic(() => import("./tracking-map").then((m) => m.Trackin
 })
 
 /** Opening viewport of the territory map, matched to the reference's Tashkent framing. */
+/** Opening viewport of the agents map: the reference centres the whole window (the panel floats above the map). */
+const AGENTS_VIEW = { center: [41.32268543, 69.24545288] as [number, number], zoom: 11 }
 const TERRITORY_VIEW = { center: [41.3243, 69.2316] as [number, number], zoom: 13.05 }
 
 type TrackingViewProps = {
@@ -356,7 +361,7 @@ function ZoneModal({ onClose, initialName = "", editing = false, draft, onDraft,
 export function TrackingView({ view = "agents" }: TrackingViewProps) {
   const { t } = useLanguage()
   const [showAgents, setShowAgents] = useState(view === "agents")
-  const [showClients, setShowClients] = useState(true)
+  const [showClients, setShowClients] = useState(view !== "agents")
   const [showZones, setShowZones] = useState(view === "clients")
   const [sidebarOpen, setSidebarOpen] = useState(view === "agents")
   const [filterOpen, setFilterOpen] = useState(false)
@@ -366,6 +371,28 @@ export function TrackingView({ view = "agents" }: TrackingViewProps) {
   const [searchOpen, setSearchOpen] = useState(true)
   const [search, setSearch] = useState("")
   const [legendOpen, setLegendOpen] = useState(false)
+  const [legend, setLegend] = useState<LegendState>(DEFAULT_LEGEND)
+  const [timeFilter, setTimeFilter] = useState<TimeFilter>(EMPTY_TIME_FILTER)
+  // The reference rebuilds its map (behind a veil with a spinner) for half a second whenever a legend checkbox changes.
+  const [mapBusy, setMapBusy] = useState(false)
+  const changeLegend = (next: LegendState) => {
+    setLegend(next)
+    setMapBusy(true)
+    window.setTimeout(() => setMapBusy(false), 500)
+  }
+  const [date, setDate] = useState(() => new Date())
+  // The reference opens the page on the day of its `date` parameter.
+  useEffect(() => {
+    const param = new URLSearchParams(window.location.search).get("date")
+    if (param && /^\d{4}-\d{2}-\d{2}$/.test(param)) setDate(new Date(`${param}T00:00:00`))
+  }, [])
+  const [status, setStatus] = useState("")
+  const [agentSearch, setAgentSearch] = useState("")
+  const [focus, setFocus] = useState<{ lat: number; lon: number; n: number } | null>(null)
+  const goTo = (lat: number, lon: number) => setFocus((current) => ({ lat, lon, n: (current?.n ?? 0) + 1 }))
+  const [selectedAgent, setSelectedAgent] = useState<number | null>(null)
+  const { day, loading: dayLoading } = useAgentDay(selectedAgent, isoDay(date))
+  const [panelTab, setPanelTab] = useState<"agents" | AgentCategory>("agents")
   const [editZone, setEditZone] = useState<string | null>(null)
   const [draft, setDraft] = useState<ZoneDraft>({ ring: [], drawing: false })
   const [extraZones, setExtraZones] = useState<ExtraZoneRow[]>([])
@@ -394,7 +421,7 @@ export function TrackingView({ view = "agents" }: TrackingViewProps) {
 
   useEffect(() => {
     setShowAgents(view === "agents")
-    setShowClients(true)
+    setShowClients(view !== "agents")
     setShowZones(view === "clients")
     setSidebarOpen(view === "agents")
   }, [view])
@@ -463,51 +490,180 @@ export function TrackingView({ view = "agents" }: TrackingViewProps) {
   }
 
   return (
-    <div className="flex h-[calc(100vh-50px)] w-full">
-      <div className="relative flex-1">
-        <TrackingMap showAgents={showAgents} showClients={showClients} showZones={showZones} />
-
-        <div className="absolute left-[30px] top-[18px] z-[500] flex items-center gap-[11px]">
-          <FavoritesButton className="flex items-center gap-[5px] text-[18px] font-bold text-[#4f71dc]" />
-          <span className="h-[21px] w-[2px] bg-[#5d6474]" />
-          <span className="text-[18px] font-bold text-[#5d6474]">{t("Отслеживание")}</span>
-        </div>
-
-        <div className="absolute left-[48px] top-[100px] z-[500]">
-          <button
-            type="button"
-            onClick={() => setLegendOpen((current) => !current)}
-            className="flex h-[46px] w-[200px] items-center justify-between bg-white px-[15px] text-[13px] text-[#333] shadow-[0_1px_4px_rgba(0,0,0,0.25)]"
-          >
-            {t("Легенда карты")}
-            <ChevronDown className={`h-4 w-4 text-slate-400 transition ${legendOpen ? "rotate-180" : ""}`} />
-          </button>
-          {legendOpen && (
-            <div className="mt-1 w-56 rounded-md bg-white p-3 text-sm shadow-xl">
-              <p className="mb-2 flex items-center gap-2"><span className="inline-block h-3 w-3 rounded-full bg-[#f2b705]" />{t("Агент онлайн")}</p>
-              <p className="mb-2 flex items-center gap-2"><span className="inline-block h-3 w-3 rounded-full bg-[#ff4d3d]" />{t("Агент офлайн")}</p>
-              <p className="flex items-center gap-2"><span className="inline-block h-3 w-3 rounded-full bg-[#27ae60]" />{t("Клиент")}</p>
-            </div>
-          )}
-        </div>
-
-        <div className="absolute bottom-[10px] right-[24px] z-[500] bg-white/90 px-[12px] py-[8px]">
-          <div className="space-y-[6px]">
-            <CheckLine label="Клиенты" checked={showClients} onChange={setShowClients} />
-            <CheckLine label="Зоны" checked={showZones} onChange={setShowZones} />
-          </div>
-        </div>
-
-        <button type="button" onClick={() => setSidebarOpen((open) => !open)} className="absolute right-4 top-5 z-[500] rounded-full bg-white p-2 shadow">
-          <ChevronRight className={`h-6 w-6 ${sidebarOpen ? "" : "rotate-180"}`} />
-        </button>
+    <div className="relative h-[calc(100vh-50px)] w-full overflow-hidden">
+      <div className="absolute inset-0">
+        <TrackingMap
+          showAgents={showAgents}
+          showClients={showClients}
+          showZones={showZones}
+          initialView={AGENTS_VIEW}
+          plain
+          onlyAgent={selectedAgent}
+          tab={panelTab}
+          search={agentSearch}
+          focus={focus}
+          day={selectedAgent !== null && !dayLoading ? day : null}
+          legend={legend}
+          timeFilter={timeFilter}
+          recenterKey={`${isoDay(date)}|${legend.tracker}${legend.visit}${legend.actual}`}
+        />
       </div>
-      {sidebarOpen && (
-        <>
-          <div className="w-[334px] shrink-0" aria-hidden />
-          <AgentsSidebar />
-        </>
+      {selectedAgent !== null && dayLoading && (
+        <div className="absolute bottom-0 left-0 right-[350px] top-[60px] z-[400] flex items-center justify-center bg-[#fcfcfc]">
+          <RingSpinner />
+        </div>
       )}
+      {mapBusy && (
+        <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-white/40">
+          <RingSpinner />
+        </div>
+      )}
+      <div className="pointer-events-none absolute inset-x-0 top-0 z-[5] h-[60px] border-b border-[#efefef] bg-white/70" />
+      <div className="absolute inset-y-0 left-0 z-[500] w-0">
+        {selectedAgent === null ? (
+          <div className="absolute left-[28px] top-[17.5px] flex h-[24px] items-center">
+            <FavoritesButton className="flex items-center gap-[5px] text-[18px] font-bold leading-[22.5px] text-[#4f71dc]" />
+            <span className="mx-[11px] h-[21px] w-[2px] bg-[#5d6474]" />
+            <span className="text-[18px] font-bold leading-[22.5px] text-[#5d6474]">{t("Отслеживание")}</span>
+          </div>
+        ) : (
+          <TimeBar filter={timeFilter} onChange={setTimeFilter} />
+        )}
+        <TrackingLegend open={legendOpen} onToggle={() => setLegendOpen((current) => !current)} legend={legend} onLegend={changeLegend} onFirst={() => day.track[0] && goTo(day.track[0][0], day.track[0][1])} onLast={() => { const last = day.track[day.track.length - 1]; if (last) goTo(last[0], last[1]) }} />
+      </div>
+      {selectedAgent === null && <div className={`absolute bottom-0 z-[50] h-[72px] ${sidebarOpen ? "right-[334px]" : "right-0"} w-[150px] border border-[#efefef] bg-white px-[20px] opacity-70 transition-opacity duration-300 hover:opacity-100`}>
+        <MapCheck label={t("Клиенты")} checked={showClients} onChange={setShowClients} />
+        <MapCheck label={t("Зоны")} checked={showZones} onChange={setShowZones} />
+      </div>}
+      {selectedAgent === null && <button type="button" aria-label={t("Панель агентов")} onClick={() => setSidebarOpen((open) => !open)} className={`absolute top-[11px] z-[55] flex h-[40px] w-[24px] items-center justify-center bg-white ${sidebarOpen ? "right-[334px]" : "right-0"}`}>
+        <svg viewBox="0 0 24 24" className={`h-6 w-6 fill-[#333] ${sidebarOpen ? "" : "rotate-180"}`}><path d="M10 17l5-5-5-5z" /></svg>
+      </button>}
+      {(sidebarOpen || selectedAgent !== null) && <AgentsSidebar selectedId={selectedAgent} onSelect={setSelectedAgent} tab={panelTab} onTab={setPanelTab} date={date} onDate={setDate} day={day} dayLoading={dayLoading} status={status} onStatus={setStatus} search={agentSearch} onSearch={setAgentSearch} onLocate={goTo} />}
+    </div>
+  )
+}
+
+const MAP_BOX = "M19 5v14H5V5h14m0-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2z"
+const MAP_BOX_ON = "M19 3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.11 0 2-.9 2-2V5c0-1.1-.89-2-2-2zm-9 14l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"
+
+function MapCheck({ label, checked, onChange }: { label: string; checked: boolean; onChange: (value: boolean) => void }) {
+  return (
+    <button type="button" onClick={() => onChange(!checked)} className="mt-[10px] flex h-[20px] items-center text-[13px] leading-[20px] text-black">
+      <svg viewBox="0 0 24 24" className="mr-[6px] h-[20px] w-[20px] fill-[#666]"><path d={checked ? MAP_BOX_ON : MAP_BOX} /></svg>
+      {label}
+    </button>
+  )
+}
+
+const LEGEND_PINS = [
+  ["Первая координата трекера", 1, 23],
+  ["Промежуточные координаты трекера", 2, 23],
+  ["Последняя координата трекера", 3, 23],
+] as const
+const LEGEND_VISITS = [
+  ["Запланированный маршрут визитов", 4],
+  ["Первая точка закрытия визита", 5],
+  ["Промежуточные точки закрытия визита", 6],
+  ["Последняя точка закрытия визита", 7],
+  ["Внеплановый визит", 8],
+  ["Отказ", 9],
+] as const
+
+function LegendCheck({ label, on, onChange }: { label: string; on: boolean; onChange: (value: boolean) => void }) {
+  const { t } = useLanguage()
+  return (
+    <li className="mb-[10px] flex">
+      <button type="button" onClick={() => onChange(!on)} className="my-[10px] flex w-full items-start text-left text-[13px] text-black">
+        <svg viewBox="0 0 24 24" className="mr-[16px] h-[20px] w-[20px] shrink-0 fill-[#666]"><path d={on ? MAP_BOX_ON : MAP_BOX} /></svg>
+        <span className="relative -left-[10px] block w-[110px] leading-[20px]">{t(label)}</span>
+      </button>
+    </li>
+  )
+}
+
+function LegendItem({ label, pin, small, onClick }: { label: string; pin: number; small?: boolean; onClick?: () => void }) {
+  const { t } = useLanguage()
+  return (
+    <li className={`mb-[10px] flex min-h-[41px] ${onClick ? "cursor-pointer" : ""}`} onClick={onClick}>
+      <div className="ml-[15px] mr-[10px] shrink-0" style={{ width: small ? 17 : 23 }}>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={`/tracking-legend/pin${pin}.png`} alt="" className="block w-full" />
+      </div>
+      <p className="w-[122px] text-[13px] leading-[16.25px] text-[#333]">{t(label)}</p>
+    </li>
+  )
+}
+
+function TrackingLegend({ open, onToggle, legend, onLegend, onFirst, onLast }: { open: boolean; onToggle: () => void; legend: LegendState; onLegend: (legend: LegendState) => void; onFirst: () => void; onLast: () => void }) {
+  const { t } = useLanguage()
+  return (
+    <div className="absolute left-[48px] top-[100px] w-[200px]">
+      <button type="button" onClick={onToggle} className="flex h-[48.3px] w-full items-center justify-between rounded-t-[2px] bg-[#f5f5f5] px-[15px] pb-[1px] text-[13px] leading-[16.25px] text-[#212121]">
+        <span>{t("Легенда карты")}</span>
+        <div style={{ transform: open ? "rotate(270deg)" : "rotate(90deg)" }}>
+          <svg viewBox="0 0 24 24" aria-hidden style={{ display: "inline-block", verticalAlign: "baseline", width: 24, height: 24, fill: "#333" }}><path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z" /></svg>
+        </div>
+      </button>
+      {open && (
+        <div className="max-h-[calc(100vh-271px)] overflow-y-auto bg-white shadow-[0_1px_4px_rgba(0,0,0,0.3)]">
+          <ul className="px-[15px] py-[10px]">
+            <LegendCheck label="Фактический мааршрут (трекер)" on={legend.tracker} onChange={(tracker) => onLegend({ ...legend, tracker })} />
+            {LEGEND_PINS.map(([label, pin]) => <LegendItem key={pin} label={label} pin={pin} onClick={pin === 1 ? onFirst : pin === 3 ? onLast : undefined} />)}
+          </ul>
+          <ul className="px-[15px] py-[10px]">
+            <LegendCheck label="Факт. маршрут(визит)" on={legend.visit} onChange={(visit) => onLegend({ ...legend, visit })} />
+            {LEGEND_VISITS.map(([label, pin]) => <LegendItem key={pin} label={label} pin={pin} />)}
+            <LegendCheck label="Факт. визит" on={legend.actual} onChange={(actual) => onLegend({ ...legend, actual })} />
+            <LegendItem label="Фактический визит" pin={10} small />
+          </ul>
+        </div>
+      )}
+    </div>
+  )
+}
+
+const HOURS = Array.from({ length: 24 }, (_, i) => `${String(i).padStart(2, "0")}:00`)
+const MINUTES = Array.from({ length: 12 }, (_, i) => `00:${String(i * 5).padStart(2, "0")}`)
+
+function TimeSelect({ placeholder, options, left, value, onChange, hours }: { placeholder: string; options: string[]; left: number; value: string; onChange: (value: string) => void; hours?: boolean }) {
+  const { t } = useLanguage()
+  const [open, setOpen] = useState(false)
+  // The options read "09:00" / "00:05"; the value kept is the hour or the minute alone ("09", "05").
+  const part = (item: string) => (hours ? item.slice(0, 2) : item.slice(-2))
+  const shown = value ? options.find((item) => part(item) === value) ?? "" : ""
+  return (
+    <div className="absolute top-[8.5px] h-[36px] w-[85px]" style={{ left }}>
+      {shown && <span className="pointer-events-none absolute -left-[1px] top-[-13px] text-[10px] font-semibold leading-[12.2px] text-black/60">{t(placeholder)}</span>}
+      <button type="button" onClick={() => setOpen((v) => !v)} className={`relative flex h-full w-full items-center border-b border-[#e8e8e8] text-left text-[13px] font-semibold text-black ${shown ? "pt-[11px]" : "pt-[7px]"}`}>
+        <span className={shown ? "text-[#333]" : undefined}>{shown || t(placeholder)}</span>
+        {shown && (
+          <span onClick={(event) => { event.stopPropagation(); onChange("") }} className="absolute left-[46.3px] top-[13.4px] text-[18px] font-normal leading-[18px] text-[#999]">×</span>
+        )}
+        <svg viewBox="0 0 10 5" className="absolute right-[10px] top-[20px] h-[5px] w-[10px] fill-[#999]"><path d={open ? "M0 5l5-5 5 5z" : "M0 0l5 5 5-5z"} /></svg>
+      </button>
+      {open && (
+        <div className="absolute -left-[1px] right-[1px] top-[calc(100%-1px)] z-[800] max-h-[200px] overflow-y-auto bg-white" style={{ boxShadow: "0 3px 10px rgba(0,0,0,.16), 0 3px 10px rgba(0,0,0,.23)" }}>
+          {options.map((item, index) => (
+            <div key={item} onClick={() => { onChange(part(item)); setOpen(false) }} className={`cursor-pointer px-[10px] py-[8px] text-[13px] font-semibold leading-[16.3px] ${(shown ? shown === item : index === 0) ? "bg-[#e6f2ff] text-[#333]" : "text-[#666]"}`}>{item}</div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** The bar that replaces the page title while an agent card is open: "Показать путь" and the start / end time of the route. */
+function TimeBar({ filter, onChange }: { filter: TimeFilter; onChange: (filter: TimeFilter) => void }) {
+  const { t } = useLanguage()
+  return (
+    <div className="absolute left-0 top-0 z-[500] h-[60px] w-[800px]">
+      <span className="absolute left-[33px] top-[18.3px] text-[18px] font-bold leading-[22.5px] text-[#5d6474]">{t("Показать путь")}</span>
+      <span className="absolute left-[233px] top-[11.9px] text-[13px] font-semibold leading-[16.3px] text-[#333]" style={{ paddingTop: 10 }}>{t("Начало")}:</span>
+      <TimeSelect hours placeholder="час" options={HOURS} left={305.5} value={filter.hour} onChange={(hour) => onChange({ ...filter, hour })} />
+      <TimeSelect placeholder="минута" options={MINUTES} left={410.5} value={filter.minute} onChange={(minute) => onChange({ ...filter, minute })} />
+      <span className="absolute left-[515.5px] top-[11.9px] text-[13px] font-semibold leading-[16.3px] text-[#333]" style={{ paddingTop: 10 }}>{t("Конец")}:</span>
+      <TimeSelect hours placeholder="час" options={HOURS} left={579.8} value={filter.endHour} onChange={(endHour) => onChange({ ...filter, endHour })} />
+      <TimeSelect placeholder="минута" options={MINUTES} left={684.8} value={filter.endMinute} onChange={(endMinute) => onChange({ ...filter, endMinute })} />
     </div>
   )
 }

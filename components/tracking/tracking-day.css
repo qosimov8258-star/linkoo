@@ -1,0 +1,91 @@
+/* Markers, clusters and popups of an agent's day on the tracking map (the reference's own rules). */
+.markerReject,
+.markerDiff,
+.markerNoPlanVisit,
+.markerPlanIsDone,
+.markerPlan,
+.markerPlan-start,
+.markerPlan-end,
+.polylineMarket,
+.polylineMarket-start,
+.polylineMarket-end {
+  background-size: contain;
+  background-repeat: no-repeat;
+  margin: 0 auto;
+  text-align: center;
+  color: white;
+  font-weight: bold;
+}
+.markerReject, .markerDiff, .markerNoPlanVisit, .markerPlanIsDone, .markerPlan, .polylineMarket { width: 34px; height: 41px; }
+.markerPlan-start, .markerPlan-end, .polylineMarket-start, .polylineMarket-end { width: 41px; height: 49px; }
+.polylineMarket-start { background-image: url("/tracking-legend/pin1.png"); }
+.polylineMarket { background-image: url("/tracking-legend/pin2.png"); }
+.polylineMarket-end { background-image: url("/tracking-legend/pin3.png"); }
+.markerPlanIsDone { background-image: url("/tracking-legend/pin4.png"); }
+.markerPlan-start { background-image: url("/tracking-legend/pin5.png"); }
+.markerPlan { background-image: url("/tracking-legend/pin6.png"); }
+.markerPlan-end { background-image: url("/tracking-legend/pin7.png"); }
+.markerNoPlanVisit { background-image: url("/tracking-legend/pin8.png"); }
+.markerReject { background-image: url("/tracking-legend/pin9.png"); }
+.markerDiff { background-image: url("/tracking-legend/pin10.png"); }
+
+.polylineMarket-number { padding-top: 5px; width: 26px; text-align: center; color: #333; }
+.polylineMarket-number-big { padding-top: 7px; width: 31px; text-align: center; color: #333; }
+.polylineMarket-number-big-new { padding-top: 5px; padding-right: 4px; width: 31px; text-align: center; color: #333; }
+
+.marker-cluster-small,
+.marker-cluster-medium,
+.marker-cluster-diff-small,
+.marker-cluster-visit-small,
+.marker-cluster-must-small {
+  margin-left: -20px !important;
+  margin-top: -20px !important;
+  border-radius: 30px !important;
+  width: 40px !important;
+  height: 40px !important;
+  border: 4px solid #ba05f7;
+  background-color: #fff !important;
+}
+.marker-cluster-small div,
+.marker-cluster-medium div,
+.marker-cluster-diff-small div,
+.marker-cluster-visit-small div,
+.marker-cluster-must-small div {
+  width: 24px !important;
+  height: 24px !important;
+  margin-left: 4px !important;
+  margin-top: 4px !important;
+  text-align: center;
+  color: #fff;
+}
+.marker-cluster-small div, .marker-cluster-medium div { background-color: #ba05f7 !important; }
+.marker-cluster-small span, .marker-cluster-medium span, .marker-cluster-diff-small span, .marker-cluster-visit-small span, .marker-cluster-must-small span { line-height: 25px !important; }
+.marker-cluster-diff-small { border-color: #000; }
+.marker-cluster-diff-small div { background-color: #000 !important; }
+.marker-cluster-visit-small { border-color: #d46f01; }
+.marker-cluster-visit-small div { background-color: #d46f01 !important; }
+.marker-cluster-must-small { border-color: #52b657; }
+.marker-cluster-must-small div { background-color: #52b657 !important; }
+.marker-cluster-large {
+  margin-left: -25px !important;
+  margin-top: -25px !important;
+  border-radius: 30px !important;
+  width: 50px !important;
+  height: 50px !important;
+  border: 4px solid #ba05f7;
+  background-color: #fff !important;
+}
+.marker-cluster-large div { background-color: #ba05f7 !important; margin-left: 6px !important; margin-top: 6px !important; color: #fff; }
+.marker-cluster-large span { line-height: 30px !important; }
+
+.leaflet-list { width: 330px; height: 100%; overflow: auto; }
+.leaflet-list li { padding: 10px 15px; }
+.leaflet-markerClusters-popup .leaflet-popup-content { margin: 10px; }
+.marker-cluster-popup-container { width: 630px; height: fit-content; display: flex; align-items: flex-start; }
+.marker-cluster-time-list { list-style: none; padding: 0; margin: 0; }
+.marker-cluster-time-list > li { cursor: pointer; background: white; transition: background 2s, color 2s linear; color: #0e4779; padding: 10px 15px; }
+.marker-cluster-time-list > li.active { cursor: pointer; padding: 10px 15px; transition: background 2s, color 2s linear; background: #0e4779; color: white; border-radius: 4px; }
+.time-row > :not(:last-child) { margin-right: 5px !important; margin-left: 5px !important; }
+
+/* The heading of a client in a map popup (the reference leaves h2 at 1.5em / bold). */
+.leaflet-popup-content h2 { margin: 0; font-size: 19.5px; font-weight: 700; line-height: 1.3; }

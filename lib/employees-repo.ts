@@ -160,6 +160,8 @@ function toDetails(input: EmployeeInput, previous: Details): Details {
     marketPriceListIds: input.marketPriceListIds,
     currencyIds: input.currencyIds,
     locationPointIds: input.locationPointIds,
+    cashboxIds: input.cashboxIds ?? previous.cashboxIds ?? [],
+    requestCashboxIds: input.requestCashboxIds ?? previous.requestCashboxIds ?? [],
   }
 }
 

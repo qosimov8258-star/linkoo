@@ -148,6 +148,31 @@ export async function setKpiTaskActive(id: number, active: boolean): Promise<Kpi
   return (await getKpiTask(id))
 }
 
+export type KpiLock = {
+  disableChange: boolean
+  onlyForSystem: boolean
+  visibleOnlyOperator: boolean
+  operators: Array<{ id: number; name: string }>
+}
+
+/** "Изменение блокировки": the lock flags live in the KPI detail JSON, the system flag in kpi_tasks. */
+export async function setKpiTaskLock(id: number, lock: KpiLock): Promise<KpiTask | null> {
+  const db = getDb()
+  await ensureSchema(db)
+  const task = await getKpiTask(id)
+  if (!task) return null
+  const detail = {
+    ...(task.detail ?? {}),
+    disable_change: lock.disableChange,
+    only_for_system: lock.onlyForSystem,
+    visible_only_operator: lock.visibleOnlyOperator,
+    operators: lock.visibleOnlyOperator ? lock.operators : [],
+  }
+  await db.prepare("INSERT INTO kpi_task_details (task_id, detail) VALUES (@id, @detail) ON CONFLICT (task_id) DO UPDATE SET detail = EXCLUDED.detail RETURNING task_id").run({ id, detail: JSON.stringify(detail) })
+  await db.prepare("UPDATE kpi_tasks SET system_flag = ?, updated_at = datetime('now') WHERE id = ?").run(lock.onlyForSystem ? 1 : 0, id)
+  return getKpiTask(id)
+}
+
 export async function deleteKpiTask(id: number): Promise<boolean> {
   const db = getDb()
   await ensureSchema(db)

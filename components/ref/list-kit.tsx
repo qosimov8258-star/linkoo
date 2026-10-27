@@ -6,6 +6,7 @@ import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
 import { usePathname } from "next/navigation"
 import { DateRangePicker } from "@/components/dashboard/date-range-picker"
 import { REF_COLUMNS } from "@/lib/ref-columns"
+import { PageSizeSelect } from "@/components/analytics/settings-list-kit"
 import { useLanguage } from "@/lib/i18n/language-context"
 
 /**
@@ -24,6 +25,7 @@ export const RI = {
   add: "M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm5 11h-4v4h-2v-4H7v-2h4V7h2v4h4v2z",
   filter: "M10 18h4v-2h-4v2zM3 6v2h18V6H3zm3 7h12v-2H6v2z",
   checklist: "M14 10H2v2h12v-2zm0-4H2v2h12V6zM2 16h8v-2H2v2zm19.5-4.5L23 13l-6.99 7-4.51-4.5L13 14l3.01 3 5.49-5.5z",
+  autorenew: "M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z",
   sync: "M19 8l-4 4h3c0 3.31-2.69 6-6 6-1.01 0-1.97-.25-2.8-.7l-1.46 1.46C8.97 19.54 10.43 20 12 20c4.42 0 8-3.58 8-8h3l-4-4zM6 12c0-3.31 2.69-6 6-6 1.01 0 1.97.25 2.8.7l1.46-1.46C15.03 4.46 13.57 4 12 4c-4.42 0-8 3.58-8 8H1l4 4 4-4H6z",
   print: "M19 8H5c-1.66 0-3 1.34-3 3v6h4v4h12v-4h4v-6c0-1.66-1.34-3-3-3zm-3 11H8v-5h8v5zm3-7c-.55 0-1-.45-1-1s.45-1 1-1 1 .45 1 1-.45 1-1 1zm-1-9H6v4h12V3z",
   download: "M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z",
@@ -41,14 +43,14 @@ export function RefPage({ children }: { children: ReactNode }) {
   return <main className="min-h-screen bg-[#f2f5f8] px-7 pb-7 font-sans text-[13px] text-[#333]">{children}</main>
 }
 
-export function RefHeader({ title, children, left }: { title: ReactNode; children?: ReactNode; left?: ReactNode }) {
+export function RefHeader({ title, children, left, titleTop }: { title: ReactNode; children?: ReactNode; left?: ReactNode; titleTop?: number }) {
   return (
     <div className="flex h-[60px] items-center justify-between">
       <div className="flex items-center">
         <h1 className="flex items-center text-[18px] font-bold text-[#5d6474]">
           <FavoritesButton className="flex items-center gap-[5px] text-[18px] font-bold text-[#4f71dc]" />
           <span className="mx-[11px] h-[21px] w-[2px] bg-[#5d6474]" />
-          {title}
+          {titleTop ? <span style={{ position: "relative", top: titleTop }}>{title}</span> : title}
         </h1>
         {left}
       </div>
@@ -66,7 +68,10 @@ export function RefButton({
   disabled,
   type = "button",
   exact,
+  iconLow,
 }: {
+  /** With `exact`: icon 1.5px lower (toolbar buttons of the reference have a 4px margin-bottom). */
+  iconLow?: boolean
   icon?: string
   label: ReactNode
   onClick?: () => void
@@ -85,7 +90,7 @@ export function RefButton({
       className={`flex h-[30px] items-center whitespace-nowrap rounded-[5px] text-[13px] font-semibold text-white hover:brightness-95 disabled:opacity-60 ${icon ? "pl-3" : "px-4"} ${green ? "bg-[#71ce87]" : red ? "bg-[#fa8072]" : "bg-[#4f71dc]"}`}
     >
       {icon && (
-        <svg viewBox="0 0 24 24" className={`${exact ? "mb-px" : "mb-1"} h-[18px] w-[18px] fill-white`} aria-hidden>
+        <svg viewBox="0 0 24 24" className={`${exact && !iconLow ? "mb-px" : "mb-1"} h-[18px] w-[18px] fill-white`} aria-hidden>
           <path d={icon} />
         </svg>
       )}
@@ -104,14 +109,28 @@ export function RefIconButton({ path, label, onClick, color = "#666", active, ti
   )
 }
 
-export function RefTabs({ labels, value, onChange, separate }: { labels: string[]; value: string; onChange: (value: string) => void; separate?: boolean }) {
+export function RefTabs({ labels, value, onChange, separate, stacked }: { labels: string[]; value: string; onChange: (value: string) => void; separate?: boolean; /** Own 40px shadowed card with the indicator below it, then a 1px gap (the salary page of the reference). */ stacked?: boolean }) {
   const { t } = useLanguage()
   const index = Math.max(0, labels.indexOf(value))
   const height = separate ? "h-[52px]" : "h-10"
+  if (stacked) {
+    return (
+      <div className="relative h-[41px]">
+        <div className={`flex rounded-[2px] bg-white ${height}`}>
+          {labels.map((label) => (
+            <button key={label} type="button" onClick={() => onChange(label)} className={`flex-1 whitespace-nowrap text-center text-[13px] font-medium leading-[normal] text-black ${height}`}>
+              {t(label)}
+            </button>
+          ))}
+        </div>
+        <span className="absolute bottom-0 left-0 z-10 h-[3px] bg-[linear-gradient(to_bottom,#4e6ed8,#4a6ace)] shadow-[0_-3px_10px_0_#5869f0] transition-transform duration-300" style={{ width: `${100 / labels.length}%`, transform: `translateX(${index * 100}%)`, clipPath: "inset(-20px 0 0 0)" }} />
+      </div>
+    )
+  }
   return (
     <div className={`relative flex rounded-[2px] bg-white ${height} ${separate ? REF_SHADOW : ""}`}>
       {labels.map((label) => (
-        <button key={label} type="button" onClick={() => onChange(label)} className={`flex-1 whitespace-nowrap text-center text-[13px] font-medium text-black ${height}`}>
+        <button key={label} type="button" onClick={() => onChange(label)} className={`flex-1 whitespace-nowrap text-center text-[13px] font-medium leading-[normal] text-black ${height}`}>
           {t(label)}
         </button>
       ))}
@@ -156,7 +175,13 @@ export function RefToolbar({
   searchWidth: searchWidthProp,
   hideSearch,
   plain,
+  thinChevron,
+  pageSizeMenu,
 }: {
+  /** Page-size dropdown of the settings lists (10 … 2000) instead of the native select. */
+  pageSizeMenu?: boolean
+  /** The 24-viewBox thin chevron of the reference's KPI toolbar (default is the older, larger glyph). */
+  thinChevron?: boolean
   filterOpen?: boolean
   onToggleFilter?: () => void
   filterPanel?: ReactNode
@@ -195,10 +220,14 @@ export function RefToolbar({
         {leftSlot}
         {!leftSlot && !hideFilter && (
           linkFilter ? (
-            <button type="button" onClick={onToggleFilter} className={`${linkFilter === "flush" ? "flex h-[16.3px] w-fit items-center " : "pl-[5px] "}text-[13px] text-[#4f71dc]`}>
+            <button type="button" onClick={onToggleFilter} className={`${linkFilter === "flush" ? "flex h-[16.3px] w-fit items-center leading-[16.25px] " : "pl-[5px] "}text-[13px] text-[#4f71dc]`}>
               {filterOpen ? t("Скрыть фильтр") : t("Показать фильтр")}
               {linkFilter === "flush" ? (
+                thinChevron ? (
+                  <svg viewBox="0 0 24 24" className="ml-px h-5 w-[13px] translate-y-[1.9px] shrink fill-[#4f71dc]"><path d="M7.41 7.84L12 12.42l4.59-4.58L18 9.25l-6 6-6-6z" /></svg>
+                ) : (
                 <svg viewBox="6 2 12 20" className="ml-px h-5 w-[13px] translate-y-[1.9px] fill-[#4f71dc]"><path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z" /></svg>
+                )
               ) : (
                 " ⌄"
               )}
@@ -224,6 +253,9 @@ export function RefToolbar({
         </svg>
       </div>
       <div className="ml-auto flex items-center text-[#5d6474]">
+        {pageSizeMenu ? (
+          <div className="mr-[27px]"><PageSizeSelect value={pageSize} onChange={onPageSize} /></div>
+        ) : (
         <div className="relative mr-[27px]">
           <select
             value={pageSize}
@@ -236,6 +268,7 @@ export function RefToolbar({
           </select>
           <svg viewBox="0 0 24 24" className="pointer-events-none absolute right-0 top-3 h-6 w-6 fill-black/30"><path d="M7 10l5 5 5-5z" /></svg>
         </div>
+        )}
         <span className="mr-[5px] whitespace-nowrap leading-[16.25px]">{total === 0 ? 1 : from} - {to}  {t("из")}  {total}</span>
         <button type="button" disabled={page <= 1} onClick={() => onPage(page - 1)} aria-label="prev" className="px-[5px]">
           <svg viewBox="0 0 24 24" className={`h-6 w-6 ${page <= 1 ? "fill-black/30" : "fill-black/55"}`}><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm1-12l-5 4 5 4V8z" /></svg>
@@ -786,6 +819,9 @@ export function FilterDate({
   words,
   mui,
   tall,
+  noIcon,
+  pickerClassName,
+  roomy,
 }: {
   label: string
   begin: string
@@ -801,26 +837,33 @@ export function FilterDate({
   mui?: boolean
   /** With `mui`: the label is long enough to push the field down (60px field, label 8px lower). */
   tall?: boolean
+  /** Hide the calendar glyph after the label (the activity filter of the reference has none). */
+  noIcon?: boolean
+  /** 72px block with the value 6px lower and a 41px field (the net cost filter of the reference). */
+  roomy?: boolean
+  /** Anchor classes of the range picker (the reference right-aligns it under the activity filter). */
+  pickerClassName?: string
 }) {
   const { t, language } = useLanguage()
   const [open, setOpen] = useState(false)
   const today = new Date().toISOString().slice(0, 10)
   const wordsLanguage = words ? language : undefined
   return (
-    <div className={`relative ${mui ? (tall ? "h-[67px]" : "h-[52px]") : "h-[62px]"} ${className}`}>
-      <button type="button" onClick={() => setOpen((current) => !current)} className={`absolute inset-x-0 w-full text-left text-[13px] ${mui ? (tall ? "top-[7px] h-[60px]" : "top-[7px] h-[45px]") : "top-[18px] h-[36px] border-b border-[#e8e8e8]"}`}>
+    <div className={`relative ${mui ? (tall ? "h-[67px]" : "h-[52px]") : roomy ? "h-[72px]" : "h-[62px]"} ${className}`}>
+      <button type="button" onClick={() => setOpen((current) => !current)} className={`absolute inset-x-0 w-full text-left text-[13px] ${mui ? (tall ? "top-[7px] h-[60px]" : "top-[7px] h-[45px]") : `top-[18px] border-b border-[#e8e8e8] ${roomy ? "h-[41px]" : "h-[36px]"}`}`}>
         {mui && <span className={`absolute inset-x-0 h-px bg-[#e0e0e0] ${tall ? "top-[51px]" : "top-[36px]"}`} />}
         <span className={`absolute left-0 flex items-center gap-[2px] text-[10px] font-bold leading-3 text-black ${mui ? (tall ? "top-[7px]" : "top-[-1px]") : "top-[-3px]"}`}>
           {label}
-          <svg viewBox="0 0 24 24" style={iconLeft == null ? undefined : { position: "absolute", left: iconLeft, top: 0 }} className={`fill-[#ccc] ${mui ? "h-[15px] w-[15px]" : "h-[14px] w-[14px]"}`}><path d="M19 4h-1V2h-2v2H8V2H6v2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2zm0 16H5V9h14v11z" /></svg>
+          {!noIcon && <svg viewBox="0 0 24 24" style={iconLeft == null ? undefined : { position: "absolute", left: iconLeft, top: 0 }} className={`fill-[#ccc] ${mui ? "h-[15px] w-[15px]" : "h-[14px] w-[14px]"}`}><path d="M19 4h-1V2h-2v2H8V2H6v2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2zm0 16H5V9h14v11z" /></svg>}
         </span>
-        <span className={`absolute left-0 font-medium text-black ${mui ? (tall ? "top-[29px]" : "top-[13px]") : "top-[14px]"}`}>{begin ? `${formatFilterDate(begin, wordsLanguage)} - ${formatFilterDate(end || begin, wordsLanguage)}` : t("Укажите дату")}</span>
+        <span className={`absolute left-0 font-medium text-black ${mui ? (tall ? "top-[29px]" : "top-[13px]") : roomy ? "top-[20px]" : "top-[14px]"}`}>{begin ? `${formatFilterDate(begin, wordsLanguage)} - ${formatFilterDate(end || begin, wordsLanguage)}` : t("Укажите дату")}</span>
       </button>
       {open && (
         <DateRangePicker
           begin={begin || today}
           end={end || today}
           placement={placement}
+          positionClassName={pickerClassName}
           onClose={() => setOpen(false)}
           onApply={(b, e) => {
             onChange(b, e)
@@ -844,6 +887,7 @@ export function RefImportDialog({
   saving,
   error,
   top,
+  bigTitle,
 }: {
   file: File | null
   onFile: (file: File | null) => void
@@ -856,24 +900,26 @@ export function RefImportDialog({
   error?: ReactNode
   /** Extra fields above the template / drop area (the reference's salary import asks for month, year, organisation, currency). */
   top?: ReactNode
+  /** 15px title and the 48px grey close button (the reference's salary import). */
+  bigTitle?: boolean
 }) {
   const { t } = useLanguage()
   return (
     <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/[0.54] p-4" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
-      <div role="dialog" aria-modal="true" className="w-[400px] max-w-full bg-white shadow-[0_10px_30px_rgba(0,0,0,0.3)]">
-        <header className="flex h-[60px] items-center justify-between border-b border-[#efefef] pl-[30px] pr-[27px]">
-          <b className="text-[13px] font-bold uppercase text-[#333]">{title ?? t("Импорт с Excel")}</b>
-          <button type="button" onClick={onClose} aria-label={t("Закрыть")}>
-            <svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#333]"><path d={RI.close} /></svg>
+      <div role="dialog" aria-modal="true" className={`w-[400px] max-w-full bg-white ${bigTitle ? "shadow-[0_11px_15px_-7px_rgba(0,0,0,0.2),0_24px_38px_3px_rgba(0,0,0,0.14),0_9px_46px_8px_rgba(0,0,0,0.12)]" : "shadow-[0_10px_30px_rgba(0,0,0,0.3)]"}`}>
+        <header className={`flex h-[60px] items-center justify-between border-b border-[#efefef] pl-[30px] ${bigTitle ? "pr-[10px]" : "pr-[27px]"}`}>
+          <b className={`font-bold uppercase text-[#333] ${bigTitle ? "text-[15px] leading-[20px]" : "text-[13px]"}`}>{title ?? t("Импорт с Excel")}</b>
+          <button type="button" onClick={onClose} aria-label={t("Закрыть")} className={bigTitle ? "flex h-12 w-12 items-center justify-center" : undefined}>
+            <svg viewBox="0 0 24 24" className={`h-6 w-6 ${bigTitle ? "fill-[#666]" : "fill-[#333]"}`}><path d={RI.close} /></svg>
           </button>
         </header>
-        <div className="pb-5 pl-[31px] pr-[30px] pt-[30px]">
+        <div className={`pb-5 pr-[30px] pt-[30px] ${bigTitle ? "pl-[30px]" : "pl-[31px]"}`}>
           {top}
           <div className="h-[273px] border border-[#efefef] pt-[5px]">
             <button type="button" onClick={onTemplate} className="block h-9 w-full pt-[3px] text-center text-[13px] uppercase text-black hover:text-[#4f71dc]">
               1. {t("Скачать шаблон")}
             </button>
-            <label className="ml-[19px] mt-[5px] flex h-[200px] w-[302px] cursor-pointer flex-col items-center justify-center gap-1 border-2 border-dashed border-[#efefef] text-[13px] text-[#333]">
+            <label className={`mt-[5px] flex h-[200px] w-[302px] cursor-pointer flex-col items-center justify-center gap-1 border-2 border-dashed border-[#efefef] text-[13px] text-[#333] ${bigTitle ? "ml-[20px] pt-[2px]" : "ml-[19px]"}`}>
               <input type="file" accept=".csv,.xls,.xlsx" className="hidden" onChange={(event) => onFile(event.target.files?.[0] ?? null)} />
               <svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#333]"><path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm-1 7V3.5L18.5 9H13z" /></svg>
               <span>{file ? file.name : t("Добавьте файл Excel или нажмите для выбора")}</span>
@@ -881,7 +927,7 @@ export function RefImportDialog({
           </div>
           {error && <div className="mt-3 text-[13px] text-[#e57373]">{error}</div>}
         </div>
-        <footer className="flex justify-end border-t border-[#efefef] p-[10px]">
+        <footer className={`flex justify-end border-t border-[#efefef] p-[10px] ${bigTitle ? "!pb-[9.3px] !pt-[10.7px]" : ""}`}>
           {/* Looks enabled even before a file is chosen (like the reference); it just does nothing until then. */}
           <button
             type="button"
