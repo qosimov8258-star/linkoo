@@ -564,6 +564,8 @@ export function CustomerPaymentsView() {
         <div className="bg-white pb-[2px]"><RefTabs labels={TABS.map((item) => item.label)} value={TABS.find((item) => item.tab === state.tab)?.label ?? TABS[0].label} onChange={(label) => update({ tab: TABS.find((item) => item.label === label)?.tab ?? "all", page: 1 })} /></div>
         <RefToolbar
           linkFilter="flush"
+          filterWidth={355}
+          searchWidth={300}
           filterOpen={filterOpen}
           onToggleFilter={() => {
             setDraft(state.filters)
@@ -597,7 +599,7 @@ export function CustomerPaymentsView() {
               <RefIconButton path={RI.edit} label={hasSelection ? t("Изменить выбранные оплаты") : t("Выберите хотя бы одного")} onClick={() => hasSelection && canWrite && setDialog("bulk")} color={hasSelection ? "#333" : "#bdbdbd"} />
             </>
           }
-          extra={<span className="mr-2 flex"><RefButton icon={RI.card} label={t("Принять на кассу")} onClick={() => hasSelection && canWrite && setDialog("accept")} disabled={!hasSelection || !canWrite} /></span>}
+          extra={<span className="-ml-[10px] mr-2 flex"><RefButton icon={RI.card} label={t("Принять на кассу")} onClick={() => hasSelection && canWrite && setDialog("accept")} disabled={!hasSelection || !canWrite} /></span>}
         />
 
         {list.error && (
