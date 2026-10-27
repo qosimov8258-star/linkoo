@@ -494,6 +494,8 @@ export function SupplierReturnsView({ embedded = false }: { embedded?: boolean }
       <RefCard>
         <RefToolbar
           linkFilter="flush"
+          filterWidth={filterCount > 0 ? 354 : undefined}
+          searchWidth={filterCount > 0 ? 301 : undefined}
           filterOpen={filterOpen}
           onToggleFilter={() => setFilterOpen((value) => !value)}
           filterPanel={filterPanel}
@@ -533,7 +535,7 @@ export function SupplierReturnsView({ embedded = false }: { embedded?: boolean }
           extra={embedded ? <RefButton green icon={RI.add} label={t("Добавить")} onClick={openCreate} /> : undefined}
         />
         <RefTable
-          cols="99fr 213fr 213fr 266fr 213fr 213fr 167fr"
+          cols="107fr 213fr 213fr 266fr 213fr 213fr 159fr"
           heads={heads}
           rows={visible}
           rowKey={(row) => row.id}
@@ -552,7 +554,7 @@ export function SupplierReturnsView({ embedded = false }: { embedded?: boolean }
             row.fromWhom,
             row.warehouse,
             row.addedBy,
-            `${row.date}, ${row.time}`,
+            <span key="d" data-no-translate>{`${row.date}, ${row.time}`}</span>,
             formatMoney(row.amount, row.currency),
             <StatusIcon key="s" status={row.status} />,
           ]}
