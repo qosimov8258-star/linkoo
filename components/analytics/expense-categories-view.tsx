@@ -26,7 +26,7 @@ export function ExpenseCategoriesView({ embedded = false }: { embedded?: boolean
 function ExpenseCategoriesGrid() {
   const { t, language } = useLanguage()
   const columns: CategoryColumn<ExpenseCategory>[] = [
-    { key: "name", title: "Наименование", width: "3fr", className: "break-words", render: (row) => row.name },
+    { key: "name", title: "Наименование", width: "3fr", className: "break-words", render: (row) => <span data-no-translate>{row.name}</span> },
     { key: "options", indent: true, rowIndent: true, title: "Параметры", width: "3fr", render: (row) => <CategoryOptionChips options={row.options} /> },
     { key: "parent", indent: true, rowIndent: true, title: "Род. категория", width: "2fr", className: "break-words", render: (row) => row.parentName || t("Не указано") },
     {
