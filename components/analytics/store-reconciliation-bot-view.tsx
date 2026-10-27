@@ -394,7 +394,7 @@ export function StoreReconciliationBotView({ variant = "client" }: { variant?: R
                 const overdue = Boolean(row.paymentDeadline && row.paymentDeadline < todayIso())
                 return (
                   <tr key={row.key} style={{ background }} className="group hover:!bg-[#e9f8ff] hover:font-semibold">
-                    <td className="sticky left-0 z-[1] border-b border-r border-[#efefef] px-4 py-2" style={{ background: "inherit" }}>
+                    <td className={`sticky left-0 z-[1] border-b border-r border-[#efefef] ${refGrid ? "px-[6px] py-[3px]" : "px-4 py-2"}`} style={{ background: "inherit" }}>
                       <div className="relative flex min-h-[30px] w-[300px] items-center">
                         <span className="truncate">{row.name || "No"}</span>
                         {user.canEdit && (
