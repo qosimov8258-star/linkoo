@@ -167,7 +167,7 @@ function WarehousesGrid() {
   const notSet = t("Не указано")
   // Demo "DD MMM YYYY" (ru Intl appends " г.", the demo does not).
   const created = (row: WarehouseDetail) => (row.createdAt && language !== "ru" ? formatStatementDate(row.createdAt, language, false).replace(/\s*г\.$/, "") : row.createdDate)
-  const header = (field: WarehouseOrderingField, label: string, className = "pl-[8px]") => (
+  const header = (field: WarehouseOrderingField, label: string, className = "") => (
     <span className={`pr-4 ${className}`}>
       <SortButton label={t(label)} field={field} ordering={state.ordering} onSort={(next) => update({ ordering: next, page: 1 })} />
     </span>
