@@ -16,7 +16,6 @@ import {
   useClientName,
 } from "@/components/analytics/loyalty-card-dialogs"
 import { FavoritesButton } from "@/components/dashboard/favorites-drawer"
-import { formatMoney } from "@/lib/finance/currency"
 import { useLanguage } from "@/lib/i18n/language-context"
 import type { LoyaltyCardListResult, LoyaltyCardOptions, LoyaltyCardRow } from "@/lib/loyalty-card-types"
 
@@ -178,7 +177,7 @@ export function LoyaltyCardView() {
     </button>
   )
 
-  const head = "border border-[#efefef] px-5 py-2.5 text-left font-semibold"
+  const head = "h-[40px] border border-[#efefef] px-5 py-0 text-left text-[13px] font-semibold"
   return (
     <main className="min-h-screen bg-white text-[#333]">
       <header className="flex min-h-[60px] flex-wrap items-center gap-4 px-[28px]">
@@ -192,7 +191,7 @@ export function LoyaltyCardView() {
       <div className="mx-[28px] mt-[15px] bg-white shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
       <ExpandedOverlay expanded={expanded}>
         <section className="relative flex min-h-[55px] flex-wrap items-center gap-3 border-t border-[#efefef] px-[30px] py-2">
-          <div className="relative">
+          <div className="relative -mt-[8px]">
             <BalanceFilterChip
               count={filterCount}
               onOpen={() => setFilterOpen(true)}
@@ -211,7 +210,7 @@ export function LoyaltyCardView() {
             />
           </div>
           <form
-            className="mx-auto flex min-w-[160px] flex-1 items-center justify-center gap-1"
+            className="relative left-[29px] mx-auto mt-[3px] flex min-w-[160px] flex-1 items-center justify-center gap-1"
             onSubmit={(event) => {
               event.preventDefault()
               update({ search: searchDraft.trim(), page: 1 })
@@ -222,7 +221,7 @@ export function LoyaltyCardView() {
               onChange={(event) => setSearchDraft(event.target.value)}
               placeholder={t("Поиск")}
               aria-label={t("Поиск")}
-              className="h-10 w-full max-w-[260px] border-b border-[#dbe0e8] bg-transparent px-1 text-[15px] outline-none focus:border-[#4f70e7]"
+              className="h-10 w-full max-w-[256px] border-b border-[#e0e0e0] bg-transparent px-0 pt-[6px] text-[13px] outline-none placeholder:font-semibold placeholder:text-black focus:border-[#4f70e7]"
             />
             <button type="submit" aria-label={t("Поиск")} className="p-1.5 text-[#ccc]">
               <Search className="h-5 w-5" />
@@ -246,10 +245,10 @@ export function LoyaltyCardView() {
         )}
 
         <div className={`overflow-x-auto pb-8 ${loading ? "opacity-60" : ""}`}>
-          <table className="w-full min-w-[700px] border-collapse text-[14px] text-[#666]">
+          <table className="w-[calc(100%-45px)] min-w-[700px] border-collapse text-[13px] text-[#666]">
             <thead>
               <tr className="bg-white text-[#666]">
-                <th className={`${head} sticky left-0 z-[2] w-[300px] min-w-[300px] bg-white shadow-[5px_0_8px_-3px_#ccc]`}>{t("Клиент")}</th>
+                <th className={`${head} sticky left-0 z-[2] w-[300px] min-w-[300px] bg-white !px-[15px] shadow-[5px_0_8px_-3px_#ccc]`}>{t("Клиент")}</th>
                 {currencies.map((currency) => (
                   <th key={currency.code} className={head}>
                     {currency.label}
@@ -263,11 +262,11 @@ export function LoyaltyCardView() {
                 return (
                   <tr key={row.id} style={{ background }} className="group h-10 cursor-pointer hover:!bg-[#e9f8ff] hover:font-semibold">
                     <td
-                      className="sticky left-0 z-[1] border-b border-r border-[#efefef] px-4 shadow-[5px_0_8px_-3px_#ccc]"
+                      className="sticky left-0 z-[1] border-b border-r border-[#efefef] px-[15px] shadow-[5px_0_8px_-3px_#ccc]"
                       style={{ background: "inherit" }}
                       onClick={() => openInfo(row)}
                     >
-                      <div className="relative flex min-h-[30px] w-[268px] items-center">
+                      <div className="relative flex min-h-[30px] w-[269px] items-center">
                         <span className={`truncate hover:text-[rgb(79,113,220)] ${row.exists ? "" : "italic text-[#999]"}`}>{clientName(row)}</span>
                         {canEdit && row.exists && (
                           <div className="absolute inset-y-0 right-0 flex items-center gap-0.5 pl-6">
@@ -281,7 +280,7 @@ export function LoyaltyCardView() {
                       const value = row.balances[currency.code] ?? 0
                       return (
                         <td key={currency.code} className="whitespace-nowrap border-b border-r border-[#efefef] px-5" onClick={() => openInfo(row)}>
-                          <span style={balanceStyle(value)}>{value ? formatMoney(value) : 0}</span>
+                          <span style={balanceStyle(value)}>{value ? String(value) : 0}</span>
                         </td>
                       )
                     })}
