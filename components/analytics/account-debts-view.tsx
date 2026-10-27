@@ -367,6 +367,7 @@ export function AccountDebtsView() {
             </button>
           )}
           <BalanceDownloadMenu
+            wide
             disabled={exporting}
             label={exporting ? "Загрузка..." : "Скачать"}
             items={byType ? [{ label: "Скачать все", onClick: downloadAll }] : [{ label: "Скачать все", onClick: downloadAll }, { label: "Скачать упрощенным", onClick: downloadShort }]}

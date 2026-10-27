@@ -484,14 +484,14 @@ export function ReportTopRow({
   const { t } = useLanguage()
   return (
     <div className="flex h-[34px] items-center pt-0">
-      <button type="button" onClick={onFilter} className="flex h-[34px] items-center rounded-[5px] bg-[#4f71dc] pl-[14px] pr-[22px] text-[13px] font-semibold text-white hover:brightness-95">
-        <svg viewBox="0 0 24 24" className="mr-[9px] h-[18px] w-[18px] fill-white" aria-hidden><path d={RI.filter} /></svg>
-        {filterLabel}
+      <button type="button" onClick={onFilter} className="flex h-[34px] items-center rounded-[5px] bg-[#4f71dc] pl-[12.8px] text-[13px] font-semibold text-white hover:brightness-95">
+        <svg viewBox="0 0 24 24" className="h-[18px] w-[18px] shrink-0 fill-white" aria-hidden><path d={RI.filter} /></svg>
+        <span className="px-[12px]">{filterLabel}</span>
       </button>
-      <span className="ml-4 text-[13px] font-semibold text-[#4f71dc]">{scope}</span>
-      <button type="button" onClick={onDownload} className="ml-auto flex h-[34px] items-center rounded-[5px] bg-[#71ce87] pl-[14px] pr-[16px] text-[13px] font-semibold text-white hover:brightness-95">
-        <svg viewBox="0 0 24 24" className="mr-[9px] h-[18px] w-[18px] fill-white" aria-hidden><path d={RI.chart} /></svg>
-        {t("Скачать")}
+      <span className="ml-[14px] text-[13px] font-semibold text-[#4f71dc]">{scope}</span>
+      <button type="button" onClick={onDownload} className="ml-auto flex h-[34px] items-center rounded-[5px] bg-[#71ce87] pl-[12px] text-[13px] font-semibold text-white hover:brightness-95">
+        <svg viewBox="0 0 24 24" className="h-[18px] w-[18px] shrink-0 fill-white" aria-hidden><path d={RI.chart} /></svg>
+        <span className="px-[12px]">{t("Скачать")}</span>
       </button>
     </div>
   )

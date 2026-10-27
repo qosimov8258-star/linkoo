@@ -277,13 +277,14 @@ export function ClientBalanceView() {
 
       <section className="flex flex-wrap items-center justify-between gap-4 px-[30px] pb-[10px] pt-5">
         <ClientBalanceFilterButton state={state} onOpen={openFilter} />
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-5">
           {!isTypes && canGroupPay && (
             <button type="button" onClick={() => setGroupOpen(true)} className="flex h-[34px] items-center gap-2 rounded-[3px] bg-[#4f71dc] pl-2 pr-4 text-[13px] font-semibold text-white">
               <CreditCard className="h-5 w-5" /> {t("Групповая оплата")}
             </button>
           )}
           <BalanceDownloadMenu
+            wide
             disabled={!data}
             items={[
               { label: "Скачать все", onClick: () => void download(false) },
