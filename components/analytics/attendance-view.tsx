@@ -468,7 +468,7 @@ export function AttendanceView() {
             </button>
           )}
           <label className="relative block h-[45px] self-start" style={{ marginLeft: filtered ? 25 : 102, width: 250, marginTop: 7 }}>
-            {!query && <span className="pointer-events-none absolute left-0 top-[13px] text-[13px] font-semibold text-black">Поиск</span>}
+            {!query && <span className="pointer-events-none absolute left-[5px] top-[14px] text-[13px] font-semibold text-black">Поиск</span>}
             <input value={query} onChange={(e) => setQuery(e.target.value)} aria-label="Поиск" className="h-full w-full bg-transparent pr-8 text-[13px] font-semibold text-black outline-none" />
             <hr className="absolute inset-x-0 top-[36px] border-0 border-b border-[#e0e0e0]" />
             <Icon d={P.search} size={22} fill="#5d6474" className="absolute right-[9px] top-[13px]" />
