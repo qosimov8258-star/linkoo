@@ -312,7 +312,7 @@ export function VisitBuilderView({ variant = "visits" }: { variant?: "visits" | 
           <div className="flex overflow-hidden rounded-[3px] shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
             {(isSales ? ["ЗАКАЗ И ВОЗВРАТ ПО ДАТЕ РЕАЛИЗАЦИИ", "ЗАКАЗ И ВОЗВРАТ ПО ДАТЕ СОЗДАНИЯ"] : ["ВИЗИТ", "ЗАДАЧИ", "ОТКАЗЫ"]).map((tab) => (
               <button key={tab} type="button" onClick={() => { setActiveTab(tab); setReportReady(false) }} className={`h-[30px] px-4 text-[13px] font-medium uppercase transition-colors ${activeTab === tab ? "bg-[#2bcd53] text-white" : "bg-white text-black hover:bg-[#f2f5f8]"}`}>
-                {t(tab)}
+                <span data-no-translate>{tab}</span>
               </button>
             ))}
           </div>
@@ -337,7 +337,7 @@ export function VisitBuilderView({ variant = "visits" }: { variant?: "visits" | 
               <input type="date" aria-label={t("Дата до")} value={to} min={from} onChange={(event) => event.target.value && setTo(event.target.value)} className="absolute right-0 top-0 h-full w-[48%] cursor-pointer opacity-0" />
             </span>
             <button type="button" onClick={() => setSettingsVisible((value) => !value)} className="h-[38px] w-[215px] rounded-[3px] bg-[#4f71dc] text-[13px] font-medium text-white shadow-[0_2px_5px_rgba(0,0,0,0.2)] hover:brightness-95">
-              {t(settingsVisible ? "СКРЫТЬ НАСТРОЙКИ ▲" : "ПОКАЗАТЬ НАСТРОЙКИ ▼")}
+              <span data-no-translate>{settingsVisible ? "СКРЫТЬ НАСТРОЙКИ ▲" : "ПОКАЗАТЬ НАСТРОЙКИ ▼"}</span>
             </button>
             <button type="button" disabled={invalid || running} onClick={() => void generate()} className="h-[38px] w-[195px] rounded-[3px] bg-[#2bcd53] text-[13px] font-medium text-white shadow-[0_2px_5px_rgba(0,0,0,0.2)] hover:brightness-95 disabled:opacity-50">
               {t("СФОРМИРОВАТЬ ОТЧЕТ")}
@@ -376,7 +376,7 @@ export function VisitBuilderView({ variant = "visits" }: { variant?: "visits" | 
                 </div>
               ))}
               <button type="button" onClick={() => setExtraFilters((current) => [...current, ""])} className="mt-[18px] h-9 w-full rounded-[3px] bg-[#4f71dc] text-[13px] font-medium uppercase text-white hover:brightness-95">
-                {t("ДОБАВИТЬ ИНДИВИДУАЛЬНЫЙ")}
+                <span data-no-translate>ДОБАВИТЬ ИНДИВИДУАЛЬНЫЙ ФИЛЬТР</span>
               </button>
             </div>
           </div>

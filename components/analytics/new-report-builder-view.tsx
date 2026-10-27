@@ -186,7 +186,7 @@ export function NewReportBuilderView() {
         <button onClick={() => { if (generated) exportExcel() }} className="flex h-[38px] items-center rounded-[3px] bg-[#4db6ac] px-[15px] text-[13px] font-semibold text-white hover:brightness-95"><Download className="mr-3 h-[18px] w-[18px]" />{t("Скачать")}</button>
         <div className="ml-auto flex flex-wrap items-center gap-[19px]">
           <span className="text-[12px] font-bold capitalize text-[#4f71dc]">{monthRangeLabel()}</span>
-          <button onClick={() => setSettings((value) => !value)} className="h-[38px] w-[215px] rounded-[3px] bg-[#4f71dc] text-[13px] font-medium text-white shadow-[0_2px_5px_rgba(0,0,0,0.2)] hover:brightness-95">{settings ? t("СКРЫТЬ НАСТРОЙКИ") : t("ПОКАЗАТЬ НАСТРОЙКИ")} {settings ? "▲" : "▼"}</button>
+          <button onClick={() => setSettings((value) => !value)} className="h-[38px] w-[215px] rounded-[3px] bg-[#4f71dc] text-[13px] font-medium text-white shadow-[0_2px_5px_rgba(0,0,0,0.2)] hover:brightness-95"><span data-no-translate>{settings ? "СКРЫТЬ НАСТРОЙКИ" : "ПОКАЗАТЬ НАСТРОЙКИ"} {settings ? "▲" : "▼"}</span></button>
           <button onClick={generate} className="h-[38px] w-[195px] rounded-[3px] bg-[#2bcd53] text-[13px] font-medium text-white shadow-[0_2px_5px_rgba(0,0,0,0.2)] hover:brightness-95">{t("СФОРМИРОВАТЬ ОТЧЕТ")}</button>
         </div>
       </div>
@@ -206,7 +206,7 @@ export function NewReportBuilderView() {
               </button>
             ))}</div>
             {customFilters.map((filter, index) => <input key={`${filter}-${index}`} placeholder={t("Значение фильтра")} className="mt-3 w-full border-b p-2 outline-none" />)}
-            <button onClick={() => setCustomFilters((current) => [...current, ""])} className="mt-[18px] h-9 w-full rounded-[3px] bg-[#4f71dc] text-[13px] font-medium uppercase text-white hover:brightness-95">{t("ДОБАВИТЬ ИНДИВИДУАЛЬНЫЙ")}</button>
+            <button onClick={() => setCustomFilters((current) => [...current, ""])} className="mt-[18px] h-9 w-full rounded-[3px] bg-[#4f71dc] text-[13px] font-medium uppercase text-white hover:brightness-95"><span data-no-translate>ДОБАВИТЬ ИНДИВИДУАЛЬНЫЙ ФИЛЬТР</span></button>
           </section>
         </div>
       )}

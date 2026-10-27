@@ -291,7 +291,7 @@ export function ReportBuilderView() {
         <div className="ml-auto flex items-center gap-[19px]">
           <input value={dateRange} onChange={(event) => setDateRange(event.target.value)} className="w-[190px] bg-transparent text-right text-[12px] font-bold text-[#4f71dc] outline-none" />
           <button onClick={() => setSettingsOpen((value) => !value)} className="h-[38px] w-[215px] rounded-[3px] bg-[#4f71dc] text-[13px] font-medium uppercase text-white shadow-[0_2px_5px_rgba(0,0,0,0.2)] hover:brightness-95">
-            {settingsOpen ? "Скрыть настройки ▲" : "Показать настройки ▼"}
+            <span data-no-translate>{settingsOpen ? "Скрыть настройки ▲" : "Показать настройки ▼"}</span>
           </button>
           <button onClick={generateReport} className="h-[38px] w-[195px] rounded-[3px] bg-[#2bcd53] text-[13px] font-medium uppercase text-white shadow-[0_2px_5px_rgba(0,0,0,0.2)] hover:brightness-95">
             Сформировать отчет
@@ -350,7 +350,7 @@ export function ReportBuilderView() {
             ))}
 
             <button onClick={addCustomFilter} className="mt-[18px] h-9 w-full rounded-[3px] bg-[#4f71dc] text-[13px] font-medium uppercase text-white hover:brightness-95">
-              Добавить индивидуальный фильтр
+              <span data-no-translate>Добавить индивидуальный фильтр</span>
             </button>
           </div>
         </section>
