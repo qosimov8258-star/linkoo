@@ -249,7 +249,7 @@ export function IntegrationsView() {
         <>
           <div className="relative">
             <SettingsToolbar
-              className="h-[50px] pl-[6px]"
+              className="h-[50px] pl-[6px] pt-[4px]"
               left={
                 <div className="w-[329px] shrink-0">
                   <button type="button" onClick={() => { setDraft(applied); setFilterOpen(true) }} className="text-[13px] text-[#4f71dc]">
@@ -262,7 +262,7 @@ export function IntegrationsView() {
               pager={
                 <>
                   <SettingsPager page={page} pageSize={pageSize} count={count} onPage={setPage} onPageSize={(size) => { setPageSize(size); setPage(1) }} />
-                  <button type="button" onClick={() => setDialog({ item: null, type: "" })} className="ml-[10px] mr-[8px] flex h-[30px] items-center gap-2 whitespace-nowrap rounded-[5px] bg-[#4f71dc] px-4 text-[13px] font-semibold text-white hover:brightness-95">
+                  <button type="button" onClick={() => setDialog({ item: null, type: "" })} className="ml-[10px] flex h-[30px] items-center gap-2 whitespace-nowrap rounded-[5px] bg-[#4f71dc] px-4 text-[13px] font-semibold text-white hover:brightness-95">
                     <Plus className="h-[18px] w-[18px] rounded-full bg-white p-[2px] text-[#4f71dc]" />
                     {t("Добавить")}
                   </button>

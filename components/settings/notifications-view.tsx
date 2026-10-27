@@ -146,6 +146,7 @@ export function NotificationsView() {
   return (
     <div className="min-w-0 flex-1">
       <SettingsToolbar
+        className="-mr-[14px] h-[60px] pl-[15px] pt-[12px]"
         search={<SettingsSearch value={query} onChange={setQuery} />}
         pager={<SettingsPager page={page} pageSize={pageSize} count={count} onPage={setPage} onPageSize={(size) => { setPageSize(size); setPage(1) }} />}
       />
