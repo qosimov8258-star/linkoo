@@ -200,7 +200,7 @@ export function PhotoReportReviewView() {
             <span className="flex h-[35px] w-[35px] items-center justify-center rounded-full bg-[#a8adb7] text-white">
               <svg viewBox="0 0 24 24" className="h-[22px] w-[22px] fill-white" aria-hidden><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z" /></svg>
             </span>
-            <span className="text-[13px] font-bold leading-[17px]">Все<span className="block font-normal">0</span></span>
+            <span className="text-[13px] font-semibold leading-[18px]">Все<span className="block font-normal">0</span></span>
           </button>
           {employeeNames.map((name, index) => (
             <button
@@ -209,9 +209,9 @@ export function PhotoReportReviewView() {
               onClick={() => setActiveEmployee(name)}
               className={`flex shrink-0 flex-col justify-center border-l border-[#efefef] px-[10px] text-center ${activeEmployee === name ? "bg-[#f2f5f8]" : ""}`}
             >
-              <strong className="block whitespace-nowrap text-[13px] font-bold leading-[17px]" title={name}>{name}</strong>
-              <span className="mt-[2px] block h-[18px] min-w-[85px] bg-[#5c6df3] text-[12px] leading-[18px] text-white">0</span>
-              <span className="mt-[2px] block text-[12px] leading-4 text-[#555]">0 SUM</span>
+              <strong className="block whitespace-nowrap text-[13px] font-semibold leading-[18px]" title={name}>{name}</strong>
+              <span className="mt-[2px] block h-[18px] min-w-[85px] bg-[#5c6df3] text-[13px] leading-[18px] text-white">0</span>
+              <span className="mt-[2px] block text-[13px] leading-[18px] text-[#666]">0 SUM</span>
             </button>
           ))}
         </div>
