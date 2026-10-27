@@ -295,6 +295,7 @@ export function CurrenciesView({ embedded = false }: { embedded?: boolean }) {
         query={controls.query}
         onQuery={controls.setQuery}
         pager={{
+          label: `1 - ${controls.pageSize} ${t("из")}`,
           pageSize: controls.pageSize,
           onPageSize: controls.setPageSize,
           from: paged.from,
