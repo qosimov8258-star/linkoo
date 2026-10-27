@@ -5,7 +5,8 @@ export const REFERENCE_RUSSIAN_TEXTS: Record<"uz" | "en", Record<string, string[
   "uz": {
     "/analytics/internal-transfers": [
       "Период приемки",
-      "Показать отмененные передачи"
+      "Показать отмененные передачи",
+      "Склад не выбран"
     ],
     "/analytics/cost-of-goods": [
       "Ошибки",

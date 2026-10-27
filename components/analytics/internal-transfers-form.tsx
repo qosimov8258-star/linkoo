@@ -1,11 +1,12 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
-import { FileSpreadsheet, Plus, Trash2 } from "lucide-react"
+import { Plus, Trash2 } from "lucide-react"
 
 import { buildCashQuery, cashMutate, useCashJson } from "@/components/analytics/cash/use-cash"
 import { MaterialCheckbox, MaterialDate } from "@/components/analytics/cash-material"
 import { CashModal, ConfirmDialog, FormField, MaterialDateTime, SearchSelect, inputClass, mutationError, parseAmount } from "@/components/analytics/cash-management-shared"
+import { DateField, SelectField, TextField, isoToRuDate, ruDateToIso } from "@/components/analytics/supplier-incoming-form"
 import { ExcelImportPanel, StockProductPicker, validQty, type PickEntry } from "@/components/analytics/internal-transfers-picker"
 import { formatQty, formatSum, formatWeight } from "@/components/analytics/internal-transfers-shared"
 import { nowLocalIso, todayIso } from "@/lib/finance/dates"
@@ -85,6 +86,9 @@ export function TransferFormDialog({
   const [showErrors, setShowErrors] = useState(false)
 
   const ready = Boolean(from && to)
+  // The reference shows the "Склад не выбран" lines (13px each) as soon as it opens; the fields below move with them.
+  const e1 = from ? 0 : 13
+  const e = e1 + (to ? 0 : 13)
   const includeKeys = useMemo(() => (transfer?.items ?? []).map((item) => item.key).filter(Boolean), [transfer])
   const products = useCashJson<StockPickResult>(from ? `/api/internal-transfers/products?${buildCashQuery({ warehouse: from, priceList, include: includeKeys })}` : null)
   const rows = useMemo(() => products.data?.rows ?? [], [products.data])
@@ -171,80 +175,71 @@ export function TransferFormDialog({
       size="screen"
       footer={
         <>
-          <ul className="flex flex-wrap items-center gap-x-6 gap-y-1 pl-[15px] text-[14px] text-black">
+          <ul className="flex flex-wrap items-center gap-x-[25.9px] gap-y-1 pl-[15px] text-[14px] text-black">
             <li>
-              {t("Сумма")}: <b className="font-semibold text-[#0e9fe0]">{formatSum(totals.amount, shownCurrency)}</b>
+              {t("Сумма")}: <b className="text-[16px] font-semibold text-[#129fdd]">{lines.length ? formatSum(totals.amount, shownCurrency) : "0"}</b>
             </li>
             <li>
-              {t("Общее кол-во:")} <b className="font-semibold text-[#0e9fe0]">{formatQty(totals.qty, t("ед"))}</b>
+              {t("Общее кол-во:")} <b className="text-[16px] font-semibold text-[#129fdd]">{formatQty(totals.qty, t("ед"))}</b>
             </li>
           </ul>
           {error && <span className="ml-auto mr-4 text-[13px] text-[#f44336]">{error}</span>}
-          <button type="button" disabled={busy} onClick={() => void submit()} className={`${error ? "" : "ml-auto "}mr-[16px] h-9 text-[13px] font-semibold uppercase text-[#129fdd] hover:underline disabled:opacity-60`}>
+          <button type="button" disabled={busy} onClick={() => void submit()} className={`${error ? "" : "ml-auto "}mr-[31px] h-9 text-[13px] font-semibold uppercase text-[#129fdd] hover:underline disabled:opacity-60`}>
             {editing ? t("Сохранить") : t("Добавить")}
           </button>
         </>
       }
     >
       <div className="flex min-h-0 flex-1">
-        <div className="flex w-[450px] shrink-0 flex-col gap-3 overflow-y-auto border-r border-[#efefef] px-[30px] pb-6 pt-[22px]">
-          <span className="text-[13px] text-black">{t("Условия передачи товара")}</span>
-          <FormField label={t("Со склада")} required error={showErrors && !from ? t("Склад не выбран") : undefined}>
-            <SearchSelect value={from} options={warehouseOptions} onChange={(value) => setFrom(value)} invalid={showErrors && !from} />
-          </FormField>
-          <FormField label={t("На склад")} required error={showErrors && !to ? t("Склад не выбран") : undefined}>
-            <SearchSelect value={to} options={warehouseOptions.filter((option) => option.value !== from)} onChange={(value) => setTo(value)} invalid={showErrors && !to} />
-          </FormField>
-          <MaterialDate className="mt-[18px]" label={t("Дата доставки")} required value={deliveredAt} onChange={setDeliveredAt} display={deliveredAt ? new Date(deliveredAt).toLocaleDateString("ru-RU", { day: "numeric", month: "long", year: "numeric" }) : undefined} />
-          <div className="mt-[10px]">
-            <MaterialDateTime label={`${t("Дата создания")}`} value={createdAt} onChange={setCreatedAt} />
-          </div>
-          <FormField label={t("Прайс лист")}>
-            <SearchSelect
+        <div className="w-[389px] shrink-0 overflow-y-auto border-r border-[#efefef]">
+          {/* Absolute geometry of the reference's form: underline tops measured from the top of this column. */}
+          <div className="relative h-[780px]">
+            <span className="absolute left-[30px] top-[19px] text-[13px] font-semibold leading-[18px] text-[#333]">{t("Условия передачи товара")}</span>
+            <SelectField menu top={94.2} left={30} width={328} label={t("Со склада")} required value={from} options={warehouseOptions} onChange={setFrom} onClear={() => setFrom("")} error={!from ? "Склад не выбран" : undefined} />
+            <SelectField menu top={155.2 + e1} left={30} width={328} label={t("На склад")} required value={to} options={warehouseOptions.filter((option) => option.value !== from)} onChange={setTo} onClear={() => setTo("")} error={!to ? "Склад не выбран" : undefined} />
+            <DateField primary top={201.2 + e} left={30} width={328} label={t("Дата доставки")} required value={deliveredAt ? isoToRuDate(deliveredAt) : ""} onChange={(value) => setDeliveredAt(ruDateToIso(value))} />
+            <DateField primary top={253.2 + e} left={30} width={328} label={t("Дата создания")} required value={createdAt ? isoToRuDate(createdAt.slice(0, 10)) : ""} onChange={(value) => setCreatedAt(`${ruDateToIso(value) || createdAt.slice(0, 10)}T${createdAt.slice(11) || "00:00"}`)} />
+            <SelectField
+              menu
+              top={320.2 + e}
+              left={30}
+              width={328}
+              label={t("Прайс лист")}
+              required
               value={priceList}
-              options={(options?.priceLists ?? []).map((name) => ({ value: name, label: name, hint: options?.priceListCurrency[name] }))}
+              options={(options?.priceLists ?? []).map((name) => ({ value: name, label: name }))}
               onChange={(value) => {
                 if (lines.length && value) setAskPrice(value)
                 else setPriceList(value)
               }}
             />
-          </FormField>
-          <FormField label={t("Валюта")}>
-            <SearchSelect value={currency} options={(options?.currencies ?? []).map((code) => ({ value: code, label: code }))} placeholder={shownCurrency} onChange={(value) => setCurrency(value)} />
-          </FormField>
-          <FormField label={t("Организация")}>
-            <SearchSelect value={organization} options={(options?.organizations ?? []).map((name) => ({ value: name, label: name }))} onChange={(value) => setOrganization(value)} />
-          </FormField>
-          <FormField label={t("Номер накладной")}>
-            <input value={invoiceNumber} onChange={(event) => setInvoiceNumber(event.target.value)} maxLength={200} className={field} />
-          </FormField>
-          <FormField label={t("Номер транспорта")}>
-            <input value={transportNumber} onChange={(event) => setTransportNumber(event.target.value)} maxLength={200} className={field} />
-          </FormField>
-          <FormField label={t("Водитель")}>
-            <input value={driver} onChange={(event) => setDriver(event.target.value)} maxLength={200} className={field} />
-          </FormField>
-          <FormField label={`${t("Оставить комментарий")}...`}>
-            <input value={comment} onChange={(event) => setComment(event.target.value)} maxLength={2000} className={inputClass} />
-          </FormField>
-          <MaterialCheckbox checked={confirmed} disabled={autoAccept} onChange={setConfirmed} label={t("Подтвержденный")} />
-          {!editing && <MaterialCheckbox checked={autoAccept} onChange={setAutoAccept} label={t("Сразу передать товары без потверждения")} />}
+            <SelectField menu top={382.2 + e} left={30} width={328} label={t("Валюта")} value={currency} options={(options?.currencies ?? []).map((code) => ({ value: code, label: code }))} onChange={setCurrency} />
+            <SelectField menu top={444.2 + e} left={30} width={328} label={t("Организация")} value={organization} options={(options?.organizations ?? []).map((name) => ({ value: name, label: name }))} onChange={setOrganization} />
+            <TextField top={496.2 + e} left={30} width={328} label={t("Номер накладной")} value={invoiceNumber} onChange={setInvoiceNumber} />
+            <TextField top={548.2 + e} left={30} width={328} label={t("Номер транспорта")} value={transportNumber} onChange={setTransportNumber} />
+            <TextField top={600.2 + e} left={30} width={328} label={t("Водитель")} value={driver} onChange={setDriver} />
+            <TextField top={661.2 + e} left={30} width={328} label={`${t("Оставить комментарий")}...`} value={comment} onChange={setComment} />
+            <div style={{ top: 680 + e }} className="absolute left-[30px] flex flex-col gap-3">
+              <MaterialCheckbox checked={confirmed} disabled={autoAccept} onChange={setConfirmed} label={t("Подтвержденный")} />
+              {!editing && <MaterialCheckbox checked={autoAccept} onChange={setAutoAccept} label={t("Сразу передать товары без потверждения")} />}
+            </div>
+          </div>
         </div>
 
-        <div className="min-w-0 flex-1 overflow-y-auto px-[30px] pt-[18px]">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <span className="text-[13px] text-black">{t("Список товаров")}</span>
-            <div className="flex flex-wrap items-center gap-3" title={ready ? undefined : t("Выберите склад")}>
-              <button type="button" disabled={!ready || !rows.length} onClick={() => setPickerOpen(true)} className="text-[13px] font-medium uppercase text-black hover:underline disabled:opacity-40">
+        <div className="min-w-0 flex-1 overflow-y-auto px-[30px] pt-[9.7px]">
+          <div className="flex h-[34px] flex-wrap items-center justify-between gap-3">
+            <span className="text-[13px] font-semibold text-[#333]">{t("Список товаров")}</span>
+            <div className="flex flex-wrap items-center gap-[31px]" title={ready ? undefined : t("Выберите склад")}>
+              <button type="button" disabled={!ready || !rows.length} onClick={() => setPickerOpen(true)} className="mr-[2px] text-[13px] font-medium uppercase text-black hover:underline">
                 {t("добавить из списка")}
               </button>
               <button
                 type="button"
                 disabled={!ready}
                 onClick={() => setExcelOpen((open) => !open)}
-                className="inline-flex h-[34px] items-center gap-1.5 rounded-sm bg-[#71ce87] px-3 text-[13px] font-semibold text-white hover:brightness-95 disabled:opacity-40"
+                className="inline-flex h-[34px] items-center gap-1.5 rounded-sm bg-[#71ce87] px-[15px] text-[13px] font-semibold text-white hover:brightness-95"
               >
-                <FileSpreadsheet className="h-4 w-4" /> {t("Импортировать c Excel")}
+                <svg viewBox="0 0 24 24" className="h-[18px] w-[18px] fill-white" aria-hidden><path d="M5 9.2h3V19H5zM10.6 5h2.8v14h-2.8zm5.6 8H19v6h-2.8z" /></svg> {t("Импортировать c Excel")}
               </button>
             </div>
           </div>
@@ -264,26 +259,25 @@ export function TransferFormDialog({
           {products.error && <p className="mt-2 text-[13px] text-[#e57373]">{t(products.error)}</p>}
 
           {ready && (
-            <div className="mt-3 grid grid-cols-[minmax(0,1fr)_110px_120px_auto] items-end gap-2">
-              <FormField label={t("Наименование")}>
-                <SearchSelect
-                  value={addKey}
-                  loading={products.loading}
-                  options={rows.filter((row) => row.available > 0).map((row) => ({ value: row.key, label: `${row.name} (${formatQty(row.available, row.unit)})`, hint: row.article }))}
-                  onChange={(value) => {
-                    setAddKey(value)
-                    setAddPrice(String(rowMap.get(value)?.price || ""))
-                  }}
-                />
-              </FormField>
-              <FormField label={t("Кол-во")}>
-                <input value={addQty} inputMode="decimal" onChange={(event) => setAddQty(event.target.value)} onKeyDown={(event) => event.key === "Enter" && addRow()} className={field} />
-              </FormField>
-              <FormField label={t("Цена")}>
-                <input value={addPrice} inputMode="decimal" onChange={(event) => setAddPrice(event.target.value)} onKeyDown={(event) => event.key === "Enter" && addRow()} className={field} />
-              </FormField>
-              <button type="button" onClick={addRow} disabled={!addKey || !validQty(addQty)} aria-label={t("Добавить")} className="flex h-10 w-10 items-center justify-center rounded-md bg-[rgb(79,113,220)] text-white disabled:opacity-40">
-                <Plus className="h-5 w-5" />
+            <div className="relative -mx-[30px] mt-[13px] h-[72px] bg-[#f0f4f8]">
+              <SelectField
+                menu
+                top={52}
+                left={38}
+                width={264}
+                label={t("Наименование")}
+                value={addKey}
+                options={rows.filter((row) => row.available > 0).map((row) => ({ value: row.key, label: `${row.name} (${formatQty(row.available, row.unit)})` }))}
+                onChange={(value) => {
+                  setAddKey(value)
+                  setAddPrice(String(rowMap.get(value)?.price || ""))
+                }}
+                onClear={() => setAddKey("")}
+              />
+              <TextField top={52} left={320} width={180} label={t("Кол-во")} value={addQty} onChange={setAddQty} />
+              <TextField top={52} left={532} width={109} label={t("Цена")} value={addPrice} onChange={setAddPrice} />
+              <button type="button" onClick={addRow} disabled={!addKey || !validQty(addQty)} aria-label={t("Добавить")} className="absolute left-[686px] top-[27px] flex h-6 w-6 items-center justify-center disabled:opacity-100">
+                <svg viewBox="0 0 24 24" className="h-6 w-6 fill-[#4f71dc]" aria-hidden><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" /></svg>
               </button>
             </div>
           )}
@@ -338,7 +332,7 @@ export function TransferFormDialog({
               </table>
             </div>
           ) : (
-            <p className="py-16 text-center text-[13px] text-[#9aa3b6]">{ready ? t("Товаров нет") : t("Выберите склад")}</p>
+            <p className="py-16 text-center text-[13px] text-[#9aa3b6]"></p>
           )}
         </div>
       </div>

@@ -69,8 +69,8 @@ function Label({ top, text, required, floating, regular }: { top: number; text: 
 }
 
 /** A column slot: `left`/`width` position it, `top` is the underline's y inside the column. */
-function Slot({ top, left, width, children, offset = 1 }: { top: number; left: number; width: number | string; children: ReactNode; offset?: number }) {
-  return <div style={{ left, width: typeof width === "number" ? colWidth(left, width) : width, top: offset, height: top + 1 }} className="absolute">{children}</div>
+export function Slot({ top, left, width, children, offset = 1 }: { top: number; left: number; width: number | string; children: ReactNode; offset?: number }) {
+  return <div style={{ left, width: typeof width === "number" ? colWidth(left, width) : width, top: offset, height: top + 1 }} className="pointer-events-none absolute">{children}</div>
 }
 
 /** The design width of a field, shrunk so that it keeps the column's right gutter on narrower viewports. */
@@ -79,7 +79,7 @@ function colWidth(left: number, width: number, reserve = 0) {
   return `min(${width - reserve}px, calc(100% - ${left + gutter + reserve}px))`
 }
 
-function SelectField({
+export function SelectField({
   top,
   left,
   width,
@@ -92,12 +92,18 @@ function SelectField({
   addLabel,
   onAdd,
   addWidth = 98,
+  error,
+  menu,
 }: {
   top: number
   left: number
   width: number
   label: string
   required?: boolean
+  /** Red 2px line and the message under it (the reference's transfer form shows it as soon as it opens). */
+  error?: string
+  /** Own dropdown list (32px rows, shadow) instead of the native select, like the reference's transfer form. */
+  menu?: boolean
   value: string
   options: { value: string; label: string }[]
   onChange: (value: string) => void
@@ -106,6 +112,7 @@ function SelectField({
   onAdd?: () => void
   addWidth?: number
 }) {
+  const [open, setOpen] = useState(false)
   const shown = value ? (options.find((option) => option.value === value)?.label ?? value) : ""
   const gutter = left === 20 ? 30 : left === 21 ? 21 : 20
   return (
@@ -118,29 +125,62 @@ function SelectField({
           </span>
         )}
         {shown && onClear && (
-          <span role="button" aria-label="clear" onClick={onClear} style={{ top: top - 21 }} className="absolute right-[28px] z-[1] cursor-pointer text-[18px] leading-[18px] text-[#999]">
+          <span role="button" aria-label="clear" onClick={onClear} style={{ top: top - 21 }} className="pointer-events-auto absolute right-[28px] z-[1] cursor-pointer text-[18px] leading-[18px] text-[#999]">
             ×
           </span>
         )}
         <svg viewBox="0 0 10 5" style={{ top: top - 15 }} className="pointer-events-none absolute right-[9px] h-[5px] w-[10px]" aria-hidden>
           <path d="M0 0h10L5 5z" fill="#999" fillOpacity={0.7} />
         </svg>
-        <select value={value} onChange={(event) => onChange(event.target.value)} style={{ top: top - 40, height: 40 }} className="absolute left-0 w-full cursor-pointer opacity-0">
-          <option value="" />
-          {options.map((option) => (
-            <option key={option.value} value={option.value}>
-              {option.label}
-            </option>
-          ))}
-        </select>
-        <span style={{ top }} className={LINE} />
+        {menu ? (
+          <>
+            <button type="button" aria-label={label} onClick={() => setOpen((current) => !current)} style={{ top: top - 40, height: 40 }} className="pointer-events-auto absolute left-0 w-full cursor-pointer opacity-0" />
+            {open && (
+              <>
+                <button type="button" aria-label="close" className="pointer-events-auto fixed inset-0 z-40 cursor-default" onClick={() => setOpen(false)} />
+                <div style={{ top: top + 1.5 }} className="pointer-events-auto absolute inset-x-0 z-50 max-h-[240px] overflow-y-auto bg-white py-0 shadow-[0_3px_10px_rgba(0,0,0,0.16),0_3px_10px_rgba(0,0,0,0.23)]">
+                  {options.map((option) => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      onClick={() => {
+                        onChange(option.value)
+                        setOpen(false)
+                      }}
+                      className={`block h-8 w-full truncate px-[10px] text-left text-[13px] font-semibold leading-8 hover:bg-[#e9f0fb] ${option.value === value ? "bg-[#e9f0fb] text-[#333]" : "text-[#666]"}`}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </>
+        ) : (
+          <select value={value} onChange={(event) => onChange(event.target.value)} style={{ top: top - 40, height: 40 }} className="pointer-events-auto absolute left-0 w-full cursor-pointer opacity-0">
+            <option value="" />
+            {options.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        )}
+        {error ? (
+          <>
+            <span style={{ top: top - 1 }} className="absolute inset-x-0 h-[2px] bg-[#f44336]" />
+            <span style={{ top: top + 1 }} className="absolute left-0 text-[12px] leading-[15px] text-[#f44336]">{error}</span>
+          </>
+        ) : (
+          <span style={{ top }} className={LINE} />
+        )}
       </Slot>
       {onAdd && (
         <button
           type="button"
           onClick={onAdd}
           style={{ right: gutter, top: top - 15, width: addWidth - 10 }}
-          className="absolute whitespace-nowrap text-right text-[13px] leading-[18px] text-[#4f71dc] hover:underline"
+          className="pointer-events-auto absolute whitespace-nowrap text-right text-[13px] leading-[18px] text-[#4f71dc] hover:underline"
         >
           {addLabel}
         </button>
@@ -149,7 +189,7 @@ function SelectField({
   )
 }
 
-function DateField({ top, left, width, label, required, value, onChange, primary }: { top: number; left: number; width: number; label: string; required?: boolean; value: string; onChange: (value: string) => void; primary?: boolean }) {
+export function DateField({ top, left, width, label, required, value, onChange, primary }: { top: number; left: number; width: number; label: string; required?: boolean; value: string; onChange: (value: string) => void; primary?: boolean }) {
   const iso = ruDateToIso(value)
   const shown = iso ? `${isoToRuDate(iso)} г.` : value
   return (
@@ -175,13 +215,13 @@ function DateField({ top, left, width, label, required, value, onChange, primary
       <svg viewBox="0 0 24 24" style={{ top: top - 25 }} className="pointer-events-none absolute right-0 h-5 w-5" aria-hidden>
         <path d={CALENDAR} fill="#ccc" />
       </svg>
-      <input type="date" value={iso} onChange={(event) => onChange(event.target.value ? isoToRuDate(event.target.value) : "")} style={{ top: top - 40, height: 40 }} className="absolute left-0 w-full cursor-pointer opacity-0" />
+      <input type="date" value={iso} onChange={(event) => onChange(event.target.value ? isoToRuDate(event.target.value) : "")} style={{ top: top - 40, height: 40 }} className="pointer-events-auto absolute left-0 w-full cursor-pointer opacity-0" />
       <span style={{ top }} className={LINE} />
     </Slot>
   )
 }
 
-function TextField({ top, left, width, label, value, onChange, dotted }: { top: number; left: number; width: number; label: string; value: string; onChange: (value: string) => void; dotted?: boolean }) {
+export function TextField({ top, left, width, label, value, onChange, dotted }: { top: number; left: number; width: number; label: string; value: string; onChange: (value: string) => void; dotted?: boolean }) {
   return (
     <Slot top={top} left={left} width={width}>
       <Label top={top} text={label} floating={Boolean(value)} />
@@ -189,7 +229,7 @@ function TextField({ top, left, width, label, value, onChange, dotted }: { top: 
         value={value}
         onChange={(event) => onChange(event.target.value)}
         style={{ top: top - 26, height: 26 }}
-        className="absolute inset-x-0 bg-transparent text-[13px] font-semibold leading-[18px] text-black outline-none"
+        className="pointer-events-auto absolute inset-x-0 bg-transparent text-[13px] font-semibold leading-[18px] text-black outline-none"
       />
       <span style={{ top }} className={dotted ? DOTTED : LINE} />
     </Slot>
