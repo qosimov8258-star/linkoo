@@ -436,6 +436,7 @@ export function AttendanceView() {
 
   return (
     <ReportPage>
+      <div className="h-[2px]" />
       <div className="-mt-px px-[28px]">
         <RefHeader title="Посещаемость">
           <RefButton exact icon={RI.add} green label="Добавить выходные дни" onClick={() => setWeekendOpen(true)} />

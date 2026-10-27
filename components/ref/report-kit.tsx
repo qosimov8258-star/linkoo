@@ -301,12 +301,12 @@ export function ReportChipField({
   const { t } = useLanguage()
   return (
     <div className={`${FIELD} ${compact ? "w-[200px]" : ""}`}>
-      <span className={FLOAT_LABEL}>{t(label)}</span>
-      <span className="absolute left-0 top-[23px] flex h-5 items-stretch overflow-hidden text-[13px] font-semibold leading-5 text-white">
+      <span className={`${FLOAT_LABEL} !top-[4px] left-px`}>{t(label)}</span>
+      <span className="absolute left-px top-[24px] flex h-5 items-stretch overflow-hidden text-[13px] font-semibold leading-5 text-white">
         <span className="border-r border-white/30 bg-[#5c6df3] px-[5px] text-[12px]">×</span>
-        <span className="bg-[#5c6df3] px-[5px]">{t(value)}</span>
+        <span data-no-translate className="bg-[#5c6df3] px-[5px]">{value}</span>
       </span>
-      <span className="absolute bottom-[8px] right-[22px] text-[18px] leading-none text-[#999]">×</span>
+      <span className="absolute bottom-[4px] right-[28px] text-[18px] leading-none text-[#999]">×</span>
       <svg viewBox="0 0 24 24" className="pointer-events-none absolute bottom-[6px] right-0 h-6 w-6 fill-[#999]" aria-hidden>
         {CARET}
       </svg>
