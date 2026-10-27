@@ -35,11 +35,11 @@ function Ext({ href, children, bold }: { href: string; children: ReactNode; bold
   )
 }
 
-function Item({ label, children }: { label: string; children: ReactNode }) {
+function Item({ label, children, raw }: { label: string; children: ReactNode; /** The reference prints this line in Russian whatever the language. */ raw?: boolean }) {
   const { t } = useLanguage()
   return (
-    <span className={["Описание", "Комментарий"].includes(label) ? "inline" : "inline-block whitespace-nowrap align-top"}>
-      <strong className="font-semibold text-[#17233b]">{t(label)}:</strong> {children}
+    <span className={["Описание", "Комментарий"].includes(label) ? "inline" : "inline-block whitespace-nowrap align-top"} {...(raw ? { "data-no-translate": "" } : {})}>
+      <strong className="font-semibold text-[#17233b]">{raw ? label : t(label)}:</strong> {children}
     </span>
   )
 }
@@ -82,13 +82,13 @@ export function OperationDescription({ operation, onOpenAcceptance }: { operatio
         </span>
       )
     case 8: {
-      const label = `${t("Принято денег с")} ${operation.employee?.name ?? ""}`.trim()
+      const label = `Принято денег с ${operation.employee?.name ?? ""}`.trim()
       return onOpenAcceptance ? (
-        <button type="button" onClick={() => onOpenAcceptance(operation)} className={`${linkClass} text-left`}>
+        <button type="button" data-no-translate onClick={() => onOpenAcceptance(operation)} className={`${linkClass} text-left`}>
           {label}
         </button>
       ) : (
-        <strong>{label}</strong>
+        <strong data-no-translate>{label}</strong>
       )
     }
     case 9:
@@ -194,8 +194,8 @@ export function OperationDetails({
   if (operation.organization) parts.push(<Item key="organization" label="Организация">{operation.organization}</Item>)
   if (transfer?.accumulatedFrom || transfer?.accumulatedTo)
     parts.push(
-      <Item key="accumulated" label="Деньги за период">
-        {t("с")} {transfer.accumulatedFrom} {t("по")} {transfer.accumulatedTo}
+      <Item key="accumulated" label="Деньги за период" raw>
+        с {transfer.accumulatedFrom} по {transfer.accumulatedTo}
       </Item>,
     )
   if (operation.amortization)

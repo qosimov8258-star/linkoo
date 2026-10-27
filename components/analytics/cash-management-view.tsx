@@ -239,14 +239,14 @@ function CashManagementContent() {
 
   return (
     <main className="min-h-screen bg-[#f1f4f8] text-[#17233b]">
-      <header className="flex min-h-[60px] flex-wrap items-center gap-3 px-[28px]">
+      <header className="flex min-h-[60px] flex-wrap items-center gap-3 pl-[28px] pr-[37px]">
         <div className="flex min-w-0 items-center">
           <FavoritesButton className="flex items-center gap-[5px] text-[18px] font-bold text-[#4f71dc]" />
           <span className="mx-[11px] h-[21px] w-[2px] bg-[#5d6474]" />
           <h1 className="truncate text-[18px] font-bold text-[#5d6474]">{t("Управления кассой")}</h1>
         </div>
         {canWrite && (
-          <div className="ml-auto flex flex-wrap items-center gap-2">
+          <div className="ml-auto flex flex-wrap items-center gap-[19px]">
             <HeaderButton tone="green" icon={Banknote} label={t("Принять деньги")} onClick={() => setPanel("accept")} />
             <HeaderButton tone="blue" icon={CreditCard} label={t("Груповой приход")} onClick={() => setDialog({ kind: "group" })} />
             <HeaderButton tone="blue" icon={CreditCard} label={t("Приход")} onClick={() => openOperation({ kind: "income", mode: "create" })} />
@@ -271,10 +271,10 @@ function CashManagementContent() {
                 key={box.id}
                 type="button"
                 onClick={() => selectCashbox(box)}
-                className={`block h-[63px] w-full border-b border-[#eef1f5] px-[30px] py-[13px] text-left hover:bg-[#f2f5f8] ${box.id === selectedId ? "bg-[#f4f8fa]" : ""}`}
+                className={`block h-[63px] w-full border-b border-[#eef1f5] px-[30px] pb-[11px] pt-[15px] text-left hover:bg-[#f2f5f8] ${box.id === selectedId ? "bg-[#f4f8fa]" : ""}`}
               >
                 <span className="flex items-start justify-between gap-2">
-                  <span className="max-w-[180px] truncate text-[13px] font-semibold text-[#333]" title={box.name}>
+                  <span data-no-translate className="max-w-[186px] break-words text-[13px] font-semibold leading-[16px] text-[#333]" title={box.name}>
                     {box.name}
                   </span>
                   {box.type === "bank" ? (
@@ -287,7 +287,7 @@ function CashManagementContent() {
                     </span>
                   )}
                 </span>
-                <span className="mt-0.5 block text-[13px]" style={{ color: box.balance < 0 ? CASH_RED : CASH_GREEN }}>
+                <span className="block text-[13px] leading-[16px]" style={{ color: box.balance < 0 ? CASH_RED : CASH_GREEN }}>
                   {formatCash(box.balance, box.currency)}
                 </span>
               </button>
