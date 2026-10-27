@@ -26,7 +26,7 @@ export function formatReportDate(iso: string) {
 }
 
 export function ReportPage({ children }: { children: ReactNode }) {
-  return <main className="min-h-[calc(100vh-50px)] bg-[#f2f5f8] pt-px font-sans text-[13px] text-[#333]">{children}</main>
+  return <main className="min-h-[calc(100vh-50px)] bg-[#f2f5f8] font-sans text-[13px] text-[#333]">{children}</main>
 }
 
 export function ReportHeader({
