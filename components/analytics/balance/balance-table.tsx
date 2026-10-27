@@ -101,9 +101,9 @@ export function BalanceTable<R extends BalanceRow>({
   const allSelected = Boolean(selection) && pageKeys.length > 0 && pageKeys.every((key) => selection!.selected.has(key))
   const headClass = headerTone === "blue" ? "bg-[#4f71dc] text-white" : "bg-[#f0f4f9] text-[#374557]"
   const subHeadClass = headerTone === "blue" ? "bg-[#4f71dc] text-white" : "bg-[#f8fafc] text-[#374557]"
-  const headCell = headerTone === "blue" ? "whitespace-nowrap px-[5px] py-[10px]" : "px-[5px] py-[5px]"
+  const headCell = headerTone === "blue" ? "whitespace-nowrap px-[5px] py-[10px]" : fixedWidth ? "px-[5px] py-[7px]" : "px-[5px] py-[5px]"
   const headWeight = headerTone === "blue" ? "font-bold" : "font-semibold"
-  const bodyCell = headerTone === "blue" ? "border border-[#efefef] px-[5px] py-[10px] text-[#333]" : `border border-[#efefef] px-[5px] ${compact ? "py-[6px]" : "py-[8px]"}`
+  const bodyCell = headerTone === "blue" ? "border border-[#efefef] px-[5px] py-[10px] text-[#333]" : `border border-[#efefef] px-[5px] ${compact ? "py-[6px]" : fixedWidth ? "py-[13px]" : "py-[8px]"}`
   const columnCount = (selection ? 1 : 0) + 1 + groups.length * Math.max(1, subColumns.length) + trailing.length
 
   const sortHeader = (sortKey: string, label: ReactNode) =>

@@ -297,7 +297,7 @@ export function BranchBalanceView() {
       )}
 
       <div className="pt-6">
-        <BalanceSummaryCards marginClass="mx-[10px]" boxes={SUMMARY_BOXES} totals={totals} currencies={currencies} digits={3} loading={loading} />
+        <BalanceSummaryCards compact marginClass="mx-[10px]" boxes={SUMMARY_BOXES} totals={totals} currencies={currencies} digits={3} loading={loading} />
       </div>
 
       <ExpandedOverlay expanded={expanded}>

@@ -281,7 +281,7 @@ export function VansellBalanceView() {
 
       <div className="pt-[10px]">
         {data ? (
-          <BalanceSummaryCards marginClass="mx-[10px]" boxes={boxes} totals={data.totals} currencies={visible} digits={DIGITS} loading={list.loading} />
+          <BalanceSummaryCards compact marginClass="mx-[10px]" boxes={boxes} totals={data.totals} currencies={visible} digits={DIGITS} loading={list.loading} />
         ) : (
           <div className="flex h-[150px] items-center justify-center pb-6">
             {list.error ? <span className="text-[#e57373]">{t(list.error)}</span> : <Loader2 className="h-7 w-7 animate-spin text-[#4f70e7]" />}
@@ -290,7 +290,7 @@ export function VansellBalanceView() {
       </div>
 
       <ExpandedOverlay expanded={expanded}>
-        <section className="flex flex-wrap items-center gap-x-5 gap-y-3 border-t border-[#efefef] px-[10px] py-[10px]">
+        <section className="relative flex flex-wrap items-center gap-x-5 gap-y-3 border-t border-[#efefef] px-[10px] pb-[8px] pt-[15px]">
           <BalanceFilterChip
             count={filterCount}
             onOpen={() => {
@@ -299,7 +299,7 @@ export function VansellBalanceView() {
             }}
             onClear={() => update({ period: null, users: [], page: 1 })}
           />
-          <label className="relative min-w-[200px] flex-1 border-b border-[#dbe0e8] pb-1.5">
+          <label style={{ left: "calc(50% - 182px)" }} className="absolute w-[182px] border-b border-[#e0e0e0] pb-1.5">
             <input
               value={searchInput}
               onChange={(event) => setSearchInput(event.target.value)}
