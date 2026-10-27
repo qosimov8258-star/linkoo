@@ -143,7 +143,7 @@ export function BalanceTable<R extends BalanceRow>({
   const tableWidth = fixedWidth ? firstWidth + selectWidth + cols * fixedWidth + Math.max(0, groups.length - 1) * cols * laterWidth + trailing.length * fixedWidth : undefined
 
   const selectHead = (left: number) => (
-    <th rowSpan={split ? 2 : 1} className="sticky z-[2] w-10 border border-[#efefef] px-2 py-2" style={{ left, background: "inherit" }}>
+    <th rowSpan={split ? 2 : 1} className="sticky z-[2] w-10 border border-[#efefef] px-2 py-2" style={{ left, background: "inherit", verticalAlign: fixedWidth && split ? "bottom" : undefined }}>
       <input type="checkbox" checked={allSelected} onChange={toggleAll} className="h-4 w-4 accent-[#4f70e7]" aria-label={t("Выбрать все")} />
     </th>
   )
