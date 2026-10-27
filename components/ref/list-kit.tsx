@@ -344,7 +344,8 @@ export function RefTable<T>({
   const measured = REF_COLUMNS[pathname] ?? REF_COLUMNS[pathname.replace(/\/\d+$/, "")]
   const gridCols = measured && measured.n === heads.length ? measured.cols : cols
   const inset = measured && measured.n === heads.length ? measured.inset : undefined
-  const padStyle = inset == null ? undefined : { paddingLeft: inset }
+  const insetRight = measured && measured.n === heads.length ? measured.insetRight : undefined
+  const padStyle = inset == null ? undefined : { paddingLeft: inset, ...(insetRight == null ? {} : { paddingRight: insetRight }) }
   const [sort, setSort] = useState<{ col: number; desc: boolean } | null>(null)
   const sortedRows = useMemo(() => {
     if (!sort) return rows

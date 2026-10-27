@@ -1,5 +1,5 @@
 /** Column widths measured from the reference app, keyed by route. */
-export const REF_COLUMNS: Record<string, { n: number; cols: string; inset?: number }> = {
+export const REF_COLUMNS: Record<string, { n: number; cols: string; inset?: number; insetRight?: number }> = {
   "/analytics/expected-payments": {
     "n": 7,
     "cols": "123.3px 230.7px 230.7px 115.3px 231px 230px 231px",
@@ -13,7 +13,8 @@ export const REF_COLUMNS: Record<string, { n: number; cols: string; inset?: numb
   "/analytics/surveys": {
     "n": 4,
     "cols": "minmax(0,123fr) minmax(0,577fr) minmax(0,346fr) minmax(0,376fr)",
-    "inset": 22
+    "inset": 22,
+    "insetRight": 0
   },
   "/analytics/survey-plans": {
     "n": 2,
