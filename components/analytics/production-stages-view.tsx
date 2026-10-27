@@ -2,7 +2,7 @@
 
 import { askDelete } from "@/lib/ask-confirm"
 import { useEffect, useState, type FormEvent } from "react"
-import { Factory, Pencil, Plus } from "lucide-react"
+import { Pencil } from "lucide-react"
 
 import { useLanguage } from "@/lib/i18n/language-context"
 import { RefHeader, RefPage } from "@/components/ref/list-kit"
@@ -50,15 +50,13 @@ export function ProductionStagesView() {
         <aside className="w-[280px] shrink-0 font-sans text-[13px] text-[#333]">
           <div className="flex h-[57px] items-center justify-between pl-[30px] pr-[10px]">
             <h2 className="text-[13px] font-bold">{t("Этапы производства")}</h2>
-            <button onClick={() => setStageDialog("new")} aria-label={t("Добавить этап")} title={t("Добавить этап")} className="flex h-8 w-8 items-center justify-center rounded-[3px] bg-[#4f71dc] text-white">
-              <Plus className="h-4 w-4" />
-            </button>
           </div>
           <div className="shadow-[1px_0_6px_rgba(0,0,0,0.2)]">
             {stages.map((entry) => (
               <div key={entry.id} className={`group flex h-[50px] items-center border-b border-[#e9ecf0] ${selectedId === entry.id ? "bg-white" : "hover:bg-white/60"}`}>
                 <button onClick={() => setSelectedId(entry.id)} className="flex h-full min-w-0 flex-1 items-center pl-[30px] text-left">
-                  <Factory className="mr-[10px] h-5 w-5 shrink-0 text-[#5d6474]" strokeWidth={1.5} />
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src="/production-stage.svg" alt="" className="mr-[10px] h-5 w-5 shrink-0" />
                   <span className="truncate">{entry.name}</span>
                 </button>
                 <button onClick={() => setStageDialog(entry)} aria-label={t("Изменить")} className="mr-3 p-1 text-[#9aa1ae] opacity-0 hover:text-[#4f71dc] group-hover:opacity-100 focus:opacity-100">
@@ -73,7 +71,7 @@ export function ProductionStagesView() {
         <section className="ml-[30px] mr-[30px] min-w-0 flex-1">
           <nav className={`flex h-[54px] bg-white text-[13px] text-black ${CARD_SHADOW}`}>
             {TABS.map(([value, label]) => (
-              <button key={value} type="button" onClick={() => setTab(value)} className="h-[54px] px-[6px]">
+              <button key={value} type="button" onClick={() => setTab(value)} className="h-[54px] px-[6px] font-[Arial,sans-serif]">
                 <span className={`flex h-[52px] items-center border-b-2 px-[20px] ${tab === value ? "border-[#4f71dc] font-semibold text-[#4f71dc]" : "border-transparent"}`}>{t(label)}</span>
               </button>
             ))}
@@ -82,8 +80,8 @@ export function ProductionStagesView() {
           {!stage ? (
             <div className={`mt-5 flex h-[294px] flex-col items-center justify-center bg-white ${CARD_SHADOW}`}>
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src="/robot-empty.png" alt="" className="w-[112px]" />
-              <p className="mt-[14px] text-[15px] text-[#666]">{t("Выберите производство...")}</p>
+              <img src="/robot-empty.png" alt="" className="w-[196px]" />
+              <p className="-mt-[8px] text-[15px] text-[#666]">{t("Выберите производство...")}</p>
             </div>
           ) : (
             <div key={stage.id}>
