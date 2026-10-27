@@ -30,29 +30,32 @@ export function CatalogHeader({ addLabel, onAdd, from, to, total, onPrev, onNext
 
 export const dottedRow = "border-b-2 border-dotted border-[#d9e0e5]"
 
-export function Modal({ title, onClose, footer, children, width = 500, bodyClassName = "px-[30px] pb-[24px] pt-[24px]", titleClassName = "text-[13px]", headerClassName = "pl-[30px]", anchorTop = false, scrollAll = false, closeInset = "pr-[15px]" }: { closeInset?: string; title: string; onClose: () => void; footer: ReactNode; children: ReactNode; width?: number; bodyClassName?: string; titleClassName?: string; headerClassName?: string; anchorTop?: boolean | number; scrollAll?: boolean }) {
+export function Modal({ title, onClose, footer, children, width = 500, bodyClassName = "px-[30px] pb-[24px] pt-[24px]", titleClassName = "text-[13px]", headerClassName = "pl-[30px]", anchorTop = false, scrollAll = false, closeInset = "pr-[15px]", footerClassName = "", escapeCloses = false }: { escapeCloses?: boolean; footerClassName?: string; closeInset?: string; title: string; onClose: () => void; footer: ReactNode; children: ReactNode; width?: number; bodyClassName?: string; titleClassName?: string; headerClassName?: string; anchorTop?: boolean | number; scrollAll?: boolean }) {
   const { t } = useLanguage()
+  // The reference's modal dialogs (Должности, Кассы, Права доступа, Типы клиентов) ignore Escape and clicks on the dim
+  // backdrop: they close only with × / Cancel. Only the full-screen dialogs close on Escape (see `escapeCloses`).
   useEffect(() => {
+    if (!escapeCloses) return
     function onKey(event: KeyboardEvent) {
       if (event.key === "Escape") onClose()
     }
     window.addEventListener("keydown", onKey)
     return () => window.removeEventListener("keydown", onKey)
-  }, [onClose])
+  }, [onClose, escapeCloses])
   return createPortal(
     // Reference rule (old Material-UI Dialog, measured on 25 dialogs from 267 px to 1905 px): the dialog is centered by its
     // height at open time and never closer than 80 px to the top (tall ones: y = 80 and the page scrolls). So the default is
     // centered; `anchorTop` is only for the few dialogs that were measured while taller than they end up (Категории
     // приходов/расходов y=64, Права доступа y=50, Тип отказа y=263.5, Настройка EXCEL y=80).
-    <div className={`fixed inset-0 z-[100] flex justify-center bg-black/50 ${anchorTop ? "items-start overflow-y-auto" : "items-center"}`} style={anchorTop ? { paddingTop: typeof anchorTop === "number" ? anchorTop : 64 } : undefined}>
+    <div className={`fixed inset-0 z-[100] flex justify-center bg-black/[0.54] ${anchorTop ? "items-start overflow-y-auto" : "items-center"}`} style={anchorTop ? { paddingTop: typeof anchorTop === "number" ? anchorTop : 64 } : undefined}>
       {/* scrollAll: like the reference's long dialogs (Настройка EXCEL): the whole card scrolls (max 100vh − 128px), the title stays, the footer sits at the end of the content */}
-      <div style={{ width }} className={`max-w-full bg-white text-[13px] text-black shadow-xl ${scrollAll ? "max-h-[calc(100vh-128px)] overflow-y-auto" : ""}`}>
+      <div style={{ width }} className={`max-w-full bg-white text-[13px] text-black shadow-[0_11px_15px_-7px_rgba(0,0,0,0.2),0_24px_38px_3px_rgba(0,0,0,0.14),0_9px_46px_8px_rgba(0,0,0,0.12)] ${scrollAll ? "max-h-[calc(100vh-128px)] overflow-y-auto" : ""}`}>
         <header className={`flex h-[60px] items-center justify-between border-b border-[#e8ebf0] ${headerClassName} ${closeInset} ${scrollAll ? "sticky top-0 z-[1] bg-white" : ""}`}>
           <h3 className={`${titleClassName} font-bold uppercase text-[#333]`}>{title}</h3>
           <button type="button" onClick={onClose} aria-label={t("Закрыть")} className="flex h-12 w-12 items-center justify-center text-[#333] hover:opacity-70"><X className="h-6 w-6" strokeWidth={1.6} /></button>
         </header>
         <div className={bodyClassName}>{children}</div>
-        <footer className="flex h-[57px] items-center justify-end border-t border-[#e8ebf0] pr-[10px]">{footer}</footer>
+        <footer className={`flex h-[57px] items-center justify-end border-t border-[#e8ebf0] pr-[10px] ${footerClassName}`}>{footer}</footer>
       </div>
     </div>,
     document.body,
@@ -61,7 +64,7 @@ export function Modal({ title, onClose, footer, children, width = 500, bodyClass
 
 export function SaveButton({ disabled, onClick, children }: { disabled?: boolean; onClick?: () => void; children: ReactNode }) {
   return (
-    <button type={onClick ? "button" : "submit"} onClick={onClick} disabled={disabled} className="h-9 min-w-[111px] rounded-[3px] bg-[#71ce87] px-[16px] text-[13px] font-semibold uppercase text-white hover:brightness-95 disabled:cursor-default">
+    <button type={onClick ? "button" : "submit"} onClick={onClick} disabled={disabled} className="h-9 min-w-[111px] cursor-pointer rounded-[5px] bg-[#71ce87] px-[16px] text-[13px] font-semibold uppercase text-white hover:brightness-95 disabled:cursor-default">
       {children}
     </button>
   )
@@ -88,15 +91,15 @@ export function ToggleRow({ checked, onChange, label }: { checked: boolean; onCh
 }
 
 /** Underlined input; the label sits inside while empty and floats above once filled. */
-export function LineField({ label, value, onChange, required, autoFocus }: { label: string; value: string; onChange: (value: string) => void; required?: boolean; autoFocus?: boolean }) {
+export function LineField({ label, value, onChange, required, autoFocus, flush }: { label: string; value: string; onChange: (value: string) => void; required?: boolean; autoFocus?: boolean; flush?: boolean }) {
   const [focused, setFocused] = useState(false)
   const floating = focused || value !== ""
   return (
     <div className="relative h-[40px] border-b border-[#d5dae1]">
-      <span className={`pointer-events-none absolute left-0 transition-all ${floating ? "top-0 text-[10px] font-semibold leading-3" : "top-[18px] text-[13px] font-semibold leading-4"}`}>
+      <span className={`pointer-events-none absolute left-0 transition-all ${floating ? `${flush ? "-top-[1.2px]" : "top-0"} text-[10px] font-semibold leading-3` : "top-[18px] text-[13px] font-semibold leading-4"}`}>
         {label}{required && <span className="font-semibold text-[#e57373]"> *</span>}
       </span>
-      <input value={value} autoFocus={autoFocus} onChange={(event) => onChange(event.target.value)} onFocus={() => setFocused(true)} onBlur={() => setFocused(false)} className="absolute inset-x-0 bottom-0 h-[26px] bg-transparent text-[13px] font-semibold outline-none" />
+      <input value={value} autoFocus={autoFocus} onChange={(event) => onChange(event.target.value)} onFocus={() => setFocused(true)} onBlur={() => setFocused(false)} className={`absolute inset-x-0 h-[26px] bg-transparent text-[13px] font-semibold outline-none ${flush ? "-bottom-px" : "bottom-0"}`} />
     </div>
   )
 }
@@ -174,6 +177,7 @@ export function ListToolbar({
   pageSizes = [10, 25, 50, 100, 200, 500, 1000, 2000],
   searchPos,
   addPad,
+  hideTotal,
 }: {
   addLabel: string
   onAdd: () => void
@@ -198,6 +202,8 @@ export function ListToolbar({
   searchPos?: { left: number; top: number }
   /** Top padding of the add link in px (default 4 for `slim`, else 8). */
   addPad?: number
+  /** "1 - 25 из" without the total (a few reference lists). */
+  hideTotal?: boolean
 }) {
   const { t } = useLanguage()
   const [sizeOpen, setSizeOpen] = useState(false)
@@ -242,7 +248,7 @@ export function ListToolbar({
             )}
           </div>
         )}
-        {total !== undefined && <span className="ml-[34px]">{from} - {to} {t("из")} {total}</span>}
+        {total !== undefined && <span className="ml-[34px]">{from} - {to} {t("из")}{hideTotal ? "" : ` ${total}`}</span>}
         {total !== undefined && (
           <>
             <button type="button" onClick={onPrev} disabled={!onPrev} aria-label={t("Назад")} className="ml-[10px] flex h-6 w-6 items-center justify-center"><svg viewBox="0 0 24 24" className={`h-6 w-6 ${onPrev ? "fill-black/55" : "fill-black/30"}`}><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm1-12l-5 4 5 4V8z" /></svg></button>
@@ -284,7 +290,7 @@ export function ImportDialog({ file, onFile, onTemplate, onSave, saving, onClose
   const { t } = useLanguage()
   const inputRef = useRef<HTMLInputElement>(null)
   return createPortal(
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50">
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/[0.54]">
       <div className="w-[400px] bg-white text-[13px] text-[#333] shadow-xl">
         <header className="flex h-[60px] items-center justify-between border-b border-[#e8ebf0] pl-[30px] pr-[27px]">
           <h3 className="text-[13px] font-bold uppercase">{t("Импорт с excel")}</h3>
@@ -312,7 +318,7 @@ export function ImportDialog({ file, onFile, onTemplate, onSave, saving, onClose
 /** The reference's modal alert for failed saves ("name: Это поле обязательно к заполнению" + OK). */
 export function ErrorAlert({ message, onClose }: { message: string; onClose: () => void }) {
   return createPortal(
-    <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/50">
+    <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/[0.54]">
       <div className="flex h-[300px] w-[400px] max-w-full flex-col items-center bg-white px-[15px] pt-[24px] text-center text-[#333] shadow-xl">
         <span className="flex h-[48px] w-[48px] items-center justify-center rounded-full border-[3px] border-[#4f71dc] text-[30px] font-bold leading-none text-[#4f71dc]">!</span>
         <p className="mt-[13px] self-stretch whitespace-pre-line px-[5px] text-left text-[15px] font-semibold">{message}</p>

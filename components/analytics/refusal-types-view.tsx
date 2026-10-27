@@ -110,7 +110,6 @@ export function RefusalTypesView({ embedded = false }: { embedded?: boolean }) {
             setPaging((current) => ({ ...current, page: 1 }))
           }}
           pager={{
-            label: `1 - ${paging.pageSize} ${t("из")}`,
             pageSize: paging.pageSize,
             onPageSize: (size) => setPaging({ page: 1, pageSize: size }),
             from: rows.length ? (page - 1) * paging.pageSize + 1 : 0,

@@ -118,6 +118,7 @@ export function EquipmentView() {
   return (
     <div className="min-h-[calc(100vh-50px)] min-w-0 flex-1 bg-white text-[13px] text-[#333]">
       <ListToolbar
+        hideTotal
         addLabel={t("добавить оборудование")}
         onAdd={() => void open()}
         query={query}
