@@ -190,7 +190,7 @@ export function LoyaltyCardView() {
 
       <div className="mx-[28px] mt-[15px] bg-white shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
       <ExpandedOverlay expanded={expanded}>
-        <section className="relative flex min-h-[55px] flex-wrap items-center gap-3 border-t border-[#efefef] px-[30px] py-2">
+        <section className="relative flex min-h-[55px] flex-wrap items-center gap-3 border-t border-[#efefef] pl-[30px] pr-[17px] py-2">
           <div className="relative -mt-[8px]">
             <BalanceFilterChip
               count={filterCount}
@@ -227,7 +227,7 @@ export function LoyaltyCardView() {
               <Search className="h-5 w-5" />
             </button>
           </form>
-          <div className="flex flex-wrap items-center gap-3">
+          <div className="relative -top-[2px] flex flex-wrap items-center gap-3">
             <BalancePagination page={state.page} pageSize={state.pageSize} count={data?.count ?? 0} onChange={({ page, pageSize }) => update({ page, pageSize })} />
             <ExpandedViewButton expanded={expanded} onToggle={() => setExpanded((value) => !value)} />
           </div>

@@ -276,12 +276,12 @@ export function SubscriptionsView() {
                   </label>
                 </>
               )}
-              <div className="ml-auto flex shrink-0 items-center whitespace-nowrap">
+              <div className="relative top-[2px] ml-auto flex shrink-0 items-center whitespace-nowrap">
                 <PageSizeSelect value={pageSize} onChange={(size) => { setPageSize(size); setPage(1) }} />
                 <span className="ml-[33px] mr-[10px]">{from} - {to} {t("из")} {total}</span>
                 <PagerArrow dir="prev" onClick={page > 1 ? () => setPage(page - 1) : undefined} />
                 <PagerArrow dir="next" onClick={page < pageCount ? () => setPage(page + 1) : undefined} />
-                <RefTip text={checkboxes ? t("Спрятать флажки") : t("Выбрать из списка")} side="left" className="ml-[22px]">
+                <RefTip text={checkboxes ? t("Спрятать флажки") : t("Выбрать из списка")} side="left" className="ml-[27px]">
                   <button
                     type="button"
                     aria-label={checkboxes ? t("Спрятать флажки") : t("Выбрать из списка")}
