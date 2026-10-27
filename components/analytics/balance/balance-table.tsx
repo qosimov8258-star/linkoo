@@ -44,7 +44,7 @@ export type BalanceTableProps<R extends BalanceRow> = {
   /** Visible currency codes (sub-columns), e.g. BalanceListResult.visibleCurrencies. */
   currencies: string[]
   /** First (entity) column. */
-  first: { label: string; render: (row: R) => ReactNode; width?: number; sortKey?: string }
+  first: { label: string; render: (row: R) => ReactNode; width?: number; sortKey?: string; /** Print the label as is (the reference keeps it in Russian). */ raw?: boolean }
   /** One column per group in the row's own currency (Баланс кассы): amounts get a currency suffix. */
   cellCurrency?: (row: R) => string
   /** Columns after the groups (e.g. Кассир, Тип). */
@@ -106,7 +106,7 @@ export function BalanceTable<R extends BalanceRow>({
   const subHeadClass = headerTone === "blue" ? "bg-[#4f71dc] text-white" : "bg-[#f8fafc] text-[#374557]"
   const headCell = headerTone === "blue" ? "whitespace-nowrap px-[5px] py-[10px]" : fixedWidth ? "px-[5px] py-[7px]" : "px-[5px] py-[5px]"
   const headWeight = headerTone === "blue" ? "font-bold" : "font-semibold"
-  const bodyCell = headerTone === "blue" ? "border border-[#efefef] px-[5px] py-[10px] text-[#333]" : `border border-[#efefef] px-[5px] ${compact ? "py-[6px]" : fixedWidth ? (rowPad === 9 ? "py-[9px]" : "py-[13px]") : "py-[8px]"}`
+  const bodyCell = headerTone === "blue" ? "border border-[#efefef] px-[5px] py-[10px] text-[#333]" : `border border-[#efefef] px-[5px] ${compact ? "py-[6px]" : fixedWidth ? (rowPad === 8 ? "py-[6.5px]" : rowPad === 9 ? "py-[9px]" : "py-[13px]") : "py-[8px]"}`
   const columnCount = (selection ? 1 : 0) + 1 + groups.length * Math.max(1, subColumns.length) + trailing.length
 
   const sortHeader = (sortKey: string, label: ReactNode) =>
@@ -174,9 +174,9 @@ export function BalanceTable<R extends BalanceRow>({
             <th
               rowSpan={split ? 2 : 1}
               className={`sticky z-[2] border border-[#efefef] text-center ${headWeight} ${headCell}`}
-              style={{ left: selection && !selectionAfterFirst ? 40 : 0, minWidth: first.width ?? 220, background: "inherit" }}
+              style={{ left: selection && !selectionAfterFirst ? 40 : 0, minWidth: first.width ?? 220, background: "inherit", verticalAlign: fixedWidth && split ? "bottom" : undefined }}
             >
-              {first.sortKey ? sortHeader(first.sortKey, t(first.label)) : t(first.label)}
+              {first.sortKey ? sortHeader(first.sortKey, first.raw ? <span data-no-translate>{first.label}</span> : t(first.label)) : first.raw ? <span data-no-translate>{first.label}</span> : t(first.label)}
             </th>
             {selection && selectionAfterFirst && selectHead(first.width ?? 220)}
             {groups.map((group) => (

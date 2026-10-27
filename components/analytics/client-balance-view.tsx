@@ -220,6 +220,7 @@ export function ClientBalanceView() {
   const firstColumn = isTypes
     ? {
         label: "Клиент",
+        raw: true,
         width: 220,
         sortKey: "name",
         render: (row: BalanceRow) => (
@@ -231,6 +232,7 @@ export function ClientBalanceView() {
       }
     : {
         label: "Клиент",
+        raw: true,
         width: 220,
         sortKey: "name",
         render: (row: BalanceRow) => (
@@ -273,7 +275,7 @@ export function ClientBalanceView() {
         <ClientBalancePeriodToggle mode={state.mode} onChange={changeMode} />
       </header>
 
-      <section className="flex flex-wrap items-center justify-between gap-4 px-[30px] pt-5">
+      <section className="flex flex-wrap items-center justify-between gap-4 px-[30px] pb-[10px] pt-5">
         <ClientBalanceFilterButton state={state} onOpen={openFilter} />
         <div className="flex items-center gap-3">
           {!isTypes && canGroupPay && (
@@ -294,7 +296,7 @@ export function ClientBalanceView() {
       <BalanceSummaryCards compact boxes={SUMMARY} totals={data?.totals ?? {}} currencies={visible} loading={loading} />
 
       <ExpandedOverlay expanded={expanded}>
-        <section className="flex flex-wrap items-center gap-3 border-t border-[#efefef] px-[30px] py-[10px]">
+        <section className="flex flex-wrap items-center gap-3 border-t border-[#efefef] px-[30px] pb-[4px] pt-[10px]">
           {showDrilled && (
             <div className="whitespace-nowrap text-[14px]">
               {t("Отфильтровано по")}: <strong>{drilledType || t("Не указано")}</strong>
@@ -303,7 +305,7 @@ export function ClientBalanceView() {
               </button>
             </div>
           )}
-          <div className="flex overflow-hidden rounded-sm shadow-[inset_0_0_0_1px_rgba(0,0,0,0.12)]">
+          <div className="flex">
             {(
               [
                 ["clients", "Разбить по валютам", showClients],
@@ -314,7 +316,7 @@ export function ClientBalanceView() {
                 key={toggle}
                 type="button"
                 onClick={onClick}
-                className={`h-8 px-4 text-[13px] font-semibold uppercase tracking-wide ${state.toggle === toggle ? "bg-[#4f71dc] text-white shadow" : "bg-white text-[#17233b]"}`}
+                className={`h-8 px-4 text-[13px] uppercase first:rounded-l-[5px] last:rounded-r-[5px] ${state.toggle === toggle ? "bg-[#4f71dc] text-white [box-shadow:0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]" : "bg-white text-black [box-shadow:inset_0_0_2px_rgba(0,0,0,0.12)]"}`}
               >
                 {t(label)}
               </button>
@@ -359,6 +361,7 @@ export function ClientBalanceView() {
 
         <BalanceTable
           fixedWidth={100}
+          rowPad={8}
           selectionAfterFirst
           rows={rows}
           groups={GROUPS}
