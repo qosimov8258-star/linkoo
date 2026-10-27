@@ -179,7 +179,7 @@ export function KpiPerformanceView({ variant = "page" }: { variant?: "page" | "t
         <div>
           <div className={`${standalone ? "mb-[3px]" : "mb-[10px]"} flex h-[30px] items-center px-[5px]`}><h2 className="text-[13px] font-semibold leading-4">KPI</h2></div>
           <div className="min-h-[720px] bg-white p-px shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
-            <button type="button" aria-current="true" onClick={recalc} className="h-[44.3px] w-full bg-[#f2f5f8] px-[17px] pt-[8px] text-left text-[13px] text-[#2c2c2c]">{t("Общий объем")} <span data-no-translate>во всех кпэ</span></button>
+            <button type="button" aria-current="true" onClick={recalc} className="h-[44.3px] w-full bg-[#f2f5f8] px-[17px] pt-[8px] text-left text-[13px] text-[#2c2c2c]">{t("Общий объем")} <span data-no-translate>{"\u0432\u043e \u0432\u0441\u0435\u0445 \u043a\u043f\u044d"}</span></button>
           </div>
         </div>
         <div>
