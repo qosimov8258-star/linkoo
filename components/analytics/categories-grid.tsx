@@ -32,6 +32,8 @@ export type CategoryColumn<T> = {
   ordering?: string
   /** The reference header text of these columns sits 8px to the right of the row text. */
   indent?: boolean
+  /** Row cells indented like the header (the expense list of the reference). */
+  rowIndent?: boolean
   className?: string
   render: (row: T) => ReactNode
 }
@@ -249,7 +251,7 @@ export function CategoriesGrid<T extends CategoryRow>({
           rows.map((row) => (
             <div key={row.id} className={`${kitRow} px-[30px]`} style={{ gridTemplateColumns: template }}>
               {columns.map((column) => (
-                <span key={column.key} className={`min-w-0 pr-4 ${column.className ?? ""}`}>
+                <span key={column.key} className={`min-w-0 pr-4 ${column.rowIndent ? "pl-[8px] " : ""}${column.className ?? ""}`}>
                   {column.render(row)}
                 </span>
               ))}

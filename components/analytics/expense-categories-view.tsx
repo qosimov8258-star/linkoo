@@ -27,10 +27,10 @@ function ExpenseCategoriesGrid() {
   const { t, language } = useLanguage()
   const columns: CategoryColumn<ExpenseCategory>[] = [
     { key: "name", title: "Наименование", width: "3fr", className: "break-words", render: (row) => row.name },
-    { key: "options", title: "Параметры", width: "3fr", render: (row) => <CategoryOptionChips options={row.options} /> },
-    { key: "parent", title: "Род. категория", width: "2fr", className: "break-words", render: (row) => row.parentName || t("Не указано") },
+    { key: "options", indent: true, rowIndent: true, title: "Параметры", width: "3fr", render: (row) => <CategoryOptionChips options={row.options} /> },
+    { key: "parent", indent: true, rowIndent: true, title: "Род. категория", width: "2fr", className: "break-words", render: (row) => row.parentName || t("Не указано") },
     {
-      key: "created_date", indent: true,
+      key: "created_date", indent: true, rowIndent: true,
       title: "Дата создания",
       width: "1fr",
       ordering: "created_date",
@@ -38,7 +38,7 @@ function ExpenseCategoriesGrid() {
       render: (row) => (row.createdDate ? formatCategoryDate(row.createdDate, language) : ""),
     },
     {
-      key: "direct", indent: true,
+      key: "direct", indent: true, rowIndent: true,
       title: "Внутренний расход",
       width: "2fr",
       ordering: "direct",
