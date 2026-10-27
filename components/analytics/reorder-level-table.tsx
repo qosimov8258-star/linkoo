@@ -1,6 +1,6 @@
 "use client"
 
-import { useRef, useState, type ReactNode } from "react"
+import { useEffect, useRef, useState, type ReactNode } from "react"
 
 import { nextOrdering } from "@/components/analytics/balance/balance-table"
 import { formatMoney } from "@/lib/finance/currency"
@@ -51,7 +51,16 @@ export function ReorderLevelTable({
 }) {
   const { t } = useLanguage()
   const scroller = useRef<HTMLDivElement>(null)
-  const [more, setMore] = useState(true)
+  const [more, setMore] = useState(false)
+  useEffect(() => {
+    const el = scroller.current
+    if (!el) return
+    const measure = () => setMore(el.scrollLeft + el.clientWidth < el.scrollWidth - 1)
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [rows.length])
   // The reference prints plain numbers in the default "Количество" mode; the unit follows only for weight / volume / blocks.
   const unitOf = (row: RecommendedRow) => (unit !== "measurement" && row.unit ? ` ${t(row.unit)}` : "")
   const columns: Column[] = [
@@ -79,12 +88,12 @@ export function ReorderLevelTable({
         onScroll={(event) => setMore(event.currentTarget.scrollLeft + event.currentTarget.clientWidth < event.currentTarget.scrollWidth - 1)}
         className="overflow-x-auto"
       >
-        <div style={template} className="grid h-[65px] [box-shadow:0_4px_14px_rgba(0,0,0,0.15)]">
+        <div style={template} className="grid min-h-[48px] [box-shadow:0_4px_14px_rgba(0,0,0,0.15)]">
           {columns.map((column) => {
             const sorted = column.sortKey && (ordering === column.sortKey || ordering === `-${column.sortKey}`)
             const label = column.id === "week" || column.id === "month" ? t("Рек. запас на {n} дней").replace("{n}", column.id === "week" ? "6" : "30") : t(column.label)
             return (
-              <div key={column.id} className={`${cell} flex items-center justify-center bg-[#f0f4f9] px-[5px] text-center text-[13px] font-semibold leading-[18px] text-[#374557] ${sorted ? "[box-shadow:inset_0_-3px_0_rgba(0,0,0,0.6)]" : ""}`}>
+              <div key={column.id} className={`${cell} flex items-center justify-center bg-[#f0f4f9] px-[5px] py-[5.5px] text-center text-[13px] font-semibold leading-[18px] text-[#374557] ${sorted ? "[box-shadow:inset_0_-3px_0_rgba(0,0,0,0.6)]" : ""}`}>
                 {column.sortKey ? (
                   <button type="button" onClick={() => onOrderingChange(nextOrdering([ordering], column.sortKey!, "desc-first")[0] ?? "")} className="block w-full text-center">
                     {label}

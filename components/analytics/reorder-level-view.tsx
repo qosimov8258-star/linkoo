@@ -115,50 +115,60 @@ function ReorderLevelContent() {
       </div>
 
       <div className="border-t border-[#e8eaee] bg-white pb-[20px]">
-      <section className="relative h-[50px]">
-        <div className="absolute left-[30px] top-[17px]">
-          <BalanceFilterChip count={filterCount} onOpen={openFilter} onClear={clearFilter} />
+      {/* Five blocks spread with equal gaps (the reference's flex row): at 1296px the gaps are 0 and the blocks sit at 30 / 299.7 / 648 / 1068.4px. */}
+      <section className="flex h-[50px] justify-between px-[30px]">
+        <div className="relative w-[269.7px] shrink-0">
+          <div className="absolute left-0 top-[17px]">
+            <BalanceFilterChip count={filterCount} onOpen={openFilter} onClear={clearFilter} />
+          </div>
         </div>
-        <form onSubmit={submitSearch} className="absolute left-[299.7px] top-0 h-[41px] w-[182px] border-b border-[#e0e0e0] focus-within:border-[#5d6474]">
-          <input
-            value={searchDraft}
-            onChange={(event) => setSearchDraft(event.target.value)}
-            placeholder={t("Поиск")}
-            aria-label={t("Поиск")}
-            className="h-[40px] w-[147px] bg-transparent pt-[10px] text-[13px] outline-none placeholder:text-black/30"
-          />
-          <button type="submit" aria-label={t("Поиск")} className="absolute left-[156px] top-[13px] text-[#ccc] hover:text-[#4f70e7]">
-            <Search className="h-6 w-6" />
+        <div className="relative w-[348.3px] shrink-0">
+          <form onSubmit={submitSearch} className="absolute left-0 top-0 h-[41px] w-[182px] border-b border-[#e0e0e0] focus-within:border-[#5d6474]">
+            <input
+              value={searchDraft}
+              onChange={(event) => setSearchDraft(event.target.value)}
+              placeholder={t("Поиск")}
+              aria-label={t("Поиск")}
+              className="h-[40px] w-[147px] bg-transparent pt-[10px] text-[13px] outline-none placeholder:text-black/30"
+            />
+            <button type="submit" aria-label={t("Поиск")} className="absolute left-[156px] top-[13px] text-[#ccc] hover:text-[#4f70e7]">
+              <Search className="h-6 w-6" />
+            </button>
+          </form>
+        </div>
+        <div className="relative w-[410px] shrink-0">
+          <button type="button" onClick={openFilter} className="absolute left-0 top-[25px] w-[200px] text-right text-[13px] font-bold text-[#4f71dc]" title={t("Диапазон дат")} data-no-translate>
+            {periodWord(state.from)} - {periodWord(state.to)}
           </button>
-        </form>
-        <button type="button" onClick={openFilter} className="absolute left-[648px] top-[25px] w-[200px] text-right text-[13px] font-bold text-[#4f71dc]" title={t("Диапазон дат")} data-no-translate>
-          {periodWord(state.from)} - {periodWord(state.to)}
-        </button>
-        <label className="absolute left-[858px] top-[9.5px] block h-[36px] w-[200px] border-b border-[#e8e8e8]">
-          <span className="pointer-events-none absolute left-0 top-[12px] text-[13px] font-semibold leading-[16.3px] text-black">{t("Показать по типу ед.")}{state.unit !== "measurement" ? `: ${t(REORDER_UNITS.find((unit) => unit.id === state.unit)?.label ?? "")}` : ""}</span>
-          <select
-            value={state.unit}
-            onChange={(event) => update({ selectType: event.target.value === "measurement" ? null : event.target.value, page: null })}
-            aria-label={t("Показать по типу ед.")}
-            className="absolute inset-0 h-full w-full cursor-pointer appearance-none opacity-0"
+          <label className="absolute left-[210px] top-[9.5px] block h-[36px] w-[200px] border-b border-[#e8e8e8]">
+            <span className="pointer-events-none absolute left-0 top-[12px] text-[13px] font-semibold leading-[16.3px] text-black">{t("Показать по типу ед.")}{state.unit !== "measurement" ? `: ${t(REORDER_UNITS.find((unit) => unit.id === state.unit)?.label ?? "")}` : ""}</span>
+            <select
+              value={state.unit}
+              onChange={(event) => update({ selectType: event.target.value === "measurement" ? null : event.target.value, page: null })}
+              aria-label={t("Показать по типу ед.")}
+              className="absolute inset-0 h-full w-full cursor-pointer appearance-none opacity-0"
+            >
+              {REORDER_UNITS.map((unit) => (
+                <option key={unit.id} value={unit.id}>
+                  {t(unit.label)}
+                </option>
+              ))}
+            </select>
+            <svg viewBox="0 0 10 5" className="pointer-events-none absolute right-[10px] top-[21px] h-[5px] w-[10px] fill-[#757575]" aria-hidden><path d="M0 0h10L5 5z" /></svg>
+          </label>
+        </div>
+        <div className="w-0" />
+        <div className="relative ml-[10.4px] w-[197.6px] shrink-0">
+          <button
+            type="button"
+            onClick={() => void downloadAll()}
+            disabled={downloading}
+            className="absolute left-0 top-[10px] flex h-[30px] w-[189.6px] items-center rounded-[5px] bg-[#4f71dc] pl-[12px] text-[13px] font-semibold text-white disabled:opacity-50"
           >
-            {REORDER_UNITS.map((unit) => (
-              <option key={unit.id} value={unit.id}>
-                {t(unit.label)}
-              </option>
-            ))}
-          </select>
-          <svg viewBox="0 0 10 5" className="pointer-events-none absolute right-[10px] top-[21px] h-[5px] w-[10px] fill-[#757575]" aria-hidden><path d="M0 0h10L5 5z" /></svg>
-        </label>
-        <button
-          type="button"
-          onClick={() => void downloadAll()}
-          disabled={downloading}
-          className="absolute left-[1068.4px] top-[10px] flex h-[30px] w-[189.6px] items-center rounded-[5px] bg-[#4f71dc] pl-[12px] text-[13px] font-semibold text-white disabled:opacity-50"
-        >
-          {downloading ? <Loader2 className="mr-2 h-[18px] w-[18px] animate-spin" /> : <svg viewBox="0 0 24 24" className="mr-2 h-[18px] w-[18px] fill-white"><path d={RI.download} /></svg>}
-          {t("Скачать все")}
-        </button>
+            {downloading ? <Loader2 className="mr-2 h-[18px] w-[18px] animate-spin" /> : <svg viewBox="0 0 24 24" className="mr-2 h-[18px] w-[18px] fill-white"><path d={RI.download} /></svg>}
+            {t("Скачать все")}
+          </button>
+        </div>
       </section>
       {downloadError && (
         <p className="px-4 pb-2 text-sm text-[#e57373] sm:px-6 md:px-9">
