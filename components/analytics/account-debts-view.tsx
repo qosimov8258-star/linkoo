@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState, type FormEvent } from "react"
 import { useSearchParams } from "next/navigation"
-import { CheckCircle2, CreditCard, Info, List, Search, X } from "lucide-react"
+import { CheckCircle2, CreditCard, Info, List, X } from "lucide-react"
 
 import {
   AccountDebtFilterDialog,
@@ -293,10 +293,12 @@ export function AccountDebtsView() {
       }
     : {
         label: "Клиент",
+        raw: true,
+        width: 220,
         sortKey: "name",
         render: (row: BalanceRow) => (
           <div className="min-w-0">
-            <button type="button" onClick={() => openAct(row)} className="text-left font-medium text-[#4f70e7] hover:underline">
+            <button type="button" onClick={() => openAct(row)} className="text-left text-[#333] hover:text-[#4f71dc]">
               {row.name || "No"}
             </button>
             {(row.info.inn || Number(row.info.clients) > 1) && (
@@ -351,7 +353,7 @@ export function AccountDebtsView() {
         </div>
       </header>
 
-      <section className="flex flex-wrap items-center gap-4 px-[30px] pb-[20px] pt-[21px]">
+      <section className="flex flex-wrap items-center gap-4 px-[30px] pb-[10px] pt-[21px]">
         <BalanceFilterButton count={filterCount} from={from} to={to} scope={scope} onOpen={() => setFilterOpen(true)} extra={realizedBadge} />
         <div className="ml-auto flex flex-wrap items-center gap-3">
           {!byType && (
@@ -376,8 +378,8 @@ export function AccountDebtsView() {
       <BalanceSummaryCards compact boxes={SUMMARY_BOXES} totals={data?.totals ?? {}} currencies={currencies} loading={loading} />
 
       <ExpandedOverlay expanded={expanded}>
-        <section className="flex flex-wrap items-center gap-x-6 gap-y-3 border-t border-[#e1e5eb] px-6 py-4 md:px-9">
-          <div className="flex overflow-hidden rounded-sm">
+        <section className="flex flex-wrap items-center gap-x-6 gap-y-3 border-t border-[#efefef] px-[30px] pb-[4px] pt-[10px]">
+          <div className="hidden overflow-hidden rounded-sm">
             {(["marketExpanded", "marketType"] as const).map((value) => (
               <button
                 key={value}
@@ -407,14 +409,13 @@ export function AccountDebtsView() {
             </div>
           )}
 
-          <form onSubmit={submitSearch} className="flex min-w-[220px] flex-1 items-center gap-2 border-b border-[#dbe0e8] pb-1">
-            <Search className="h-4 w-4 text-[#9aa3b6]" />
+          <form onSubmit={submitSearch} className="flex w-[256px] items-center gap-2 border-b border-[#e0e0e0] pb-1">
             <input
               value={searchDraft}
               onChange={(event) => setSearchDraft(event.target.value)}
               placeholder={t(byType ? "Тип клиента" : "Клиент")}
               aria-label={t(byType ? "Тип клиента" : "Клиент")}
-              className="h-8 flex-1 bg-transparent text-[15px] outline-none placeholder:text-[#586174]"
+              className="h-8 flex-1 bg-transparent pt-[6px] text-[13px] outline-none placeholder:font-semibold placeholder:text-black"
             />
             {(searchDraft || search) && (
               <button
@@ -431,14 +432,14 @@ export function AccountDebtsView() {
             )}
           </form>
 
-          {byType ? (
+          <div className="ml-auto flex items-center gap-5">{byType ? (
             <span className="whitespace-nowrap text-[#586174]">
               {rows.length ? 1 : 0} - {rows.length} {t("из")} {rows.length}
             </span>
           ) : (
             <BalancePagination page={page} pageSize={pageSize} count={data?.count ?? 0} onChange={(next) => setState((current) => ({ ...current, ...next }))} />
           )}
-          <ExpandedViewButton expanded={expanded} onToggle={() => setExpanded((value) => !value)} />
+          <ExpandedViewButton expanded={expanded} onToggle={() => setExpanded((value) => !value)} /></div>
         </section>
 
         {error && (
@@ -454,7 +455,9 @@ export function AccountDebtsView() {
 
         <div className="pb-10">
           <BalanceTable
-              inset
+              fixedWidth={100}
+              rowPad={8}
+              selectionAfterFirst
             rows={rows}
             groups={GROUPS}
             currencies={currencies.length ? currencies : ["SUM"]}
