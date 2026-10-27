@@ -239,7 +239,7 @@ export function SubscriptionsView() {
     <main className="min-h-[calc(100vh-50px)] bg-[#f2f5f8] px-[28px] pb-[28px] pt-[10px] text-[13px] text-[#333]">
       <div className="flex items-start gap-[20px]">
         <div className="min-w-0 flex-1 shadow-[0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]">
-          <div className="flex h-[60px] items-center justify-between bg-[#f0f3f7] pl-[10px] pr-[18px]">
+          <div className="flex h-[62px] items-center justify-between bg-[#f0f3f7] pl-[10px] pr-[18px]">
             <span className="text-[15px] font-bold">{hasSelection && <>{t("Итого за месяц")}: <span className="text-[#71ce87]">{money(monthTotal)}</span></>}</span>
             <div className="flex items-center gap-[16px]">
               {hint && !hasSelection && <span className="flex h-[30px] items-center rounded-[3px] bg-[#4a4a4a] px-[20px] text-[13px] font-semibold text-white">{t("Выберите пользователя")}</span>}
@@ -326,7 +326,7 @@ export function SubscriptionsView() {
                     <svg viewBox="0 0 24 24" className="h-6 w-6 fill-white"><path d={SELECT_ALL} /></svg>
                   </button>
                 )}
-                №. {t("Сотрудник")}
+                №. <span data-no-translate>Сотрудник</span>
               </span>
               <span>{t("Права доступа")}</span>
               <span className="pr-2">{t("Тип подписки")}</span>
