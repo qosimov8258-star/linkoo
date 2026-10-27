@@ -1413,6 +1413,7 @@ export const tk: Record<string, string> = {
   "Нет связанных товаров": "Baglanyşykly haryt ýok",
   "Обнуление предыдущих уровней": "Öňki derejeleri nola düşürmek",
   "Обнулить предыдущие уровни": "Öňki derejeleri nola düşür",
+  "во всех кпэ": "ähli KPI-larda",
   "Общий объем": "Umumy möçber",
   "Общий объем во всех KPI": "Ähli KPI-lerdäki umumy möçber",
   "От": "Başlap",

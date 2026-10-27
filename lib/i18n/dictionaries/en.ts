@@ -1413,6 +1413,7 @@ export const en: Record<string, string> = {
   "Нет связанных товаров": "There are no connected products",
   "Обнуление предыдущих уровней": "Reset previous levels",
   "Обнулить предыдущие уровни": "Reset previous levels",
+  "во всех кпэ": "in all KPIs",
   "Общий объем": "Overall volume",
   "Общий объем во всех KPI": "Total volume across all KPIs",
   "От": "From",

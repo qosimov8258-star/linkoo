@@ -1402,6 +1402,7 @@ export const uz: Record<string, string> = {
   "Нет связанных товаров": "Bog'langan mahsulot yo'q",
   "Обнуление предыдущих уровней": "Oldingi darajalarni nolga tushirish",
   "Обнулить предыдущие уровни": "Oldingi darajalarni nolga tushirish",
+  "во всех кпэ": "barcha KPIlarda",
   "Общий объем": "Umumiy hajmi",
   "Общий объем во всех KPI": "Barcha KPI'lar bo'yicha umumiy hajm",
   "От": "Dan",
