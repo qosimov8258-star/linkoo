@@ -174,7 +174,7 @@ export function SurveyPlanView() {
     <RefPage>
       <RefHeader title="План опроса">
         <input ref={fileInputRef} type="file" accept=".csv,.xls,.xlsx,text/csv" onChange={handleImport} className="hidden" />
-        <button type="button" onClick={() => fileInputRef.current?.click()} className="flex h-[30px] items-center gap-2 rounded-[5px] bg-[#4f71dc] px-4 text-[13px] font-semibold text-white hover:brightness-95">
+        <button type="button" onClick={() => fileInputRef.current?.click()} className="mr-[15px] flex h-[30px] items-center gap-2 rounded-[5px] bg-[#4f71dc] px-4 text-[13px] font-semibold text-white hover:brightness-95">
           <RefreshCw className="h-4 w-4" />
           Установить с EXCEL
         </button>
@@ -184,7 +184,7 @@ export function SurveyPlanView() {
         <RefToolbar
           hideFilter
           leftSlot={
-            <div className="flex items-end gap-[8px] pl-[5px] pt-[10px] text-[13px]">
+            <div className="flex items-end gap-[8px] pt-[10px] text-[13px]">
               <label className="w-[192px] text-[10px] font-bold text-black">
                 Месяц
                 <div className="mt-[2px] flex items-center justify-between border-b border-[#d5dae1] pb-[2px] pr-[2px]">
@@ -230,7 +230,7 @@ export function SurveyPlanView() {
                 <Pencil className="h-4 w-4" />
                 Изменить планы
               </button>
-              <div className="relative mr-[12px]">
+              <div className="relative ml-[16px] mr-[10px]">
                 <button type="button" onClick={() => setCopyOpen((value) => !value)} aria-label="Дублировать" className="flex h-[30px] w-[30px] items-center justify-center text-[#5d6474]">
                   <Copy className="h-6 w-6" />
                 </button>
