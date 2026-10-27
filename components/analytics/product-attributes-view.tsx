@@ -67,7 +67,7 @@ export function ProductAttributesView() {
   return (
     <div className="min-w-0 flex-1 px-[30px] text-[13px] text-[#333]">
       <CatalogHeader addLabel={t("добавить атрибуты")} onAdd={() => open()} from={items.length ? 1 : 0} to={items.length} total={items.length} />
-      <div className={`grid grid-cols-[307px_410px_1fr] ${dottedRow} h-[49px] items-center pt-[3px] font-bold`}>
+      <div className={`grid grid-cols-[307px_410px_1fr] ${dottedRow} h-[52px] items-center pt-[2px] font-bold`}>
         <span>{t("Название атрибута")}</span><span>{t("Типы продуктов")}</span><span>{t("Тип поля")}</span>
       </div>
       {items.map((item) => (
