@@ -151,6 +151,7 @@ export function DictionaryToolbar({
   bare = false,
   hidePagination = false,
   plus = "thin",
+  hideTotal = false,
 }: {
   addLabel: string | null
   onAdd: () => void
@@ -163,6 +164,8 @@ export function DictionaryToolbar({
   hidePagination?: boolean
   /** "thin" = 14 px "+" next to a lower-case link, "icon" = 24 px "+" next to a capitalised one. */
   plus?: "thin" | "icon"
+  /** The reference prints "1 - 25 из" without the total on some lists (units of measure). */
+  hideTotal?: boolean
 }) {
   const { t } = useLanguage()
   const [draft, setDraft] = useState(state.search)
@@ -211,7 +214,7 @@ export function DictionaryToolbar({
                 </select>
                 <svg viewBox="0 0 24 24" className="pointer-events-none absolute right-0 top-3 h-6 w-6 fill-black/30"><path d="M7 10l5 5 5-5z" /></svg>
               </div>
-              <span className="mr-[5px] whitespace-nowrap">{from} - {to} {t("из")} {count}</span>
+              <span className="mr-[5px] whitespace-nowrap">{from} - {to} {t("из")}{hideTotal ? "" : ` ${count}`}</span>
               <button type="button" disabled={state.page <= 1} onClick={() => go(state.page - 1)} aria-label={t("Назад")} className="px-[5px]">
                 <svg viewBox="0 0 24 24" className={`h-6 w-6 ${state.page <= 1 ? "fill-black/30" : "fill-black/55"}`}><path d={DICT_ARROW_PREV} /></svg>
               </button>

@@ -75,7 +75,7 @@ function UnitsGrid() {
 
   return (
     <DictionaryPage>
-      <DictionaryToolbar addLabel={canEdit ? t("добавить измерение") : null} onAdd={() => setDialog({ kind: "create" })} state={state} update={update} count={data?.count ?? 0} />
+      <DictionaryToolbar addLabel={canEdit ? t("добавить измерение") : null} onAdd={() => setDialog({ kind: "create" })} state={state} update={update} count={data?.count ?? 0} hideTotal />
 
       <div className="overflow-x-auto">
         <div className="min-w-[560px]">
