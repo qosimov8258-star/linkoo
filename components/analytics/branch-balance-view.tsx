@@ -296,15 +296,15 @@ export function BranchBalanceView() {
         </div>
       )}
 
-      <div className="pt-6">
+      <div className="pt-[11px]">
         <BalanceSummaryCards compact marginClass="mx-[10px]" boxes={SUMMARY_BOXES} totals={totals} currencies={currencies} digits={3} loading={loading} />
       </div>
 
       <ExpandedOverlay expanded={expanded}>
-        <section className="flex flex-wrap items-center gap-5 border-t border-[#efefef] px-[10px] py-[10px]">
+        <section className="relative flex flex-wrap items-center gap-5 border-t border-[#efefef] px-[10px] pb-[8px] pt-[15px]">
           <BalanceFilterChip count={filterCount} onOpen={openFilter} onClear={clearFilter} />
 
-          <label className="relative mx-auto w-[180px] border-b border-[#dbe0e8] pb-1.5">
+          <label style={{ left: "calc(50% - 90px)" }} className="absolute w-[180px] border-b border-[#e0e0e0] pb-1.5">
             <input
               value={searchInput}
               onChange={(event) => setSearchInput(event.target.value)}
@@ -315,8 +315,10 @@ export function BranchBalanceView() {
           </label>
 
 
-          <BalancePagination page={paging.page} pageSize={paging.pageSize} count={count} onChange={setPaging} />
-          <ExpandedViewButton expanded={expanded} onToggle={() => setExpanded((value) => !value)} />
+          <div className="ml-auto flex items-center gap-5">
+            <BalancePagination page={paging.page} pageSize={paging.pageSize} count={count} onChange={setPaging} />
+            <ExpandedViewButton expanded={expanded} onToggle={() => setExpanded((value) => !value)} />
+          </div>
           {exportError && <span className="basis-full text-sm text-[#e57373]">{exportError}</span>}
         </section>
 
@@ -337,11 +339,11 @@ export function BranchBalanceView() {
                     {row.name}
                   </button>
                   {row.id !== null && (
-                    <span className="flex shrink-0 items-center gap-1">
-                      <button type="button" onClick={() => setCreate({ kind: "expense", branchId: row.id! })} aria-label={t("Добавить расход")} title={t("Добавить расход")}>
+                    <span className="-my-[6px] flex shrink-0 items-center pr-px">
+                      <button type="button" className="flex h-9 w-9 items-center justify-center" onClick={() => setCreate({ kind: "expense", branchId: row.id! })} aria-label={t("Добавить расход")} title={t("Добавить расход")}>
                         <MinusCircle className="h-6 w-6" fill="#ff584b" color="#ffffff" />
                       </button>
-                      <button type="button" onClick={() => setCreate({ kind: "add", branchId: row.id! })} aria-label={t("Добавить")} title={t("Добавить")}>
+                      <button type="button" className="flex h-9 w-9 items-center justify-center" onClick={() => setCreate({ kind: "add", branchId: row.id! })} aria-label={t("Добавить")} title={t("Добавить")}>
                         <PlusCircle className="h-6 w-6" fill="#8dc572" color="#ffffff" />
                       </button>
                     </span>

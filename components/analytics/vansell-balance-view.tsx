@@ -237,24 +237,24 @@ export function VansellBalanceView() {
         {row.name || t("Не указано")}
       </button>
       {canEdit && row.id !== null && (
-        <span className="flex shrink-0 items-center gap-1.5">
+        <span className="-my-[6px] flex shrink-0 items-center pr-px">
           <button
             type="button"
             title={t("Добавить расход")}
             aria-label={t("Добавить расход")}
             onClick={() => setMovement({ kind: "expense", employeeId: row.id! })}
-            className="flex h-6 w-6 items-center justify-center rounded-full bg-[#ff584b] text-white hover:opacity-85"
+            className="flex h-9 w-9 items-center justify-center hover:opacity-85"
           >
-            <Minus className="h-4 w-4" />
+            <span className="flex h-6 w-6 items-center justify-center rounded-full bg-[#ff584b] text-white"><Minus className="h-4 w-4" /></span>
           </button>
           <button
             type="button"
             title={t("Добавить")}
             aria-label={t("Добавить")}
             onClick={() => setMovement({ kind: "add", employeeId: row.id! })}
-            className="flex h-6 w-6 items-center justify-center rounded-full bg-[#8dc572] text-white hover:opacity-85"
+            className="flex h-9 w-9 items-center justify-center hover:opacity-85"
           >
-            <Plus className="h-4 w-4" />
+            <span className="flex h-6 w-6 items-center justify-center rounded-full bg-[#8dc572] text-white"><Plus className="h-4 w-4" /></span>
           </button>
         </span>
       )}
