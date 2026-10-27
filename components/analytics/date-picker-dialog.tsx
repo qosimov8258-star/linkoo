@@ -19,7 +19,7 @@ function parse(value: string) {
 }
 
 /** Calendar dialog of the reference's date fields (blue header with the chosen date, ОТМЕНА / OK). Values are "YYYY-MM-DD". */
-export function DatePickerDialog({ value, onCancel, onPick }: { value: string; onCancel: () => void; onPick: (value: string) => void }) {
+export function DatePickerDialog({ value, onCancel, onPick, anchor }: { value: string; onCancel: () => void; onPick: (value: string) => void; /** Opens as a popover at this point (the form date fields) instead of a dimmed centered dialog. */ anchor?: { left: number; top: number } }) {
   const { t } = useLanguage()
   const initial = parse(value)
   const [selected, setSelected] = useState(iso(initial.year, initial.month, initial.day))
@@ -37,9 +37,13 @@ export function DatePickerDialog({ value, onCancel, onPick }: { value: string; o
   }
 
   return createPortal(
-    <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50">
-      <div className="flex h-[434px] w-[310px] flex-col bg-white text-[#333] shadow-xl">
-        <div className="h-[104px] bg-[#4f71dc] px-[20px] pt-[17px] text-white">
+    <div className={anchor ? "fixed inset-0 z-[1400]" : "fixed inset-0 z-[200] flex items-center justify-center bg-black/50"} onMouseDown={anchor ? onCancel : undefined}>
+      <div
+        onMouseDown={(event) => event.stopPropagation()}
+        style={anchor ? { position: "absolute", left: Math.max(8, Math.min(anchor.left, window.innerWidth - 318)), top: Math.max(8, Math.min(anchor.top, window.innerHeight - 442)) } : undefined}
+        className={`flex h-[434px] w-[310px] flex-col bg-white text-[#333] ${anchor ? "rounded-[2px] [box-shadow:0_2px_10px_rgba(0,0,0,0.2)]" : "shadow-xl"}`}
+      >
+        <div data-no-translate className="h-[104px] bg-[#4f71dc] px-[20px] pt-[17px] text-white">
           <div className="text-[16px] opacity-80">{chosen.year}</div>
           <div className="mt-[2px] text-[36px] leading-[44px]">{heading}</div>
         </div>
@@ -47,12 +51,12 @@ export function DatePickerDialog({ value, onCancel, onPick }: { value: string; o
           <button type="button" onClick={() => shift(-1)} aria-label={t("Назад")} className="flex h-[24px] w-[24px] items-center justify-center text-[#555]">
             <svg viewBox="0 0 24 24" className="h-6 w-6 fill-current"><path d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z" /></svg>
           </button>
-          <span className="text-[14px]">{MONTHS[view.month]} {view.year} г.</span>
+          <span data-no-translate className="text-[14px]">{MONTHS[view.month]} {view.year} г.</span>
           <button type="button" onClick={() => shift(1)} aria-label={t("Вперед")} className="flex h-[24px] w-[24px] items-center justify-center text-[#555]">
             <svg viewBox="0 0 24 24" className="h-6 w-6 fill-current"><path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z" /></svg>
           </button>
         </div>
-        <div className="grid grid-cols-7 px-[7px] pt-[6px] text-center text-[12px] text-[#9e9e9e]">
+        <div data-no-translate className="-mt-[2px] grid grid-cols-7 px-[7px] text-center text-[12px] text-[#9e9e9e]">
           {WEEKDAYS.map((day) => <span key={day} className="h-[26px] leading-[26px]">{day}</span>)}
         </div>
         <div className="grid grid-cols-7 px-[7px] text-center text-[13px]">

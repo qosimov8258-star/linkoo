@@ -2,6 +2,7 @@
 
 import { useState, type FormEvent, type ReactNode } from "react"
 
+import { DatePickerDialog } from "@/components/analytics/date-picker-dialog"
 import { useLanguage } from "@/lib/i18n/language-context"
 
 /**
@@ -192,6 +193,7 @@ export function SelectField({
 export function DateField({ top, left, width, label, required, value, onChange, primary }: { top: number; left: number; width: number; label: string; required?: boolean; value: string; onChange: (value: string) => void; primary?: boolean }) {
   const iso = ruDateToIso(value)
   const shown = iso ? `${isoToRuDate(iso)} г.` : value
+  const [open, setOpen] = useState(false)
   return (
     <Slot top={top} left={left} width={width}>
       {primary ? (
@@ -215,8 +217,15 @@ export function DateField({ top, left, width, label, required, value, onChange, 
       <svg viewBox="0 0 24 24" style={{ top: top - 25 }} className="pointer-events-none absolute right-0 h-5 w-5" aria-hidden>
         <path d={CALENDAR} fill="#ccc" />
       </svg>
-      <input type="date" value={iso} onChange={(event) => onChange(event.target.value ? isoToRuDate(event.target.value) : "")} style={{ top: top - 40, height: 40 }} className="pointer-events-auto absolute left-0 w-full cursor-pointer opacity-0" />
+      <button
+        type="button"
+        aria-label={label}
+        onClick={() => setOpen(true)}
+        style={{ top: top - 40, height: 40 }}
+        className="pointer-events-auto absolute left-0 w-full cursor-pointer opacity-0"
+      />
       <span style={{ top }} className={LINE} />
+      {open && <DatePickerDialog value={iso} onCancel={() => setOpen(false)} onPick={(next) => { onChange(isoToRuDate(next)); setOpen(false) }} />}
     </Slot>
   )
 }

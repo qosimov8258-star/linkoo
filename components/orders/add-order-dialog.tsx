@@ -4,6 +4,7 @@ import { Calendar, Check, Loader2, X } from "lucide-react"
 import { ChangeEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 
+import { DatePickerDialog } from "@/components/analytics/date-picker-dialog"
 import { readExcelRows } from "@/lib/excel-import"
 import { useLanguage } from "@/lib/i18n/language-context"
 
@@ -768,16 +769,24 @@ export function SelectField({
 }
 
 export function DateField({ label, required, value, onChange, first }: { label: string; required?: boolean; value: string; onChange: (value: string) => void; first?: boolean }) {
+  const [anchor, setAnchor] = useState<{ left: number; top: number } | null>(null)
   return (
-    <div className={first ? "mt-0" : "mt-[8px]"}>
+    <div className={`pb-[12px] ${first ? "mt-0" : "mt-[8px]"}`}>
       <span className="block h-[13px] text-[9.75px] font-semibold leading-[12.2px] text-black">
         {label}{required && <span className="text-[13px] font-normal text-red-500"> *</span>}
       </span>
-      <label className="relative flex h-[39.5px] cursor-pointer items-end border-b border-[#e0e0e0] pb-[3px] text-[13px] text-[#333]">
-        <span>{formatDate(value)}</span>
-        <Calendar className="absolute right-[3px] top-[10px] h-4 w-4 text-[#ccc]" />
-        <input type="date" value={value} onChange={(event) => onChange(event.target.value)} className="absolute inset-0 h-full w-full cursor-pointer opacity-0" />
-      </label>
+      <button
+        type="button"
+        onClick={(event) => {
+          const rect = event.currentTarget.getBoundingClientRect()
+          setAnchor({ left: rect.left, top: rect.bottom + 9 })
+        }}
+        className="relative flex h-[27.5px] w-full cursor-pointer items-end border-b border-[#e0e0e0] text-left text-[13px] leading-[19.5px] text-[#333]"
+      >
+        <span data-no-translate>{formatDate(value)}</span>
+        <Calendar className="absolute right-[3px] top-[4px] h-4 w-4 text-[#ccc]" />
+      </button>
+      {anchor && <DatePickerDialog anchor={anchor} value={value} onCancel={() => setAnchor(null)} onPick={(next) => { onChange(next); setAnchor(null) }} />}
     </div>
   )
 }
