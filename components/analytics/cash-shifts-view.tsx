@@ -23,8 +23,9 @@ export function CashShiftsView() {
       <RefCard className="bg-white">
         <RefToolbar hideFilter query={query} onQuery={setQuery} pageSize={pageSize} onPageSize={setPageSize} from={1} to={0} total={0} page={1} pageCount={1} onPage={() => {}} />
         <ListBTable
-          cols="123px 231px 115px 116px 115px 115px 116px 115px 115px 1fr"
+          cols="1.076fr 2fr 1fr 1fr 1fr 1fr 1fr 1fr 1fr 2.22fr"
           minWidth={1200}
+          insetRight={0}
           cellPad={0}
           heads={COLUMNS.map((label) => t(label))}
           rows={[] as string[]}

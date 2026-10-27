@@ -19,6 +19,7 @@ export function ListBTable<T>({
   empty,
   minWidth = 1100,
   inset = 30,
+  insetRight,
   cellPad = 8,
   expanded,
   rowMinHeight = 50,
@@ -35,6 +36,8 @@ export function ListBTable<T>({
   empty?: ReactNode
   minWidth?: number
   inset?: number
+  /** Right inset when it differs from `inset` (a few reference grids run to the card edge). */
+  insetRight?: number
   cellPad?: number
   expanded?: (row: T) => ReactNode
   rowMinHeight?: number
@@ -43,7 +46,7 @@ export function ListBTable<T>({
   /** Column template of the header bar when it differs from the rows' (the reference's checkbox mode). */
   headCols?: string
 }) {
-  const pad = { paddingLeft: inset, paddingRight: inset }
+  const pad = { paddingLeft: inset, paddingRight: insetRight ?? inset }
   const cell = { paddingLeft: cellPad, paddingRight: cellPad }
   return (
     <div className={expanded ? "bg-white" : "overflow-x-auto bg-white"}>
