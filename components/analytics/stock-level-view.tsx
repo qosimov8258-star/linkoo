@@ -221,7 +221,7 @@ export function StockLevelView() {
               </span>
             </label>
           )}
-          <label className="absolute left-[546.2px] top-[22px] block h-[36px] w-[245.7px] border-b border-[#e0e0e0]">
+          <label style={{ left: "calc(546.2px + (100% - 1236px) * 0.603)" }} className="absolute top-[22px] block h-[36px] w-[245.7px] border-b border-[#e0e0e0]">
             <input
               value={searchDraft}
               onChange={(event) => setSearchDraft(event.target.value)}
@@ -234,7 +234,7 @@ export function StockLevelView() {
             />
             <Search className="pointer-events-none absolute left-[calc(100%+0px)] top-[8px] h-[22px] w-[22px] -translate-x-[3px] text-[#5d6474]" />
           </label>
-          <label className="absolute left-[818px] top-[5px] block w-[200px] text-[10px] font-semibold leading-[12.2px] text-black" title={t("Покаазать в сгруппированном виде (блоки, коробки и тд.)")}>
+          <label style={{ left: "calc(818px + (100% - 1236px))" }} className="absolute top-[5px] block w-[200px] text-[10px] font-semibold leading-[12.2px] text-black" title={t("Покаазать в сгруппированном виде (блоки, коробки и тд.)")}>
             {t("Показать")}
             <span className="relative mt-[6px] flex h-[36px] items-center border-b border-[#e8e8e8]">
               <select value={state.unit} onChange={(event) => update({ unit: event.target.value as StockLevelUnit })} className="h-full w-full appearance-none bg-transparent pt-[8px] text-[13px] font-semibold text-[#333] outline-none">
