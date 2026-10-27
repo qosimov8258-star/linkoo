@@ -156,7 +156,7 @@ export function StockLevelView() {
   const to = Math.min(currentPage * state.pageSize, data?.count ?? 0)
   return (
     <RefPage>
-      <RefHeader title={t("Остаток")} />
+      <div className="pl-[2px]"><RefHeader title={t("Остаток")} /></div>
       <div className="-mx-7 -mb-7 min-h-[calc(100vh-111px)] border-t border-[#e8eaee] bg-white px-[30px] pb-[30px] pt-[20px]">
         <section className="flex h-[34px] items-center justify-between">
           <StockFilterButton filters={state.filters} onOpen={() => setFilterOpen(true)} />

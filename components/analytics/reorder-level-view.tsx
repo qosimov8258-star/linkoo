@@ -18,7 +18,6 @@ import {
 import { ReorderLevelTable } from "@/components/analytics/reorder-level-table"
 import { useStockOptions, useUrlState } from "@/components/analytics/stock-move-filters"
 import { RI, RefHeader } from "@/components/ref/list-kit"
-import { formatDotDate } from "@/lib/finance/dates"
 import { useLanguage } from "@/lib/i18n/language-context"
 import type { RecommendedListResult, RecommendedUnit } from "@/lib/stock-recommended"
 
@@ -37,8 +36,14 @@ export function ReorderLevelView() {
   )
 }
 
+const PERIOD_MONTHS = {
+  ru: ["янв.", "февр.", "мар.", "апр.", "мая", "июня", "июля", "авг.", "сент.", "окт.", "нояб.", "дек."],
+  uz: ["Yan", "Fev", "Mar", "Apr", "May", "Iyn", "Iyl", "Avg", "Sen", "Okt", "Noy", "Dek"],
+  en: ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"],
+} as const
+
 function ReorderLevelContent() {
-  const { t } = useLanguage()
+  const { t, language } = useLanguage()
   const { searchParams, update } = useUrlState()
   const state = reorderStateFromParams(searchParams)
   const list = useCashJson<RecommendedListResult>(`/api/stock/recommended?${reorderApiQuery(state, { page: state.page, pageSize: state.pageSize })}`)
@@ -97,35 +102,45 @@ function ReorderLevelContent() {
   const sales = data?.sales
   const noWarehouseSales = Boolean(sales && sales.orderMovements === 0)
 
+  const periodWord = (iso: string) => {
+    const [y, m, d] = iso.split("-")
+    const months = PERIOD_MONTHS[language === "ru" || language === "uz" ? language : "en"]
+    return `${d} ${months[Number(m) - 1]} ${y}`
+  }
+
   return (
     <main className="min-h-screen bg-[#f2f5f8] font-sans text-[13px] text-[#333]">
-      <div className="px-7">
+      <div className="pl-[30px] pr-7">
         <RefHeader title={t("Рекомендованный запас")} />
       </div>
 
-      <section className="flex flex-wrap items-center gap-x-5 gap-y-2 bg-white px-[20px] py-[14px]">
-        <BalanceFilterChip count={filterCount} onOpen={openFilter} onClear={clearFilter} />
-        <form onSubmit={submitSearch} className="relative ml-[40px] w-[300px] border-b border-[#e0e0e0] pb-1.5 focus-within:border-[#5d6474]">
+      <div className="border-t border-[#e8eaee] bg-white pb-[20px]">
+      <section className="relative h-[50px]">
+        <div className="absolute left-[30px] top-[17px]">
+          <BalanceFilterChip count={filterCount} onOpen={openFilter} onClear={clearFilter} />
+        </div>
+        <form onSubmit={submitSearch} className="absolute left-[299.7px] top-0 h-[41px] w-[182px] border-b border-[#e0e0e0] focus-within:border-[#5d6474]">
           <input
             value={searchDraft}
             onChange={(event) => setSearchDraft(event.target.value)}
             placeholder={t("Поиск")}
             aria-label={t("Поиск")}
-            className="w-full bg-transparent pr-8 text-[13px] outline-none placeholder:text-black/30"
+            className="h-[40px] w-[147px] bg-transparent pt-[10px] text-[13px] outline-none placeholder:text-black/30"
           />
-          <button type="submit" aria-label={t("Поиск")} className="absolute right-0 top-0 text-[#ccc] hover:text-[#4f70e7]">
-            <Search className="h-5 w-5" />
+          <button type="submit" aria-label={t("Поиск")} className="absolute left-[156px] top-[13px] text-[#ccc] hover:text-[#4f70e7]">
+            <Search className="h-6 w-6" />
           </button>
         </form>
-        <button type="button" onClick={openFilter} className="text-[13px] font-bold text-[#4f71dc]" title={t("Диапазон дат")}>
-          {formatDotDate(state.from)} - {formatDotDate(state.to)}
+        <button type="button" onClick={openFilter} className="absolute left-[648px] top-[25px] w-[200px] text-right text-[13px] font-bold text-[#4f71dc]" title={t("Диапазон дат")} data-no-translate>
+          {periodWord(state.from)} - {periodWord(state.to)}
         </button>
-        <label className="flex items-center gap-2 text-[#333]">
-          <span className="text-[13px] font-semibold">{t("Показать по типу ед.")}</span>
+        <label className="absolute left-[858px] top-[9.5px] block h-[36px] w-[200px] border-b border-[#e8e8e8]">
+          <span className="pointer-events-none absolute left-0 top-[12px] text-[13px] font-semibold leading-[16.3px] text-black">{t("Показать по типу ед.")}{state.unit !== "measurement" ? `: ${t(REORDER_UNITS.find((unit) => unit.id === state.unit)?.label ?? "")}` : ""}</span>
           <select
             value={state.unit}
             onChange={(event) => update({ selectType: event.target.value === "measurement" ? null : event.target.value, page: null })}
-            className="h-8 border-b border-[#e0e0e0] bg-transparent px-1 text-[13px] text-[#333] outline-none"
+            aria-label={t("Показать по типу ед.")}
+            className="absolute inset-0 h-full w-full cursor-pointer appearance-none opacity-0"
           >
             {REORDER_UNITS.map((unit) => (
               <option key={unit.id} value={unit.id}>
@@ -133,12 +148,13 @@ function ReorderLevelContent() {
               </option>
             ))}
           </select>
+          <svg viewBox="0 0 10 5" className="pointer-events-none absolute right-[10px] top-[21px] h-[5px] w-[10px] fill-[#757575]" aria-hidden><path d="M0 0h10L5 5z" /></svg>
         </label>
         <button
           type="button"
           onClick={() => void downloadAll()}
           disabled={downloading}
-          className="ml-auto flex h-[34px] items-center rounded-[3px] bg-[#4f71dc] pl-3 pr-4 text-[13px] font-semibold text-white disabled:opacity-50"
+          className="absolute left-[1068.4px] top-[10px] flex h-[30px] w-[189.6px] items-center rounded-[5px] bg-[#4f71dc] pl-[12px] text-[13px] font-semibold text-white disabled:opacity-50"
         >
           {downloading ? <Loader2 className="mr-2 h-[18px] w-[18px] animate-spin" /> : <svg viewBox="0 0 24 24" className="mr-2 h-[18px] w-[18px] fill-white"><path d={RI.download} /></svg>}
           {t("Скачать все")}
@@ -203,10 +219,9 @@ function ReorderLevelContent() {
         </div>
       )}
       {data && !list.error && rows.length > 0 && (
-        <section className="border-t border-[#e1e5eb] pb-10">
-          <ReorderLevelTable rows={rows} ordering={state.ordering} onOrderingChange={(next) => update({ ordering: next || null, page: null })} loading={list.loading} />
-        </section>
+        <ReorderLevelTable rows={rows} ordering={state.ordering} unit={state.unit} onOrderingChange={(next) => update({ ordering: next || null, page: null })} loading={list.loading} />
       )}
+      </div>
 
       <ReorderFilterDialog open={filterOpen} onClose={() => setFilterOpen(false)} state={state} options={options} optionsError={optionsError} onApply={applyFilter} />
     </main>
