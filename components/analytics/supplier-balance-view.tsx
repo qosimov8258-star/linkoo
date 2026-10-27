@@ -280,12 +280,13 @@ export function SupplierBalanceView() {
     return nameCell(
       row,
       editable && (
-        <>
+        <span className="-my-[6px] flex">
           <button
             type="button"
             title={t("Добавить расход поставщику")}
             aria-label={t("Добавить расход поставщику")}
             onClick={stop(() => update({ openCreateDialog: "true", provider: row.id }))}
+            className="flex h-9 w-9 items-center justify-center"
           >
             <CircleMinus className="h-6 w-6 fill-[#ff584b] text-white" />
           </button>
@@ -294,10 +295,11 @@ export function SupplierBalanceView() {
             title={t("Добавить приход поставщику")}
             aria-label={t("Добавить приход поставщику")}
             onClick={stop(() => update({ openAddDialog: "true", provider: row.id }))}
+            className="flex h-9 w-9 items-center justify-center"
           >
             <CirclePlus className="h-6 w-6 fill-[#8dc572] text-white" />
           </button>
-        </>
+        </span>
       ),
     )
   }
@@ -317,10 +319,9 @@ export function SupplierBalanceView() {
         </div>
       </header>
 
-      <section className="flex flex-wrap items-center gap-4 px-[30px] pt-5">
-        <button type="button" onClick={openFilter} className="flex h-[34px] items-center gap-2 rounded-[3px] bg-[#4f71dc] pl-2 pr-4 text-[13px] font-semibold text-white">
-          <Filter className="h-[18px] w-[18px]" /> {t("Фильтр")}
-          {filterCount > 0 ? ` / ${filterCount}` : ""}
+      <section className="flex flex-wrap items-center gap-4 px-[30px] pb-[10px] pt-5">
+        <button type="button" onClick={openFilter} className="flex h-[34px] items-center rounded-[5px] bg-[#4f71dc] pl-[12.8px] pr-[17px] text-[13px] font-semibold text-white hover:brightness-95">
+          <svg viewBox="0 0 24 24" className="h-[18px] w-[18px] shrink-0 fill-white" aria-hidden><path d="M10 18h4v-2h-4v2zM3 6v2h18V6H3zm3 7h12v-2H6v2z" /></svg><span className="pl-2">{t("Фильтр")}{filterCount > 0 ? ` / ${filterCount}` : ""}</span>
         </button>
         {urlFrom && (
           <span className="text-[13px] font-semibold text-[#4f71dc]">
@@ -338,15 +339,15 @@ export function SupplierBalanceView() {
       <BalanceSummaryCards compact hideCurrency boxes={SUMMARY_BOXES} totals={list.data?.totals ?? {}} currencies={visible} loading={list.loading} />
 
       <ExpandedOverlay expanded={expanded}>
-        <section className="flex flex-wrap items-center gap-3 border-t border-[#efefef] px-[30px] py-[10px]">
-          <div className="flex overflow-hidden rounded-sm">
+        <section className="flex flex-wrap items-center gap-3 border-t border-[#efefef] px-[30px] pb-[8px] pt-[17px]">
+          <div className="flex">
             {TOGGLES.map((item) => (
               <button
                 key={item.id}
                 type="button"
                 onClick={() => item.id !== toggle && update({ toggle: item.id === "balance" ? null : item.id, ordering: null, page: null })}
-                className={`h-[34px] px-4 text-[13px] font-semibold uppercase ${
-                  toggle === item.id ? "bg-[#4f71dc] text-white" : "border border-[#4f71dc] bg-white text-[#4f71dc]"
+                className={`h-8 px-4 text-[13px] uppercase first:rounded-l-[5px] last:rounded-r-[5px] ${
+                  toggle === item.id ? "bg-[#4f71dc] text-white [box-shadow:0_1px_6px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.12)]" : "bg-white text-black [box-shadow:inset_0_0_2px_rgba(0,0,0,0.12)]"
                 }`}
               >
                 {t(item.name)}

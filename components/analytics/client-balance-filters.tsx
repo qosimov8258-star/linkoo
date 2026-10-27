@@ -310,8 +310,8 @@ export function ClientBalanceFilterButton({ state, onOpen }: { state: ClientBala
   const scopeText = scope.length ? scope.join(" ") : realization ? `${t("Реализовано")}${f.deliveryMan ? ` ${t("(По доставщику)")}` : ""}` : t("Во всей организации")
   return (
     <div className="flex flex-wrap items-center gap-[10px]">
-      <button type="button" onClick={onOpen} className="flex h-[34px] items-center gap-2 rounded-[3px] bg-[#4f71dc] pl-2 pr-4 text-[13px] font-semibold text-white">
-        <Filter className="h-[18px] w-[18px]" /> {t("Фильтр")} / {countClientFilters(state)}
+      <button type="button" onClick={onOpen} className="flex h-[34px] items-center rounded-[5px] bg-[#4f71dc] pl-[12.8px] pr-[17px] text-[13px] font-semibold text-white hover:brightness-95">
+        <svg viewBox="0 0 24 24" className="h-[18px] w-[18px] shrink-0 fill-white" aria-hidden><path d="M10 18h4v-2h-4v2zM3 6v2h18V6H3zm3 7h12v-2H6v2z" /></svg><span className="pl-2">{t("Фильтр")} / {countClientFilters(state)}</span>
       </button>
       {!realization && (
         <span className="text-[13px] font-semibold text-[#4f71dc]">
